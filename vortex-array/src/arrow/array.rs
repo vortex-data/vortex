@@ -69,7 +69,7 @@ impl ArrayCanonicalImpl for ArrowArray {
     }
 }
 
-impl ArrayOperationsImpl for ArrowArray {
+impl OperationsVTable<ArrowVTable> for ArrowVTable {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let inner = self.inner.slice(start, stop - start);
         let new_array = Self {

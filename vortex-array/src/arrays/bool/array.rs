@@ -9,7 +9,7 @@ use crate::arrays::{BoolVTable, bool};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::{ArrayVTable, CanonicalVTable, ValidityChild};
+use crate::vtable::{ArrayVTable, CanonicalVTable, ValidityHelper};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -118,7 +118,7 @@ impl FromIterator<Option<bool>> for BoolArray {
     }
 }
 
-impl ValidityChild for BoolArray {
+impl ValidityHelper for BoolArray {
     fn validity(&self) -> &Validity {
         &self.validity
     }

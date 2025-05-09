@@ -3,7 +3,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{MaskKernel, MaskKernelAdapter};
-use crate::vtable::ValidityChild;
+use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for BoolVTable {

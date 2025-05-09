@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{BoolArray, BoolVTable, ConstantArray};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
-use crate::vtable::ValidityChild;
+use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FillNullKernel for BoolVTable {

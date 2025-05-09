@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{VarBinViewArray, varbin_scalar};
 use crate::{Array, ArrayOperationsImpl, ArrayRef};
 
-impl ArrayOperationsImpl for VarBinViewArray {
+impl OperationsVTable<VarBinViewVTable> for VarBinViewVTable {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let views = self.views().slice(start..stop);
 

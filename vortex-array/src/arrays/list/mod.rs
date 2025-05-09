@@ -178,7 +178,7 @@ impl ArrayStatisticsImpl for ListArray {
     }
 }
 
-impl ArrayOperationsImpl for ListArray {
+impl OperationsVTable<ListVTable> for ListVTable {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ListArray::try_new(
             self.elements().clone(),

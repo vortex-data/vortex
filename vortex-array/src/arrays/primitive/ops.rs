@@ -6,7 +6,7 @@ use crate::array::Array;
 use crate::arrays::PrimitiveArray;
 use crate::{ArrayOperationsImpl, ArrayRef};
 
-impl ArrayOperationsImpl for PrimitiveArray {
+impl OperationsVTable<PrimitiveVTable> for PrimitiveVTable {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         match_each_native_ptype!(self.ptype(), |$T| {
             Ok(PrimitiveArray::new(

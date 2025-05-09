@@ -250,7 +250,7 @@ impl ArrayCanonicalImpl for StructArray {
     }
 }
 
-impl ArrayOperationsImpl for StructArray {
+impl OperationsVTable<StructVTable> for StructVTable {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let fields = self
             .fields()

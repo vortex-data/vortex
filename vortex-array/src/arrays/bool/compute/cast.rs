@@ -5,7 +5,7 @@ use crate::array::{Array, ArrayRef};
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::register_kernel;
-use crate::vtable::ValidityChild;
+use crate::vtable::ValidityHelper;
 
 impl CastKernel for BoolVTable {
     fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<ArrayRef> {

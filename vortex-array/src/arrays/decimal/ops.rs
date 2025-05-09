@@ -7,7 +7,7 @@ use crate::arrays::{DecimalArray, NativeDecimalType};
 use crate::validity::Validity;
 use crate::{Array, ArrayOperationsImpl, ArrayRef, match_each_decimal_value_type};
 
-impl ArrayOperationsImpl for DecimalArray {
+impl OperationsVTable<DecimalVTable> for DecimalVTable {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         match_each_decimal_value_type!(self.values_type, |$S| {
             slice_typed(

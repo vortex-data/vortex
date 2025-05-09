@@ -9,7 +9,7 @@ pub use array::*;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 
-use crate::vtable::{VTable, ValidityVTableFromValidityChild};
+use crate::vtable::{VTable, ValidityVTableFromValidityHelper};
 use crate::{EncodingRef, vtable};
 
 vtable!(Bool);
@@ -21,7 +21,7 @@ impl VTable for BoolVTable {
     type ArrayVTable = Self;
     type DecodeVTable = Self;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityChild;
+    type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = ();
     type EncodeVTable = ();

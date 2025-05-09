@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{VarBinArray, varbin_scalar};
 use crate::{Array, ArrayOperationsImpl, ArrayRef};
 
-impl ArrayOperationsImpl for VarBinArray {
+impl OperationsVTable<VarBinVTable> for VarBinVTable {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         VarBinArray::try_new(
             self.offsets().slice(start, stop + 1)?,

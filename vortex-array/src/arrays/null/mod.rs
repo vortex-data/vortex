@@ -111,7 +111,7 @@ impl ArrayCanonicalImpl for NullArray {
     }
 }
 
-impl ArrayOperationsImpl for NullArray {
+impl OperationsVTable<NullVTable> for NullVTable {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(NullArray::new(stop - start).into_array())
     }

@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolVTable};
-use crate::vtable::{OperationsVTable, ValidityChild};
+use crate::vtable::{OperationsVTable, ValidityHelper};
 use crate::{Array, ArrayRef, IntoArray};
 
 impl OperationsVTable<BoolVTable> for BoolVTable {

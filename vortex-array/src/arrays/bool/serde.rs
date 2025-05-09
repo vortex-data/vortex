@@ -7,7 +7,7 @@ use super::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, VTable, ValidityChild, VisitorVTable};
+use crate::vtable::{SerdeVTable, VTable, ValidityHelper, VisitorVTable};
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Encoding, ProstMetadata,
 };

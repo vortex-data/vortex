@@ -4,7 +4,7 @@ use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{FilterKernel, FilterKernelAdapter};
-use crate::vtable::ValidityChild;
+use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.

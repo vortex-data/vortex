@@ -2,17 +2,15 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::{DType, ExtDType, ExtID};
-use vortex_error::VortexResult;
-use vortex_mask::Mask;
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::VTable;
-use crate::{
-    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, Canonical, Encoding,
-    EncodingRef, vtable,
+use crate::vtable::{
+    ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityChild, ValidityVTableFromChild,
+    VisitorVTable,
 };
+use crate::{Array, ArrayRef, Canonical, Encoding, EncodingRef, IntoArray, vtable};
 
 mod compute;
 mod serde;
@@ -26,10 +24,10 @@ impl VTable for ExtensionVTable {
     type ArrayVTable = Self;
     type DecodeVTable = Self;
     type OperationsVTable = Self;
-    type ValidityVTable = Self;
+    type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = ();
-    type EncodeVTable = Self;
+    type EncodeVTable = ();
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
@@ -41,15 +39,15 @@ impl VTable for ExtensionVTable {
     }
 }
 
+#[derive(Debug)]
+pub struct ExtensionEncoding;
+
 #[derive(Clone, Debug)]
 pub struct ExtensionArray {
     dtype: DType,
     storage: ArrayRef,
     stats_set: ArrayStats,
 }
-
-#[derive(Debug)]
-pub struct ExtensionEncoding;
 
 impl ExtensionArray {
     pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayRef) -> Self {
@@ -83,68 +81,70 @@ impl ExtensionArray {
     }
 }
 
-impl ArrayImpl for ExtensionArray {
-    type Encoding = ExtensionEncoding;
-
-    fn _len(&self) -> usize {
-        self.storage.len()
+impl ArrayVTable<ExtensionVTable> for ExtensionVTable {
+    fn len(array: &ExtensionArray) -> usize {
+        array.storage.len()
     }
 
-    fn _dtype(&self) -> &DType {
-        &self.dtype
+    fn dtype(array: &ExtensionArray) -> &DType {
+        &array.dtype
     }
 
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&ExtensionEncoding)
-    }
-
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        Ok(Self::new(self.ext_dtype().clone(), children[0].clone()))
+    fn stats(array: &ExtensionArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array)
     }
 }
 
-impl ArrayStatisticsImpl for ExtensionArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
+impl ValidityChild<ExtensionVTable> for ExtensionVTable {
+    fn validity_child(array: &ExtensionArray) -> &dyn Array {
+        array.storage.as_ref()
     }
 }
 
-impl ArrayCanonicalImpl for ExtensionArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(self.clone()))
+impl CanonicalVTable<ExtensionVTable> for ExtensionVTable {
+    fn canonicalize(array: &ExtensionArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(array.clone()))
     }
 }
 
-impl ArrayOperationsImpl for ExtensionArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(
-            ExtensionArray::new(self.ext_dtype().clone(), self.storage().slice(start, stop)?)
-                .into_array(),
+impl OperationsVTable<ExtensionVTable> for ExtensionVTable {
+    fn slice(array: &ExtensionArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(ExtensionArray::new(
+            array.ext_dtype().clone(),
+            array.storage().slice(start, stop)?,
         )
+        .into_array())
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &ExtensionArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::extension(
-            self.ext_dtype().clone(),
-            self.storage().scalar_at(index)?,
+            array.ext_dtype().clone(),
+            array.storage().scalar_at(index)?,
         ))
     }
 }
 
-impl ArrayValidityImpl for ExtensionArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.storage.is_valid(index)
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.storage.all_valid()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.storage.all_invalid()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.storage.validity_mask()
+impl VisitorVTable<ExtensionVTable> for ExtensionVTable {
+    fn with_children(
+        array: &ExtensionArray,
+        children: &[ArrayRef],
+    ) -> VortexResult<ExtensionArray> {
+        let storage = children.get(0).ok_or_else(|| {
+            vortex_bail!(
+                "ExtensionArray: expected 1 child array, got {}",
+                children.len()
+            )
+        })?;
+        if storage.dtype() != array.ext_dtype().storage_dtype() {
+            vortex_bail!(
+                "ExtensionArray: expected child dtype to be {}, got {}",
+                array.ext_dtype().storage_dtype(),
+                storage.dtype()
+            );
+        }
+        Ok(ExtensionArray::new(
+            array.ext_dtype().clone(),
+            storage.clone(),
+        ))
     }
 }
