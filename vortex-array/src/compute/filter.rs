@@ -116,7 +116,7 @@ impl ComputeFnVTable for Filter {
         let canonical = array.to_canonical()?.into_array();
         let Some(output) = invoke_impl(
             &canonical,
-            &&InvocationArgs {
+            &InvocationArgs {
                 inputs: &[canonical.as_ref().into(), mask.into()],
                 options: &(),
             },
@@ -251,8 +251,8 @@ impl TryFrom<&dyn Array> for Mask {
 
 pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     let values = match &mask {
-        Mask::AllTrue(_) => return Ok(array.to_array().into()),
-        Mask::AllFalse(_) => return Ok(Canonical::empty(array.dtype()).into_array().into()),
+        Mask::AllTrue(_) => return Ok(array.to_array()),
+        Mask::AllFalse(_) => return Ok(Canonical::empty(array.dtype()).into_array()),
         Mask::Values(values) => values,
     };
 
@@ -260,7 +260,7 @@ pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef>
     let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
-    Ok(ArrayRef::from_arrow(filtered, array.dtype().is_nullable()).into())
+    Ok(ArrayRef::from_arrow(filtered, array.dtype().is_nullable()))
 }
 
 #[cfg(test)]
