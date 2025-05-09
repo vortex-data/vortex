@@ -18,7 +18,7 @@ use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::arrow::geo_field_to_dtype;
+use vortex_dtype::arrow::arrow_field_to_dtype;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::{DType, DecimalDType, FieldNames, NativePType, PType};
 use vortex_error::{VortexExpect as _, vortex_panic};
@@ -239,13 +239,15 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
 
         for (field, column) in value.fields().iter().zip(value.columns()) {
             let array = match field.extension_type_name() {
-                Some(_) => match geo_field_to_dtype(field) {
-                    Ok(Some(DType::Extension(ext_dtype))) => {
-                        let storage = Self::from_arrow(column.clone(), field.is_nullable());
-                        ExtensionArray::new(ext_dtype, storage).into_array()
+                Some(_) => {
+                    match arrow_field_to_dtype(field).vortex_expect("arrow_field_to_dtype") {
+                        Some(DType::Extension(ext_dtype)) => {
+                            let storage = Self::from_arrow(column.clone(), field.is_nullable());
+                            ExtensionArray::new(ext_dtype, storage).into_array()
+                        }
+                        _ => Self::from_arrow(column.clone(), field.is_nullable()),
                     }
-                    _ => Self::from_arrow(column.clone(), field.is_nullable()),
-                },
+                }
                 None => Self::from_arrow(column.clone(), field.is_nullable()),
             };
             field_names.push(field.name().to_string().into());

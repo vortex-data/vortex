@@ -26,8 +26,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use crate::array::GeometryArray;
 use crate::{Dimension, GeoMetadata, GeometryType, OwnedGeoMetadata, OwnedGeometryType};
 
-/// Kernel that allows converting a Vortex extension array with geometry type into a GeoArrow
-/// array layout.
+/// Kernel to convert into GeoArrow memory format.
 #[derive(Debug)]
 pub struct ToGeoArrow;
 
@@ -37,7 +36,6 @@ impl Kernel for ToGeoArrow {
         match array.as_any().downcast_ref::<ExtensionArray>() {
             None => Ok(None),
             Some(ext_array) => {
-                let _ = GeometryArray::try_from(ext_array)?;
                 if let Ok(geometry_array) = GeometryArray::try_from(ext_array) {
                     // based on the particular geometry, encode into GeoArrow type.
                     let array = match geometry_array {
@@ -55,7 +53,6 @@ impl Kernel for ToGeoArrow {
                         ArrowArray::new(array, ext_array.dtype().nullability()).into_array(),
                     )))
                 } else {
-                    println!("GeometryArray::try_from failed");
                     Ok(None)
                 }
             }
@@ -95,6 +92,7 @@ fn to_arrow_linestring(
         .into_arrow_scalar_buffer();
     let offsets = OffsetBuffer::new(offsets);
     let nulls = list.validity_mask()?.to_null_buffer();
+
     let crs = match metadata.crs {
         None => Crs::default(),
         Some(wkt) => Crs::from_wkt2_2019(wkt.to_string()),
@@ -121,8 +119,6 @@ impl ArrowTypeConversion for GeoArrowConversion {
         let Some(ext_type) = field.extension_type_name() else {
             return Ok(None);
         };
-
-        println!("ext_type = {}", ext_type);
 
         if ext_type != PointType::NAME
             && ext_type != LineStringType::NAME

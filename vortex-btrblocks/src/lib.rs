@@ -336,7 +336,8 @@ impl BtrBlocksCompressor {
                     }
                 }
 
-                // Compress the underlying storage array.
+                // Otherwise: compress the underlying storage array.
+                // TODO(aduffy): figure out how to let extension types
                 let compressed_storage = self.compress(ext_array.storage())?;
 
                 Ok(

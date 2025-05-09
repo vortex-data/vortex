@@ -1,31 +1,20 @@
-use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
+use arrow_array::{Array as _, RecordBatch};
 use arrow_schema::{DataType, Schema};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::arrays::StructArray;
 use crate::arrow::FromArrowArray;
 use crate::arrow::compute::{to_arrow, to_arrow_preferred};
-use crate::validity::Validity;
 use crate::{Array, ArrayRef, ToCanonical, TryIntoArray};
 
 impl TryIntoArray for RecordBatch {
     fn try_into_array(self) -> VortexResult<ArrayRef> {
-        Ok(StructArray::try_new(
-            self.schema()
-                .fields()
-                .iter()
-                .map(|f| f.name().as_str().into())
-                .collect(),
-            self.columns()
-                .iter()
-                .zip(self.schema().fields())
-                .map(|(array, field)| ArrayRef::from_arrow(array.clone(), field.is_nullable()))
-                .collect(),
-            self.num_rows(),
-            Validity::NonNullable, // Must match FromArrowType<SchemaRef> for DType
-        )?
-        .into_array())
+        let struct_array = arrow_array::StructArray::from(self);
+        Ok(ArrayRef::from_arrow(
+            &struct_array,
+            struct_array.is_nullable(),
+        ))
     }
 }
 

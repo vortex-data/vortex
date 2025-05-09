@@ -103,7 +103,7 @@ impl StructArray {
 
             if &struct_dt != field.dtype() {
                 vortex_bail!(
-                    "Expected all struct fields to have dtype {}, found {}",
+                    "Expected struct field to have type {}, found {}",
                     struct_dt,
                     field.dtype()
                 );

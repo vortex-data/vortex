@@ -27,6 +27,10 @@ vortex-error = { workspace = true }
 
 [dev-dependencies]
 vortex-scalar = { workspace = true }
+vortex-file = { workspace = true }
+geoarrow-geoparquet = { git = "https://github.com/geoarrow/geoarrow-rs.git", rev = "c241034f", features = [
+    "compression",
+] }
 
 [lints]
 workspace = true

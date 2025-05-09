@@ -196,6 +196,14 @@ impl DType {
             _ => None,
         }
     }
+
+    /// Get the `ExtDType` if `self` is `Extension`, otherwise `None`
+    pub fn as_extension(&self) -> Option<&ExtDType> {
+        match self {
+            Extension(ext_dtype) => Some(ext_dtype.as_ref()),
+            _ => None,
+        }
+    }
 }
 
 impl Display for DType {
