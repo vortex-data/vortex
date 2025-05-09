@@ -17,7 +17,7 @@ use crate::{ExprRef, VortexExpr};
 /// # Examples
 ///
 /// ```
-/// use vortex_array::IntoArray;
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{Pack, Identity, VortexExpr};
 /// use vortex_scalar::Scalar;
@@ -28,9 +28,9 @@ use crate::{ExprRef, VortexExpr};
 /// ).unwrap();
 /// let packed = example.evaluate(&buffer![100, 110, 200].into_array()).unwrap();
 /// let x_copy = packed
-///     .as_struct_typed()
+///     .to_struct()
 ///     .unwrap()
-///     .maybe_null_field_by_name("x copy")
+///     .field_by_name("x copy")
 ///     .unwrap();
 /// assert_eq!(x_copy.scalar_at(0).unwrap(), Scalar::from(100));
 /// assert_eq!(x_copy.scalar_at(1).unwrap(), Scalar::from(110));
