@@ -2,9 +2,11 @@
 =========
 
 [![Build Status](https://github.com/vortex-data/vortex/actions/workflows/ci.yml/badge.svg)](https://github.com/vortex-data/vortex/actions)
+[![Documentation](https://docs.rs/vortex-array/badge.svg)](https://docs.vortex.dev)
+[![CodSpeed Badge](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/vortex-data/vortex)
 [![Crates.io](https://img.shields.io/crates/v/vortex-array.svg)](https://crates.io/crates/vortex-array)
-[![Documentation](https://docs.rs/vortex-array/badge.svg)](https://docs.rs/vortex-array)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/vortex-array)](https://pypi.org/project/vortex-array/)
+[![PyPI - Version](https://img.shields.io/pypi/v/vortex-array)](https://pypi.org/project/vortex-array/)
+[![Maven - Version](https://img.shields.io/maven-central/v/dev.vortex/vortex-spark)](https://central.sonatype.com/artifact/dev.vortex/vortex-spark)
 
 📚 [Documentation](https://docs.vortex.dev/) | 📊 [Performance Benchmarks](https://bench.vortex.dev)
 
