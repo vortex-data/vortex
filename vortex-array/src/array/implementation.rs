@@ -12,6 +12,7 @@ use crate::array::convert::IntoArray;
 use crate::array::operations::ArrayOperationsImpl;
 use crate::array::validity::ArrayValidityImpl;
 use crate::array::visitor::ArrayVisitorImpl;
+use crate::arrays::ConstantEncoding;
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
