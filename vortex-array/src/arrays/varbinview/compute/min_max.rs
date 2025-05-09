@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::arrays::{VarBinViewArray, VarBinViewEncoding, compute_min_max};
+use crate::arrays::{VarBinViewArray, VarBinViewVTable, compute_min_max};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
 use crate::{Array, register_kernel};
 
