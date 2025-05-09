@@ -7,6 +7,7 @@ use vortex_array::arrays::{
     ChunkedArray, ChunkedEncoding, DecimalArray, VarBinViewArray, VarBinViewEncoding,
 };
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
+use vortex_array::stats::{Precision, Stat};
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 use vortex_dict::{DictArray, DictEncoding};
@@ -41,7 +42,8 @@ fn try_to_duckdb(
     chunk: &mut dyn WritableVector,
     cache: &mut ConversionCache,
 ) -> VortexResult<Option<()>> {
-    if let Some(constant) = array.as_constant() {
+    if array.statistics().get_as::<bool>(Stat::IsConstant) == Some(Precision::Exact(true)) {
+        let constant = array.scalar_at(0)?;
         let value = constant.try_to_duckdb_scalar()?;
         chunk.flat_vector().assign_to_constant(&value);
         Ok(Some(()))
