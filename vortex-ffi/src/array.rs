@@ -8,7 +8,7 @@ use std::ptr;
 use vortex::dtype::DType;
 use vortex::dtype::half::f16;
 use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
-use vortex::{Array, ArrayRef, ArrayVariants};
+use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::error::{try_or, vx_error};
 
@@ -54,9 +54,11 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
 
         let field_array = array
             .inner
-            .as_struct_typed()
-            .ok_or_else(|| vortex_err!("vx_array_get_field: expected struct-typed array"))?
-            .maybe_null_field_by_idx(index as usize)?;
+            .to_struct()?
+            .fields()
+            .get(index as usize)
+            .ok_or_else(|| vortex_err!("Field index out of bounds"))?
+            .clone();
 
         let ffi_array = field_array;
 

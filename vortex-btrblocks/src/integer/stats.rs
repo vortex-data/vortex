@@ -6,7 +6,6 @@ use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::{NativeValue, PrimitiveArray};
 use vortex_array::stats::Stat;
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ToCanonical};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexUnwrap};

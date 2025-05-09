@@ -4,7 +4,6 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
     BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison, between,
 };
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_dtype::{NativePType, Nullability};
 use vortex_error::VortexResult;

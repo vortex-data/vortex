@@ -1,4 +1,3 @@
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;

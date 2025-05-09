@@ -1,9 +1,9 @@
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::iter::ArrayIteratorArrayExt;
-use vortex_array::{ArrayContext, ArrayRef};
+use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::LayoutVTableRef;
 use crate::data::Layout;
@@ -73,24 +73,17 @@ impl LayoutWriter for StructLayoutWriter {
             chunk.dtype(),
             self.dtype
         );
-        let struct_array = chunk
-            .as_struct_typed()
-            .ok_or_else(|| vortex_err!("batch is not a struct array"))?;
-
-        if struct_array.nfields() != self.column_strategies.len() {
+        let struct_array = chunk.to_struct()?;
+        if struct_array.struct_dtype().nfields() != self.column_strategies.len() {
             vortex_bail!(
                 "number of fields in struct array does not match number of column layout writers"
             );
         }
         self.row_count += struct_array.len() as u64;
 
-        for i in 0..struct_array.nfields() {
+        for i in 0..struct_array.struct_dtype().nfields() {
             // TODO(joe): handle struct validity
-            let column = struct_array
-                .maybe_null_field_by_idx(i)
-                .vortex_expect("bounds already checked");
-
-            for column_chunk in column.to_array_iterator() {
+            for column_chunk in struct_array.fields()[i].to_array_iterator() {
                 let column_chunk = column_chunk?;
                 self.column_strategies[i].push_chunk(segment_writer, column_chunk)?;
             }

@@ -4,7 +4,6 @@ use vortex_scalar::Scalar;
 
 use crate::array::Array;
 use crate::arrays::PrimitiveArray;
-use crate::variants::PrimitiveArrayTrait;
 use crate::{ArrayOperationsImpl, ArrayRef};
 
 impl ArrayOperationsImpl for PrimitiveArray {

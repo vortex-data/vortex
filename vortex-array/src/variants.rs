@@ -1,26 +1,88 @@
-//! This module defines array traits for each Vortex DType.
-//!
-//! When callers only want to make assumptions about the DType, and not about any specific
-//! encoding, they can use these traits to write encoding-agnostic code.
-
+//! This module defines extension functionality specific to each Vortex DType.
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use vortex_dtype::{DType, ExtDType, FieldName, FieldNames, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_dtype::{DType, ExtDType, FieldNames, PType};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_scalar::PValue;
 
+use crate::Array;
 use crate::compute::sum;
 use crate::search_sorted::IndexOrd;
-use crate::{Array, ArrayRef};
 
-pub trait NullArrayTrait: Array {}
+impl dyn Array + '_ {
+    /// Downcasts the array for null-specific behavior.
+    pub fn as_null_typed(&self) -> NullTyped {
+        matches!(self.dtype(), DType::Null)
+            .then(|| NullTyped(self))
+            .vortex_expect("Array does not have DType::Null")
+    }
 
-pub trait BoolArrayTrait: Array {}
+    /// Downcasts the array for bool-specific behavior.
+    pub fn as_bool_typed(&self) -> BoolTyped {
+        matches!(self.dtype(), DType::Bool(..))
+            .then(|| BoolTyped(self))
+            .vortex_expect("Array does not have DType::Bool")
+    }
 
-impl dyn BoolArrayTrait + '_ {
+    /// Downcasts the array for primitive-specific behavior.
+    pub fn as_primitive_typed(&self) -> PrimitiveTyped {
+        matches!(self.dtype(), DType::Primitive(..))
+            .then(|| PrimitiveTyped(self))
+            .vortex_expect("Array does not have DType::Primitive")
+    }
+
+    /// Downcasts the array for decimal-specific behavior.
+    pub fn as_decimal_typed(&self) -> DecimalTyped {
+        matches!(self.dtype(), DType::Decimal(..))
+            .then(|| DecimalTyped(self))
+            .vortex_expect("Array does not have DType::Decimal")
+    }
+
+    /// Downcasts the array for utf8-specific behavior.
+    pub fn as_utf8_typed(&self) -> Utf8Typed {
+        matches!(self.dtype(), DType::Utf8(..))
+            .then(|| Utf8Typed(self))
+            .vortex_expect("Array does not have DType::Utf8")
+    }
+
+    /// Downcasts the array for binary-specific behavior.
+    pub fn as_binary_typed(&self) -> BinaryTyped {
+        matches!(self.dtype(), DType::Binary(..))
+            .then(|| BinaryTyped(self))
+            .vortex_expect("Array does not have DType::Binary")
+    }
+
+    /// Downcasts the array for struct-specific behavior.
+    pub fn as_struct_typed(&self) -> StructTyped {
+        matches!(self.dtype(), DType::Struct(..))
+            .then(|| StructTyped(self))
+            .vortex_expect("Array does not have DType::Struct")
+    }
+
+    /// Downcasts the array for list-specific behavior.
+    pub fn as_list_typed(&self) -> ListTyped {
+        matches!(self.dtype(), DType::List(..))
+            .then(|| ListTyped(self))
+            .vortex_expect("Array does not have DType::List")
+    }
+
+    /// Downcasts the array for extension-specific behavior.
+    pub fn as_extension_typed(&self) -> ExtensionTyped {
+        matches!(self.dtype(), DType::Extension(..))
+            .then(|| ExtensionTyped(self))
+            .vortex_expect("Array does not have DType::Extension")
+    }
+}
+
+#[allow(dead_code)]
+pub struct NullTyped<'a>(&'a dyn Array);
+
+pub struct BoolTyped<'a>(&'a dyn Array);
+
+impl BoolTyped<'_> {
     pub fn true_count(&self) -> VortexResult<usize> {
-        let true_count = sum(self)?;
+        let true_count = sum(self.0)?;
         Ok(true_count
             .as_primitive()
             .as_::<usize>()
@@ -29,9 +91,11 @@ impl dyn BoolArrayTrait + '_ {
     }
 }
 
-pub trait PrimitiveArrayTrait: Array {
+pub struct PrimitiveTyped<'a>(&'a dyn Array);
+
+impl PrimitiveTyped<'_> {
     fn ptype(&self) -> PType {
-        let DType::Primitive(ptype, _) = self.dtype() else {
+        let DType::Primitive(ptype, _) = self.0.dtype() else {
             vortex_panic!("Expected Primitive DType")
         };
         *ptype
@@ -39,14 +103,16 @@ pub trait PrimitiveArrayTrait: Array {
 
     /// Return the primitive value at the given index.
     fn value(&self, idx: usize) -> Option<PValue> {
-        self.is_valid(idx)
+        self.0
+            .is_valid(idx)
             .vortex_expect("is valid")
             .then(|| self.value_unchecked(idx))
     }
 
     /// Return the primitive value at the given index, ignoring nullability.
     fn value_unchecked(&self, idx: usize) -> PValue {
-        self.scalar_at(idx)
+        self.0
+            .scalar_at(idx)
             .vortex_expect("scalar at index")
             .as_primitive()
             .pvalue()
@@ -54,88 +120,70 @@ pub trait PrimitiveArrayTrait: Array {
     }
 }
 
-impl IndexOrd<Option<PValue>> for dyn PrimitiveArrayTrait + '_ {
+impl IndexOrd<Option<PValue>> for PrimitiveTyped<'_> {
     fn index_cmp(&self, idx: usize, elem: &Option<PValue>) -> Option<Ordering> {
         self.value(idx).partial_cmp(elem)
     }
 
     fn index_len(&self) -> usize {
-        self.len()
+        self.0.len()
     }
 }
 
-impl IndexOrd<PValue> for dyn PrimitiveArrayTrait + '_ {
+// TODO(ngates): add generics to the `value` function and implement this over T.
+impl IndexOrd<PValue> for PrimitiveTyped<'_> {
     fn index_cmp(&self, idx: usize, elem: &PValue) -> Option<Ordering> {
-        assert!(self.all_valid().vortex_expect("all valid"));
+        assert!(self.0.all_valid().vortex_expect("all valid"));
         self.value_unchecked(idx).partial_cmp(elem)
     }
 
     fn index_len(&self) -> usize {
-        self.len()
+        self.0.len()
     }
 }
 
-pub trait Utf8ArrayTrait: Array {}
+#[allow(dead_code)]
+pub struct Utf8Typed<'a>(&'a dyn Array);
 
-pub trait BinaryArrayTrait: Array {}
+#[allow(dead_code)]
+pub struct BinaryTyped<'a>(&'a dyn Array);
 
-pub trait DecimalArrayTrait: Array {}
+#[allow(dead_code)]
+pub struct DecimalTyped<'a>(&'a dyn Array);
 
-pub trait StructArrayTrait: Array {
-    fn names(&self) -> &FieldNames {
-        let DType::Struct(st, _) = self.dtype() else {
+pub struct StructTyped<'a>(&'a dyn Array);
+
+impl StructTyped<'_> {
+    pub fn names(&self) -> &FieldNames {
+        let DType::Struct(st, _) = self.0.dtype() else {
             unreachable!()
         };
         st.names()
     }
 
-    fn dtypes(&self) -> Vec<DType> {
-        let DType::Struct(st, _) = self.dtype() else {
+    pub fn dtypes(&self) -> Vec<DType> {
+        let DType::Struct(st, _) = self.0.dtype() else {
             unreachable!()
         };
         st.fields().collect()
     }
 
-    fn nfields(&self) -> usize {
+    pub fn nfields(&self) -> usize {
         self.names().len()
     }
-
-    /// Return a field's array by index, ignoring struct nullability
-    fn maybe_null_field_by_idx(&self, idx: usize) -> VortexResult<ArrayRef>;
-
-    /// Return a field's array by name, ignoring struct nullability
-    fn maybe_null_field_by_name(&self, name: &str) -> VortexResult<ArrayRef> {
-        let field_idx = self
-            .names()
-            .iter()
-            .position(|field_name| field_name.as_ref() == name)
-            .ok_or_else(|| vortex_err!("Field not found: {}", name))?;
-        self.maybe_null_field_by_idx(field_idx)
-    }
-
-    fn project(&self, projection: &[FieldName]) -> VortexResult<ArrayRef>;
 }
 
-impl dyn StructArrayTrait + '_ {
-    pub fn fields(&self) -> impl Iterator<Item = ArrayRef> + '_ {
-        (0..self.nfields()).map(|i| {
-            self.maybe_null_field_by_idx(i)
-                .vortex_expect("never out of bounds")
-        })
-    }
-}
+#[allow(dead_code)]
+pub struct ListTyped<'a>(&'a dyn Array);
 
-pub trait ListArrayTrait: Array {}
+pub struct ExtensionTyped<'a>(&'a dyn Array);
 
-pub trait ExtensionArrayTrait: Array {
+impl ExtensionTyped<'_> {
     /// Returns the extension logical [`DType`].
-    fn ext_dtype(&self) -> &Arc<ExtDType> {
-        let DType::Extension(ext_dtype) = self.dtype() else {
+    pub fn ext_dtype(&self) -> &Arc<ExtDType> {
+        let DType::Extension(ext_dtype) = self.0.dtype() else {
             vortex_panic!("Expected ExtDType")
         };
         ext_dtype
     }
-
-    /// Returns the underlying [`ArrayRef`], without the [`ExtDType`].
-    fn storage_data(&self) -> ArrayRef;
 }

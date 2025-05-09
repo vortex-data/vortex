@@ -7,11 +7,10 @@ use vortex_scalar::Scalar;
 
 use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::stats::{ArrayStats, StatsSetRef};
-use crate::variants::ExtensionArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl,
-    Canonical, EmptyMetadata, Encoding,
+    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata,
+    Encoding,
 };
 
 mod compute;
@@ -43,6 +42,13 @@ impl ExtensionArray {
             storage,
             stats_set: ArrayStats::default(),
         }
+    }
+
+    pub fn ext_dtype(&self) -> &Arc<ExtDType> {
+        let DType::Extension(ext) = &self.dtype else {
+            unreachable!("ExtensionArray: dtype must be an ExtDType")
+        };
+        ext
     }
 
     pub fn storage(&self) -> &ArrayRef {
@@ -119,17 +125,5 @@ impl ArrayValidityImpl for ExtensionArray {
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
         self.storage.validity_mask()
-    }
-}
-
-impl ArrayVariantsImpl for ExtensionArray {
-    fn _as_extension_typed(&self) -> Option<&dyn ExtensionArrayTrait> {
-        Some(self)
-    }
-}
-
-impl ExtensionArrayTrait for ExtensionArray {
-    fn storage_data(&self) -> ArrayRef {
-        self.storage().clone()
     }
 }

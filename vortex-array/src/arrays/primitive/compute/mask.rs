@@ -4,7 +4,6 @@ use vortex_mask::Mask;
 use crate::arrays::PrimitiveEncoding;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{MaskKernel, MaskKernelAdapter};
-use crate::variants::PrimitiveArrayTrait as _;
 use crate::{Array, ArrayRef, register_kernel};
 
 impl MaskKernel for PrimitiveEncoding {

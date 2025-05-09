@@ -5,12 +5,11 @@ use vortex_scalar::Scalar;
 
 use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
-use crate::variants::NullArrayTrait;
 use crate::vtable::{EncodingVTable, VTableRef};
 use crate::{
     Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayOperationsImpl, ArrayRef,
-    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical,
-    EmptyMetadata, Encoding, EncodingId,
+    ArrayStatisticsImpl, ArrayValidityImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
+    EncodingId,
 };
 
 mod compute;
@@ -118,11 +117,3 @@ impl ArrayValidityImpl for NullArray {
         Ok(Mask::AllFalse(self.len))
     }
 }
-
-impl ArrayVariantsImpl for NullArray {
-    fn _as_null_typed(&self) -> Option<&dyn NullArrayTrait> {
-        Some(self)
-    }
-}
-
-impl NullArrayTrait for NullArray {}

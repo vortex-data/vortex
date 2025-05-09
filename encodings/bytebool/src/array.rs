@@ -4,11 +4,10 @@ use arrow_buffer::BooleanBuffer;
 use vortex_array::arrays::BoolArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
-use vortex_array::variants::BoolArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, EmptyMetadata, Encoding, try_from_array_ref,
+    ArrayValidityImpl, Canonical, EmptyMetadata, Encoding, try_from_array_ref,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -149,14 +148,6 @@ impl ArrayValidityImpl for ByteBoolArray {
         self.validity.to_mask(self.len())
     }
 }
-
-impl ArrayVariantsImpl for ByteBoolArray {
-    fn _as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
-        Some(self)
-    }
-}
-
-impl BoolArrayTrait for ByteBoolArray {}
 
 impl From<Vec<bool>> for ByteBoolArray {
     fn from(value: Vec<bool>) -> Self {

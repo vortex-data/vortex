@@ -4,7 +4,6 @@ use vortex_mask::Mask;
 
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{NaNCountKernel, NaNCountKernelAdapter};
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, register_kernel};
 
 impl NaNCountKernel for PrimitiveEncoding {

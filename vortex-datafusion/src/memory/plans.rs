@@ -153,15 +153,12 @@ impl Stream for RowIndicesStream {
         // Get the unfiltered record batch.
         // Since this is a one-shot, we only want to poll the inner future once, to create the
         // initial batch for us to process.
-        let vortex_struct = next_chunk
-            .as_struct_typed()
-            .ok_or_else(|| vortex_err!("Not a struct array"))?
-            .project(&this.filter_projection)?;
+        let vortex_struct = next_chunk.to_struct()?.project(&this.filter_projection)?;
 
         let selection = to_arrow(
             &this
                 .conjunction_expr
-                .evaluate(vortex_struct.as_ref())
+                .evaluate(&vortex_struct)
                 .map_err(|e| DataFusionError::External(e.into()))?,
             &DataType::Boolean,
         )?;

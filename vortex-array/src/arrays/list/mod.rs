@@ -17,11 +17,10 @@ use crate::arrays::PrimitiveArray;
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::variants::{ListArrayTrait, PrimitiveArrayTrait};
 use crate::vtable::VTableRef;
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, TryFromArrayRef,
+    ArrayValidityImpl, Canonical, Encoding, ProstMetadata, TryFromArrayRef,
 };
 
 #[derive(Clone, Debug)]
@@ -179,14 +178,6 @@ impl ArrayOperationsImpl for ListArray {
         ))
     }
 }
-
-impl ArrayVariantsImpl for ListArray {
-    fn _as_list_typed(&self) -> Option<&dyn ListArrayTrait> {
-        Some(self)
-    }
-}
-
-impl ListArrayTrait for ListArray {}
 
 impl ArrayCanonicalImpl for ListArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {

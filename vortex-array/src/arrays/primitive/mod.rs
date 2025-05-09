@@ -13,11 +13,10 @@ use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayVariantsImpl, Canonical, EmptyMetadata,
-    Encoding, IntoArray, try_from_array_ref,
+    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata, Encoding, IntoArray,
+    try_from_array_ref,
 };
 
 mod compute;
@@ -29,7 +28,6 @@ mod top_value;
 
 pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
 pub use native_value::NativeValue;
-use vortex_scalar::PValue;
 
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
@@ -98,6 +96,10 @@ impl PrimitiveArray {
             }
         }
         Self::new(values.freeze(), Validity::from(validity.finish()))
+    }
+
+    pub fn ptype(&self) -> PType {
+        self.dtype().to_ptype()
     }
 
     pub fn validity(&self) -> &Validity {
@@ -282,20 +284,6 @@ impl ArrayStatisticsImpl for PrimitiveArray {
     }
 }
 
-impl ArrayVariantsImpl for PrimitiveArray {
-    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
-    }
-}
-
-impl PrimitiveArrayTrait for PrimitiveArray {
-    fn value_unchecked(&self, idx: usize) -> PValue {
-        match_each_native_ptype!(self.ptype(), |$T| {
-            PValue::from(self.as_slice::<$T>()[idx])
-        })
-    }
-}
-
 impl<T: NativePType> FromIterator<T> for PrimitiveArray {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let values = BufferMut::from_iter(iter);
@@ -353,7 +341,6 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef};
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect;
     use vortex_scalar::PValue;
 
     #[apply(search_sorted_conformance)]
@@ -365,7 +352,6 @@ mod tests {
     ) {
         let res = array
             .as_primitive_typed()
-            .vortex_expect("primitive array")
             .search_sorted(&Some(PValue::from(value)), side);
         assert_eq!(res, expected);
     }

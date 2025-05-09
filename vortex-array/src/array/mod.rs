@@ -4,7 +4,6 @@ mod implementation;
 mod operations;
 mod statistics;
 mod validity;
-mod variants;
 mod visitor;
 
 use std::any::Any;
@@ -17,7 +16,6 @@ pub use implementation::*;
 pub use operations::*;
 pub use statistics::*;
 pub use validity::*;
-pub use variants::*;
 pub use visitor::*;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
@@ -39,7 +37,7 @@ use crate::{Canonical, EncodingId};
 /// Users should invoke functions on this trait. Implementations should implement the corresponding
 /// function on the `_Impl` traits, e.g. [`ArrayValidityImpl`]. The functions here dispatch to the
 /// implementations, while validating pre- and post-conditions.
-pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVisitor {
+pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVisitor {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 

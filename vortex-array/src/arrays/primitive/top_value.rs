@@ -9,7 +9,6 @@ use vortex_scalar::PValue;
 use crate::Array;
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::{NativeValue, PrimitiveArray};
-use crate::variants::PrimitiveArrayTrait;
 
 impl PrimitiveArray {
     /// Compute most common present value of this array

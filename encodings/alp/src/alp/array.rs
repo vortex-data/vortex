@@ -2,11 +2,10 @@ use std::fmt::Debug;
 
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, ProstMetadata,
+    Canonical, Encoding, ProstMetadata,
 };
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
@@ -50,6 +49,10 @@ impl ALPArray {
             patches,
             stats_set: Default::default(),
         })
+    }
+
+    pub fn ptype(&self) -> PType {
+        self.dtype.to_ptype()
     }
 
     pub fn encoded(&self) -> &ArrayRef {
@@ -131,11 +134,3 @@ impl ArrayValidityImpl for ALPArray {
         self.encoded.validity_mask()
     }
 }
-
-impl ArrayVariantsImpl for ALPArray {
-    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
-    }
-}
-
-impl PrimitiveArrayTrait for ALPArray {}
