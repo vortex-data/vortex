@@ -4,12 +4,12 @@ use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_mask::{AllOr, Mask, MaskIter};
 
-use crate::arrays::VarBinEncoding;
+use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::{FilterKernel, FilterKernelAdapter};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FilterKernel for VarBinVTable {
     fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {

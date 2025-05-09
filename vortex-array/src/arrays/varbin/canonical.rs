@@ -2,17 +2,18 @@ use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::arrays::VarBinViewArray;
 use crate::arrays::varbin::VarBinArray;
+use crate::arrays::{VarBinVTable, VarBinViewArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::{Array, ArrayCanonicalImpl, ArrayRef, Canonical, TryFromArrayRef};
+use crate::vtable::CanonicalVTable;
+use crate::{Array, ArrayRef, Canonical, TryFromArrayRef};
 
-impl ArrayCanonicalImpl for VarBinArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        let dtype = self.dtype().clone();
+impl CanonicalVTable<VarBinVTable> for VarBinVTable {
+    fn canonicalize(array: &VarBinArray) -> VortexResult<Canonical> {
+        let dtype = array.dtype().clone();
         let nullable = dtype.is_nullable();
 
-        let array_ref = self.to_array().into_arrow_preferred()?;
+        let array_ref = array.to_array().into_arrow_preferred()?;
         let array = match dtype {
             DType::Utf8(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::Utf8View)?,
             DType::Binary(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::BinaryView)?,

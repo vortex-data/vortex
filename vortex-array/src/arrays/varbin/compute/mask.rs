@@ -1,10 +1,10 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::VarBinEncoding;
+use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
 use crate::compute::{MaskKernel, MaskKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for VarBinVTable {
     fn mask(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {

@@ -5,12 +5,12 @@ use itertools::Itertools;
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
-use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding, VarBinViewArray};
+use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinVTable, VarBinViewArray};
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{
     CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
 };
-use crate::{Array, ArrayExt, ArrayRef, ToCanonical, register_kernel};
+use crate::{Array, ArrayExt, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBinVTable {

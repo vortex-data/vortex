@@ -3,7 +3,7 @@ use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
 use vortex_mask::Mask;
 
-use crate::arrays::VarBinEncoding;
+use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
