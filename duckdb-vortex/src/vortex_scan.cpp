@@ -96,7 +96,7 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 
 	// This is the max number threads that the extension might use.
 	idx_t MaxThreads() const override {
-		constexpr uint32_t MAX_THREAD_COUNT = 192;
+		constexpr uint32_t MAX_THREAD_COUNT = 1;
 		return MAX_THREAD_COUNT;
 	}
 };

@@ -27,6 +27,8 @@ pub fn to_duckdb_chunk(
 
     assert_eq!(struct_array.fields().len(), chunk.num_columns());
 
+    println!("struct {}", struct_array.to_array().tree_display());
+
     chunk.set_len(struct_array.len());
     for (idx, field) in struct_array.fields().iter().enumerate() {
         to_duckdb(field, &mut DataChunkHandleSlice::new(chunk, idx), cache)?;
