@@ -4,11 +4,10 @@ mod serde;
 use itertools::Itertools;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::variants::{DecimalArrayTrait, PrimitiveArrayTrait};
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
+    ArrayValidityImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
 };
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, DecimalDType, PType, match_each_signed_integer_ptype};
@@ -112,14 +111,6 @@ impl ArrayImpl for DecimalBytePartsArray {
 
     fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
         DecimalBytePartsArray::try_new(children.to_vec(), *self.decimal_dtype())
-    }
-}
-
-impl DecimalArrayTrait for DecimalBytePartsArray {}
-
-impl ArrayVariantsImpl for DecimalBytePartsArray {
-    fn _as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
-        Some(self)
     }
 }
 
