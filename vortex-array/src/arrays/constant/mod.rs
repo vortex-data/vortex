@@ -126,7 +126,7 @@ impl VisitorVTable<ConstantVTable> for ConstantVTable {
         visitor.visit_buffer(&buffer);
     }
 
-    fn visit_children(array: &ConstantArray, visitor: &mut dyn ArrayChildVisitor) {}
+    fn visit_children(_array: &ConstantArray, _visitor: &mut dyn ArrayChildVisitor) {}
 
     fn with_children(array: &ConstantArray, _children: &[ArrayRef]) -> VortexResult<ConstantArray> {
         Ok(array.clone())
