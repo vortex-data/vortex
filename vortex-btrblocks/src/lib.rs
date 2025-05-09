@@ -3,13 +3,14 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use itertools::Itertools;
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
 use vortex_array::nbytes::NBytes;
-use vortex_array::variants::{ExtensionArrayTrait, PrimitiveArrayTrait, StructArrayTrait};
-use vortex_array::{Array, ArrayRef, Canonical};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
+use vortex_array::variants::StructArrayTrait;
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexResult, VortexUnwrap};
 
 use crate::decimal::compress_decimal;
 pub use crate::float::FloatCompressor;
@@ -287,14 +288,11 @@ impl BtrBlocksCompressor {
             }
             Canonical::Decimal(decimal) => compress_decimal(&decimal),
             Canonical::Struct(struct_array) => {
-                let mut fields = Vec::new();
-                for idx in 0..struct_array.nfields() {
-                    let field = struct_array
-                        .maybe_null_field_by_idx(idx)
-                        .vortex_expect("field access");
-                    let compressed = self.compress(&field)?;
-                    fields.push(compressed);
-                }
+                let fields = struct_array
+                    .fields()
+                    .iter()
+                    .map(|field| self.compress(field))
+                    .try_collect()?;
 
                 Ok(StructArray::try_new(
                     struct_array.names().clone(),

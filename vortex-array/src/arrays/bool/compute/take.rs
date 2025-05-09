@@ -8,7 +8,6 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolEncoding, ConstantArray};
 use crate::compute::{TakeKernel, TakeKernelAdapter, fill_null};
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl TakeKernel for BoolEncoding {

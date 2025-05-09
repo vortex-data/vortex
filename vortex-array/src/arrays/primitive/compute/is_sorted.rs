@@ -5,7 +5,6 @@ use vortex_mask::Mask;
 
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, register_kernel};
 
 impl IsSortedKernel for PrimitiveEncoding {

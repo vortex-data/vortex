@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{ConstantArray, ExtensionArray, ExtensionEncoding};
 use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayExt, ArrayRef, register_kernel};
 
 impl CompareKernel for ExtensionEncoding {
     fn compare(
@@ -23,8 +23,8 @@ impl CompareKernel for ExtensionEncoding {
         }
 
         // If the RHS is an extension array matching ours, we can extract the storage.
-        if let Some(rhs_ext) = rhs.as_extension_typed() {
-            return compare(lhs.storage(), &rhs_ext.storage_data(), operator).map(Some);
+        if let Some(rhs_ext) = rhs.as_opt::<ExtensionArray>() {
+            return compare(lhs.storage(), rhs_ext.storage(), operator).map(Some);
         }
 
         // Otherwise, we need the RHS to handle this comparison.

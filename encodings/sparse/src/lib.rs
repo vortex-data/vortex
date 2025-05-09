@@ -4,7 +4,6 @@ use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray};
 use vortex_array::compute::{Operator, compare, fill_null, filter, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, IntoArray,
@@ -22,7 +21,6 @@ mod canonical;
 mod compute;
 mod ops;
 mod serde;
-mod variants;
 
 #[derive(Clone, Debug)]
 pub struct SparseArray {

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ArrayVariants};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructDType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
@@ -103,14 +103,10 @@ impl VortexExpr for Merge {
                 vortex_bail!("merge expects non-nullable struct input");
             }
 
-            let struct_array = value_array
-                .as_struct_typed()
-                .vortex_expect("merge expects struct input");
+            let struct_array = value_array.to_struct()?;
 
             for (i, field_name) in struct_array.names().iter().enumerate() {
-                let array = struct_array
-                    .maybe_null_field_by_idx(i)
-                    .vortex_expect("struct field not found");
+                let array = struct_array.fields()[i].clone();
 
                 // Update or insert field.
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
@@ -177,7 +173,7 @@ mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_error::{VortexResult, vortex_bail, vortex_err};
+    use vortex_error::{VortexResult, vortex_bail};
 
     use crate::{GetItem, Identity, Merge, VortexExpr};
 
@@ -188,16 +184,9 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array
-            .as_struct_typed()
-            .ok_or_else(|| vortex_err!("expected a struct"))?
-            .maybe_null_field_by_name(field)?;
-
+        let mut array = array.to_struct()?.field_by_name(field)?.clone();
         for field in field_path {
-            array = array
-                .as_struct_typed()
-                .ok_or_else(|| vortex_err!("expected a struct"))?
-                .maybe_null_field_by_name(field)?;
+            array = array.to_struct()?.field_by_name(field)?.clone();
         }
         Ok(array.to_primitive().unwrap())
     }
@@ -244,7 +233,7 @@ mod tests {
         let actual_array = expr.evaluate(test_array.as_ref()).unwrap();
 
         assert_eq!(
-            actual_array.as_struct_typed().unwrap().names(),
+            actual_array.as_struct_typed().names(),
             &["a".into(), "b".into(), "c".into(), "d".into(), "e".into()].into()
         );
 
@@ -289,7 +278,7 @@ mod tests {
             .into_array();
         let actual_array = expr.evaluate(&test_array).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert_eq!(actual_array.as_struct_typed().unwrap().nfields(), 0);
+        assert_eq!(actual_array.as_struct_typed().nfields(), 0);
     }
 
     #[test]
@@ -330,15 +319,17 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(test_array.as_ref()).unwrap();
+        let actual_array = expr
+            .evaluate(test_array.as_ref())
+            .unwrap()
+            .to_struct()
+            .unwrap();
 
         assert_eq!(
             actual_array
-                .as_struct_typed()
+                .field_by_name("a")
                 .unwrap()
-                .maybe_null_field_by_name("a")
-                .unwrap()
-                .as_struct_typed()
+                .to_struct()
                 .unwrap()
                 .names()
                 .iter()
@@ -377,10 +368,14 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(test_array.as_ref()).unwrap();
+        let actual_array = expr
+            .evaluate(test_array.as_ref())
+            .unwrap()
+            .to_struct()
+            .unwrap();
 
         assert_eq!(
-            actual_array.as_struct_typed().unwrap().names(),
+            actual_array.names(),
             &["a".into(), "c".into(), "b".into(), "d".into()].into()
         );
     }

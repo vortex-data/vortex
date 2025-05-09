@@ -3,7 +3,6 @@ use vortex_array::compute::{
     CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
 };
 use vortex_array::validity::Validity;
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, match_each_native_ptype};

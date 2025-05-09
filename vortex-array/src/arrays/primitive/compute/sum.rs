@@ -9,7 +9,6 @@ use vortex_scalar::Scalar;
 use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{SumKernel, SumKernelAdapter};
 use crate::stats::Stat;
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, register_kernel};
 
 impl SumKernel for PrimitiveEncoding {

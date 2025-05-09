@@ -5,7 +5,6 @@ use duckdb::vtab::arrow::WritableVector;
 use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::take;
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::{NativePType, match_each_integer_ptype};

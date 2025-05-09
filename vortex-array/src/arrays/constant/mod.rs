@@ -13,7 +13,6 @@ use crate::{
 mod canonical;
 mod compute;
 mod serde;
-mod variants;
 
 #[derive(Clone, Debug)]
 pub struct ConstantArray {

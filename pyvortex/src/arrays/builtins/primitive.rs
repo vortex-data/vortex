@@ -1,6 +1,5 @@
 use pyo3::{PyRef, pyclass, pymethods};
 use vortex::arrays::PrimitiveEncoding;
-use vortex::variants::PrimitiveArrayTrait;
 
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 use crate::dtype::PyPType;

@@ -6,7 +6,6 @@ use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
 
 use crate::arrays::{DecimalArray, DecimalEncoding, PrimitiveArray};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, register_kernel};
 
 impl TakeKernel for DecimalEncoding {

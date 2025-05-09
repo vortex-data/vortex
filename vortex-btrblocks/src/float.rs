@@ -3,7 +3,6 @@ mod stats;
 
 use vortex_alp::{ALPArray, ALPEncoding, RDEncoder};
 use vortex_array::arrays::{ConstantArray, PrimitiveArray};
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayExt as _, ArrayRef, ArrayStatistics, ToCanonical};
 use vortex_dict::DictArray;

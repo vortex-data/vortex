@@ -12,7 +12,6 @@ use crate::compute::{
     SumKernel, SumKernelAdapter, TakeKernel, TakeKernelAdapter, filter, is_constant_opts,
     is_sorted, is_strict_sorted, min_max, sum, take,
 };
-use crate::variants::ExtensionArrayTrait;
 use crate::{Array, ArrayRef, register_kernel};
 
 impl FilterKernel for ExtensionEncoding {

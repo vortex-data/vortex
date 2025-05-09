@@ -8,9 +8,9 @@ use jni::sys::{
 use vortex::arrays::{VarBinArray, VarBinViewArray};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, VortexResult};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex::nbytes::NBytes;
-use vortex::{Array, ArrayRef, ArrayVariants};
+use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::errors::try_or_throw;
 
@@ -194,11 +194,13 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getField(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        let Some(struct_array) = array_ref.inner.as_struct_typed() else {
-            throw_runtime!("getField expected struct array");
-        };
-
-        let field = struct_array.maybe_null_field_by_idx(index as usize)?;
+        let field = array_ref
+            .inner
+            .to_struct()?
+            .fields()
+            .get(index as usize)
+            .cloned()
+            .ok_or_else(|| vortex_err!("Field index out of bounds"))?;
         Ok(NativeArray::new(field).into_raw())
     })
 }
@@ -263,9 +265,9 @@ macro_rules! get_primitive {
                 let scalar_value = if array_ref.is_extension {
                     array_ref
                         .inner
-                        .as_extension_typed()
+                        .to_extension()
                         .vortex_expect("extension array")
-                        .storage_data()
+                        .storage()
                         .scalar_at(index as usize)?
                 } else {
                     array_ref.inner.scalar_at(index as usize)?
@@ -343,7 +345,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8_1ptr_1len<
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |env| {
-        if array_ref.inner.as_utf8_typed().is_none() {
+        if !array_ref.inner.dtype().is_utf8() {
             throw_runtime!("getUTF8_ptr_len expected UTF8 array");
         }
 

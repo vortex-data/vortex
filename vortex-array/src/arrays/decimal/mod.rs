@@ -9,12 +9,11 @@ use vortex_error::{VortexResult, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{DecimalValueType, NativeDecimalType};
 
-use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
+use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::arrays::decimal::serde::DecimalMetadata;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::variants::DecimalArrayTrait;
 use crate::vtable::VTableRef;
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
@@ -178,14 +177,6 @@ impl ArrayStatisticsImpl for DecimalArray {
         self.stats_set.to_ref(self)
     }
 }
-
-impl ArrayVariantsImpl for DecimalArray {
-    fn _as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
-        Some(self)
-    }
-}
-
-impl DecimalArrayTrait for DecimalArray {}
 
 impl ArrayCanonicalImpl for DecimalArray {
     #[inline]

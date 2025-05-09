@@ -6,7 +6,6 @@ use crate::arrays::PrimitiveEncoding;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::validity::Validity;
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, register_kernel};
 
 impl CastKernel for PrimitiveEncoding {
