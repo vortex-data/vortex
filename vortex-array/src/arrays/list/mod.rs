@@ -372,8 +372,6 @@ mod test {
             &Mask::from(BooleanBuffer::from(vec![false, true, true])),
         );
 
-        filtered.unwrap();
-
-        // assert!(filtered.is_ok())
+        assert!(filtered.is_ok())
     }
 }

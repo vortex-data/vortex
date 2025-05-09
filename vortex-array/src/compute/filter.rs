@@ -131,22 +131,6 @@ impl ComputeFnVTable for Filter {
         };
 
         Ok(output)
-
-        // Fallback: implement using Arrow kernels.
-
-        // Since we handle the AllTrue and AllFalse cases in the entry-point filter function,
-        // implementations can use `AllOr::expect_some` to unwrap the mixed values variant.
-        // let values = match &mask {
-        //     Mask::AllTrue(_) => return Ok(array.to_array().into()),
-        //     Mask::AllFalse(_) => return Ok(Canonical::empty(array.dtype()).into_array().into()),
-        //     Mask::Values(values) => values,
-        // };
-
-        // let array_ref = array.to_array().into_arrow_preferred()?;
-        // let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);
-        // let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
-        //
-        // Ok(ArrayRef::from_arrow(filtered, array.dtype().is_nullable()).into())
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
