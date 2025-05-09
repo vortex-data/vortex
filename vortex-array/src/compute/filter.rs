@@ -230,9 +230,8 @@ impl TryFrom<&dyn Array> for Mask {
 
 pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     let values = match &mask {
-        Mask::AllTrue(_) => return Ok(array.to_array()),
-        Mask::AllFalse(_) => return Ok(Canonical::empty(array.dtype()).into_array()),
         Mask::Values(values) => values,
+        _ => unreachable!("check in filter invoke"),
     };
 
     let array_ref = array.to_array().into_arrow_preferred()?;
