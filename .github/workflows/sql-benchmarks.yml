@@ -35,6 +35,11 @@ jobs:
             local_dir: bench-vortex/data/tpch/1
             remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch-sf1/
             targets: "datafusion:parquet,datafusion:vortex"
+          - id: tpchds-nvme
+            binary_name: tpcds
+            name: TPC-DS on NVME
+            local_dir: bench-vortex/data/tpcds/1
+            targets: "datafusion:parquet,duckdb:parquet"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
