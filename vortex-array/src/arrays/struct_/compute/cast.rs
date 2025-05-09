@@ -4,7 +4,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::{StructArray, StructVTable};
 use crate::compute::{CastKernel, CastKernelAdapter, cast};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for StructVTable {
     fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<ArrayRef> {

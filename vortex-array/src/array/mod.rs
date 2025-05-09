@@ -30,7 +30,7 @@ use crate::arrays::{
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
-use crate::vtable::{OperationsVTable, VTable};
+use crate::vtable::{CanonicalVTable, OperationsVTable, VTable};
 use crate::{Canonical, Encoding, EncodingId, EncodingRef};
 
 /// The base trait for all Vortex arrays.
@@ -498,7 +498,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn to_canonical(&self) -> VortexResult<Canonical> {
-        let canonical = <V::CanonicalVTable as CanonicalVTable>::canonicalize(&self.0)?;
+        let canonical = <V::CanonicalVTable as CanonicalVTable<V>>::canonicalize(&self.0)?;
         assert_eq!(
             self.len(),
             canonical.as_ref().len(),

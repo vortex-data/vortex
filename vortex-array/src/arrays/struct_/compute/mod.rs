@@ -5,14 +5,14 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::StructEncoding;
+use crate::arrays::StructVTable;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
     MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter, filter,
     is_constant_opts, take,
 };
-use crate::{Array, ArrayRef, ArrayVisitor, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl TakeKernel for StructVTable {
     fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

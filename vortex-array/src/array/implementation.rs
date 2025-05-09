@@ -22,30 +22,8 @@ use crate::{
 };
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
-pub trait ArrayImpl:
-    'static
-    + Send
-    + Sync
-    + Debug
-    + Clone
-    + ArrayCanonicalImpl
-    + ArrayOperationsImpl
-    + ArrayStatisticsImpl
-    + ArrayValidityImpl
-    + ArrayVisitorImpl<<Self::Encoding as Encoding>::Metadata>
-{
+pub trait ArrayImpl: 'static + Send + Sync + Debug + Clone {
     type Encoding: Encoding;
-
-    fn _len(&self) -> usize;
-    fn _dtype(&self) -> &DType;
-    fn _vtable(&self) -> VTableRef;
-
-    /// Replace the children of this array with the given arrays.
-    ///
-    /// ## Pre-conditions
-    ///
-    /// - The number of given children matches the current number of children of the array.
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self>;
 
     /// Dynamically invoke a kernel for the given compute function.
     fn _invoke(

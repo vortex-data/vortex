@@ -8,11 +8,14 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::stats::StatsSetRef;
-use crate::vtable::VTable;
+use crate::arrow::FromArrowArray;
+use crate::stats::{ArrayStats, StatsSetRef};
+use crate::vtable::{
+    ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
+};
 use crate::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, EncodingRef, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingRef, IntoArray,
+    vtable,
 };
 
 vtable!(Arrow);
@@ -47,6 +50,7 @@ pub struct ArrowEncoding;
 pub struct ArrowArray {
     inner: ArrowArrayRef,
     dtype: DType,
+    stats_set: ArrayStats,
 }
 
 impl ArrowArray {
@@ -55,6 +59,7 @@ impl ArrowArray {
         Self {
             inner: arrow_array,
             dtype,
+            stats_set: Default::default(),
         }
     }
 
@@ -63,77 +68,68 @@ impl ArrowArray {
     }
 }
 
-impl ArrayCanonicalImpl for ArrowArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        todo!()
+impl ArrayVTable<ArrowVTable> for ArrowVTable {
+    fn len(array: &ArrowArray) -> usize {
+        array.inner.len()
+    }
+
+    fn dtype(array: &ArrowArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ArrowArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array)
+    }
+}
+
+impl CanonicalVTable<ArrowVTable> for ArrowVTable {
+    fn canonicalize(array: &ArrowArray) -> VortexResult<Canonical> {
+        ArrayRef::from_arrow(array.inner.clone(), array.dtype.is_nullable()).to_canonical()
     }
 }
 
 impl OperationsVTable<ArrowVTable> for ArrowVTable {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let inner = self.inner.slice(start, stop - start);
-        let new_array = Self {
+    fn slice(array: &ArrowArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let inner = array.inner.slice(start, stop - start);
+        let new_array = ArrowArray {
             inner,
-            dtype: self.dtype.clone(),
+            dtype: array.dtype.clone(),
+            stats_set: Default::default(),
         };
         Ok(new_array.into_array())
     }
 
-    fn _scalar_at(&self, _index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &ArrowArray, index: usize) -> VortexResult<Scalar> {
         vortex_bail!("Not supported")
     }
 }
 
-impl ArrayStatisticsImpl for ArrowArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        todo!()
-    }
-}
-
-impl ArrayValidityImpl for ArrowArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        Ok(self.inner.is_valid(index))
+impl ValidityVTable<ArrowVTable> for ArrowVTable {
+    fn is_valid(array: &ArrowArray, index: usize) -> VortexResult<bool> {
+        Ok(array.inner.is_valid(index))
     }
 
-    fn _all_valid(&self) -> VortexResult<bool> {
-        Ok(self.inner.logical_null_count() == 0)
+    fn all_valid(array: &ArrowArray) -> VortexResult<bool> {
+        Ok(array.inner.logical_null_count() == 0)
     }
 
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        Ok(self.inner.logical_null_count() == self.inner.len())
+    fn all_invalid(array: &ArrowArray) -> VortexResult<bool> {
+        Ok(array.inner.logical_null_count() == array.inner.len())
     }
 
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        Ok(self
+    fn validity_mask(array: &ArrowArray) -> VortexResult<Mask> {
+        Ok(array
             .inner
             .logical_nulls()
             .map(|null_buffer| Mask::from_buffer(null_buffer.inner().clone()))
-            .unwrap_or_else(|| Mask::new_true(self.inner.len())))
+            .unwrap_or_else(|| Mask::new_true(array.inner.len())))
     }
 }
 
-impl ArrayVisitorImpl<EmptyMetadata> for ArrowArray {
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
-    }
-}
+impl VisitorVTable<ArrowVTable> for ArrowVTable {
+    fn visit_buffers(array: &ArrowArray, visitor: &mut dyn ArrayBufferVisitor) {}
 
-impl ArrayImpl for ArrowArray {
-    type Encoding = ArrowEncoding;
+    fn visit_children(array: &ArrowArray, visitor: &mut dyn ArrayChildVisitor) {}
 
-    fn _len(&self) -> usize {
-        self.inner.len()
-    }
-
-    fn _dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    fn _vtable(&self) -> VTableRef {
-        ArcRef::new_ref(&ArrowEncoding)
-    }
-
-    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
-        Ok(self.clone())
-    }
+    fn with_children(array: &ArrowArray, children: &[ArrayRef]) -> VortexResult<ArrowArray> {}
 }
