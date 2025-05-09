@@ -1,11 +1,10 @@
 use datafusion_common::stats::Precision;
 use datafusion_common::{ColumnStatistics, Result as DFResult, ScalarValue, Statistics};
 use itertools::Itertools;
-use vortex_array::Array;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::nbytes::NBytes;
 use vortex_array::stats::{Stat, StatsProvider};
-use vortex_array::variants::StructArrayTrait;
+use vortex_array::{Array, ToCanonical};
 use vortex_dtype::FieldNames;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -15,10 +14,13 @@ pub(crate) fn chunked_array_df_stats(
     array: &ChunkedArray,
     projection: FieldNames,
 ) -> DFResult<Statistics> {
+    // Swizzle the chunked of struct in to struct of chunked.
+    let array = array.to_struct()?;
+
     let mut nbytes: usize = 0;
     let column_statistics = projection
         .iter()
-        .map(|name| array.maybe_null_field_by_name(name))
+        .map(|name| array.field_by_name(name))
         .map_ok(|arr| {
             nbytes += arr.nbytes();
             ColumnStatistics {

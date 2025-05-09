@@ -3,7 +3,6 @@ mod compute;
 mod decode;
 mod ops;
 mod serde;
-mod variants;
 
 use arcref::ArcRef;
 pub use array::*;

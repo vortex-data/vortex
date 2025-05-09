@@ -5,7 +5,6 @@ use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
 use vortex_array::validity::Validity;
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{

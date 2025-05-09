@@ -1,4 +1,3 @@
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexExpect, VortexResult};

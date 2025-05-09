@@ -6,7 +6,7 @@ use vortex_array::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacit
 use vortex_array::compute::sum;
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ArrayVariants};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
@@ -17,7 +17,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 #[derive(Clone)]
 pub struct StatsTable {
     // The struct array backing the stats table
-    array: ArrayRef,
+    array: StructArray,
     // The statistics that are included in the table.
     stats: Arc<[Stat]>,
 }
@@ -25,7 +25,11 @@ pub struct StatsTable {
 impl StatsTable {
     /// Create StatsTable of given column_dtype from given array. Validates that the array matches expected
     /// structure for given list of stats
-    pub fn try_new(column_dtype: DType, array: ArrayRef, stats: Arc<[Stat]>) -> VortexResult<Self> {
+    pub fn try_new(
+        column_dtype: DType,
+        array: StructArray,
+        stats: Arc<[Stat]>,
+    ) -> VortexResult<Self> {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected stats table dtype");
         }
@@ -33,7 +37,7 @@ impl StatsTable {
     }
 
     /// Create StatsTable without validating return array against expected stats
-    pub fn unchecked_new(array: ArrayRef, stats: Arc<[Stat]>) -> Self {
+    pub fn unchecked_new(array: StructArray, stats: Arc<[Stat]>) -> Self {
         Self { array, stats }
     }
 
@@ -52,7 +56,7 @@ impl StatsTable {
     }
 
     /// The struct array backing the stats table
-    pub fn array(&self) -> &ArrayRef {
+    pub fn array(&self) -> &StructArray {
         &self.array
     }
 
@@ -93,12 +97,7 @@ impl StatsTable {
 
     /// Return the array for a given stat.
     pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<ArrayRef>> {
-        Ok(self
-            .array
-            .as_struct_typed()
-            .vortex_expect("Stats table must be a struct array")
-            .maybe_null_field_by_name(stat.name())
-            .ok())
+        Ok(self.array.field_by_name_opt(stat.name()).cloned())
     }
 }
 
@@ -185,8 +184,7 @@ impl StatsAccumulator {
 
         Some(StatsTable {
             array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)
-                .vortex_expect("Failed to create stats table")
-                .into_array(),
+                .vortex_expect("Failed to create stats table"),
             stats: stats.into(),
         })
     }

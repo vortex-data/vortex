@@ -5,6 +5,7 @@ use std::sync::Arc;
 use DType::*;
 use itertools::Itertools;
 use static_assertions::const_assert_eq;
+use vortex_error::vortex_panic;
 
 use crate::decimal::DecimalDType;
 use crate::nullability::Nullability;
@@ -128,24 +129,49 @@ impl DType {
         matches!(self, Struct(_, _))
     }
 
+    /// Check if `self` is a primitive tpye
+    pub fn is_primitive(&self) -> bool {
+        matches!(self, Primitive(_, _))
+    }
+
+    /// Returns this DType's `PType` if it is a primitive type, otherwise panics.
+    pub fn to_ptype(&self) -> PType {
+        match self {
+            Primitive(ptype, _) => *ptype,
+            _ => vortex_panic!("DType is not a primitive type"),
+        }
+    }
+
     /// Check if `self` is an unsigned integer
     pub fn is_unsigned_int(&self) -> bool {
-        PType::try_from(self).is_ok_and(PType::is_unsigned_int)
+        if let Primitive(ptype, _) = self {
+            return ptype.is_unsigned_int();
+        }
+        false
     }
 
     /// Check if `self` is a signed integer
     pub fn is_signed_int(&self) -> bool {
-        PType::try_from(self).is_ok_and(PType::is_signed_int)
+        if let Primitive(ptype, _) = self {
+            return ptype.is_signed_int();
+        }
+        false
     }
 
     /// Check if `self` is an integer (signed or unsigned)
     pub fn is_int(&self) -> bool {
-        PType::try_from(self).is_ok_and(PType::is_int)
+        if let Primitive(ptype, _) = self {
+            return ptype.is_int();
+        }
+        false
     }
 
     /// Check if `self` is a floating point number
     pub fn is_float(&self) -> bool {
-        PType::try_from(self).is_ok_and(PType::is_float)
+        if let Primitive(ptype, _) = self {
+            return ptype.is_float();
+        }
+        false
     }
 
     /// Check if `self` is a boolean

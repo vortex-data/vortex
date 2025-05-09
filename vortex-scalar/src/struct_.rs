@@ -4,7 +4,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, StructDType};
+use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{
     VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
@@ -23,7 +23,6 @@ impl Display for StructScalar<'_> {
             Some(fields) => {
                 write!(f, "{{")?;
                 let formatted_fields = self
-                    .struct_dtype()
                     .names()
                     .iter()
                     .zip_eq(self.struct_dtype().fields())
@@ -90,6 +89,10 @@ impl<'a> StructScalar<'a> {
             vortex_panic!("StructScalar always has struct dtype");
         };
         sdtype
+    }
+
+    pub fn names(&self) -> &FieldNames {
+        self.struct_dtype().names()
     }
 
     pub fn is_null(&self) -> bool {

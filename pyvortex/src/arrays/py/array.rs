@@ -12,7 +12,7 @@ use vortex::stats::StatsSetRef;
 use vortex::vtable::VTableRef;
 use vortex::{
     ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+    ArrayValidityImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
 };
 
 use crate::arrays::py::PyEncodingClass;
@@ -90,8 +90,6 @@ impl ArrayValidityImpl for PyArrayInstance {
         todo!()
     }
 }
-
-impl ArrayVariantsImpl for PyArrayInstance {}
 
 impl ArrayVisitorImpl for PyArrayInstance {
     fn _metadata(&self) -> EmptyMetadata {

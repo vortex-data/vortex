@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::{Array, ArrayRef, ArrayVariants};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -158,22 +158,20 @@ impl VortexExpr for Select {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let batch = self.child.evaluate(batch)?;
-        let st = batch
-            .as_struct_typed()
-            .ok_or_else(|| vortex_err!("Not a struct array"))?;
-        match &self.fields {
-            SelectField::Include(f) => st.project(f),
+        let batch = self.child.evaluate(batch)?.to_struct()?;
+        Ok(match &self.fields {
+            SelectField::Include(f) => batch.project(f),
             SelectField::Exclude(names) => {
-                let included_names = st
+                let included_names = batch
                     .names()
                     .iter()
                     .filter(|&f| !names.contains(f))
                     .cloned()
                     .collect::<Vec<_>>();
-                st.project(included_names.as_slice())
+                batch.project(included_names.as_slice())
             }
-        }
+        }?
+        .into_array())
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -220,7 +218,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::arrays::StructArray;
-    use vortex_array::{ArrayVariants, IntoArray};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, Nullability};
 
@@ -238,8 +236,8 @@ mod tests {
     pub fn include_columns() {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], ident());
-        let selected = select.evaluate(&st).unwrap();
-        let selected_names = selected.as_struct_typed().unwrap().names().clone();
+        let selected = select.evaluate(&st).unwrap().to_struct().unwrap();
+        let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a".into()]);
     }
 
@@ -247,8 +245,8 @@ mod tests {
     pub fn exclude_columns() {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], ident());
-        let selected = select.evaluate(&st).unwrap();
-        let selected_names = selected.as_struct_typed().unwrap().names().clone();
+        let selected = select.evaluate(&st).unwrap().to_struct().unwrap();
+        let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);
     }
 

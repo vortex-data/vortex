@@ -4,7 +4,6 @@ mod implementation;
 mod operations;
 mod statistics;
 mod validity;
-mod variants;
 mod visitor;
 
 use std::any::Any;
@@ -17,7 +16,6 @@ pub use implementation::*;
 pub use operations::*;
 pub use statistics::*;
 pub use validity::*;
-pub use variants::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -32,10 +30,6 @@ use crate::arrays::{
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
-use crate::variants::{
-    BinaryArrayTrait, BoolArrayTrait, DecimalArrayTrait, ExtensionArrayTrait, ListArrayTrait,
-    NullArrayTrait, PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
-};
 use crate::vtable::VTable;
 use crate::{Canonical, Encoding, EncodingId, EncodingRef};
 
@@ -45,7 +39,7 @@ use crate::{Canonical, Encoding, EncodingId, EncodingRef};
 /// function on the `_Impl` traits, e.g. [`ArrayValidityImpl`]. The functions here dispatch to the
 /// implementations, while validating pre- and post-conditions.
 pub trait Array:
-    'static + private::Sealed + Send + Sync + Debug + ArrayStatistics + ArrayVariants + ArrayVisitor
+    'static + private::Sealed + Send + Sync + Debug + ArrayStatistics + ArrayVisitor
 {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
@@ -542,44 +536,6 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         compute_fn: &ComputeFn,
         args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
-        todo!()
-    }
-}
-
-impl<V: VTable> ArrayVariants for ArrayAdapter<V> {
-    fn as_null_typed(&self) -> Option<&dyn NullArrayTrait> {
-        todo!()
-    }
-
-    fn as_bool_typed(&self) -> Option<&dyn BoolArrayTrait> {
-        todo!()
-    }
-
-    fn as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        todo!()
-    }
-
-    fn as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
-        todo!()
-    }
-
-    fn as_utf8_typed(&self) -> Option<&dyn Utf8ArrayTrait> {
-        todo!()
-    }
-
-    fn as_binary_typed(&self) -> Option<&dyn BinaryArrayTrait> {
-        todo!()
-    }
-
-    fn as_struct_typed(&self) -> Option<&dyn StructArrayTrait> {
-        todo!()
-    }
-
-    fn as_list_typed(&self) -> Option<&dyn ListArrayTrait> {
-        todo!()
-    }
-
-    fn as_extension_typed(&self) -> Option<&dyn ExtensionArrayTrait> {
         todo!()
     }
 }

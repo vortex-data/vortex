@@ -11,8 +11,7 @@ use vortex_scalar::Scalar;
 use crate::stats::StatsSetRef;
 use crate::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVariantsImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId,
+    ArrayValidityImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding, EncodingId,
 };
 
 /// A Vortex array that wraps an in-memory Arrow array.
@@ -98,8 +97,6 @@ impl ArrayValidityImpl for ArrowArray {
             .unwrap_or_else(|| Mask::new_true(self.inner.len())))
     }
 }
-
-impl ArrayVariantsImpl for ArrowArray {}
 
 impl ArrayVisitorImpl<EmptyMetadata> for ArrowArray {
     fn _metadata(&self) -> EmptyMetadata {

@@ -16,8 +16,8 @@ use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::{
-    Array, ArrayRef, ArrayStatistics, ArrayStatisticsImpl, ArrayVariantsImpl, ArrayVisitor,
-    Canonical, Encoding, EncodingId,
+    Array, ArrayRef, ArrayStatistics, ArrayStatisticsImpl, ArrayVisitor, Canonical, Encoding,
+    EncodingId,
 };
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
@@ -31,7 +31,6 @@ pub trait ArrayImpl:
     + ArrayOperationsImpl
     + ArrayStatisticsImpl
     + ArrayValidityImpl
-    + ArrayVariantsImpl
     + ArrayVisitorImpl<<Self::Encoding as Encoding>::Metadata>
 {
     type Encoding: Encoding;

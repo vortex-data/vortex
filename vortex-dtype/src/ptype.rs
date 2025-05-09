@@ -399,6 +399,7 @@ impl Display for PType {
 impl TryFrom<&DType> for PType {
     type Error = VortexError;
 
+    #[inline]
     fn try_from(value: &DType) -> VortexResult<Self> {
         match value {
             Primitive(p, _) => Ok(*p),

@@ -8,7 +8,6 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolVTable, ConstantArray};
 use crate::compute::{TakeKernel, TakeKernelAdapter, fill_null};
-use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ValidityChild;
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 

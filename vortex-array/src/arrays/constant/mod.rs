@@ -11,7 +11,6 @@ use crate::{Array, ArrayRef, Encoding, EncodingRef, vtable};
 mod canonical;
 mod compute;
 mod serde;
-mod variants;
 
 vtable!(Constant);
 

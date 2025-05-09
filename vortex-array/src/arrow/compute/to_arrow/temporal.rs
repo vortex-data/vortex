@@ -17,7 +17,6 @@ use crate::arrays::{ExtensionArray, TemporalArray};
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::to_arrow::ToArrowArgs;
 use crate::compute::{InvocationArgs, Kernel, Output, cast};
-use crate::variants::ExtensionArrayTrait;
 use crate::{Array as _, ToCanonical};
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.

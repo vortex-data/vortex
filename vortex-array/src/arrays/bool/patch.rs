@@ -4,7 +4,6 @@ use vortex_error::VortexResult;
 
 use crate::arrays::BoolArray;
 use crate::patches::Patches;
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ToCanonical};
 
 impl BoolArray {

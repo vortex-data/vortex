@@ -4,11 +4,10 @@ pub use compress::*;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding, ProstMetadata,
+    Canonical, Encoding, ProstMetadata,
 };
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_unsigned_integer_ptype};
@@ -270,11 +269,3 @@ impl ArrayValidityImpl for DeltaArray {
         self.validity.to_mask(self.len)
     }
 }
-
-impl ArrayVariantsImpl for DeltaArray {
-    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
-    }
-}
-
-impl PrimitiveArrayTrait for DeltaArray {}

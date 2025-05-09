@@ -3,9 +3,9 @@ use std::sync::{Arc, OnceLock, RwLock};
 
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
-use vortex_array::ArrayContext;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::stats::{Stat, stats_from_bitset_bytes};
+use vortex_array::{ArrayContext, ToCanonical};
 use vortex_dtype::TryFromBytes;
 use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_panic};
 use vortex_expr::pruning::PruningPredicate;
@@ -114,7 +114,10 @@ impl StatsReader {
                     .vortex_expect("Failed construct stats table evaluation");
 
                 async move {
-                    let stats_array = stats_eval.invoke(Mask::new_true(nzones)).await?;
+                    let stats_array = stats_eval
+                        .invoke(Mask::new_true(nzones))
+                        .await?
+                        .to_struct()?;
                     // SAFETY: This is only fine to call because we perform validation above
                     Ok(StatsTable::unchecked_new(stats_array, present_stats))
                 }

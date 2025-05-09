@@ -11,7 +11,6 @@ use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::validity::Validity;
-use crate::variants::PrimitiveArrayTrait;
 use crate::{Array, ArrayRef, ToCanonical};
 
 /// Builder for [`PrimitiveArray`].

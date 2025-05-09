@@ -29,10 +29,11 @@ impl Dataset for TPCHLCommentChunked {
         let lineitem_chunked = lineitem_vortex.as_::<ChunkedArray>();
         let comment_chunks = lineitem_chunked.chunks().iter().map(|chunk| {
             chunk
-                .as_struct_typed()
+                .to_struct()
                 .unwrap()
                 .project(&[FieldName::from("l_comment")])
                 .unwrap()
+                .into_array()
         });
         ChunkedArray::from_iter(comment_chunks).into_array()
     }

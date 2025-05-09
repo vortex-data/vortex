@@ -2,13 +2,12 @@ use std::fmt::Debug;
 
 pub use compress::*;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::vtable::VTableRef;
 use vortex_array::{
     Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    ArrayVariantsImpl, Canonical, Encoding,
+    Canonical, Encoding,
 };
-use vortex_dtype::DType;
+use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -49,6 +48,11 @@ impl FoRArray {
             reference,
             stats_set: Default::default(),
         })
+    }
+
+    #[inline]
+    pub fn ptype(&self) -> PType {
+        self.dtype().to_ptype()
     }
 
     #[inline]
@@ -111,11 +115,3 @@ impl ArrayValidityImpl for FoRArray {
         self.encoded().validity_mask()
     }
 }
-
-impl ArrayVariantsImpl for FoRArray {
-    fn _as_primitive_typed(&self) -> Option<&dyn PrimitiveArrayTrait> {
-        Some(self)
-    }
-}
-
-impl PrimitiveArrayTrait for FoRArray {}
