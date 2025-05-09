@@ -26,7 +26,7 @@ pub trait SerdeVTable<V: VTable> {
         encoding: &V::Encoding,
         dtype: DType,
         len: usize,
-        metadata: &Self::Metadata,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &[ArrayParts],
         ctx: &ArrayContext,

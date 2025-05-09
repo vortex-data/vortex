@@ -22,7 +22,7 @@ pub use serde::*;
 pub use validity::*;
 pub use visitor::*;
 
-use crate::{Array, Encoding, EncodingRef};
+use crate::{Array, Encoding, EncodingRef, IntoArray};
 
 /// The encoding [`VTable`] encapsulates logic for an Encoding type and associated Array type.
 /// The logic is split across several "VTable" traits to enable easier code organization than
@@ -40,7 +40,7 @@ use crate::{Array, Encoding, EncodingRef};
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
-    type Array: 'static + Send + Sync + Deref<Target = dyn Array>;
+    type Array: 'static + Send + Sync + Deref<Target = dyn Array> + IntoArray;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn Encoding>;
 
     type ArrayVTable: ArrayVTable<Self>;

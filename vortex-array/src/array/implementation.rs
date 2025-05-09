@@ -9,17 +9,11 @@ use vortex_scalar::Scalar;
 
 use crate::array::canonical::ArrayCanonicalImpl;
 use crate::array::convert::IntoArray;
-use crate::array::operations::ArrayOperationsImpl;
 use crate::array::validity::ArrayValidityImpl;
-use crate::array::visitor::ArrayVisitorImpl;
-use crate::arrays::ConstantEncoding;
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
-use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
-use crate::{
-    Array, ArrayRef, ArrayStatistics, ArrayStatisticsImpl, ArrayVisitor, Canonical, Encoding,
-    EncodingId,
-};
+use crate::stats::{Precision, Stat, StatsSetRef};
+use crate::{Array, ArrayRef, ArrayVisitor, Canonical, Encoding, EncodingId};
 
 /// A trait used to encapsulate common implementation behaviour for a Vortex [`Array`].
 pub trait ArrayImpl: 'static + Send + Sync + Debug + Clone {

@@ -1,7 +1,6 @@
 mod canonical;
 mod convert;
 mod implementation;
-mod operations;
 mod statistics;
 mod validity;
 mod visitor;
@@ -13,7 +12,6 @@ use std::sync::Arc;
 pub use canonical::*;
 pub use convert::*;
 pub use implementation::*;
-pub use operations::*;
 pub use statistics::*;
 pub use validity::*;
 pub use visitor::*;
@@ -30,7 +28,7 @@ use crate::arrays::{
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
-use crate::vtable::{CanonicalVTable, OperationsVTable, VTable};
+use crate::vtable::{ArrayVTable, CanonicalVTable, OperationsVTable, VTable};
 use crate::{Canonical, Encoding, EncodingId, EncodingRef};
 
 /// The base trait for all Vortex arrays.
@@ -282,6 +280,7 @@ impl<A: Array + Clone + 'static> TryFromArrayRef for Arc<A> {
     }
 }
 
+// FIXME(ngates): require AsRef<dyn Array> instead of Array?
 pub trait ArrayExt: Array {
     /// Returns the array downcast to the given `A`.
     fn as_<A: Array>(&self) -> &A {
@@ -350,6 +349,7 @@ mod private {
 /// Since this is a unit struct with `repr(transparent)`, we are able to turn un-adapted array
 /// structs into [`dyn Array`] using some cheeky casting inside [`Deref`] and [`AsRef`]. See
 /// the `vtable!` macro for more details.
+#[derive(Clone)]
 #[repr(transparent)]
 pub struct ArrayAdapter<V: VTable>(V::Array);
 
@@ -373,11 +373,11 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn len(&self) -> usize {
-        V::len(&self.0)
+        <V::ArrayVTable as ArrayVTable<V>>::len(&self.0)
     }
 
     fn dtype(&self) -> &DType {
-        V::dtype(&self.0)
+        <V::ArrayVTable as ArrayVTable<V>>::dtype(&self.0)
     }
 
     fn encoding(&self) -> EncodingRef {

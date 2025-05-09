@@ -9,8 +9,8 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::serde::ArrayParts;
-use crate::vtable::{SerdeVTable, VTable};
-use crate::{Array, ArrayContext, ArrayRef, Canonical, DeserializeMetadata};
+use crate::vtable::{EncodeVTable, SerdeVTable, VTable};
+use crate::{Array, ArrayContext, ArrayRef, Canonical, DeserializeMetadata, IntoArray};
 
 /// EncodingId is a globally unique name of the array's encoding.
 pub type EncodingId = ArcRef<str>;
@@ -86,10 +86,11 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
 
     fn encode(
         &self,
-        _input: &Canonical,
-        _like: Option<&dyn Array>,
+        input: &Canonical,
+        like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        todo!()
+        let array = <V::EncodeVTable as EncodeVTable<V>>::encode(&self.0, input, like)?;
+        Ok(array.map(|a| a.into_array()))
     }
 }
 
