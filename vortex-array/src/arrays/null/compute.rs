@@ -2,13 +2,13 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::arrays::NullEncoding;
+use crate::arrays::NullVTable;
 use crate::arrays::null::NullArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
     MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter,
 };
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FilterKernel for NullVTable {
     fn filter(&self, _array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
