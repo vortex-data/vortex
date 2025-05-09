@@ -5,7 +5,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
-use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewEncoding};
+use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewVTable};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 

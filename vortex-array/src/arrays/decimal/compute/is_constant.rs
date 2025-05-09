@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::arrays::{DecimalArray, DecimalEncoding};
+use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::{match_each_decimal_value_type, register_kernel};
 

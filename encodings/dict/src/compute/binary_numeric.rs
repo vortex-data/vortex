@@ -4,9 +4,9 @@ use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::NumericOperator;
 
-use crate::{DictArray, DictEncoding};
+use crate::{DictArray, DictVTable};
 
-impl NumericKernel for DictVTable {
+impl NumericKernel<DictVTable> for DictVTable {
     fn numeric(
         &self,
         array: &DictArray,

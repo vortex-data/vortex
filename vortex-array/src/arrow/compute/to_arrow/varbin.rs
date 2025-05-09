@@ -7,7 +7,7 @@ use arrow_schema::DataType;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::arrays::{VarBinArray, VarBinEncoding};
+use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::arrow::compute::{ToArrowKernel, ToArrowKernelAdapter};
 use crate::compute::cast;
 use crate::{Array, ToCanonical, register_kernel};

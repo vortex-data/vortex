@@ -13,11 +13,11 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
 use crate::compute::take::take_indices_unchecked;
-use crate::{RunEndArray, RunEndEncoding};
+use crate::{RunEndArray, RunEndVTable};
 
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
-impl FilterKernel for RunEndVTable {
+impl FilterKernel<RunEndVTable> for RunEndVTable {
     fn filter(&self, array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
         match mask {
             Mask::AllTrue(_) => Ok(array.to_array()),

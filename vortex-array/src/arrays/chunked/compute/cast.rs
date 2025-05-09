@@ -1,9 +1,9 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::arrays::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::compute::{CastKernel, CastKernelAdapter, cast};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for ChunkedVTable {
     fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<ArrayRef> {

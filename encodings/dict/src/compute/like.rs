@@ -3,9 +3,9 @@ use vortex_array::compute::{LikeKernel, LikeKernelAdapter, LikeOptions, like};
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 
-use crate::{DictArray, DictEncoding};
+use crate::{DictArray, DictVTable};
 
-impl LikeKernel for DictVTable {
+impl LikeKernel<DictVTable> for DictVTable {
     fn like(
         &self,
         array: &DictArray,

@@ -2,9 +2,9 @@ use vortex_array::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstan
 use vortex_array::{ArrayStatistics, register_kernel};
 use vortex_error::VortexResult;
 
-use crate::{DateTimePartsArray, DateTimePartsEncoding};
+use crate::{DateTimePartsArray, DateTimePartsVTable};
 
-impl IsConstantKernel for DateTimePartsVTable {
+impl IsConstantKernel<DateTimePartsVTable> for DateTimePartsVTable {
     fn is_constant(
         &self,
         array: &DateTimePartsArray,

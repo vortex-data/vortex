@@ -3,7 +3,7 @@ use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::i256;
 
-use super::{DecimalArray, DecimalEncoding};
+use super::{DecimalArray, DecimalVTable};
 use crate::arrays::NativeDecimalType;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;

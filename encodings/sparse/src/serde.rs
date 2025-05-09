@@ -10,7 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::{SparseArray, SparseEncoding};
+use crate::{SparseArray, SparseVTable};
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]

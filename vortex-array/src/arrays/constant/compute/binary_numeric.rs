@@ -1,7 +1,7 @@
 use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::NumericOperator;
 
-use crate::arrays::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{NumericKernel, NumericKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 

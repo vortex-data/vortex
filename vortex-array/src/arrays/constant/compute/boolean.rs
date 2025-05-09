@@ -2,7 +2,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{BooleanKernel, BooleanKernelAdapter, BooleanOperator};
 use crate::{Array, ArrayRef, register_kernel};
 

@@ -8,7 +8,7 @@ use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::compress::runend_encode;
-use crate::{RunEndArray, RunEndEncoding};
+use crate::{RunEndArray, RunEndVTable};
 
 #[derive(Clone, prost::Message)]
 pub struct RunEndMetadata {

@@ -2,7 +2,7 @@ use vortex_dtype::{NativePType, match_each_float_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::{NaNCountKernel, NaNCountKernelAdapter};
 use crate::{Array, register_kernel};
 

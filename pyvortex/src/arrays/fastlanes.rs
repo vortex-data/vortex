@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use vortex::encodings::fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
+use vortex::encodings::fastlanes::{BitPackedEncoding, DeltaEncoding, FoRVTable};
 
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 

@@ -3,9 +3,9 @@ use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{ALPArray, ALPEncoding};
+use crate::{ALPArray, ALPVTable};
 
-impl FilterKernel for ALPVTable {
+impl FilterKernel<ALPVTable> for ALPVTable {
     fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let patches = array
             .patches()

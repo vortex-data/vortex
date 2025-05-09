@@ -22,6 +22,7 @@ impl VTable for ChunkedVTable {
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = Self;
+    type EncodeVTable = ();
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> ArcRef<str> {

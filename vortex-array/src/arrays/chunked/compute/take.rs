@@ -2,7 +2,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
-use crate::arrays::ChunkedEncoding;
+use crate::arrays::ChunkedVTable;
 use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{TakeKernel, TakeKernelAdapter, cast, take};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};

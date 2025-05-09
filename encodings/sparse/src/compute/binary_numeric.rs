@@ -4,9 +4,9 @@ use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::NumericOperator;
 
-use crate::{SparseArray, SparseEncoding};
+use crate::{SparseArray, SparseVTable};
 
-impl NumericKernel for SparseVTable {
+impl NumericKernel<SparseVTable> for SparseVTable {
     fn numeric(
         &self,
         array: &SparseArray,

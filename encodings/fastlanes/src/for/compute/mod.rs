@@ -8,9 +8,9 @@ use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{FoRArray, FoREncoding};
+use crate::{FoRArray, FoRVTable};
 
-impl TakeKernel for FoRVTable {
+impl TakeKernel<FoRVTable> for FoRVTable {
     fn take(&self, array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
             take(array.encoded(), indices)?,
@@ -22,7 +22,7 @@ impl TakeKernel for FoRVTable {
 
 register_kernel!(TakeKernelAdapter(FoRVTable).lift());
 
-impl FilterKernel for FoRVTable {
+impl FilterKernel<FoRVTable> for FoRVTable {
     fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
             filter(array.encoded(), mask)?,

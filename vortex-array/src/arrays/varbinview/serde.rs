@@ -3,7 +3,7 @@ use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use super::{BinaryView, VarBinViewEncoding};
+use super::{BinaryView, VarBinViewVTable};
 use crate::arrays::VarBinViewArray;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;

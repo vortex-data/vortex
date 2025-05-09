@@ -4,9 +4,9 @@ use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_error::VortexResult;
 
 use crate::compress::runend_decode_bools;
-use crate::{RunEndArray, RunEndEncoding};
+use crate::{RunEndArray, RunEndVTable};
 
-impl CompareKernel for RunEndVTable {
+impl CompareKernel<RunEndVTable> for RunEndVTable {
     fn compare(
         &self,
         lhs: &RunEndArray,

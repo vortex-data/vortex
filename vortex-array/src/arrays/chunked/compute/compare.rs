@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::arrays::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::builders::{ArrayBuilder, BoolBuilder};
 use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
 use crate::{Array, ArrayRef, register_kernel};

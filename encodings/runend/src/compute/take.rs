@@ -6,9 +6,9 @@ use vortex_buffer::Buffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::{RunEndArray, RunEndEncoding};
+use crate::{RunEndArray, RunEndVTable};
 
-impl TakeKernel for RunEndVTable {
+impl TakeKernel<RunEndVTable> for RunEndVTable {
     fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let primitive_indices = indices.to_primitive()?;
 

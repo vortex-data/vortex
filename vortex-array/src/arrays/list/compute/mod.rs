@@ -2,7 +2,7 @@ mod mask;
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{ListArray, ListEncoding};
+use crate::arrays::{ListArray, ListVTable};
 use crate::compute::{
     IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, IsSortedKernel,
     IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,

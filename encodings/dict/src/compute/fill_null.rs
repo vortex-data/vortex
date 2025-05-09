@@ -4,9 +4,9 @@ use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::{DictArray, DictEncoding};
+use crate::{DictArray, DictVTable};
 
-impl FillNullKernel for DictVTable {
+impl FillNullKernel<DictVTable> for DictVTable {
     fn fill_null(&self, array: &DictArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
         // If the fill value exists in the dictionary, we can simply rewrite the null codes to
         // point to the value.

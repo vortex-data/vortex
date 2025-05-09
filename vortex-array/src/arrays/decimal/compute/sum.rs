@@ -3,7 +3,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{DecimalArray, DecimalEncoding};
+use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
 use crate::{Array, match_each_decimal_value_type, register_kernel};
 

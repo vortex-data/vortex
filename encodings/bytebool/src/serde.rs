@@ -8,7 +8,7 @@ use vortex_array::{
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::{ByteBoolArray, ByteBoolEncoding};
+use crate::{ByteBoolArray, ByteBoolVTable};
 
 impl EncodingVTable for ByteBoolEncoding {
     fn id(&self) -> EncodingId {

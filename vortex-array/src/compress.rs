@@ -3,7 +3,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{ConstantArray, PrimitiveArray, PrimitiveVTable};
 use crate::compute::{cast, min_max};
 use crate::{Array, ArrayExt, ArrayRef, ToCanonical};
 

@@ -8,7 +8,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::builders::dict_encode;
-use crate::{DictArray, DictEncoding};
+use crate::{DictArray, DictVTable};
 
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {

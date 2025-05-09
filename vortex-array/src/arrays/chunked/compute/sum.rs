@@ -3,7 +3,7 @@ use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{FromPrimitiveOrF16, Scalar};
 
-use crate::arrays::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::compute::{SumKernel, SumKernelAdapter, sum};
 use crate::stats::Stat;
 use crate::{Array, ArrayRef, register_kernel};

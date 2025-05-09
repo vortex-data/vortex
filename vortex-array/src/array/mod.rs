@@ -284,19 +284,19 @@ impl<A: Array + Clone + 'static> TryFromArrayRef for Arc<A> {
 
 pub trait ArrayExt: Array {
     /// Returns the array downcast to the given `A`.
-    fn as_<A: Array + 'static>(&self) -> &A {
+    fn as_<A: Array>(&self) -> &A {
         self.as_any()
             .downcast_ref::<A>()
             .vortex_expect("Failed to downcast")
     }
 
     /// Returns the array downcast to the given `A`.
-    fn as_opt<A: Array + 'static>(&self) -> Option<&A> {
+    fn as_opt<A: Array>(&self) -> Option<&A> {
         self.as_any().downcast_ref::<A>()
     }
 
     /// Is self an array with encoding `A`.
-    fn is<A: Array + 'static>(&self) -> bool {
+    fn is<A: Array>(&self) -> bool {
         self.as_opt::<A>().is_some()
     }
 }

@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use vortex::encodings::alp::{ALPEncoding, ALPRDEncoding};
+use vortex::encodings::alp::{ALPEncoding, ALPRDVTable};
 use vortex::encodings::datetime_parts::DateTimePartsEncoding;
 use vortex::encodings::dict::DictEncoding;
 use vortex::encodings::fsst::FSSTEncoding;

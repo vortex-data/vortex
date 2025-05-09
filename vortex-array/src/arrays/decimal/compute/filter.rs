@@ -2,7 +2,7 @@ use vortex_buffer::{Buffer, BufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::arrays::{DecimalArray, DecimalEncoding};
+use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{FilterKernel, FilterKernelAdapter};
 use crate::{Array, ArrayRef, match_each_decimal_value_type, register_kernel};
 

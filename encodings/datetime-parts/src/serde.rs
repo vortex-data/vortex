@@ -8,7 +8,7 @@ use vortex_array::{
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::{DateTimePartsArray, DateTimePartsEncoding};
+use crate::{DateTimePartsArray, DateTimePartsVTable};
 
 impl EncodingVTable for DateTimePartsEncoding {
     fn id(&self) -> EncodingId {

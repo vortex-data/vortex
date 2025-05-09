@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
+use crate::arrays::{VarBinViewArray, VarBinViewVTable};
 use crate::compute::{MaskKernel, MaskKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 

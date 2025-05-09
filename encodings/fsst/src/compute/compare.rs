@@ -9,9 +9,9 @@ use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::{FSSTArray, FSSTEncoding};
+use crate::{FSSTArray, FSSTVTable};
 
-impl CompareKernel for FSSTVTable {
+impl CompareKernel<FSSTVTable> for FSSTVTable {
     fn compare(
         &self,
         lhs: &FSSTArray,

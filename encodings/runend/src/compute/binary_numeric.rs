@@ -4,9 +4,9 @@ use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::NumericOperator;
 
-use crate::{RunEndArray, RunEndEncoding};
+use crate::{RunEndArray, RunEndVTable};
 
-impl NumericKernel for RunEndVTable {
+impl NumericKernel<RunEndVTable> for RunEndVTable {
     fn numeric(
         &self,
         array: &RunEndArray,

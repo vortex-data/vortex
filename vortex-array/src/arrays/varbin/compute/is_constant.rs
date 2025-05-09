@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
-use crate::arrays::{VarBinArray, VarBinEncoding};
+use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
 

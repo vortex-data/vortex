@@ -4,7 +4,8 @@ use crate::Canonical;
 use crate::builders::ArrayBuilder;
 use crate::vtable::VTable;
 
-pub trait DecodeVTable<V: VTable> {
+// TODO(ngates): rename to `DecodeVTable`.
+pub trait CanonicalVTable<V: VTable> {
     /// Returns the canonical representation of the array.
     ///
     /// ## Post-conditions

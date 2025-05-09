@@ -1,3 +1,4 @@
+use arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -5,14 +6,34 @@ use vortex_scalar::Scalar;
 
 use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
-use crate::vtable::{EncodingVTable, VTableRef};
+use crate::vtable::VTable;
 use crate::{
     Array, ArrayCanonicalImpl, ArrayContext, ArrayImpl, ArrayOperationsImpl, ArrayRef,
     ArrayStatisticsImpl, ArrayValidityImpl, ArrayVisitorImpl, Canonical, EmptyMetadata, Encoding,
-    EncodingId,
+    EncodingId, EncodingRef, vtable,
 };
 
 mod compute;
+
+vtable!(Null);
+
+impl VTable for NullVTable {
+    type Array = Self;
+    type Encoding = Self;
+    type ArrayVTable = Self;
+    type DecodeVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
+    type VisitorVTable = Self;
+
+    fn id(encoding: &Self::Encoding) -> ArcRef<str> {
+        todo!()
+    }
+
+    fn encoding(array: &Self::Array) -> EncodingRef {
+        todo!()
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct NullArray {

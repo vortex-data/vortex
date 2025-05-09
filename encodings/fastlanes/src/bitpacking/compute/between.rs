@@ -2,9 +2,9 @@ use vortex_array::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions,
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 
-use crate::{BitPackedArray, BitPackedEncoding};
+use crate::{BitPackedArray, BitPackedVTable};
 
-impl BetweenKernel for BitPackedVTable {
+impl BetweenKernel<BitPackedVTable> for BitPackedVTable {
     fn between(
         &self,
         array: &BitPackedArray,

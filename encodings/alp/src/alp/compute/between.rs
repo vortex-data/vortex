@@ -11,7 +11,7 @@ use vortex_scalar::{Scalar, ScalarType};
 
 use crate::{ALPArray, ALPEncoding, ALPFloat, match_each_alp_float_ptype};
 
-impl BetweenKernel for ALPVTable {
+impl BetweenKernel<ALPVTable> for ALPVTable {
     fn between(
         &self,
         array: &ALPArray,

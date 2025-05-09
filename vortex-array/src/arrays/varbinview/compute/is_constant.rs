@@ -1,6 +1,6 @@
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::arrays::{Ref, VarBinViewArray, VarBinViewEncoding};
+use crate::arrays::{Ref, VarBinViewArray, VarBinViewVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
 

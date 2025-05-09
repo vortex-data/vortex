@@ -5,9 +5,9 @@ use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{ZigZagArray, ZigZagEncoding};
+use crate::{ZigZagArray, ZigZagVTable};
 
-impl FilterKernel for ZigZagVTable {
+impl FilterKernel<ZigZagVTable> for ZigZagVTable {
     fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let encoded = filter(array.encoded(), mask)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
@@ -16,7 +16,7 @@ impl FilterKernel for ZigZagVTable {
 
 register_kernel!(FilterKernelAdapter(ZigZagVTable).lift());
 
-impl TakeKernel for ZigZagVTable {
+impl TakeKernel<ZigZagVTable> for ZigZagVTable {
     fn take(&self, array: &ZigZagArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let encoded = take(array.encoded(), indices)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())

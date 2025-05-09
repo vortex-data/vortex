@@ -23,6 +23,8 @@ impl VTable for BoolVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityChild;
     type VisitorVTable = Self;
+    type ComputeVTable = ();
+    type EncodeVTable = ();
     // Enable serde for this encoding
     type SerdeVTable = Self;
 

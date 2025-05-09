@@ -6,9 +6,9 @@ use vortex_scalar::Scalar;
 
 use super::filter::{ChunkFilter, chunk_filters, find_chunk_idx};
 use crate::arrays::chunked::compute::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD;
-use crate::arrays::{ChunkedArray, ChunkedEncoding, ConstantArray};
+use crate::arrays::{ChunkedArray, ChunkedVTable, ConstantArray};
 use crate::compute::{MaskKernel, MaskKernelAdapter, cast, mask};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for ChunkedVTable {
     fn mask(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {

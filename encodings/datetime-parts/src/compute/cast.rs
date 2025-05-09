@@ -3,9 +3,9 @@ use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::{DateTimePartsArray, DateTimePartsEncoding};
+use crate::{DateTimePartsArray, DateTimePartsVTable};
 
-impl CastKernel for DateTimePartsVTable {
+impl CastKernel<DateTimePartsVTable> for DateTimePartsVTable {
     fn cast(&self, array: &DateTimePartsArray, dtype: &DType) -> VortexResult<ArrayRef> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             vortex_bail!("cannot cast from {} to {}", array.dtype(), dtype);

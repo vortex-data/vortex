@@ -44,18 +44,21 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Encoding: 'static + Send + Sync + Deref<Target = dyn Encoding>;
 
     type ArrayVTable: ArrayVTable<Self>;
-    type DecodeVTable: DecodeVTable<Self>;
+    type DecodeVTable: CanonicalVTable<Self>;
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
     type VisitorVTable: VisitorVTable<Self>;
 
     /// Optionally enable implementing dynamic compute dispatch for this encoding.
-    type ComputeVTable: ComputeVTable<Self> = ();
+    /// Can be disabled by assigning to the unit `()` type.
+    type ComputeVTable: ComputeVTable<Self>;
     /// Optionally enable the [`EncodeVTable`] for this encoding. This allows it to partake in
     /// compression.
-    type EncodeVTable: EncodeVTable<Self> = ();
+    /// Can be disabled by assigning to the unit `()` type.
+    type EncodeVTable: EncodeVTable<Self>;
     /// Optionally enable serde for this encoding by implementing the [`SerdeVTable`] trait.
-    type SerdeVTable: SerdeVTable<Self> = ();
+    /// Can be disabled by assigning to the unit `()` type.
+    type SerdeVTable: SerdeVTable<Self>;
 
     /// Returns the ID of the encoding.
     fn id(encoding: &Self::Encoding) -> ArcRef<str>;

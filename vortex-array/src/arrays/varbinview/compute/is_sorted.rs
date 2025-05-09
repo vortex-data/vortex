@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
-use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
+use crate::arrays::{VarBinViewArray, VarBinViewVTable};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
 use crate::register_kernel;
 

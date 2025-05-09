@@ -9,7 +9,7 @@ use crate::arrays::{BoolVTable, bool};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::{ArrayVTable, DecodeVTable, ValidityChild};
+use crate::vtable::{ArrayVTable, CanonicalVTable, ValidityChild};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -138,7 +138,7 @@ impl ArrayVTable<BoolVTable> for BoolVTable {
     }
 }
 
-impl DecodeVTable<BoolVTable> for BoolVTable {
+impl CanonicalVTable<BoolVTable> for BoolVTable {
     fn canonicalize(array: &BoolArray) -> VortexResult<Canonical> {
         Ok(Canonical::Bool(array.clone()))
     }

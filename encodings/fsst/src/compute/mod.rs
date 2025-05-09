@@ -7,9 +7,9 @@ use vortex_array::{Array, ArrayExt, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::{FSSTArray, FSSTEncoding};
+use crate::{FSSTArray, FSSTVTable};
 
-impl TakeKernel for FSSTVTable {
+impl TakeKernel<FSSTVTable> for FSSTVTable {
     // Take on an FSSTArray is a simple take on the codes array.
     fn take(&self, array: &FSSTArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(FSSTArray::try_new(

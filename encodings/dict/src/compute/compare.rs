@@ -8,9 +8,9 @@ use vortex_error::VortexResult;
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
-use crate::{DictArray, DictEncoding};
+use crate::{DictArray, DictVTable};
 
-impl CompareKernel for DictVTable {
+impl CompareKernel<DictVTable> for DictVTable {
     fn compare(
         &self,
         lhs: &DictArray,

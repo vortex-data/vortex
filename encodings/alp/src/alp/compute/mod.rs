@@ -6,9 +6,9 @@ use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 
-use crate::{ALPArray, ALPEncoding};
+use crate::{ALPArray, ALPVTable};
 
-impl TakeKernel for ALPVTable {
+impl TakeKernel<ALPVTable> for ALPVTable {
     fn take(&self, array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let taken_encoded = take(array.encoded(), indices)?;
         let taken_patches = array

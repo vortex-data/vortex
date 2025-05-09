@@ -3,9 +3,9 @@ use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{RunEndArray, RunEndEncoding};
+use crate::{RunEndArray, RunEndVTable};
 
-impl TakeFromKernel for RunEndVTable {
+impl TakeFromKernel<RunEndVTable> for RunEndVTable {
     /// Takes values from the source array using run-end encoded indices.
     ///
     /// # Arguments

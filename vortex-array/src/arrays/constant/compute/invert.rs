@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{InvertKernel, InvertKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};
 
@@ -25,7 +25,7 @@ mod tests {
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{ConstantArray, ConstantEncoding};
+    use crate::arrays::{ConstantArray, ConstantVTable};
     use crate::compute::InvertKernel;
     use crate::{Array, ArrayStatistics};
 

@@ -2,7 +2,7 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::arrays::{StructArray, StructEncoding};
+use crate::arrays::{StructArray, StructVTable};
 use crate::compute::{CastKernel, CastKernelAdapter, cast};
 use crate::{Array, ArrayRef, register_kernel};
 

@@ -8,9 +8,9 @@ use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult};
 use vortex_scalar::{PValue, PrimitiveScalar, Scalar};
 
-use crate::{FoRArray, FoREncoding};
+use crate::{FoRArray, FoRVTable};
 
-impl CompareKernel for FoRVTable {
+impl CompareKernel<FoRVTable> for FoRVTable {
     fn compare(
         &self,
         lhs: &FoRArray,

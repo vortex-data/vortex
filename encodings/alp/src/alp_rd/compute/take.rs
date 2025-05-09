@@ -3,9 +3,9 @@ use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::{ALPRDArray, ALPRDEncoding};
+use crate::{ALPRDArray, ALPRDVTable};
 
-impl TakeKernel for ALPRDVTable {
+impl TakeKernel<ALPRDVTable> for ALPRDVTable {
     fn take(&self, array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let taken_left_parts = take(array.left_parts(), indices)?;
         let left_parts_exceptions = array

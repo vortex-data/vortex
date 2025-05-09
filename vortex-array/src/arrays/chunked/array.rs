@@ -18,7 +18,7 @@ use crate::search_sorted::{SearchSorted, SearchSortedSide};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::vtable::{ArrayVTable, ValidityVTable};
-use crate::{Array, ArrayRef, ArrayStatisticsImpl, Encoding, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 #[derive(Clone, Debug)]
 pub struct ChunkedArray {
@@ -258,7 +258,7 @@ mod test {
         let to_subtract = 1u64;
         let array = sub_scalar(&chunked, to_subtract.into()).unwrap();
 
-        let chunked = array.as_ref().as_::<ChunkedArray>();
+        let chunked = array.as_::<ChunkedArray>();
         let chunks_out = chunked.chunks();
 
         let results = chunks_out[0]

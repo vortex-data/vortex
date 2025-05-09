@@ -6,7 +6,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
 use crate::stats::Stat;
 use crate::{Array, register_kernel};

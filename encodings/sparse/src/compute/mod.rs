@@ -4,13 +4,13 @@ use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{SparseArray, SparseEncoding};
+use crate::{SparseArray, SparseVTable};
 
 mod binary_numeric;
 mod invert;
 mod take;
 
-impl FilterKernel for SparseVTable {
+impl FilterKernel<SparseVTable> for SparseVTable {
     fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let new_length = mask.true_count();
 

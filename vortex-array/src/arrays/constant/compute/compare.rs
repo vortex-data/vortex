@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::arrays::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, scalar_cmp};
 use crate::{Array, ArrayRef, register_kernel};
 

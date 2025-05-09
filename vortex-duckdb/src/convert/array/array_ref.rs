@@ -9,10 +9,10 @@ use vortex_array::arrays::{
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
 use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
-use vortex_dict::{DictArray, DictEncoding};
+use vortex_dict::{DictArray, DictVTable};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_fsst::{FSSTArray, FSSTEncoding};
-use vortex_runend::{RunEndArray, RunEndEncoding};
+use vortex_fsst::{FSSTArray, FSSTVTable};
+use vortex_runend::{RunEndArray, RunEndVTable};
 
 use crate::convert::array::cache::ConversionCache;
 use crate::convert::array::data_chunk_adaptor::SizedFlatVector;

@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::arrays::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::compute::{InvertKernel, InvertKernelAdapter, invert};
 use crate::{Array, ArrayRef, register_kernel};
 

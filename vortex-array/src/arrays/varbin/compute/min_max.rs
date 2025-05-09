@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::accessor::ArrayAccessor;
-use crate::arrays::{VarBinArray, VarBinEncoding};
+use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
 use crate::{Array, register_kernel};
 

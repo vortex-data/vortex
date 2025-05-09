@@ -1,7 +1,7 @@
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use super::{ListArray, ListEncoding};
+use super::{ListArray, ListVTable};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::{

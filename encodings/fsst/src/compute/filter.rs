@@ -4,9 +4,9 @@ use vortex_array::{Array, ArrayExt, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{FSSTArray, FSSTEncoding};
+use crate::{FSSTArray, FSSTVTable};
 
-impl FilterKernel for FSSTVTable {
+impl FilterKernel<FSSTVTable> for FSSTVTable {
     // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
     fn filter(&self, array: &FSSTArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(FSSTArray::try_new(

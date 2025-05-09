@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::builders::builder_with_capacity;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
 use crate::{Array, ArrayRef, register_kernel};

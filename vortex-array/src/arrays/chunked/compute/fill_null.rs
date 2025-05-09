@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter, fill_null};
 use crate::{Array, ArrayRef, register_kernel};
 

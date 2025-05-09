@@ -1,15 +1,17 @@
 use arcref::ArcRef;
+use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
-use crate::vtable::{VTable, ValidityVTable};
-use crate::{Array, ArrayRef, Encoding, EncodingRef, vtable};
+use crate::vtable::{ArrayVTable, OperationsVTable, VTable, ValidityVTable, VisitorVTable};
+use crate::{Array, ArrayBufferVisitor, ArrayRef, EncodingRef, IntoArray, vtable};
 
 mod canonical;
 mod compute;
+mod encode;
 mod serde;
 
 vtable!(Constant);
@@ -27,9 +29,15 @@ pub struct ConstantEncoding;
 impl VTable for ConstantVTable {
     type Array = ConstantArray;
     type Encoding = ConstantEncoding;
-    type CanonicalVTable = Self;
+
+    type ArrayVTable = Self;
+    type DecodeVTable = Self;
+    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
+    // TODO(ngates): implement a compute kernel for elementwise operations
+    type ComputeVTable = ();
+    type EncodeVTable = Self;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
@@ -38,30 +46,6 @@ impl VTable for ConstantVTable {
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
         ArcRef::new_ref(&ConstantEncoding)
-    }
-
-    fn len(array: &Self::Array) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &Self::Array) -> &DType {
-        array.scalar.dtype()
-    }
-
-    fn stats(array: &Self::Array) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
-    }
-
-    fn slice(array: &Self::Array, start: usize, stop: usize) -> VortexResult<Self::Array> {
-        Ok(ConstantArray::new(array.scalar.clone(), stop - start))
-    }
-
-    fn scalar_at(array: &Self::Array, _index: usize) -> VortexResult<Scalar> {
-        Ok(array.scalar.clone())
-    }
-
-    fn with_children(array: &Self::Array, _children: &[ArrayRef]) -> VortexResult<Self::Array> {
-        Ok(array.clone())
     }
 }
 
@@ -85,23 +69,62 @@ impl ConstantArray {
     }
 }
 
+impl ArrayVTable<ConstantVTable> for ConstantVTable {
+    fn len(array: &ConstantArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &ConstantArray) -> &DType {
+        array.scalar.dtype()
+    }
+
+    fn stats(array: &ConstantArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array)
+    }
+}
+
+impl OperationsVTable<ConstantVTable> for ConstantVTable {
+    fn slice(array: &ConstantArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        Ok(ConstantArray::new(array.scalar.clone(), stop - start).into_array())
+    }
+
+    fn scalar_at(array: &ConstantArray, index: usize) -> VortexResult<Scalar> {
+        Ok(array.scalar.clone())
+    }
+}
+
 impl ValidityVTable<ConstantVTable> for ConstantVTable {
-    fn is_valid(array: &<ConstantVTable as VTable>::Array, _index: usize) -> VortexResult<bool> {
+    fn is_valid(array: &ConstantArray, _index: usize) -> VortexResult<bool> {
         Ok(!array.scalar().is_null())
     }
 
-    fn all_valid(array: &<ConstantVTable as VTable>::Array) -> VortexResult<bool> {
+    fn all_valid(array: &ConstantArray) -> VortexResult<bool> {
         Ok(!array.scalar().is_null())
     }
 
-    fn all_invalid(array: &<ConstantVTable as VTable>::Array) -> VortexResult<bool> {
+    fn all_invalid(array: &ConstantArray) -> VortexResult<bool> {
         Ok(array.scalar().is_null())
     }
 
-    fn validity_mask(array: &<ConstantVTable as VTable>::Array) -> VortexResult<Mask> {
+    fn validity_mask(array: &ConstantArray) -> VortexResult<Mask> {
         Ok(match array.scalar().is_null() {
             true => Mask::AllFalse(array.len()),
             false => Mask::AllTrue(array.len()),
         })
+    }
+}
+
+impl VisitorVTable<ConstantVTable> for ConstantVTable {
+    fn visit_buffers(array: &ConstantArray, visitor: &mut dyn ArrayBufferVisitor) {
+        let buffer = array
+            .scalar
+            .value()
+            .to_protobytes::<ByteBufferMut>()
+            .freeze();
+        visitor.visit_buffer(&buffer);
+    }
+
+    fn with_children(array: &ConstantArray, _children: &[ArrayRef]) -> VortexResult<ConstantArray> {
+        Ok(array.clone())
     }
 }

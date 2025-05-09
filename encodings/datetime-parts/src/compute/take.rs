@@ -2,9 +2,9 @@ use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::VortexResult;
 
-use crate::{DateTimePartsArray, DateTimePartsEncoding};
+use crate::{DateTimePartsArray, DateTimePartsVTable};
 
-impl TakeKernel for DateTimePartsVTable {
+impl TakeKernel<DateTimePartsVTable> for DateTimePartsVTable {
     fn take(&self, array: &DateTimePartsArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(DateTimePartsArray::try_new(
             array.dtype().clone(),

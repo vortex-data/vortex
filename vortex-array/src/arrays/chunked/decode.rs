@@ -9,10 +9,10 @@ use crate::arrays::{ChunkedVTable, ListArray, PrimitiveArray, StructArray};
 use crate::builders::{ArrayBuilder, builder_with_capacity};
 use crate::compute::cast;
 use crate::validity::Validity;
-use crate::vtable::DecodeVTable;
+use crate::vtable::CanonicalVTable;
 use crate::{Array as _, ArrayRef, Canonical, IntoArray, ToCanonical};
 
-impl DecodeVTable<ChunkedVTable> for ChunkedVTable {
+impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
     fn canonicalize(array: &ChunkedArray) -> VortexResult<Canonical> {
         if array.nchunks() == 0 {
             return Ok(Canonical::empty(array.dtype()));
