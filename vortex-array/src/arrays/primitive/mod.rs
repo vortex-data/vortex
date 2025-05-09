@@ -45,7 +45,7 @@ impl VTable for PrimitiveVTable {
     type VisitorVTable = Self;
     type ComputeVTable = ();
     type EncodeVTable = ();
-    type SerdeVTable = ();
+    type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
         ArcRef::new_ref("vortex.primitive")

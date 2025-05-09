@@ -274,7 +274,7 @@ impl VTable for VarBinViewVTable {
     type VisitorVTable = Self;
     type ComputeVTable = ();
     type EncodeVTable = ();
-    type SerdeVTable = ();
+    type SerdeVTable = Self;
 
     fn id(encoding: &Self::Encoding) -> ArcRef<str> {
         ArcRef::new_ref("vortex.varbinview")

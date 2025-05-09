@@ -46,7 +46,6 @@ register_kernel!(IsSortedKernelAdapter(ListVTable).lift());
 
 #[cfg(test)]
 mod test {
-    use crate::array::Array;
     use crate::arrays::{ListArray, PrimitiveArray};
     use crate::compute::conformance::mask::test_mask;
     use crate::validity::Validity;
