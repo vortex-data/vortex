@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::arrays::{BoolArray, BoolEncoding, BoolVTable};
+use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
 

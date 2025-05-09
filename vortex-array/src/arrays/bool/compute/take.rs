@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{BoolArray, BoolEncoding, BoolVTable, ConstantArray};
+use crate::arrays::{BoolArray, BoolVTable, ConstantArray};
 use crate::compute::{TakeKernel, TakeKernelAdapter, fill_null};
 use crate::variants::PrimitiveArrayTrait;
 use crate::vtable::ValidityChild;

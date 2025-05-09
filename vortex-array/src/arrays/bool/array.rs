@@ -1,19 +1,15 @@
-use arcref::ArcRef;
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
-use vortex_scalar::Scalar;
 
+use crate::Canonical;
 use crate::array::Array;
-use crate::arrays::bool;
+use crate::arrays::{BoolVTable, bool};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::{CanonicalVTable, VTable, ValidityChild, ValidityVTableFromValidityChild};
-use crate::{ArrayRef, Canonical, Encoding, EncodingRef, vtable};
-
-vtable!(Bool);
+use crate::vtable::{ArrayVTable, DecodeVTable, ValidityChild};
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -21,57 +17,6 @@ pub struct BoolArray {
     buffer: BooleanBuffer,
     pub(crate) validity: Validity,
     pub(crate) stats_set: ArrayStats,
-}
-
-#[derive(Debug)]
-pub struct BoolEncoding;
-
-impl VTable for BoolVTable {
-    type Array = BoolArray;
-    type Encoding = BoolEncoding;
-
-    type CanonicalVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityChild;
-    type VisitorVTable = Self;
-    // Enable serde for this encoding
-    type SerdeVTable = Self;
-
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("vortex.bool")
-    }
-
-    fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(&BoolEncoding)
-    }
-
-    fn len(array: &Self::Array) -> usize {
-        array.buffer.len()
-    }
-
-    fn dtype(array: &Self::Array) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &Self::Array) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
-    }
-
-    fn slice(array: &Self::Array, start: usize, stop: usize) -> VortexResult<Self::Array> {
-        todo!()
-    }
-
-    fn scalar_at(array: &Self::Array, index: usize) -> VortexResult<Scalar> {
-        todo!()
-    }
-
-    fn with_children(array: &Self::Array, children: &[ArrayRef]) -> VortexResult<Self::Array> {
-        let validity = if array.validity().is_array() {
-            Validity::Array(children[0].clone())
-        } else {
-            array.validity().clone()
-        };
-        Ok(BoolArray::new(array.boolean_buffer().clone(), validity))
-    }
 }
 
 impl BoolArray {
@@ -179,15 +124,26 @@ impl ValidityChild for BoolArray {
     }
 }
 
-impl CanonicalVTable<BoolVTable> for BoolVTable {
-    fn canonicalize(array: &<BoolVTable as VTable>::Array) -> VortexResult<Canonical> {
+impl ArrayVTable<BoolVTable> for BoolVTable {
+    fn len(array: &BoolArray) -> usize {
+        array.buffer.len()
+    }
+
+    fn dtype(array: &BoolArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &BoolArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array)
+    }
+}
+
+impl DecodeVTable<BoolVTable> for BoolVTable {
+    fn canonicalize(array: &BoolArray) -> VortexResult<Canonical> {
         Ok(Canonical::Bool(array.clone()))
     }
 
-    fn append_to_builder(
-        array: &<BoolVTable as VTable>::Array,
-        builder: &mut dyn ArrayBuilder,
-    ) -> VortexResult<()> {
+    fn append_to_builder(array: &BoolArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         builder.extend_from_array(array)
     }
 }
@@ -206,5 +162,129 @@ impl BooleanBufferExt for BooleanBuffer {
             .into_inner()
             .slice_with_length(byte_offset, (len + bit_offset).div_ceil(8));
         BooleanBuffer::new(buffer, bit_offset, len)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
+    use vortex_buffer::buffer;
+
+    use crate::ToCanonical;
+    use crate::array::Array;
+    use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::compute::conformance::mask::test_mask;
+    use crate::patches::Patches;
+    use crate::validity::Validity;
+
+    #[test]
+    fn bool_array() {
+        let arr = BoolArray::from_iter([true, false, true]);
+        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
+        assert!(scalar);
+    }
+
+    #[test]
+    fn test_all_some_iter() {
+        let arr = BoolArray::from_iter([Some(true), Some(false)]);
+
+        assert!(matches!(arr.validity(), Validity::AllValid));
+
+        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
+        assert!(scalar);
+        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
+        assert!(!scalar);
+    }
+
+    #[test]
+    fn test_bool_from_iter() {
+        let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
+
+        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
+        assert!(scalar);
+
+        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
+        assert!(scalar);
+
+        let scalar = arr.scalar_at(2).unwrap();
+        assert!(scalar.is_null());
+
+        let scalar = bool::try_from(&arr.scalar_at(3).unwrap()).unwrap();
+        assert!(!scalar);
+
+        let scalar = arr.scalar_at(4).unwrap();
+        assert!(scalar.is_null());
+    }
+
+    #[test]
+    fn patch_sliced_bools() {
+        let arr = {
+            let mut builder = BooleanBufferBuilder::new(12);
+            builder.append(false);
+            builder.append_n(11, true);
+            BoolArray::from(builder.finish())
+        };
+        let sliced = arr.slice(4, 12).unwrap();
+        let sliced_len = sliced.len();
+        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 4);
+        assert_eq!(values.as_slice(), &[254, 15]);
+
+        // patch the underlying array
+        let patches = Patches::new(
+            arr.len(),
+            0,
+            PrimitiveArray::new(buffer![4u32], Validity::AllValid).into_array(),
+            BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
+        );
+        let arr = arr.patch(&patches).unwrap();
+        let arr_len = arr.len();
+        let (values, offset) = arr.to_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 0);
+        assert_eq!(values.len(), arr_len + offset);
+        assert_eq!(values.as_slice(), &[238, 15]);
+
+        // the slice should be unchanged
+        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 4);
+        assert_eq!(values.len(), sliced_len + offset);
+        assert_eq!(values.as_slice(), &[254, 15]); // unchanged
+    }
+
+    #[test]
+    fn slice_array_in_middle() {
+        let arr = BoolArray::from(BooleanBuffer::new_set(16));
+        let sliced = arr.slice(4, 12).unwrap();
+        let sliced_len = sliced.len();
+        let (values, offset) = sliced.to_bool().unwrap().into_boolean_builder();
+        assert_eq!(offset, 4);
+        assert_eq!(values.len(), sliced_len + offset);
+        assert_eq!(values.as_slice(), &[255, 15]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn patch_bools_owned() {
+        let buffer = buffer![255u8; 2];
+        let buf = BooleanBuffer::new(buffer.into_arrow_buffer(), 0, 15);
+        let arr = BoolArray::new(buf, Validity::NonNullable);
+        let buf_ptr = arr.boolean_buffer().sliced().as_ptr();
+
+        let patches = Patches::new(
+            arr.len(),
+            0,
+            PrimitiveArray::new(buffer![0u32], Validity::AllValid).into_array(),
+            BoolArray::from(BooleanBuffer::new_unset(1)).into_array(),
+        );
+        let arr = arr.patch(&patches).unwrap();
+        assert_eq!(arr.boolean_buffer().sliced().as_ptr(), buf_ptr);
+
+        let (values, _byte_bit_offset) = arr.to_bool().unwrap().into_boolean_builder();
+        assert_eq!(values.as_slice(), &[254, 127]);
+    }
+
+    #[test]
+    fn test_mask_primitive_array() {
+        test_mask(&BoolArray::from_iter([true, false, true, true, false]));
     }
 }

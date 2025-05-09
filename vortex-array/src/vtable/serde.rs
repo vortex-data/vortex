@@ -4,26 +4,24 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::serde::ArrayParts;
 use crate::vtable::VTable;
-use crate::{
-    Array, ArrayContext, Canonical, DeserializeMetadata, EmptyMetadata, SerializeMetadata,
-};
+use crate::{ArrayContext, DeserializeMetadata, EmptyMetadata, SerializeMetadata};
 
-/// VTable for implementing serialization and deserialization of arrays.
+/// VTable for implementing marshalling of arrays.
+///
+/// This is required to be implemented in order to support:
+///  * Serialization to disk or over IPC.
+///  * Import/export over FFI.
 pub trait SerdeVTable<V: VTable> {
     type Metadata: SerializeMetadata + DeserializeMetadata;
 
     /// Returns the metadata for the given array.
-    fn metadata(array: &V::Array) -> Self::Metadata;
+    ///
+    /// If `None` is returned, the array does not support serialization.
+    fn metadata(array: &V::Array) -> Option<Self::Metadata>;
 
-    /// Encodes a canonical array using this encoding.
-    fn encode(
-        encoding: &V::Encoding,
-        canonical: Canonical,
-        like: Option<&dyn Array>,
-    ) -> VortexResult<V::Array>;
-
-    /// Decode an array from the given [`ArrayParts`] and [`ArrayContext`].
+    /// Unmarshall an array from the given [`ArrayParts`] and [`ArrayContext`].
     /// The array parts must be valid for the given encoding.
+    // TODO(ngates): rename to `unmarshal`
     fn decode(
         encoding: &V::Encoding,
         dtype: DType,
@@ -38,12 +36,8 @@ pub trait SerdeVTable<V: VTable> {
 impl<V: VTable> SerdeVTable<V> for () {
     type Metadata = EmptyMetadata;
 
-    fn encode(
-        encoding: &V::Encoding,
-        _canonical: Canonical,
-        _like: Option<&dyn Array>,
-    ) -> VortexResult<V::Array> {
-        vortex_bail!("Serde not supported by {} encoding", V::id(encoding));
+    fn metadata(_array: &V::Array) -> Option<Self::Metadata> {
+        None
     }
 
     fn decode(

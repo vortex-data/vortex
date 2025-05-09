@@ -4,15 +4,16 @@ use crate::Canonical;
 use crate::builders::ArrayBuilder;
 use crate::vtable::VTable;
 
-pub trait CanonicalVTable<V: VTable> {
+pub trait DecodeVTable<V: VTable> {
     /// Returns the canonical representation of the array.
     ///
     /// ## Post-conditions
     /// - The length is equal to that of the input array.
     /// - The [`vortex_dtype::DType`] is equal to that of the input array.
+    // TODO(ngates): rename to `decode`
     fn canonicalize(array: &V::Array) -> VortexResult<Canonical>;
 
-    /// Writes the array into the canonical builder.
+    /// Writes the array into a canonical builder.
     ///
     /// ## Post-conditions
     /// - The length of the builder is incremented by the length of the input array.

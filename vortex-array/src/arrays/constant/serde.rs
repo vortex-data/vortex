@@ -8,7 +8,6 @@ use crate::serde::ArrayParts;
 use crate::vtable::SerdeVTable;
 use crate::{
     Array, ArrayBufferVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical, EmptyMetadata,
-    EncodingId,
 };
 
 impl SerdeVTable<ConstantVTable> for ConstantVTable {

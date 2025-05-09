@@ -1,6 +1,9 @@
 //! This module contains the VTable definitions for a Vortex encoding.
 
-mod canonical;
+mod array;
+mod decode;
+mod encode;
+mod operations;
 mod serde;
 mod validity;
 mod visitor;
@@ -9,16 +12,15 @@ use std::fmt::Debug;
 use std::ops::Deref;
 
 use arcref::ArcRef;
-pub use canonical::*;
+pub use array::*;
+pub use decode::*;
+pub use encode::*;
+pub use operations::*;
 pub use serde::*;
 pub use validity::*;
 pub use visitor::*;
-use vortex_dtype::DType;
-use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
-use crate::stats::StatsSetRef;
-use crate::{Array, ArrayRef, Encoding, EncodingRef};
+use crate::{Array, Encoding, EncodingRef};
 
 /// The encoding [`VTable`] encapsulates logic for an Encoding type and associated Array type.
 /// The logic is split across several "VTable" traits to enable easier code organization than
@@ -39,43 +41,23 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Array: 'static + Send + Sync + Deref<Target = dyn Array>;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn Encoding>;
 
-    type CanonicalVTable: CanonicalVTable<Self>;
+    type ArrayVTable: ArrayVTable<Self>;
+    type DecodeVTable: DecodeVTable<Self>;
+    type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
     type VisitorVTable: VisitorVTable<Self>;
 
+    /// Optionally enable the [`EncodeVTable`] for this encoding. This allows it to partake in
+    /// compression.
+    type EncodeVTable: EncodeVTable<Self> = ();
     /// Optionally enable serde for this encoding by implementing the [`SerdeVTable`] trait.
     type SerdeVTable: SerdeVTable<Self> = ();
-
-    // Declare which dtypes this encoding supports by providing vtables for each dtype.
-    // type BoolVTable: BoolVTable<Self> = ();
-
-    // Encoding Functions
 
     /// Returns the ID of the encoding.
     fn id(encoding: &Self::Encoding) -> ArcRef<str>;
 
-    // Array Functions
-
+    /// Returns the encoding for the array.
     fn encoding(array: &Self::Array) -> EncodingRef;
-
-    fn len(array: &Self::Array) -> usize;
-
-    fn dtype(array: &Self::Array) -> &DType;
-
-    fn stats(array: &Self::Array) -> StatsSetRef<'_>;
-
-    // TODO(ngates): remove the result from this function, since the bounds are already checked.
-    fn slice(array: &Self::Array, start: usize, stop: usize) -> VortexResult<Self::Array>;
-
-    // TODO(ngates): remove the result from this function, since the bounds are already checked.
-    fn scalar_at(array: &Self::Array, index: usize) -> VortexResult<Scalar>;
-
-    /// Replace the children of this array with the given arrays.
-    ///
-    /// ## Pre-conditions
-    ///
-    /// - The number of given children matches the current number of children of the array.
-    fn with_children(array: &Self::Array, children: &[ArrayRef]) -> VortexResult<Self::Array>;
 }
 
 #[macro_export]
@@ -93,7 +75,7 @@ macro_rules! vtable {
             }
 
             impl std::ops::Deref for [<$V Array>] {
-                type Target = dyn Array;
+                type Target = dyn $crate::Array;
 
                 fn deref(&self) -> &Self::Target {
                     // We can unsafe cast ourselves to an ArrayAdapter.
@@ -107,8 +89,8 @@ macro_rules! vtable {
                 }
             }
 
-            impl AsRef<dyn Encoding> for [<$V Encoding>] {
-                fn as_ref(&self) -> &dyn Encoding {
+            impl AsRef<dyn $crate::Encoding> for [<$V Encoding>] {
+                fn as_ref(&self) -> &dyn $crate::Encoding {
                     // We can unsafe cast ourselves to an EncodingAdapter.
                     unsafe { &*(self as *const [<$V Encoding>] as *const $crate::EncodingAdapter<[<$V VTable>]>) }
                 }

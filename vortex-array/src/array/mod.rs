@@ -36,7 +36,7 @@ use crate::variants::{
     BinaryArrayTrait, BoolArrayTrait, DecimalArrayTrait, ExtensionArrayTrait, ListArrayTrait,
     NullArrayTrait, PrimitiveArrayTrait, StructArrayTrait, Utf8ArrayTrait,
 };
-use crate::vtable::{CanonicalVTable, VTable};
+use crate::vtable::VTable;
 use crate::{Canonical, Encoding, EncodingId, EncodingRef};
 
 /// The base trait for all Vortex arrays.

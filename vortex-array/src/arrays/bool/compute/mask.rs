@@ -1,9 +1,10 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{BoolArray, BoolEncoding, BoolVTable};
+use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{MaskKernel, MaskKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::vtable::ValidityChild;
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for BoolVTable {
     fn mask(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
