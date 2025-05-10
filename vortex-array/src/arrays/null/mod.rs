@@ -38,7 +38,7 @@ impl VTable for NullVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(&NullEncoding)
+        ArcRef::new_ref(NullEncoding.as_ref())
     }
 }
 
@@ -48,7 +48,7 @@ pub struct NullArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct NullEncoding;
 
 impl NullArray {
@@ -70,7 +70,7 @@ impl ArrayVTable<NullVTable> for NullVTable {
     }
 
     fn stats(array: &NullArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 

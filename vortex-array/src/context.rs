@@ -24,21 +24,21 @@ impl ArrayRegistry {
 
         // Register the canonical encodings
         this.register_many([
-            ArcRef::new_ref(&NullEncoding) as EncodingRef,
-            ArcRef::new_ref(&BoolEncoding),
-            ArcRef::new_ref(&PrimitiveEncoding),
-            ArcRef::new_ref(&DecimalEncoding),
-            ArcRef::new_ref(&StructEncoding),
-            ArcRef::new_ref(&ListEncoding),
-            ArcRef::new_ref(&VarBinEncoding),
-            ArcRef::new_ref(&VarBinViewEncoding),
-            ArcRef::new_ref(&ExtensionEncoding),
+            ArcRef::new_ref(NullEncoding.as_ref()) as EncodingRef,
+            ArcRef::new_ref(BoolEncoding.as_ref()),
+            ArcRef::new_ref(PrimitiveEncoding.as_ref()),
+            ArcRef::new_ref(DecimalEncoding.as_ref()),
+            ArcRef::new_ref(StructEncoding.as_ref()),
+            ArcRef::new_ref(ListEncoding.as_ref()),
+            ArcRef::new_ref(VarBinEncoding.as_ref()),
+            ArcRef::new_ref(VarBinViewEncoding.as_ref()),
+            ArcRef::new_ref(ExtensionEncoding.as_ref()),
         ]);
 
         // Register the utility encodings
         this.register_many([
-            ArcRef::new_ref(&ConstantEncoding) as EncodingRef,
-            ArcRef::new_ref(&ChunkedEncoding),
+            ArcRef::new_ref(ConstantEncoding.as_ref()) as EncodingRef,
+            ArcRef::new_ref(ChunkedEncoding.as_ref()),
         ]);
 
         this

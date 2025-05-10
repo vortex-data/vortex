@@ -3,12 +3,12 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{InvertKernel, InvertKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl InvertKernel for ConstantVTable {
     fn invert(&self, array: &ConstantArray) -> VortexResult<ArrayRef> {
         match array.scalar().as_bool().value() {
-            None => Ok(array.to_array().into_array()),
+            None => Ok(array.to_array()),
             Some(b) => Ok(ConstantArray::new(
                 Scalar::bool(!b, array.dtype().nullability()),
                 array.len(),

@@ -38,7 +38,7 @@ impl VTable for StructVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(&StructEncoding)
+        ArcRef::new_ref(StructEncoding.as_ref())
     }
 }
 
@@ -51,7 +51,7 @@ pub struct StructArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StructEncoding;
 
 impl StructArray {
@@ -223,7 +223,7 @@ impl ArrayVTable<StructVTable> for StructVTable {
     }
 
     fn stats(array: &StructArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 

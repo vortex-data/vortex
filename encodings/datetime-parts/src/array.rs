@@ -20,7 +20,7 @@ pub struct DateTimePartsArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DateTimePartsEncoding;
 impl Encoding for DateTimePartsEncoding {
     type Array = DateTimePartsArray;

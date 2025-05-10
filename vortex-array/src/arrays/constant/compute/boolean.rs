@@ -4,7 +4,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{BooleanKernel, BooleanKernelAdapter, BooleanOperator};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl BooleanKernel for ConstantVTable {
     fn boolean(

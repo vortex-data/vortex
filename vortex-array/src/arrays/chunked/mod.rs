@@ -30,9 +30,9 @@ impl VTable for ChunkedVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(&ChunkedEncoding)
+        ArcRef::new_ref(ChunkedEncoding.as_ref())
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ChunkedEncoding;

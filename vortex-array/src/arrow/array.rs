@@ -37,13 +37,13 @@ impl VTable for ArrowVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(&ArrowEncoding)
+        ArcRef::new_ref(ArrowEncoding.as_ref())
     }
 }
 
 /// A Vortex array that wraps an in-memory Arrow array.
 // TODO(ngates): consider having each Arrow encoding be a separate encoding ID.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ArrowEncoding;
 
 #[derive(Clone, Debug)]
@@ -78,7 +78,7 @@ impl ArrayVTable<ArrowVTable> for ArrowVTable {
     }
 
     fn stats(array: &ArrowArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 

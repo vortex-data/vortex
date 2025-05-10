@@ -23,7 +23,7 @@ pub struct FSSTArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FSSTEncoding;
 impl Encoding for FSSTEncoding {
     type Array = FSSTArray;

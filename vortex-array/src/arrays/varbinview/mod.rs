@@ -292,7 +292,7 @@ pub struct VarBinViewArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VarBinViewEncoding;
 
 impl VarBinViewArray {
@@ -510,7 +510,7 @@ impl ArrayVTable<VarBinViewVTable> for VarBinViewVTable {
     }
 
     fn stats(array: &VarBinViewArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 

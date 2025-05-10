@@ -22,6 +22,12 @@ pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
     /// Downcast the encoding to [`Any`].
     fn as_any(&self) -> &dyn Any;
 
+    fn to_encoding(&self) -> EncodingRef;
+
+    fn into_encoding(self) -> EncodingRef
+    where
+        Self: Sized;
+
     /// Returns the ID of the encoding.
     fn id(&self) -> EncodingId;
 
@@ -58,6 +64,17 @@ pub struct EncodingAdapter<V: VTable>(V::Encoding);
 impl<V: VTable> Encoding for EncodingAdapter<V> {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn to_encoding(&self) -> EncodingRef {
+        ArcRef::new_arc(EncodingAdapter::<V>(self.0.clone()))
+    }
+
+    fn into_encoding(self) -> EncodingRef
+    where
+        Self: Sized,
+    {
+        todo!()
     }
 
     fn id(&self) -> EncodingId {

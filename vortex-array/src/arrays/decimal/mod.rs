@@ -42,11 +42,11 @@ impl VTable for DecimalVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(&DecimalEncoding)
+        ArcRef::new_ref(DecimalEncoding.as_ref())
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DecimalEncoding;
 
 /// Type of decimal scalar values.
@@ -189,7 +189,7 @@ impl ArrayVTable<DecimalVTable> for DecimalVTable {
     }
 
     fn stats(array: &DecimalArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 

@@ -24,14 +24,14 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
             DType::Struct(struct_dtype, _) => {
                 let struct_array = swizzle_struct_chunks(
                     array.chunks(),
-                    Validity::copy_from_array(array)?,
+                    Validity::copy_from_array(array.as_ref())?,
                     struct_dtype,
                 )?;
                 Ok(Canonical::Struct(struct_array))
             }
             DType::List(elem, _) => Ok(Canonical::List(pack_lists(
                 array.chunks(),
-                Validity::copy_from_array(array)?,
+                Validity::copy_from_array(array.as_ref())?,
                 elem,
             )?)),
             _ => {

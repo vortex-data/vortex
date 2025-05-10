@@ -42,7 +42,7 @@ impl VTable for ListVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(&ListEncoding)
+        ArcRef::new_ref(ListEncoding.as_ref())
     }
 }
 
@@ -55,7 +55,7 @@ pub struct ListArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ListEncoding;
 
 pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
@@ -152,7 +152,7 @@ impl ArrayVTable<ListVTable> for ListVTable {
     }
 
     fn stats(array: &ListArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 

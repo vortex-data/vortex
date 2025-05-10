@@ -31,7 +31,7 @@ pub struct DeltaArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DeltaEncoding;
 impl Encoding for DeltaEncoding {
     type Array = DeltaArray;

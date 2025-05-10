@@ -49,7 +49,7 @@ impl VTable for PrimitiveVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(&PrimitiveEncoding)
+        ArcRef::new_ref(PrimitiveEncoding.as_ref())
     }
 }
 
@@ -61,7 +61,7 @@ pub struct PrimitiveArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PrimitiveEncoding;
 
 impl PrimitiveArray {
@@ -277,7 +277,7 @@ impl ArrayVTable<PrimitiveVTable> for PrimitiveVTable {
     }
 
     fn stats(array: &PrimitiveArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 

@@ -25,7 +25,7 @@ pub struct ConstantArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ConstantEncoding;
 
 impl VTable for ConstantVTable {
@@ -47,7 +47,7 @@ impl VTable for ConstantVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(&ConstantEncoding)
+        ArcRef::new_ref(ConstantEncoding.as_ref())
     }
 }
 
@@ -81,7 +81,7 @@ impl ArrayVTable<ConstantVTable> for ConstantVTable {
     }
 
     fn stats(array: &ConstantArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 

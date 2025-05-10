@@ -42,7 +42,7 @@ impl VTable for VarBinVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(&VarBinEncoding)
+        ArcRef::new_ref(VarBinEncoding.as_ref())
     }
 }
 
@@ -55,7 +55,7 @@ pub struct VarBinArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VarBinEncoding;
 
 impl VarBinArray {
@@ -211,7 +211,7 @@ impl ArrayVTable<VarBinVTable> for VarBinVTable {
     }
 
     fn stats(array: &VarBinArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 

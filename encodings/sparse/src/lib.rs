@@ -31,7 +31,7 @@ pub struct SparseArray {
 
 try_from_array_ref!(SparseArray);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SparseEncoding;
 impl Encoding for SparseEncoding {
     type Array = SparseArray;

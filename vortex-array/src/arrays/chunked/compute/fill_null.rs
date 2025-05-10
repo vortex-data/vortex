@@ -3,7 +3,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter, fill_null};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl FillNullKernel for ChunkedVTable {
     fn fill_null(&self, array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {

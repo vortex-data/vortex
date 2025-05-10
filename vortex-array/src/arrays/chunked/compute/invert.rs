@@ -3,7 +3,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::compute::{InvertKernel, InvertKernelAdapter, invert};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl InvertKernel for ChunkedVTable {
     fn invert(&self, array: &ChunkedArray) -> VortexResult<ArrayRef> {

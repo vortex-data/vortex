@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::{DType, ExtDType, ExtID};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -38,11 +38,11 @@ impl VTable for ExtensionVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(&ExtensionEncoding)
+        ArcRef::new_ref(ExtensionEncoding.as_ref())
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ExtensionEncoding;
 
 #[derive(Clone, Debug)]
@@ -94,7 +94,7 @@ impl ArrayVTable<ExtensionVTable> for ExtensionVTable {
     }
 
     fn stats(array: &ExtensionArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 
@@ -137,7 +137,7 @@ impl VisitorVTable<ExtensionVTable> for ExtensionVTable {
         children: &[ArrayRef],
     ) -> VortexResult<ExtensionArray> {
         let storage = children.get(0).ok_or_else(|| {
-            vortex_bail!(
+            vortex_err!(
                 "ExtensionArray: expected 1 child array, got {}",
                 children.len()
             )

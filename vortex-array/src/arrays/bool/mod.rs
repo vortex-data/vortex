@@ -33,9 +33,9 @@ impl VTable for BoolVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(&BoolEncoding)
+        ArcRef::new_ref(BoolEncoding.as_ref())
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BoolEncoding;

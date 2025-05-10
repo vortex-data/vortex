@@ -182,7 +182,7 @@ impl ArrayVTable<ChunkedVTable> for ChunkedVTable {
     }
 
     fn stats(array: &ChunkedArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array)
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 

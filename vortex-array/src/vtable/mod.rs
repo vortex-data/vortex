@@ -41,7 +41,7 @@ use crate::{Array, Encoding, EncodingRef, IntoArray};
 /// panic if violated.
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Array: 'static + Send + Sync + Clone + Deref<Target = dyn Array> + IntoArray;
-    type Encoding: 'static + Send + Sync + Deref<Target = dyn Encoding>;
+    type Encoding: 'static + Send + Sync + Clone + Deref<Target = dyn Encoding>;
 
     type ArrayVTable: ArrayVTable<Self>;
     type CanonicalVTable: CanonicalVTable<Self>;

@@ -30,7 +30,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
     ValidityVTable, VisitorVTable,
 };
-use crate::{Canonical, Encoding, EncodingId, EncodingRef, SerializeMetadata};
+use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
 
 /// The base trait for all Vortex arrays.
 ///

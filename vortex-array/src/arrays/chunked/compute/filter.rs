@@ -147,7 +147,8 @@ fn filter_indices(
                     .vortex_expect("find_chunk_idx must return valid chunk ID");
                 let filtered_chunk = take(
                     chunk,
-                    &PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable),
+                    PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable)
+                        .as_ref(),
                 )?;
                 result.push(filtered_chunk);
             }
@@ -166,7 +167,7 @@ fn filter_indices(
             .vortex_expect("find_chunk_idx must return valid chunk ID");
         let filtered_chunk = take(
             chunk,
-            &PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable),
+            PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable).as_ref(),
         )?;
         result.push(filtered_chunk);
     }

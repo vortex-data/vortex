@@ -21,7 +21,7 @@ pub struct DictArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DictEncoding;
 impl Encoding for DictEncoding {
     type Array = DictArray;

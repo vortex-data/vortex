@@ -16,7 +16,7 @@ impl CompareKernel for ExtensionVTable {
             let storage_scalar = const_ext.as_extension().storage();
             return compare(
                 lhs.storage(),
-                &ConstantArray::new(storage_scalar, lhs.len()),
+                ConstantArray::new(storage_scalar, lhs.len()).as_ref(),
                 operator,
             )
             .map(Some);

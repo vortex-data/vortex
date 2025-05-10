@@ -3,7 +3,7 @@ use vortex_scalar::NumericOperator;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{NumericKernel, NumericKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl NumericKernel for ConstantVTable {
     fn numeric(
