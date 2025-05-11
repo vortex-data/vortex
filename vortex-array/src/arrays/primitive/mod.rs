@@ -7,13 +7,13 @@ mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_panic};
 
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::{vtable, Array, ArrayRef, Canonical, EncodingRef, IntoArray};
+use crate::{Array, ArrayRef, Canonical, EncodingRef, IntoArray, vtable};
 
 mod compute;
 mod native_value;
@@ -22,7 +22,7 @@ mod patch;
 mod serde;
 mod top_value;
 
-pub use compute::{compute_is_constant, IS_CONST_LANE_WIDTH};
+pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
 pub use native_value::NativeValue;
 
 use crate::vtable::{
@@ -321,15 +321,16 @@ impl CanonicalVTable<PrimitiveVTable> for PrimitiveVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{BoolArray, PrimitiveArray};
-    use vortex_array::compute::conformance::mask::test_mask;
-    use vortex_array::compute::conformance::search_sorted::rstest_reuse::apply;
-    use vortex_array::compute::conformance::search_sorted::{search_sorted_conformance, *};
-    use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
-    use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef};
     use vortex_buffer::buffer;
     use vortex_scalar::PValue;
+
+    use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::compute::conformance::mask::test_mask;
+    use crate::compute::conformance::search_sorted::rstest_reuse::apply;
+    use crate::compute::conformance::search_sorted::{search_sorted_conformance, *};
+    use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
+    use crate::validity::Validity;
+    use crate::{ArrayRef, IntoArray};
 
     #[apply(search_sorted_conformance)]
     fn search_sorted_primitive(
@@ -346,21 +347,17 @@ mod tests {
 
     #[test]
     fn test_mask_primitive_array() {
-        test_mask(&PrimitiveArray::new(
-            buffer![0, 1, 2, 3, 4],
-            Validity::NonNullable,
-        ));
-        test_mask(&PrimitiveArray::new(
-            buffer![0, 1, 2, 3, 4],
-            Validity::AllValid,
-        ));
-        test_mask(&PrimitiveArray::new(
-            buffer![0, 1, 2, 3, 4],
-            Validity::AllInvalid,
-        ));
-        test_mask(&PrimitiveArray::new(
-            buffer![0, 1, 2, 3, 4],
-            Validity::Array(BoolArray::from_iter([true, false, true, false, true]).into_array()),
-        ));
+        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref());
+        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
+        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).as_ref());
+        test_mask(
+            PrimitiveArray::new(
+                buffer![0, 1, 2, 3, 4],
+                Validity::Array(
+                    BoolArray::from_iter([true, false, true, false, true]).into_array(),
+                ),
+            )
+            .as_ref(),
+        );
     }
 }

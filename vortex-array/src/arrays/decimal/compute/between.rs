@@ -1,11 +1,11 @@
 use arrow_buffer::BooleanBuffer;
 use vortex_dtype::Nullability;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{DecimalValue, Scalar};
 
 use crate::arrays::{BoolArray, DecimalArray, DecimalVTable, NativeDecimalType};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
-use crate::{match_each_decimal_value_type, register_kernel, Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, match_each_decimal_value_type, register_kernel};
 
 impl BetweenKernel for DecimalVTable {
     // Determine if the values are between the lower and upper bounds
@@ -105,10 +105,10 @@ mod tests {
     use vortex_dtype::{DecimalDType, Nullability};
     use vortex_scalar::{DecimalValue, Scalar};
 
-    use crate::arrays::{ConstantArray, DecimalArray};
-    use crate::compute::{between, BetweenOptions, StrictComparison};
-    use crate::validity::Validity;
     use crate::Array;
+    use crate::arrays::{ConstantArray, DecimalArray};
+    use crate::compute::{BetweenOptions, StrictComparison, between};
+    use crate::validity::Validity;
 
     #[test]
     fn test_between() {
@@ -135,9 +135,9 @@ mod tests {
 
         // Strict lower bound, non-strict upper bound
         let between_strict = between(
-            &array,
-            &lower,
-            &upper,
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
             &BetweenOptions {
                 lower_strict: StrictComparison::Strict,
                 upper_strict: StrictComparison::NonStrict,
@@ -148,9 +148,9 @@ mod tests {
 
         // Non-strict lower bound, strict upper bound
         let between_strict = between(
-            &array,
-            &lower,
-            &upper,
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
             &BetweenOptions {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::Strict,

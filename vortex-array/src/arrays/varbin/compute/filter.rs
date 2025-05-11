@@ -183,7 +183,7 @@ mod test {
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_scalar::Scalar;
 
-    use crate::array::Array;
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::varbin::VarBinArray;

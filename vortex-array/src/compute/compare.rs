@@ -7,11 +7,11 @@ use arcref::ArcRef;
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
-use crate::arrow::{from_arrow_array_with_len, Datum};
+use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
@@ -328,9 +328,9 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::ToCanonical;
     use crate::arrays::{BoolArray, ConstantArray, VarBinArray, VarBinViewArray};
     use crate::validity::Validity;
-    use crate::ToCanonical;
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
         let buffer = indices_bits.boolean_buffer();
@@ -349,14 +349,14 @@ mod tests {
             Validity::from_iter([false, true, true, true, true]),
         );
 
-        let matches = compare(&arr, &arr, Operator::Eq)
+        let matches = compare(arr.as_ref(), arr.as_ref(), Operator::Eq)
             .unwrap()
             .to_bool()
             .unwrap();
 
         assert_eq!(to_int_indices(matches), [1u64, 2, 3, 4]);
 
-        let matches = compare(&arr, &arr, Operator::NotEq)
+        let matches = compare(arr.as_ref(), arr.as_ref(), Operator::NotEq)
             .unwrap()
             .to_bool()
             .unwrap();
@@ -368,25 +368,25 @@ mod tests {
             Validity::from_iter([false, true, true, true, true]),
         );
 
-        let matches = compare(&arr, &other, Operator::Lte)
+        let matches = compare(arr.as_ref(), other.as_ref(), Operator::Lte)
             .unwrap()
             .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
 
-        let matches = compare(&arr, &other, Operator::Lt)
+        let matches = compare(arr.as_ref(), other.as_ref(), Operator::Lt)
             .unwrap()
             .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [4u64]);
 
-        let matches = compare(&other, &arr, Operator::Gte)
+        let matches = compare(other.as_ref(), arr.as_ref(), Operator::Gte)
             .unwrap()
             .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
 
-        let matches = compare(&other, &arr, Operator::Gt)
+        let matches = compare(other.as_ref(), arr.as_ref(), Operator::Gt)
             .unwrap()
             .to_bool()
             .unwrap();
@@ -398,7 +398,7 @@ mod tests {
         let left = ConstantArray::new(Scalar::from(2u32), 10);
         let right = ConstantArray::new(Scalar::from(10u32), 10);
 
-        let compare = compare(&left, &right, Operator::Gt).unwrap();
+        let compare = compare(left.as_ref(), right.as_ref(), Operator::Gt).unwrap();
         let res = compare.as_constant().unwrap();
         assert_eq!(res.as_bool().value(), Some(false));
         assert_eq!(compare.len(), 10);

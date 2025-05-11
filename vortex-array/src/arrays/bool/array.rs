@@ -1,14 +1,14 @@
 use arrow_array::BooleanArray;
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, MutableBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 
-use crate::arrays::{bool, BoolVTable};
+use crate::Canonical;
+use crate::arrays::{BoolVTable, bool};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{ArrayVTable, CanonicalVTable, ValidityHelper};
-use crate::Canonical;
 
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -169,12 +169,12 @@ mod tests {
     use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
     use vortex_buffer::buffer;
 
-    use crate::array::Array;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::conformance::mask::test_mask;
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::ToCanonical;
+    use crate::vtable::ValidityHelper;
+    use crate::{Array, IntoArray, ToCanonical};
 
     #[test]
     fn bool_array() {
@@ -284,6 +284,6 @@ mod tests {
 
     #[test]
     fn test_mask_primitive_array() {
-        test_mask(&BoolArray::from_iter([true, false, true, true, false]));
+        test_mask(BoolArray::from_iter([true, false, true, true, false]).as_ref());
     }
 }

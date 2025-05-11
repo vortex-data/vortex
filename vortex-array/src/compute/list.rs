@@ -1,16 +1,16 @@
 //! List-related compute operations.
 
-use arrow_buffer::bit_iterator::BitIndexIterator;
 use arrow_buffer::BooleanBuffer;
+use arrow_buffer::bit_iterator::BitIndexIterator;
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_integer_ptype, DType, NativePType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, ConstantArray, ListArray};
-use crate::compute::{compare, invert, Operator};
+use crate::compute::{Operator, compare, invert};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
@@ -208,17 +208,16 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
-    use crate::array::IntoArray;
     use crate::arrays::{BoolArray, ConstantArray, ListArray, VarBinArray};
     use crate::canonical::ToCanonical;
     use crate::compute::list_contains;
     use crate::validity::Validity;
-    use crate::{ArrayExt, ArrayRef};
+    use crate::vtable::ValidityHelper;
+    use crate::{ArrayExt, ArrayRef, IntoArray};
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
         ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
             .unwrap()
-            .into_array()
     }
 
     fn null_strings(values: Vec<Vec<Option<&str>>>) -> ArrayRef {

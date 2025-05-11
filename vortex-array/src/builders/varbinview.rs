@@ -7,8 +7,8 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::{BinaryView, VarBinViewArray};
-use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::ArrayBuilder;
+use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct VarBinViewBuilder {
@@ -219,11 +219,11 @@ mod tests {
     use itertools::Itertools;
     use vortex_dtype::{DType, Nullability};
 
+    use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
     use crate::array::ArrayExt;
-    use crate::arrays::VarBinViewArray;
+    use crate::arrays::VarBinViewVTable;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
-    use crate::ToCanonical;
 
     #[test]
     fn test_utf8_builder() {
@@ -241,7 +241,7 @@ mod tests {
         let arr = builder.finish();
 
         let arr = arr
-            .as_::<VarBinViewArray>()
+            .as_::<VarBinViewVTable>()
             .with_iterator(|iter| {
                 iter.map(|x| x.map(|x| from_utf8(x).unwrap().to_string()))
                     .collect_vec()

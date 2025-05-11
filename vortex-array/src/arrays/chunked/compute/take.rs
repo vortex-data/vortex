@@ -2,10 +2,10 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
-use crate::arrays::chunked::ChunkedArray;
 use crate::arrays::ChunkedVTable;
-use crate::compute::{cast, take, TakeKernel, TakeKernelAdapter};
-use crate::{register_kernel, Array, ArrayRef, IntoArray, ToCanonical};
+use crate::arrays::chunked::ChunkedArray;
+use crate::compute::{TakeKernel, TakeKernelAdapter, cast, take};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for ChunkedVTable {
     fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -47,11 +47,11 @@ register_kernel!(TakeKernelAdapter(ChunkedVTable).lift());
 mod test {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
     use crate::canonical::ToCanonical;
     use crate::compute::take;
-    use crate::IntoArray;
 
     #[test]
     fn test_take() {
@@ -62,7 +62,10 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = buffer![0u64, 0, 6, 4].into_array();
 
-        let result = take(&arr, &indices).unwrap().to_primitive().unwrap();
+        let result = take(arr.as_ref(), indices.as_ref())
+            .unwrap()
+            .to_primitive()
+            .unwrap();
         assert_eq!(result.as_slice::<i32>(), &[1, 1, 1, 2]);
     }
 }

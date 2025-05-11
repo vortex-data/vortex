@@ -2,11 +2,11 @@ use std::any::Any;
 use std::sync::{Arc, LazyLock};
 
 use arcref::ArcRef;
-use arrow_array::cast::AsArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
@@ -264,9 +264,9 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::canonical::ToCanonical;
-
     #[rstest]
     #[case(BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter())
     .into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter())

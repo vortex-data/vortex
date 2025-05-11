@@ -233,35 +233,35 @@ mod test {
     #[test]
     fn sum_all_invalid() {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]);
-        let result = sum(&array).unwrap();
+        let result = sum(array.as_ref()).unwrap();
         assert_eq!(result.as_primitive().as_::<i32>().unwrap(), Some(0));
     }
 
     #[test]
     fn sum_all_invalid_float() {
         let array = PrimitiveArray::from_option_iter::<f32, _>([None, None, None]);
-        let result = sum(&array).unwrap();
+        let result = sum(array.as_ref()).unwrap();
         assert_eq!(result.as_primitive().as_::<f32>().unwrap(), Some(0.0));
     }
 
     #[test]
     fn sum_constant() {
         let array = PrimitiveArray::from_iter([1, 1, 1, 1]);
-        let result = sum(&array).unwrap();
+        let result = sum(array.as_ref()).unwrap();
         assert_eq!(result.as_primitive().as_::<i32>().unwrap(), Some(4));
     }
 
     #[test]
     fn sum_constant_float() {
         let array = PrimitiveArray::from_iter([1., 1., 1., 1.]);
-        let result = sum(&array).unwrap();
+        let result = sum(array.as_ref()).unwrap();
         assert_eq!(result.as_primitive().as_::<f32>().unwrap(), Some(4.));
     }
 
     #[test]
     fn sum_boolean() {
         let array = BoolArray::from_iter([true, false, false, true]);
-        let result = sum(&array).unwrap();
+        let result = sum(array.as_ref()).unwrap();
         assert_eq!(result.as_primitive().as_::<i32>().unwrap(), Some(2));
     }
 }

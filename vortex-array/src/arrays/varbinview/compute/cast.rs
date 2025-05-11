@@ -1,9 +1,9 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::{VarBinViewArray, VarBinViewVTable};
 use crate::compute::{CastKernel, CastKernelAdapter};
-use crate::{register_kernel, ArrayRef, IntoArray};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for VarBinViewVTable {
     fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<ArrayRef> {
@@ -54,7 +54,7 @@ mod tests {
     fn try_cast_varbin_nullable(#[case] source: DType, #[case] target: DType) {
         let varbin = VarBinViewArray::from_iter(vec![Some("a"), Some("b"), Some("c")], source);
 
-        let res = cast(&varbin, &target);
+        let res = cast(varbin.as_ref(), &target);
         assert_eq!(res.unwrap().dtype(), &target);
     }
 
@@ -66,6 +66,6 @@ mod tests {
     fn try_cast_varbin_fail(#[case] source: DType) {
         let non_nullable_source = source.as_nonnullable();
         let varbin = VarBinViewArray::from_iter(vec![Some("a"), Some("b"), None], source);
-        cast(&varbin, &non_nullable_source).unwrap();
+        cast(varbin.as_ref(), &non_nullable_source).unwrap();
     }
 }

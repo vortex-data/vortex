@@ -1,11 +1,11 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
-use vortex_dtype::{match_each_integer_ptype, NativePType};
-use vortex_error::{vortex_err, VortexResult};
+use vortex_dtype::{NativePType, match_each_integer_ptype};
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::arrays::{DecimalArray, DecimalVTable, NativeDecimalType, PrimitiveArray};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{match_each_decimal_value_type, register_kernel, Array, ArrayRef};
+use crate::{Array, ArrayRef, match_each_decimal_value_type, register_kernel};
 
 impl TakeKernel for DecimalVTable {
     fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -54,7 +54,7 @@ mod tests {
         );
 
         let indices = buffer![0, 2, 3].into_array();
-        let taken = take(&array, indices.as_ref()).unwrap();
+        let taken = take(array.as_ref(), indices.as_ref()).unwrap();
         let taken_decimals = taken.as_any().downcast_ref::<DecimalArray>().unwrap();
         assert_eq!(
             taken_decimals.buffer::<i128>(),

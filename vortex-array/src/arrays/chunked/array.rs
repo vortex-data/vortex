@@ -8,7 +8,7 @@ use futures_util::stream;
 use itertools::Itertools;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::arrays::ChunkedVTable;
@@ -235,10 +235,11 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::array::Array;
+    use crate::arrays::ChunkedVTable;
     use crate::arrays::chunked::ChunkedArray;
     use crate::compute::conformance::binary_numeric::test_numeric;
     use crate::compute::{cast, sub_scalar};
-    use crate::{assert_arrays_eq, ArrayExt, IntoArray, ToCanonical};
+    use crate::{ArrayExt, IntoArray, ToCanonical, assert_arrays_eq};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
@@ -258,7 +259,7 @@ mod test {
         let to_subtract = 1u64;
         let array = sub_scalar(&chunked, to_subtract.into()).unwrap();
 
-        let chunked = array.as_::<ChunkedArray>();
+        let chunked = array.as_::<ChunkedVTable>();
         let chunks_out = chunked.chunks();
 
         let results = chunks_out[0]
@@ -352,7 +353,7 @@ mod test {
         let array = chunked_array();
         // The tests test both X - 1 and 1 - X, so we need signed values
         let signed_dtype = DType::from(PType::try_from(array.dtype()).unwrap().to_signed());
-        let array = cast(&array, &signed_dtype).unwrap();
+        let array = cast(array.as_ref(), &signed_dtype).unwrap();
         test_numeric::<u64>(array)
     }
 }

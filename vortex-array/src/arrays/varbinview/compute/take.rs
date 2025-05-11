@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewVTable};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{register_kernel, Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
 impl TakeKernel for VarBinViewVTable {
@@ -51,12 +51,12 @@ fn take_views<I: AsPrimitive<usize>>(
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
     use crate::array::Array;
     use crate::arrays::VarBinViewArray;
     use crate::canonical::ToCanonical;
     use crate::compute::take;
-    use crate::IntoArray;
 
     #[test]
     fn take_nullable() {
@@ -69,7 +69,7 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = take(&arr, &buffer![0, 3].into_array()).unwrap();
+        let taken = take(arr.as_ref(), &buffer![0, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(

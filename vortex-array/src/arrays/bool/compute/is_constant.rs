@@ -32,19 +32,15 @@ mod tests {
     use super::*;
 
     #[rstest]
-    #[case(vec![true], Some(true))]
-    #[case(vec![false; 65], Some(true))]
+    #[case(vec![true], true)]
+    #[case(vec![false; 65], true)]
     #[case({
         let mut v = vec![true; 64];
         v.push(false);
         v
-    }, Some(false))]
-    fn test_is_constant(#[case] input: Vec<bool>, #[case] expected: Option<bool>) {
+    }, false)]
+    fn test_is_constant(#[case] input: Vec<bool>, #[case] expected: bool) {
         let array = BoolArray::from_iter(input);
-
-        let output = BoolEncoding
-            .is_constant(&array, &IsConstantOpts::default())
-            .unwrap();
-        assert_eq!(output, expected);
+        assert_eq!(array.is_constant(), expected);
     }
 }

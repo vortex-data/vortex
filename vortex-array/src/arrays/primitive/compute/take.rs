@@ -4,15 +4,15 @@ use num_traits::AsPrimitive;
 use simd::num::SimdUint;
 use vortex_buffer::{Alignment, Buffer, BufferMut};
 use vortex_dtype::{
-    match_each_integer_ptype, match_each_native_ptype, match_each_native_simd_ptype, match_each_unsigned_integer_ptype, NativePType,
-    Nullability, PType,
+    NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
+    match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
 };
 use vortex_error::VortexResult;
 
-use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{register_kernel, Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for PrimitiveVTable {
     #[allow(clippy::cognitive_complexity)]
@@ -131,11 +131,11 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
-    use crate::array::Array;
     use crate::arrays::primitive::compute::take::take_primitive;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::take;
     use crate::validity::Validity;
+    use crate::{Array, IntoArray};
 
     #[test]
     fn test_take() {
@@ -154,7 +154,7 @@ mod test {
             buffer![0, 3, 4],
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
-        let actual = take(&values, &indices).unwrap();
+        let actual = take(values.as_ref(), indices.as_ref()).unwrap();
         assert_eq!(actual.scalar_at(0).unwrap(), Scalar::from(Some(1)));
         // position 3 is null
         assert_eq!(actual.scalar_at(1).unwrap(), Scalar::null_typed::<i32>());

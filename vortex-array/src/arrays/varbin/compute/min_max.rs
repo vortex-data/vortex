@@ -60,7 +60,6 @@ mod tests {
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
-    use crate::Array;
     use crate::arrays::VarBinArray;
     use crate::compute::{MinMaxResult, min_max};
     use crate::stats::{Stat, StatsProvider};
@@ -76,7 +75,7 @@ mod tests {
             ],
             Utf8(Nullable),
         );
-        let MinMaxResult { min, max } = min_max(&array).unwrap().unwrap();
+        let MinMaxResult { min, max } = min_max(array.as_ref()).unwrap().unwrap();
 
         assert_eq!(
             min,

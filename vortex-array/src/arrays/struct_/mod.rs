@@ -266,12 +266,12 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
-    use crate::ArrayExt;
-    use crate::array::Array;
-    use crate::arrays::BoolArray;
+    use crate::IntoArray;
+    use crate::array::ArrayExt;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::struct_::StructArray;
     use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::{BoolArray, BoolVTable, PrimitiveVTable};
     use crate::validity::Validity;
 
     #[test]
@@ -304,7 +304,7 @@ mod test {
         let bools = &struct_b.fields[0];
         assert_eq!(
             bools
-                .as_::<BoolArray>()
+                .as_::<BoolVTable>()
                 .boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>(),
@@ -313,7 +313,7 @@ mod test {
 
         let prims = &struct_b.fields[1];
         assert_eq!(
-            prims.as_::<PrimitiveArray>().as_slice::<i64>(),
+            prims.as_::<PrimitiveVTable>().as_slice::<i64>(),
             [0i64, 1, 2, 3, 4]
         );
     }

@@ -106,7 +106,6 @@ mod test {
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
-    use crate::array::Array;
     use crate::arrays::varbin::builder::VarBinBuilder;
 
     #[test]

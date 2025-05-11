@@ -1,11 +1,11 @@
-use vortex_error::{vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolVTable, ConstantArray};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{register_kernel, ArrayRef, IntoArray, ToCanonical};
+use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FillNullKernel for BoolVTable {
     fn fill_null(&self, array: &BoolArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
@@ -43,7 +43,6 @@ mod tests {
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::canonical::ToCanonical;
     use crate::compute::fill_null;
@@ -57,7 +56,7 @@ mod tests {
             BooleanBuffer::from_iter([true, true, false, false]),
             Validity::from_iter([true, false, true, false]),
         );
-        let non_null_array = fill_null(&bool_array, &fill_value.into())
+        let non_null_array = fill_null(bool_array.as_ref(), &fill_value.into())
             .unwrap()
             .to_bool()
             .unwrap();

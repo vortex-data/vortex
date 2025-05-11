@@ -1,5 +1,5 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::array::ArrayRef;
 use crate::arrays::{BoolArray, BoolVTable};
@@ -32,7 +32,7 @@ mod tests {
     fn try_cast_bool_success() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), Some(true)]);
 
-        let res = cast(&bool, &DType::Bool(Nullability::NonNullable));
+        let res = cast(bool.as_ref(), &DType::Bool(Nullability::NonNullable));
         assert!(res.is_ok());
         assert_eq!(res.unwrap().dtype(), &DType::Bool(Nullability::NonNullable));
     }
@@ -41,6 +41,6 @@ mod tests {
     #[should_panic]
     fn try_cast_bool_fail() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), None]);
-        cast(&bool, &DType::Bool(Nullability::NonNullable)).unwrap();
+        cast(bool.as_ref(), &DType::Bool(Nullability::NonNullable)).unwrap();
     }
 }

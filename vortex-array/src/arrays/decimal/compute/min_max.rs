@@ -63,7 +63,6 @@ mod tests {
     use vortex_dtype::DecimalDType;
     use vortex_scalar::{DecimalValue, Scalar, ScalarValue};
 
-    use crate::array::Array;
     use crate::arrays::DecimalArray;
     use crate::compute::{MinMaxResult, min_max};
     use crate::validity::Validity;
@@ -76,7 +75,7 @@ mod tests {
             Validity::from_iter([true, false, true]),
         );
 
-        let min_max = min_max(&decimal).unwrap();
+        let min_max = min_max(decimal.as_ref()).unwrap();
 
         let expected = MinMaxResult {
             min: Scalar::new(

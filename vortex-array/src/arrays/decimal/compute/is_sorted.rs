@@ -82,8 +82,8 @@ mod tests {
         let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
         let unsorted_array = DecimalArray::new(unsorted, dtype, Validity::NonNullable);
 
-        assert!(is_sorted(&sorted_array).unwrap());
-        assert!(!is_sorted(&unsorted_array).unwrap());
+        assert!(is_sorted(sorted_array.as_ref()).unwrap());
+        assert!(!is_sorted(unsorted_array.as_ref()).unwrap());
     }
 
     #[test]
@@ -104,7 +104,7 @@ mod tests {
         let strict_sorted_array = DecimalArray::new(strict_sorted, dtype, Validity::NonNullable);
         let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
 
-        assert!(is_strict_sorted(&strict_sorted_array).unwrap());
-        assert!(!is_strict_sorted(&sorted_array).unwrap());
+        assert!(is_strict_sorted(strict_sorted_array.as_ref()).unwrap());
+        assert!(!is_strict_sorted(sorted_array.as_ref()).unwrap());
     }
 }

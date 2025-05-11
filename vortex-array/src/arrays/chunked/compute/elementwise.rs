@@ -78,10 +78,9 @@ fn invoke_elementwise(
 mod tests {
     use vortex_dtype::{DType, Nullability};
 
-    use crate::array::Array;
     use crate::arrays::{BoolArray, BooleanBuffer, ChunkedArray};
     use crate::canonical::ToCanonical;
-    use crate::compute::{boolean, BooleanOperator};
+    use crate::compute::{BooleanOperator, boolean};
 
     #[test]
     fn test_bin_bool_chunked() {
@@ -95,7 +94,7 @@ mod tests {
         let chunked2 =
             ChunkedArray::try_new(vec![arr2, arr3], DType::Bool(Nullability::Nullable)).unwrap();
 
-        let result = boolean(&chunked1, &chunked2, BooleanOperator::Or)
+        let result = boolean(chunked1.as_ref(), chunked2.as_ref(), BooleanOperator::Or)
             .unwrap()
             .to_bool()
             .unwrap();

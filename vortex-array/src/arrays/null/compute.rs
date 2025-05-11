@@ -1,14 +1,14 @@
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::arrays::null::NullArray;
 use crate::arrays::NullVTable;
+use crate::arrays::null::NullArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
     MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter,
 };
-use crate::{register_kernel, Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FilterKernel for NullVTable {
     fn filter(&self, _array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -59,15 +59,14 @@ mod test {
     use vortex_dtype::DType;
     use vortex_mask::Mask;
 
-    use crate::array::Array;
     use crate::arrays::null::NullArray;
     use crate::compute::take;
-    use crate::{ArrayExt, IntoArray};
+    use crate::{IntoArray, ToCanonical};
 
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
-        let sliced = nulls.slice(0, 4).unwrap().as_::<NullArray>().clone();
+        let sliced = nulls.slice(0, 4).unwrap().to_null().unwrap();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(sliced.validity_mask().unwrap(), Mask::AllFalse(4)));
@@ -76,10 +75,10 @@ mod test {
     #[test]
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
-        let taken = take(&nulls, &buffer![0u64, 2, 4, 6, 8].into_array())
+        let taken = take(nulls.as_ref(), &buffer![0u64, 2, 4, 6, 8].into_array())
             .unwrap()
-            .as_::<NullArray>()
-            .clone();
+            .to_null()
+            .unwrap();
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(taken.validity_mask().unwrap(), Mask::AllFalse(5)));

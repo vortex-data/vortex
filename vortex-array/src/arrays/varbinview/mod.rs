@@ -2,13 +2,13 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
 use arcref::ArcRef;
+use arrow_array::GenericByteViewArray;
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
-use arrow_array::GenericByteViewArray;
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
 
 use crate::arrow::FromArrowArray;
 use crate::builders::ArrayBuilder;
@@ -17,7 +17,7 @@ use crate::validity::Validity;
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
 };
-use crate::{vtable, ArrayRef, Canonical, EncodingRef, ToCanonical};
+use crate::{ArrayRef, Canonical, EncodingRef, ToCanonical, vtable};
 
 mod accessor;
 mod compute;
@@ -550,9 +550,8 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinViewArray {
 mod test {
     use vortex_scalar::Scalar;
 
-    use crate::array::Array;
     use crate::arrays::varbinview::{BinaryView, VarBinViewArray};
-    use crate::Canonical;
+    use crate::{Array, Canonical, IntoArray};
 
     #[test]
     pub fn varbin_view() {

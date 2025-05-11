@@ -1,6 +1,6 @@
 use arrow_buffer::BooleanBuffer;
-use vortex_buffer::{buffer, Buffer, BufferMut};
-use vortex_dtype::{match_each_native_ptype, DType, Nullability, PType};
+use vortex_buffer::{Buffer, BufferMut, buffer};
+use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, ScalarValue,
@@ -10,13 +10,13 @@ use vortex_scalar::{
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
-    precision_to_storage_size, BinaryView, BoolArray, ConstantVTable, DecimalArray, ExtensionArray, ListArray,
-    NullArray, StructArray, VarBinViewArray,
+    BinaryView, BoolArray, ConstantVTable, DecimalArray, ExtensionArray, ListArray, NullArray,
+    StructArray, VarBinViewArray, precision_to_storage_size,
 };
-use crate::builders::{builder_with_capacity, ArrayBuilderExt};
+use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-use crate::{match_each_decimal_value, match_each_decimal_value_type, Canonical, IntoArray};
+use crate::{Canonical, IntoArray, match_each_decimal_value, match_each_decimal_value_type};
 
 impl CanonicalVTable<ConstantVTable> for ConstantVTable {
     fn canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {
@@ -223,10 +223,10 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
-    use crate::array::Array;
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
     use crate::stats::{Stat, StatsProviderExt, StatsSet};
+    use crate::{Array, IntoArray};
 
     #[test]
     fn test_canonicalize_null() {

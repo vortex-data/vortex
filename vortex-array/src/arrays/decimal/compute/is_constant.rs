@@ -37,7 +37,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        assert!(!is_constant(&array).unwrap().unwrap());
+        assert!(!is_constant(array.as_ref()).unwrap().unwrap());
 
         let array = DecimalArray::new(
             buffer![100i128, 100i128, 100i128],
@@ -45,6 +45,6 @@ mod tests {
             Validity::NonNullable,
         );
 
-        assert!(is_constant(&array).unwrap().unwrap());
+        assert!(is_constant(array.as_ref()).unwrap().unwrap());
     }
 }

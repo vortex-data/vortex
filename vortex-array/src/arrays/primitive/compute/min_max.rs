@@ -76,7 +76,7 @@ mod tests {
             buffer![f32::NAN, -f32::NAN, -1.0, 1.0],
             Validity::NonNullable,
         );
-        let min_max = min_max(&array).unwrap().unwrap();
+        let min_max = min_max(array.as_ref()).unwrap().unwrap();
         assert_eq!(f32::try_from(min_max.min).unwrap(), -1.0);
         assert_eq!(f32::try_from(min_max.max).unwrap(), 1.0);
     }
@@ -87,7 +87,7 @@ mod tests {
             buffer![f32::INFINITY, f32::NEG_INFINITY, -1.0, 1.0],
             Validity::NonNullable,
         );
-        let min_max = min_max(&array).unwrap().unwrap();
+        let min_max = min_max(array.as_ref()).unwrap().unwrap();
         assert_eq!(f32::try_from(min_max.min).unwrap(), f32::NEG_INFINITY);
         assert_eq!(f32::try_from(min_max.max).unwrap(), f32::INFINITY);
     }

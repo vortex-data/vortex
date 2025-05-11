@@ -8,14 +8,14 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
-use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_dtype::arrow::FromArrowType;
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
+use crate::Array;
 use crate::arrow::array::ArrowArray;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
-use crate::Array;
 
 /// Convert a Vortex array to an Arrow array with the encoding's preferred `DataType`.
 ///
@@ -221,8 +221,7 @@ mod tests {
     use arrow_buffer::NullBuffer;
 
     use super::to_arrow;
-    use crate::array::Array;
-    use crate::arrays;
+    use crate::{IntoArray, arrays};
 
     #[test]
     fn test_to_arrow() {
@@ -260,7 +259,7 @@ mod tests {
         );
 
         assert_eq!(
-            &to_arrow(&array, &array.dtype().to_arrow_dtype().unwrap()).unwrap(),
+            &to_arrow(array.as_ref(), &array.dtype().to_arrow_dtype().unwrap()).unwrap(),
             &arrow_array
         );
     }

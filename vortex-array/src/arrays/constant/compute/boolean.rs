@@ -1,10 +1,10 @@
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{BooleanKernel, BooleanKernelAdapter, BooleanOperator};
-use crate::{register_kernel, Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl BooleanKernel for ConstantVTable {
     fn boolean(
@@ -79,11 +79,11 @@ fn kleene_or(left: Option<bool>, right: Option<bool>) -> Option<bool> {
 mod test {
     use rstest::rstest;
 
-    use crate::arrays::constant::ConstantArray;
     use crate::arrays::BoolArray;
+    use crate::arrays::constant::ConstantArray;
     use crate::canonical::ToCanonical;
     use crate::compute::{and, or};
-    use crate::{Array, ArrayRef};
+    use crate::{Array, ArrayRef, IntoArray};
 
     #[rstest]
     #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array()

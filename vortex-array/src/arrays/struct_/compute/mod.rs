@@ -5,14 +5,14 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::struct_::StructArray;
 use crate::arrays::StructVTable;
+use crate::arrays::struct_::StructArray;
 use crate::compute::{
-    filter, is_constant_opts, take, FilterKernel, FilterKernelAdapter,
-    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
-    TakeKernel, TakeKernelAdapter,
+    FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
+    MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter, filter,
+    is_constant_opts, take,
 };
-use crate::{register_kernel, Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl TakeKernel for StructVTable {
     fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -109,7 +109,7 @@ mod tests {
         let mask = vec![
             false, true, false, true, false, true, false, true, false, true,
         ];
-        let filtered = filter(&struct_arr, &Mask::from_iter(mask)).unwrap();
+        let filtered = filter(struct_arr.as_ref(), &Mask::from_iter(mask)).unwrap();
         assert_eq!(filtered.len(), 5);
     }
 
@@ -117,13 +117,17 @@ mod tests {
     fn filter_empty_struct_with_empty_filter() {
         let struct_arr =
             StructArray::try_new(vec![].into(), vec![], 0, Validity::NonNullable).unwrap();
-        let filtered = filter(&struct_arr, &Mask::from_iter::<[bool; 0]>([])).unwrap();
+        let filtered = filter(struct_arr.as_ref(), &Mask::from_iter::<[bool; 0]>([])).unwrap();
         assert_eq!(filtered.len(), 0);
     }
 
     #[test]
     fn test_mask_empty_struct() {
-        test_mask(&StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable).unwrap());
+        test_mask(
+            StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
+                .unwrap()
+                .as_ref(),
+        );
     }
 
     #[test]
@@ -138,7 +142,7 @@ mod tests {
             BoolArray::from_iter([Some(true), Some(true), None, None, Some(false)]).into_array();
 
         test_mask(
-            &StructArray::try_new(
+            StructArray::try_new(
                 ["xs".into(), "ys".into(), "zs".into()].into(),
                 vec![
                     StructArray::try_new(
@@ -155,7 +159,8 @@ mod tests {
                 5,
                 Validity::NonNullable,
             )
-            .unwrap(),
+            .unwrap()
+            .as_ref(),
         );
     }
 
@@ -196,7 +201,7 @@ mod tests {
         let tu8 = DType::Primitive(PType::U8, Nullability::NonNullable);
 
         let result = cast(
-            &array,
+            array.as_ref(),
             &DType::Struct(
                 Arc::from(StructDType::new(
                     FieldNames::from(["ys".into(), "xs".into(), "zs".into()]),

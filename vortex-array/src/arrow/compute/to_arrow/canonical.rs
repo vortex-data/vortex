@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use arrow_array::types::{
     BinaryType, BinaryViewType, ByteArrayType, ByteViewType, Float16Type, Float32Type, Float64Type,
-    Int16Type, Int32Type, Int64Type, Int8Type, LargeBinaryType, LargeUtf8Type, StringViewType,
-    UInt16Type, UInt32Type, UInt64Type, UInt8Type, Utf8Type,
+    Int8Type, Int16Type, Int32Type, Int64Type, LargeBinaryType, LargeUtf8Type, StringViewType,
+    UInt8Type, UInt16Type, UInt32Type, UInt64Type, Utf8Type,
 };
 use arrow_array::{
     Array, ArrayRef as ArrowArrayRef, ArrowPrimitiveType, BooleanArray as ArrowBoolArray,
@@ -11,22 +11,22 @@ use arrow_array::{
     GenericByteArray, GenericByteViewArray, GenericListArray, NullArray as ArrowNullArray,
     OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
 };
-use arrow_buffer::{i256, ScalarBuffer};
+use arrow_buffer::{ScalarBuffer, i256};
 use arrow_schema::{DataType, Field, FieldRef, Fields};
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::{
     BoolArray, DecimalArray, DecimalValueType, ListArray, NullArray, PrimitiveArray, StructArray,
     VarBinViewArray,
 };
+use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::ToArrowArgs;
-use crate::arrow::IntoArrowArray;
-use crate::compute::{cast, InvocationArgs, Kernel, Output};
+use crate::compute::{InvocationArgs, Kernel, Output, cast};
 use crate::{Array as _, Canonical, IntoArray, ToCanonical};
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
@@ -337,9 +337,10 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DecimalDType, FieldNames};
 
+    use crate::IntoArray;
     use crate::arrays::{DecimalArray, PrimitiveArray, StructArray};
-    use crate::arrow::compute::to_arrow;
     use crate::arrow::IntoArrowArray;
+    use crate::arrow::compute::to_arrow;
     use crate::validity::Validity;
 
     #[test]
@@ -350,7 +351,7 @@ mod tests {
             DecimalDType::new(19, 2),
             Validity::NonNullable,
         );
-        let arrow = to_arrow(&decimal_vortex, &DataType::Decimal128(19, 2)).unwrap();
+        let arrow = to_arrow(decimal_vortex.as_ref(), &DataType::Decimal128(19, 2)).unwrap();
         assert_eq!(arrow.data_type(), &DataType::Decimal128(19, 2));
         let decimal_array = arrow.as_any().downcast_ref::<Decimal128Array>().unwrap();
         assert_eq!(

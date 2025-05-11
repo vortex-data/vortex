@@ -1,6 +1,6 @@
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::i256;
 
 use super::{DecimalArray, DecimalVTable};
@@ -164,11 +164,12 @@ macro_rules! match_each_decimal_value_type {
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{buffer, ByteBufferMut};
+    use arcref::ArcRef;
+    use vortex_buffer::{ByteBufferMut, buffer};
 
     use super::*;
+    use crate::IntoArray;
     use crate::serde::SerializeOptions;
-    use crate::Encoding;
 
     #[test]
     fn test_array_serde() {
@@ -178,7 +179,7 @@ mod tests {
             Validity::NonNullable,
         );
         let dtype = array.dtype().clone();
-        let ctx = ArrayContext::empty().with(DecimalEncoding.vtable());
+        let ctx = ArrayContext::empty().with(ArcRef::new_ref(DecimalEncoding.as_ref()));
         let out = array
             .into_array()
             .serialize(&ctx, &SerializeOptions::default());

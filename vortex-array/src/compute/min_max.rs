@@ -205,7 +205,7 @@ mod tests {
     fn test_prim_max() {
         let p = PrimitiveArray::new(buffer![1, 2, 3], Validity::NonNullable);
         assert_eq!(
-            min_max(&p).unwrap(),
+            min_max(p.as_ref()).unwrap(),
             Some(MinMaxResult {
                 min: 1.into(),
                 max: 3.into()
@@ -220,7 +220,7 @@ mod tests {
             Validity::NonNullable,
         );
         assert_eq!(
-            min_max(&p).unwrap(),
+            min_max(p.as_ref()).unwrap(),
             Some(MinMaxResult {
                 min: true.into(),
                 max: true.into()
@@ -232,7 +232,7 @@ mod tests {
             Validity::NonNullable,
         );
         assert_eq!(
-            min_max(&p).unwrap(),
+            min_max(p.as_ref()).unwrap(),
             Some(MinMaxResult {
                 min: false.into(),
                 max: false.into()
@@ -244,7 +244,7 @@ mod tests {
             Validity::NonNullable,
         );
         assert_eq!(
-            min_max(&p).unwrap(),
+            min_max(p.as_ref()).unwrap(),
             Some(MinMaxResult {
                 min: false.into(),
                 max: true.into()
@@ -255,6 +255,6 @@ mod tests {
     #[test]
     fn test_null() {
         let p = NullArray::new(1);
-        assert_eq!(min_max(&p).unwrap(), None);
+        assert_eq!(min_max(p.as_ref()).unwrap(), None);
     }
 }
