@@ -2,12 +2,12 @@ use std::any::Any;
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{vortex_bail, vortex_panic, VortexResult};
 use vortex_mask::Mask;
 
 use crate::arrays::{BoolArray, DecimalArray, NativeDecimalType};
-use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
+use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 

@@ -1,8 +1,8 @@
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::arrays::ChunkedVTable;
 use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::ChunkedVTable;
 use crate::vtable::OperationsVTable;
 use crate::{Array, ArrayRef, IntoArray};
 

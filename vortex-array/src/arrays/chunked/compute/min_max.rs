@@ -1,8 +1,8 @@
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, min_max};
+use crate::compute::{min_max, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
 use crate::partial_ord::{partial_max, partial_min};
 use crate::register_kernel;
 

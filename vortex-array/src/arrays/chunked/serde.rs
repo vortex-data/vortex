@@ -63,7 +63,7 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
 }
 
 impl VisitorVTable<ChunkedVTable> for ChunkedVTable {
-    fn visit_buffers(array: &ChunkedArray, visitor: &mut dyn ArrayBufferVisitor) {}
+    fn visit_buffers(_array: &ChunkedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &ChunkedArray, visitor: &mut dyn ArrayChildVisitor) {
         let chunk_offsets =

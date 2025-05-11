@@ -4,7 +4,7 @@ use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -14,8 +14,8 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingRef, IntoArray,
-    vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingRef,
+    IntoArray,
 };
 
 vtable!(Arrow);

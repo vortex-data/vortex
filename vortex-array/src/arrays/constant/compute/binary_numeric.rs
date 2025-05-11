@@ -1,9 +1,9 @@
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexResult};
 use vortex_scalar::NumericOperator;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{NumericKernel, NumericKernelAdapter};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::{register_kernel, Array, ArrayRef, IntoArray};
 
 impl NumericKernel for ConstantVTable {
     fn numeric(

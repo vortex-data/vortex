@@ -3,7 +3,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::{StructArray, StructVTable};
 use crate::compute::{MaskKernel, MaskKernelAdapter};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for StructVTable {
     fn mask(&self, array: &StructArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {

@@ -4,7 +4,7 @@ use vortex_mask::Mask;
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{MaskKernel, MaskKernelAdapter};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{register_kernel, ArrayRef, IntoArray};
 
 impl MaskKernel for BoolVTable {
     fn mask(&self, array: &BoolArray, mask: &Mask) -> VortexResult<ArrayRef> {

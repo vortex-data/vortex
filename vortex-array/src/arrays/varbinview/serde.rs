@@ -7,7 +7,7 @@ use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, VisitorVTable};
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
 
 impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
     type Metadata = EmptyMetadata;

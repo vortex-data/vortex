@@ -10,7 +10,7 @@ pub use array::*;
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 
 use crate::vtable::{VTable, ValidityVTableFromValidityHelper};
-use crate::{EncodingRef, vtable};
+use crate::{vtable, EncodingRef};
 
 vtable!(Bool);
 

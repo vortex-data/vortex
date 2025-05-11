@@ -4,11 +4,11 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_mask::{AllOr, Mask, MaskIter};
 use vortex_scalar::Scalar;
 
-use super::filter::{ChunkFilter, chunk_filters, find_chunk_idx};
+use super::filter::{chunk_filters, find_chunk_idx, ChunkFilter};
 use crate::arrays::chunked::compute::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD;
 use crate::arrays::{ChunkedArray, ChunkedVTable, ConstantArray};
-use crate::compute::{MaskKernel, MaskKernelAdapter, cast, mask};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::compute::{cast, mask, MaskKernel, MaskKernelAdapter};
+use crate::{register_kernel, Array, ArrayRef, IntoArray};
 
 impl MaskKernel for ChunkedVTable {
     fn mask(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -123,10 +123,10 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::compute::conformance::mask::test_mask;
+    use crate::IntoArray;
 
     #[test]
     fn test_mask_chunked_array() {

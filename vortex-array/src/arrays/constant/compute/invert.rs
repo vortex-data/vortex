@@ -3,7 +3,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{InvertKernel, InvertKernelAdapter};
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{register_kernel, ArrayRef, IntoArray};
 
 impl InvertKernel for ConstantVTable {
     fn invert(&self, array: &ConstantArray) -> VortexResult<ArrayRef> {
@@ -25,7 +25,7 @@ mod tests {
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{ConstantArray, ConstantVTable};
+    use crate::arrays::ConstantArray;
     use crate::compute::InvertKernel;
     use crate::{Array, ArrayStatistics};
 

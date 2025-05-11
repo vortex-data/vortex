@@ -5,12 +5,12 @@ use arrow_array::{
 };
 use arrow_schema::DataType;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::arrow::compute::{ToArrowKernel, ToArrowKernelAdapter};
 use crate::compute::cast;
-use crate::{Array, ToCanonical, register_kernel};
+use crate::{register_kernel, Array, ToCanonical};
 
 impl ToArrowKernel for VarBinVTable {
     fn to_arrow(

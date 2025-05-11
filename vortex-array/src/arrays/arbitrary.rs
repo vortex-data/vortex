@@ -7,8 +7,8 @@ use builders::ListBuilder;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
-use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;
+use vortex_scalar::Scalar;
 
 use super::{
     BoolArray, ChunkedArray, DecimalArray, NullArray, OffsetPType, PrimitiveArray, StructArray,
@@ -16,7 +16,7 @@ use super::{
 use crate::arrays::{VarBinArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ToCanonical, builders};
+use crate::{builders, Array, ArrayRef, ToCanonical};
 
 /// A wrapper type to implement `Arbitrary` for `ArrayRef`.
 #[derive(Clone, Debug)]

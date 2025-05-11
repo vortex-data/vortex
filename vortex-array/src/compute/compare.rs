@@ -7,13 +7,12 @@ use arcref::ArcRef;
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
-use crate::arrow::{Datum, from_arrow_array_with_len};
+use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::encoding::Encoding;
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
@@ -329,9 +328,9 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
-    use crate::ToCanonical;
     use crate::arrays::{BoolArray, ConstantArray, VarBinArray, VarBinViewArray};
     use crate::validity::Validity;
+    use crate::ToCanonical;
 
     fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
         let buffer = indices_bits.boolean_buffer();

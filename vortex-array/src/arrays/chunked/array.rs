@@ -8,7 +8,7 @@ use futures_util::stream;
 use itertools::Itertools;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect as _, VortexResult, VortexUnwrap, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect as _, VortexResult, VortexUnwrap};
 use vortex_mask::Mask;
 
 use crate::arrays::ChunkedVTable;
@@ -238,7 +238,7 @@ mod test {
     use crate::arrays::chunked::ChunkedArray;
     use crate::compute::conformance::binary_numeric::test_numeric;
     use crate::compute::{cast, sub_scalar};
-    use crate::{ArrayExt, IntoArray, ToCanonical, assert_arrays_eq};
+    use crate::{assert_arrays_eq, ArrayExt, IntoArray, ToCanonical};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

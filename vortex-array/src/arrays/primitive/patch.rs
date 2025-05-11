@@ -2,10 +2,10 @@ use arrow_buffer::ArrowNativeType;
 use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::VortexResult;
 
+use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::{Array, ToCanonical};
 
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]

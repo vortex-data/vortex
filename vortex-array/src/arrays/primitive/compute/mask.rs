@@ -1,10 +1,10 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 use crate::compute::{MaskKernel, MaskKernelAdapter};
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{register_kernel, ArrayRef, IntoArray};
 
 impl MaskKernel for PrimitiveVTable {
     fn mask(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {

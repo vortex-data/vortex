@@ -1,12 +1,12 @@
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 
-use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::{register_kernel, ArrayRef, IntoArray};
 
 impl CastKernel for PrimitiveVTable {
     fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<ArrayRef> {
@@ -72,11 +72,11 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_error::VortexError;
 
-    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::cast;
     use crate::validity::Validity;
+    use crate::IntoArray;
 
     #[test]
     fn cast_u32_u8() {

@@ -1,4 +1,4 @@
-use vortex_dtype::{NativePType, half};
+use vortex_dtype::{half, NativePType};
 
 /// NativeValue serves as a wrapper type to allow us to implement Hash and Eq on all primitive types.
 ///

@@ -1,9 +1,9 @@
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
 use crate::arrays::{VarBinViewArray, VarBinViewVTable};
 use crate::compute::{CastKernel, CastKernelAdapter};
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{register_kernel, ArrayRef, IntoArray};
 
 impl CastKernel for VarBinViewVTable {
     fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<ArrayRef> {

@@ -4,15 +4,15 @@ use num_traits::AsPrimitive;
 use simd::num::SimdUint;
 use vortex_buffer::{Alignment, Buffer, BufferMut};
 use vortex_dtype::{
-    NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
-    match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
+    match_each_integer_ptype, match_each_native_ptype, match_each_native_simd_ptype, match_each_unsigned_integer_ptype, NativePType,
+    Nullability, PType,
 };
 use vortex_error::VortexResult;
 
-use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{register_kernel, Array, ArrayRef, IntoArray, ToCanonical};
 
 impl TakeKernel for PrimitiveVTable {
     #[allow(clippy::cognitive_complexity)]

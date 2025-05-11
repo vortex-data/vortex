@@ -6,8 +6,8 @@ use pin_project::pin_project;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::ArrayRef;
 use crate::stream::ArrayStream;
+use crate::ArrayRef;
 
 /// An adapter for a stream of array chunks to implement an ArrayReader.
 #[pin_project]

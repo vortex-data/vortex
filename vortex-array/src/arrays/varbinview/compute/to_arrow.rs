@@ -1,9 +1,9 @@
 use arrow_array::ArrayRef;
 use arrow_cast::cast;
 use arrow_schema::DataType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 
-use crate::arrays::{VarBinViewArray, VarBinViewEncoding, varbinview_as_arrow};
+use crate::arrays::{varbinview_as_arrow, VarBinViewArray, VarBinViewEncoding};
 use crate::compute::ToArrowFn;
 
 impl ToArrowFn<&VarBinViewArray> for VarBinViewEncoding {

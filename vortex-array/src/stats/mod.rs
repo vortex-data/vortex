@@ -5,7 +5,7 @@ use std::hash::Hash;
 
 use arrow_buffer::bit_iterator::BitIterator;
 use arrow_buffer::{BooleanBufferBuilder, MutableBuffer};
-use enum_iterator::{Sequence, last};
+use enum_iterator::{last, Sequence};
 use log::debug;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub use stats_set::*;

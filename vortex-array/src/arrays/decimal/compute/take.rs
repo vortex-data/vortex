@@ -1,11 +1,11 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
-use vortex_dtype::{NativePType, match_each_integer_ptype};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_dtype::{match_each_integer_ptype, NativePType};
+use vortex_error::{vortex_err, VortexResult};
 
 use crate::arrays::{DecimalArray, DecimalVTable, NativeDecimalType, PrimitiveArray};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{Array, ArrayRef, match_each_decimal_value_type, register_kernel};
+use crate::{match_each_decimal_value_type, register_kernel, Array, ArrayRef};
 
 impl TakeKernel for DecimalVTable {
     fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

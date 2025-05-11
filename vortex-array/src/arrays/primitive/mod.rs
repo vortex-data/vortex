@@ -7,13 +7,13 @@ mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
-use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType, Nullability, PType};
+use vortex_error::{vortex_panic, VortexResult};
 
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, Canonical, EncodingRef, IntoArray, vtable};
+use crate::{vtable, Array, ArrayRef, Canonical, EncodingRef, IntoArray};
 
 mod compute;
 mod native_value;
@@ -22,7 +22,7 @@ mod patch;
 mod serde;
 mod top_value;
 
-pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
+pub use compute::{compute_is_constant, IS_CONST_LANE_WIDTH};
 pub use native_value::NativeValue;
 
 use crate::vtable::{

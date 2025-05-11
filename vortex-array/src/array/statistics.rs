@@ -1,8 +1,8 @@
 use vortex_scalar::Scalar;
 
-use crate::Array;
-use crate::compute::{IsConstantOpts, is_constant_opts};
+use crate::compute::{is_constant_opts, IsConstantOpts};
 use crate::stats::StatsSetRef;
+use crate::Array;
 
 /// Extension functions for arrays that provide statistics.
 pub trait ArrayStatistics {

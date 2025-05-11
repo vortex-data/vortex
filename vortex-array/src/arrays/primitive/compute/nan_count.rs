@@ -4,7 +4,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::{NaNCountKernel, NaNCountKernelAdapter};
-use crate::{Array, register_kernel};
+use crate::register_kernel;
 
 impl NaNCountKernel for PrimitiveVTable {
     fn nan_count(&self, array: &PrimitiveArray) -> VortexResult<usize> {

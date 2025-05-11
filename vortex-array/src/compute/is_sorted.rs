@@ -10,7 +10,7 @@ use crate::arrays::{ConstantArray, NullArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt, Encoding};
+use crate::{Array, ArrayExt};
 
 pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
     is_sorted_opts(array, false)

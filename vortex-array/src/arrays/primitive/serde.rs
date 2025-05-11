@@ -7,7 +7,7 @@ use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, VisitorVTable};
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
 
 impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
     type Metadata = EmptyMetadata;

@@ -3,13 +3,13 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use arrow_array::BooleanArray;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
+use crate::compute::{cast, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
 

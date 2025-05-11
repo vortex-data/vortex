@@ -7,8 +7,8 @@ use arcref::ArcRef;
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_error::{vortex_bail, vortex_panic, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrays::PrimitiveArray;
@@ -20,7 +20,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayExt, ArrayRef, Canonical, EncodingRef, IntoArray, vtable};
+use crate::{vtable, Array, ArrayExt, ArrayRef, Canonical, EncodingRef, IntoArray};
 
 vtable!(List);
 
@@ -263,8 +263,8 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::array::Array;
-    use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::filter;
     use crate::validity::Validity;
 

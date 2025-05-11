@@ -1,13 +1,13 @@
 use num_traits::PrimInt;
-use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
-use vortex_error::{VortexResult, vortex_err, vortex_panic};
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType};
+use vortex_error::{vortex_err, vortex_panic, VortexResult};
 use vortex_mask::Mask;
 
-use crate::arrays::VarBinVTable;
-use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
+use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBinVTable;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{register_kernel, Array, ArrayRef, IntoArray, ToCanonical};
 
 impl TakeKernel for VarBinVTable {
     fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

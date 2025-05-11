@@ -12,8 +12,8 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical, EmptyMetadata,
-    EncodingRef, IntoArray, vtable,
+    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical,
+    EmptyMetadata, EncodingRef, IntoArray,
 };
 
 mod compute;

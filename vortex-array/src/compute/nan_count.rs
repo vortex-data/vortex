@@ -2,13 +2,13 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::stats::{Precision, Stat};
 use crate::vtable::VTable;
-use crate::{Array, Encoding};
+use crate::Array;
 
 /// Computes the number of NaN values in the array.
 pub fn nan_count(array: &dyn Array) -> VortexResult<usize> {

@@ -3,7 +3,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{VarBinViewArray, VarBinViewVTable, varbin_scalar};
 use crate::vtable::OperationsVTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<VarBinViewVTable> for VarBinViewVTable {
     fn slice(array: &VarBinViewArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {

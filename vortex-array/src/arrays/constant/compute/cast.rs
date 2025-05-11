@@ -3,7 +3,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{CastKernel, CastKernelAdapter};
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{register_kernel, ArrayRef, IntoArray};
 
 impl CastKernel for ConstantVTable {
     fn cast(&self, array: &ConstantArray, dtype: &DType) -> VortexResult<ArrayRef> {

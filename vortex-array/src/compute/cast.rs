@@ -5,7 +5,6 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
-use crate::encoding::Encoding;
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
 

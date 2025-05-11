@@ -6,7 +6,7 @@ use vortex_scalar::{DecimalValue, Scalar, ScalarValue};
 
 use crate::arrays::{DecimalArray, DecimalVTable, NativeDecimalType};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
-use crate::{Array, match_each_decimal_value_type, register_kernel};
+use crate::{match_each_decimal_value_type, register_kernel};
 
 impl MinMaxKernel for DecimalVTable {
     fn min_max(&self, array: &DecimalArray) -> VortexResult<Option<MinMaxResult>> {

@@ -1,7 +1,7 @@
 use vortex_error::VortexResult;
 
-use crate::Canonical;
 use crate::builders::ArrayBuilder;
+use crate::Canonical;
 
 /// Implementation trait for canonicalization functions.
 ///

@@ -2,10 +2,10 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
-use crate::arrays::ChunkedVTable;
 use crate::arrays::chunked::ChunkedArray;
-use crate::compute::{TakeKernel, TakeKernelAdapter, cast, take};
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::arrays::ChunkedVTable;
+use crate::compute::{cast, take, TakeKernel, TakeKernelAdapter};
+use crate::{register_kernel, Array, ArrayRef, IntoArray, ToCanonical};
 
 impl TakeKernel for ChunkedVTable {
     fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -47,11 +47,11 @@ register_kernel!(TakeKernelAdapter(ChunkedVTable).lift());
 mod test {
     use vortex_buffer::buffer;
 
-    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
     use crate::canonical::ToCanonical;
     use crate::compute::take;
+    use crate::IntoArray;
 
     #[test]
     fn test_take() {

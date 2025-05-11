@@ -5,7 +5,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::builders::builder_with_capacity;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::{register_kernel, Array, ArrayRef, IntoArray};
 
 impl TakeKernel for ConstantVTable {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

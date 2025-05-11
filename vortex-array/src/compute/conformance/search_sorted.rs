@@ -1,14 +1,14 @@
 pub use rstest::rstest;
 pub use rstest_reuse;
 use rstest_reuse::template;
-use vortex_buffer::{Buffer, buffer};
+use vortex_buffer::{buffer, Buffer};
 use vortex_error::VortexUnwrap;
 
-use crate::ArrayRef;
 use crate::array::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
+use crate::ArrayRef;
 
 pub fn all_null() -> ArrayRef {
     PrimitiveArray::new(Buffer::<i32>::zeroed(20), Validity::AllInvalid).into_array()

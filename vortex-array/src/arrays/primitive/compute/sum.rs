@@ -8,8 +8,8 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
+use crate::register_kernel;
 use crate::stats::Stat;
-use crate::{Array, register_kernel};
 
 impl SumKernel for PrimitiveVTable {
     fn sum(&self, array: &PrimitiveArray) -> VortexResult<Scalar> {

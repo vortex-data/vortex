@@ -1,9 +1,9 @@
 use std::fmt::Debug;
 
-use enum_iterator::{Sequence, all};
+use enum_iterator::{all, Sequence};
 use num_traits::CheckedAdd;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use super::traits::StatsProvider;
@@ -472,9 +472,9 @@ mod test {
     use itertools::Itertools;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::Array;
     use crate::arrays::PrimitiveArray;
     use crate::stats::{IsConstant, Precision, Stat, StatsProvider, StatsProviderExt, StatsSet};
+    use crate::Array;
 
     #[test]
     fn test_iter() {

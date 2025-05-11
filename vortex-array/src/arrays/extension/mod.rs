@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::{DType, ExtDType, ExtID};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -11,8 +11,8 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingRef, IntoArray,
-    vtable,
+    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingRef,
+    IntoArray,
 };
 
 mod compute;

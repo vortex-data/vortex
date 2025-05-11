@@ -1,8 +1,8 @@
 use vortex_error::VortexResult;
 
-use crate::Canonical;
 use crate::builders::ArrayBuilder;
 use crate::vtable::VTable;
+use crate::Canonical;
 
 // TODO(ngates): rename to `DecodeVTable`.
 pub trait CanonicalVTable<V: VTable> {

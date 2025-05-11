@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use num_traits::Num;
 use vortex_dtype::NativePType;
-use vortex_error::{VortexExpect, VortexUnwrap, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexUnwrap};
 use vortex_scalar::{NumericOperator, PrimitiveScalar, Scalar};
 
 use crate::arrays::ConstantArray;

@@ -1,16 +1,16 @@
 //! List-related compute operations.
 
-use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_iterator::BitIndexIterator;
+use arrow_buffer::BooleanBuffer;
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::{match_each_integer_ptype, DType, NativePType, Nullability};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, ConstantArray, ListArray};
-use crate::compute::{Operator, compare, invert};
+use crate::compute::{compare, invert, Operator};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 

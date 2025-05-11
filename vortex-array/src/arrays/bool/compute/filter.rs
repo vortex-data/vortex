@@ -1,11 +1,11 @@
-use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, bit_util};
+use arrow_buffer::{bit_util, BooleanBuffer, BooleanBufferBuilder};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{FilterKernel, FilterKernelAdapter};
 use crate::vtable::ValidityHelper;
-use crate::{ArrayRef, IntoArray, register_kernel};
+use crate::{register_kernel, ArrayRef, IntoArray};
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
@@ -77,8 +77,8 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::array::Array;
-    use crate::arrays::BoolArray;
     use crate::arrays::bool::compute::filter::{filter_indices, filter_slices};
+    use crate::arrays::BoolArray;
     use crate::canonical::ToCanonical;
     use crate::compute::filter;
 

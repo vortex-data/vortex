@@ -1,5 +1,5 @@
 use vortex_dtype::half::f16;
-use vortex_dtype::{NativePType, match_each_native_ptype};
+use vortex_dtype::{match_each_native_ptype, NativePType};
 use vortex_error::VortexResult;
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};

@@ -1,10 +1,10 @@
 use arrow_buffer::BooleanBuffer;
-use vortex_dtype::{NativePType, Nullability, match_each_native_ptype};
+use vortex_dtype::{match_each_native_ptype, NativePType, Nullability};
 use vortex_error::VortexResult;
 
 use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveVTable};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::{register_kernel, Array, ArrayRef, IntoArray};
 
 impl BetweenKernel for PrimitiveVTable {
     fn between(

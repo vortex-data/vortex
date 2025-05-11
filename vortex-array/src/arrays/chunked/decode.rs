@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType, StructDType};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
 use super::ChunkedArray;
 use crate::arrays::{ChunkedVTable, ListArray, PrimitiveArray, StructArray};
-use crate::builders::{ArrayBuilder, builder_with_capacity};
+use crate::builders::{builder_with_capacity, ArrayBuilder};
 use crate::compute::cast;
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
@@ -132,11 +132,11 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
 
-    use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
     use crate::array::Array;
     use crate::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
     use crate::validity::Validity;
+    use crate::ToCanonical;
 
     #[test]
     pub fn pack_nested_structs() {

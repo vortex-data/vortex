@@ -1,8 +1,8 @@
 use vortex_error::VortexResult;
 
 use crate::arrays::{ConstantArray, ConstantVTable};
-use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, scalar_cmp};
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::compute::{scalar_cmp, CompareKernel, CompareKernelAdapter, Operator};
+use crate::{register_kernel, Array, ArrayRef, IntoArray};
 
 impl CompareKernel for ConstantVTable {
     fn compare(

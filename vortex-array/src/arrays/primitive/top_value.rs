@@ -6,7 +6,6 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::PValue;
 
-use crate::Array;
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::{NativeValue, PrimitiveArray};
 

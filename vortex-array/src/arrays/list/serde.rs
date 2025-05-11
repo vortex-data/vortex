@@ -67,7 +67,7 @@ impl SerdeVTable<ListVTable> for ListVTable {
 }
 
 impl VisitorVTable<ListVTable> for ListVTable {
-    fn visit_buffers(array: &ListArray, visitor: &mut dyn ArrayBufferVisitor) {}
+    fn visit_buffers(_array: &ListArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &ListArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("elements", array.elements());

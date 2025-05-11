@@ -215,7 +215,7 @@ impl ValidityHelper for StructArray {
 
 impl ArrayVTable<StructVTable> for StructVTable {
     fn len(array: &StructArray) -> usize {
-        array.len()
+        array.len
     }
 
     fn dtype(array: &StructArray) -> &DType {

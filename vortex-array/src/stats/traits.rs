@@ -1,5 +1,5 @@
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, vortex_panic};
+use vortex_error::{vortex_panic, VortexError, VortexExpect};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use super::{Precision, Stat, StatType};

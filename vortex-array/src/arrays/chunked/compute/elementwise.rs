@@ -81,7 +81,7 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::{BoolArray, BooleanBuffer, ChunkedArray};
     use crate::canonical::ToCanonical;
-    use crate::compute::{BooleanOperator, boolean};
+    use crate::compute::{boolean, BooleanOperator};
 
     #[test]
     fn test_bin_bool_chunked() {

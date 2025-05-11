@@ -9,13 +9,13 @@ mod take;
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
     use crate::array::Array;
     use crate::arrays::VarBinViewArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::mask::test_mask;
     use crate::compute::take;
+    use crate::IntoArray;
 
     #[test]
     fn take_nullable() {

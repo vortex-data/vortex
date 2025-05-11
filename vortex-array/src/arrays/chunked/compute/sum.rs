@@ -1,12 +1,12 @@
 use num_traits::PrimInt;
-use vortex_dtype::{NativePType, PType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_dtype::{match_each_native_ptype, NativePType, PType};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 use vortex_scalar::{FromPrimitiveOrF16, Scalar};
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{SumKernel, SumKernelAdapter, sum};
+use crate::compute::{sum, SumKernel, SumKernelAdapter};
 use crate::stats::Stat;
-use crate::{ArrayRef, register_kernel};
+use crate::{register_kernel, ArrayRef};
 
 impl SumKernel for ChunkedVTable {
     fn sum(&self, array: &ChunkedArray) -> VortexResult<Scalar> {

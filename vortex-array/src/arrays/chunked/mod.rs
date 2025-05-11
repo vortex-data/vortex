@@ -8,7 +8,7 @@ use arcref::ArcRef;
 pub use array::*;
 
 use crate::vtable::VTable;
-use crate::{EncodingRef, vtable};
+use crate::{vtable, EncodingRef};
 
 vtable!(Chunked);
 

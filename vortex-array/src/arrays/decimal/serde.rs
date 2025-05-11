@@ -1,6 +1,6 @@
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexResult};
 use vortex_scalar::i256;
 
 use super::{DecimalArray, DecimalVTable};
@@ -164,11 +164,11 @@ macro_rules! match_each_decimal_value_type {
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{ByteBufferMut, buffer};
+    use vortex_buffer::{buffer, ByteBufferMut};
 
     use super::*;
-    use crate::Encoding;
     use crate::serde::SerializeOptions;
+    use crate::Encoding;
 
     #[test]
     fn test_array_serde() {

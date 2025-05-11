@@ -3,10 +3,10 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
-use crate::compute::{FilterKernel, FilterKernelAdapter, filter, take};
+use crate::compute::{filter, take, FilterKernel, FilterKernelAdapter};
 use crate::search_sorted::{SearchSorted, SearchSortedSide};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray, register_kernel};
+use crate::{register_kernel, Array, ArrayRef, IntoArray};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;

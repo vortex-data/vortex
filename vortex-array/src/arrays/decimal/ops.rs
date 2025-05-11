@@ -6,7 +6,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{DecimalArray, DecimalVTable, NativeDecimalType};
 use crate::validity::Validity;
 use crate::vtable::OperationsVTable;
-use crate::{Array, ArrayRef, IntoArray, match_each_decimal_value_type};
+use crate::{ArrayRef, IntoArray, match_each_decimal_value_type};
 
 impl OperationsVTable<DecimalVTable> for DecimalVTable {
     fn slice(array: &DecimalArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {

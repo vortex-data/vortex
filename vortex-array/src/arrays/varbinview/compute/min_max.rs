@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{VarBinViewArray, VarBinViewVTable, compute_min_max};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
-use crate::{Array, register_kernel};
+use crate::register_kernel;
 
 impl MinMaxKernel for VarBinViewVTable {
     fn min_max(&self, array: &VarBinViewArray) -> VortexResult<Option<MinMaxResult>> {

@@ -2,11 +2,11 @@ use std::any::Any;
 use std::sync::{Arc, LazyLock};
 
 use arcref::ArcRef;
-use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::cast::AsArray;
+use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};

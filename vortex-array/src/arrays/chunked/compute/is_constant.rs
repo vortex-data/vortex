@@ -1,8 +1,8 @@
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
-use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, is_constant_opts};
-use crate::{Array, register_kernel};
+use crate::compute::{is_constant_opts, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
+use crate::{register_kernel, Array};
 
 impl IsConstantKernel for ChunkedVTable {
     fn is_constant(
@@ -48,7 +48,7 @@ register_kernel!(IsConstantKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{Buffer, buffer};
+    use vortex_buffer::{buffer, Buffer};
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::arrays::ChunkedArray;

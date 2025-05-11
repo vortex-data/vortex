@@ -1,9 +1,9 @@
 use vortex_error::VortexUnwrap;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::arrays::BoolArray;
 use crate::compute::mask;
+use crate::Array;
 
 pub fn test_mask(array: &dyn Array) {
     assert_eq!(array.len(), 5);

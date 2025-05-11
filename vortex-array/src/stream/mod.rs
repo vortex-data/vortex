@@ -2,7 +2,7 @@ use std::pin::Pin;
 
 pub use adapter::*;
 pub use ext::*;
-use futures_util::{Stream, stream};
+use futures_util::{stream, Stream};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 

@@ -8,7 +8,7 @@ use crate::arrays::{StructArray, StructVTable};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, VisitorVTable};
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
 
 impl SerdeVTable<StructVTable> for StructVTable {
     type Metadata = EmptyMetadata;
@@ -22,7 +22,7 @@ impl SerdeVTable<StructVTable> for StructVTable {
         dtype: DType,
         len: usize,
         _metadata: &Self::Metadata,
-        buffers: &[ByteBuffer],
+        _buffers: &[ByteBuffer],
         children: &[ArrayParts],
         ctx: &ArrayContext,
     ) -> VortexResult<StructArray> {

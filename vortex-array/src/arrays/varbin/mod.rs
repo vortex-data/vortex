@@ -6,7 +6,7 @@ use num_traits::PrimInt;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{
-    VortexExpect as _, VortexResult, VortexUnwrap as _, vortex_bail, vortex_err, vortex_panic,
+    vortex_bail, vortex_err, vortex_panic, VortexExpect as _, VortexResult, VortexUnwrap as _,
 };
 use vortex_scalar::Scalar;
 
@@ -14,7 +14,7 @@ use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{ArrayVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper};
-use crate::{Array, ArrayRef, EncodingRef, vtable};
+use crate::{vtable, Array, ArrayRef, EncodingRef};
 
 mod accessor;
 pub mod builder;
@@ -279,11 +279,11 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::ArrayRef;
     use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::validity::Validity;
+    use crate::ArrayRef;
 
     #[fixture]
     fn binary_array() -> ArrayRef {

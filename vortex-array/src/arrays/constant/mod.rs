@@ -7,7 +7,7 @@ use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
 use crate::vtable::{ArrayVTable, OperationsVTable, VTable, ValidityVTable, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingRef, IntoArray, vtable};
+use crate::{vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingRef, IntoArray};
 
 mod canonical;
 mod compute;

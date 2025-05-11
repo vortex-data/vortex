@@ -7,9 +7,9 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolVTable, ConstantArray};
-use crate::compute::{TakeKernel, TakeKernelAdapter, fill_null};
+use crate::compute::{fill_null, TakeKernel, TakeKernelAdapter};
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{register_kernel, Array, ArrayRef, IntoArray, ToCanonical};
 
 impl TakeKernel for BoolVTable {
     fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -68,8 +68,8 @@ mod test {
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
-    use crate::arrays::BoolArray;
     use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::BoolArray;
     use crate::compute::take;
     use crate::validity::Validity;
     use crate::{Array, ToCanonical};

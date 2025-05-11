@@ -1,6 +1,6 @@
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{vortex_bail, VortexExpect, VortexResult};
 
 use super::VarBinEncoding;
 use crate::arrays::{VarBinArray, VarBinVTable};

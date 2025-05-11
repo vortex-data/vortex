@@ -2,15 +2,15 @@ use arrow_array::{BinaryArray, StringArray};
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::cmp;
 use itertools::Itertools;
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{match_each_native_ptype, DType, NativePType};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect as _, VortexResult};
 
 use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinVTable, VarBinViewArray};
-use crate::arrow::{Datum, from_arrow_array_with_len};
+use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{
-    CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
+    compare, compare_lengths_to_empty, CompareKernel, CompareKernelAdapter, Operator,
 };
-use crate::{Array, ArrayExt, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{register_kernel, Array, ArrayExt, ArrayRef, IntoArray, ToCanonical};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBinVTable {
@@ -117,9 +117,9 @@ mod test {
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
-    use crate::ToCanonical;
     use crate::arrays::{ConstantArray, VarBinArray};
-    use crate::compute::{Operator, compare};
+    use crate::compute::{compare, Operator};
+    use crate::ToCanonical;
 
     #[test]
     fn test_binary_compare() {

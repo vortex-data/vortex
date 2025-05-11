@@ -3,11 +3,11 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
 use vortex_scalar::{NumericOperator, Scalar};
 
 use crate::arrays::ConstantArray;
-use crate::arrow::{Datum, from_arrow_array_with_len};
+use crate::arrow::{from_arrow_array_with_len, Datum};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
@@ -263,11 +263,11 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
-    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::sub_scalar;
+    use crate::IntoArray;
 
     #[test]
     fn test_scalar_subtract_unsigned() {

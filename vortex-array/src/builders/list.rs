@@ -3,13 +3,13 @@ use std::sync::Arc;
 
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::{ListScalar, NumericOperator};
 
 use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_with_capacity};
+use crate::builders::{builder_with_capacity, ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder};
 use crate::compute::{cast, numeric};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
@@ -183,16 +183,16 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 mod tests {
     use std::sync::Arc;
 
-    use Nullability::{NonNullable, Nullable};
     use vortex_buffer::buffer;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
+    use Nullability::{NonNullable, Nullable};
 
     use crate::array::Array;
     use crate::arrays::{ChunkedArray, ListArray, OffsetPType};
-    use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
+    use crate::builders::ArrayBuilder;
     use crate::validity::Validity;
     use crate::{IntoArray as _, ToCanonical};
 

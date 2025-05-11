@@ -3,15 +3,15 @@ use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use arcref::ArcRef;
 use itertools::Itertools;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{vortex_err, VortexExpect, VortexResult};
 
-use crate::EncodingRef;
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
     ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
     VarBinViewEncoding,
 };
+use crate::EncodingRef;
 
 /// A collection of array encodings.
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.

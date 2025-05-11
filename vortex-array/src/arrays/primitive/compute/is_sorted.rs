@@ -5,7 +5,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
-use crate::{Array, register_kernel};
+use crate::register_kernel;
 
 impl IsSortedKernel for PrimitiveVTable {
     fn is_sorted(&self, array: &PrimitiveArray) -> VortexResult<bool> {

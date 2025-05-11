@@ -2,16 +2,16 @@ use std::fmt::{Debug, Formatter};
 use std::iter;
 use std::sync::Arc;
 
-use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset, root};
+use flatbuffers::{root, FlatBufferBuilder, Follow, WIPOffset};
 use itertools::Itertools;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, TryFromBytes};
 use vortex_error::{
-    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+    vortex_bail, vortex_err, vortex_panic, VortexError, VortexExpect, VortexResult,
 };
 use vortex_flatbuffers::array::Compression;
 use vortex_flatbuffers::{
-    FlatBuffer, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer, array as fba,
+    array as fba, FlatBuffer, FlatBufferRoot, ReadFlatBuffer, WriteFlatBuffer,
 };
 
 use crate::stats::StatsSet;

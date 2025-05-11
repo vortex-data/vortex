@@ -1,7 +1,7 @@
 use std::ops::Not;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::{Nullability, match_each_native_ptype};
+use vortex_dtype::{match_each_native_ptype, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
@@ -9,7 +9,7 @@ use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{ConstantArray, PrimitiveVTable};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
-use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{register_kernel, ArrayRef, IntoArray, ToCanonical};
 
 impl FillNullKernel for PrimitiveVTable {
     fn fill_null(&self, array: &PrimitiveArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
@@ -53,13 +53,13 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
-    use crate::IntoArray;
     use crate::array::Array;
-    use crate::arrays::BoolArray;
     use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::BoolArray;
     use crate::canonical::ToCanonical;
     use crate::compute::fill_null;
     use crate::validity::Validity;
+    use crate::IntoArray;
 
     #[test]
     fn fill_null_leading_none() {

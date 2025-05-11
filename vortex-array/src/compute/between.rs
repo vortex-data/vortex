@@ -3,16 +3,16 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::compute::{
-    BooleanOperator, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Options, Output,
-    boolean, compare,
+    boolean, compare, BooleanOperator, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator,
+    Options, Output,
 };
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, Canonical, Encoding, IntoArray};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 /// Compute between (a <= x <= b), this can be implemented using compare and boolean and but this
 /// will likely have a lower runtime.
