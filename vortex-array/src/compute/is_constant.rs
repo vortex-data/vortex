@@ -3,10 +3,10 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, NullArray};
+use crate::arrays::{ConstantVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
@@ -109,7 +109,7 @@ fn is_constant_impl(
     }
 
     // Constant and null arrays are always constant
-    if array.as_opt::<ConstantArray>().is_some() || array.as_opt::<NullArray>().is_some() {
+    if array.as_opt::<ConstantVTable>().is_some() || array.as_opt::<NullVTable>().is_some() {
         return Ok(Some(true));
     }
 
@@ -199,7 +199,7 @@ impl<V: VTable + IsConstantKernel> IsConstantKernelAdapter<V> {
 impl<V: VTable + IsConstantKernel> Kernel for IsConstantKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let args = IsConstantArgs::try_from(args)?;
-        let Some(array) = args.array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = args.array.as_opt::<V>() else {
             return Ok(None);
         };
         let is_constant = V::is_constant(&self.0, array, args.options)?;

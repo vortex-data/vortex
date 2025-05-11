@@ -1,8 +1,8 @@
 use vortex_error::VortexResult;
 
 use crate::arrays::{ConstantArray, ExtensionArray, ExtensionVTable};
-use crate::compute::{compare, CompareKernel, CompareKernelAdapter, Operator};
-use crate::{register_kernel, Array, ArrayExt, ArrayRef};
+use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
+use crate::{Array, ArrayExt, ArrayRef, register_kernel};
 
 impl CompareKernel for ExtensionVTable {
     fn compare(
@@ -23,7 +23,7 @@ impl CompareKernel for ExtensionVTable {
         }
 
         // If the RHS is an extension array matching ours, we can extract the storage.
-        if let Some(rhs_ext) = rhs.as_opt::<ExtensionArray>() {
+        if let Some(rhs_ext) = rhs.as_opt::<ExtensionVTable>() {
             return compare(lhs.storage(), rhs_ext.storage(), operator).map(Some);
         }
 

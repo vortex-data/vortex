@@ -6,7 +6,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, NullArray};
+use crate::arrays::{ConstantVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat};
 use crate::vtable::VTable;
@@ -164,7 +164,7 @@ impl<V: VTable + IsSortedKernel> IsSortedKernelAdapter<V> {
 impl<V: VTable + IsSortedKernel> Kernel for IsSortedKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let IsSortedArgs { array, strict } = IsSortedArgs::try_from(args)?;
-        let Some(array) = array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = array.as_opt::<V>() else {
             return Ok(None);
         };
 
@@ -222,7 +222,7 @@ fn is_sorted_impl(
     }
 
     // Constant and null arrays are always sorted, but not strict sorted.
-    if array.is::<ConstantArray>() || array.is::<NullArray>() {
+    if array.is::<ConstantVTable>() || array.is::<NullVTable>() {
         return Ok(!strict);
     }
 

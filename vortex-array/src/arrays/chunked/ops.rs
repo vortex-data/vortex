@@ -1,8 +1,8 @@
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::arrays::chunked::ChunkedArray;
 use crate::arrays::ChunkedVTable;
+use crate::arrays::chunked::ChunkedArray;
 use crate::vtable::OperationsVTable;
 use crate::{Array, ArrayRef, IntoArray};
 
@@ -50,7 +50,7 @@ mod tests {
     use vortex_dtype::{DType, NativePType, Nullability, PType};
 
     use crate::array::Array;
-    use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
     use crate::canonical::ToCanonical;
     use crate::{ArrayExt, IntoArray};
 
@@ -68,7 +68,7 @@ mod tests {
 
     fn assert_equal_slices<T: NativePType>(arr: &dyn Array, slice: &[T]) {
         let mut values = Vec::with_capacity(arr.len());
-        if let Some(arr) = arr.as_opt::<ChunkedArray>() {
+        if let Some(arr) = arr.as_opt::<ChunkedVTable>() {
             arr.chunks()
                 .iter()
                 .map(|a| a.to_primitive().unwrap())

@@ -3,15 +3,15 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use arrow_array::BooleanArray;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::compute::{cast, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
+use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayExt, ArrayRef, IntoArray};
 
 /// Replace values with null where the mask is true.
 ///
@@ -33,7 +33,7 @@ use crate::{Array, ArrayRef, IntoArray};
 /// )
 /// .unwrap();
 ///
-/// let masked = mask(&array, &mask_array).unwrap();
+/// let masked = mask(array.as_ref(), &mask_array).unwrap();
 /// assert_eq!(masked.len(), 5);
 /// assert!(!masked.is_valid(0).unwrap());
 /// assert!(!masked.is_valid(1).unwrap());
@@ -71,7 +71,7 @@ impl<V: VTable + MaskKernel> MaskKernelAdapter<V> {
 impl<V: VTable + MaskKernel> Kernel for MaskKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = MaskArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(Some(V::mask(&self.0, array, inputs.mask)?.into()))

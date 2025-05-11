@@ -3,12 +3,12 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use crate::arrow::{from_arrow_array_with_len, Datum};
+use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayExt, ArrayRef};
 
 /// Perform SQL left LIKE right
 ///
@@ -52,7 +52,7 @@ impl<V: VTable + LikeKernel> LikeKernelAdapter<V> {
 impl<V: VTable + LikeKernel> Kernel for LikeKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = LikeArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(V::like(&self.0, array, inputs.pattern, inputs.options)?.map(|array| array.into()))

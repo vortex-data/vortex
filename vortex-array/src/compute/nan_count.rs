@@ -2,13 +2,13 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::stats::{Precision, Stat};
 use crate::vtable::VTable;
-use crate::Array;
+use crate::{Array, ArrayExt};
 
 /// Computes the number of NaN values in the array.
 pub fn nan_count(array: &dyn Array) -> VortexResult<usize> {
@@ -88,7 +88,7 @@ impl<V: VTable + NaNCountKernel> NaNCountKernelAdapter<V> {
 impl<V: VTable + NaNCountKernel> Kernel for NaNCountKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
-        let Some(array) = array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = array.as_opt::<V>() else {
             return Ok(None);
         };
         let nan_count = V::nan_count(&self.0, array)?;

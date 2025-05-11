@@ -12,10 +12,10 @@ use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use crate::Array;
-use crate::arrow::array::ArrowArray;
+use crate::arrow::array::{ArrowArray, ArrowVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
+use crate::{Array, ArrayExt};
 
 /// Convert a Vortex array to an Arrow array with the encoding's preferred `DataType`.
 ///
@@ -45,8 +45,7 @@ pub fn to_arrow_opts(array: &dyn Array, options: &ToArrowOptions) -> VortexResul
             options,
         })?
         .unwrap_array()?
-        .as_any()
-        .downcast_ref::<ArrowArray>()
+        .as_opt::<ArrowVTable>()
         .ok_or_else(|| vortex_err!("ToArrow compute kernels must return a Vortex ArrowArray"))?
         .inner()
         .clone();

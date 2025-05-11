@@ -5,10 +5,10 @@ use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
+use crate::{Array, ArrayExt};
 
 /// Computes the min & max of an array, returning the (min, max) values
 /// The return values are (min, max) scalars, where None indicates that the value is non-existent
@@ -167,7 +167,7 @@ impl<V: VTable + MinMaxKernel> MinMaxKernelAdapter<V> {
 impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = UnaryArgs::<()>::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
         let dtype = DType::Struct(

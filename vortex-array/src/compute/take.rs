@@ -2,14 +2,14 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayExt, ArrayRef, IntoArray};
 
 pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     TAKE_FN
@@ -202,7 +202,7 @@ impl<V: VTable + TakeKernel> TakeKernelAdapter<V> {
 impl<V: VTable + TakeKernel> Kernel for TakeKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = TakeArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(Some(V::take(&self.0, array, inputs.indices)?.into()))

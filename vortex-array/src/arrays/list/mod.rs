@@ -11,7 +11,7 @@ use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_scalar::Scalar;
 
-use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -106,7 +106,7 @@ impl ListArray {
     // TODO(ngates): should return a result if it requires canonicalizing offsets
     pub fn offset_at(&self, index: usize) -> usize {
         self.offsets()
-            .as_opt::<PrimitiveArray>()
+            .as_opt::<PrimitiveVTable>()
             .map(|p| {
                 match_each_native_ptype!(p.ptype(), |$P| {
                     p.as_slice::<$P>()[index].as_()

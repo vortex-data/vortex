@@ -2,11 +2,11 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, vortex_panic, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayExt, ArrayRef, IntoArray, ToCanonical};
 
 /// Logically invert a boolean array, preserving its validity.
 pub fn invert(array: &dyn Array) -> VortexResult<ArrayRef> {
@@ -105,7 +105,7 @@ impl<V: VTable + InvertKernel> InvertKernelAdapter<V> {
 impl<V: VTable + InvertKernel> Kernel for InvertKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let args = InvertArgs::try_from(args)?;
-        let Some(array) = args.array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = args.array.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(Some(V::invert(&self.0, array)?.into()))

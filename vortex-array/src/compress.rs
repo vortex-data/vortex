@@ -3,7 +3,7 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{ConstantArray, PrimitiveArray, PrimitiveEncoding, PrimitiveVTable};
 use crate::compute::{cast, min_max};
 use crate::{Array, ArrayExt, ArrayRef, IntoArray, ToCanonical};
 
@@ -17,7 +17,7 @@ pub fn downscale_integer_array(array: ArrayRef) -> VortexResult<ArrayRef> {
         return Ok(array);
     }
     let array = array
-        .as_opt::<PrimitiveArray>()
+        .as_opt::<PrimitiveVTable>()
         .vortex_expect("Checked earlier");
 
     let Some(min_max) = min_max(array.as_ref())? else {

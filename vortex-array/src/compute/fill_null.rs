@@ -2,12 +2,12 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::compute::{cast, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
+use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayExt, ArrayRef, IntoArray};
 
 pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     FILL_NULL_FN
@@ -37,7 +37,7 @@ impl<V: VTable + FillNullKernel> FillNullKernelAdapter<V> {
 impl<V: VTable + FillNullKernel> Kernel for FillNullKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = FillNullArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(Some(

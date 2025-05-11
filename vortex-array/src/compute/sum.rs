@@ -5,10 +5,10 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::stats::{Precision, Stat, StatsProvider};
 use crate::vtable::VTable;
+use crate::{Array, ArrayExt};
 
 /// Sum an array.
 ///
@@ -100,7 +100,7 @@ impl<V: VTable + SumKernel> SumKernelAdapter<V> {
 impl<V: VTable + SumKernel> Kernel for SumKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
-        let Some(array) = array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = array.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(Some(V::sum(&self.0, array)?.into()))

@@ -5,7 +5,7 @@ use itertools::Itertools;
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
-use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinVTable, VarBinViewArray};
+use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinVTable, VarBinViewVTable};
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{
     CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
@@ -86,7 +86,7 @@ impl CompareKernel for VarBinVTable {
             .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
             Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
-        } else if rhs.is::<VarBinViewArray>() {
+        } else if rhs.is::<VarBinViewVTable>() {
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
             return Ok(Some(compare(lhs.to_varbinview()?.as_ref(), rhs, operator)?));

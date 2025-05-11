@@ -15,12 +15,12 @@ pub use validity::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
+    BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
@@ -265,21 +265,19 @@ impl ToOwned for dyn Array {
 pub trait ArrayExt: Array {
     /// Returns the array downcast to the given `A`.
     fn as_<V: VTable>(&self) -> &V::Array {
-        &self
-            .as_any()
-            .downcast_ref::<ArrayAdapter<V>>()
-            .vortex_expect("Failed to downcast")
-            .0
+        self.as_opt::<V>().vortex_expect("Failed to downcast")
     }
 
     /// Returns the array downcast to the given `A`.
-    fn as_opt<A: 'static>(&self) -> Option<&A> {
-        self.as_any().downcast_ref::<A>()
+    fn as_opt<V: VTable>(&self) -> Option<&V::Array> {
+        self.as_any()
+            .downcast_ref::<ArrayAdapter<V>>()
+            .map(|array_adapter| &array_adapter.0)
     }
 
-    /// Is self an array with encoding `A`.
-    fn is<A: 'static>(&self) -> bool {
-        self.as_opt::<A>().is_some()
+    /// Is self an array with encoding from vtable `V`.
+    fn is<V: VTable>(&self) -> bool {
+        self.as_opt::<V>().is_some()
     }
 }
 
@@ -393,7 +391,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         // computing derived stats and merging them in.
         // TODO(ngates): skip the is_constant check here, it can force an expensive compute.
         // TODO(ngates): provide a means to slice an array _without_ propagating stats.
-        let derived_stats = (!self.is::<ConstantEncoding>()).then(|| {
+        let derived_stats = (!self.is::<ConstantVTable>()).then(|| {
             let stats = self.statistics().to_owned();
 
             // an array that is not constant can become constant after slicing

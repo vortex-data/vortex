@@ -3,16 +3,16 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, vortex_err, VortexError, VortexExpect, VortexResult};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
 use crate::compute::{
-    boolean, compare, BooleanOperator, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator,
-    Options, Output,
+    BooleanOperator, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Options, Output,
+    boolean, compare,
 };
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::{Array, ArrayExt, ArrayRef, Canonical, IntoArray};
 
 /// Compute between (a <= x <= b), this can be implemented using compare and boolean and but this
 /// will likely have a lower runtime.
@@ -79,7 +79,7 @@ impl<V: VTable + BetweenKernel> BetweenKernelAdapter<V> {
 impl<V: VTable + BetweenKernel> Kernel for BetweenKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = BetweenArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(

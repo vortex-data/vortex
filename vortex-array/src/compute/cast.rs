@@ -6,7 +6,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayExt, ArrayRef};
 
 /// Attempt to cast an array to a desired DType.
 ///
@@ -131,7 +131,7 @@ impl<V: VTable + CastKernel> CastKernelAdapter<V> {
 impl<V: VTable + CastKernel> Kernel for CastKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let CastArgs { array, dtype } = CastArgs::try_from(args)?;
-        let Some(array) = array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = array.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(Some(V::cast(&self.0, array, dtype)?.into()))

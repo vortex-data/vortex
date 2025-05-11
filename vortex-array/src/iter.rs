@@ -6,7 +6,7 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::arrays::ChunkedArray;
+use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::{Array, ArrayExt, ArrayRef, IntoArray};
 
@@ -85,7 +85,7 @@ pub trait ArrayIteratorArrayExt: Array {
     /// Create an [`ArrayIterator`] over the array.
     fn to_array_iterator(&self) -> impl ArrayIterator + 'static {
         let dtype = self.dtype().clone();
-        let iter = if let Some(chunked) = self.as_opt::<ChunkedArray>() {
+        let iter = if let Some(chunked) = self.as_opt::<ChunkedVTable>() {
             ArrayChunkIterator::Chunked(Arc::new(chunked.clone()), 0)
         } else {
             ArrayChunkIterator::Single(Some(self.to_array()))
