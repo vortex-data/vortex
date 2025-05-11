@@ -51,9 +51,9 @@ mod tests {
     use vortex_dtype::{DecimalDType, Nullability};
     use vortex_scalar::{DecimalValue, Scalar};
 
-    use crate::Array;
-    use crate::arrays::DecimalArray;
+    use crate::arrays::{DecimalArray, DecimalVTable};
     use crate::validity::Validity;
+    use crate::{Array, ArrayExt};
 
     #[test]
     fn test_slice() {
@@ -67,7 +67,7 @@ mod tests {
         let sliced = array.slice(1, 3).unwrap();
         assert_eq!(sliced.len(), 2);
 
-        let decimal = sliced.as_any().downcast_ref::<DecimalArray>().unwrap();
+        let decimal = sliced.as_::<DecimalVTable>();
         assert_eq!(decimal.buffer::<i128>(), buffer![200i128, 300i128]);
     }
 
