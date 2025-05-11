@@ -10,9 +10,8 @@ use vortex_scalar::Scalar;
 use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
-use crate::encoding::Encoding;
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// Replace values with null where the mask is true.
 ///

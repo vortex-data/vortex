@@ -3,9 +3,9 @@ use std::future::Future;
 use futures_util::TryStreamExt;
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
 use crate::arrays::ChunkedArray;
 use crate::stream::{ArrayStream, SendableArrayStream};
-use crate::{Array, ArrayRef};
 
 pub trait ArrayStreamExt: ArrayStream {
     /// Box the [`ArrayStream`] so that it can be sent between threads.

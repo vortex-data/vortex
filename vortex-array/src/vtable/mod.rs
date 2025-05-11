@@ -112,21 +112,6 @@ macro_rules! vtable {
                     unsafe { &*(self as *const [<$V Encoding>] as *const $crate::EncodingAdapter<[<$V VTable>]>) }
                 }
             }
-
-            impl TryFrom<$crate::ArrayRef> for [<$V Array>] {
-                type Error = vortex_error::VortexError;
-
-                fn try_from(value: $crate::ArrayRef) -> Result<Self, Self::Error> {
-                    Ok(::std::sync::Arc::unwrap_or_clone(
-                        value.as_any_arc().downcast::<Self>().map_err(|_| {
-                            vortex_error::vortex_err!(
-                                "Cannot downcast to {}",
-                                std::any::type_name::<Self>()
-                            )
-                        })?,
-                    ))
-                }
-            }
         }
     };
 }

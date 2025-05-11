@@ -6,7 +6,7 @@ use vortex_mask::{Mask, MaskIter};
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{FilterKernel, FilterKernelAdapter};
-use crate::{ArrayRef, register_kernel};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;

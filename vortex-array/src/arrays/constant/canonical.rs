@@ -16,7 +16,7 @@ use crate::arrays::{
 use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-use crate::{Array, Canonical, IntoArray, match_each_decimal_value, match_each_decimal_value_type};
+use crate::{Canonical, IntoArray, match_each_decimal_value, match_each_decimal_value_type};
 
 impl CanonicalVTable<ConstantVTable> for ConstantVTable {
     fn canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {

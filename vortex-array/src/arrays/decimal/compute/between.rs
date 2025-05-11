@@ -5,7 +5,7 @@ use vortex_scalar::{DecimalValue, Scalar};
 
 use crate::arrays::{BoolArray, DecimalArray, DecimalVTable, NativeDecimalType};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
-use crate::{Array, ArrayRef, match_each_decimal_value_type, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, match_each_decimal_value_type, register_kernel};
 
 impl BetweenKernel for DecimalVTable {
     // Determine if the values are between the lower and upper bounds

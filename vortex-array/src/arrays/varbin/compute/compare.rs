@@ -55,7 +55,7 @@ impl CompareKernel for VarBinVTable {
                 ));
             }
 
-            let lhs = Datum::try_new(lhs)?;
+            let lhs = Datum::try_new(lhs.as_ref())?;
 
             // TODO(robert): Handle LargeString/Binary arrays
             let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
@@ -89,7 +89,7 @@ impl CompareKernel for VarBinVTable {
         } else if rhs.is::<VarBinViewArray>() {
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
-            return Ok(Some(compare(&lhs.to_varbinview()?, rhs, operator)?));
+            return Ok(Some(compare(lhs.to_varbinview()?.as_ref(), rhs, operator)?));
         } else {
             Ok(None)
         }

@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveVTable};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl BetweenKernel for PrimitiveVTable {
     fn between(

@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 use crate::arrays::{BinaryView, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::{Array, ArrayRef, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct VarBinViewBuilder {
     views_builder: BufferMut<BinaryView>,

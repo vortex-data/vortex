@@ -8,7 +8,7 @@ use vortex_mask::Mask;
 use crate::arrays::BoolArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::{Array, ArrayRef, Canonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 pub struct BoolBuilder {
     inner: BooleanBufferBuilder,

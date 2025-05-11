@@ -27,7 +27,7 @@ use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::ToArrowArgs;
 use crate::compute::{InvocationArgs, Kernel, Output, cast};
-use crate::{Array as _, Canonical, ToCanonical};
+use crate::{Array as _, Canonical, IntoArray, ToCanonical};
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
 #[derive(Debug)]

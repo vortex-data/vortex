@@ -2,10 +2,9 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::ArrayRef;
-use crate::array::Array;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::vtable::OperationsVTable;
+use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<PrimitiveVTable> for PrimitiveVTable {
     fn slice(array: &PrimitiveArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {

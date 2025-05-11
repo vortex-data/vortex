@@ -12,7 +12,7 @@ use vortex_scalar::Scalar;
 use crate::arrays::{BoolArray, ConstantArray, ListArray};
 use crate::compute::{Operator, compare, invert};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Compute a `Bool`-typed array the same length as `array` where elements are `true` if the list
 /// item contains the `value`, or `false` otherwise.
@@ -70,7 +70,7 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
     let ends = list_array.offsets().to_primitive()?;
 
     let rhs = ConstantArray::new(value, elems.len());
-    let matching_elements = compare(elems, &rhs, Operator::Eq)?;
+    let matching_elements = compare(elems, rhs.as_ref(), Operator::Eq)?;
     let matches = matching_elements.to_bool()?;
 
     // Fast path: no elements match.
@@ -213,7 +213,7 @@ mod tests {
     use crate::canonical::ToCanonical;
     use crate::compute::list_contains;
     use crate::validity::Validity;
-    use crate::{Array, ArrayExt, ArrayRef};
+    use crate::{ArrayExt, ArrayRef};
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
         ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))

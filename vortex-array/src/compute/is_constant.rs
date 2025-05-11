@@ -10,7 +10,7 @@ use crate::arrays::{ConstantArray, NullArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt, Encoding};
+use crate::{Array, ArrayExt};
 
 /// Computes whether an array has constant values. If the array's encoding doesn't implement the
 /// relevant VTable, it'll try and canonicalize in order to make a determination.

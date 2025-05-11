@@ -4,7 +4,6 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
 
 use crate::Canonical;
-use crate::array::Array;
 use crate::arrays::{BoolVTable, bool};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};

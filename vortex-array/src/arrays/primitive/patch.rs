@@ -17,7 +17,7 @@ impl PrimitiveArray {
         let patched_validity = self.validity().clone().patch(
             self.len(),
             offset,
-            &patch_indices,
+            patch_indices.as_ref(),
             patch_values.validity(),
         )?;
         match_each_integer_ptype!(patch_indices.ptype(), |$I| {

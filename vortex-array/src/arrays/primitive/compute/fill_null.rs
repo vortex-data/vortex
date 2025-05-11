@@ -9,7 +9,7 @@ use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{ConstantArray, PrimitiveVTable};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FillNullKernel for PrimitiveVTable {
     fn fill_null(&self, array: &PrimitiveArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {

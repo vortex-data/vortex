@@ -20,7 +20,7 @@ register_kernel!(FilterKernelAdapter(NullVTable).lift());
 
 impl MaskKernel for NullVTable {
     fn mask(&self, array: &NullArray, _mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(array.to_array().into_array())
+        Ok(array.to_array())
     }
 }
 

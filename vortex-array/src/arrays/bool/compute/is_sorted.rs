@@ -3,7 +3,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
-use crate::{Array, register_kernel};
+use crate::register_kernel;
 
 impl IsSortedKernel for BoolVTable {
     fn is_sorted(&self, array: &BoolArray) -> VortexResult<bool> {

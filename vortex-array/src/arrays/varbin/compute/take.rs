@@ -7,7 +7,7 @@ use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for VarBinVTable {
     fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

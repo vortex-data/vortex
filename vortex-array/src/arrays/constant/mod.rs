@@ -7,9 +7,7 @@ use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
 use crate::vtable::{ArrayVTable, OperationsVTable, VTable, ValidityVTable, VisitorVTable};
-use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingRef, IntoArray, vtable,
-};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingRef, IntoArray, vtable};
 
 mod canonical;
 mod compute;
@@ -90,7 +88,7 @@ impl OperationsVTable<ConstantVTable> for ConstantVTable {
         Ok(ConstantArray::new(array.scalar.clone(), stop - start).into_array())
     }
 
-    fn scalar_at(array: &ConstantArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &ConstantArray, _index: usize) -> VortexResult<Scalar> {
         Ok(array.scalar.clone())
     }
 }

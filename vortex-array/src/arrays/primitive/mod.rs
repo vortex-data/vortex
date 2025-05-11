@@ -315,7 +315,7 @@ impl CanonicalVTable<PrimitiveVTable> for PrimitiveVTable {
         array: &PrimitiveArray,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
-        builder.extend_from_array(array)
+        builder.extend_from_array(array.as_ref())
     }
 }
 

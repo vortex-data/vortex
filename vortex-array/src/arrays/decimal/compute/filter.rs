@@ -4,7 +4,7 @@ use vortex_mask::{Mask, MaskIter};
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{FilterKernel, FilterKernelAdapter};
-use crate::{ArrayRef, match_each_decimal_value_type, register_kernel};
+use crate::{ArrayRef, IntoArray, match_each_decimal_value_type, register_kernel};
 
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 

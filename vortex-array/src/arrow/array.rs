@@ -99,7 +99,7 @@ impl OperationsVTable<ArrowVTable> for ArrowVTable {
         Ok(new_array.into_array())
     }
 
-    fn scalar_at(array: &ArrowArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(_array: &ArrowArray, _index: usize) -> VortexResult<Scalar> {
         vortex_bail!("Not supported")
     }
 }
@@ -127,9 +127,11 @@ impl ValidityVTable<ArrowVTable> for ArrowVTable {
 }
 
 impl VisitorVTable<ArrowVTable> for ArrowVTable {
-    fn visit_buffers(array: &ArrowArray, visitor: &mut dyn ArrayBufferVisitor) {}
+    fn visit_buffers(_array: &ArrowArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &ArrowArray, visitor: &mut dyn ArrayChildVisitor) {}
+    fn visit_children(_array: &ArrowArray, _visitor: &mut dyn ArrayChildVisitor) {}
 
-    fn with_children(array: &ArrowArray, children: &[ArrayRef]) -> VortexResult<ArrowArray> {}
+    fn with_children(array: &ArrowArray, _children: &[ArrayRef]) -> VortexResult<ArrowArray> {
+        Ok(array.clone())
+    }
 }

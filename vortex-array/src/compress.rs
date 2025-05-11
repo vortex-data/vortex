@@ -5,7 +5,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, PrimitiveArray, PrimitiveEncoding};
 use crate::compute::{cast, min_max};
-use crate::{Array, ArrayExt, ArrayRef, ToCanonical};
+use crate::{Array, ArrayExt, ArrayRef, IntoArray, ToCanonical};
 
 /// Downscale a primitive array to the narrowest PType that fits all the values.
 pub fn downscale_integer_array(array: ArrayRef) -> VortexResult<ArrayRef> {
@@ -20,7 +20,7 @@ pub fn downscale_integer_array(array: ArrayRef) -> VortexResult<ArrayRef> {
         .as_opt::<PrimitiveArray>()
         .vortex_expect("Checked earlier");
 
-    let Some(min_max) = min_max(array)? else {
+    let Some(min_max) = min_max(array.as_ref())? else {
         // This array but be all nulls.
         return Ok(
             ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
@@ -49,7 +49,7 @@ fn downscale_primitive_integer_array(
         // Signed
         if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
             return cast(
-                &array,
+                array.as_ref(),
                 &DType::Primitive(PType::I8, array.dtype().nullability()),
             )?
             .to_primitive();
@@ -57,7 +57,7 @@ fn downscale_primitive_integer_array(
 
         if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
             return cast(
-                &array,
+                array.as_ref(),
                 &DType::Primitive(PType::I16, array.dtype().nullability()),
             )?
             .to_primitive();
@@ -65,7 +65,7 @@ fn downscale_primitive_integer_array(
 
         if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
             return cast(
-                &array,
+                array.as_ref(),
                 &DType::Primitive(PType::I32, array.dtype().nullability()),
             )?
             .to_primitive();
@@ -74,7 +74,7 @@ fn downscale_primitive_integer_array(
         // Unsigned
         if max <= u8::MAX as i64 {
             return cast(
-                &array,
+                array.as_ref(),
                 &DType::Primitive(PType::U8, array.dtype().nullability()),
             )?
             .to_primitive();
@@ -82,7 +82,7 @@ fn downscale_primitive_integer_array(
 
         if max <= u16::MAX as i64 {
             return cast(
-                &array,
+                array.as_ref(),
                 &DType::Primitive(PType::U16, array.dtype().nullability()),
             )?
             .to_primitive();
@@ -90,7 +90,7 @@ fn downscale_primitive_integer_array(
 
         if max <= u32::MAX as i64 {
             return cast(
-                &array,
+                array.as_ref(),
                 &DType::Primitive(PType::U32, array.dtype().nullability()),
             )?
             .to_primitive();

@@ -10,7 +10,7 @@ use vortex_scalar::StructScalar;
 use crate::arrays::StructArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
-use crate::{Array, ArrayRef, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,

@@ -8,7 +8,7 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::ChunkedArray;
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::{Array, ArrayExt, ArrayRef};
+use crate::{Array, ArrayExt, ArrayRef, IntoArray};
 
 /// Iterator of array with a known [`DType`].
 ///

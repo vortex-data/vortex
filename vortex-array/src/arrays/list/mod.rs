@@ -20,7 +20,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayRef, Canonical, EncodingRef, IntoArray, TryFromArrayRef, vtable};
+use crate::{Array, ArrayExt, ArrayRef, Canonical, EncodingRef, IntoArray, vtable};
 
 vtable!(List);
 
@@ -105,8 +105,8 @@ impl ListArray {
     // TODO: merge logic with varbin
     // TODO(ngates): should return a result if it requires canonicalizing offsets
     pub fn offset_at(&self, index: usize) -> usize {
-        PrimitiveArray::try_from_array(self.offsets().clone())
-            .ok()
+        self.offsets()
+            .as_opt::<PrimitiveArray>()
             .map(|p| {
                 match_each_native_ptype!(p.ptype(), |$P| {
                     p.as_slice::<$P>()[index].as_()

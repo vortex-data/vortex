@@ -12,13 +12,13 @@ use vortex_error::VortexResult;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for PrimitiveVTable {
     #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
-        let validity = array.validity().take(&indices)?;
+        let validity = array.validity().take(indices.as_ref())?;
 
         if array.ptype() != PType::F16
             && indices.dtype().is_unsigned_int()

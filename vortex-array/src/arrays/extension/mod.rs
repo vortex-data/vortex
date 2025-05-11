@@ -11,8 +11,8 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, Encoding, EncodingRef,
-    IntoArray, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingRef, IntoArray,
+    vtable,
 };
 
 mod compute;
@@ -128,9 +128,9 @@ impl OperationsVTable<ExtensionVTable> for ExtensionVTable {
 }
 
 impl VisitorVTable<ExtensionVTable> for ExtensionVTable {
-    fn visit_buffers(array: &ExtensionArray, visitor: &mut dyn ArrayBufferVisitor) {}
+    fn visit_buffers(_array: &ExtensionArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(array: &ExtensionArray, visitor: &mut dyn ArrayChildVisitor) {}
+    fn visit_children(_array: &ExtensionArray, _visitor: &mut dyn ArrayChildVisitor) {}
 
     fn with_children(
         array: &ExtensionArray,

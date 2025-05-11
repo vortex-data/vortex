@@ -261,26 +261,6 @@ impl ToOwned for dyn Array {
     }
 }
 
-impl<A: Array + Clone + 'static> TryFromArrayRef for A {
-    fn try_from_array(array: ArrayRef) -> Result<Self, ArrayRef> {
-        let fallback = array.clone();
-        if let Ok(array) = array.as_any_arc().downcast::<A>() {
-            // manually drop the fallback value so `Arc::unwrap_or_clone` doesn't always have to clone
-            drop(fallback);
-            Ok(Arc::unwrap_or_clone(array))
-        } else {
-            Err(fallback)
-        }
-    }
-}
-
-impl<A: Array + Clone + 'static> TryFromArrayRef for Arc<A> {
-    fn try_from_array(array: ArrayRef) -> Result<Self, ArrayRef> {
-        let fallback = array.clone();
-        array.as_any_arc().downcast::<A>().map_err(|_| fallback)
-    }
-}
-
 // FIXME(ngates): require AsRef<dyn Array> instead of Array?
 pub trait ArrayExt: Array {
     /// Returns the array downcast to the given `A`.

@@ -1,7 +1,7 @@
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::array::{Array, ArrayRef};
+use crate::array::ArrayRef;
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::register_kernel;

@@ -1,12 +1,12 @@
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::VortexResult;
 
+use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
-use crate::arrays::{VarBinVTable, VarBinViewArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::vtable::CanonicalVTable;
-use crate::{Array, ArrayRef, Canonical, TryFromArrayRef};
+use crate::{ArrayRef, Canonical, ToCanonical};
 
 impl CanonicalVTable<VarBinVTable> for VarBinVTable {
     fn canonicalize(array: &VarBinArray) -> VortexResult<Canonical> {
@@ -20,9 +20,9 @@ impl CanonicalVTable<VarBinVTable> for VarBinVTable {
 
             _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
         };
-        VarBinViewArray::try_from_array(ArrayRef::from_arrow(array, nullable))
-            .map(Canonical::VarBinView)
-            .map_err(|_| vortex_err!("Array wasn't a VarBinViewArray"))
+        Ok(Canonical::VarBinView(
+            ArrayRef::from_arrow(array, nullable).to_varbinview()?,
+        ))
     }
 }
 

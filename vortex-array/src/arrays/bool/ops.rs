@@ -3,7 +3,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::vtable::{OperationsVTable, ValidityHelper};
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<BoolVTable> for BoolVTable {
     fn slice(array: &BoolArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {

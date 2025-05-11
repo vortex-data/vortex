@@ -4,10 +4,10 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexExpect as _, vortex_panic};
 
-use crate::Array;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::VarBinArray;
 use crate::validity::Validity;
+use crate::{Array, IntoArray};
 
 pub struct VarBinBuilder<O: NativePType> {
     offsets: BufferMut<O>,

@@ -18,8 +18,8 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Canonical,
-    EncodingRef, ProstMetadata, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Canonical, EncodingRef,
+    ProstMetadata, vtable,
 };
 
 vtable!(Decimal);
@@ -224,7 +224,7 @@ impl CanonicalVTable<DecimalVTable> for DecimalVTable {
     }
 
     fn append_to_builder(array: &DecimalArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        builder.extend_from_array(array)
+        builder.extend_from_array(array.as_ref())
     }
 }
 

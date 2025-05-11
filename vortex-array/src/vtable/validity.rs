@@ -85,6 +85,6 @@ where
     }
 
     fn validity_mask(array: &V::Array) -> VortexResult<Mask> {
-        V::validity_child(array).to_mask(array.len())
+        Mask::try_from(V::validity_child(array))
     }
 }

@@ -6,7 +6,7 @@ use vortex_scalar::{Scalar, ScalarValue};
 use crate::arrays::{ConstantArray, ConstantEncoding, ConstantVTable};
 use crate::serde::ArrayParts;
 use crate::vtable::SerdeVTable;
-use crate::{Array, ArrayContext, EmptyMetadata};
+use crate::{ArrayContext, EmptyMetadata};
 
 impl SerdeVTable<ConstantVTable> for ConstantVTable {
     type Metadata = EmptyMetadata;

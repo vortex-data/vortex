@@ -6,7 +6,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
-use crate::{Array, register_kernel};
+use crate::register_kernel;
 
 impl SumKernel for BoolVTable {
     fn sum(&self, array: &BoolArray) -> VortexResult<Scalar> {

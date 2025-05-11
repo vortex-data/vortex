@@ -6,7 +6,7 @@ use vortex_scalar::{FromPrimitiveOrF16, Scalar};
 use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::compute::{SumKernel, SumKernelAdapter, sum};
 use crate::stats::Stat;
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{ArrayRef, register_kernel};
 
 impl SumKernel for ChunkedVTable {
     fn sum(&self, array: &ChunkedArray) -> VortexResult<Scalar> {

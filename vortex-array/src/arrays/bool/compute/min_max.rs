@@ -6,7 +6,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
-use crate::{Array, register_kernel};
+use crate::register_kernel;
 
 impl MinMaxKernel for BoolVTable {
     fn min_max(&self, array: &BoolArray) -> VortexResult<Option<MinMaxResult>> {

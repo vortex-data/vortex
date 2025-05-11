@@ -3,7 +3,7 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::{VarBinViewArray, VarBinViewVTable};
 use crate::compute::{CastKernel, CastKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for VarBinViewVTable {
     fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<ArrayRef> {

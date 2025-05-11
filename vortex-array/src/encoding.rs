@@ -1,7 +1,8 @@
 //! Traits and types to define shared unique encoding identifiers.
 
 use std::any::Any;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
+use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
@@ -67,7 +68,7 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
     }
 
     fn to_encoding(&self) -> EncodingRef {
-        ArcRef::new_arc(EncodingAdapter::<V>(self.0.clone()))
+        ArcRef::new_arc(Arc::new(EncodingAdapter::<V>(self.0.clone())))
     }
 
     fn into_encoding(self) -> EncodingRef
@@ -116,6 +117,20 @@ impl<V: VTable> Debug for EncodingAdapter<V> {
         f.debug_struct("Encoding").field("id", &self.id()).finish()
     }
 }
+
+impl Display for dyn Encoding + '_ {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id())
+    }
+}
+
+impl PartialEq for dyn Encoding + '_ {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl Eq for dyn Encoding + '_ {}
 
 mod private {
     use super::*;

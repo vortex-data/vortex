@@ -10,7 +10,6 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::encoding::Encoding;
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
 

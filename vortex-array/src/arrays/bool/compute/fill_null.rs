@@ -5,7 +5,7 @@ use crate::arrays::{BoolArray, BoolVTable, ConstantArray};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FillNullKernel for BoolVTable {
     fn fill_null(&self, array: &BoolArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {

@@ -3,7 +3,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::{VarBinViewArray, VarBinViewVTable};
 use crate::compute::{MaskKernel, MaskKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for VarBinViewVTable {
     fn mask(&self, array: &VarBinViewArray, mask: &Mask) -> VortexResult<ArrayRef> {
