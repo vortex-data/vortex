@@ -1,5 +1,5 @@
 use vortex_array::compute::{IsSortedKernel, IsSortedKernelAdapter, is_sorted, is_strict_sorted};
-use vortex_array::{Array, register_kernel};
+use vortex_array::register_kernel;
 
 use crate::{RunEndArray, RunEndVTable};
 

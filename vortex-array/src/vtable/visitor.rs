@@ -46,5 +46,6 @@ pub trait VisitorVTable<V: VTable> {
     /// ## Pre-conditions
     ///
     /// - The number of given children matches the current number of children of the array.
+    // TODO(ngates): pass a Vec<ArrayRef> so the implementation can take ownership
     fn with_children(array: &V::Array, children: &[ArrayRef]) -> VortexResult<V::Array>;
 }

@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{NumericKernel, NumericKernelAdapter, numeric};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::NumericOperator;
 
@@ -35,7 +35,7 @@ register_kernel!(NumericKernelAdapter(RunEndVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::Array;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_numeric;
 

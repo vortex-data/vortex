@@ -6,7 +6,7 @@ use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, Canonical, ToCanonical, register_kernel};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical, register_kernel};
 use vortex_buffer::buffer_mut;
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
@@ -110,11 +110,11 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{Array, ArrayExt, ToCanonical};
+    use vortex_array::{ArrayExt, IntoArray, ToCanonical};
     use vortex_mask::Mask;
 
     use super::filter_run_end;
-    use crate::RunEndArray;
+    use crate::{RunEndArray, RunEndVTable};
 
     fn ree_array() -> RunEndArray {
         RunEndArray::encode(
@@ -133,7 +133,7 @@ mod tests {
             ]),
         )
         .unwrap();
-        let filtered_run_end = RunEndArray::try_from(filtered).unwrap();
+        let filtered_run_end = filtered.as_::<RunEndVTable>();
 
         assert_eq!(
             filtered_run_end
@@ -157,11 +157,11 @@ mod tests {
     fn filter_sliced_run_end() {
         let arr = ree_array().slice(2, 7).unwrap();
         let filtered = filter_run_end(
-            arr.as_::<RunEndArray>(),
+            arr.as_::<RunEndVTable>(),
             &Mask::from_iter([true, false, false, true, true]),
         )
         .unwrap();
-        let filtered_run_end = RunEndArray::try_from(filtered).unwrap();
+        let filtered_run_end = filtered.as_::<RunEndVTable>();
 
         assert_eq!(
             filtered_run_end

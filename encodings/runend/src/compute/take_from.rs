@@ -1,5 +1,5 @@
 use vortex_array::compute::{TakeFromKernel, TakeFromKernelAdapter, take};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
