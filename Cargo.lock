@@ -6099,7 +6099,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-datetime-parts",
- "vortex-decimal",
+ "vortex-decimal-byte-parts",
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
@@ -6198,7 +6198,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-decimal"
+name = "vortex-decimal-byte-parts"
 version = "0.32.0"
 dependencies = [
  "itertools 0.14.0",
@@ -6386,7 +6386,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-bytebool",
  "vortex-datetime-parts",
- "vortex-decimal",
+ "vortex-decimal-byte-parts",
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",

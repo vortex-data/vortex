@@ -20,10 +20,10 @@ use vortex_scalar::Scalar;
 use crate::decimal_byte_parts::serde::DecimalBytesPartsMetadata;
 
 /// This array encodes decimals as between 1-4 columns of primitive typed children.
-/// These are stored as big endian.
-///  e.g. for a decimal i128 \[ 127..64 | 64..0 \] msp = 127..64 and lower_part\[0\] = 64..0
-/// The most significant part (msp) sorting the most significant decimal bits must be signed and is nullable iff the
-/// decimal is nullable.
+/// The most significant part (msp) sorting the most significant decimal bits.
+/// This array must be signed and is nullable iff the decimal is nullable.
+///
+/// e.g. for a decimal i128 \[ 127..64 | 64..0 \] msp = 127..64 and lower_part\[0\] = 64..0
 #[derive(Clone, Debug)]
 pub struct DecimalBytePartsArray {
     msp: ArrayRef,
