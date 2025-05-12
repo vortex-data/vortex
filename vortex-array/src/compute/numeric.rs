@@ -10,7 +10,7 @@ use crate::arrays::ConstantArray;
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayExt, ArrayRef, IntoArray};
 
 /// Point-wise add two numeric arrays.
 pub fn add(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
@@ -102,7 +102,7 @@ impl<V: VTable + NumericKernel> NumericKernelAdapter<V> {
 impl<V: VTable + NumericKernel> Kernel for NumericKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = NumericArgs::try_from(args)?;
-        let Some(lhs) = inputs.lhs.as_any().downcast_ref::<V::Array>() else {
+        let Some(lhs) = inputs.lhs.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(V::numeric(&self.0, lhs, inputs.rhs, inputs.operator)?.map(|array| array.into()))

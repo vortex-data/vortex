@@ -14,7 +14,7 @@ use crate::arrays::ConstantArray;
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::{Array, ArrayExt, ArrayRef, Canonical, IntoArray};
 
 /// Compares two arrays and returns a new boolean array with the result of the comparison.
 /// Or, returns None if comparison is not supported for these arrays.
@@ -100,7 +100,7 @@ impl<V: VTable + CompareKernel> CompareKernelAdapter<V> {
 impl<V: VTable + CompareKernel> Kernel for CompareKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = CompareArgs::try_from(args)?;
-        let Some(array) = inputs.lhs.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = inputs.lhs.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(V::compare(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))

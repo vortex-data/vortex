@@ -265,7 +265,7 @@ impl<V: VTable + TakeFromKernel> TakeFromKernelAdapter<V> {
 impl<V: VTable + TakeFromKernel> Kernel for TakeFromKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = TakeArgs::try_from(args)?;
-        let Some(indices) = inputs.indices.as_any().downcast_ref::<V::Array>() else {
+        let Some(indices) = inputs.indices.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(V::take_from(&self.0, indices, inputs.array)?.map(Output::from))

@@ -195,7 +195,7 @@ impl<V: VTable + ToArrowKernel> ToArrowKernelAdapter<V> {
 impl<V: VTable + ToArrowKernel> Kernel for ToArrowKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = ToArrowArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
 

@@ -11,7 +11,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayExt, ArrayRef};
 
 /// Point-wise logical _and_ between two Boolean arrays.
 ///
@@ -73,7 +73,7 @@ impl<V: VTable + BooleanKernel> BooleanKernelAdapter<V> {
 impl<V: VTable + BooleanKernel> Kernel for BooleanKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = BooleanArgs::try_from(args)?;
-        let Some(array) = inputs.lhs.as_any().downcast_ref::<V::Array>() else {
+        let Some(array) = inputs.lhs.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(V::boolean(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
