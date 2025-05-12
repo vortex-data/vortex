@@ -2,7 +2,7 @@ use num_traits::NumCast;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
 use vortex_array::{Array, ArrayRef, register_kernel};
-use vortex_dtype::{PType, match_each_integer_ptype};
+use vortex_dtype::{NativePType, PType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_scalar::{DecimalValue, Scalar, ScalarValue, match_each_decimal_value};
 
@@ -31,7 +31,9 @@ impl CompareKernel for DecimalBytePartsEncoding {
         let encoded_scalar = rhs_const
             .as_decimal()
             .decimal_value()
-            .and_then(|value| decimal_to_primitive(value, lhs.msp.as_primitive_typed().ptype()))
+            .and_then(|value| {
+                decimal_value_wrapper_to_primitive(value, lhs.msp.as_primitive_typed().ptype())
+            })
             .map(|value| Scalar::new(scalar_type.clone(), value))
             .unwrap_or_else(|| Scalar::null(scalar_type));
         let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
@@ -39,12 +41,23 @@ impl CompareKernel for DecimalBytePartsEncoding {
     }
 }
 
-#[allow(clippy::cognitive_complexity)]
-fn decimal_to_primitive(decimal_value: DecimalValue, ptype: PType) -> Option<ScalarValue> {
+// clippy prefer smaller functions
+fn decimal_value_wrapper_to_primitive(
+    decimal_value: DecimalValue,
+    ptype: PType,
+) -> Option<ScalarValue> {
     match_each_integer_ptype!(ptype, |$P| {
-        match_each_decimal_value!(decimal_value, |$decimal_v| {
-            Some(ScalarValue::from(<$P as NumCast>::from($decimal_v)?))
-        })
+        decimal_value_to_primitive::<$P>(decimal_value)
+    })
+}
+
+fn decimal_value_to_primitive<P>(decimal_value: DecimalValue) -> Option<ScalarValue>
+where
+    P: NativePType + NumCast,
+    ScalarValue: From<P>,
+{
+    match_each_decimal_value!(decimal_value, |$decimal_v| {
+        Some(ScalarValue::from(<P as NumCast>::from($decimal_v)?))
     })
 }
 
