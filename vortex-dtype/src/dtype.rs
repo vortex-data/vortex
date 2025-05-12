@@ -230,7 +230,7 @@ impl Display for DType {
             Null => write!(f, "null"),
             Bool(n) => write!(f, "bool{}", n),
             Primitive(pt, n) => write!(f, "{}{}", pt, n),
-            Decimal(dt, n) => write!(f, "decimal({},{}){}", dt.precision(), dt.scale(), n),
+            Decimal(dt, n) => write!(f, "{}{}", dt, n),
             Utf8(n) => write!(f, "utf8{}", n),
             Binary(n) => write!(f, "binary{}", n),
             Struct(sdt, n) => write!(

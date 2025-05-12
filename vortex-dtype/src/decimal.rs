@@ -1,4 +1,7 @@
-use vortex_error::{VortexError, vortex_bail};
+use std::fmt::{Display, Formatter};
+
+use num_traits::ToPrimitive;
+use vortex_error::{VortexError, VortexExpect, vortex_bail};
 
 use crate::DType;
 
@@ -7,6 +10,15 @@ const MAX_SCALE: i8 = 76;
 
 /// Maximum precision for a Decimal128 type from Arrow
 pub const DECIMAL128_MAX_PRECISION: u8 = 38;
+
+/// Maximum precision for a Decimal256 type from Arrow
+pub const DECIMAL256_MAX_PRECISION: u8 = 76;
+
+/// Maximum sacle for a Decimal128 type from Arrow
+pub const DECIMAL128_MAX_SCALE: i8 = 38;
+
+/// Maximum sacle for a Decimal256 type from Arrow
+pub const DECIMAL256_MAX_SCALE: i8 = 76;
 
 /// Parameters that define the precision and scale of a decimal type.
 ///
@@ -51,6 +63,20 @@ impl DecimalDType {
     /// zeros before the decimal point.
     pub fn scale(&self) -> i8 {
         self.scale
+    }
+
+    /// Return the max number of bits required to fit a decimal with `precision` in.
+    pub fn required_bit_width(&self) -> usize {
+        (self.precision as f32 * 10.0f32.log(2.0))
+            .ceil()
+            .to_usize()
+            .vortex_expect("too many bits required")
+    }
+}
+
+impl Display for DecimalDType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "decimal({},{})", self.precision, self.scale)
     }
 }
 

@@ -7,8 +7,9 @@ use vortex::buffer::{BufferString, ByteBuffer};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, PType};
 use vortex::error::{VortexExpect, vortex_err};
-use vortex::match_each_decimal_value;
-use vortex::scalar::{DecimalValue, ListScalar, Scalar, StructScalar, i256};
+use vortex::scalar::{
+    DecimalValue, ListScalar, Scalar, StructScalar, i256, match_each_decimal_value,
+};
 
 use crate::PyVortex;
 

@@ -276,6 +276,22 @@ macro_rules! match_each_unsigned_integer_ptype {
     })
 }
 
+/// Macro to match over each signed integer type, binding the corresponding native type (from `NativePType`)
+#[macro_export]
+macro_rules! match_each_signed_integer_ptype {
+    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
+        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
+        use $crate::PType;
+        match $self {
+            PType::I8 => __with__! { i8 },
+            PType::I16 => __with__! { i16 },
+            PType::I32 => __with__! { i32 },
+            PType::I64 => __with__! { i64 },
+            other => panic!("Unsupported ptype {other}"),
+        }
+    })
+}
+
 /// Macro to match over each floating point type, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_float_ptype {

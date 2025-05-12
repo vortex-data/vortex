@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
-use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, Zero};
+use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, ToPrimitive, Zero};
 
 /// Signed 256-bit integer type.
 ///
@@ -26,8 +26,12 @@ impl i256 {
         Self(arrow_buffer::i256::from_i128(i))
     }
 
+    pub fn maybe_i128(self) -> Option<i128> {
+        self.0.to_i128()
+    }
+
     /// Create an integer value from its representation as a byte array in little-endian.
-    pub fn from_le_bytes(bytes: [u8; 32]) -> Self {
+    pub const fn from_le_bytes(bytes: [u8; 32]) -> Self {
         Self(arrow_buffer::i256::from_le_bytes(bytes))
     }
 
@@ -50,6 +54,10 @@ impl i256 {
 
     pub fn wrapping_pow(&self, exp: u32) -> Self {
         Self(self.0.wrapping_pow(exp))
+    }
+
+    pub fn wrapping_add(&self, other: Self) -> Self {
+        Self(self.0.wrapping_add(other.0))
     }
 }
 
@@ -140,5 +148,23 @@ impl CheckedAdd for i256 {
 impl CheckedSub for i256 {
     fn checked_sub(&self, v: &Self) -> Option<Self> {
         self.0.checked_sub(v.0).map(Self)
+    }
+}
+
+impl ToPrimitive for i256 {
+    fn to_i64(&self) -> Option<i64> {
+        self.maybe_i128().and_then(|v| v.to_i64())
+    }
+
+    fn to_u64(&self) -> Option<u64> {
+        self.maybe_i128().and_then(|v| v.to_u64())
+    }
+
+    fn to_i128(&self) -> Option<i128> {
+        self.maybe_i128()
+    }
+
+    fn to_u128(&self) -> Option<u128> {
+        self.maybe_i128().and_then(|v| v.to_u128())
     }
 }

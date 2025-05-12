@@ -1,17 +1,16 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, match_each_integer_ptype};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::VortexResult;
+use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
 
-use crate::arrays::{DecimalArray, DecimalVTable, NativeDecimalType, PrimitiveVTable};
+use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{Array, ArrayExt, ArrayRef, match_each_decimal_value_type, register_kernel};
+use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl TakeKernel for DecimalVTable {
     fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices
-            .as_opt::<PrimitiveVTable>()
-            .ok_or_else(|| vortex_err!("indices must be a PrimitiveArray"))?;
+        let indices = indices.to_primitive()?;
 
         let decimal = match_each_decimal_value_type!(array.values_type(), |$D| {
                 match_each_integer_ptype!(indices.ptype(), |$I| {

@@ -44,17 +44,17 @@ pub use list::*;
 pub use null::*;
 pub use primitive::*;
 pub use varbinview::*;
-use vortex_dtype::{match_each_native_ptype, DType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_dtype::{DType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{
     BinaryScalar, BoolScalar, ExtScalar, ListScalar, PrimitiveScalar, Scalar, ScalarValue,
-    StructScalar, Utf8Scalar,
+    StructScalar, Utf8Scalar, match_each_decimal_value_type,
 };
 
 use crate::arrays::precision_to_storage_size;
 use crate::builders::struct_::StructBuilder;
-use crate::{match_each_decimal_value_type, Array, ArrayRef};
+use crate::{Array, ArrayRef};
 
 pub trait ArrayBuilder: Send {
     fn as_any(&self) -> &dyn Any;

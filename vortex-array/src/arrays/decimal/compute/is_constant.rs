@@ -1,9 +1,10 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_scalar::match_each_decimal_value_type;
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
-use crate::{match_each_decimal_value_type, register_kernel};
+use crate::register_kernel;
 
 impl IsConstantKernel for DecimalVTable {
     fn is_constant(

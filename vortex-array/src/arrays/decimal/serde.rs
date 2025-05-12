@@ -1,27 +1,14 @@
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::i256;
+use vortex_scalar::{DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
 
-use super::{DecimalArray, DecimalVTable};
-use crate::arrays::{DecimalEncoding, NativeDecimalType};
+use super::{DecimalArray, DecimalEncoding};
+use crate::arrays::DecimalVTable;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
 use crate::{ArrayContext, ProstMetadata};
-
-/// Type of the decimal values.
-#[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq)]
-#[repr(u8)]
-#[non_exhaustive]
-pub enum DecimalValueType {
-    I8 = 0,
-    I16 = 1,
-    I32 = 2,
-    I64 = 3,
-    I128 = 4,
-    I256 = 5,
-}
 
 // The type of the values can be determined by looking at the type info...right?
 #[derive(prost::Message)]
@@ -62,31 +49,13 @@ impl SerdeVTable<DecimalVTable> for DecimalVTable {
             vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
-        let decimal_dtype = match &dtype {
-            DType::Decimal(decimal_dtype, _) => *decimal_dtype,
-            _ => vortex_bail!("Expected Decimal dtype, got {:?}", dtype),
+        let Some(decimal_dtype) = dtype.as_decimal() else {
+            vortex_bail!("Expected Decimal dtype, got {:?}", dtype)
         };
 
-        match metadata.values_type() {
-            DecimalValueType::I8 => {
-                check_and_build_decimal::<i8>(len, buffer, decimal_dtype, validity)
-            }
-            DecimalValueType::I16 => {
-                check_and_build_decimal::<i16>(len, buffer, decimal_dtype, validity)
-            }
-            DecimalValueType::I32 => {
-                check_and_build_decimal::<i32>(len, buffer, decimal_dtype, validity)
-            }
-            DecimalValueType::I64 => {
-                check_and_build_decimal::<i64>(len, buffer, decimal_dtype, validity)
-            }
-            DecimalValueType::I128 => {
-                check_and_build_decimal::<i128>(len, buffer, decimal_dtype, validity)
-            }
-            DecimalValueType::I256 => {
-                check_and_build_decimal::<i256>(len, buffer, decimal_dtype, validity)
-            }
-        }
+        match_each_decimal_value_type!(metadata.values_type(), |$D| {
+           check_and_build_decimal::<$D>(len, buffer, *decimal_dtype, validity)
+        })
     }
 }
 
@@ -111,55 +80,6 @@ fn check_and_build_decimal<T: NativeDecimalType>(
     }
 
     Ok(DecimalArray::new(buffer, decimal_dtype, validity))
-}
-
-#[macro_export]
-macro_rules! match_each_decimal_value {
-    ($self:expr, | $_:tt $value:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_ $value:ident ) => ( $($body)* )}
-        macro_rules! __with__ {( $_ $value:ident ) => ( $($body)* )}
-        match $self {
-            DecimalValue::I8(v) => __with__! { v },
-            DecimalValue::I16(v) => __with__! { v },
-            DecimalValue::I32(v) => __with__! { v },
-            DecimalValue::I64(v) => __with__! { v },
-            DecimalValue::I128(v) => __with__! { v },
-            DecimalValue::I256(v) => __with__! { v },
-        }
-    });
-}
-
-/// Macro to match over each decimal value type, binding the corresponding native type (from `DecimalValueType`)
-#[macro_export]
-macro_rules! match_each_decimal_value_type {
-    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
-        use $crate::arrays::DecimalValueType;
-        use vortex_scalar::i256;
-        match $self {
-            DecimalValueType::I8 => __with__! { i8 },
-            DecimalValueType::I16 => __with__! { i16 },
-            DecimalValueType::I32 => __with__! { i32 },
-            DecimalValueType::I64 => __with__! { i64 },
-            DecimalValueType::I128 => __with__! { i128 },
-            DecimalValueType::I256 => __with__! { i256 },
-        }
-    });
-    ($self:expr, | ($_0:tt $enc:ident, $_1:tt $dv_path:ident) | $($body:tt)*) => ({
-        macro_rules! __with2__ { ( $_0 $enc:ident, $_1 $dv_path:ident ) => ( $($body)* ) }
-        use $crate::arrays::DecimalValueType;
-        use vortex_scalar::i256;
-        use vortex_scalar::DecimalValue::*;
-
-        match $self {
-            DecimalValueType::I8 => __with2__! { i8, I8 },
-            DecimalValueType::I16 => __with2__! { i16, I16 },
-            DecimalValueType::I32 => __with2__! { i32, I32 },
-            DecimalValueType::I64 => __with2__! { i64, I64 },
-            DecimalValueType::I128 => __with2__! { i128, I128 },
-            DecimalValueType::I256 => __with2__! { i256, I256 },
-        }
-    });
 }
 
 #[cfg(test)]

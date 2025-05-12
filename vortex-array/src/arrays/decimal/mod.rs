@@ -1,14 +1,14 @@
 mod compute;
+mod macros;
 mod ops;
 mod serde;
 
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_panic};
-use vortex_scalar::i256;
+use vortex_scalar::{DecimalValueType, NativeDecimalType};
 
 use crate::arrays::decimal::serde::DecimalMetadata;
-pub use crate::arrays::decimal::serde::DecimalValueType;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
@@ -47,35 +47,6 @@ impl VTable for DecimalVTable {
 
 #[derive(Clone, Debug)]
 pub struct DecimalEncoding;
-
-/// Type of decimal scalar values.
-pub trait NativeDecimalType: Copy + Eq + Ord {
-    const VALUES_TYPE: DecimalValueType;
-}
-
-impl NativeDecimalType for i8 {
-    const VALUES_TYPE: DecimalValueType = DecimalValueType::I8;
-}
-
-impl NativeDecimalType for i16 {
-    const VALUES_TYPE: DecimalValueType = DecimalValueType::I16;
-}
-
-impl NativeDecimalType for i32 {
-    const VALUES_TYPE: DecimalValueType = DecimalValueType::I32;
-}
-
-impl NativeDecimalType for i64 {
-    const VALUES_TYPE: DecimalValueType = DecimalValueType::I64;
-}
-
-impl NativeDecimalType for i128 {
-    const VALUES_TYPE: DecimalValueType = DecimalValueType::I128;
-}
-
-impl NativeDecimalType for i256 {
-    const VALUES_TYPE: DecimalValueType = DecimalValueType::I256;
-}
 
 /// Maps a decimal precision into the small type that can represent it.
 pub fn precision_to_storage_size(decimal_dtype: &DecimalDType) -> DecimalValueType {
@@ -179,6 +150,7 @@ impl ArrayVTable<DecimalVTable> for DecimalVTable {
             DecimalValueType::I64 => 8,
             DecimalValueType::I128 => 16,
             DecimalValueType::I256 => 32,
+            ty => vortex_panic!("unknown decimal value type {:?}", ty),
         };
         array.values.len() / divisor
     }

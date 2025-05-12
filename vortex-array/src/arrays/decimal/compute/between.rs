@@ -1,11 +1,11 @@
 use arrow_buffer::BooleanBuffer;
 use vortex_dtype::Nullability;
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{DecimalValue, Scalar};
+use vortex_scalar::{DecimalValue, NativeDecimalType, Scalar, match_each_decimal_value_type};
 
-use crate::arrays::{BoolArray, DecimalArray, DecimalVTable, NativeDecimalType};
+use crate::arrays::{BoolArray, DecimalArray, DecimalVTable};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
-use crate::{Array, ArrayRef, IntoArray, match_each_decimal_value_type, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl BetweenKernel for DecimalVTable {
     // Determine if the values are between the lower and upper bounds

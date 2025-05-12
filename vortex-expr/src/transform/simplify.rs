@@ -33,12 +33,14 @@ impl MutNodeVisitor for Simplify {
 
 #[cfg(test)]
 mod tests {
+    use vortex_dtype::Nullability::NonNullable;
+
     use crate::transform::simplify::simplify;
     use crate::{get_item, lit, pack};
 
     #[test]
     fn test_simplify() {
-        let e = get_item("b", pack([("a", lit(1)), ("b", lit(2))]));
+        let e = get_item("b", pack([("a", lit(1)), ("b", lit(2))], NonNullable));
         let e = simplify(e).unwrap();
         assert_eq!(&e, &lit(2));
     }

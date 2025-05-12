@@ -180,6 +180,7 @@ vortex-buffer = { version = "0.32.0", path = "./vortex-buffer", default-features
 vortex-bytebool = { version = "0.32.0", path = "./encodings/bytebool", default-features = false }
 vortex-datafusion = { version = "0.32.0", path = "./vortex-datafusion", default-features = false }
 vortex-datetime-parts = { version = "0.32.0", path = "./encodings/datetime-parts", default-features = false }
+vortex-decimal-byte-parts = { version = "0.32.0", path = "encodings/decimal-byte-parts", default-features = false }
 vortex-dict = { version = "0.32.0", path = "./encodings/dict", default-features = false }
 vortex-dtype = { version = "0.32.0", path = "./vortex-dtype", default-features = false }
 vortex-error = { version = "0.32.0", path = "./vortex-error", default-features = false }

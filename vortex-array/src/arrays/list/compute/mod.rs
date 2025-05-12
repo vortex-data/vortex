@@ -1,3 +1,4 @@
+mod filter;
 mod mask;
 
 use vortex_error::VortexResult;

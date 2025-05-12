@@ -1,10 +1,11 @@
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
+use vortex_scalar::match_each_decimal_value_type;
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{FilterKernel, FilterKernelAdapter};
-use crate::{match_each_decimal_value_type, register_kernel, ArrayRef, IntoArray};
+use crate::{ArrayRef, register_kernel};
 
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 

@@ -4,7 +4,7 @@ use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, ScalarValue,
-    StructScalar, Utf8Scalar,
+    StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
 };
 
 use crate::arrays::constant::ConstantArray;
@@ -16,7 +16,7 @@ use crate::arrays::{
 use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
-use crate::{Canonical, IntoArray, match_each_decimal_value, match_each_decimal_value_type};
+use crate::{Canonical, IntoArray};
 
 impl CanonicalVTable<ConstantVTable> for ConstantVTable {
     fn canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {

@@ -12,11 +12,13 @@ use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, VortexUnwrap};
 
+use crate::decimal::compress_decimal;
 pub use crate::float::FloatCompressor;
 pub use crate::integer::IntCompressor;
 pub use crate::string::StringCompressor;
 pub use crate::temporal::compress_temporal;
 
+mod decimal;
 mod float;
 pub mod integer;
 mod patches;
@@ -287,8 +289,7 @@ impl BtrBlocksCompressor {
                     FloatCompressor::compress(&primitive, false, MAX_CASCADE, &[])
                 }
             }
-            // TODO(aduffy): implement compressor support for Decimal types.
-            Canonical::Decimal(_) => Ok(array.into_array()),
+            Canonical::Decimal(decimal) => compress_decimal(&decimal),
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
                     .fields()

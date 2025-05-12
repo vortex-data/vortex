@@ -10,20 +10,17 @@
 #include "vortex_extension.hpp"
 #include "vortex_layout_reader.hpp"
 
+#include "atomic_queue/atomic_queue.h"
+
 #include <memory>
 #include <mutex>
 #include <regex>
+#include <thread>
 
 #include "vortex_common.hpp"
 #include "expr/expr.hpp"
 
 namespace duckdb {
-
-// This is a multiple of the 2048 DuckDB vector size, it needs tuning
-// This has a few factor effecting it:
-//  1. A smaller value means for work for the vortex file reader.
-//  2. A larger value reduces the parallelism available to the scanner
-constexpr uint64_t PARTITION_SIZE = 2048 * 32;
 
 /// Bind data for the Vortex table function that holds information about the
 /// file and its schema. This data is populated during the bind phase, which
@@ -56,20 +53,21 @@ struct VortexBindData : public TableFunctionData {
 	}
 };
 
-/// Local state for the Vortex table function that tracks the progress of a scan
-/// operation. In DuckDB's execution model, a query reading from a file can be
-/// parallelized by dividing it into ranges, each handled by a different scan.
-struct VortexScanLocalState : public LocalTableFunctionState {
-	idx_t current_row;
-	unique_ptr<VortexArray> array;
-	unique_ptr<VortexArrayStream> stream;
-	unique_ptr<VortexConversionCache> cache;
-};
-
 struct VortexScanPartition {
 	uint64_t file_idx;
 	uint64_t start_row;
 	uint64_t end_row;
+};
+
+/// Local state for the Vortex table function that tracks the progress of a scan
+/// operation. In DuckDB's execution model, a query reading from a file can be
+/// parallelized by dividing it into ranges, each handled by a different scan.
+struct VortexScanLocalState : public LocalTableFunctionState {
+	idx_t array_row_offset;
+	unique_ptr<VortexArray> array;
+	unique_ptr<VortexArrayStream> stream;
+	unique_ptr<VortexConversionCache> cache;
+	atomic_queue::AtomicQueue2<VortexScanPartition, 8192> scan_partitions;
 };
 
 struct VortexScanGlobalState : public GlobalTableFunctionState {
@@ -82,11 +80,20 @@ struct VortexScanGlobalState : public GlobalTableFunctionState {
 	// The precomputed filter string used in the query
 	std::string filter_str;
 
-	std::vector<VortexScanPartition> scan_partitions;
-	std::atomic_uint32_t next_partition;
+	// Limited to indicate progress in `table_scan_progress`.
+	std::atomic_uint32_t partitons_processed;
+	std::atomic_uint32_t partitons_total;
+
+	// Number of files which have are fully partitioned.
+	std::atomic_uint32_t files_partitioned;
+
+	// Next file to partition.
+	std::atomic_uint32_t next_file_idx;
+
+	// Multi producer, multi consumer lockfree queue.
+	atomic_queue::AtomicQueue2<VortexScanPartition, 8192> scan_partitions;
 
 	std::vector<std::shared_ptr<VortexLayoutReader>> layout_readers;
-	std::vector<std::mutex> layout_mutexes;
 
 	// The column idx that must be returned by the scan.
 	vector<idx_t> column_ids;
@@ -176,7 +183,7 @@ static unique_ptr<VortexFileReader> OpenFile(const std::string &filename, vector
 		throw IOException("Failed to open Vortex file: " + filename);
 	}
 
-	// This Ptr is owned by the file
+	// This pointer is owned by the file.
 	auto file_dtype = file->DType();
 	if (vx_dtype_get(file_dtype.dtype) != DTYPE_STRUCT) {
 		vx_file_reader_free(file->file);
@@ -223,26 +230,37 @@ static unique_ptr<VortexFileReader> OpenFileAndVerify(FileSystem &fs, const std:
 }
 
 static void CreateScanPartitions(ClientContext &context, const VortexBindData &bind,
-                                 VortexScanGlobalState &global_state) {
-	uint64_t file_idx = 0;
-	for (const auto &file_name : global_state.expanded_files) {
-		auto file_reader = OpenFileAndVerify(FileSystem::GetFileSystem(context), file_name, bind);
+                                 VortexScanGlobalState &global_state, VortexScanLocalState &local_state,
+                                 uint64_t file_idx, unique_ptr<VortexFileReader> &file_reader) {
+	const auto file_name = global_state.expanded_files[file_idx];
+	const auto row_count = Try([&](auto err) { return vx_file_row_count(file_reader->file, err); });
 
-		const uint64_t row_count = Try([&](auto err) { return vx_file_row_count(file_reader->file, err); });
-		const auto partition_count = std::max(static_cast<uint64_t>(1), row_count / PARTITION_SIZE);
+	const auto thread_count = std::thread::hardware_concurrency();
+	const auto file_count = global_state.expanded_files.size();
 
-		for (uint64_t partition_idx = 0; partition_idx < partition_count; ++partition_idx) {
-			global_state.scan_partitions.push_back(VortexScanPartition {
-			    .file_idx = file_idx,
-			    .start_row = partition_idx * PARTITION_SIZE,
-			    .end_row = (partition_idx + 1) * PARTITION_SIZE,
-			});
-		}
+	// This is a multiple of the 2048 DuckDB vector size:
+	//
+	// Factors to consider:
+	//  1. A smaller value means more work for the Vortex file reader.
+	//  2. A larger value reduces the parallelism available to the scanner
+	const uint64_t partition_size = 2048 * (thread_count > file_count ? 32 : 64);
 
-		global_state.scan_partitions.back().end_row = row_count;
+	const auto partition_count = std::max(static_cast<uint64_t>(1), row_count / partition_size);
+	global_state.partitons_total += partition_count;
 
-		++file_idx;
+	// Pin threads to files as long as there more files than threads left to process.
+	const bool pin_file_to_thread = (file_count - global_state.files_partitioned) > thread_count;
+	auto &partitions_queue = pin_file_to_thread ? local_state.scan_partitions : global_state.scan_partitions;
+
+	for (size_t partition_idx = 0; partition_idx < partition_count; ++partition_idx) {
+		partitions_queue.push(VortexScanPartition {
+		    .file_idx = file_idx,
+		    .start_row = partition_idx * partition_size,
+		    .end_row = (partition_idx + 1) == partition_count ? row_count : (partition_idx + 1) * partition_size,
+		});
 	}
+
+	global_state.files_partitioned += 1;
 }
 
 static unique_ptr<VortexArrayStream> OpenArrayStream(VortexScanGlobalState &global_state,
@@ -268,37 +286,39 @@ static bool GetNextArray(ClientContext &context, const VortexBindData &bind_data
                          VortexScanLocalState &local_state, DataChunk &output) {
 
 	if (local_state.stream == nullptr) {
-		auto partition_idx = global_state.next_partition.fetch_add(1);
+		VortexScanPartition partition;
 
-		// No more partitions to read.
-		if (partition_idx >= global_state.scan_partitions.size()) {
-			global_state.finished = true;
-			return false;
+		// Try to pop a partition off the thread local queue first.
+		if (bool success =
+		        (local_state.scan_partitions.try_pop(partition) || global_state.scan_partitions.try_pop(partition));
+		    !success) {
+
+			// Check if all files have been partitioned.
+			if (global_state.files_partitioned == global_state.expanded_files.size()) {
+
+				// A new partition might have been created after the first pop. Therefore,
+				// one more pop is necessary to be sure no more partitions are left to process.
+				if (success = global_state.scan_partitions.try_pop(partition); !success) {
+
+					// The queue is empty and all files had been partitioned.
+					global_state.finished = true;
+					return false;
+				}
+			}
+
+			if (!success) {
+				return false;
+			}
 		}
 
-		auto partition = global_state.scan_partitions[partition_idx];
-
-		std::shared_ptr<VortexLayoutReader> layout_reader = [&] {
-			std::lock_guard<std::mutex> lock(global_state.layout_mutexes[partition.file_idx]);
-
-			if (global_state.layout_readers[partition.file_idx]) {
-				return global_state.layout_readers[partition.file_idx];
-			} else {
-				auto file_name = global_state.expanded_files[partition.file_idx];
-				auto vortex_file = OpenFileAndVerify(FileSystem::GetFileSystem(context), file_name, bind_data);
-				global_state.layout_readers[partition.file_idx] = VortexLayoutReader::CreateFromFile(vortex_file.get());
-				return global_state.layout_readers[partition.file_idx];
-			}
-		}();
-
+		global_state.partitons_processed += 1;
+		std::shared_ptr<VortexLayoutReader> layout_reader = global_state.layout_readers[partition.file_idx];
 		local_state.stream = OpenArrayStream(global_state, layout_reader, partition);
 	}
 
 	local_state.array = local_state.stream->NextArray();
-	// Reset row offset for the array.
-	local_state.current_row = 0;
+	local_state.array_row_offset = 0;
 
-	// If the stream is empty, mark it as read by returning false.
 	if (local_state.array == nullptr) {
 		local_state.stream = nullptr;
 		return false;
@@ -319,6 +339,15 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 				output.SetCardinality(0);
 				return;
 			}
+
+			// Create new scan partitions in case the queue is empty.
+			if (auto file_idx = global_state.next_file_idx.fetch_add(1);
+			    file_idx < global_state.expanded_files.size()) {
+				auto file_name = global_state.expanded_files[file_idx];
+				auto vortex_file = OpenFileAndVerify(FileSystem::GetFileSystem(context), file_name, bind_data);
+				global_state.layout_readers[file_idx] = VortexLayoutReader::CreateFromFile(vortex_file.get());
+				CreateScanPartitions(context, bind_data, global_state, local_state, file_idx, vortex_file);
+			}
 		}
 	}
 
@@ -326,10 +355,10 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		local_state.cache = make_uniq<VortexConversionCache>(global_state.cache_id++);
 	}
 
-	local_state.current_row = local_state.array->ToDuckDBVector(
-	    local_state.current_row, reinterpret_cast<duckdb_data_chunk>(&output), local_state.cache.get());
+	local_state.array_row_offset = local_state.array->ToDuckDBVector(
+	    local_state.array_row_offset, reinterpret_cast<duckdb_data_chunk>(&output), local_state.cache.get());
 
-	if (local_state.current_row == 0) {
+	if (local_state.array_row_offset == 0) {
 		local_state.array = nullptr;
 		local_state.cache = nullptr;
 	}
@@ -403,12 +432,6 @@ void RegisterVortexScanFunction(DatabaseInstance &instance) {
 
 		// Resizing the empty vector default constructs std::shared pointers at all indices with nullptr.
 		global_state->layout_readers.resize(global_state->expanded_files.size());
-		global_state->layout_mutexes = std::vector<std::mutex>(global_state->expanded_files.size());
-
-		CreateScanPartitions(context, bind, *global_state);
-
-		// Retrieve the first layout reader from the initial file which is already open.
-		global_state->layout_readers[0] = VortexLayoutReader::CreateFromFile(bind.initial_file.get());
 
 		bind.arena->Reset();
 		return std::move(global_state);
@@ -422,9 +445,7 @@ void RegisterVortexScanFunction(DatabaseInstance &instance) {
 	vortex_scan.table_scan_progress = [](ClientContext &context, const FunctionData *bind_data,
 	                                     const GlobalTableFunctionState *global_state) -> double {
 		auto &gstate = global_state->Cast<VortexScanGlobalState>();
-
-		return 100.0 *
-		       (static_cast<double>(gstate.next_partition.load()) / static_cast<double>(gstate.scan_partitions.size()));
+		return 100.0 * (static_cast<double>(gstate.partitons_processed) / static_cast<double>(gstate.partitons_total));
 	};
 
 	vortex_scan.pushdown_complex_filter = PushdownComplexFilter;

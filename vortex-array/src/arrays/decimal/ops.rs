@@ -1,18 +1,18 @@
 use vortex_buffer::Buffer;
 use vortex_dtype::DecimalDType;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
+use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
 
-use crate::arrays::{DecimalArray, DecimalVTable, NativeDecimalType};
+use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::validity::Validity;
 use crate::vtable::OperationsVTable;
-use crate::{ArrayRef, IntoArray, match_each_decimal_value_type};
+use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<DecimalVTable> for DecimalVTable {
     fn slice(array: &DecimalArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        match_each_decimal_value_type!(array.values_type, |$S| {
+        match_each_decimal_value_type!(array.values_type, |$D| {
             slice_typed(
-                array.buffer::<$S>(),
+                self.buffer::<$D>(),
                 start,
                 stop,
                 array.decimal_dtype(),

@@ -18,10 +18,10 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_scalar::DecimalValueType;
 
 use crate::arrays::{
-    BoolArray, DecimalArray, DecimalValueType, ListArray, NullArray, PrimitiveArray, StructArray,
-    VarBinViewArray,
+    BoolArray, DecimalArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
 };
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
@@ -191,6 +191,7 @@ fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
         DecimalValueType::I256 => {
             vortex_bail!("i256 decimals cannot be converted to Arrow i128 decimal")
         }
+        _ => vortex_bail!("unknown value type {:?}", array.values_type()),
     };
     Ok(Arc::new(
         ArrowDecimal128Array::new(buffer.into_arrow_scalar_buffer(), null_buffer)
@@ -210,6 +211,7 @@ fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
         DecimalValueType::I64 => array.buffer::<i8>().into_iter().map(|x| x.as_()).collect(),
         DecimalValueType::I128 => array.buffer::<i8>().into_iter().map(|x| x.as_()).collect(),
         DecimalValueType::I256 => Buffer::<i256>::from_byte_buffer(array.byte_buffer()),
+        _ => vortex_bail!("unknown type {:?}", array.values_type()),
     };
     Ok(Arc::new(
         ArrowDecimal256Array::new(buffer.into_arrow_scalar_buffer(), null_buffer)
