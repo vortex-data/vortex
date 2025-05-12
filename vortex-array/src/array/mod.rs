@@ -28,11 +28,7 @@ use crate::vtable::{
 };
 use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
 
-/// The base trait for all Vortex arrays.
-///
-/// Users should invoke functions on this trait. Implementations should implement the corresponding
-/// function on the `_Impl` traits, e.g. [`ArrayValidityImpl`]. The functions here dispatch to the
-/// implementations, while validating pre- and post-conditions.
+/// The public API trait for all Vortex arrays.
 pub trait Array:
     'static + private::Sealed + Send + Sync + Debug + ArrayStatistics + ArrayVisitor
 {
@@ -291,26 +287,6 @@ impl Display for dyn Array {
     }
 }
 
-#[macro_export]
-macro_rules! try_from_array_ref {
-    ($Array:ty) => {
-        impl TryFrom<$crate::ArrayRef> for $Array {
-            type Error = vortex_error::VortexError;
-
-            fn try_from(value: $crate::ArrayRef) -> Result<Self, Self::Error> {
-                Ok(::std::sync::Arc::unwrap_or_clone(
-                    value.as_any_arc().downcast::<Self>().map_err(|_| {
-                        vortex_error::vortex_err!(
-                            "Cannot downcast to {}",
-                            std::any::type_name::<Self>()
-                        )
-                    })?,
-                ))
-            }
-        }
-    };
-}
-
 mod private {
     use super::*;
 
@@ -324,8 +300,8 @@ mod private {
 /// implementation.
 ///
 /// Since this is a unit struct with `repr(transparent)`, we are able to turn un-adapted array
-/// structs into [`dyn Array`] using some cheeky casting inside [`Deref`] and [`AsRef`]. See
-/// the `vtable!` macro for more details.
+/// structs into [`dyn Array`] using some cheeky casting inside [`std::ops::Deref`] and
+/// [`AsRef`]. See the `vtable!` macro for more details.
 #[repr(transparent)]
 pub struct ArrayAdapter<V: VTable>(V::Array);
 

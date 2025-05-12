@@ -57,8 +57,8 @@ pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
 /// implementation.
 ///
 /// Since this is a unit struct with `repr(transparent)`, we are able to turn un-adapted array
-/// structs into [`dyn Encoding`] using some cheeky casting inside [`Deref`] and [`AsRef`]. See
-/// the `vtable!` macro for more details.
+/// structs into [`dyn Encoding`] using some cheeky casting inside [`std::ops::Deref`] and
+/// [`AsRef`]. See the `vtable!` macro for more details.
 #[repr(transparent)]
 pub struct EncodingAdapter<V: VTable>(V::Encoding);
 

@@ -17,7 +17,7 @@ use crate::{Array, ArrayExt};
 ///
 /// An array is constant IFF at least one of the following conditions apply:
 /// 1. It has at least one element (**Note** - an empty array isn't constant).
-/// 1. It's encoded as a [`ConstantArray`] or [`NullArray`]
+/// 1. It's encoded as a [`crate::arrays::ConstantArray`] or [`crate::arrays::NullArray`]
 /// 1. Has an exact statistic attached to it, saying its constant.
 /// 1. Is all invalid.
 /// 1. Is all valid AND has minimum and maximum statistics that are equal.

@@ -115,6 +115,7 @@ use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::{ArrayRegistry, EncodingRef};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
+use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
 use vortex_dict::DictEncoding;
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;
@@ -166,6 +167,7 @@ pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
         EncodingRef::new_ref(BitPackedEncoding.as_ref()),
         EncodingRef::new_ref(ByteBoolEncoding.as_ref()),
         EncodingRef::new_ref(DateTimePartsEncoding.as_ref()),
+        EncodingRef::new_ref(DecimalBytePartsEncoding.as_ref()),
         EncodingRef::new_ref(DeltaEncoding.as_ref()),
         EncodingRef::new_ref(DictEncoding.as_ref()),
         EncodingRef::new_ref(FoREncoding.as_ref()),
