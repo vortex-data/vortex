@@ -1,10 +1,10 @@
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_error::VortexExpect;
 
-pub(crate) fn sample<T: Array + Clone>(input: T, sample_size: u32, sample_count: u32) -> ArrayRef {
+pub(crate) fn sample(input: &dyn Array, sample_size: u32, sample_count: u32) -> ArrayRef {
     if input.len() <= (sample_size as usize) * (sample_count as usize) {
         return input.to_array();
     }
