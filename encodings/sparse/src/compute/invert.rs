@@ -1,5 +1,5 @@
 use vortex_array::compute::{InvertKernel, InvertKernelAdapter, invert};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 
 use crate::{SparseArray, SparseVTable};

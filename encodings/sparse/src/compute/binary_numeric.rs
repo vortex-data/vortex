@@ -1,6 +1,6 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{NumericKernel, NumericKernelAdapter, numeric};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::NumericOperator;
 

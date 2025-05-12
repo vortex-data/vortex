@@ -3,7 +3,7 @@ use rand::Rng;
 use rand::rngs::StdRng;
 use vortex_alp::{ALPArray, alp_encode};
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_to_best_bit_width;
@@ -59,7 +59,6 @@ mod primitive {
     use num_traits::NumCast;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
-    use vortex_array::Array;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::{
@@ -86,9 +85,18 @@ mod primitive {
 
         bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
             boolean(
-                &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte)
-                    .vortex_expect(""),
-                &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
+                &compare(
+                    arr.as_ref(),
+                    ConstantArray::new(min, arr.len()).as_ref(),
+                    Operator::Gte,
+                )
+                .vortex_expect(""),
+                &compare(
+                    arr.as_ref(),
+                    ConstantArray::new(max, arr.len()).as_ref(),
+                    Operator::Lt,
+                )
+                .vortex_expect(""),
                 BooleanOperator::And,
             )
             .vortex_expect("")
@@ -111,9 +119,9 @@ mod primitive {
 
         bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
             between(
-                &arr,
-                &ConstantArray::new(min, arr.len()),
-                &ConstantArray::new(max, arr.len()),
+                arr.as_ref(),
+                ConstantArray::new(min, arr.len()).as_ref(),
+                ConstantArray::new(max, arr.len()).as_ref(),
                 &BetweenOptions {
                     lower_strict: NonStrict,
                     upper_strict: NonStrict,
@@ -155,9 +163,18 @@ mod bitpack {
 
         bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
             boolean(
-                &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte)
-                    .vortex_expect(""),
-                &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
+                &compare(
+                    arr.as_ref(),
+                    ConstantArray::new(min, arr.len()).as_ref(),
+                    Operator::Gte,
+                )
+                .vortex_expect(""),
+                &compare(
+                    arr.as_ref(),
+                    ConstantArray::new(max, arr.len()).as_ref(),
+                    Operator::Lt,
+                )
+                .vortex_expect(""),
                 BooleanOperator::And,
             )
         })
@@ -179,9 +196,9 @@ mod bitpack {
 
         bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
             between(
-                &arr,
-                &ConstantArray::new(min, arr.len()),
-                &ConstantArray::new(max, arr.len()),
+                arr.as_ref(),
+                ConstantArray::new(min, arr.len()).as_ref(),
+                ConstantArray::new(max, arr.len()).as_ref(),
                 &BetweenOptions {
                     lower_strict: NonStrict,
                     upper_strict: NonStrict,
@@ -223,9 +240,18 @@ mod alp {
 
         bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
             boolean(
-                &compare(&arr, &ConstantArray::new(min, arr.len()), Operator::Gte)
-                    .vortex_expect(""),
-                &compare(&arr, &ConstantArray::new(max, arr.len()), Operator::Lt).vortex_expect(""),
+                &compare(
+                    arr.as_ref(),
+                    ConstantArray::new(min, arr.len()).as_ref(),
+                    Operator::Gte,
+                )
+                .vortex_expect(""),
+                &compare(
+                    arr.as_ref(),
+                    ConstantArray::new(max, arr.len()).as_ref(),
+                    Operator::Lt,
+                )
+                .vortex_expect(""),
                 BooleanOperator::And,
             )
         })
@@ -247,9 +273,9 @@ mod alp {
 
         bencher.with_inputs(|| arr.clone()).bench_values(|arr| {
             between(
-                &arr,
-                &ConstantArray::new(min, arr.len()),
-                &ConstantArray::new(max, arr.len()),
+                arr.as_ref(),
+                ConstantArray::new(min, arr.len()).as_ref(),
+                ConstantArray::new(max, arr.len()).as_ref(),
                 &BetweenOptions {
                     lower_strict: NonStrict,
                     upper_strict: NonStrict,
