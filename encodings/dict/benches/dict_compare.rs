@@ -2,7 +2,6 @@
 
 use std::str::from_utf8;
 
-use vortex_array::Array;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{ConstantArray, VarBinArray, VarBinViewArray};
 use vortex_array::compute::{Operator, compare};

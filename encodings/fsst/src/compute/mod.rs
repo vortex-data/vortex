@@ -1,9 +1,9 @@
 mod compare;
 mod filter;
 
-use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::VarBinVTable;
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
-use vortex_array::{Array, ArrayExt, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayExt, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
@@ -16,7 +16,9 @@ impl TakeKernel for FSSTVTable {
             array.dtype().clone(),
             array.symbols().clone(),
             array.symbol_lengths().clone(),
-            take(array.codes(), indices)?.as_::<VarBinArray>().clone(),
+            take(array.codes().as_ref(), indices)?
+                .as_::<VarBinVTable>()
+                .clone(),
             fill_null(
                 &take(array.uncompressed_lengths(), indices)?,
                 &Scalar::new(

@@ -1,6 +1,5 @@
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::compute::{filter, take};
-use vortex_array::vtable::EncodingVTable;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::buffer;
 use vortex_dtype::{DType, Nullability};
@@ -24,8 +23,8 @@ fn build_fsst_array() -> ArrayRef {
     input_array.append_value(b"Nothing in present history can contradict them");
     let input_array = input_array.finish(DType::Utf8(Nullability::NonNullable));
 
-    let compressor = fsst_train_compressor(&input_array).unwrap();
-    fsst_compress(&input_array, &compressor)
+    let compressor = fsst_train_compressor(input_array.as_ref()).unwrap();
+    fsst_compress(input_array.as_ref(), &compressor)
         .unwrap()
         .into_array()
 }

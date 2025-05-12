@@ -5,7 +5,7 @@ use rand::prelude::{IndexedRandom, StdRng};
 use rand::{Rng, SeedableRng};
 use vortex_array::arrays::{ChunkedArray, PrimitiveArray, VarBinArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability};
 use vortex_error::{VortexResult, VortexUnwrap};
@@ -83,9 +83,9 @@ pub fn gen_fsst_test_data(len: usize, avg_str_len: usize, unique_chars: u8) -> A
             .map(|opt_s| opt_s.map(Vec::into_boxed_slice)),
         DType::Binary(Nullability::NonNullable),
     );
-    let compressor = fsst_train_compressor(&varbin).vortex_unwrap();
+    let compressor = fsst_train_compressor(varbin.as_ref()).vortex_unwrap();
 
-    fsst_compress(&varbin, &compressor)
+    fsst_compress(varbin.as_ref(), &compressor)
         .vortex_unwrap()
         .into_array()
 }
