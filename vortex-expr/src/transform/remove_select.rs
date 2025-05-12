@@ -1,4 +1,4 @@
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
@@ -23,13 +23,7 @@ impl MutNodeVisitor for RemoveSelectTransform<'_> {
         if let Some(select) = node.as_any().downcast_ref::<Select>() {
             let child = select.child();
             let child_dtype = child.return_dtype(self.scope_dtype)?;
-
-            // Match the nullability of the child dtype in the pack.
-            let nullability = if child_dtype.is_nullable() {
-                Nullability::Nullable
-            } else {
-                Nullability::NonNullable
-            };
+            let child_nullability = child_dtype.nullability();
 
             let child_dtype = child_dtype.as_struct().ok_or_else(|| {
                 vortex_err!(
@@ -51,7 +45,7 @@ impl MutNodeVisitor for RemoveSelectTransform<'_> {
                     })?
                     .iter()
                     .map(|name| (name.clone(), get_item(name.clone(), child.clone()))),
-                nullability,
+                child_nullability,
             );
 
             Ok(TransformResult::yes(expr))
@@ -65,7 +59,7 @@ impl MutNodeVisitor for RemoveSelectTransform<'_> {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructDType};
 
@@ -79,11 +73,12 @@ mod tests {
                 ["a".into(), "b".into()].into(),
                 vec![I32.into(), I32.into()],
             )),
-            NonNullable,
+            Nullable,
         );
         let e = select(["a".into(), "b".into()], ident());
         let e = remove_select(e, &dtype).unwrap();
 
         assert!(e.as_any().is::<Pack>());
+        assert!(e.return_dtype(&dtype).unwrap().is_nullable());
     }
 }

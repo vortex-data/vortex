@@ -1,4 +1,4 @@
-use vortex_dtype::{DType, Nullability};
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
@@ -48,19 +48,12 @@ impl MutNodeVisitor for RemoveMergeTransform<'_> {
                 }
             }
 
-            // If any child is non-nullable, the merge is non-nullable.
-            let nullability = if all_nullable {
-                Nullability::Nullable
-            } else {
-                Nullability::NonNullable
-            };
-
             let expr = pack(
                 names
                     .into_iter()
                     .zip(children)
                     .map(|(name, child)| (name.clone(), get_item(name, child))),
-                nullability,
+                merge.nullability(),
             );
 
             Ok(TransformResult::yes(expr))
@@ -106,7 +99,10 @@ mod tests {
             NonNullable,
         );
 
-        let e = merge([get_item("0", ident()), get_item("1", ident())]);
+        let e = merge(
+            [get_item("0", ident()), get_item("1", ident())],
+            NonNullable,
+        );
         let e = remove_merge(e, &dtype).unwrap();
 
         assert!(e.as_any().is::<Pack>());
@@ -138,7 +134,7 @@ mod tests {
             NonNullable,
         );
 
-        let e = merge([get_item("0", ident())]);
+        let e = merge([get_item("0", ident())], Nullable);
         let e = remove_merge(e, &dtype).unwrap();
 
         assert!(e.as_any().is::<Pack>());

@@ -21,17 +21,28 @@ use crate::{ExprRef, VortexExpr};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Merge {
     values: Vec<ExprRef>,
+    nullability: Nullability,
 }
 
 impl Merge {
-    pub fn new_expr(values: Vec<ExprRef>) -> Arc<Self> {
-        Arc::new(Merge { values })
+    pub fn new_expr(values: Vec<ExprRef>, nullability: Nullability) -> Arc<Self> {
+        Arc::new(Merge {
+            values,
+            nullability,
+        })
+    }
+
+    pub fn nullability(&self) -> Nullability {
+        self.nullability
     }
 }
 
-pub fn merge(elements: impl IntoIterator<Item = impl Into<ExprRef>>) -> ExprRef {
+pub fn merge(
+    elements: impl IntoIterator<Item = impl Into<ExprRef>>,
+    nullability: Nullability,
+) -> ExprRef {
     let values = elements.into_iter().map(|value| value.into()).collect_vec();
-    Merge::new_expr(values)
+    Merge::new_expr(values, nullability)
 }
 
 impl Display for Merge {
@@ -118,13 +129,14 @@ impl VortexExpr for Merge {
             }
         }
 
-        Ok(StructArray::try_new(
-            FieldNames::from(field_names),
-            arrays,
-            len,
-            Validity::NonNullable,
-        )?
-        .into_array())
+        let validity = match self.nullability {
+            Nullability::NonNullable => Validity::NonNullable,
+            Nullability::Nullable => Validity::AllValid,
+        };
+        Ok(
+            StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
+                .into_array(),
+        )
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -132,7 +144,7 @@ impl VortexExpr for Merge {
     }
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        Self::new_expr(children)
+        Self::new_expr(children, self.nullability)
     }
 
     fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
@@ -163,7 +175,7 @@ impl VortexExpr for Merge {
 
         Ok(DType::Struct(
             Arc::new(StructDType::new(FieldNames::from(field_names), arrays)),
-            Nullability::NonNullable,
+            self.nullability,
         ))
     }
 }
@@ -173,6 +185,7 @@ mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
+    use vortex_dtype::Nullability;
     use vortex_error::{VortexResult, vortex_bail};
 
     use crate::{GetItem, Identity, Merge, VortexExpr};
@@ -193,11 +206,14 @@ mod tests {
 
     #[test]
     pub fn test_merge() {
-        let expr = Merge::new_expr(vec![
-            GetItem::new_expr("0", Identity::new_expr()),
-            GetItem::new_expr("1", Identity::new_expr()),
-            GetItem::new_expr("2", Identity::new_expr()),
-        ]);
+        let expr = Merge::new_expr(
+            vec![
+                GetItem::new_expr("0", Identity::new_expr()),
+                GetItem::new_expr("1", Identity::new_expr()),
+                GetItem::new_expr("2", Identity::new_expr()),
+            ],
+            Nullability::NonNullable,
+        );
 
         let test_array = StructArray::from_fields(&[
             (
@@ -271,7 +287,7 @@ mod tests {
 
     #[test]
     pub fn test_empty_merge() {
-        let expr = Merge::new_expr(Vec::new());
+        let expr = Merge::new_expr(Vec::new(), Nullability::NonNullable);
 
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
@@ -285,10 +301,13 @@ mod tests {
     pub fn test_nested_merge() {
         // Nested structs are not merged!
 
-        let expr = Merge::new_expr(vec![
-            GetItem::new_expr("0", Identity::new_expr()),
-            GetItem::new_expr("1", Identity::new_expr()),
-        ]);
+        let expr = Merge::new_expr(
+            vec![
+                GetItem::new_expr("0", Identity::new_expr()),
+                GetItem::new_expr("1", Identity::new_expr()),
+            ],
+            Nullability::NonNullable,
+        );
 
         let test_array = StructArray::from_fields(&[
             (
@@ -341,10 +360,13 @@ mod tests {
 
     #[test]
     pub fn test_merge_order() {
-        let expr = Merge::new_expr(vec![
-            GetItem::new_expr("0", Identity::new_expr()),
-            GetItem::new_expr("1", Identity::new_expr()),
-        ]);
+        let expr = Merge::new_expr(
+            vec![
+                GetItem::new_expr("0", Identity::new_expr()),
+                GetItem::new_expr("1", Identity::new_expr()),
+            ],
+            Nullability::NonNullable,
+        );
 
         let test_array = StructArray::from_fields(&[
             (
@@ -378,5 +400,27 @@ mod tests {
             actual_array.names(),
             &["a".into(), "c".into(), "b".into(), "d".into()].into()
         );
+    }
+
+    #[test]
+    pub fn test_merge_nullable() {
+        let expr = Merge::new_expr(
+            vec![GetItem::new_expr("0", Identity::new_expr())],
+            Nullability::Nullable,
+        );
+
+        let test_array = StructArray::from_fields(&[(
+            "0",
+            StructArray::from_fields(&[
+                ("a", buffer![0, 0, 0].into_array()),
+                ("b", buffer![1, 1, 1].into_array()),
+            ])
+            .unwrap()
+            .into_array(),
+        )])
+        .unwrap()
+        .into_array();
+        let actual_array = expr.evaluate(test_array.as_ref()).unwrap();
+        assert!(actual_array.dtype().is_nullable());
     }
 }
