@@ -9,6 +9,7 @@ use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{ConstantArray, PrimitiveVTable};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
+use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl FillNullKernel for PrimitiveVTable {

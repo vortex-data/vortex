@@ -135,7 +135,7 @@ impl VisitorVTable<ExtensionVTable> for ExtensionVTable {
         array: &ExtensionArray,
         children: &[ArrayRef],
     ) -> VortexResult<ExtensionArray> {
-        let storage = children.get(0).ok_or_else(|| {
+        let storage = children.first().ok_or_else(|| {
             vortex_err!(
                 "ExtensionArray: expected 1 child array, got {}",
                 children.len()

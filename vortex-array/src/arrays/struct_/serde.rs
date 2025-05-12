@@ -7,7 +7,7 @@ use super::StructEncoding;
 use crate::arrays::{StructArray, StructVTable};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, VisitorVTable};
+use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
 use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
 
 impl SerdeVTable<StructVTable> for StructVTable {

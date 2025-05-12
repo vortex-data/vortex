@@ -81,10 +81,6 @@ impl ByteBoolArray {
         &self.buffer
     }
 
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     pub fn as_slice(&self) -> &[bool] {
         // Safety: The internal buffer contains byte-sized bools
         unsafe { std::mem::transmute(self.buffer().as_slice()) }

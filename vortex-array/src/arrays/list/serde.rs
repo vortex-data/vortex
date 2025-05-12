@@ -6,7 +6,7 @@ use super::{ListArray, ListVTable};
 use crate::arrays::ListEncoding;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, VisitorVTable};
+use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
 use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ProstMetadata};
 
 #[derive(Clone, prost::Message)]

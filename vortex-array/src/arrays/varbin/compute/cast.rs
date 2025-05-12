@@ -3,6 +3,7 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::compute::{CastKernel, CastKernelAdapter};
+use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for VarBinVTable {

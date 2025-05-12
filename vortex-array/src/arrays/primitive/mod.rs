@@ -118,10 +118,6 @@ impl PrimitiveArray {
         self.dtype().to_ptype()
     }
 
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     pub fn byte_buffer(&self) -> &ByteBuffer {
         &self.buffer
     }

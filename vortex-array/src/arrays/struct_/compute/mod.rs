@@ -11,6 +11,7 @@ use crate::compute::{
     IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, MinMaxKernel, MinMaxKernelAdapter,
     MinMaxResult, TakeKernel, TakeKernelAdapter, is_constant_opts, take,
 };
+use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl TakeKernel for StructVTable {

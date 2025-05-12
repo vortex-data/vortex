@@ -6,7 +6,7 @@ use super::PrimitiveEncoding;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, VisitorVTable};
+use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
 use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
 
 impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
@@ -30,7 +30,7 @@ impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
         }
         let buffer = buffers[0].clone();
 
-        let validity = if children.len() == 0 {
+        let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
             let validity = children[0].decode(ctx, Validity::DTYPE, len)?;

@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{VarBinViewArray, VarBinViewVTable, varbin_scalar};
-use crate::vtable::OperationsVTable;
+use crate::vtable::{OperationsVTable, ValidityHelper};
 use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<VarBinViewVTable> for VarBinViewVTable {

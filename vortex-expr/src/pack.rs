@@ -332,7 +332,11 @@ mod tests {
         )
         .unwrap();
 
-        let actual_array = expr.evaluate(&test_array()).unwrap().to_struct().unwrap();
+        let actual_array = expr
+            .evaluate(test_array().as_ref())
+            .unwrap()
+            .to_struct()
+            .unwrap();
         let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
         assert_eq!(actual_array.names(), &expected_names);
         assert_eq!(actual_array.validity(), &Validity::AllValid);

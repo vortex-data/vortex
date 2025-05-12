@@ -115,7 +115,6 @@ use vortex_alp::{ALPEncoding, ALPRDEncoding};
 use vortex_array::{ArrayRegistry, EncodingRef};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
-use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
 use vortex_dict::DictEncoding;
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;

@@ -115,11 +115,6 @@ impl DecimalArray {
         Buffer::<T>::from_byte_buffer(self.values.clone())
     }
 
-    /// Returns the underlying [`Validity`] of the array.
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     /// Returns the decimal type information
     pub fn decimal_dtype(&self) -> DecimalDType {
         match &self.dtype {

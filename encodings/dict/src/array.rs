@@ -91,7 +91,7 @@ impl ArrayVTable<DictVTable> for DictVTable {
     }
 
     fn dtype(array: &DictArray) -> &DType {
-        &array.values.dtype()
+        array.values.dtype()
     }
 
     fn stats(array: &DictArray) -> StatsSetRef<'_> {

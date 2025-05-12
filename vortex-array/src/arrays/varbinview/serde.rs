@@ -6,7 +6,7 @@ use super::{BinaryView, VarBinViewVTable};
 use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, VisitorVTable};
+use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
 use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
 
 impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
@@ -34,7 +34,7 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
             vortex_bail!("Expected {} views, got {}", len, views.len());
         }
 
-        let validity = if children.len() == 0 {
+        let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
             let validity = children[0].decode(ctx, Validity::DTYPE, len)?;

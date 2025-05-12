@@ -4,7 +4,7 @@ use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
-use crate::{Array, register_kernel};
+use crate::register_kernel;
 
 macro_rules! sum_decimal {
     ($ty:ty, $values:expr) => {{

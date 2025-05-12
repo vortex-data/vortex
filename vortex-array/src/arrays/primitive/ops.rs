@@ -3,7 +3,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::vtable::OperationsVTable;
+use crate::vtable::{OperationsVTable, ValidityHelper};
 use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<PrimitiveVTable> for PrimitiveVTable {

@@ -12,7 +12,7 @@ impl OperationsVTable<DecimalVTable> for DecimalVTable {
     fn slice(array: &DecimalArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         match_each_decimal_value_type!(array.values_type, |$D| {
             slice_typed(
-                self.buffer::<$D>(),
+                array.buffer::<$D>(),
                 start,
                 stop,
                 array.decimal_dtype(),

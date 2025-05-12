@@ -5,7 +5,7 @@ use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
-use crate::{Array, register_kernel};
+use crate::register_kernel;
 
 impl IsSortedKernel for DecimalVTable {
     fn is_sorted(&self, array: &DecimalArray) -> VortexResult<bool> {

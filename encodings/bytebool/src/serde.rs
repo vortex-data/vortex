@@ -1,6 +1,6 @@
 use vortex_array::serde::ArrayParts;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::{SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
 use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, DeserializeMetadata,
     EmptyMetadata,
@@ -27,7 +27,7 @@ impl SerdeVTable<ByteBoolVTable> for ByteBoolVTable {
         children: &[ArrayParts],
         ctx: &ArrayContext,
     ) -> VortexResult<ByteBoolArray> {
-        let validity = if children.len() == 0 {
+        let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
             let validity = children[0].decode(ctx, Validity::DTYPE, len)?;

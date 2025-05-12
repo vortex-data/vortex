@@ -4,6 +4,7 @@ use vortex_mask::Mask;
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
 use crate::compute::{MaskKernel, MaskKernelAdapter};
+use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for VarBinVTable {

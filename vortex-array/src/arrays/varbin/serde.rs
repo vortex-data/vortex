@@ -1,12 +1,12 @@
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{vortex_bail, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::VarBinEncoding;
 use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, VisitorVTable};
+use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
 use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ProstMetadata};
 
 #[derive(Clone, prost::Message)]

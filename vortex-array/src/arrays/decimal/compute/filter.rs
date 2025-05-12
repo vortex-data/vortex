@@ -5,7 +5,8 @@ use vortex_scalar::match_each_decimal_value_type;
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{FilterKernel, FilterKernelAdapter};
-use crate::{ArrayRef, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 

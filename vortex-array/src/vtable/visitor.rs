@@ -19,7 +19,7 @@ pub trait VisitorVTable<V: VTable> {
         }
 
         let mut visitor = NBuffers(0);
-        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&array, &mut visitor);
+        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(array, &mut visitor);
         visitor.0
     }
 
@@ -37,7 +37,7 @@ pub trait VisitorVTable<V: VTable> {
         }
 
         let mut visitor = NChildren(0);
-        <V::VisitorVTable as VisitorVTable<V>>::visit_children(&array, &mut visitor);
+        <V::VisitorVTable as VisitorVTable<V>>::visit_children(array, &mut visitor);
         visitor.0
     }
 

@@ -3,6 +3,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::{StructArray, StructVTable};
 use crate::compute::{MaskKernel, MaskKernelAdapter};
+use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl MaskKernel for StructVTable {

@@ -6,9 +6,9 @@ use vortex_dtype::{NativePType, PType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_scalar::{DecimalValue, Scalar, ScalarValue, match_each_decimal_value};
 
-use crate::DecimalBytePartsEncoding;
+use crate::DecimalBytePartsVTable;
 
-impl CompareKernel for DecimalBytePartsEncoding {
+impl CompareKernel for DecimalBytePartsVTable {
     fn compare(
         &self,
         lhs: &Self::Array,
@@ -61,7 +61,7 @@ where
     })
 }
 
-register_kernel!(CompareKernelAdapter(DecimalBytePartsEncoding).lift());
+register_kernel!(CompareKernelAdapter(DecimalBytePartsVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -88,7 +88,7 @@ mod tests {
         .to_array();
         let rhs = ConstantArray::new(Scalar::new(dtype, DecimalValue::I64(400).into()), lhs.len());
 
-        let res = compare(&lhs, &rhs, Operator::Eq).unwrap();
+        let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
             res.to_bool()

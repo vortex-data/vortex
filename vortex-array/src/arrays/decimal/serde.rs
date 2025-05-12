@@ -40,7 +40,7 @@ impl SerdeVTable<DecimalVTable> for DecimalVTable {
         }
         let buffer = buffers[0].clone();
 
-        let validity = if children.len() == 0 {
+        let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
             let validity = children[0].decode(ctx, Validity::DTYPE, len)?;

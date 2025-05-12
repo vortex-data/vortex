@@ -88,10 +88,6 @@ impl VarBinArray {
         &self.offsets
     }
 
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     /// Access the value bytes child buffer
     ///
     /// # Note

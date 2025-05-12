@@ -379,11 +379,6 @@ impl VarBinViewArray {
         &self.buffers
     }
 
-    /// Validity of the array
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     /// Accumulate an iterable set of values into our type here.
     #[allow(clippy::same_name_method)]
     pub fn from_iter<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(

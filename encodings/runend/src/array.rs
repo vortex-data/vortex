@@ -111,7 +111,7 @@ impl RunEndArray {
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayRef) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            let (ends, values) = runend_encode(&parray)?;
+            let (ends, values) = runend_encode(parray)?;
             Self::try_new(ends.into_array(), values)
         } else {
             vortex_bail!("REE can only encode primitive arrays")

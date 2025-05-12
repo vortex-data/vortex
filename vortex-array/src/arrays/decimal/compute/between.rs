@@ -5,6 +5,7 @@ use vortex_scalar::{DecimalValue, NativeDecimalType, Scalar, match_each_decimal_
 
 use crate::arrays::{BoolArray, DecimalArray, DecimalVTable};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
+use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl BetweenKernel for DecimalVTable {

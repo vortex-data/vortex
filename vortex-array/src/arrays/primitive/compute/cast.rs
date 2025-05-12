@@ -6,6 +6,7 @@ use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::validity::Validity;
+use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for PrimitiveVTable {

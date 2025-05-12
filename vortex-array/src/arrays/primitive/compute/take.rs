@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
+use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for PrimitiveVTable {

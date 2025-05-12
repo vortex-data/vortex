@@ -54,10 +54,6 @@ pub struct StructArray {
 pub struct StructEncoding;
 
 impl StructArray {
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     pub fn fields(&self) -> &[ArrayRef] {
         &self.fields
     }

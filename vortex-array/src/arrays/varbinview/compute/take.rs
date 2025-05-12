@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewVTable};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
+use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 /// Take involves creating a new array that references the old array, just with the given set of views.

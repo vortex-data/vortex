@@ -97,10 +97,6 @@ impl ListArray {
         })
     }
 
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     // TODO: merge logic with varbin
     // TODO(ngates): should return a result if it requires canonicalizing offsets
     pub fn offset_at(&self, index: usize) -> usize {
