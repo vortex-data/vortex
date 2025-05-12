@@ -31,17 +31,18 @@ impl EncodingVTable for DecimalBytePartsEncoding {
 
         let encoded_dtype = DType::Primitive(metadata.zeroth_child_ptype(), dtype.nullability());
 
-        let mut encoded = Vec::with_capacity(metadata.child_count as usize);
-        encoded.push(parts.child(0).decode(ctx, encoded_dtype, len)?);
-        for idx in 1..metadata.child_count {
-            encoded.push(parts.child(idx as usize).decode(
+        let msp = parts.child(0).decode(ctx, encoded_dtype, len)?;
+
+        let mut lower_parts = Vec::with_capacity(metadata.lower_part_count as usize);
+        for idx in 0..metadata.lower_part_count {
+            lower_parts.push(parts.child((idx + 1) as usize).decode(
                 ctx,
                 DType::Primitive(U64, NonNullable),
                 len,
             )?)
         }
 
-        DecimalBytePartsArray::try_new(encoded, *decimal_dtype).map(|d| d.to_array())
+        DecimalBytePartsArray::try_new(msp, lower_parts, *decimal_dtype).map(|d| d.to_array())
     }
 }
 
@@ -50,24 +51,26 @@ pub struct DecimalBytesPartsMetadata {
     #[prost(enumeration = "PType", tag = "1")]
     zeroth_child_ptype: i32,
     #[prost(uint32, tag = "2")]
-    child_count: u32,
+    lower_part_count: u32,
 }
 
-const ENCODED_NAMES: [&str; 4] = ["part-0", "part-1", "part-2", "part-3"];
+const ENCODED_NAMES: [&str; 3] = ["lower-0", "lower-1", "lower-2"];
 
 impl ArrayVisitorImpl<ProstMetadata<DecimalBytesPartsMetadata>> for DecimalBytePartsArray {
     fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        assert!(self.parts.len() <= 4);
-        self.parts.iter().enumerate().for_each(|(idx, arr)| {
+        assert!(self.lower_parts.len() <= 3);
+        visitor.visit_child("msp", &self.msp);
+        self.lower_parts.iter().enumerate().for_each(|(idx, arr)| {
             visitor.visit_child(ENCODED_NAMES[idx], arr);
         })
     }
 
     fn _metadata(&self) -> ProstMetadata<DecimalBytesPartsMetadata> {
         ProstMetadata(DecimalBytesPartsMetadata {
-            zeroth_child_ptype: PType::try_from(self.parts[0].dtype())
-                .vortex_expect("must be a PType") as i32,
-            child_count: u32::try_from(self.parts.len()).vortex_expect("0..4 fits in u8"),
+            zeroth_child_ptype: PType::try_from(self.msp.dtype()).vortex_expect("must be a PType")
+                as i32,
+            lower_part_count: u32::try_from(self.lower_parts.len())
+                .vortex_expect("1..=3 fits in u8"),
         })
     }
 }

@@ -1,6 +1,8 @@
 mod compute;
 mod serde;
 
+use std::iter;
+
 use itertools::Itertools;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -19,44 +21,48 @@ use crate::decimal_byte_parts::serde::DecimalBytesPartsMetadata;
 
 /// This array encodes decimals as between 1-4 columns of primitive typed children.
 /// These are stored as big endian.
-///  e.g. for a decimal i128 \[ 64..127 | 0..64\] child\[0\] = 64..127 and child\[1\] = 0..64
-/// The child\[0\] sorting the most significant decimal bits must be signed and is nullable iff the
+///  e.g. for a decimal i128 \[ 127..64 | 64..0 \] msp = 127..64 and lower_part\[0\] = 64..0
+/// The most significant part (msp) sorting the most significant decimal bits must be signed and is nullable iff the
 /// decimal is nullable.
 #[derive(Clone, Debug)]
 pub struct DecimalBytePartsArray {
-    parts: Vec<ArrayRef>,
+    msp: ArrayRef,
+    lower_parts: Vec<ArrayRef>,
     dtype: DType,
     stats_set: ArrayStats,
 }
 
 impl DecimalBytePartsArray {
-    pub fn try_new(parts: Vec<ArrayRef>, decimal_dtype: DecimalDType) -> VortexResult<Self> {
-        if parts.len() != 1 {
+    pub fn try_new(
+        msp: ArrayRef,
+        lower_parts: Vec<ArrayRef>,
+        decimal_dtype: DecimalDType,
+    ) -> VortexResult<Self> {
+        if !lower_parts.is_empty() {
             // TODO(joe): remove this constraint.
-            vortex_bail!("DecimalBytePartsArray only supports a single part")
+            vortex_bail!("DecimalBytePartsArray doesn't support lower parts arrays")
         }
 
-        if parts.is_empty() || parts.len() > 4 {
+        if !(0usize..=3).contains(&lower_parts.iter().len()) {
             vortex_bail!(
-                "DecimalBytePartsArray must have between 1..=4 children, instead given: {}",
-                parts.len()
+                "DecimalBytePartsArray lower_parts must have between 0..=3 children, instead given: {}",
+                lower_parts.len()
             )
         }
 
-        if !parts[0].dtype().is_signed_int() {
+        if !msp.dtype().is_signed_int() {
             vortex_bail!("decimal bytes parts, first part must be a signed array")
         }
 
-        if parts
+        if lower_parts
             .iter()
-            .skip(1)
             .any(|a| a.dtype() != &DType::Primitive(PType::U64, NonNullable))
         {
             vortex_bail!("decimal bytes parts 2nd to 4th must be non-nullable u64 primitive typed")
         }
 
-        let primitive_bit_width = parts
-            .iter()
+        let primitive_bit_width = iter::once(&msp)
+            .chain(&lower_parts)
             .map(|a| {
                 PType::try_from(a.dtype())
                     .vortex_expect("already checked")
@@ -67,13 +73,17 @@ impl DecimalBytePartsArray {
         if decimal_dtype.bit_width() > primitive_bit_width {
             vortex_bail!(
                 "cannot represent a decimal {decimal_dtype} as primitive parts {:?}",
-                parts.iter().map(|a| a.dtype()).collect_vec()
+                iter::once(&msp)
+                    .chain(&lower_parts)
+                    .map(|a| a.dtype())
+                    .collect_vec()
             )
         }
 
-        let nullable = parts[0].dtype().nullability();
+        let nullable = msp.dtype().nullability();
         Ok(Self {
-            parts,
+            msp,
+            lower_parts,
             dtype: DType::Decimal(decimal_dtype, nullable),
             stats_set: Default::default(),
         })
@@ -98,7 +108,7 @@ impl ArrayImpl for DecimalBytePartsArray {
     type Encoding = DecimalBytePartsEncoding;
 
     fn _len(&self) -> usize {
-        self.parts[0].len()
+        self.msp.len()
     }
 
     fn _dtype(&self) -> &DType {
@@ -110,15 +120,17 @@ impl ArrayImpl for DecimalBytePartsArray {
     }
 
     fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        DecimalBytePartsArray::try_new(children.to_vec(), *self.decimal_dtype())
+        let msp = children[0].clone();
+        let lower_parts = children.iter().skip(1).cloned().collect_vec();
+        DecimalBytePartsArray::try_new(msp, lower_parts, *self.decimal_dtype())
     }
 }
 
 impl ArrayCanonicalImpl for DecimalBytePartsArray {
     fn _to_canonical(&self) -> VortexResult<Canonical> {
         // TODO(joe): support parts len != 1
-        assert!(self.parts.len() == 1);
-        let prim = self.parts[0].to_canonical()?.into_primitive()?;
+        assert!(self.lower_parts.is_empty());
+        let prim = self.msp.to_canonical()?.into_primitive()?;
         // Depending on the decimal type and the min/max of the primitive array we can choose
         // the correct buffer size
 
@@ -137,7 +149,8 @@ impl ArrayCanonicalImpl for DecimalBytePartsArray {
 impl ArrayOperationsImpl for DecimalBytePartsArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         DecimalBytePartsArray::try_new(
-            self.parts
+            self.msp.slice(start, stop)?,
+            self.lower_parts
                 .iter()
                 .map(|p| p.slice(start, stop))
                 .try_collect()?,
@@ -148,8 +161,8 @@ impl ArrayOperationsImpl for DecimalBytePartsArray {
 
     fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
         // TODO(joe): suppor parts len != 1
-        assert!(self.parts.len() == 1);
-        let scalar = self.parts[0].scalar_at(index)?;
+        assert!(self.lower_parts.is_empty());
+        let scalar = self.msp.scalar_at(index)?;
 
         scalar.cast(self.dtype())
     }
@@ -164,19 +177,19 @@ impl ArrayStatisticsImpl for DecimalBytePartsArray {
 impl ArrayValidityImpl for DecimalBytePartsArray {
     fn _is_valid(&self, index: usize) -> VortexResult<bool> {
         // validity stored in 0th child
-        self.parts[0].is_valid(index)
+        self.msp.is_valid(index)
     }
 
     fn _all_valid(&self) -> VortexResult<bool> {
-        self.parts[0].all_valid()
+        self.msp.all_valid()
     }
 
     fn _all_invalid(&self) -> VortexResult<bool> {
-        self.parts[0].all_invalid()
+        self.msp.all_invalid()
     }
 
     fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.parts[0].validity_mask()
+        self.msp.validity_mask()
     }
 }
 

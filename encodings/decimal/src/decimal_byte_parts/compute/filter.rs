@@ -9,7 +9,12 @@ use crate::{DecimalBytePartsArray, DecimalBytePartsEncoding};
 impl FilterKernel for DecimalBytePartsEncoding {
     fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
         DecimalBytePartsArray::try_new(
-            array.parts.iter().map(|p| filter(p, mask)).try_collect()?,
+            filter(&array.msp, mask)?,
+            array
+                .lower_parts
+                .iter()
+                .map(|p| filter(p, mask))
+                .try_collect()?,
             *array.decimal_dtype(),
         )
         .map(|d| d.to_array())
