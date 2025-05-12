@@ -104,17 +104,17 @@ struct VortexArray {
 	vx_array *array;
 };
 
-struct VortexArrayStream {
-	explicit VortexArrayStream(vx_array_stream *array_stream) : array_stream(array_stream) {
+struct VortexArrayIter {
+	explicit VortexArrayIter(vx_array_iter *array_iter) : array_iter(array_iter) {
 	}
 
-	~VortexArrayStream() {
-		vx_array_stream_free(array_stream);
+	~VortexArrayIter() {
+		vx_array_iter_free(array_iter);
 	}
 
 	duckdb::unique_ptr<VortexArray> NextArray() const {
 		vx_error *error;
-		auto array = vx_array_stream_next(array_stream, &error);
+		auto array = vx_array_iter_next(array_iter, &error);
 		HandleError(error);
 		if (array == nullptr) {
 			return nullptr;
@@ -122,7 +122,7 @@ struct VortexArrayStream {
 		return duckdb::make_uniq<VortexArray>(array);
 	}
 
-	vx_array_stream *array_stream;
+	vx_array_iter *array_iter;
 };
 
 struct ArrayStreamSink {

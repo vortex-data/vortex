@@ -17,7 +17,7 @@ public:
 		return std::make_shared<VortexLayoutReader>(reader);
 	}
 
-	vx_array_stream *Scan(const vx_file_scan_options *options) {
+	vx_array_iter *Scan(const vx_file_scan_options *options) {
 		return Try([&](auto err) { return vx_layout_reader_scan(this->reader, options, err); });
 	}
 

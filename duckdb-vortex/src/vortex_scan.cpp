@@ -65,7 +65,7 @@ struct VortexScanPartition {
 struct VortexScanLocalState : public LocalTableFunctionState {
 	idx_t array_row_offset;
 	unique_ptr<VortexArray> array;
-	unique_ptr<VortexArrayStream> stream;
+	unique_ptr<VortexArrayIter> iter;
 	unique_ptr<VortexConversionCache> cache;
 	atomic_queue::AtomicQueue2<VortexScanPartition, 8192> scan_partitions;
 };
@@ -263,20 +263,20 @@ static void CreateScanPartitions(ClientContext &context, const VortexBindData &b
 	global_state.files_partitioned += 1;
 }
 
-static unique_ptr<VortexArrayStream> OpenArrayStream(VortexScanGlobalState &global_state,
-                                                     std::shared_ptr<VortexLayoutReader> &layout_reader,
-                                                     VortexScanPartition row_range_partition) {
+static unique_ptr<VortexArrayIter> OpenArrayIter(VortexScanGlobalState &global_state,
+                                                 std::shared_ptr<VortexLayoutReader> &layout_reader,
+                                                 VortexScanPartition row_range_partition) {
 	const auto options = vx_file_scan_options {
 	    .projection = global_state.projected_column_names.data(),
-	    .projection_len = static_cast<int>(global_state.projected_column_names.size()),
+	    .projection_len = static_cast<unsigned>(global_state.projected_column_names.size()),
 	    .filter_expression = global_state.filter_str.data(),
-	    .filter_expression_len = static_cast<int>(global_state.filter_str.length()),
+	    .filter_expression_len = static_cast<unsigned>(global_state.filter_str.length()),
 	    .split_by_row_count = 0,
 	    .row_range_start = row_range_partition.start_row,
 	    .row_range_end = row_range_partition.end_row,
 	};
 
-	return make_uniq<VortexArrayStream>(layout_reader->Scan(&options));
+	return make_uniq<VortexArrayIter>(layout_reader->Scan(&options));
 }
 
 // Assigns the next array from the array stream.
@@ -285,7 +285,7 @@ static unique_ptr<VortexArrayStream> OpenArrayStream(VortexScanGlobalState &glob
 static bool GetNextArray(ClientContext &context, const VortexBindData &bind_data, VortexScanGlobalState &global_state,
                          VortexScanLocalState &local_state, DataChunk &output) {
 
-	if (local_state.stream == nullptr) {
+	if (local_state.iter == nullptr) {
 		VortexScanPartition partition;
 
 		// Try to pop a partition off the thread local queue first.
@@ -313,14 +313,14 @@ static bool GetNextArray(ClientContext &context, const VortexBindData &bind_data
 
 		global_state.partitons_processed += 1;
 		std::shared_ptr<VortexLayoutReader> layout_reader = global_state.layout_readers[partition.file_idx];
-		local_state.stream = OpenArrayStream(global_state, layout_reader, partition);
+		local_state.iter = OpenArrayIter(global_state, layout_reader, partition);
 	}
 
-	local_state.array = local_state.stream->NextArray();
+	local_state.array = local_state.iter->NextArray();
 	local_state.array_row_offset = 0;
 
 	if (local_state.array == nullptr) {
-		local_state.stream = nullptr;
+		local_state.iter = nullptr;
 		return false;
 	}
 
