@@ -94,7 +94,7 @@ impl BoolTyped<'_> {
 pub struct PrimitiveTyped<'a>(&'a dyn Array);
 
 impl PrimitiveTyped<'_> {
-    fn ptype(&self) -> PType {
+    pub fn ptype(&self) -> PType {
         let DType::Primitive(ptype, _) = self.0.dtype() else {
             vortex_panic!("Expected Primitive DType")
         };
@@ -102,7 +102,7 @@ impl PrimitiveTyped<'_> {
     }
 
     /// Return the primitive value at the given index.
-    fn value(&self, idx: usize) -> Option<PValue> {
+    pub fn value(&self, idx: usize) -> Option<PValue> {
         self.0
             .is_valid(idx)
             .vortex_expect("is valid")
@@ -110,7 +110,7 @@ impl PrimitiveTyped<'_> {
     }
 
     /// Return the primitive value at the given index, ignoring nullability.
-    fn value_unchecked(&self, idx: usize) -> PValue {
+    pub fn value_unchecked(&self, idx: usize) -> PValue {
         self.0
             .scalar_at(idx)
             .vortex_expect("scalar at index")

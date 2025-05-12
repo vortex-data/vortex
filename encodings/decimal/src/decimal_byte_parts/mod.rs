@@ -70,13 +70,15 @@ impl DecimalBytePartsArray {
             })
             .sum();
 
-        if decimal_dtype.bit_width() > primitive_bit_width {
+        if decimal_dtype.required_bit_width() > primitive_bit_width {
             vortex_bail!(
-                "cannot represent a decimal {decimal_dtype} as primitive parts {:?}",
+                "cannot represent a decimal {decimal_dtype} as primitive parts {:?}, decimal bit width {}, primitive bit width {}",
                 iter::once(&msp)
                     .chain(&lower_parts)
                     .map(|a| a.dtype())
-                    .collect_vec()
+                    .collect_vec(),
+                                decimal_dtype.required_bit_width(),
+                primitive_bit_width
             )
         }
 

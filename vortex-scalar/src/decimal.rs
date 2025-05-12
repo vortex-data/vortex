@@ -259,7 +259,6 @@ decimal_scalar_pack!(i256, i256, I256);
 macro_rules! match_each_decimal_value {
     ($self:expr, | $_:tt $value:ident | $($body:tt)*) => ({
         macro_rules! __with__ {( $_ $value:ident ) => ( $($body)* )}
-        macro_rules! __with__ {( $_ $value:ident ) => ( $($body)* )}
         match $self {
             DecimalValue::I8(v) => __with__! { v },
             DecimalValue::I16(v) => __with__! { v },

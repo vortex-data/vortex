@@ -57,7 +57,7 @@ impl DecimalDType {
     }
 
     /// Return the max number of bits required to fit a decimal with `precision` in.
-    pub fn bit_width(&self) -> usize {
+    pub fn required_bit_width(&self) -> usize {
         (self.precision as f32 * 10.0f32.log(2.0))
             .ceil()
             .to_usize()

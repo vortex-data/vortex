@@ -1,1 +1,2 @@
+mod compare;
 mod filter;
