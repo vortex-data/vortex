@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::{DType, ExtDType, ExtID};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -11,8 +11,8 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingRef,
-    IntoArray,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef,
+    IntoArray, vtable,
 };
 
 mod compute;
@@ -33,8 +33,8 @@ impl VTable for ExtensionVTable {
     type EncodeVTable = ();
     type SerdeVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("vortex.extension")
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.extension")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

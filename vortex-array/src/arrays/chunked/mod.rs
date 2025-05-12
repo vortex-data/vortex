@@ -8,7 +8,7 @@ use arcref::ArcRef;
 pub use array::*;
 
 use crate::vtable::VTable;
-use crate::{vtable, EncodingRef};
+use crate::{EncodingId, EncodingRef, vtable};
 
 vtable!(Chunked);
 
@@ -25,8 +25,8 @@ impl VTable for ChunkedVTable {
     type EncodeVTable = ();
     type SerdeVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("vortex.chunked")
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.chunked")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

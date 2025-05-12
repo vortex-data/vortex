@@ -31,8 +31,8 @@ impl VTable for FoRVTable {
     type EncodeVTable = Self;
     type SerdeVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("fastlanes.for")
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("fastlanes.for")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

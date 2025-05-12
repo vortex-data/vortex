@@ -32,8 +32,8 @@ impl VTable for DeltaVTable {
     type EncodeVTable = ();
     type SerdeVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("fastlanes.delta")
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("fastlanes.delta")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

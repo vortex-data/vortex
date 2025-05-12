@@ -13,7 +13,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayRef, Canonical, EncodingRef, IntoArray, vtable};
+use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 
 mod compute;
 mod serde;
@@ -33,8 +33,8 @@ impl VTable for StructVTable {
     type EncodeVTable = ();
     type SerdeVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("vortex.struct")
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.struct")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

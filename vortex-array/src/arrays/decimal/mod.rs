@@ -5,7 +5,7 @@ mod serde;
 use arcref::ArcRef;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
-use vortex_error::{vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_scalar::i256;
 
 use crate::arrays::decimal::serde::DecimalMetadata;
@@ -18,8 +18,8 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Canonical,
-    EncodingRef, ProstMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Canonical, EncodingId,
+    EncodingRef, ProstMetadata, vtable,
 };
 
 vtable!(Decimal);
@@ -37,8 +37,8 @@ impl VTable for DecimalVTable {
     type EncodeVTable = ();
     type SerdeVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("vortex.decimal")
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.decimal")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

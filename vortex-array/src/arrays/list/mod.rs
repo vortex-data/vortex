@@ -20,7 +20,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayExt, ArrayRef, Canonical, EncodingRef, IntoArray, vtable};
+use crate::{Array, ArrayExt, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 
 vtable!(List);
 
@@ -37,8 +37,8 @@ impl VTable for ListVTable {
     type EncodeVTable = ();
     type SerdeVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("vortex.list")
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.list")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

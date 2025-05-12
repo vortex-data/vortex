@@ -12,7 +12,6 @@ mod visitor;
 use std::fmt::Debug;
 use std::ops::Deref;
 
-use arcref::ArcRef;
 pub use array::*;
 pub use compute::*;
 pub use decode::*;
@@ -22,7 +21,7 @@ pub use serde::*;
 pub use validity::*;
 pub use visitor::*;
 
-use crate::{Array, Encoding, EncodingRef, IntoArray};
+use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
 
 /// The encoding [`VTable`] encapsulates logic for an Encoding type and associated Array type.
 /// The logic is split across several "VTable" traits to enable easier code organization than
@@ -61,7 +60,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type SerdeVTable: SerdeVTable<Self>;
 
     /// Returns the ID of the encoding.
-    fn id(encoding: &Self::Encoding) -> ArcRef<str>;
+    fn id(encoding: &Self::Encoding) -> EncodingId;
 
     /// Returns the encoding for the array.
     fn encoding(array: &Self::Array) -> EncodingRef;

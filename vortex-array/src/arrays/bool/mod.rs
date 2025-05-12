@@ -10,7 +10,7 @@ pub use array::*;
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 
 use crate::vtable::{VTable, ValidityVTableFromValidityHelper};
-use crate::{vtable, EncodingRef};
+use crate::{EncodingId, EncodingRef, vtable};
 
 vtable!(Bool);
 
@@ -28,8 +28,8 @@ impl VTable for BoolVTable {
     // Enable serde for this encoding
     type SerdeVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("vortex.bool")
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.bool")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

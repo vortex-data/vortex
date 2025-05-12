@@ -12,8 +12,8 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    vtable, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical,
-    EmptyMetadata, EncodingRef, IntoArray,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical, EmptyMetadata,
+    EncodingId, EncodingRef, IntoArray, vtable,
 };
 
 mod compute;
@@ -33,8 +33,8 @@ impl VTable for NullVTable {
     type EncodeVTable = ();
     type SerdeVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("vortex.null")
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.null")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

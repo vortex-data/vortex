@@ -6130,6 +6130,7 @@ dependencies = [
 name = "vortex-bytebool"
 version = "0.32.0"
 dependencies = [
+ "arcref",
  "arrow-buffer",
  "num-traits",
  "vortex-array",

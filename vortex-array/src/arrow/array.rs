@@ -4,7 +4,7 @@ use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -14,8 +14,8 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
-    vtable, Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingRef,
-    IntoArray,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef,
+    IntoArray, vtable,
 };
 
 vtable!(Arrow);
@@ -32,8 +32,8 @@ impl VTable for ArrowVTable {
     type EncodeVTable = ();
     type SerdeVTable = ();
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("vortex.arrow")
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.arrow")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

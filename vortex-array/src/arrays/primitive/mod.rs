@@ -13,7 +13,7 @@ use vortex_error::{VortexResult, vortex_panic};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, Canonical, EncodingRef, IntoArray, vtable};
+use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 
 mod compute;
 mod native_value;
@@ -44,8 +44,8 @@ impl VTable for PrimitiveVTable {
     type EncodeVTable = ();
     type SerdeVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("vortex.primitive")
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.primitive")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

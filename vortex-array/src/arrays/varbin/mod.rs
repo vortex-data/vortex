@@ -14,7 +14,7 @@ use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{ArrayVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper};
-use crate::{Array, ArrayRef, EncodingRef, vtable};
+use crate::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
 
 mod accessor;
 pub mod builder;
@@ -37,8 +37,8 @@ impl VTable for VarBinVTable {
     type EncodeVTable = ();
     type SerdeVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
-        ArcRef::new_ref("vortex.varbin")
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.varbin")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {

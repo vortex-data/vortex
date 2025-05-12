@@ -17,6 +17,7 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 num-traits = { workspace = true }
 vortex-array = { workspace = true }
