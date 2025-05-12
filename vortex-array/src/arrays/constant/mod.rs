@@ -1,4 +1,3 @@
-use arcref::ArcRef;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -47,7 +46,7 @@ impl VTable for ConstantVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(ConstantEncoding.as_ref())
+        EncodingRef::new_ref(ConstantEncoding.as_ref())
     }
 }
 

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use vortex_dtype::{DType, ExtDType, ExtID};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
@@ -38,7 +37,7 @@ impl VTable for ExtensionVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(ExtensionEncoding.as_ref())
+        EncodingRef::new_ref(ExtensionEncoding.as_ref())
     }
 }
 

@@ -4,7 +4,6 @@ mod ops;
 mod patch;
 mod serde;
 
-use arcref::ArcRef;
 pub use array::*;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
@@ -33,7 +32,7 @@ impl VTable for BoolVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(BoolEncoding.as_ref())
+        EncodingRef::new_ref(BoolEncoding.as_ref())
     }
 }
 

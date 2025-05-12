@@ -35,7 +35,7 @@ impl VTable for ALPRDVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(ALPRDEncoding.as_ref())
+        EncodingRef::new_ref(ALPRDEncoding.as_ref())
     }
 }
 

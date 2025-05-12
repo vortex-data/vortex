@@ -8,7 +8,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
 };
-use vortex_array::{Array, ArrayRef, Canonical, EncodingRef, IntoArray, vtable};
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
@@ -37,7 +37,7 @@ impl VTable for DeltaVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(DeltaEncoding.as_ref())
+        EncodingRef::new_ref(DeltaEncoding.as_ref())
     }
 }
 

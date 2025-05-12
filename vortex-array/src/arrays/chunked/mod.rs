@@ -4,7 +4,6 @@ mod decode;
 mod ops;
 mod serde;
 
-use arcref::ArcRef;
 pub use array::*;
 
 use crate::vtable::VTable;
@@ -30,7 +29,7 @@ impl VTable for ChunkedVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(ChunkedEncoding.as_ref())
+        EncodingRef::new_ref(ChunkedEncoding.as_ref())
     }
 }
 

@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use arcref::ArcRef;
 pub use compute::compute_min_max;
 use num_traits::PrimInt;
 use vortex_buffer::ByteBuffer;
@@ -42,7 +41,7 @@ impl VTable for VarBinVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(VarBinEncoding.as_ref())
+        EncodingRef::new_ref(VarBinEncoding.as_ref())
     }
 }
 

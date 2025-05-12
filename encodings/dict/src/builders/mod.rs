@@ -1,6 +1,6 @@
 use bytes::bytes_dict_builder;
 use primitive::primitive_dict_builder;
-use vortex_array::arrays::{PrimitiveArray, VarBinArray, VarBinViewArray};
+use vortex_array::arrays::{PrimitiveVTable, VarBinVTable, VarBinViewVTable};
 use vortex_array::compress::downscale_integer_array;
 use vortex_array::{Array, ArrayExt, ArrayRef};
 use vortex_dtype::match_each_native_ptype;
@@ -32,13 +32,13 @@ pub fn dict_encoder(
     array: &dyn Array,
     constraints: &DictConstraints,
 ) -> VortexResult<Box<dyn DictEncoder>> {
-    let dict_builder: Box<dyn DictEncoder> = if let Some(pa) = array.as_opt::<PrimitiveArray>() {
+    let dict_builder: Box<dyn DictEncoder> = if let Some(pa) = array.as_opt::<PrimitiveVTable>() {
         match_each_native_ptype!(pa.ptype(), |$P| {
             primitive_dict_builder::<$P>(pa.dtype().nullability(), &constraints)
         })
-    } else if let Some(vbv) = array.as_opt::<VarBinViewArray>() {
+    } else if let Some(vbv) = array.as_opt::<VarBinViewVTable>() {
         bytes_dict_builder(vbv.dtype().clone(), constraints)
-    } else if let Some(vb) = array.as_opt::<VarBinArray>() {
+    } else if let Some(vb) = array.as_opt::<VarBinVTable>() {
         bytes_dict_builder(vb.dtype().clone(), constraints)
     } else {
         vortex_bail!("Can only encode primitive or varbin/view arrays")

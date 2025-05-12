@@ -1,8 +1,6 @@
 use std::fmt::Debug;
 use std::iter;
 
-use arcref::ArcRef;
-
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
@@ -49,7 +47,7 @@ impl VTable for PrimitiveVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(PrimitiveEncoding.as_ref())
+        EncodingRef::new_ref(PrimitiveEncoding.as_ref())
     }
 }
 

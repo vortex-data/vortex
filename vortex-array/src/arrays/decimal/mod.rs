@@ -2,7 +2,6 @@ mod compute;
 mod ops;
 mod serde;
 
-use arcref::ArcRef;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_panic};
@@ -42,7 +41,7 @@ impl VTable for DecimalVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(DecimalEncoding.as_ref())
+        EncodingRef::new_ref(DecimalEncoding.as_ref())
     }
 }
 

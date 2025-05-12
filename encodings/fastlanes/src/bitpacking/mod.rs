@@ -11,7 +11,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
 };
-use vortex_array::{Array, ArrayExt, Canonical, EncodingRef, vtable};
+use vortex_array::{Array, ArrayExt, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -44,7 +44,7 @@ impl VTable for BitPackedVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(BitPackedEncoding.as_ref())
+        EncodingRef::new_ref(BitPackedEncoding.as_ref())
     }
 }
 

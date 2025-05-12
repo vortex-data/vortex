@@ -6,7 +6,7 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, VTable, ValidityChild, ValidityVTableFromChild,
 };
-use vortex_array::{Array, ArrayRef, Canonical, EncodingRef, vtable};
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
@@ -36,7 +36,7 @@ impl VTable for FoRVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(FoREncoding.as_ref())
+        EncodingRef::new_ref(FoREncoding.as_ref())
     }
 }
 

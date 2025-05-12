@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use arcref::ArcRef;
 use arrow_buffer::BooleanBuffer;
 use vortex_array::arrays::BoolArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -30,12 +29,12 @@ impl VTable for ByteBoolVTable {
     type EncodeVTable = ();
     type SerdeVTable = Self;
 
-    fn id(_encoding: &Self::Encoding) -> ArcRef<str> {
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.bytebool")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(ByteBoolEncoding.as_ref())
+        EncodingRef::new_ref(ByteBoolEncoding.as_ref())
     }
 }
 

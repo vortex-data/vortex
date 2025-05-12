@@ -12,7 +12,7 @@ impl FillNullKernel for DictVTable {
         // point to the value.
         let found_fill_values = compare(
             array.values(),
-            &ConstantArray::new(fill_value.clone(), array.values().len()),
+            ConstantArray::new(fill_value.clone(), array.values().len()).as_ref(),
             Operator::Eq,
         )?
         .to_bool()?;

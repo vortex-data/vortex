@@ -179,7 +179,7 @@ mod tests {
             Validity::NonNullable,
         );
         let dtype = array.dtype().clone();
-        let ctx = ArrayContext::empty().with(ArcRef::new_ref(DecimalEncoding.as_ref()));
+        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(DecimalEncoding.as_ref()));
         let out = array
             .into_array()
             .serialize(&ctx, &SerializeOptions::default());

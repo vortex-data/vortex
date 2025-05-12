@@ -1,7 +1,6 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
-use arcref::ArcRef;
 use arrow_array::GenericByteViewArray;
 use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
 use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
@@ -277,7 +276,7 @@ impl VTable for VarBinViewVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(VarBinViewEncoding.as_ref())
+        EncodingRef::new_ref(VarBinViewEncoding.as_ref())
     }
 }
 

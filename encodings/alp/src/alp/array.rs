@@ -32,7 +32,7 @@ impl VTable for ALPVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(ALPEncoding.as_ref())
+        EncodingRef::new_ref(ALPEncoding.as_ref())
     }
 }
 

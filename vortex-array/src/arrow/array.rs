@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_dtype::{DType, Nullability};
@@ -37,7 +36,7 @@ impl VTable for ArrowVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(ArrowEncoding.as_ref())
+        EncodingRef::new_ref(ArrowEncoding.as_ref())
     }
 }
 

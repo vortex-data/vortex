@@ -3,7 +3,6 @@ mod serde;
 
 use std::sync::Arc;
 
-use arcref::ArcRef;
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
@@ -42,7 +41,7 @@ impl VTable for ListVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(ListEncoding.as_ref())
+        EncodingRef::new_ref(ListEncoding.as_ref())
     }
 }
 

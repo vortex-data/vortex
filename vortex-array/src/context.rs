@@ -1,17 +1,16 @@
 use std::fmt::Display;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
-use arcref::ArcRef;
 use itertools::Itertools;
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
+use crate::EncodingRef;
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
     ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
     VarBinViewEncoding,
 };
-use crate::EncodingRef;
 
 /// A collection of array encodings.
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
@@ -24,21 +23,21 @@ impl ArrayRegistry {
 
         // Register the canonical encodings
         this.register_many([
-            ArcRef::new_ref(NullEncoding.as_ref()) as EncodingRef,
-            ArcRef::new_ref(BoolEncoding.as_ref()),
-            ArcRef::new_ref(PrimitiveEncoding.as_ref()),
-            ArcRef::new_ref(DecimalEncoding.as_ref()),
-            ArcRef::new_ref(StructEncoding.as_ref()),
-            ArcRef::new_ref(ListEncoding.as_ref()),
-            ArcRef::new_ref(VarBinEncoding.as_ref()),
-            ArcRef::new_ref(VarBinViewEncoding.as_ref()),
-            ArcRef::new_ref(ExtensionEncoding.as_ref()),
+            EncodingRef::new_ref(NullEncoding.as_ref()) as EncodingRef,
+            EncodingRef::new_ref(BoolEncoding.as_ref()),
+            EncodingRef::new_ref(PrimitiveEncoding.as_ref()),
+            EncodingRef::new_ref(DecimalEncoding.as_ref()),
+            EncodingRef::new_ref(StructEncoding.as_ref()),
+            EncodingRef::new_ref(ListEncoding.as_ref()),
+            EncodingRef::new_ref(VarBinEncoding.as_ref()),
+            EncodingRef::new_ref(VarBinViewEncoding.as_ref()),
+            EncodingRef::new_ref(ExtensionEncoding.as_ref()),
         ]);
 
         // Register the utility encodings
         this.register_many([
-            ArcRef::new_ref(ConstantEncoding.as_ref()) as EncodingRef,
-            ArcRef::new_ref(ChunkedEncoding.as_ref()),
+            EncodingRef::new_ref(ConstantEncoding.as_ref()) as EncodingRef,
+            EncodingRef::new_ref(ChunkedEncoding.as_ref()),
         ]);
 
         this

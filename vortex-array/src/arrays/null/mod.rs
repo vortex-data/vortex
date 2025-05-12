@@ -1,4 +1,3 @@
-use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -38,7 +37,7 @@ impl VTable for NullVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(NullEncoding.as_ref())
+        EncodingRef::new_ref(NullEncoding.as_ref())
     }
 }
 

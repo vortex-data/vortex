@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
@@ -38,7 +37,7 @@ impl VTable for StructVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        ArcRef::new_ref(StructEncoding.as_ref())
+        EncodingRef::new_ref(StructEncoding.as_ref())
     }
 }
 
