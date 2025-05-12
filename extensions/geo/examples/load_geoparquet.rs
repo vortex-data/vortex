@@ -1,12 +1,26 @@
+extern crate vortex_dtype;
+extern crate vortex_geo;
+
 use std::fs::File;
 
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayRef, ToCanonical, TryIntoArray};
-use vortex_dtype as _;
+use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_dtype::arrow::ArrowTypeConversionRef;
 use vortex_geo::POLYGON_ID;
 
+#[used]
+static TEST: fn() = || {
+    // Dummy function to force linker to pick up geo plugin
+    vortex_geo::arrow::registry_link()
+};
+
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 pub fn main() {
-    // Open the parquet file as GeoParquet.
+    println!(
+        "number of conversions: {}",
+        vortex_dtype::inventory::iter::<ArrowTypeConversionRef>().count()
+    );
     let file = File::open("/Volumes/Code/Data/afghan.parquet").unwrap();
     let mut geo = geoarrow_geoparquet::GeoParquetRecordBatchReaderBuilder::try_new(file)
         .unwrap()
@@ -25,4 +39,11 @@ pub fn main() {
         .unwrap();
 
     assert_eq!(geometry.dtype().as_extension().unwrap().id(), &*POLYGON_ID);
+
+    println!("uncompressed:\n{}", geometry.tree_display());
+
+    // Run through the compressor to see how it performs. It should just compress the individual storage
+    // arrays.
+    let compressed = BtrBlocksCompressor.compress(geometry.as_ref()).unwrap();
+    println!("compressed:\n{}", compressed.tree_display());
 }

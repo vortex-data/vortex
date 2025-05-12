@@ -24,10 +24,17 @@ serde_json = { workspace = true }
 vortex-array = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
+clap = { version = "4.5.37", features = ["derive"] }
 
 [dev-dependencies]
+anyhow = { workspace = true }
+arrow-ipc = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["full"] }
+vortex-btrblocks = { workspace = true }
+vortex-dtype = { workspace = true, features = ["arrow"] }
+vortex-file = { workspace = true, features = ["tokio"] }
 vortex-scalar = { workspace = true }
-vortex-file = { workspace = true }
 geoarrow-geoparquet = { git = "https://github.com/geoarrow/geoarrow-rs.git", rev = "c241034f", features = [
     "compression",
 ] }

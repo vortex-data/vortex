@@ -143,7 +143,7 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use arrow_schema::{DECIMAL128_MAX_SCALE, DataType, Field, FieldRef, Fields, Schema, SchemaRef};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_assert, vortex_bail, vortex_err};
 
 use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use crate::datetime::is_temporal_ext_type;
@@ -285,6 +285,16 @@ impl FromArrowType<&Field> for DType {
 impl DType {
     /// Convert a Vortex [`DType`] into an Arrow [`Schema`].
     pub fn to_arrow_schema(&self) -> VortexResult<Schema> {
+        vortex_assert!(
+            self.is_struct(),
+            "to_arrow_schema expected struct type, was {}",
+            self,
+        );
+        vortex_assert!(
+            !self.is_nullable(),
+            "nullable Struct cannot be converted to Arrow Schema"
+        );
+
         let DataType::Struct(fields) = self.to_arrow()? else {
             vortex_bail!(
                 "Cannot convert non-struct dtype to Arrow schema: {:?}",
@@ -434,9 +444,7 @@ impl ArrowTypeConversionRef {
 #[macro_export]
 macro_rules! register_extension_type {
     ($extension:expr) => {
-        // const _: $crate::arrow::ArrowTypeConversionRef = $extension;
-
-        $crate::inventory::submit! { $extension }
+        $crate::inventory::submit!($extension);
     };
 }
 
@@ -516,15 +524,15 @@ mod test {
     }
 
     #[test]
-    #[should_panic]
-    fn test_dtype_conversion_panics() {
-        let _ = DType::Extension(Arc::new(ExtDType::new(
+    fn test_unregistered_extension_conversion() {
+        let arrow = DType::Extension(Arc::new(ExtDType::new(
             ExtID::from("my-fake-ext-dtype"),
             Arc::new(DType::Utf8(Nullability::NonNullable)),
             None,
         )))
         .to_arrow()
         .unwrap();
+        assert_eq!(arrow, DataType::Utf8View);
     }
 
     #[test]

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
+use futures::stream::BoxStream;
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::{SharedVortexResult, VortexError, VortexResult};
@@ -32,6 +33,21 @@ pub trait LayoutReader: 'static + ExprEvaluator {
     }
 
     fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>>;
+}
+
+/// Layouts are how arrays can be read from stable storage, such as local NVMe or object stores.
+///
+/// Layouts define an interface to read batches of data back out asynchronously. By implementing
+/// using the async approach, we can make everything work in the synchronous model simply by
+/// blocking execution on the current thread.
+#[async_trait]
+pub trait Layout2 {
+    /// Create a read for the given row range, and a given pruning expression.
+    async fn read_range(
+        &self,
+        expr: Option<ExprRef>,
+        row_range: Range<u64>,
+    ) -> VortexResult<BoxStream<ArrayRef>>;
 }
 
 pub trait LayoutReaderExt: LayoutReader {

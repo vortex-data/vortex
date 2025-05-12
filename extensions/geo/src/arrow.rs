@@ -277,6 +277,9 @@ register_extension_type!(ArrowTypeConversionRef::new(ArcRef::new_ref(
     &GeoArrowConversion
 )));
 
+/// Used to force this to end up in the linker.
+pub fn registry_link() {}
+
 /// Unpack the geoarrow CoordBuffer. Errors if the dimensions specified in the metadata do not
 /// match the actual encoding.
 fn coordinate_buffer(array: &dyn Array, meta: &GeoMetadata) -> VortexResult<CoordBuffer> {
