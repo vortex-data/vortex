@@ -77,7 +77,7 @@ impl DecimalBytePartsArray {
                     .chain(&lower_parts)
                     .map(|a| a.dtype())
                     .collect_vec(),
-                                decimal_dtype.required_bit_width(),
+                decimal_dtype.required_bit_width(),
                 primitive_bit_width
             )
         }
