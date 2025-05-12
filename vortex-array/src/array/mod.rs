@@ -35,9 +35,6 @@ pub trait Array:
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
-    /// Returns the array as an [`Arc`] reference to a generic [`Any`] trait object.
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
-
     /// Returns the array as an [`ArrayRef`].
     fn to_array(&self) -> ArrayRef;
 
@@ -155,10 +152,6 @@ pub trait Array:
 impl Array for Arc<dyn Array> {
     fn as_any(&self) -> &dyn Any {
         self.as_ref().as_any()
-    }
-
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
-        self
     }
 
     fn to_array(&self) -> ArrayRef {
@@ -313,10 +306,6 @@ impl<V: VTable> Debug for ArrayAdapter<V> {
 
 impl<V: VTable> Array for ArrayAdapter<V> {
     fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
         self
     }
 

@@ -1,6 +1,6 @@
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::{BinaryView, VarBinViewVTable};
 use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
@@ -28,7 +28,10 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
         if buffers.is_empty() {
             vortex_bail!("Expected at least 1 buffer, got {}", buffers.len());
         }
-        let views = Buffer::<BinaryView>::from_byte_buffer(buffers[0].clone());
+        let mut buffers: Vec<ByteBuffer> = buffers.to_vec();
+
+        let views =
+            Buffer::<BinaryView>::from_byte_buffer(buffers.pop().vortex_expect("checked above"));
 
         if views.len() != len {
             vortex_bail!("Expected {} views, got {}", len, views.len());
@@ -43,7 +46,6 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
             vortex_bail!("Expected 0 or 1 children, got {}", children.len());
         };
 
-        let buffers: Vec<ByteBuffer> = buffers[1..].to_vec();
         VarBinViewArray::try_new(views, buffers, dtype, validity)
     }
 }

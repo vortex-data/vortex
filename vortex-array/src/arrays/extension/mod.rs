@@ -33,7 +33,7 @@ impl VTable for ExtensionVTable {
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
-        EncodingId::new_ref("vortex.extension")
+        EncodingId::new_ref("vortex.ext")
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
@@ -129,7 +129,9 @@ impl OperationsVTable<ExtensionVTable> for ExtensionVTable {
 impl VisitorVTable<ExtensionVTable> for ExtensionVTable {
     fn visit_buffers(_array: &ExtensionArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-    fn visit_children(_array: &ExtensionArray, _visitor: &mut dyn ArrayChildVisitor) {}
+    fn visit_children(array: &ExtensionArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("storage", array.storage.as_ref());
+    }
 
     fn with_children(
         array: &ExtensionArray,
