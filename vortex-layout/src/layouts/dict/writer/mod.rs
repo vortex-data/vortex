@@ -1,6 +1,5 @@
 use arcref::ArcRef;
 use bytes::Bytes;
-use vortex_array::vtable::EncodingVTable as _;
 use vortex_array::{Array, ArrayContext, ArrayRef, ProstMetadata, SerializeMetadata};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;

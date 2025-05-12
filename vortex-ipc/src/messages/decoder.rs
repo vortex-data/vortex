@@ -154,7 +154,7 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::{Array, ArrayVisitor, IntoArray};
+    use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 
@@ -196,6 +196,6 @@ mod test {
         // Constant arrays have a single buffer
         let array = ConstantArray::new(10i32, 20);
         assert_eq!(array.nbuffers(), 1, "Array should have a single buffer");
-        write_and_read(&array);
+        write_and_read(array.as_ref());
     }
 }
