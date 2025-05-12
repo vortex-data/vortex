@@ -5,7 +5,6 @@ use duckdb::ffi::{
 };
 use duckdb::vtab::arrow::WritableVector;
 use itertools::Itertools;
-use vortex_array::Array;
 use vortex_array::arrays::{BinaryView, Inlined, VarBinViewArray};
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -131,8 +130,8 @@ impl ToDuckDB for VarBinViewArray {
 #[cfg(test)]
 mod tests {
     use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::{ConstantArray, VarBinViewArray};
-    use vortex_array::{Array, ToCanonical};
 
     use crate::ToDuckDB;
     use crate::convert::array::ConversionCache;
