@@ -39,6 +39,7 @@ impl CompareKernel for DecimalBytePartsEncoding {
     }
 }
 
+#[allow(clippy::cognitive_complexity)]
 fn decimal_to_primitive(decimal_value: DecimalValue, ptype: PType) -> Option<ScalarValue> {
     match_each_integer_ptype!(ptype, |$P| {
         match_each_decimal_value!(decimal_value, |$decimal_v| {
