@@ -1,17 +1,13 @@
-mod canonical;
 mod convert;
 mod statistics;
-mod validity;
 mod visitor;
 
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
-pub use canonical::*;
 pub use convert::*;
 pub use statistics::*;
-pub use validity::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;

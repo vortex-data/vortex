@@ -8,7 +8,6 @@ use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_scalar::{DecimalValueType, NativeDecimalType};
 
-use crate::arrays::decimal::serde::DecimalMetadata;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
@@ -17,8 +16,7 @@ use crate::vtable::{
     VisitorVTable,
 };
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ArrayVisitorImpl, Canonical, EncodingId,
-    EncodingRef, ProstMetadata, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
 };
 
 vtable!(Decimal);
@@ -173,14 +171,6 @@ impl VisitorVTable<DecimalVTable> for DecimalVTable {
         //  any validity child.
         // No non-validity child arrays to replace.
         Ok(array.clone())
-    }
-}
-
-impl ArrayVisitorImpl<ProstMetadata<DecimalMetadata>> for DecimalArray {
-    fn _metadata(&self) -> ProstMetadata<DecimalMetadata> {
-        ProstMetadata(DecimalMetadata {
-            values_type: self.values_type as i32,
-        })
     }
 }
 

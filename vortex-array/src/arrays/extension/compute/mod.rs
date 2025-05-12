@@ -4,15 +4,15 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::extension::ExtensionArray;
 use crate::arrays::ExtensionVTable;
+use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
-    filter, is_constant_opts, is_sorted, is_strict_sorted, min_max,
-    sum, take, FilterKernel, FilterKernelAdapter, IsConstantKernel,
-    IsConstantKernelAdapter, IsConstantOpts, IsSortedKernel, IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter,
-    MinMaxResult, SumKernel, SumKernelAdapter, TakeKernel, TakeKernelAdapter,
+    FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
+    IsSortedKernel, IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
+    SumKernel, SumKernelAdapter, TakeKernel, TakeKernelAdapter, filter, is_constant_opts,
+    is_sorted, is_strict_sorted, min_max, sum, take,
 };
-use crate::{register_kernel, Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl FilterKernel for ExtensionVTable {
     fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<ArrayRef> {

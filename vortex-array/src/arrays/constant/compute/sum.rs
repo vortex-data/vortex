@@ -1,6 +1,6 @@
 use num_traits::{CheckedMul, ToPrimitive};
-use vortex_dtype::{match_each_native_ptype, NativePType, PType};
-use vortex_error::{vortex_err, VortexExpect, VortexResult};
+use vortex_dtype::{NativePType, PType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{FromPrimitiveOrF16, PrimitiveScalar, Scalar};
 
 use crate::arrays::{ConstantArray, ConstantVTable};

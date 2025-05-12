@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::Formatter;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -8,7 +8,7 @@ use vortex_error::VortexResult;
 use crate::arrays::ConstantArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, SerializeMetadata};
+use crate::{Array, ArrayRef};
 
 pub trait ArrayVisitor {
     /// Returns the children of the array.
@@ -106,43 +106,6 @@ pub trait ArrayVisitorExt: Array {
 }
 
 impl<A: Array + ?Sized> ArrayVisitorExt for A {}
-
-// TODO(ngates): rename to ArraySerdeImpl?
-pub trait ArrayVisitorImpl<M: SerializeMetadata + DeserializeMetadata + Debug = EmptyMetadata> {
-    fn _visit_buffers(&self, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn _nbuffers(&self) -> usize {
-        struct NBuffers(usize);
-
-        impl ArrayBufferVisitor for NBuffers {
-            fn visit_buffer(&mut self, _buffer: &ByteBuffer) {
-                self.0 += 1;
-            }
-        }
-
-        let mut visitor = NBuffers(0);
-        self._visit_buffers(&mut visitor);
-        visitor.0
-    }
-
-    fn _visit_children(&self, _visitor: &mut dyn ArrayChildVisitor) {}
-
-    fn _nchildren(&self) -> usize {
-        struct NChildren(usize);
-
-        impl ArrayChildVisitor for NChildren {
-            fn visit_child(&mut self, _name: &str, _array: &dyn Array) {
-                self.0 += 1;
-            }
-        }
-
-        let mut visitor = NChildren(0);
-        self._visit_children(&mut visitor);
-        visitor.0
-    }
-
-    fn _metadata(&self) -> M;
-}
 
 pub trait ArrayBufferVisitor {
     fn visit_buffer(&mut self, buffer: &ByteBuffer);

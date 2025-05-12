@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use crate::arrays::{BoolArray, BoolVTable};
 use crate::compute::{InvertKernel, InvertKernelAdapter};
 use crate::vtable::ValidityHelper;
-use crate::{register_kernel, ArrayRef, IntoArray};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl InvertKernel for BoolVTable {
     fn invert(&self, array: &BoolArray) -> VortexResult<ArrayRef> {

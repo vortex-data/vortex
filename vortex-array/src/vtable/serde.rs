@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{vortex_bail, VortexResult};
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::serde::ArrayParts;
 use crate::vtable::VTable;

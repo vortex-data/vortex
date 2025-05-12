@@ -1,8 +1,8 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::vtable::VTable;
 use crate::ArrayRef;
+use crate::vtable::VTable;
 
 pub trait OperationsVTable<V: VTable> {
     /// Perform a constant-time slice of the array.

@@ -1,11 +1,11 @@
-use arrow_array::cast::AsArray;
 use arrow_array::RecordBatch;
+use arrow_array::cast::AsArray;
 use arrow_schema::{DataType, Schema};
-use vortex_error::{vortex_err, VortexError, VortexResult};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::arrays::StructArray;
-use crate::arrow::compute::{to_arrow, to_arrow_preferred};
 use crate::arrow::FromArrowArray;
+use crate::arrow::compute::{to_arrow, to_arrow_preferred};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, TryIntoArray};
 

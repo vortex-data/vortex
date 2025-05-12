@@ -1,8 +1,7 @@
 use vortex_scalar::Scalar;
 
-use crate::compute::{is_constant_opts, IsConstantOpts};
-use crate::stats::StatsSetRef;
 use crate::Array;
+use crate::compute::{IsConstantOpts, is_constant_opts};
 
 /// Extension functions for arrays that provide statistics.
 pub trait ArrayStatistics {
@@ -31,8 +30,4 @@ impl<A: Array + 'static> ArrayStatistics for A {
     fn as_constant(&self) -> Option<Scalar> {
         self.is_constant().then(|| self.scalar_at(0).ok()).flatten()
     }
-}
-
-pub trait ArrayStatisticsImpl {
-    fn _stats_ref(&self) -> StatsSetRef<'_>;
 }

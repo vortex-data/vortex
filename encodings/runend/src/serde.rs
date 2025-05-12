@@ -1,8 +1,8 @@
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    Canonical, DeserializeMetadata, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical,
+    DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
@@ -85,22 +85,6 @@ impl VisitorVTable<RunEndVTable> for RunEndVTable {
             vortex_bail!(InvalidArgument: "RunEndArray with offset cannot have children replaced");
         }
         RunEndArray::try_new(children[0].clone(), children[1].clone())
-    }
-}
-
-impl ArrayVisitorImpl<ProstMetadata<RunEndMetadata>> for RunEndArray {
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("ends", self.ends());
-        visitor.visit_child("values", self.values());
-    }
-
-    fn _metadata(&self) -> ProstMetadata<RunEndMetadata> {
-        ProstMetadata(RunEndMetadata {
-            ends_ptype: PType::try_from(self.ends().dtype()).vortex_expect("Must be a valid PType")
-                as i32,
-            num_runs: self.ends().len() as u64,
-            offset: self.offset() as u64,
-        })
     }
 }
 
