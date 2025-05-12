@@ -56,8 +56,8 @@ impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{Array, ToCanonical};
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 

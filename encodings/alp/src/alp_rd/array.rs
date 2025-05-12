@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use arcref::ArcRef;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -8,7 +7,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, VTable, ValidityChild, ValidityVTableFromChild,
 };
-use vortex_array::{Array, ArrayRef, Canonical, EncodingRef, ToCanonical, vtable};
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};

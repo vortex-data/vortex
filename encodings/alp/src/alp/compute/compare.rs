@@ -308,7 +308,7 @@ mod tests {
             array.len(),
         );
 
-        let r = compare(&encoded, &other, Operator::Eq)
+        let r = compare(encoded.as_ref(), other.as_ref(), Operator::Eq)
             .unwrap()
             .to_bool()
             .unwrap();

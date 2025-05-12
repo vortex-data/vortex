@@ -50,7 +50,7 @@ mod test {
         assert!(encoded.left_parts_patches().is_some());
 
         // The first two values need no patching
-        let filtered = filter(&encoded, &Mask::from_iter([true, false, true]))
+        let filtered = filter(encoded.as_ref(), &Mask::from_iter([true, false, true]))
             .unwrap()
             .to_primitive()
             .unwrap();

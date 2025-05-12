@@ -45,9 +45,9 @@ register_kernel!(TakeKernelAdapter(ALPRDVTable).lift());
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::take;
-    use vortex_array::{Array, ToCanonical};
 
     use crate::{ALPRDFloat, RDEncoder};
 
@@ -67,7 +67,7 @@ mod test {
                 .is_unsigned_int()
         );
 
-        let taken = take(&encoded, &PrimitiveArray::from_iter([0, 2]))
+        let taken = take(encoded.as_ref(), PrimitiveArray::from_iter([0, 2]).as_ref())
             .unwrap()
             .to_primitive()
             .unwrap();
@@ -92,8 +92,8 @@ mod test {
         );
 
         let taken = take(
-            &encoded,
-            &PrimitiveArray::from_option_iter([Some(0), Some(2), None]),
+            encoded.as_ref(),
+            PrimitiveArray::from_option_iter([Some(0), Some(2), None]).as_ref(),
         )
         .unwrap()
         .to_primitive()
