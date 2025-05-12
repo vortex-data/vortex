@@ -1,0 +1,37 @@
+# name: test/sql/nulls.test
+# description: test nullable values
+# group: [vortex]
+# This test is used to verify that NULL values writen to a vortex file round trip.
+# This is that they are preserved after a file write + read.
+
+require vortex
+
+# copy vortex
+statement ok
+COPY ((
+  SELECT 
+    generate_series as s,
+    NULL as s1, 
+    NULL as s2 
+  FROM generate_series(0, 4)
+) UNION (
+  SELECT 
+    generate_series as s,
+    CAST(generate_series as decimal(15,2)) as s1, 
+    generate_series + 1 as s2 
+  FROM generate_series(5,8))) 
+TO '__TEST_DIR__/test.vortex' (FORMAT VORTEX)
+
+# read vortex
+query III
+SELECT s, s1, s2 FROM read_vortex('__TEST_DIR__/test.vortex') ORDER BY s;
+----
+0	NULL	NULL
+1	NULL	NULL
+2	NULL	NULL
+3	NULL	NULL
+4	NULL	NULL
+5	5.00	6
+6	6.00	7
+7	7.00	8
+8	8.00	9

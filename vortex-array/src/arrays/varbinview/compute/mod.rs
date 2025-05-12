@@ -1,4 +1,5 @@
 mod cast;
+mod filter;
 mod is_constant;
 mod is_sorted;
 mod mask;

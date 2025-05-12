@@ -82,15 +82,6 @@ impl ComputeFnVTable for Filter {
             return Ok(array.to_array().into());
         }
 
-        // Since we handle the AllTrue and AllFalse cases in the entry-point filter function,
-        // implementations can use `AllOr::expect_some` to unwrap the mixed values variant.
-        let values = match &mask {
-            Mask::AllTrue(_) => return Ok(array.to_array().into()),
-            Mask::AllFalse(_) => return Ok(Canonical::empty(array.dtype()).into_array().into()),
-            Mask::Values(values) => values,
-        };
-
-        // Check each kernel for the array
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
@@ -108,14 +99,17 @@ impl ComputeFnVTable for Filter {
                 .into());
         }
 
-        // Fallback: implement using Arrow kernels.
         log::debug!("No filter implementation found for {}", array.encoding(),);
 
-        let array_ref = array.to_array().into_arrow_preferred()?;
-        let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);
-        let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
+        if !array.is_canonical() {
+            let canonical = array.to_canonical()?.into_array();
+            return filter(&canonical, mask).map(Into::into);
+        };
 
-        Ok(ArrayRef::from_arrow(filtered, array.dtype().is_nullable()).into())
+        vortex_bail!(
+            "No filter implementation found for array {}",
+            array.encoding()
+        )
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
@@ -232,6 +226,19 @@ impl TryFrom<&dyn Array> for Mask {
 
         Self::try_from(&array.to_bool()?)
     }
+}
+
+pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
+    let values = match &mask {
+        Mask::Values(values) => values,
+        _ => unreachable!("check in filter invoke"),
+    };
+
+    let array_ref = array.to_array().into_arrow_preferred()?;
+    let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);
+    let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
+
+    Ok(ArrayRef::from_arrow(filtered, array.dtype().is_nullable()))
 }
 
 #[cfg(test)]
