@@ -1,4 +1,4 @@
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
@@ -23,6 +23,14 @@ impl MutNodeVisitor for RemoveSelectTransform<'_> {
         if let Some(select) = node.as_any().downcast_ref::<Select>() {
             let child = select.child();
             let child_dtype = child.return_dtype(self.scope_dtype)?;
+
+            // Match the nullability of the child dtype in the pack.
+            let nullability = if child_dtype.is_nullable() {
+                Nullability::Nullable
+            } else {
+                Nullability::NonNullable
+            };
+
             let child_dtype = child_dtype.as_struct().ok_or_else(|| {
                 vortex_err!(
                     "Select child must return a struct dtype, however it was a {}",
@@ -43,6 +51,7 @@ impl MutNodeVisitor for RemoveSelectTransform<'_> {
                     })?
                     .iter()
                     .map(|name| (name.clone(), get_item(name.clone(), child.clone()))),
+                nullability,
             );
 
             Ok(TransformResult::yes(expr))

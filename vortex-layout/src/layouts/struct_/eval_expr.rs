@@ -201,8 +201,9 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
+    use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability, StructDType};
+    use vortex_dtype::{DType, StructDType};
     use vortex_error::VortexUnwrap;
     use vortex_expr::{get_item, gt, ident, pack};
     use vortex_mask::Mask;
@@ -225,7 +226,7 @@ mod tests {
                     vec!["a".into(), "b".into(), "c".into()].into(),
                     vec![I32.into(), I32.into(), I32.into()],
                 )),
-                Nullability::NonNullable,
+                NonNullable,
             ),
             vec![
                 Box::new(FlatLayoutWriter::new(
@@ -331,7 +332,10 @@ mod tests {
         ),
     ) {
         let reader = layout.reader(&segments, &ctx).unwrap();
-        let expr = pack([("a", get_item("a", ident())), ("b", get_item("b", ident()))]);
+        let expr = pack(
+            [("a", get_item("a", ident())), ("b", get_item("b", ident()))],
+            NonNullable,
+        );
         let result = block_on(
             reader
                 .projection_evaluation(&(0..3), &expr)

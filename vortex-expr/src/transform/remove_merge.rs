@@ -1,4 +1,4 @@
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
@@ -25,17 +25,17 @@ impl MutNodeVisitor for RemoveMergeTransform<'_> {
             let mut names = Vec::with_capacity(merge.children().len() * 2);
             let mut children = Vec::with_capacity(merge.children().len() * 2);
 
+            let mut all_nullable = true;
             for child in merge.children() {
                 let child_dtype = child.return_dtype(self.scope_dtype)?;
-                if child_dtype.is_nullable() {
-                    todo!("merge nullable structs");
-                }
                 if !child_dtype.is_struct() {
                     return Err(vortex_err!(
                         "Merge child must return a non-nullable struct dtype, got {}",
                         child_dtype
                     ));
                 }
+                all_nullable = all_nullable && child_dtype.is_nullable();
+
                 let child_dtype = child_dtype.as_struct().vortex_expect("expected struct");
 
                 for name in child_dtype.names().iter() {
@@ -48,11 +48,19 @@ impl MutNodeVisitor for RemoveMergeTransform<'_> {
                 }
             }
 
+            // If any child is non-nullable, the merge is non-nullable.
+            let nullability = if all_nullable {
+                Nullability::Nullable
+            } else {
+                Nullability::NonNullable
+            };
+
             let expr = pack(
                 names
                     .into_iter()
                     .zip(children)
                     .map(|(name, child)| (name.clone(), get_item(name, child))),
+                nullability,
             );
 
             Ok(TransformResult::yes(expr))
@@ -66,7 +74,7 @@ impl MutNodeVisitor for RemoveMergeTransform<'_> {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::PType::{I32, I64, U32, U64};
     use vortex_dtype::{DType, StructDType};
 
@@ -112,5 +120,28 @@ mod tests {
                 NonNullable,
             )
         );
+    }
+
+    #[test]
+    fn test_remove_merge_nullable() {
+        let dtype = DType::Struct(
+            Arc::new(StructDType::new(
+                ["0".into()].into(),
+                vec![DType::Struct(
+                    Arc::new(StructDType::new(
+                        ["a".into(), "b".into()].into(),
+                        vec![I32.into(), I64.into()],
+                    )),
+                    Nullable,
+                )],
+            )),
+            NonNullable,
+        );
+
+        let e = merge([get_item("0", ident())]);
+        let e = remove_merge(e, &dtype).unwrap();
+
+        assert!(e.as_any().is::<Pack>());
+        assert!(e.return_dtype(&dtype).unwrap().is_nullable());
     }
 }

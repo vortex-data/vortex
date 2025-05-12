@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::{DefaultHashBuilder, HashMap};
-use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
+use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::transform::immediate_access::{FieldAccesses, immediate_scope_accesses};
@@ -129,6 +129,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
                         .into_iter()
                         .enumerate()
                         .map(|(idx, expr)| (Self::field_idx_name(&name, idx), expr)),
+                    Nullability::NonNullable,
                 )
             };
 
@@ -224,7 +225,10 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
                 ));
             }
 
-            return Ok(FoldDown::SkipChildren(pack(elements)));
+            return Ok(FoldDown::SkipChildren(pack(
+                elements,
+                Nullability::NonNullable,
+            )));
         }
 
         // Otherwise, continue traversing.
@@ -248,7 +252,10 @@ impl MutNodeVisitor for ScopeStepIntoFieldExpr {
 
     fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<ExprRef>> {
         if node.as_any().is::<Identity>() {
-            Ok(TransformResult::yes(pack([(self.0.clone(), ident())])))
+            Ok(TransformResult::yes(pack(
+                [(self.0.clone(), ident())],
+                Nullability::NonNullable,
+            )))
         } else {
             Ok(TransformResult::no(node))
         }
@@ -342,26 +349,32 @@ mod tests {
     fn test_expr_top_level_ref_get_item_and_split_pack() {
         let dtype = dtype();
 
-        let expr = pack([
-            ("a", get_item("a", get_item("a", ident()))),
-            ("b", get_item("b", get_item("a", ident()))),
-            ("c", get_item("c", ident())),
-        ]);
+        let expr = pack(
+            [
+                ("a", get_item("a", get_item("a", ident()))),
+                ("b", get_item("b", get_item("a", ident()))),
+                ("c", get_item("c", ident())),
+            ],
+            NonNullable,
+        );
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
             &simplify(split_a.clone()).unwrap(),
-            &pack([
-                (
-                    StructFieldExpressionSplitter::field_idx_name(&"a".into(), 0),
-                    get_item("a", ident())
-                ),
-                (
-                    StructFieldExpressionSplitter::field_idx_name(&"a".into(), 1),
-                    get_item("b", ident())
-                )
-            ])
+            &pack(
+                [
+                    (
+                        StructFieldExpressionSplitter::field_idx_name(&"a".into(), 0),
+                        get_item("a", ident())
+                    ),
+                    (
+                        StructFieldExpressionSplitter::field_idx_name(&"a".into(), 1),
+                        get_item("b", ident())
+                    )
+                ],
+                NonNullable
+            )
         );
         let split_c = partitioned.find_partition(&"c".into()).unwrap();
         assert_eq!(&simplify(split_c.clone()).unwrap(), &ident())
@@ -416,16 +429,19 @@ mod tests {
                     StructFieldExpressionSplitter::field_idx_name(&"a".into(), 0),
                     get_item("a", ident())
                 ),
-                pack([
-                    (
-                        "a",
-                        get_item(
-                            StructFieldExpressionSplitter::field_idx_name(&"a".into(), 1),
-                            get_item("a", ident())
-                        )
-                    ),
-                    ("b", get_item("b", ident()))
-                ])
+                pack(
+                    [
+                        (
+                            "a",
+                            get_item(
+                                StructFieldExpressionSplitter::field_idx_name(&"a".into(), 1),
+                                get_item("a", ident())
+                            )
+                        ),
+                        ("b", get_item("b", ident()))
+                    ],
+                    NonNullable
+                )
             )
         )
     }
