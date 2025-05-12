@@ -1,5 +1,5 @@
 [package]
-name = "vortex-decimal"
+name = "vortex-decimal-byte-parts"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "Vortex decimal array (non-canonical) encodings"
