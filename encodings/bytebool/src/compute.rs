@@ -65,6 +65,7 @@ register_kernel!(TakeKernelAdapter(ByteBoolVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ArrayExt;
     use vortex_array::compute::conformance::mask::test_mask;
     use vortex_array::compute::{Operator, compare};
 
@@ -76,7 +77,7 @@ mod tests {
         let vortex_arr = ByteBoolArray::from(original);
 
         let sliced_arr = vortex_arr.slice(1, 4).unwrap();
-        let sliced_arr = ByteBoolArray::try_from(sliced_arr).unwrap();
+        let sliced_arr = sliced_arr.as_::<ByteBoolVTable>();
 
         let s = sliced_arr.scalar_at(0).unwrap();
         assert_eq!(s.as_bool().value(), Some(true));
@@ -95,7 +96,7 @@ mod tests {
         let lhs = ByteBoolArray::from(vec![true; 5]);
         let rhs = ByteBoolArray::from(vec![true; 5]);
 
-        let arr = compare(&lhs, &rhs, Operator::Eq).unwrap();
+        let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         for i in 0..arr.len() {
             let s = arr.scalar_at(i).unwrap();
@@ -109,7 +110,7 @@ mod tests {
         let lhs = ByteBoolArray::from(vec![false; 5]);
         let rhs = ByteBoolArray::from(vec![true; 5]);
 
-        let arr = compare(&lhs, &rhs, Operator::Eq).unwrap();
+        let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         for i in 0..arr.len() {
             let s = arr.scalar_at(i).unwrap();
@@ -123,7 +124,7 @@ mod tests {
         let lhs = ByteBoolArray::from(vec![true; 5]);
         let rhs = ByteBoolArray::from(vec![Some(true), Some(true), Some(true), Some(false), None]);
 
-        let arr = compare(&lhs, &rhs, Operator::Eq).unwrap();
+        let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         for i in 0..3 {
             let s = arr.scalar_at(i).unwrap();
@@ -141,13 +142,9 @@ mod tests {
 
     #[test]
     fn test_mask_byte_bool() {
-        test_mask(&ByteBoolArray::from(vec![true, false, true, true, false]));
-        test_mask(&ByteBoolArray::from(vec![
-            Some(true),
-            Some(true),
-            None,
-            Some(false),
-            None,
-        ]));
+        test_mask(ByteBoolArray::from(vec![true, false, true, true, false]).as_ref());
+        test_mask(
+            ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).as_ref(),
+        );
     }
 }
