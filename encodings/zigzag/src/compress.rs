@@ -1,4 +1,3 @@
-use vortex_array::Array;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
@@ -61,7 +60,6 @@ where
 #[cfg(test)]
 mod test {
     use vortex_array::ToCanonical;
-    use vortex_array::vtable::EncodingVTable;
 
     use super::*;
     use crate::ZigZagEncoding;
