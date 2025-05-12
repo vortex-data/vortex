@@ -1,5 +1,5 @@
 use pyo3::{Bound, PyRef, PyResult, pyclass, pymethods};
-use vortex::arrays::ConstantEncoding;
+use vortex::arrays::ConstantVTable;
 
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 use crate::scalar::PyScalar;
@@ -9,7 +9,7 @@ use crate::scalar::PyScalar;
 pub(crate) struct PyConstantArray;
 
 impl EncodingSubclass for PyConstantArray {
-    type Encoding = ConstantEncoding;
+    type VTable = ConstantVTable;
 }
 
 #[pymethods]

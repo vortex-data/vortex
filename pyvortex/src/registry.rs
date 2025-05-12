@@ -1,6 +1,5 @@
 use std::sync::{Arc, RwLock};
 
-use arcref::ArcRef;
 use itertools::Itertools;
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, Python};
@@ -9,7 +8,7 @@ use vortex::error::VortexExpect;
 use vortex::file::DEFAULT_REGISTRY;
 use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
 
-use crate::arrays::py::PyEncodingClass;
+use crate::arrays::py::PythonEncoding;
 use crate::install_module;
 use crate::serde::context::PyArrayContext;
 
@@ -57,8 +56,8 @@ impl PyRegistry {
     /// Register an array encoding implemented by subclassing `PyArray`.
     ///
     /// It's not currently possible to register a layout encoding from Python.
-    pub(crate) fn register(&self, cls: PyEncodingClass) -> PyResult<()> {
-        let encoding = ArcRef::new_arc(Arc::new(cls) as _);
+    pub(crate) fn register(&self, cls: PythonEncoding) -> PyResult<()> {
+        let encoding = cls.to_encoding();
         self.array_registry
             .write()
             .vortex_expect("poisoned lock")

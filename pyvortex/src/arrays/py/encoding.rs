@@ -4,27 +4,26 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
+use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexResult};
+use vortex::error::VortexResult;
 use vortex::serde::ArrayParts;
-use vortex::vtable::EncodingVTable;
-use vortex::{ArrayContext, ArrayRef, EmptyMetadata, Encoding, EncodingId};
+use vortex::vtable::SerdeVTable;
+use vortex::{ArrayContext, DeserializeMetadata, EmptyMetadata, EncodingId};
 
-use crate::arrays::py::array::PyArrayInstance;
-use crate::dtype::PyDType;
-use crate::serde::context::PyArrayContext;
-use crate::serde::parts::PyArrayParts;
+use crate::arrays::py::PythonVTable;
+use crate::arrays::py::array::PythonArray;
 
 /// Wrapper struct encapsulating a Python encoding.
 #[allow(dead_code)]
-#[derive(Debug)]
-pub struct PyEncodingClass {
+#[derive(Clone, Debug)]
+pub struct PythonEncoding {
     id: EncodingId,
-    cls: Py<PyType>,
+    cls: Arc<Py<PyType>>,
 }
 
-/// Convert a Python class into a [`PyEncodingClass`].
-impl<'py> FromPyObject<'py> for PyEncodingClass {
+/// Convert a Python class into a [`PythonEncoding`].
+impl<'py> FromPyObject<'py> for PythonEncoding {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let cls = ob.downcast::<PyType>()?;
 
@@ -41,43 +40,32 @@ impl<'py> FromPyObject<'py> for PyEncodingClass {
                 .into(),
         );
 
-        Ok(PyEncodingClass {
+        Ok(PythonEncoding {
             id,
-            cls: cls.clone().unbind(),
+            cls: Arc::new(cls.clone().unbind()),
         })
     }
 }
 
-impl Encoding for PyEncodingClass {
-    type Array = PyArrayInstance;
+impl SerdeVTable<PythonVTable> for PythonVTable {
     type Metadata = EmptyMetadata;
-}
 
-impl EncodingVTable for PyEncodingClass {
-    fn id(&self) -> EncodingId {
-        self.id.clone()
+    fn metadata(_array: &PythonArray) -> Option<Self::Metadata> {
+        todo!()
     }
 
     fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
+        encoding: &PythonEncoding,
+        _dtype: DType,
+        _len: usize,
+        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _buffers: &[ByteBuffer],
+        _children: &[ArrayParts],
+        _ctx: &ArrayContext,
+    ) -> VortexResult<PythonArray> {
         Python::with_gil(|py| {
-            let cls = self.cls.bind(py);
-
-            let parts = PyArrayParts::from(parts.clone());
-            let ctx = PyArrayContext::from(ctx.clone());
-            let dtype = PyDType::from(dtype);
-            let pyarray = cls.call_method("decode", (parts, ctx, dtype, len), None)?;
-
-            // Wrap up the Python array object into a PyArrayInstance.
-            let pyarray = PyArrayInstance::extract_bound(&pyarray)?;
-            let array = Arc::new(pyarray) as ArrayRef;
-
-            Ok::<_, VortexError>(array)
+            let _cls = encoding.cls.bind(py);
+            todo!()
         })
     }
 }

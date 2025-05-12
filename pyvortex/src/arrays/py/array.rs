@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
@@ -8,14 +7,13 @@ use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult};
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
-use vortex::stats::StatsSetRef;
-use vortex::vtable::VTableRef;
-use vortex::{
-    ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, ArrayVisitorImpl, Canonical, EmptyMetadata,
+use vortex::stats::{ArrayStats, StatsSetRef};
+use vortex::vtable::{
+    ArrayVTable, CanonicalVTable, OperationsVTable, ValidityVTable, VisitorVTable,
 };
+use vortex::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingRef};
 
-use crate::arrays::py::PyEncodingClass;
+use crate::arrays::py::{PythonEncoding, PythonVTable};
 use crate::dtype::PyDType;
 
 /// Wrapper struct encapsulating a Vortex array implemented using a Python object.
@@ -24,80 +22,83 @@ use crate::dtype::PyDType;
 /// will ensure the object implements the necessary methods.
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
-pub struct PyArrayInstance {
+pub struct PythonArray {
     obj: Arc<Py<PyAny>>,
-    cls: VTableRef,
+    encoding: EncodingRef,
     len: usize,
     dtype: DType,
+    stats: ArrayStats,
 }
 
-impl ArrayImpl for PyArrayInstance {
-    type Encoding = PyEncodingClass;
-
-    fn _len(&self) -> usize {
-        self.len
-    }
-
-    fn _dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    fn _vtable(&self) -> VTableRef {
-        self.cls.clone()
-    }
-
-    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
-        todo!()
+impl PythonArray {
+    pub(super) fn encoding(&self) -> EncodingRef {
+        self.encoding.clone()
     }
 }
 
-impl ArrayCanonicalImpl for PyArrayInstance {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        todo!()
+impl ArrayVTable<PythonVTable> for PythonVTable {
+    fn len(array: &PythonArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &PythonArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &PythonArray) -> StatsSetRef<'_> {
+        array.stats.to_ref(array.as_ref())
     }
 }
 
-impl ArrayOperationsImpl for PyArrayInstance {
-    fn _slice(&self, _start: usize, _stop: usize) -> VortexResult<ArrayRef> {
-        todo!()
-    }
-
-    fn _scalar_at(&self, _index: usize) -> VortexResult<Scalar> {
+impl CanonicalVTable<PythonVTable> for PythonVTable {
+    fn canonicalize(_array: &PythonArray) -> VortexResult<Canonical> {
         todo!()
     }
 }
 
-impl ArrayStatisticsImpl for PyArrayInstance {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
+impl OperationsVTable<PythonVTable> for PythonVTable {
+    fn slice(_array: &PythonArray, _start: usize, _stop: usize) -> VortexResult<ArrayRef> {
+        todo!()
+    }
+
+    fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
         todo!()
     }
 }
 
-impl ArrayValidityImpl for PyArrayInstance {
-    fn _is_valid(&self, _index: usize) -> VortexResult<bool> {
+impl ValidityVTable<PythonVTable> for PythonVTable {
+    fn is_valid(_array: &PythonArray, _index: usize) -> VortexResult<bool> {
         todo!()
     }
 
-    fn _all_valid(&self) -> VortexResult<bool> {
+    fn all_valid(_array: &PythonArray) -> VortexResult<bool> {
         todo!()
     }
 
-    fn _all_invalid(&self) -> VortexResult<bool> {
+    fn all_invalid(_array: &PythonArray) -> VortexResult<bool> {
         todo!()
     }
 
-    fn _validity_mask(&self) -> VortexResult<Mask> {
+    fn validity_mask(_array: &PythonArray) -> VortexResult<Mask> {
         todo!()
     }
 }
 
-impl ArrayVisitorImpl for PyArrayInstance {
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
+impl VisitorVTable<PythonVTable> for PythonVTable {
+    fn visit_buffers(_array: &PythonArray, _visitor: &mut dyn ArrayBufferVisitor) {
+        todo!()
+    }
+
+    fn visit_children(_array: &PythonArray, _visitor: &mut dyn ArrayChildVisitor) {
+        todo!()
+    }
+
+    fn with_children(_array: &PythonArray, _children: &[ArrayRef]) -> VortexResult<PythonArray> {
+        todo!()
     }
 }
 
-impl<'py> FromPyObject<'py> for PyArrayInstance {
+impl<'py> FromPyObject<'py> for PythonArray {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let py = ob.py();
 
@@ -116,18 +117,20 @@ impl<'py> FromPyObject<'py> for PyArrayInstance {
             .into_inner();
 
         // Use the Python class as the encoding VTable.
-        let cls = PyEncodingClass::extract_bound(&ob.get_type())?;
+        let cls = PythonEncoding::extract_bound(&ob.get_type())?;
 
         Ok(Self {
             obj: Arc::new(ob.clone().unbind()),
-            cls: ArcRef::new_arc(Arc::new(cls) as _),
+            encoding: cls.to_encoding(),
             len,
             dtype,
+            // TODO(ngates): do stats need to be held in the Python object?
+            stats: Default::default(),
         })
     }
 }
 
-impl<'py> IntoPyObject<'py> for PyArrayInstance {
+impl<'py> IntoPyObject<'py> for PythonArray {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
     type Error = VortexError;

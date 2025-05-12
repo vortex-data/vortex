@@ -18,7 +18,8 @@ use vortex::encodings::sparse::SparseArray;
 use vortex::encodings::zigzag::ZigZagArray;
 use vortex::error::VortexExpect;
 use vortex::nbytes::NBytes;
-use vortex::{Array, ArrayRef, Encoding};
+use vortex::vtable::VTable;
+use vortex::{Array, ArrayRef};
 
 use crate::arrays::PyArray;
 use crate::arrays::builtins::{
@@ -204,7 +205,7 @@ impl PyNativeArray {
 
 /// A marker trait indicating a PyO3 class is a subclass of Vortex `Array`.
 pub trait EncodingSubclass: PyClass<BaseType = PyNativeArray> {
-    type Encoding: Encoding;
+    type VTable: VTable;
 }
 
 /// Unwrap a downcasted Vortex array from a `PyRef<ArraySubclass>`.
@@ -212,12 +213,12 @@ pub trait AsArrayRef<T> {
     fn as_array_ref(&self) -> &T;
 }
 
-impl<A: EncodingSubclass> AsArrayRef<<A::Encoding as Encoding>::Array> for PyRef<'_, A> {
-    fn as_array_ref(&self) -> &<A::Encoding as Encoding>::Array {
+impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::Array> for PyRef<'_, V> {
+    fn as_array_ref(&self) -> &<V::VTable as VTable>::Array {
         self.as_super()
             .inner()
             .as_any()
-            .downcast_ref::<<A::Encoding as Encoding>::Array>()
+            .downcast_ref::<<V::VTable as VTable>::Array>()
             .vortex_expect("Failed to downcast array")
     }
 }
