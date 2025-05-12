@@ -1,5 +1,5 @@
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
@@ -32,7 +32,7 @@ mod tests {
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::compute::cast;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef};
+    use vortex_array::{Array, ArrayRef, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::datetime::TimeUnit;
     use vortex_dtype::{DType, Nullability};

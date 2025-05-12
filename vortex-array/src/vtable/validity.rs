@@ -1,9 +1,9 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::Array;
 use crate::validity::Validity;
 use crate::vtable::VTable;
-use crate::Array;
 
 pub trait ValidityVTable<V: VTable> {
     fn is_valid(array: &V::Array, index: usize) -> VortexResult<bool>;
@@ -85,6 +85,6 @@ where
     }
 
     fn validity_mask(array: &V::Array) -> VortexResult<Mask> {
-        Mask::try_from(V::validity_child(array))
+        V::validity_child(array).validity_mask()
     }
 }

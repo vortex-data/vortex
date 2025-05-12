@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use arcref::ArcRef;
 pub use compress::*;
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveVTable;

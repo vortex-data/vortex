@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use arcref::ArcRef;
 pub use compress::*;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
