@@ -6,7 +6,7 @@ use vortex_scalar::NumericOperator;
 
 use crate::{SparseArray, SparseVTable};
 
-impl NumericKernel<SparseVTable> for SparseVTable {
+impl NumericKernel for SparseVTable {
     fn numeric(
         &self,
         array: &SparseArray,

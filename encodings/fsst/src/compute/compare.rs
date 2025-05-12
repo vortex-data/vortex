@@ -11,7 +11,7 @@ use vortex_scalar::Scalar;
 
 use crate::{FSSTArray, FSSTVTable};
 
-impl CompareKernel<FSSTVTable> for FSSTVTable {
+impl CompareKernel for FSSTVTable {
     fn compare(
         &self,
         lhs: &FSSTArray,

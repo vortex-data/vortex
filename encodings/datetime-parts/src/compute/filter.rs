@@ -5,7 +5,7 @@ use vortex_mask::Mask;
 
 use crate::{DateTimePartsArray, DateTimePartsVTable};
 
-impl FilterKernel<DateTimePartsVTable> for DateTimePartsVTable {
+impl FilterKernel for DateTimePartsVTable {
     fn filter(&self, array: &DateTimePartsArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(DateTimePartsArray::try_new(
             array.dtype().clone(),

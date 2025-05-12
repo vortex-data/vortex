@@ -2,16 +2,16 @@ use std::fmt::Debug;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::NativePType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{PrimitiveScalar, Scalar};
 
-use crate::{ALPArray, ALPEncoding, ALPFloat, match_each_alp_float_ptype};
+use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
 
 // TODO(joe): add fuzzing.
 
-impl CompareKernel<ALPVTable> for ALPVTable {
+impl CompareKernel for ALPVTable {
     fn compare(
         &self,
         lhs: &ALPArray,
@@ -68,7 +68,7 @@ where
     match encoded {
         Some(encoded) => {
             let s = ConstantArray::new(encoded, alp.len());
-            Ok(Some(compare(alp.encoded(), &s, operator)?))
+            Ok(Some(compare(alp.encoded(), s.as_ref(), operator)?))
         }
         None => match operator {
             // Since this value is not encodable it cannot be equal to any value in the encoded
@@ -88,7 +88,7 @@ where
                 } else {
                     Ok(Some(compare(
                         alp.encoded(),
-                        &ConstantArray::new(F::encode_above(value, exponents), alp.len()),
+                        ConstantArray::new(F::encode_above(value, exponents), alp.len()).as_ref(),
                         // Since the encoded value is unencodable gte is equivalent to gt.
                         // Consider a value v, between two encodable values v_l (just less) and
                         // v_a (just above), then for all encodable values (u), v > u <=> v_g >= u
@@ -107,7 +107,7 @@ where
                 } else {
                     Ok(Some(compare(
                         alp.encoded(),
-                        &ConstantArray::new(F::encode_below(value, exponents), alp.len()),
+                        ConstantArray::new(F::encode_below(value, exponents), alp.len()).as_ref(),
                         // Since the encoded values unencodable lt is equivalent to lte.
                         // See Gt | Gte for further explanation.
                         Operator::Lte,

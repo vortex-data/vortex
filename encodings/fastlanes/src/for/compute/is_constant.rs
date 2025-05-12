@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::{FoRArray, FoRVTable};
 
-impl IsConstantKernel<FoRVTable> for FoRVTable {
+impl IsConstantKernel for FoRVTable {
     fn is_constant(&self, array: &FoRArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         is_constant_opts(array.encoded(), opts)
     }

@@ -10,7 +10,7 @@ use vortex_scalar::Scalar;
 
 use crate::{DictArray, DictVTable};
 
-impl CompareKernel<DictVTable> for DictVTable {
+impl CompareKernel for DictVTable {
     fn compare(
         &self,
         lhs: &DictArray,

@@ -1,11 +1,11 @@
 use vortex_array::compute::{MaskKernel, MaskKernelAdapter, mask};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::{ALPRDArray, ALPRDVTable};
 
-impl MaskKernel<ALPRDVTable> for ALPRDVTable {
+impl MaskKernel for ALPRDVTable {
     fn mask(&self, array: &ALPRDArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(ALPRDArray::try_new(
             array.dtype().as_nullable(),

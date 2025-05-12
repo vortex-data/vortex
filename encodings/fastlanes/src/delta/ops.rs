@@ -1,32 +1,33 @@
 use std::cmp::min;
 
-use vortex_array::{Array, ArrayOperationsImpl, ArrayRef, ToCanonical};
+use vortex_array::vtable::{OperationsVTable, ValidityHelper};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::DeltaArray;
+use crate::{DeltaArray, DeltaVTable};
 
-impl ArrayOperationsImpl for DeltaArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let physical_start = start + self.offset();
-        let physical_stop = stop + self.offset();
+impl OperationsVTable<DeltaVTable> for DeltaVTable {
+    fn slice(array: &DeltaArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let physical_start = start + array.offset();
+        let physical_stop = stop + array.offset();
 
         let start_chunk = physical_start / 1024;
         let stop_chunk = physical_stop.div_ceil(1024);
 
-        let bases = self.bases();
-        let deltas = self.deltas();
-        let validity = self.validity();
-        let lanes = self.lanes();
+        let bases = array.bases();
+        let deltas = array.deltas();
+        let validity = array.validity();
+        let lanes = array.lanes();
 
         let new_bases = bases.slice(
-            min(start_chunk * lanes, self.bases_len()),
-            min(stop_chunk * lanes, self.bases_len()),
+            min(start_chunk * lanes, array.bases_len()),
+            min(stop_chunk * lanes, array.bases_len()),
         )?;
 
         let new_deltas = deltas.slice(
-            min(start_chunk * 1024, self.deltas_len()),
-            min(stop_chunk * 1024, self.deltas_len()),
+            min(start_chunk * 1024, array.deltas_len()),
+            min(stop_chunk * 1024, array.deltas_len()),
         )?;
 
         let new_validity = validity.slice(start, stop)?;
@@ -44,8 +45,8 @@ impl ArrayOperationsImpl for DeltaArray {
         Ok(arr.into_array())
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let decompressed = self.slice(index, index + 1)?.to_primitive()?;
+    fn scalar_at(array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
+        let decompressed = array.slice(index, index + 1)?.to_primitive()?;
         decompressed.scalar_at(0)
     }
 }

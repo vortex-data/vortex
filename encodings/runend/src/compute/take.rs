@@ -8,7 +8,7 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{RunEndArray, RunEndVTable};
 
-impl TakeKernel<RunEndVTable> for RunEndVTable {
+impl TakeKernel for RunEndVTable {
     fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let primitive_indices = indices.to_primitive()?;
 

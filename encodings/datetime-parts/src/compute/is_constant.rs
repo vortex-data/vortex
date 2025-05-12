@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::{DateTimePartsArray, DateTimePartsVTable};
 
-impl IsConstantKernel<DateTimePartsVTable> for DateTimePartsVTable {
+impl IsConstantKernel for DateTimePartsVTable {
     fn is_constant(
         &self,
         array: &DateTimePartsArray,

@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::{SparseArray, SparseVTable};
 
-impl InvertKernel<SparseVTable> for SparseVTable {
+impl InvertKernel for SparseVTable {
     fn invert(&self, array: &SparseArray) -> VortexResult<ArrayRef> {
         let inverted_fill = array.fill_scalar().as_bool().invert().into_scalar();
         let inverted_patches = array

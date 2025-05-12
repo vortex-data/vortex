@@ -5,7 +5,7 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{DateTimePartsArray, DateTimePartsVTable};
 
-impl CastKernel<DateTimePartsVTable> for DateTimePartsVTable {
+impl CastKernel for DateTimePartsVTable {
     fn cast(&self, array: &DateTimePartsArray, dtype: &DType) -> VortexResult<ArrayRef> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             vortex_bail!("cannot cast from {} to {}", array.dtype(), dtype);

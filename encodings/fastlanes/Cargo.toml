@@ -17,6 +17,7 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+arcref = { workspace = true }
 arrayref = { workspace = true }
 arrow-buffer = { workspace = true }
 fastlanes = { workspace = true }

@@ -6,7 +6,7 @@ use vortex_mask::Mask;
 
 use crate::{FSSTArray, FSSTVTable};
 
-impl FilterKernel<FSSTVTable> for FSSTVTable {
+impl FilterKernel for FSSTVTable {
     // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
     fn filter(&self, array: &FSSTArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(FSSTArray::try_new(

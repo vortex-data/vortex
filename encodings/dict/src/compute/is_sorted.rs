@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::{DictArray, DictVTable};
 
-impl IsSortedKernel<DictVTable> for DictVTable {
+impl IsSortedKernel for DictVTable {
     fn is_sorted(&self, array: &DictArray) -> VortexResult<bool> {
         // TODO(ngates): we should change these kernels to return Option<bool> to allow for "unknown"
         let is_sorted = is_sorted(array.values())? && is_sorted(array.codes())?;

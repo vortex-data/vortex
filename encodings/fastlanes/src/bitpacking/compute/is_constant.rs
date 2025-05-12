@@ -12,7 +12,7 @@ use vortex_error::VortexResult;
 use crate::unpack_iter::BitPacked;
 use crate::{BitPackedArray, BitPackedVTable};
 
-impl IsConstantKernel<BitPackedVTable> for BitPackedVTable {
+impl IsConstantKernel for BitPackedVTable {
     fn is_constant(
         &self,
         array: &BitPackedArray,
@@ -162,6 +162,6 @@ mod tests {
     #[test]
     fn is_constant_with_patches() {
         let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2).unwrap();
-        assert!(is_constant(&array).unwrap().unwrap());
+        assert!(is_constant(array.as_ref()).unwrap().unwrap());
     }
 }

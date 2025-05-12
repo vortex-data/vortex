@@ -10,7 +10,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 use crate::array::{DateTimePartsArray, DateTimePartsVTable};
 use crate::timestamp;
 
-impl CompareKernel<DateTimePartsVTable> for DateTimePartsVTable {
+impl CompareKernel for DateTimePartsVTable {
     /// Compares two arrays and returns a new boolean array with the result of the comparison.
     /// Or, returns None if comparison is not supported.
     fn compare(

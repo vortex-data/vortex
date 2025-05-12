@@ -6019,6 +6019,7 @@ dependencies = [
 name = "vortex-alp"
 version = "0.32.0"
 dependencies = [
+ "arcref",
  "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
@@ -6301,6 +6302,7 @@ dependencies = [
 name = "vortex-fastlanes"
 version = "0.32.0"
 dependencies = [
+ "arcref",
  "arrayref",
  "arrow-buffer",
  "codspeed-divan-compat",

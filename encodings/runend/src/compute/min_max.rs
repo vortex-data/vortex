@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 
 use crate::{RunEndArray, RunEndVTable};
 
-impl MinMaxKernel<RunEndVTable> for RunEndVTable {
+impl MinMaxKernel for RunEndVTable {
     fn min_max(&self, array: &RunEndArray) -> VortexResult<Option<MinMaxResult>> {
         min_max(array.values())
     }

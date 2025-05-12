@@ -7,7 +7,7 @@ use vortex_mask::Mask;
 
 use super::{ByteBoolArray, ByteBoolVTable};
 
-impl MaskKernel<ByteBoolVTable> for ByteBoolVTable {
+impl MaskKernel for ByteBoolVTable {
     fn mask(&self, array: &ByteBoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(ByteBoolArray::new(array.buffer().clone(), array.validity().mask(mask)?).into_array())
     }
@@ -15,7 +15,7 @@ impl MaskKernel<ByteBoolVTable> for ByteBoolVTable {
 
 register_kernel!(MaskKernelAdapter(ByteBoolVTable).lift());
 
-impl TakeKernel<ByteBoolVTable> for ByteBoolVTable {
+impl TakeKernel for ByteBoolVTable {
     fn take(&self, array: &ByteBoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let validity = array.validity_mask()?;
         let indices = indices.to_primitive()?;
