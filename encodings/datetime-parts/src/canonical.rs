@@ -103,6 +103,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
+    use vortex_array::vtable::ValidityHelper;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::datetime::TimeUnit;

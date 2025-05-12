@@ -1,5 +1,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::arrays::{DecimalArray, PrimitiveArray};
+use vortex_array::vtable::ValidityHelper;
 use vortex_decimal_byte_parts::DecimalBytePartsArray;
 use vortex_error::VortexResult;
 use vortex_scalar::DecimalValueType;

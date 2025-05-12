@@ -5,6 +5,7 @@ use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
 use crate::array::Array;
 use crate::arrays::{PrimitiveArray, TemporalArray};
 use crate::validity::Validity;
+use crate::vtable::ValidityHelper;
 use crate::{IntoArray, ToCanonical};
 
 macro_rules! test_temporal_roundtrip {

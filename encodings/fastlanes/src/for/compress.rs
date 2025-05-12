@@ -1,6 +1,7 @@
 use num_traits::{PrimInt, WrappingAdd, WrappingSub};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::Stat;
+use vortex_array::vtable::ValidityHelper;
 use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, match_each_integer_ptype};

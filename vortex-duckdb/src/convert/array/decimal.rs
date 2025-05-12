@@ -185,6 +185,7 @@ mod tests {
     use duckdb::core::DataChunkHandle;
     use vortex_array::arrays::{DecimalArray, DecimalVTable, StructArray};
     use vortex_array::validity::Validity;
+    use vortex_array::vtable::ValidityHelper;
     use vortex_array::{ArrayExt, ArrayRef};
     use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;

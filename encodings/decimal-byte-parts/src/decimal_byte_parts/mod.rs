@@ -7,7 +7,8 @@ use itertools::Itertools;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityChild, ValidityVTableFromChild,
+    ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityChild, ValidityHelper,
+    ValidityVTableFromChild,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::Nullability::NonNullable;

@@ -78,6 +78,7 @@ mod test {
     use crate::canonical::ToCanonical;
     use crate::compute::cast;
     use crate::validity::Validity;
+    use crate::vtable::ValidityHelper;
 
     #[test]
     fn cast_u32_u8() {

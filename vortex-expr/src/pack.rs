@@ -191,6 +191,7 @@ mod tests {
 
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::validity::Validity;
+    use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{FieldNames, Nullability};
