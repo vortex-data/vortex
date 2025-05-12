@@ -199,7 +199,6 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
 
 #[cfg(test)]
 mod tests {
-    use vortex::Array;
     use vortex::arrays::PrimitiveArray;
     use vortex::buffer::buffer;
     use vortex::validity::Validity;

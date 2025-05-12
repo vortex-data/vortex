@@ -164,12 +164,11 @@ macro_rules! match_each_decimal_value_type {
 
 #[cfg(test)]
 mod tests {
-    use arcref::ArcRef;
     use vortex_buffer::{ByteBufferMut, buffer};
 
     use super::*;
-    use crate::IntoArray;
     use crate::serde::SerializeOptions;
+    use crate::{EncodingRef, IntoArray};
 
     #[test]
     fn test_array_serde() {

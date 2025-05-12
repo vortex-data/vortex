@@ -1,7 +1,7 @@
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BoolArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{
     DType, NativePType, Nullability, match_each_integer_ptype, match_each_native_ptype,
 };

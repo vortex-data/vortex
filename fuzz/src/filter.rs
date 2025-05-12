@@ -3,7 +3,7 @@ use vortex_array::arrays::{
     BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinViewArray,
 };
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::VortexResult;
