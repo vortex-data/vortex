@@ -35,14 +35,21 @@ pub fn is_constant(array: &dyn Array) -> VortexResult<Option<bool>> {
 ///
 /// Please see [`is_constant`] for a more detailed explanation of its behavior.
 pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexResult<Option<bool>> {
-    Ok(IS_CONSTANT_FN
+    let result = IS_CONSTANT_FN
         .invoke(&InvocationArgs {
             inputs: &[array.into()],
             options,
         })?
         .unwrap_scalar()?
         .as_bool()
-        .value())
+        .value();
+
+    if options.cost == Cost::Canonicalize {
+        // When we run linear canonicalize, there we must always return an exact answer.
+        assert!(result.is_some())
+    }
+
+    Ok(result)
 }
 
 pub static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -163,7 +170,7 @@ fn is_constant_impl(
         array.encoding_id()
     );
 
-    if options.canonicalize && !array.is_canonical() {
+    if options.cost == Cost::Canonicalize && !array.is_canonical() {
         let array = array.to_canonical()?;
         let is_constant = is_constant_opts(array.as_ref(), options)?;
         return Ok(is_constant);
@@ -231,21 +238,43 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for IsConstantArgs<'a> {
     }
 }
 
+/// When calling `is_constant` the children are all checked for constantness.
+/// This enum decide at each precision/cost level the constant check should run as.
+/// The cost increase as we move down the list.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Cost {
+    /// Only apply constant time computation to estimate constantness.
+    Constant,
+    /// Allow the encoding to do a linear amount of work to decide is constant.
+    Specialized,
+    /// Same as linear, but when necessary canonicalize the array and check is constant.
+    /// This *must* always return a known answer.
+    Canonicalize,
+}
+
 /// Configuration for [`is_constant_opts`] operations.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IsConstantOpts {
-    /// Should the operation make an effort to canonicalize the target array if its encoding doesn't implement [`IsConstantKernel`].
-    pub canonicalize: bool,
+    /// What precision cost trade off should be used
+    pub cost: Cost,
 }
 
 impl Default for IsConstantOpts {
     fn default() -> Self {
-        Self { canonicalize: true }
+        Self {
+            cost: Cost::Canonicalize,
+        }
     }
 }
 
 impl Options for IsConstantOpts {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+impl IsConstantOpts {
+    pub fn is_constant(&self) -> bool {
+        self.cost == Cost::Constant
     }
 }

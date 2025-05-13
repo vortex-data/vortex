@@ -4,7 +4,7 @@ use itertools::Itertools;
 use lending_iterator::LendingIterator;
 use num_traits::AsPrimitive;
 use vortex_array::arrays::{IS_CONST_LANE_WIDTH, PrimitiveArray, compute_is_constant};
-use vortex_array::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
+use vortex_array::compute::{Cost, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use vortex_array::{ToCanonical, register_kernel};
 use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_unsigned_integer_ptype};
 use vortex_error::VortexResult;
@@ -16,8 +16,11 @@ impl IsConstantKernel for BitPackedVTable {
     fn is_constant(
         &self,
         array: &BitPackedArray,
-        _opts: &IsConstantOpts,
+        opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
+        if opts.is_constant() {
+            return Ok(None);
+        }
         match_each_integer_ptype!(array.ptype(), |$P| {
             bitpacked_is_constant::<$P, {IS_CONST_LANE_WIDTH / size_of::<$P>()}>(array)
         })

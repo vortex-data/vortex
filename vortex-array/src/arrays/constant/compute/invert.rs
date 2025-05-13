@@ -25,9 +25,9 @@ mod tests {
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
+    use crate::Array;
     use crate::arrays::ConstantArray;
     use crate::compute::invert;
-    use crate::{Array, ArrayStatistics};
 
     #[test]
     fn invert_nullable_const() {

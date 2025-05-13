@@ -3,7 +3,7 @@ use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
+use crate::compute::{Cost, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
 
 cfg_if::cfg_if! {
@@ -18,8 +18,11 @@ impl IsConstantKernel for PrimitiveVTable {
     fn is_constant(
         &self,
         array: &PrimitiveArray,
-        _opts: &IsConstantOpts,
+        opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
+        if opts.cost == Cost::Constant {
+            return Ok(None);
+        }
         let is_constant = match_each_native_ptype!(array.ptype(), integral: |$P| {
             compute_is_constant::<_, {IS_CONST_LANE_WIDTH / size_of::<$P>()}>(array.as_slice::<$P>())
         } floating_point: |$P| {
