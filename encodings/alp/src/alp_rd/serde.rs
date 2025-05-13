@@ -1,8 +1,8 @@
 use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, Canonical,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayExt, ArrayRef, Canonical,
     DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
@@ -51,12 +51,11 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
 
     fn build(
         _encoding: &ALPRDEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<ALPRDArray> {
         if children.len() < 2 {
             vortex_bail!(
@@ -66,7 +65,7 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
         }
 
         let left_parts_dtype = DType::Primitive(metadata.left_parts_ptype(), dtype.nullability());
-        let left_parts = children[0].decode(ctx, left_parts_dtype.clone(), len)?;
+        let left_parts = children.get(0, &left_parts_dtype, len)?;
         let left_parts_dictionary = Buffer::from_iter(
             metadata.dict.as_slice()[0..metadata.dict_len as usize]
                 .iter()
@@ -82,19 +81,19 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
             }
             _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
         };
-        let right_parts = children[1].decode(ctx, right_parts_dtype, len)?;
+        let right_parts = children.get(1, &right_parts_dtype, len)?;
 
         let left_parts_patches = metadata
             .patches
             .map(|p| {
-                let indices = children[2].decode(ctx, p.indices_dtype(), p.len())?;
-                let values = children[3].decode(ctx, left_parts_dtype, p.len())?;
+                let indices = children.get(2, &p.indices_dtype(), p.len())?;
+                let values = children.get(3, &left_parts_dtype, p.len())?;
                 Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
             })
             .transpose()?;
 
         ALPRDArray::try_new(
-            dtype,
+            dtype.clone(),
             left_parts,
             left_parts_dictionary,
             right_parts,

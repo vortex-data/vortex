@@ -4,9 +4,9 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::serde::ArrayParts;
+use crate::serde::ArrayChildren;
 use crate::vtable::{NotSupported, VTable};
-use crate::{ArrayContext, DeserializeMetadata, EmptyMetadata, SerializeMetadata};
+use crate::{DeserializeMetadata, EmptyMetadata, SerializeMetadata};
 
 /// VTable for assisting with the serialization and deserialiation of arrays.
 ///
@@ -28,12 +28,11 @@ pub trait SerdeVTable<V: VTable> {
     /// Build an array from its given parts.
     fn build(
         encoding: &V::Encoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<V::Array>;
 }
 
@@ -46,12 +45,11 @@ impl<V: VTable> SerdeVTable<V> for NotSupported {
 
     fn build(
         encoding: &V::Encoding,
-        _dtype: DType,
+        _dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,
         _buffers: &[ByteBuffer],
-        _children: &[ArrayParts],
-        _ctx: &ArrayContext,
+        _children: &dyn ArrayChildren,
     ) -> VortexResult<V::Array> {
         vortex_bail!("Serde not supported by {} encoding", V::id(encoding));
     }

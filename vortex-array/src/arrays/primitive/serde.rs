@@ -4,10 +4,10 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use super::PrimitiveEncoding;
 use crate::arrays::{PrimitiveArray, PrimitiveVTable};
-use crate::serde::ArrayParts;
+use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EmptyMetadata};
 
 impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
     type Metadata = EmptyMetadata;
@@ -18,12 +18,11 @@ impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
 
     fn build(
         _encoding: &PrimitiveEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
         buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<PrimitiveArray> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
@@ -33,13 +32,13 @@ impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
-            let validity = children[0].decode(ctx, Validity::DTYPE, len)?;
+            let validity = children.get(0, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
             vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
-        let ptype = PType::try_from(&dtype)?;
+        let ptype = PType::try_from(dtype)?;
 
         if !buffer.is_aligned(Alignment::new(ptype.byte_width())) {
             vortex_bail!(

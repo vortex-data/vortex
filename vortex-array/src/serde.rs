@@ -222,6 +222,23 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
     }
 }
 
+/// To minimize the serialized form, arrays do not persist their own dtype and length. Instead,
+/// parent arrays pass this information down during deserialization. This trait abstracts
+/// over either a serialized [`crate::serde::ArrayParts`] or the
+/// in-memory [`crate::data::ArrayData`].
+pub trait ArrayChildren {
+    /// Returns the nth child of the array with the given dtype and length.
+    fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef>;
+
+    /// The number of children.
+    fn len(&self) -> usize;
+
+    /// Returns true if there are no children.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
 /// [`ArrayParts`] represents a parsed but not-yet-decoded deserialized [`Array`].
 /// It contains all the information from the serialized form, without anything extra. i.e.
 /// it is missing a [`DType`] and `len`, and the `encoding_id` is not yet resolved to a concrete
@@ -253,7 +270,7 @@ impl Debug for ArrayParts {
 
 impl ArrayParts {
     /// Decode an [`ArrayParts`] into an [`ArrayRef`].
-    pub fn decode(&self, ctx: &ArrayContext, dtype: DType, len: usize) -> VortexResult<ArrayRef> {
+    pub fn decode(&self, ctx: &ArrayContext, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
         let encoding_id = self.flatbuffer().encoding();
         let vtable = ctx
             .lookup_encoding(encoding_id)
@@ -262,9 +279,10 @@ impl ArrayParts {
         let buffers: Vec<_> = (0..self.nbuffers())
             .map(|idx| self.buffer(idx))
             .try_collect()?;
-        let children: Vec<_> = (0..self.nchildren()).map(|idx| self.child(idx)).collect();
 
-        let decoded = vtable.build(dtype, len, self.metadata(), &buffers, &children, ctx)?;
+        let children = ArrayPartsChildren { parts: self, ctx };
+
+        let decoded = vtable.build(dtype, len, self.metadata(), &buffers, &children)?;
 
         assert_eq!(
             decoded.len(),
@@ -273,6 +291,14 @@ impl ArrayParts {
             vtable.id(),
             decoded.len(),
             len
+        );
+        assert_eq!(
+            decoded.dtype(),
+            dtype,
+            "Array decoded from {} has incorrect dtype {}, expected {}",
+            vtable.id(),
+            decoded.dtype(),
+            dtype,
         );
         assert_eq!(
             decoded.encoding_id(),
@@ -366,6 +392,21 @@ impl ArrayParts {
         let mut this = self.clone();
         this.flatbuffer_loc = root._tab.loc();
         this
+    }
+}
+
+struct ArrayPartsChildren<'a> {
+    parts: &'a ArrayParts,
+    ctx: &'a ArrayContext,
+}
+
+impl ArrayChildren for ArrayPartsChildren<'_> {
+    fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
+        self.parts.child(index).decode(self.ctx, dtype, len)
+    }
+
+    fn len(&self) -> usize {
+        self.parts.nchildren()
     }
 }
 

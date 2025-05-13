@@ -5,12 +5,10 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::ChunkedEncoding;
 use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
-use crate::serde::ArrayParts;
+use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, VisitorVTable};
-use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata, ToCanonical,
-};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EmptyMetadata, ToCanonical};
 
 impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
     type Metadata = EmptyMetadata;
@@ -21,12 +19,11 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
 
     fn build(
         _encoding: &ChunkedEncoding,
-        dtype: DType,
+        dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,
         _buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<ChunkedArray> {
         if children.is_empty() {
             vortex_bail!("Chunked array needs at least one child");
@@ -35,10 +32,10 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
         let nchunks = children.len() - 1;
 
         // The first child contains the row offsets of the chunks
-        let chunk_offsets = children[0]
-            .decode(
-                ctx,
-                DType::Primitive(PType::U64, Nullability::NonNullable),
+        let chunk_offsets = children
+            .get(
+                0,
+                &DType::Primitive(PType::U64, Nullability::NonNullable),
                 // 1 extra offset for the end of the last chunk
                 nchunks + 1,
             )?
@@ -53,12 +50,12 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
             .map(|(idx, (start, end))| {
                 let chunk_len =
                     usize::try_from(end - start).vortex_expect("chunk length exceeds usize");
-                children[idx + 1].decode(ctx, dtype.clone(), chunk_len)
+                children.get(idx + 1, dtype, chunk_len)
             })
             .try_collect()?;
 
         // Unchecked because we just created each chunk with the same DType.
-        Ok(ChunkedArray::new_unchecked(chunks, dtype))
+        Ok(ChunkedArray::new_unchecked(chunks, dtype.clone()))
     }
 }
 

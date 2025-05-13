@@ -1,10 +1,10 @@
 use std::fmt::{Debug, Formatter};
 
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical,
-    DeserializeMetadata, SerializeMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
+    SerializeMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
@@ -25,12 +25,11 @@ impl SerdeVTable<FoRVTable> for FoRVTable {
 
     fn build(
         _encoding: &FoREncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &ScalarValue,
         _buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<FoRArray> {
         if children.len() != 1 {
             vortex_bail!(
@@ -39,11 +38,11 @@ impl SerdeVTable<FoRVTable> for FoRVTable {
             )
         }
 
-        let ptype = PType::try_from(&dtype)?;
+        let ptype = PType::try_from(dtype)?;
         let encoded_dtype = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
-        let encoded = children[0].decode(ctx, encoded_dtype, len)?;
+        let encoded = children.get(0, &encoded_dtype, len)?;
 
-        let reference = Scalar::new(dtype, metadata.clone());
+        let reference = Scalar::new(dtype.clone(), metadata.clone());
 
         FoRArray::try_new(encoded, reference)
     }

@@ -4,10 +4,10 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::{ListArray, ListVTable};
 use crate::arrays::ListEncoding;
-use crate::serde::ArrayParts;
+use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ProstMetadata};
+use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ProstMetadata};
 
 #[derive(Clone, prost::Message)]
 pub struct ListMetadata {
@@ -30,17 +30,16 @@ impl SerdeVTable<ListVTable> for ListVTable {
 
     fn build(
         _encoding: &ListEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &ListMetadata,
         _buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<ListArray> {
         let validity = if children.len() == 2 {
             Validity::from(dtype.nullability())
         } else if children.len() == 3 {
-            let validity = children[2].decode(ctx, Validity::DTYPE, len)?;
+            let validity = children.get(2, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
             vortex_bail!("Expected 2 or 3 children, got {}", children.len());
@@ -49,15 +48,15 @@ impl SerdeVTable<ListVTable> for ListVTable {
         let DType::List(element_dtype, _) = &dtype else {
             vortex_bail!("Expected List dtype, got {:?}", dtype);
         };
-        let elements = children[0].decode(
-            ctx,
-            element_dtype.as_ref().clone(),
+        let elements = children.get(
+            0,
+            element_dtype.as_ref(),
             usize::try_from(metadata.elements_len).vortex_expect("Too many elements"),
         )?;
 
-        let offsets = children[1].decode(
-            ctx,
-            DType::Primitive(metadata.offset_ptype(), Nullability::NonNullable),
+        let offsets = children.get(
+            1,
+            &DType::Primitive(metadata.offset_ptype(), Nullability::NonNullable),
             len + 1,
         )?;
 

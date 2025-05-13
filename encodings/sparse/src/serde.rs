@@ -1,8 +1,8 @@
 use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, Canonical,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayExt, ArrayRef, Canonical,
     DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
@@ -30,12 +30,11 @@ impl SerdeVTable<SparseVTable> for SparseVTable {
 
     fn build(
         _encoding: &SparseEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<SparseArray> {
         if children.len() != 2 {
             vortex_bail!(
@@ -49,17 +48,14 @@ impl SerdeVTable<SparseVTable> for SparseVTable {
             "Patches must start at offset 0"
         );
 
-        let patch_indices = children[0].decode(
-            ctx,
-            metadata.patches.indices_dtype(),
-            metadata.patches.len(),
-        )?;
-        let patch_values = children[1].decode(ctx, dtype.clone(), metadata.patches.len())?;
+        let patch_indices =
+            children.get(0, &metadata.patches.indices_dtype(), metadata.patches.len())?;
+        let patch_values = children.get(1, dtype, metadata.patches.len())?;
 
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let fill_value = Scalar::new(dtype, ScalarValue::from_protobytes(&buffers[0])?);
+        let fill_value = Scalar::new(dtype.clone(), ScalarValue::from_protobytes(&buffers[0])?);
 
         SparseArray::try_new(patch_indices, patch_values, len, fill_value)
     }

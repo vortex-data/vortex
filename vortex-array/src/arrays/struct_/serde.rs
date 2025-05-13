@@ -5,10 +5,10 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::StructEncoding;
 use crate::arrays::{StructArray, StructVTable};
-use crate::serde::ArrayParts;
+use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EmptyMetadata};
 
 impl SerdeVTable<StructVTable> for StructVTable {
     type Metadata = EmptyMetadata;
@@ -19,22 +19,21 @@ impl SerdeVTable<StructVTable> for StructVTable {
 
     fn build(
         _encoding: &StructEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
         _buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<StructArray> {
         let DType::Struct(struct_dtype, nullability) = dtype else {
             vortex_bail!("Expected struct dtype, found {:?}", dtype)
         };
 
         let validity = if children.len() == struct_dtype.nfields() {
-            Validity::from(nullability)
+            Validity::from(*nullability)
         } else if children.len() == struct_dtype.nfields() + 1 {
             // Validity is the first child if it exists.
-            let validity = children[0].decode(ctx, Validity::DTYPE, len)?;
+            let validity = children.get(0, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
             vortex_bail!(
@@ -47,15 +46,14 @@ impl SerdeVTable<StructVTable> for StructVTable {
 
         let children = (0..children.len())
             .map(|i| {
-                let child_parts = &children[i];
                 let child_dtype = struct_dtype
                     .field_by_index(i)
                     .vortex_expect("no out of bounds");
-                child_parts.decode(ctx, child_dtype, len)
+                children.get(i, &child_dtype, len)
             })
             .try_collect()?;
 
-        StructArray::try_new_with_dtype(children, struct_dtype, len, validity)
+        StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
     }
 }
 

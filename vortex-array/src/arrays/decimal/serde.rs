@@ -4,11 +4,11 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
 
 use super::{DecimalArray, DecimalEncoding};
+use crate::ProstMetadata;
 use crate::arrays::DecimalVTable;
-use crate::serde::ArrayParts;
+use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::SerdeVTable;
-use crate::{ArrayContext, ProstMetadata};
 
 // The type of the values can be determined by looking at the type info...right?
 #[derive(prost::Message)]
@@ -28,12 +28,11 @@ impl SerdeVTable<DecimalVTable> for DecimalVTable {
 
     fn build(
         _encoding: &DecimalEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &DecimalMetadata,
         buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<DecimalArray> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
@@ -43,7 +42,7 @@ impl SerdeVTable<DecimalVTable> for DecimalVTable {
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
-            let validity = children[0].decode(ctx, Validity::DTYPE, len)?;
+            let validity = children.get(0, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
             vortex_bail!("Expected 0 or 1 child, got {}", children.len());
@@ -87,8 +86,8 @@ mod tests {
     use vortex_buffer::{ByteBufferMut, buffer};
 
     use super::*;
-    use crate::serde::SerializeOptions;
-    use crate::{EncodingRef, IntoArray};
+    use crate::serde::{ArrayParts, SerializeOptions};
+    use crate::{ArrayContext, EncodingRef, IntoArray};
 
     #[test]
     fn test_array_serde() {
@@ -113,7 +112,7 @@ mod tests {
 
         let parts = ArrayParts::try_from(concat).unwrap();
 
-        let decoded = parts.decode(&ctx, dtype, 5).unwrap();
+        let decoded = parts.decode(&ctx, &dtype, 5).unwrap();
         assert_eq!(decoded.encoding_id(), DecimalEncoding.id());
     }
 }

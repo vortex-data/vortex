@@ -1,9 +1,9 @@
 use vortex_array::arrays::TemporalArray;
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical,
-    DeserializeMetadata, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
+    ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
@@ -40,12 +40,11 @@ impl SerdeVTable<DateTimePartsVTable> for DateTimePartsVTable {
 
     fn build(
         _encoding: &DateTimePartsEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<DateTimePartsArray> {
         if children.len() != 3 {
             vortex_bail!(
@@ -54,23 +53,23 @@ impl SerdeVTable<DateTimePartsVTable> for DateTimePartsVTable {
             )
         }
 
-        let days = children[0].decode(
-            ctx,
-            DType::Primitive(metadata.days_ptype(), dtype.nullability()),
+        let days = children.get(
+            0,
+            &DType::Primitive(metadata.days_ptype(), dtype.nullability()),
             len,
         )?;
-        let seconds = children[1].decode(
-            ctx,
-            DType::Primitive(metadata.seconds_ptype(), Nullability::NonNullable),
+        let seconds = children.get(
+            1,
+            &DType::Primitive(metadata.seconds_ptype(), Nullability::NonNullable),
             len,
         )?;
-        let subseconds = children[2].decode(
-            ctx,
-            DType::Primitive(metadata.subseconds_ptype(), Nullability::NonNullable),
+        let subseconds = children.get(
+            2,
+            &DType::Primitive(metadata.subseconds_ptype(), Nullability::NonNullable),
             len,
         )?;
 
-        DateTimePartsArray::try_new(dtype, days, seconds, subseconds)
+        DateTimePartsArray::try_new(dtype.clone(), days, seconds, subseconds)
     }
 }
 

@@ -4,10 +4,10 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::{BinaryView, VarBinViewVTable};
 use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
-use crate::serde::ArrayParts;
+use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EmptyMetadata};
 
 impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
     type Metadata = EmptyMetadata;
@@ -18,12 +18,11 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
 
     fn build(
         _encoding: &VarBinViewEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
         buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<VarBinViewArray> {
         if buffers.is_empty() {
             vortex_bail!("Expected at least 1 buffer, got {}", buffers.len());
@@ -40,13 +39,13 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
-            let validity = children[0].decode(ctx, Validity::DTYPE, len)?;
+            let validity = children.get(0, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
             vortex_bail!("Expected 0 or 1 children, got {}", children.len());
         };
 
-        VarBinViewArray::try_new(views, buffers, dtype, validity)
+        VarBinViewArray::try_new(views, buffers, dtype.clone(), validity)
     }
 }
 

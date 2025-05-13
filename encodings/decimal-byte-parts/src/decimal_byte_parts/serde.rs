@@ -1,9 +1,8 @@
 use itertools::Itertools;
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, DeserializeMetadata,
-    ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::Nullability::NonNullable;
@@ -35,12 +34,11 @@ impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 
     fn build(
         _encoding: &DecimalBytePartsEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<DecimalBytePartsArray> {
         let Some(decimal_dtype) = dtype.as_decimal() else {
             vortex_bail!("decoding decimal but given non decimal dtype {}", dtype)
@@ -48,13 +46,13 @@ impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 
         let encoded_dtype = DType::Primitive(metadata.zeroth_child_ptype(), dtype.nullability());
 
-        let msp = children[0].decode(ctx, encoded_dtype, len)?;
+        let msp = children.get(0, &encoded_dtype, len)?;
 
         let mut lower_parts = Vec::with_capacity(metadata.lower_part_count as usize);
         for idx in 0..metadata.lower_part_count {
-            lower_parts.push(children[(idx + 1) as usize].decode(
-                ctx,
-                DType::Primitive(U64, NonNullable),
+            lower_parts.push(children.get(
+                (idx + 1) as usize,
+                &DType::Primitive(U64, NonNullable),
                 len,
             )?)
         }

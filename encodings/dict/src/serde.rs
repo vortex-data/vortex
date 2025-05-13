@@ -1,8 +1,8 @@
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical,
-    DeserializeMetadata, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
+    ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
@@ -34,12 +34,11 @@ impl SerdeVTable<DictVTable> for DictVTable {
 
     fn build(
         _encoding: &DictEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<DictArray> {
         if children.len() != 2 {
             vortex_bail!(
@@ -48,9 +47,9 @@ impl SerdeVTable<DictVTable> for DictVTable {
             )
         }
         let codes_dtype = DType::Primitive(metadata.codes_ptype(), dtype.nullability());
-        let codes = children[0].decode(ctx, codes_dtype, len)?;
+        let codes = children.get(0, &codes_dtype, len)?;
 
-        let values = children[1].decode(ctx, dtype, metadata.values_len as usize)?;
+        let values = children.get(1, dtype, metadata.values_len as usize)?;
 
         DictArray::try_new(codes, values)
     }

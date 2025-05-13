@@ -5,10 +5,10 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::BoolArray;
 use crate::arrays::BoolVTable;
-use crate::serde::ArrayParts;
+use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, VTable, ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ProstMetadata};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ProstMetadata};
 
 #[derive(prost::Message)]
 pub struct BoolMetadata {
@@ -30,12 +30,11 @@ impl SerdeVTable<BoolVTable> for BoolVTable {
 
     fn build(
         _encoding: &<BoolVTable as VTable>::Encoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &BoolMetadata,
         buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<BoolArray> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
@@ -49,7 +48,7 @@ impl SerdeVTable<BoolVTable> for BoolVTable {
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
-            let validity = children[0].decode(ctx, Validity::DTYPE, len)?;
+            let validity = children.get(0, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
             vortex_bail!("Expected 0 or 1 child, got {}", children.len());

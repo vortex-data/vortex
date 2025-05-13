@@ -7,15 +7,15 @@ use vortex::dtype::DType;
 use vortex::error::{VortexResult, vortex_err};
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
-use vortex::serde::ArrayParts;
+use vortex::serde::ArrayChildren;
 use vortex::stats::StatsSetRef;
 use vortex::vtable::{
     ArrayVTable, CanonicalVTable, ComputeVTable, EncodeVTable, OperationsVTable, SerdeVTable,
     VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical,
-    DeserializeMetadata, EncodingId, EncodingRef, RawMetadata, vtable,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
+    EncodingId, EncodingRef, RawMetadata, vtable,
 };
 
 use crate::arrays::py::{PythonArray, PythonEncoding};
@@ -150,12 +150,11 @@ impl SerdeVTable<PythonVTable> for PythonVTable {
 
     fn build(
         _encoding: &PythonEncoding,
-        _dtype: DType,
+        _dtype: &DType,
         _len: usize,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
-        _children: &[ArrayParts],
-        _ctx: &ArrayContext,
+        _children: &dyn ArrayChildren,
     ) -> VortexResult<PythonArray> {
         todo!()
     }

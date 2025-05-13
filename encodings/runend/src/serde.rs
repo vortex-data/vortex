@@ -1,8 +1,8 @@
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical,
-    DeserializeMetadata, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
+    ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
@@ -35,18 +35,17 @@ impl SerdeVTable<RunEndVTable> for RunEndVTable {
 
     fn build(
         _encoding: &RunEndEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<RunEndArray> {
         let ends_dtype = DType::Primitive(metadata.ends_ptype(), Nullability::NonNullable);
         let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
-        let ends = children[0].decode(ctx, ends_dtype, runs)?;
+        let ends = children.get(0, &ends_dtype, runs)?;
 
-        let values = children[1].decode(ctx, dtype, runs)?;
+        let values = children.get(1, dtype, runs)?;
 
         RunEndArray::with_offset_and_length(
             ends,

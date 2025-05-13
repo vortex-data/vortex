@@ -1,10 +1,9 @@
 use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, Canonical,
-    ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayExt, ArrayRef, Canonical, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
@@ -39,12 +38,11 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
 
     fn build(
         _encoding: &BitPackedEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &BitPackedMetadata,
         buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<BitPackedArray> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
@@ -55,7 +53,7 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
             if children.len() == child_idx {
                 Ok(Validity::from(dtype.nullability()))
             } else if children.len() == child_idx + 1 {
-                let validity = children[child_idx].decode(ctx, Validity::DTYPE, len)?;
+                let validity = children.get(child_idx, &Validity::DTYPE, len)?;
                 Ok(Validity::Array(validity))
             } else {
                 vortex_bail!(
@@ -77,8 +75,8 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
         let patches = metadata
             .patches
             .map(|p| {
-                let indices = children[0].decode(ctx, p.indices_dtype(), p.len())?;
-                let values = children[1].decode(ctx, dtype.clone(), p.len())?;
+                let indices = children.get(0, &p.indices_dtype(), p.len())?;
+                let values = children.get(1, dtype, p.len())?;
                 Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
             })
             .transpose()?;
@@ -86,7 +84,7 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
         unsafe {
             BitPackedArray::new_unchecked_with_offset(
                 packed,
-                PType::try_from(&dtype)?,
+                PType::try_from(dtype)?,
                 validity,
                 patches,
                 u8::try_from(metadata.bit_width).vortex_expect("Bit width out of range"),

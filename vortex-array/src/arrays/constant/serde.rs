@@ -3,10 +3,10 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
+use crate::EmptyMetadata;
 use crate::arrays::{ConstantArray, ConstantEncoding, ConstantVTable};
-use crate::serde::ArrayParts;
+use crate::serde::ArrayChildren;
 use crate::vtable::SerdeVTable;
-use crate::{ArrayContext, EmptyMetadata};
 
 impl SerdeVTable<ConstantVTable> for ConstantVTable {
     type Metadata = EmptyMetadata;
@@ -17,18 +17,17 @@ impl SerdeVTable<ConstantVTable> for ConstantVTable {
 
     fn build(
         _encoding: &ConstantEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
         buffers: &[ByteBuffer],
-        _children: &[ArrayParts],
-        _ctx: &ArrayContext,
+        _children: &dyn ArrayChildren,
     ) -> VortexResult<ConstantArray> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
         let sv = ScalarValue::from_protobytes(&buffers[0])?;
-        let scalar = Scalar::new(dtype, sv);
+        let scalar = Scalar::new(dtype.clone(), sv);
         Ok(ConstantArray::new(scalar, len))
     }
 }

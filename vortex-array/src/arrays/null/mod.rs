@@ -4,15 +4,15 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::serde::ArrayParts;
+use crate::serde::ArrayChildren;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, SerdeVTable, VTable,
     ValidityVTable, VisitorVTable,
 };
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical, EmptyMetadata,
-    EncodingId, EncodingRef, IntoArray, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, EncodingId,
+    EncodingRef, IntoArray, vtable,
 };
 
 mod compute;
@@ -82,12 +82,11 @@ impl SerdeVTable<NullVTable> for NullVTable {
 
     fn build(
         _encoding: &NullEncoding,
-        _dtype: DType,
+        _dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
         _buffers: &[ByteBuffer],
-        _children: &[ArrayParts],
-        _ctx: &ArrayContext,
+        _children: &dyn ArrayChildren,
     ) -> VortexResult<NullArray> {
         Ok(NullArray::new(len))
     }
