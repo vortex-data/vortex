@@ -130,16 +130,15 @@ impl SerdeVTable<PythonVTable> for PythonVTable {
     type Metadata = RawMetadata;
 
     fn metadata(array: &PythonArray) -> VortexResult<Option<Self::Metadata>> {
-        let encoding = array.encoding.as_::<PythonVTable>();
         Python::with_gil(|py| {
-            let cls = encoding.cls.bind(py);
-            if !cls.hasattr(intern!(py, "metadata"))? {
+            let obj = array.object.bind(py);
+            if !obj.hasattr(intern!(py, "metadata"))? {
                 // The class does not have a metadata attribute so does not support serialization.
                 return Ok(None);
             }
 
-            let bytes = cls
-                .call_method("metadata", (), None)?
+            let bytes = obj
+                .call_method("__vx_metadata__", (), None)?
                 .downcast::<PyBytes>()
                 .map_err(|_| vortex_err!("Expected array metadata to be Python bytes"))?
                 .as_bytes()
