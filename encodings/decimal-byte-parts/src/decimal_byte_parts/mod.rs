@@ -239,7 +239,7 @@ mod tests {
             array.scalar_at(1).unwrap()
         );
         assert_eq!(
-            Scalar::new(dtype.clone(), DecimalValue::I64(400).into()),
+            Scalar::new(dtype, DecimalValue::I64(400).into()),
             array.scalar_at(2).unwrap()
         );
     }
