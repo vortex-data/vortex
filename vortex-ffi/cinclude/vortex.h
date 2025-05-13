@@ -202,7 +202,7 @@ typedef struct vx_file_scan_options {
  *
  * It is an error to call this function again after the stream is finished.
  */
-struct vx_array *vx_array_iter_next(struct vx_array_iter *stream,
+struct vx_array *vx_array_iter_next(struct vx_array_iter *iter,
                                     struct vx_error **error);
 
 void vx_array_iter_free(struct vx_array_iter *array_iter);
@@ -417,7 +417,7 @@ void vx_layout_reader_free(struct vx_layout_reader *layout_reader);
 /**
  * Free the file and all associated resources.
  *
- * This function will not automatically free any :c:func:`vx_array_stream` that were built from
+ * This function will not automatically free any :c:func:`vx_array_iter` that were built from
  * this file.
  */
 void vx_file_reader_free(struct vx_file_reader *file);

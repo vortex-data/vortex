@@ -46,11 +46,11 @@ where
 /// It is an error to call this function again after the stream is finished.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_iter_next(
-    stream: *mut vx_array_iter,
+    iter: *mut vx_array_iter,
     error: *mut *mut vx_error,
 ) -> *mut vx_array {
     try_or(error, ptr::null_mut(), || {
-        let iter = unsafe { stream.as_mut() }.vortex_expect("iter null");
+        let iter = unsafe { iter.as_mut() }.vortex_expect("iter null");
         let Some(inner) = iter.inner.as_mut() else {
             vortex_bail!("vx_array_iter_next called after finish")
         };
