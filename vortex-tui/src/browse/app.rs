@@ -104,7 +104,7 @@ impl LayoutCursor {
                                 .metadata()
                                 .as_ref()
                                 .map(|b| b.as_ref())
-                                .unwrap_or(&[]),
+                                .vortex_expect("Missing metadata for DictLayout"),
                         )
                         .expect("dict metadata");
                         DType::from(metadata.codes_ptype()).with_nullability(dtype.nullability())
