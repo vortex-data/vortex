@@ -250,7 +250,9 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for IsConstantArgs<'a> {
 pub enum Cost {
     /// Only apply constant time computation to estimate constantness.
     Negligible,
-    /// Allow the encoding to do a linear amount of work to decide is constant.
+    /// Allow the encoding to do a linear amount of work to determine is constant.
+    /// Each encoding should implement short-circuiting make the common case runtime well below
+    /// a linear scan.
     Specialized,
     /// Same as linear, but when necessary canonicalize the array and check is constant.
     /// This *must* always return a known answer.
