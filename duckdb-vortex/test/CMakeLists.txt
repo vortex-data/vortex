@@ -1,6 +1,6 @@
 include_directories(${CMAKE_SOURCE_DIR}/../src/include)
 
-add_executable(vortex_tests src/expr.cpp)
+add_executable(vortex_tests src/vortex_expr_test.cpp)
 target_include_directories(vortex_tests PRIVATE
     ${catch2_SOURCE_DIR}/single_include
 )

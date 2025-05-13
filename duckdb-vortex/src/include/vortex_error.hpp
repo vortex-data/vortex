@@ -1,6 +1,12 @@
 #pragma once
 
+#include <string>
+#include <type_traits>
+
+#include "duckdb.hpp"
 #include "vortex.hpp"
+
+namespace vortex {
 
 inline void HandleError(vx_error *error) {
 	if (error != nullptr) {
@@ -10,6 +16,7 @@ inline void HandleError(vx_error *error) {
 	}
 }
 
+// General case for functions that return a value.
 template <typename Func>
 auto Try(Func func) {
 	vx_error *error = nullptr;
@@ -17,3 +24,5 @@ auto Try(Func func) {
 	HandleError(error);
 	return result;
 }
+
+} // namespace vortex

@@ -2,9 +2,6 @@
 
 #include "duckdb/main/extension_util.hpp"
 
-
-namespace duckdb {
-
-void RegisterVortexScanFunction(DatabaseInstance &instance);
-
+namespace vortex {
+void RegisterScanFunction(duckdb::DatabaseInstance &instance);
 }

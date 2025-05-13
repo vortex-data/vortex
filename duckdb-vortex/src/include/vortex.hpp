@@ -1,8 +1,3 @@
+// This header prefixes the auto-generated vortex.h with #pragma once.
 #pragma once
-
-// Include Vortex FFI, with the DuckDB FFI feature
-#ifndef ENABLE_DUCKDB_FFI
-#define ENABLE_DUCKDB_FFI
-#endif
-
 #include "vortex.h"

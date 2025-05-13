@@ -2,13 +2,11 @@
 
 #include "duckdb.hpp"
 
-namespace duckdb {
+// The entry point class API can't be scoped to the vortex namespace.
 
-class VortexExtension : public Extension {
+class VortexExtension : public duckdb::Extension {
 public:
-	void Load(DuckDB &db) override;
+	void Load(duckdb::DuckDB &db) override;
 	std::string Name() override;
 	std::string Version() const override;
 };
-
-} // namespace duckdb

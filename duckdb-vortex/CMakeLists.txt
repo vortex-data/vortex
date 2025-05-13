@@ -33,7 +33,7 @@ corrosion_import_crate(MANIFEST_PATH ../Cargo.toml
 )
 
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
-set(EXTENSION_SOURCES src/vortex_extension.cpp src/expr/expr.cpp src/vortex_write.cpp src/vortex_scan.cpp)
+set(EXTENSION_SOURCES src/vortex_extension.cpp src/vortex_expr.cpp src/vortex_write.cpp src/vortex_scan.cpp)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
 # Generate C++ code from .proto files.
