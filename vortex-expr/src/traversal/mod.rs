@@ -1,7 +1,6 @@
 mod references;
 mod visitor;
 
-use itertools::Itertools;
 pub use references::ReferenceCollector;
 pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
@@ -222,50 +221,39 @@ impl Node for ExprRef {
         self,
         visitor: &mut V,
     ) -> VortexResult<TransformResult<Self>> {
-        let mut ord = visitor.visit_down(&self)?;
-        if ord == TraversalOrder::Stop {
-            return Ok(TransformResult {
+        match visitor.visit_down(&self)? {
+            TraversalOrder::Stop => Ok(TransformResult {
                 result: self,
                 order: TraversalOrder::Stop,
                 changed: false,
-            });
-        }
-        let (children, ord, changed) = if ord == TraversalOrder::Continue {
-            let mut new_children = Vec::with_capacity(self.children().len());
-            let mut changed = false;
-            for child in self.children() {
-                match ord {
-                    TraversalOrder::Continue | TraversalOrder::Skip => {
-                        let TransformResult {
-                            result: new_child,
-                            order: child_order,
-                            changed: child_changed,
-                        } = child.clone().transform(visitor)?;
-                        new_children.push(new_child);
-                        ord = child_order;
-                        changed |= child_changed;
+            }),
+            TraversalOrder::Skip => visitor.visit_up(self),
+            TraversalOrder::Continue => {
+                let mut new_children = Vec::with_capacity(self.children().len());
+                let mut changed = false;
+                let mut stopped = false;
+                for child in self.children() {
+                    if stopped {
+                        new_children.push(child.clone());
+                        continue;
                     }
-                    TraversalOrder::Stop => new_children.push(child.clone()),
+                    let TransformResult {
+                        result: new_child,
+                        order: child_order,
+                        changed: child_changed,
+                    } = child.clone().transform(visitor)?;
+                    new_children.push(new_child);
+                    changed |= child_changed;
+                    stopped |= child_order == TraversalOrder::Stop;
+                }
+
+                if changed {
+                    let up = visitor.visit_up(self.replacing_children(new_children))?;
+                    Ok(TransformResult::yes(up.result))
+                } else {
+                    visitor.visit_up(self)
                 }
             }
-            (new_children, ord, changed)
-        } else {
-            (
-                self.children().into_iter().cloned().collect_vec(),
-                ord,
-                false,
-            )
-        };
-
-        if ord == TraversalOrder::Continue {
-            let up = visitor.visit_up(self.replacing_children(children))?;
-            Ok(TransformResult::yes(up.result))
-        } else {
-            Ok(TransformResult {
-                result: self.replacing_children(children),
-                order: ord,
-                changed,
-            })
         }
     }
 
@@ -306,7 +294,8 @@ mod tests {
     use crate::traversal::visitor::pre_order_visit_down;
     use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
     use crate::{
-        BinaryExpr, ExprRef, FieldName, GetItem, Literal, Operator, VortexExpr, VortexExprExt, col,
+        BinaryExpr, ExprRef, FieldName, GetItem, Identity, Literal, Operator, VortexExpr,
+        VortexExprExt, col,
     };
 
     #[derive(Default)]
@@ -342,6 +331,21 @@ mod tests {
             } else {
                 Ok(TransformResult::no(node))
             }
+        }
+    }
+
+    #[derive(Default)]
+    pub struct SkipDownVisitor;
+
+    impl MutNodeVisitor for SkipDownVisitor {
+        type NodeTy = ExprRef;
+
+        fn visit_down(&mut self, _node: &Self::NodeTy) -> VortexResult<TraversalOrder> {
+            Ok(TraversalOrder::Skip)
+        }
+
+        fn visit_up(&mut self, _node: Self::NodeTy) -> VortexResult<TransformResult<Self::NodeTy>> {
+            Ok(TransformResult::yes(Identity::new_expr()))
         }
     }
 
@@ -439,5 +443,16 @@ mod tests {
                 .fold(HashSet::new(), |acc, x| acc.union(&x).cloned().collect()),
             HashSet::from_iter(vec![])
         );
+    }
+
+    #[test]
+    fn expr_skip_down_visit_up() {
+        let col = col("col");
+
+        let mut visitor = SkipDownVisitor;
+        let result = col.transform(&mut visitor).unwrap();
+
+        assert!(result.changed);
+        assert!(result.result.as_any().downcast_ref::<Identity>().is_some());
     }
 }
