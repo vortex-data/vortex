@@ -15,7 +15,7 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
+    BoolEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
