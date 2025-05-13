@@ -292,7 +292,7 @@ pub extern "C-unwind" fn vx_layout_reader_free(layout_reader: *mut vx_layout_rea
 
 /// Free the file and all associated resources.
 ///
-/// This function will not automatically free any :c:func:`vx_array_stream` that were built from
+/// This function will not automatically free any :c:func:`vx_array_iter` that were built from
 /// this file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_reader_free(file: *mut vx_file_reader) {

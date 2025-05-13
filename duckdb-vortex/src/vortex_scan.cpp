@@ -67,10 +67,10 @@ struct ScanPartition {
 /// parallelized by dividing it into ranges, each handled by a different scan.
 struct ScanLocalState : public LocalTableFunctionState {
 	idx_t array_row_offset;
-	unique_ptr<VortexArray> array;
-	unique_ptr<VortexArrayStream> stream;
-	unique_ptr<VortexConversionCache> cache;
-	duckdb_moodycamel::ConcurrentQueue<VortexScanPartition> scan_partitions{8192};
+	unique_ptr<Array> array;
+	unique_ptr<ArrayIterator> iter;
+	unique_ptr<ConversionCache> cache;
+	duckdb_moodycamel::ConcurrentQueue<ScanPartition> scan_partitions{8192};
 };
 
 struct ScanGlobalState : public GlobalTableFunctionState {
@@ -94,7 +94,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	std::atomic_uint32_t next_file_idx;
 
 	// Multi producer, multi consumer lockfree queue.
-	duckdb_moodycamel::ConcurrentQueue<VortexScanPartition> scan_partitions{8192};
+	duckdb_moodycamel::ConcurrentQueue<ScanPartition> scan_partitions{8192};
 
 	std::vector<std::shared_ptr<LayoutReader>> layout_readers;
 
@@ -255,7 +255,7 @@ static void CreateScanPartitions(ClientContext &context, const BindData &bind, S
 
 	for (size_t partition_idx = 0; partition_idx < partition_count; ++partition_idx) {
 
-		partitions_queue.enqueue(VortexScanPartition {
+		partitions_queue.enqueue(ScanPartition {
 		    .file_idx = file_idx,
 		    .start_row = partition_idx * partition_size,
 		    .end_row = (partition_idx + 1) == partition_count ? row_count : (partition_idx + 1) * partition_size,
