@@ -16,13 +16,18 @@ inline void HandleError(vx_error *error) {
 	}
 }
 
-// General case for functions that return a value.
 template <typename Func>
 auto Try(Func func) {
 	vx_error *error = nullptr;
-	auto result = func(&error);
-	HandleError(error);
-	return result;
+	// Handle both void and non-void return types.
+	if constexpr (std::is_void_v<std::invoke_result_t<Func, vx_error**>>) {
+		func(&error);
+		HandleError(error);
+	} else {
+		auto result = func(&error);
+		HandleError(error);
+		return result;
+	}
 }
 
 } // namespace vortex

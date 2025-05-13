@@ -129,17 +129,12 @@ struct ArrayStreamSink {
 	}
 
 	void PushChunk(duckdb::DataChunk &chunk) {
-		vx_error *error = nullptr;
 		auto array = Array::FromDuckDBChunk(*dtype, chunk);
-		vx_array_sink_push(sink, array->array, &error);
-		HandleError(error);
+		Try([&](auto err) { vx_array_sink_push(sink, array->array, err); });
 	}
 
 	void Close() {
-		vx_error *error;
-		vx_array_sink_close(sink, &error);
-		HandleError(error);
-
+		Try([&](auto err) { vx_array_sink_close(sink, err); });
 		this->sink = nullptr;
 	}
 
