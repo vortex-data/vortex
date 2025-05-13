@@ -44,16 +44,6 @@ pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexRe
         .as_bool()
         .value();
 
-    // TODO(joe): add is_constant for ListArray
-    if options.cost == Cost::Canonicalize && !array.is::<ListVTable>() {
-        // When we run linear canonicalize, there we must always return an exact answer.
-        assert!(
-            result.is_some(),
-            "is constant in array {} canonicalize returned None",
-            array
-        );
-    }
-
     Ok(result)
 }
 
@@ -81,6 +71,16 @@ impl ComputeFnVTable for IsConstant {
         }
 
         let value = is_constant_impl(array, options, kernels)?;
+
+        // TODO(joe): add is_constant for ListArray
+        if options.cost == Cost::Canonicalize && !array.is::<ListVTable>() {
+            // When we run linear canonicalize, there we must always return an exact answer.
+            assert!(
+                value.is_some(),
+                "is constant in array {} canonicalize returned None",
+                array
+            );
+        }
 
         // Only if we made a determination do we update the stats.
         if let Some(value) = value {
@@ -249,7 +249,7 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for IsConstantArgs<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Cost {
     /// Only apply constant time computation to estimate constantness.
-    Constant,
+    Negligible,
     /// Allow the encoding to do a linear amount of work to decide is constant.
     Specialized,
     /// Same as linear, but when necessary canonicalize the array and check is constant.
@@ -279,7 +279,7 @@ impl Options for IsConstantOpts {
 }
 
 impl IsConstantOpts {
-    pub fn is_constant(&self) -> bool {
-        self.cost == Cost::Constant
+    pub fn is_negligible_cost(&self) -> bool {
+        self.cost == Cost::Negligible
     }
 }

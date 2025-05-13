@@ -18,7 +18,7 @@ impl IsConstantKernel for BitPackedVTable {
         array: &BitPackedArray,
         opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
-        if opts.is_constant() {
+        if opts.is_negligible_cost() {
             return Ok(None);
         }
         match_each_integer_ptype!(array.ptype(), |$P| {

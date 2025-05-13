@@ -11,7 +11,7 @@ impl IsConstantKernel for VarBinVTable {
         array: &VarBinArray,
         opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
-        if opts.is_constant() {
+        if opts.is_negligible_cost() {
             return Ok(None);
         }
         array.with_iterator(compute_is_constant).map(Some)

@@ -7,7 +7,7 @@ use crate::register_kernel;
 impl IsConstantKernel for BoolVTable {
     fn is_constant(&self, array: &BoolArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         // If the array is small, then it is a constant time operation.
-        if opts.is_constant() && array.len() > 64 {
+        if opts.is_negligible_cost() && array.len() > 64 {
             return Ok(None);
         }
 
