@@ -388,7 +388,13 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
 
 unique_ptr<NodeStatistics> VortexCardinality(ClientContext &context, const FunctionData *bind_data) {
 	auto &data = bind_data->Cast<VortexBindData>();
-	return make_uniq<NodeStatistics>(data.column_names.size(), data.column_names.size());
+
+	auto row_count = data.initial_file->FileRowCount();
+	if (data.file_list->GetTotalFileCount() == 1) {
+		return make_uniq<NodeStatistics>(row_count, row_count);
+	} else {
+		return make_uniq<NodeStatistics>(row_count * data.file_list->GetTotalFileCount());
+	}
 }
 
 // Removes all filter expressions (from `filters`) which can be pushed down.
@@ -445,7 +451,9 @@ void RegisterVortexScanFunction(DatabaseInstance &instance) {
 	vortex_scan.table_scan_progress = [](ClientContext &context, const FunctionData *bind_data,
 	                                     const GlobalTableFunctionState *global_state) -> double {
 		auto &gstate = global_state->Cast<VortexScanGlobalState>();
-		return 100.0 * (static_cast<double>(gstate.partitons_processed) / static_cast<double>(gstate.partitons_total));
+		return 100.0 *
+
+		       (static_cast<double>(gstate.partitons_processed) / static_cast<double>(gstate.partitons_total));
 	};
 
 	vortex_scan.pushdown_complex_filter = PushdownComplexFilter;

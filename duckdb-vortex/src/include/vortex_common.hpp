@@ -66,6 +66,10 @@ struct VortexFileReader {
 		return duckdb::make_uniq<VortexFileReader>(file);
 	}
 
+	uint64_t FileRowCount() {
+		return Try([&](auto err) { return vx_file_row_count(file, err); });
+	}
+
 	struct DType DType() {
 		return ::DType(vx_file_dtype(file));
 	}
