@@ -19,10 +19,9 @@ struct DType {
 		D_ASSERT(column_names.size() == column_nullable.size());
 		D_ASSERT(column_names.size() == column_types.size());
 
-		vx_error *error = nullptr;
 		auto dtype = Try([&](auto err) {
 			return vx_duckdb_logical_type_to_dtype(column_types.data(), column_nullable.data(), column_names.data(),
-			                                       column_names.size(), &error);
+			                                       column_names.size(), err);
 		});
 
 		return duckdb::make_uniq<DType>(dtype);
