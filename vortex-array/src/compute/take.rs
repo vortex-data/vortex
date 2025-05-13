@@ -79,10 +79,9 @@ impl ComputeFnVTable for Take {
             );
         }
 
-        // If either the indices or the array are nullable, the result should be nullable.
-        let expected_nullability = indices.dtype().nullability() | array.dtype().nullability();
-
-        Ok(array.dtype().with_nullability(expected_nullability))
+        Ok(array
+            .dtype()
+            .union_nullability(indices.dtype().nullability()))
     }
 
     fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {

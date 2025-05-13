@@ -16,8 +16,8 @@ impl TakeKernel for ALPEncoding {
             .map(|p| p.take(indices))
             .transpose()?
             .flatten()
-            .map(|p| {
-                p.cast_values(
+            .map(|patches| {
+                patches.cast_values(
                     &array
                         .dtype()
                         .with_nullability(taken_encoded.dtype().nullability()),

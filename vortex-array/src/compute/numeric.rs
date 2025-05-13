@@ -175,9 +175,7 @@ impl ComputeFnVTable for Numeric {
                 rhs.dtype()
             )
         }
-        Ok(lhs
-            .dtype()
-            .with_nullability((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()))
+        Ok(lhs.dtype().union_nullability(rhs.dtype().nullability()))
     }
 
     fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {

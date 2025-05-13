@@ -27,9 +27,9 @@ impl TakeKernel for VarBinViewEncoding {
         Ok(VarBinViewArray::try_new(
             views_buffer,
             array.buffers().to_vec(),
-            array.dtype().with_nullability(
-                (array.dtype().is_nullable() || indices.dtype().is_nullable()).into(),
-            ),
+            array
+                .dtype()
+                .union_nullability(indices.dtype().nullability()),
             validity,
         )?
         .into_array())

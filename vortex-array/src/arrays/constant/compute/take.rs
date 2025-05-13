@@ -11,22 +11,24 @@ impl TakeKernel for ConstantEncoding {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         match indices.validity_mask()?.boolean_buffer() {
             AllOr::All => {
-                let nullability = array.dtype().nullability() | indices.dtype().nullability();
                 let scalar = Scalar::new(
-                    array.scalar().dtype().with_nullability(nullability),
+                    array
+                        .scalar()
+                        .dtype()
+                        .union_nullability(indices.dtype().nullability()),
                     array.scalar().value().clone(),
                 );
                 Ok(ConstantArray::new(scalar, indices.len()).into_array())
             }
-            AllOr::None => {
-                Ok(ConstantArray::new(
-                    Scalar::null(array.dtype().with_nullability(
-                        array.dtype().nullability() | indices.dtype().nullability(),
-                    )),
-                    indices.len(),
-                )
-                .into_array())
-            }
+            AllOr::None => Ok(ConstantArray::new(
+                Scalar::null(
+                    array
+                        .dtype()
+                        .union_nullability(indices.dtype().nullability()),
+                ),
+                indices.len(),
+            )
+            .into_array()),
             AllOr::Some(v) => {
                 let arr = ConstantArray::new(array.scalar().clone(), indices.len()).into_array();
 
