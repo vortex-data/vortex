@@ -24,7 +24,7 @@ use vortex::layout::LayoutReader;
 use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 
-use crate::array::{vx_array, vx_array_iter};
+use crate::array::{vx_array, vx_array_iterator};
 use crate::error::{try_or, vx_error};
 use crate::{RUNTIME, to_string, to_string_vec};
 
@@ -218,13 +218,13 @@ pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *m
     ))
 }
 
-/// Build a new `vx_array_iter` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
+/// Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
     layout_reader: *const vx_layout_reader,
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
-) -> *mut vx_array_iter {
+) -> *mut vx_array_iterator {
     try_or(error, ptr::null_mut(), || {
         let layout_reader = unsafe { layout_reader.as_ref().vortex_expect("null layout reader") };
         let mut scan_builder = ScanBuilder::new(layout_reader.inner.clone());
@@ -252,7 +252,7 @@ pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
             scan_builder = scan_builder.with_split_by(split_by_value);
         }
 
-        vx_array_iter(scan_builder.into_array_iter()?)
+        vx_array_iterator(scan_builder.into_array_iter()?)
     })
 }
 
@@ -291,7 +291,7 @@ pub extern "C-unwind" fn vx_layout_reader_free(layout_reader: *mut vx_layout_rea
 
 /// Free the file and all associated resources.
 ///
-/// This function will not automatically free any :c:func:`vx_array_iter` that were built from
+/// This function will not automatically free any :c:func:`vx_array_iterator` that were built from
 /// this file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_reader_free(file: *mut vx_file_reader) {

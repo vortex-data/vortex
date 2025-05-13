@@ -2,8 +2,10 @@
 
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <regex>
 #include <thread>
+#include <vector>
 
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/helper.hpp"
@@ -70,7 +72,11 @@ struct ScanLocalState : public LocalTableFunctionState {
 	unique_ptr<Array> currently_scanned_array;
 	unique_ptr<ArrayIterator> array_iterator;
 	unique_ptr<ConversionCache> conversion_cache;
-	duckdb_moodycamel::ConcurrentQueue<ScanPartition> scan_partitions {8192};
+
+	std::queue<ScanPartition> scan_partitions;
+
+	// Thread local file.
+	std::optional<idx_t> thread_local_file_idx;
 };
 
 struct ScanGlobalState : public GlobalTableFunctionState {
@@ -84,7 +90,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	std::string filter_str;
 
 	// Limited to indicate progress in `table_scan_progress`.
-	std::atomic_uint32_t partitons_processed;
+	std::atomic_uint32_t partitions_processed;
 	std::atomic_uint32_t partitons_total;
 
 	// Number of files which have are fully partitioned.
@@ -231,6 +237,15 @@ static unique_ptr<FileReader> OpenFileAndVerify(FileSystem &fs, const std::strin
 	return file;
 }
 
+static bool PinFileToThread(ScanGlobalState &global_state) {
+	// This is an approximation to determine whether we should switch to
+	// distributing partitions of the same file across threads and does
+	// not need to be exact in terms of how many threads DuckDB actually uses.
+	const auto thread_count = std::thread::hardware_concurrency();
+	const auto file_count = global_state.expanded_files.size();
+	return (file_count - global_state.files_partitioned) > thread_count;
+}
+
 static void CreateScanPartitions(ClientContext &context, const BindData &bind, ScanGlobalState &global_state,
                                  ScanLocalState &local_state, uint64_t file_idx, unique_ptr<FileReader> &file_reader) {
 	const auto file_name = global_state.expanded_files[file_idx];
@@ -248,21 +263,24 @@ static void CreateScanPartitions(ClientContext &context, const BindData &bind, S
 
 	const auto partition_count = std::max(static_cast<uint64_t>(1), row_count / partition_size);
 	global_state.partitons_total += partition_count;
-
-	// Pin threads to files as long as there more files than threads left to process.
-	const bool pin_file_to_thread = (file_count - global_state.files_partitioned) > thread_count;
-	auto &partitions_queue = pin_file_to_thread ? local_state.scan_partitions : global_state.scan_partitions;
+	local_state.thread_local_file_idx = file_idx;
 
 	for (size_t partition_idx = 0; partition_idx < partition_count; ++partition_idx) {
-
-		partitions_queue.enqueue(ScanPartition {
+		const auto scan_partition = ScanPartition {
 		    .file_idx = file_idx,
 		    .start_row = partition_idx * partition_size,
 		    .end_row = (partition_idx + 1) == partition_count ? row_count : (partition_idx + 1) * partition_size,
-		});
+		};
+
+		if (PinFileToThread(global_state)) {
+			local_state.scan_partitions.push(scan_partition);
+		} else {
+			global_state.scan_partitions.enqueue(scan_partition);
+		}
 	}
 
 	global_state.files_partitioned += 1;
+	D_ASSERT(global_state.files_partitioned <= global_state.expanded_files.size());
 }
 
 static unique_ptr<ArrayIterator> OpenArrayIter(ScanGlobalState &global_state,
@@ -283,26 +301,32 @@ static unique_ptr<ArrayIterator> OpenArrayIter(ScanGlobalState &global_state,
 
 // Assigns the next array from the array stream.
 //
-// Returns true if a new array was assigned. Returns false otherwise.
+// Returns true if a new array was assigned, false otherwise.
 static bool GetNextArray(ClientContext &context, const BindData &bind_data, ScanGlobalState &global_state,
                          ScanLocalState &local_state, DataChunk &output) {
+
+	// Try to deque a partition off the thread local queue.
+	auto try_dequeue = [&](ScanPartition &scan_partition) {
+		if (local_state.scan_partitions.empty()) {
+			return false;
+		}
+
+		scan_partition = local_state.scan_partitions.front();
+		local_state.scan_partitions.pop();
+		return true;
+	};
 
 	if (local_state.array_iterator == nullptr) {
 		ScanPartition partition;
 
-		// Try to pop a partition off the thread local queue first.
-		if (bool success = (local_state.scan_partitions.try_dequeue(partition) ||
-		                    global_state.scan_partitions.try_dequeue(partition));
-		    !success) {
+		if (bool success = (try_dequeue(partition) || global_state.scan_partitions.try_dequeue(partition)); !success) {
 
-			// Check if all files have been partitioned.
+			// Check whether all partitions have been processed.
 			if (global_state.files_partitioned == global_state.expanded_files.size()) {
 
 				// A new partition might have been created after the first pop. Therefore,
-				// one more pop is necessary to be sure no more partitions are left to process.
+				// one more pop is necessary to ensure no more partitions are left to process.
 				if (success = global_state.scan_partitions.try_dequeue(partition); !success) {
-
-					// The queue is empty and all files had been partitioned.
 					global_state.finished = true;
 					return false;
 				}
@@ -313,8 +337,9 @@ static bool GetNextArray(ClientContext &context, const BindData &bind_data, Scan
 			}
 		}
 
-		global_state.partitons_processed += 1;
-		std::shared_ptr<LayoutReader> layout_reader = global_state.layout_readers[partition.file_idx];
+		// Layout readers are safe to share across threads for reading. Further, they
+		// are created before pushing partitions of the corresponing files into a queue.
+		auto layout_reader = global_state.layout_readers[partition.file_idx];
 		local_state.array_iterator = OpenArrayIter(global_state, layout_reader, partition);
 	}
 
@@ -323,6 +348,8 @@ static bool GetNextArray(ClientContext &context, const BindData &bind_data, Scan
 
 	if (local_state.currently_scanned_array == nullptr) {
 		local_state.array_iterator = nullptr;
+		global_state.partitions_processed += 1;
+
 		return false;
 	}
 
@@ -340,6 +367,12 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 				output.Reset();
 				output.SetCardinality(0);
 				return;
+			}
+
+			// Free layout readers as long as we pin files to threads.
+			if (local_state.scan_partitions.empty() && local_state.thread_local_file_idx.has_value()) {
+				global_state.layout_readers[local_state.thread_local_file_idx.value()] = nullptr;
+				local_state.thread_local_file_idx.reset();
 			}
 
 			// Create new scan partitions in case the queue is empty.
@@ -453,7 +486,7 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 	vortex_scan.table_scan_progress = [](ClientContext &context, const FunctionData *bind_data,
 	                                     const GlobalTableFunctionState *global_state) -> double {
 		auto &gstate = global_state->Cast<ScanGlobalState>();
-		return 100.0 * (static_cast<double>(gstate.partitons_processed) / static_cast<double>(gstate.partitons_total));
+		return 100.0 * (static_cast<double>(gstate.partitions_processed) / static_cast<double>(gstate.partitons_total));
 	};
 
 	vortex_scan.pushdown_complex_filter = PushdownComplexFilter;

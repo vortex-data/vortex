@@ -20,7 +20,7 @@ template <typename Func>
 auto Try(Func func) {
 	vx_error *error = nullptr;
 	// Handle both void and non-void return types.
-	if constexpr (std::is_void_v<std::invoke_result_t<Func, vx_error**>>) {
+	if constexpr (std::is_void_v<std::invoke_result_t<Func, vx_error **>>) {
 		func(&error);
 		HandleError(error);
 	} else {

@@ -19,7 +19,7 @@ public:
 		return std::make_shared<LayoutReader>(reader);
 	}
 
-	vx_array_iter *Scan(const vx_file_scan_options *options) {
+	vx_array_iterator *Scan(const vx_file_scan_options *options) {
 		return Try([&](auto err) { return vx_layout_reader_scan(this->reader, options, err); });
 	}
 

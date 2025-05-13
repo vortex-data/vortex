@@ -97,7 +97,7 @@ struct Array {
 };
 
 struct ArrayIterator {
-	explicit ArrayIterator(vx_array_iter *array_iter) : array_iter(array_iter) {
+	explicit ArrayIterator(vx_array_iterator *array_iter) : array_iter(array_iter) {
 	}
 
 	~ArrayIterator() {
@@ -114,7 +114,7 @@ struct ArrayIterator {
 		return duckdb::make_uniq<Array>(array);
 	}
 
-	vx_array_iter *array_iter;
+	vx_array_iterator *array_iter;
 };
 
 struct ArrayStreamSink {

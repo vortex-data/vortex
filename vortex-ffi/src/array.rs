@@ -25,17 +25,17 @@ pub struct vx_array {
 
 /// The FFI interface for an [`ArrayIterator`].
 #[allow(non_camel_case_types)]
-pub struct vx_array_iter {
+pub struct vx_array_iterator {
     pub inner: Option<Box<dyn ArrayIterator>>,
 }
 
 /// Creates a new ArrayIterator wrapper for FFI use.
-pub fn vx_array_iter<I>(iter: I) -> vortex::error::VortexResult<*mut vx_array_iter>
+pub fn vx_array_iterator<I>(iter: I) -> vortex::error::VortexResult<*mut vx_array_iterator>
 where
     I: ArrayIterator + 'static,
 {
     let inner = Some(Box::new(iter) as Box<dyn ArrayIterator>);
-    Ok(Box::into_raw(Box::new(vx_array_iter { inner })))
+    Ok(Box::into_raw(Box::new(vx_array_iterator { inner })))
 }
 
 /// Attempt to advance the `current` pointer of the iterator.
@@ -46,7 +46,7 @@ where
 /// It is an error to call this function again after the iterator is finished.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_iter_next(
-    iter: *mut vx_array_iter,
+    iter: *mut vx_array_iterator,
     error: *mut *mut vx_error,
 ) -> *mut vx_array {
     try_or(error, ptr::null_mut(), || {
@@ -68,7 +68,7 @@ pub unsafe extern "C-unwind" fn vx_array_iter_next(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_iter_free(array_iter: *mut vx_array_iter) {
+pub unsafe extern "C-unwind" fn vx_array_iter_free(array_iter: *mut vx_array_iterator) {
     assert!(!array_iter.is_null());
     drop(unsafe { Box::from_raw(array_iter) });
 }

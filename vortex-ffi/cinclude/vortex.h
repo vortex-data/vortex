@@ -97,7 +97,7 @@ typedef struct vx_array vx_array;
 /**
  * The FFI interface for an [`ArrayIterator`].
  */
-typedef struct vx_array_iter vx_array_iter;
+typedef struct vx_array_iterator vx_array_iterator;
 
 /**
  * The `sink` interface is used to collect array chunks and place them into a resource
@@ -202,10 +202,10 @@ typedef struct vx_file_scan_options {
  *
  * It is an error to call this function again after the iterator is finished.
  */
-struct vx_array *vx_array_iter_next(struct vx_array_iter *iter,
+struct vx_array *vx_array_iter_next(struct vx_array_iterator *iter,
                                     struct vx_error **error);
 
-void vx_array_iter_free(struct vx_array_iter *array_iter);
+void vx_array_iter_free(struct vx_array_iterator *array_iter);
 
 /**
  * Get the length of the array.
@@ -395,11 +395,11 @@ void vx_file_statistics_free(struct vx_file_statistics *stat);
 struct vx_dtype *vx_file_dtype(const struct vx_file_reader *file);
 
 /**
- * Build a new `vx_array_iter` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
+ * Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
  */
-struct vx_array_iter *vx_layout_reader_scan(const struct vx_layout_reader *layout_reader,
-                                            const struct vx_file_scan_options *opts,
-                                            struct vx_error **error);
+struct vx_array_iterator *vx_layout_reader_scan(const struct vx_layout_reader *layout_reader,
+                                                const struct vx_file_scan_options *opts,
+                                                struct vx_error **error);
 
 /**
  * Returns the row count for a given file reader.
@@ -417,7 +417,7 @@ void vx_layout_reader_free(struct vx_layout_reader *layout_reader);
 /**
  * Free the file and all associated resources.
  *
- * This function will not automatically free any :c:func:`vx_array_iter` that were built from
+ * This function will not automatically free any :c:func:`vx_array_iterator` that were built from
  * this file.
  */
 void vx_file_reader_free(struct vx_file_reader *file);
