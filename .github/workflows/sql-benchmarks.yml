@@ -34,7 +34,7 @@ jobs:
             name: TPC-H on S3
             local_dir: bench-vortex/data/tpch/1
             remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch-sf1/
-            targets: "datafusion:parquet,datafusion:vortex"
+            targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
