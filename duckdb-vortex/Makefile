@@ -18,5 +18,6 @@ export VCPKG_OSX_DEPLOYMENT_TARGET=12.0
 export VCPKG_TOOLCHAIN_PATH := ${PROJ_DIR}vcpkg/scripts/buildsystems/vcpkg.cmake
 
 export BUILD_EXTENSIONS_ONLY=1
+export DISABLE_BUILTIN_EXTENSIONS=1
 
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
