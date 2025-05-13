@@ -6,7 +6,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantVTable, NullVTable};
+use crate::arrays::{ConstantVTable, ListVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
@@ -44,7 +44,8 @@ pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexRe
         .as_bool()
         .value();
 
-    if options.cost == Cost::Canonicalize {
+    // TODO(joe): add is_constant for ListArray
+    if options.cost == Cost::Canonicalize && !array.is::<ListVTable>() {
         // When we run linear canonicalize, there we must always return an exact answer.
         assert!(
             result.is_some(),
