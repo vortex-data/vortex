@@ -19,9 +19,7 @@ use crate::ddb::timing::parse_query_output;
 
 #[derive(Debug, Clone)]
 pub struct DuckDBExecutor {
-    #[allow(dead_code)]
     duckdb_path: PathBuf,
-    #[allow(dead_code)]
     duckdb_file: PathBuf,
 }
 
@@ -296,8 +294,10 @@ pub fn execute_query(
 ) -> anyhow::Result<Duration> {
     let mut command = duckdb_executor.command();
 
-    command.arg("-c")
-        .arg(r#"load "/Users/joeisaacs/git/spiraldb/vortex/duckdb-vortex/build/release/extension/vortex/vortex.duckdb_extension";"#);
+    let vortex_path = vortex_duckdb_extension_path();
+    command
+        .arg("-c")
+        .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
 
     let query = queries.join(";") + ";";
     command

@@ -6,7 +6,7 @@ use anyhow::Result;
 use xshell::Shell;
 
 use crate::Format;
-use crate::ddb::DuckDBExecutor;
+use crate::ddb::{DuckDBExecutor, vortex_duckdb_extension_path};
 
 pub enum TpcDataset {
     TpcH,
@@ -98,8 +98,10 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
 
     let mut command = Command::new(opts.duckdb_path.unwrap_or_else(|| PathBuf::from("duckdb")));
 
-    command.arg("-c")
-    .arg(r#"load "/Users/joeisaacs/git/spiraldb/vortex/duckdb-vortex/build/release/extension/vortex/vortex.duckdb_extension";"#);
+    let vortex_path = vortex_duckdb_extension_path();
+    command
+        .arg("-c")
+        .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
 
     // command
     //     .arg("-c")
