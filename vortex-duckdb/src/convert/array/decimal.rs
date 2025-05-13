@@ -1,9 +1,9 @@
 use duckdb::core::FlatVector;
 use duckdb::vtab::arrow::WritableVector;
 use num_traits::AsPrimitive;
+use vortex_array::ArrayRef;
 use vortex_array::arrays::{BooleanBuffer, DecimalArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
@@ -183,9 +183,10 @@ pub fn precision_to_duckdb_storage_size(
 #[cfg(test)]
 mod tests {
     use duckdb::core::DataChunkHandle;
-    use vortex_array::arrays::{DecimalArray, StructArray};
+    use vortex_array::arrays::{DecimalArray, DecimalVTable, StructArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef};
+    use vortex_array::vtable::ValidityHelper;
+    use vortex_array::{ArrayExt, ArrayRef};
     use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
 
@@ -270,7 +271,7 @@ mod tests {
             len: array.len(),
         })
         .unwrap();
-        let back = back.as_any().downcast_ref::<DecimalArray>().unwrap();
+        let back = back.as_::<DecimalVTable>();
 
         assert_eq!(back.dtype(), array.dtype());
         assert_eq!(back.validity(), array.validity());

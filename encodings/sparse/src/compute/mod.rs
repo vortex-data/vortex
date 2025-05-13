@@ -1,16 +1,16 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{FilterKernel, FilterKernelAdapter};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{SparseArray, SparseEncoding};
+use crate::{SparseArray, SparseVTable};
 
 mod binary_numeric;
 mod invert;
 mod take;
 
-impl FilterKernel for SparseEncoding {
+impl FilterKernel for SparseVTable {
     fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let new_length = mask.true_count();
 
@@ -25,7 +25,7 @@ impl FilterKernel for SparseEncoding {
     }
 }
 
-register_kernel!(FilterKernelAdapter(SparseEncoding).lift());
+register_kernel!(FilterKernelAdapter(SparseVTable).lift());
 
 #[cfg(test)]
 mod test {
@@ -35,13 +35,13 @@ mod test {
     use vortex_array::compute::conformance::mask::test_mask;
     use vortex_array::compute::{cast, filter};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayExt, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::SparseArray;
+    use crate::{SparseArray, SparseVTable};
 
     #[fixture]
     fn array() -> ArrayRef {
@@ -62,7 +62,7 @@ mod test {
         let mask = Mask::from_iter(predicate);
 
         let filtered_array = filter(&array, &mask).unwrap();
-        let filtered_array = SparseArray::try_from(filtered_array).unwrap();
+        let filtered_array = filtered_array.as_::<SparseVTable>();
 
         assert_eq!(filtered_array.len(), 1);
         assert_eq!(filtered_array.patches().values().len(), 1);
@@ -82,7 +82,7 @@ mod test {
         .into_array();
 
         let filtered_array = filter(&array, &mask).unwrap();
-        let filtered_array = SparseArray::try_from(filtered_array).unwrap();
+        let filtered_array = filtered_array.as_::<SparseVTable>();
 
         assert_eq!(filtered_array.len(), 4);
         let primitive = filtered_array.patches().indices().to_primitive().unwrap();
@@ -99,7 +99,7 @@ mod test {
     fn test_mask_sparse_array() {
         let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         test_mask(
-            &SparseArray::try_new(
+            SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
                 cast(
                     &buffer![100i32, 200, 300].into_array(),
@@ -109,18 +109,20 @@ mod test {
                 5,
                 null_fill_value,
             )
-            .unwrap(),
+            .unwrap()
+            .as_ref(),
         );
 
         let ten_fill_value = Scalar::from(10i32);
         test_mask(
-            &SparseArray::try_new(
+            SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
                 buffer![100i32, 200, 300].into_array(),
                 5,
                 ten_fill_value,
             )
-            .unwrap(),
+            .unwrap()
+            .as_ref(),
         )
     }
 }

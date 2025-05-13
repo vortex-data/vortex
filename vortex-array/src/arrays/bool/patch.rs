@@ -2,9 +2,10 @@ use itertools::Itertools;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
+use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::patches::Patches;
-use crate::{Array, ToCanonical};
+use crate::vtable::ValidityHelper;
 
 impl BoolArray {
     pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
@@ -16,7 +17,7 @@ impl BoolArray {
         let patched_validity =
             self.validity()
                 .clone()
-                .patch(len, offset, &indices, values.validity())?;
+                .patch(len, offset, indices.as_ref(), values.validity())?;
 
         let (mut own_values, bit_offset) = self.into_boolean_builder();
         match_each_integer_ptype!(indices.ptype(), |$I| {
@@ -41,7 +42,6 @@ mod tests {
     use arrow_buffer::BooleanBuffer;
 
     use crate::ToCanonical;
-    use crate::array::Array;
     use crate::arrays::BoolArray;
 
     #[test]

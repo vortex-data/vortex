@@ -1,22 +1,24 @@
 mod compare;
 mod filter;
 
-use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::VarBinVTable;
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
-use vortex_array::{Array, ArrayExt, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayExt, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::{FSSTArray, FSSTEncoding};
+use crate::{FSSTArray, FSSTVTable};
 
-impl TakeKernel for FSSTEncoding {
+impl TakeKernel for FSSTVTable {
     // Take on an FSSTArray is a simple take on the codes array.
     fn take(&self, array: &FSSTArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(FSSTArray::try_new(
             array.dtype().clone(),
             array.symbols().clone(),
             array.symbol_lengths().clone(),
-            take(array.codes(), indices)?.as_::<VarBinArray>().clone(),
+            take(array.codes().as_ref(), indices)?
+                .as_::<VarBinVTable>()
+                .clone(),
             fill_null(
                 &take(array.uncompressed_lengths(), indices)?,
                 &Scalar::new(
@@ -29,4 +31,4 @@ impl TakeKernel for FSSTEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(FSSTEncoding).lift());
+register_kernel!(TakeKernelAdapter(FSSTVTable).lift());

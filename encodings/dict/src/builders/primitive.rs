@@ -7,7 +7,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::arrays::{NativeValue, PrimitiveArray};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
@@ -162,7 +162,7 @@ mod test {
     #[test]
     fn encode_primitive() {
         let arr = PrimitiveArray::from_iter([1, 1, 3, 3, 3]);
-        let dict = dict_encode(&arr).unwrap();
+        let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
             dict.codes().to_primitive().unwrap().as_slice::<u8>(),
             &[0, 0, 1, 1, 1]
@@ -185,7 +185,7 @@ mod test {
             Some(3),
             None,
         ]);
-        let dict = dict_encode(&arr).unwrap();
+        let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
             dict.codes().to_primitive().unwrap().as_slice::<u8>(),
             &[0, 0, 0, 1, 1, 0, 1, 0]

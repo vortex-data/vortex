@@ -6,7 +6,6 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use itertools::Itertools;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::nbytes::NBytes;
 use vortex_array::stats::{PRUNING_STATS, Precision, STATS_TO_WRITE, Stat};
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -283,7 +282,7 @@ fn encode_children_like(current: ArrayRef, previous: ArrayRef) -> VortexResult<O
             ConstantArray::new(constant, current.len()).into_array(),
         ))
     } else if let Some(encoded) = previous
-        .vtable()
+        .encoding()
         .encode(&current.to_canonical()?, Some(&previous))?
     {
         let previous_children = previous.children();

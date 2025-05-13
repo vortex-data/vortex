@@ -12,7 +12,7 @@ use object_store::ObjectStore;
 use url::Url;
 use vortex::arrays::ChunkedArray;
 use vortex::arrow::FromArrowArray;
-use vortex::{Array, ArrayRef, TryIntoArray};
+use vortex::{Array, ArrayRef, IntoArray, TryIntoArray};
 use vortex_datafusion::SessionContextExt;
 
 use crate::engines::df::{get_session_context, make_object_store};

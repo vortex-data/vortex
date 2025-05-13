@@ -1,10 +1,10 @@
 use vortex_array::compute::{InvertKernel, InvertKernelAdapter, invert};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 
-use crate::{RunEndArray, RunEndEncoding};
+use crate::{RunEndArray, RunEndVTable};
 
-impl InvertKernel for RunEndEncoding {
+impl InvertKernel for RunEndVTable {
     fn invert(&self, array: &RunEndArray) -> VortexResult<ArrayRef> {
         RunEndArray::with_offset_and_length(
             array.ends().clone(),
@@ -16,4 +16,4 @@ impl InvertKernel for RunEndEncoding {
     }
 }
 
-register_kernel!(InvertKernelAdapter(RunEndEncoding).lift());
+register_kernel!(InvertKernelAdapter(RunEndVTable).lift());

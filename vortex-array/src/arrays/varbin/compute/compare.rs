@@ -5,15 +5,16 @@ use itertools::Itertools;
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
-use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinEncoding, VarBinViewArray};
+use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinVTable, VarBinViewVTable};
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{
     CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
 };
-use crate::{Array, ArrayExt, ArrayRef, ToCanonical, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{Array, ArrayExt, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
-impl CompareKernel for VarBinEncoding {
+impl CompareKernel for VarBinVTable {
     fn compare(
         &self,
         lhs: &VarBinArray,
@@ -55,7 +56,7 @@ impl CompareKernel for VarBinEncoding {
                 ));
             }
 
-            let lhs = Datum::try_new(lhs)?;
+            let lhs = Datum::try_new(lhs.as_ref())?;
 
             // TODO(robert): Handle LargeString/Binary arrays
             let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
@@ -86,17 +87,17 @@ impl CompareKernel for VarBinEncoding {
             .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
             Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
-        } else if rhs.is::<VarBinViewArray>() {
+        } else if rhs.is::<VarBinViewVTable>() {
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
-            return Ok(Some(compare(&lhs.to_varbinview()?, rhs, operator)?));
+            return Ok(Some(compare(lhs.to_varbinview()?.as_ref(), rhs, operator)?));
         } else {
             Ok(None)
         }
     }
 }
 
-register_kernel!(CompareKernelAdapter(VarBinEncoding).lift());
+register_kernel!(CompareKernelAdapter(VarBinVTable).lift());
 
 fn compare_offsets_to_empty<P: NativePType>(
     offsets: PrimitiveArray,
@@ -128,11 +129,12 @@ mod test {
             DType::Binary(Nullability::Nullable),
         );
         let result = compare(
-            &array,
-            &ConstantArray::new(
+            array.as_ref(),
+            ConstantArray::new(
                 Scalar::binary(ByteBuffer::copy_from(b"abc"), Nullability::Nullable),
                 3,
-            ),
+            )
+            .as_ref(),
             Operator::Eq,
         )
         .unwrap()

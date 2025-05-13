@@ -7,7 +7,7 @@ use futures::stream::FuturesOrdered;
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult};
 use vortex_expr::ExprRef;

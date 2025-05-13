@@ -5,7 +5,8 @@ use arrow_buffer::ArrowNativeType;
 use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
-use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
+use vortex_array::vtable::ValidityHelper;
+use vortex_array::{ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
@@ -13,9 +14,9 @@ use vortex_mask::Mask;
 
 use super::chunked_indices;
 use crate::bitpacking::compute::take::UNPACK_CHUNK_THRESHOLD;
-use crate::{BitPackedArray, BitPackedEncoding};
+use crate::{BitPackedArray, BitPackedVTable};
 
-impl FilterKernel for BitPackedEncoding {
+impl FilterKernel for BitPackedVTable {
     fn filter(&self, array: &BitPackedArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$I| {
             filter_primitive::<$I>(array, mask)
@@ -24,7 +25,7 @@ impl FilterKernel for BitPackedEncoding {
     }
 }
 
-register_kernel!(FilterKernelAdapter(BitPackedEncoding).lift());
+register_kernel!(FilterKernelAdapter(BitPackedVTable).lift());
 
 /// Specialized filter kernel for primitive bit-packed arrays.
 ///
@@ -54,7 +55,7 @@ fn filter_primitive<T: NativePType + BitPacking + ArrowNativeType>(
     };
     if mask.density() >= full_decompression_threshold {
         let decompressed_array = array.to_primitive()?;
-        filter(&decompressed_array, mask)?.to_primitive()
+        filter(decompressed_array.as_ref(), mask)?.to_primitive()
     } else {
         filter_primitive_no_decompression::<T>(array, mask)
     }
@@ -160,11 +161,14 @@ mod test {
     fn take_indices() {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedArray::encode(&unpacked, 6).unwrap();
+        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
 
         let mask = Mask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
 
-        let primitive_result = filter(&bitpacked, &mask).unwrap().to_primitive().unwrap();
+        let primitive_result = filter(bitpacked.as_ref(), &mask)
+            .unwrap()
+            .to_primitive()
+            .unwrap();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
     }
@@ -173,7 +177,7 @@ mod test {
     fn take_sliced_indices() {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedArray::encode(&unpacked, 6).unwrap();
+        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let sliced = bitpacked.slice(128, 2050).unwrap();
 
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
@@ -186,8 +190,12 @@ mod test {
     #[test]
     fn filter_bitpacked() {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedArray::encode(&unpacked, 6).unwrap();
-        let filtered = filter(&bitpacked, &Mask::from_indices(4096, (0..1024).collect())).unwrap();
+        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
+        let filtered = filter(
+            bitpacked.as_ref(),
+            &Mask::from_indices(4096, (0..1024).collect()),
+        )
+        .unwrap();
         assert_eq!(
             filtered.to_primitive().unwrap().as_slice::<u8>(),
             (0..1024).map(|i| (i % 63) as u8).collect::<Vec<_>>()
@@ -198,9 +206,9 @@ mod test {
     fn filter_bitpacked_signed() {
         let values: Buffer<i64> = (0..500).collect();
         let unpacked = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-        let bitpacked = BitPackedArray::encode(&unpacked, 9).unwrap();
+        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
         let filtered = filter(
-            &bitpacked,
+            bitpacked.as_ref(),
             &Mask::from_indices(values.len(), (0..250).collect()),
         )
         .unwrap()

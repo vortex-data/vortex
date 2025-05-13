@@ -4,7 +4,7 @@ use futures::FutureExt;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
@@ -34,15 +34,18 @@ impl DictReader {
             vortex_panic!("Mismatched layout ID")
         }
         let metadata = ProstMetadata::<DictLayoutMetadata>::deserialize(
-            layout.metadata().as_ref().map(|b| b.as_ref()),
+            layout
+                .metadata()
+                .as_ref()
+                .map(|b| b.as_ref())
+                .ok_or_else(|| vortex_err!("Missing metadata for DictLayout"))?,
         )?;
 
         let values = layout
             .child(0, layout.dtype().clone(), "values")?
             .reader(segment_source, ctx)?;
 
-        let codes_dtype =
-            DType::from(metadata.codes_ptype()).with_nullability(values.dtype().nullability());
+        let codes_dtype = DType::Primitive(metadata.codes_ptype(), values.dtype().nullability());
 
         let codes = layout
             .child(1, codes_dtype, "codes")?

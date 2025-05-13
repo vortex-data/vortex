@@ -8,7 +8,7 @@ use vortex_mask::Mask;
 use crate::arrays::BoolArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::{Array, ArrayRef, Canonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 pub struct BoolBuilder {
     inner: BooleanBufferBuilder,
@@ -118,12 +118,12 @@ mod tests {
     use rand::prelude::StdRng;
     use rand::{Rng, SeedableRng};
 
-    use crate::ArrayRef;
     use crate::array::Array;
     use crate::arrays::{BoolArray, ChunkedArray};
     use crate::builders::builder_with_capacity;
     use crate::canonical::ToCanonical;
-
+    use crate::vtable::ValidityHelper;
+    use crate::{ArrayRef, IntoArray};
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(0);
 

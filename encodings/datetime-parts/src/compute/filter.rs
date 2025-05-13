@@ -1,11 +1,11 @@
 use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{DateTimePartsArray, DateTimePartsEncoding};
+use crate::{DateTimePartsArray, DateTimePartsVTable};
 
-impl FilterKernel for DateTimePartsEncoding {
+impl FilterKernel for DateTimePartsVTable {
     fn filter(&self, array: &DateTimePartsArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(DateTimePartsArray::try_new(
             array.dtype().clone(),
@@ -16,4 +16,4 @@ impl FilterKernel for DateTimePartsEncoding {
         .into_array())
     }
 }
-register_kernel!(FilterKernelAdapter(DateTimePartsEncoding).lift());
+register_kernel!(FilterKernelAdapter(DateTimePartsVTable).lift());

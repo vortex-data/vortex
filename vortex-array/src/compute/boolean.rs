@@ -10,8 +10,8 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::encoding::Encoding;
-use crate::{Array, ArrayRef};
+use crate::vtable::VTable;
+use crate::{Array, ArrayExt, ArrayRef};
 
 /// Point-wise logical _and_ between two Boolean arrays.
 ///
@@ -52,7 +52,7 @@ pub fn boolean(lhs: &dyn Array, rhs: &dyn Array, op: BooleanOperator) -> VortexR
 pub struct BooleanKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(BooleanKernelRef);
 
-pub trait BooleanKernel: Encoding {
+pub trait BooleanKernel: VTable {
     fn boolean(
         &self,
         array: &Self::Array,
@@ -62,21 +62,21 @@ pub trait BooleanKernel: Encoding {
 }
 
 #[derive(Debug)]
-pub struct BooleanKernelAdapter<E: Encoding>(pub E);
+pub struct BooleanKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + BooleanKernel> BooleanKernelAdapter<E> {
+impl<V: VTable + BooleanKernel> BooleanKernelAdapter<V> {
     pub const fn lift(&'static self) -> BooleanKernelRef {
         BooleanKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + BooleanKernel> Kernel for BooleanKernelAdapter<E> {
+impl<V: VTable + BooleanKernel> Kernel for BooleanKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = BooleanArgs::try_from(args)?;
-        let Some(array) = inputs.lhs.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = inputs.lhs.as_opt::<V>() else {
             return Ok(None);
         };
-        Ok(E::boolean(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
+        Ok(V::boolean(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
     }
 }
 
@@ -135,8 +135,8 @@ impl ComputeFnVTable for Boolean {
 
         log::debug!(
             "No boolean implementation found for LHS {}, RHS {}, and operator {:?} (or inverse)",
-            rhs.encoding(),
-            lhs.encoding(),
+            rhs.encoding_id(),
+            lhs.encoding_id(),
             operator,
         );
 
@@ -264,9 +264,9 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::canonical::ToCanonical;
-
     #[rstest]
     #[case(BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter())
     .into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter())

@@ -1,12 +1,12 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
-use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_error::VortexResult;
 
 use crate::compress::runend_decode_bools;
-use crate::{RunEndArray, RunEndEncoding};
+use crate::{RunEndArray, RunEndVTable};
 
-impl CompareKernel for RunEndEncoding {
+impl CompareKernel for RunEndVTable {
     fn compare(
         &self,
         lhs: &RunEndArray,
@@ -17,7 +17,7 @@ impl CompareKernel for RunEndEncoding {
         if let Some(const_scalar) = rhs.as_constant() {
             return compare(
                 lhs.values(),
-                &ConstantArray::new(const_scalar, lhs.values().len()),
+                ConstantArray::new(const_scalar, lhs.values().len()).as_ref(),
                 operator,
             )
             .and_then(|values| {
@@ -37,13 +37,13 @@ impl CompareKernel for RunEndEncoding {
     }
 }
 
-register_kernel!(CompareKernelAdapter(RunEndEncoding).lift());
+register_kernel!(CompareKernelAdapter(RunEndVTable).lift());
 
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::{BooleanBuffer, ConstantArray, PrimitiveArray};
     use vortex_array::compute::{Operator, compare};
-    use vortex_array::{Array, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical};
 
     use crate::RunEndArray;
 
@@ -57,7 +57,12 @@ mod test {
     #[test]
     fn compare_run_end() {
         let arr = ree_array();
-        let res = compare(&arr, &ConstantArray::new(5, 12), Operator::Eq).unwrap();
+        let res = compare(
+            arr.as_ref(),
+            ConstantArray::new(5, 12).as_ref(),
+            Operator::Eq,
+        )
+        .unwrap();
         let res_canon = res.to_bool().unwrap();
         assert_eq!(
             res_canon.boolean_buffer(),

@@ -1,15 +1,36 @@
 use std::fmt::Debug;
 
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::VTableRef;
-use vortex_array::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, ProstMetadata,
+use vortex_array::vtable::{
+    ArrayVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
+use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_mask::Mask;
 
-use crate::serde::DateTimePartsMetadata;
+vtable!(DateTimeParts);
+
+impl VTable for DateTimePartsVTable {
+    type Array = DateTimePartsArray;
+    type Encoding = DateTimePartsEncoding;
+
+    type ArrayVTable = Self;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = ValidityVTableFromChild;
+    type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = Self;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.datetimeparts")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        EncodingRef::new_ref(DateTimePartsEncoding.as_ref())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct DateTimePartsArray {
@@ -20,12 +41,8 @@ pub struct DateTimePartsArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DateTimePartsEncoding;
-impl Encoding for DateTimePartsEncoding {
-    type Array = DateTimePartsArray;
-    type Metadata = ProstMetadata<DateTimePartsMetadata>;
-}
 
 impl DateTimePartsArray {
     pub fn try_new(
@@ -80,51 +97,22 @@ impl DateTimePartsArray {
     }
 }
 
-impl ArrayImpl for DateTimePartsArray {
-    type Encoding = DateTimePartsEncoding;
-
-    fn _len(&self) -> usize {
-        self.days.len()
+impl ArrayVTable<DateTimePartsVTable> for DateTimePartsVTable {
+    fn len(array: &DateTimePartsArray) -> usize {
+        array.days.len()
     }
 
-    fn _dtype(&self) -> &DType {
-        &self.dtype
+    fn dtype(array: &DateTimePartsArray) -> &DType {
+        &array.dtype
     }
 
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&DateTimePartsEncoding)
-    }
-
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        Self::try_new(
-            self.dtype.clone(),
-            children[0].clone(),
-            children[1].clone(),
-            children[2].clone(),
-        )
+    fn stats(array: &DateTimePartsArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 
-impl ArrayStatisticsImpl for DateTimePartsArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
-    }
-}
-
-impl ArrayValidityImpl for DateTimePartsArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.days().is_valid(index)
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.days().all_valid()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.days().all_invalid()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.days().validity_mask()
+impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
+    fn validity_child(array: &DateTimePartsArray) -> &dyn Array {
+        array.days()
     }
 }

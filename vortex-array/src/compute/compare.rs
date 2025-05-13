@@ -13,8 +13,8 @@ use vortex_scalar::Scalar;
 use crate::arrays::ConstantArray;
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::encoding::Encoding;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::vtable::VTable;
+use crate::{Array, ArrayExt, ArrayRef, Canonical, IntoArray};
 
 /// Compares two arrays and returns a new boolean array with the result of the comparison.
 /// Or, returns None if comparison is not supported for these arrays.
@@ -79,7 +79,7 @@ impl Operator {
 pub struct CompareKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(CompareKernelRef);
 
-pub trait CompareKernel: Encoding {
+pub trait CompareKernel: VTable {
     fn compare(
         &self,
         lhs: &Self::Array,
@@ -89,21 +89,21 @@ pub trait CompareKernel: Encoding {
 }
 
 #[derive(Debug)]
-pub struct CompareKernelAdapter<E: Encoding>(pub E);
+pub struct CompareKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + CompareKernel> CompareKernelAdapter<E> {
+impl<V: VTable + CompareKernel> CompareKernelAdapter<V> {
     pub const fn lift(&'static self) -> CompareKernelRef {
         CompareKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + CompareKernel> Kernel for CompareKernelAdapter<E> {
+impl<V: VTable + CompareKernel> Kernel for CompareKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = CompareArgs::try_from(args)?;
-        let Some(array) = inputs.lhs.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = inputs.lhs.as_opt::<V>() else {
             return Ok(None);
         };
-        Ok(E::compare(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
+        Ok(V::compare(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
     }
 }
 
@@ -175,8 +175,8 @@ impl ComputeFnVTable for Compare {
         if !(lhs.is_arrow() && (rhs.is_arrow() || right_is_constant)) {
             log::debug!(
                 "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
-                rhs.encoding(),
-                lhs.encoding(),
+                rhs.encoding_id(),
+                lhs.encoding_id(),
                 operator.swap(),
             );
         }
@@ -349,14 +349,14 @@ mod tests {
             Validity::from_iter([false, true, true, true, true]),
         );
 
-        let matches = compare(&arr, &arr, Operator::Eq)
+        let matches = compare(arr.as_ref(), arr.as_ref(), Operator::Eq)
             .unwrap()
             .to_bool()
             .unwrap();
 
         assert_eq!(to_int_indices(matches), [1u64, 2, 3, 4]);
 
-        let matches = compare(&arr, &arr, Operator::NotEq)
+        let matches = compare(arr.as_ref(), arr.as_ref(), Operator::NotEq)
             .unwrap()
             .to_bool()
             .unwrap();
@@ -368,25 +368,25 @@ mod tests {
             Validity::from_iter([false, true, true, true, true]),
         );
 
-        let matches = compare(&arr, &other, Operator::Lte)
+        let matches = compare(arr.as_ref(), other.as_ref(), Operator::Lte)
             .unwrap()
             .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
 
-        let matches = compare(&arr, &other, Operator::Lt)
+        let matches = compare(arr.as_ref(), other.as_ref(), Operator::Lt)
             .unwrap()
             .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [4u64]);
 
-        let matches = compare(&other, &arr, Operator::Gte)
+        let matches = compare(other.as_ref(), arr.as_ref(), Operator::Gte)
             .unwrap()
             .to_bool()
             .unwrap();
         assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
 
-        let matches = compare(&other, &arr, Operator::Gt)
+        let matches = compare(other.as_ref(), arr.as_ref(), Operator::Gt)
             .unwrap()
             .to_bool()
             .unwrap();
@@ -398,7 +398,7 @@ mod tests {
         let left = ConstantArray::new(Scalar::from(2u32), 10);
         let right = ConstantArray::new(Scalar::from(10u32), 10);
 
-        let compare = compare(&left, &right, Operator::Gt).unwrap();
+        let compare = compare(left.as_ref(), right.as_ref(), Operator::Gt).unwrap();
         let res = compare.as_constant().unwrap();
         assert_eq!(res.as_bool().value(), Some(false));
         assert_eq!(compare.len(), 10);

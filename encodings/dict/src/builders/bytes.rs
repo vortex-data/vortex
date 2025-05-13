@@ -5,9 +5,11 @@ use num_traits::AsPrimitive;
 use num_traits::sign::Unsigned;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::aliases::hash_map::{DefaultHashBuilder, HashTable, HashTableEntry, RandomState};
-use vortex_array::arrays::{BinaryView, PrimitiveArray, VarBinArray, VarBinViewArray};
+use vortex_array::arrays::{
+    BinaryView, PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable,
+};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayExt as _, ArrayRef};
+use vortex_array::{Array, ArrayExt as _, ArrayRef, IntoArray};
 use vortex_buffer::{BufferMut, ByteBufferMut};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
@@ -163,9 +165,9 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> DictEncoder for BytesDic
         }
 
         let len = array.len();
-        if let Some(varbinview) = array.as_opt::<VarBinViewArray>() {
+        if let Some(varbinview) = array.as_opt::<VarBinViewVTable>() {
             self.encode_bytes(varbinview, len)
-        } else if let Some(varbin) = array.as_opt::<VarBinArray>() {
+        } else if let Some(varbin) = array.as_opt::<VarBinVTable>() {
             self.encode_bytes(varbin, len)
         } else {
             vortex_bail!("Can only dictionary encode VarBin and VarBinView arrays");
@@ -196,7 +198,7 @@ mod test {
     #[test]
     fn encode_varbin() {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
-        let dict = dict_encode(&arr).unwrap();
+        let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
             dict.codes().to_primitive().unwrap().as_slice::<u8>(),
             &[0, 1, 0, 2, 1]
@@ -229,7 +231,7 @@ mod test {
         ]
         .into_iter()
         .collect();
-        let dict = dict_encode(&arr).unwrap();
+        let dict = dict_encode(arr.as_ref()).unwrap();
         assert_eq!(
             dict.codes().to_primitive().unwrap().as_slice::<u8>(),
             &[0, 0, 1, 0, 0, 2, 1, 0]
@@ -250,7 +252,7 @@ mod test {
     #[test]
     fn repeated_values() {
         let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);
-        let dict = dict_encode(&arr).unwrap();
+        let dict = dict_encode(arr.as_ref()).unwrap();
         dict.values()
             .to_varbinview()
             .unwrap()

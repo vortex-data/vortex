@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use vortex::encodings::fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
+use vortex::encodings::fastlanes::{BitPackedVTable, DeltaVTable, FoRVTable};
 
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 
@@ -8,7 +8,7 @@ use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 pub(crate) struct PyFastLanesBitPackedArray;
 
 impl EncodingSubclass for PyFastLanesBitPackedArray {
-    type Encoding = BitPackedEncoding;
+    type VTable = BitPackedVTable;
 }
 
 #[pymethods]
@@ -25,7 +25,7 @@ impl PyFastLanesBitPackedArray {
 pub(crate) struct PyFastLanesDeltaArray;
 
 impl EncodingSubclass for PyFastLanesDeltaArray {
-    type Encoding = DeltaEncoding;
+    type VTable = DeltaVTable;
 }
 
 /// Concrete class for arrays with `fastlanes.for` encoding.
@@ -33,5 +33,5 @@ impl EncodingSubclass for PyFastLanesDeltaArray {
 pub(crate) struct PyFastLanesFoRArray;
 
 impl EncodingSubclass for PyFastLanesFoRArray {
-    type Encoding = FoREncoding;
+    type VTable = FoRVTable;
 }

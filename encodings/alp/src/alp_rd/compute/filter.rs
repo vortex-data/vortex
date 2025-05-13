@@ -1,11 +1,11 @@
 use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::{ALPRDArray, ALPRDEncoding};
+use crate::{ALPRDArray, ALPRDVTable};
 
-impl FilterKernel for ALPRDEncoding {
+impl FilterKernel for ALPRDVTable {
     fn filter(&self, array: &ALPRDArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let left_parts_exceptions = array
             .left_parts_patches()
@@ -25,7 +25,7 @@ impl FilterKernel for ALPRDEncoding {
     }
 }
 
-register_kernel!(FilterKernelAdapter(ALPRDEncoding).lift());
+register_kernel!(FilterKernelAdapter(ALPRDVTable).lift());
 
 #[cfg(test)]
 mod test {
@@ -50,7 +50,7 @@ mod test {
         assert!(encoded.left_parts_patches().is_some());
 
         // The first two values need no patching
-        let filtered = filter(&encoded, &Mask::from_iter([true, false, true]))
+        let filtered = filter(encoded.as_ref(), &Mask::from_iter([true, false, true]))
             .unwrap()
             .to_primitive()
             .unwrap();

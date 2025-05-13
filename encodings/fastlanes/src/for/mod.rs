@@ -2,22 +2,42 @@ use std::fmt::Debug;
 
 pub use compress::*;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::VTableRef;
-use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding,
+use vortex_array::vtable::{
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-
-use crate::r#for::serde::ScalarValueMetadata;
 
 mod compress;
 mod compute;
 mod ops;
 mod serde;
+
+vtable!(FoR);
+
+impl VTable for FoRVTable {
+    type Array = FoRArray;
+    type Encoding = FoREncoding;
+
+    type ArrayVTable = Self;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = ValidityVTableFromChild;
+    type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = Self;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("fastlanes.for")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        EncodingRef::new_ref(FoREncoding.as_ref())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct FoRArray {
@@ -26,12 +46,8 @@ pub struct FoRArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FoREncoding;
-impl Encoding for FoREncoding {
-    type Array = FoRArray;
-    type Metadata = ScalarValueMetadata;
-}
 
 impl FoRArray {
     pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<Self> {
@@ -66,52 +82,28 @@ impl FoRArray {
     }
 }
 
-impl ArrayImpl for FoRArray {
-    type Encoding = FoREncoding;
-
-    fn _len(&self) -> usize {
-        self.encoded().len()
+impl ArrayVTable<FoRVTable> for FoRVTable {
+    fn len(array: &FoRArray) -> usize {
+        array.encoded().len()
     }
 
-    fn _dtype(&self) -> &DType {
-        self.reference_scalar().dtype()
+    fn dtype(array: &FoRArray) -> &DType {
+        array.reference_scalar().dtype()
     }
 
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&FoREncoding)
-    }
-
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        Self::try_new(children[0].clone(), self.reference.clone())
+    fn stats(array: &FoRArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 
-impl ArrayCanonicalImpl for FoRArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        decompress(self).map(Canonical::Primitive)
+impl ValidityChild<FoRVTable> for FoRVTable {
+    fn validity_child(array: &FoRArray) -> &dyn Array {
+        array.encoded().as_ref()
     }
 }
 
-impl ArrayStatisticsImpl for FoRArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
-    }
-}
-
-impl ArrayValidityImpl for FoRArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.encoded().is_valid(index)
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.encoded().all_valid()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.encoded().all_invalid()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.encoded().validity_mask()
+impl CanonicalVTable<FoRVTable> for FoRVTable {
+    fn canonicalize(array: &FoRArray) -> VortexResult<Canonical> {
+        decompress(array).map(Canonical::Primitive)
     }
 }

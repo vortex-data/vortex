@@ -9,16 +9,17 @@ use vortex_dtype::{
 };
 use vortex_error::VortexResult;
 
-use crate::arrays::PrimitiveEncoding;
+use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
-impl TakeKernel for PrimitiveEncoding {
+impl TakeKernel for PrimitiveVTable {
     #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
-        let validity = array.validity().take(&indices)?;
+        let validity = array.validity().take(indices.as_ref())?;
 
         if array.ptype() != PType::F16
             && indices.dtype().is_unsigned_int()
@@ -50,7 +51,7 @@ impl TakeKernel for PrimitiveEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(TakeKernelAdapter(PrimitiveVTable).lift());
 
 fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
     array: &[T],
@@ -131,11 +132,11 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
-    use crate::array::Array;
     use crate::arrays::primitive::compute::take::take_primitive;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::take;
     use crate::validity::Validity;
+    use crate::{Array, IntoArray};
 
     #[test]
     fn test_take() {
@@ -154,7 +155,7 @@ mod test {
             buffer![0, 3, 4],
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
-        let actual = take(&values, &indices).unwrap();
+        let actual = take(values.as_ref(), indices.as_ref()).unwrap();
         assert_eq!(actual.scalar_at(0).unwrap(), Scalar::from(Some(1)));
         // position 3 is null
         assert_eq!(actual.scalar_at(1).unwrap(), Scalar::null_typed::<i32>());

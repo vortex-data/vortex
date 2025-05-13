@@ -2,12 +2,12 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
-use crate::arrays::ChunkedEncoding;
+use crate::arrays::ChunkedVTable;
 use crate::arrays::chunked::ChunkedArray;
 use crate::compute::{TakeKernel, TakeKernelAdapter, cast, take};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
-impl TakeKernel for ChunkedEncoding {
+impl TakeKernel for ChunkedVTable {
     fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = cast(indices, PType::U64.into())?.to_primitive()?;
 
@@ -41,7 +41,7 @@ impl TakeKernel for ChunkedEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(TakeKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod test {
@@ -62,7 +62,10 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = buffer![0u64, 0, 6, 4].into_array();
 
-        let result = take(&arr, &indices).unwrap().to_primitive().unwrap();
+        let result = take(arr.as_ref(), indices.as_ref())
+            .unwrap()
+            .to_primitive()
+            .unwrap();
         assert_eq!(result.as_slice::<i32>(), &[1, 1, 1, 2]);
     }
 }

@@ -6,17 +6,18 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, NullArray};
+use crate::arrays::{ConstantVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt};
-use crate::{Array, ArrayExt, Encoding};
+use crate::vtable::VTable;
+use crate::{Array, ArrayExt};
 
 /// Computes whether an array has constant values. If the array's encoding doesn't implement the
 /// relevant VTable, it'll try and canonicalize in order to make a determination.
 ///
 /// An array is constant IFF at least one of the following conditions apply:
 /// 1. It has at least one element (**Note** - an empty array isn't constant).
-/// 1. It's encoded as a [`ConstantArray`] or [`NullArray`]
+/// 1. It's encoded as a [`crate::arrays::ConstantArray`] or [`crate::arrays::NullArray`]
 /// 1. Has an exact statistic attached to it, saying its constant.
 /// 1. Is all invalid.
 /// 1. Is all valid AND has minimum and maximum statistics that are equal.
@@ -108,7 +109,7 @@ fn is_constant_impl(
     }
 
     // Constant and null arrays are always constant
-    if array.as_opt::<ConstantArray>().is_some() || array.as_opt::<NullArray>().is_some() {
+    if array.as_opt::<ConstantVTable>().is_some() || array.as_opt::<NullVTable>().is_some() {
         return Ok(Some(true));
     }
 
@@ -159,7 +160,7 @@ fn is_constant_impl(
 
     log::debug!(
         "No is_constant implementation found for {}",
-        array.encoding()
+        array.encoding_id()
     );
 
     if options.canonicalize && !array.is_canonical() {
@@ -175,7 +176,7 @@ fn is_constant_impl(
 pub struct IsConstantKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(IsConstantKernelRef);
 
-pub trait IsConstantKernel: Encoding {
+pub trait IsConstantKernel: VTable {
     /// # Preconditions
     ///
     /// * All values are valid
@@ -187,21 +188,21 @@ pub trait IsConstantKernel: Encoding {
 }
 
 #[derive(Debug)]
-pub struct IsConstantKernelAdapter<E: Encoding>(pub E);
+pub struct IsConstantKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + IsConstantKernel> IsConstantKernelAdapter<E> {
+impl<V: VTable + IsConstantKernel> IsConstantKernelAdapter<V> {
     pub const fn lift(&'static self) -> IsConstantKernelRef {
         IsConstantKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + IsConstantKernel> Kernel for IsConstantKernelAdapter<E> {
+impl<V: VTable + IsConstantKernel> Kernel for IsConstantKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let args = IsConstantArgs::try_from(args)?;
-        let Some(array) = args.array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = args.array.as_opt::<V>() else {
             return Ok(None);
         };
-        let is_constant = E::is_constant(&self.0, array, args.options)?;
+        let is_constant = V::is_constant(&self.0, array, args.options)?;
         Ok(Some(Scalar::from(is_constant).into()))
     }
 }

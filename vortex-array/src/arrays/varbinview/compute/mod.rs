@@ -29,7 +29,7 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = take(&arr, &buffer![0, 3].into_array()).unwrap();
+        let taken = take(arr.as_ref(), &buffer![0, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
@@ -46,16 +46,17 @@ mod tests {
 
     #[test]
     fn take_mask_var_bin_view_array() {
-        test_mask(&VarBinViewArray::from_iter_str([
-            "one", "two", "three", "four", "five",
-        ]));
+        test_mask(VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).as_ref());
 
-        test_mask(&VarBinViewArray::from_iter_nullable_str([
-            Some("one"),
-            None,
-            Some("three"),
-            Some("four"),
-            Some("five"),
-        ]));
+        test_mask(
+            VarBinViewArray::from_iter_nullable_str([
+                Some("one"),
+                None,
+                Some("three"),
+                Some("four"),
+                Some("five"),
+            ])
+            .as_ref(),
+        );
     }
 }

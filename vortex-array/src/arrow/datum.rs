@@ -4,7 +4,7 @@ use vortex_error::{VortexResult, vortex_panic};
 
 use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
 #[derive(Debug)]
@@ -72,7 +72,7 @@ where
             "Array length mismatch, expected {} got {} for encoding {}",
             len,
             array.len(),
-            array.encoding()
+            array.encoding_id()
         );
     }
 

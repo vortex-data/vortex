@@ -3,8 +3,6 @@ use std::fmt::{self};
 use humansize::{DECIMAL, format_size};
 
 use crate::arrays::ChunkedEncoding;
-use crate::nbytes::NBytes;
-use crate::vtable::EncodingVTable;
 use crate::{Array, ArrayRef, ArrayVisitor};
 
 impl dyn Array + '_ {

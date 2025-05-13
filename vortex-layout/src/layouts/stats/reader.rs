@@ -149,7 +149,7 @@ impl StatsReader {
                             self.stats_table()
                                 .map(move |stats_table| {
                                     stats_table.and_then(move |stats_table| {
-                                        pred.evaluate(stats_table.array())?
+                                        pred.evaluate(stats_table.array().as_ref())?
                                             .map(|a| Mask::try_from(a.as_ref()))
                                             .transpose()
                                             .map_err(Arc::new)

@@ -6,22 +6,44 @@ use std::sync::Arc;
 #[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
-use serde::ListMetadata;
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::VTableRef;
-use crate::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, Canonical, Encoding, ProstMetadata, TryFromArrayRef,
+use crate::vtable::{
+    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
+    ValidityVTableFromValidityHelper,
 };
+use crate::{Array, ArrayExt, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+
+vtable!(List);
+
+impl VTable for ListVTable {
+    type Array = ListArray;
+    type Encoding = ListEncoding;
+
+    type ArrayVTable = Self;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.list")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        EncodingRef::new_ref(ListEncoding.as_ref())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ListArray {
@@ -32,12 +54,8 @@ pub struct ListArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ListEncoding;
-impl Encoding for ListEncoding {
-    type Array = ListArray;
-    type Metadata = ProstMetadata<ListMetadata>;
-}
 
 pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
 
@@ -79,15 +97,11 @@ impl ListArray {
         })
     }
 
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     // TODO: merge logic with varbin
     // TODO(ngates): should return a result if it requires canonicalizing offsets
     pub fn offset_at(&self, index: usize) -> usize {
-        PrimitiveArray::try_from_array(self.offsets().clone())
-            .ok()
+        self.offsets()
+            .as_opt::<PrimitiveVTable>()
             .map(|p| {
                 match_each_native_ptype!(p.ptype(), |$P| {
                     p.as_slice::<$P>()[index].as_()
@@ -123,83 +137,51 @@ impl ListArray {
     }
 }
 
-impl ArrayImpl for ListArray {
-    type Encoding = ListEncoding;
-
-    fn _len(&self) -> usize {
-        self.offsets.len().saturating_sub(1)
+impl ArrayVTable<ListVTable> for ListVTable {
+    fn len(array: &ListArray) -> usize {
+        array.offsets.len().saturating_sub(1)
     }
 
-    fn _dtype(&self) -> &DType {
-        &self.dtype
+    fn dtype(array: &ListArray) -> &DType {
+        &array.dtype
     }
 
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&ListEncoding)
-    }
-
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let elements = children[0].clone();
-        let offsets = children[1].clone();
-        let validity = if self.validity().is_array() {
-            Validity::Array(children[2].clone())
-        } else {
-            self.validity().clone()
-        };
-
-        Self::try_new(elements, offsets, validity)
+    fn stats(array: &ListArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 
-impl ArrayStatisticsImpl for ListArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
-    }
-}
-
-impl ArrayOperationsImpl for ListArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+impl OperationsVTable<ListVTable> for ListVTable {
+    fn slice(array: &ListArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ListArray::try_new(
-            self.elements().clone(),
-            self.offsets().slice(start, stop + 1)?,
-            self.validity().slice(start, stop)?,
+            array.elements().clone(),
+            array.offsets().slice(start, stop + 1)?,
+            array.validity().slice(start, stop)?,
         )?
         .into_array())
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let elem = self.elements_at(index)?;
+    fn scalar_at(array: &ListArray, index: usize) -> VortexResult<Scalar> {
+        let elem = array.elements_at(index)?;
         let scalars: Vec<Scalar> = (0..elem.len()).map(|i| elem.scalar_at(i)).try_collect()?;
 
         Ok(Scalar::list(
             Arc::new(elem.dtype().clone()),
             scalars,
-            self.dtype().nullability(),
+            array.dtype().nullability(),
         ))
     }
 }
 
-impl ArrayCanonicalImpl for ListArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        Ok(Canonical::List(self.clone()))
+impl CanonicalVTable<ListVTable> for ListVTable {
+    fn canonicalize(array: &ListArray) -> VortexResult<Canonical> {
+        Ok(Canonical::List(array.clone()))
     }
 }
 
-impl ArrayValidityImpl for ListArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.validity.is_valid(index)
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.validity.all_valid()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.validity.all_invalid()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.validity.to_mask(self.len())
+impl ValidityHelper for ListArray {
+    fn validity(&self) -> &Validity {
+        &self.validity
     }
 }
 
@@ -275,11 +257,11 @@ mod test {
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::array::Array;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArray;
     use crate::compute::filter;
     use crate::validity::Validity;
+    use crate::{Array, IntoArray};
 
     #[test]
     fn test_empty_list_array() {

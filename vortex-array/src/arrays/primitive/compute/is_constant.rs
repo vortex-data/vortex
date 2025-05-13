@@ -2,7 +2,7 @@ use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 
-use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
 
@@ -14,7 +14,7 @@ cfg_if::cfg_if! {
     }
 }
 
-impl IsConstantKernel for PrimitiveEncoding {
+impl IsConstantKernel for PrimitiveVTable {
     fn is_constant(
         &self,
         array: &PrimitiveArray,
@@ -30,7 +30,7 @@ impl IsConstantKernel for PrimitiveEncoding {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(PrimitiveVTable).lift());
 
 // Assumes any floating point has been cast into its bit representation for which != and !is_eq are the same
 // Assumes there's at least 1 value in the slice, which is an invariant of the entry level function.

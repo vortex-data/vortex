@@ -25,9 +25,8 @@ use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 use vortex::stream::ArrayStreamArrayExt;
 
-use crate::array::vx_array;
+use crate::array::{vx_array, vx_array_iter};
 use crate::error::{try_or, vx_error};
-use crate::stream::{ArrayStreamInner, vx_array_stream};
 use crate::{RUNTIME, to_string, to_string_vec};
 
 /// A file reader that can be used to read from a file.
@@ -35,6 +34,7 @@ pub struct vx_file_reader {
     pub inner: VortexFile,
 }
 
+/// A Vortex layout reader.
 pub struct vx_layout_reader {
     pub inner: Arc<dyn LayoutReader>,
 }
@@ -207,18 +207,6 @@ struct ScanOptions {
     row_range: Option<std::ops::Range<u64>>,
 }
 
-/// Convert a stream to an FFI-compatible array stream
-fn vx_array_stream<S>(stream: S) -> VortexResult<*mut vx_array_stream>
-where
-    S: vortex::stream::ArrayStream + Send + 'static,
-{
-    let inner = Some(Box::new(ArrayStreamInner {
-        stream: Box::pin(stream),
-    }));
-
-    Ok(Box::into_raw(Box::new(vx_array_stream { inner })))
-}
-
 /// Get the DType of the data inside of the file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *mut DType {
@@ -231,51 +219,13 @@ pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *m
     ))
 }
 
-/// Build a new `vx_array_stream` that return a series of `vx_array`s scan over a `vx_file`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_scan(
-    file: *const vx_file_reader,
-    opts: *const vx_file_scan_options,
-    error: *mut *mut vx_error,
-) -> *mut vx_array_stream {
-    try_or(error, ptr::null_mut(), || {
-        let file = unsafe { file.as_ref().vortex_expect("null file") };
-        let mut stream = file.inner.scan().vortex_expect("create scan");
-
-        let scan_options = unsafe { opts.as_ref() }.map_or_else(
-            || Ok(ScanOptions::default()),
-            |options| options.process_scan_options(),
-        )?;
-
-        // Apply options if provided.
-        if let Some(field_names) = scan_options.field_names {
-            // Field names are allowed to be `Some` and empty.
-            stream = stream.with_projection(select(field_names, Identity::new_expr()));
-        }
-
-        if let Some(expr) = scan_options.filter_expr {
-            stream = stream.with_filter(expr);
-        }
-
-        if let Some(range) = scan_options.row_range {
-            stream = stream.with_row_range(range);
-        }
-
-        if let Some(split_by_value) = scan_options.split_by {
-            stream = stream.with_split_by(split_by_value);
-        }
-
-        vx_array_stream(stream.into_array_stream()?)
-    })
-}
-
-/// Build a new `vx_array_stream` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
+/// Build a new `vx_array_iter` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
     layout_reader: *const vx_layout_reader,
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
-) -> *mut vx_array_stream {
+) -> *mut vx_array_iter {
     try_or(error, ptr::null_mut(), || {
         let layout_reader = unsafe { layout_reader.as_ref().vortex_expect("null layout reader") };
         let mut scan_builder = ScanBuilder::new(layout_reader.inner.clone());
@@ -303,7 +253,7 @@ pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
             scan_builder = scan_builder.with_split_by(split_by_value);
         }
 
-        vx_array_stream(scan_builder.into_array_stream()?)
+        vx_array_iter(scan_builder.into_array_iter()?)
     })
 }
 
@@ -342,7 +292,7 @@ pub extern "C-unwind" fn vx_layout_reader_free(layout_reader: *mut vx_layout_rea
 
 /// Free the file and all associated resources.
 ///
-/// This function will not automatically free any :c:func:`vx_array_stream` that were built from
+/// This function will not automatically free any :c:func:`vx_array_iter` that were built from
 /// this file.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_reader_free(file: *mut vx_file_reader) {

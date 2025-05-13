@@ -11,9 +11,9 @@ pub(crate) use primitive::*;
 use pyo3::prelude::*;
 pub(crate) use struct_::*;
 use vortex::arrays::{
-    BoolEncoding, ExtensionEncoding, ListEncoding, NullEncoding, VarBinEncoding, VarBinViewEncoding,
+    BoolVTable, ExtensionVTable, ListVTable, NullVTable, VarBinVTable, VarBinViewVTable,
 };
-use vortex::encodings::bytebool::ByteBoolEncoding;
+use vortex::encodings::bytebool::ByteBoolVTable;
 
 use crate::arrays::native::{EncodingSubclass, PyNativeArray};
 
@@ -22,7 +22,7 @@ use crate::arrays::native::{EncodingSubclass, PyNativeArray};
 pub(crate) struct PyNullArray;
 
 impl EncodingSubclass for PyNullArray {
-    type Encoding = NullEncoding;
+    type VTable = NullVTable;
 }
 
 /// Concrete class for arrays with `vortex.bool` encoding.
@@ -30,7 +30,7 @@ impl EncodingSubclass for PyNullArray {
 pub(crate) struct PyBoolArray;
 
 impl EncodingSubclass for PyBoolArray {
-    type Encoding = BoolEncoding;
+    type VTable = BoolVTable;
 }
 
 /// Concrete class for arrays with `vortex.bytebool` encoding.
@@ -38,7 +38,7 @@ impl EncodingSubclass for PyBoolArray {
 pub(crate) struct PyByteBoolArray;
 
 impl EncodingSubclass for PyByteBoolArray {
-    type Encoding = ByteBoolEncoding;
+    type VTable = ByteBoolVTable;
 }
 
 /// Concrete class for arrays with `vortex.varbin` encoding.
@@ -46,7 +46,7 @@ impl EncodingSubclass for PyByteBoolArray {
 pub(crate) struct PyVarBinArray;
 
 impl EncodingSubclass for PyVarBinArray {
-    type Encoding = VarBinEncoding;
+    type VTable = VarBinVTable;
 }
 
 /// Concrete class for arrays with `vortex.varbinview` encoding.
@@ -54,7 +54,7 @@ impl EncodingSubclass for PyVarBinArray {
 pub(crate) struct PyVarBinViewArray;
 
 impl EncodingSubclass for PyVarBinViewArray {
-    type Encoding = VarBinViewEncoding;
+    type VTable = VarBinViewVTable;
 }
 
 /// Concrete class for arrays with `vortex.list` encoding.
@@ -62,7 +62,7 @@ impl EncodingSubclass for PyVarBinViewArray {
 pub(crate) struct PyListArray;
 
 impl EncodingSubclass for PyListArray {
-    type Encoding = ListEncoding;
+    type VTable = ListVTable;
 }
 
 /// Concrete class for arrays with `vortex.ext` encoding.
@@ -70,5 +70,5 @@ impl EncodingSubclass for PyListArray {
 pub(crate) struct PyExtensionArray;
 
 impl EncodingSubclass for PyExtensionArray {
-    type Encoding = ExtensionEncoding;
+    type VTable = ExtensionVTable;
 }

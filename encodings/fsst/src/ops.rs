@@ -1,37 +1,39 @@
-use vortex_array::arrays::{VarBinArray, varbin_scalar};
-use vortex_array::{Array, ArrayExt, ArrayOperationsImpl, ArrayRef};
+use vortex_array::arrays::{VarBinVTable, varbin_scalar};
+use vortex_array::vtable::OperationsVTable;
+use vortex_array::{Array, ArrayExt, ArrayRef, IntoArray};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::FSSTArray;
+use crate::{FSSTArray, FSSTVTable};
 
-impl ArrayOperationsImpl for FSSTArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+impl OperationsVTable<FSSTVTable> for FSSTVTable {
+    fn slice(array: &FSSTArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         // Slicing an FSST array leaves the symbol table unmodified,
         // only slicing the `codes` array.
         Ok(FSSTArray::try_new(
-            self.dtype().clone(),
-            self.symbols().clone(),
-            self.symbol_lengths().clone(),
-            self.codes()
+            array.dtype().clone(),
+            array.symbols().clone(),
+            array.symbol_lengths().clone(),
+            array
+                .codes()
                 .slice(start, stop)?
-                .as_::<VarBinArray>()
+                .as_::<VarBinVTable>()
                 .clone(),
-            self.uncompressed_lengths().slice(start, stop)?,
+            array.uncompressed_lengths().slice(start, stop)?,
         )?
         .into_array())
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let compressed = self.codes().scalar_at(index)?;
+    fn scalar_at(array: &FSSTArray, index: usize) -> VortexResult<Scalar> {
+        let compressed = array.codes().scalar_at(index)?;
         let binary_datum = compressed
             .as_binary()
             .value()
             .ok_or_else(|| vortex_err!("expected null to already be handled"))?;
 
         let decoded_buffer =
-            ByteBuffer::from(self.decompressor().decompress(binary_datum.as_slice()));
-        Ok(varbin_scalar(decoded_buffer, self.dtype()))
+            ByteBuffer::from(array.decompressor().decompress(binary_datum.as_slice()));
+        Ok(varbin_scalar(decoded_buffer, array.dtype()))
     }
 }

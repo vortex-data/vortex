@@ -87,7 +87,7 @@ impl LayoutWriter for FlatLayoutWriter {
                 offset: 0,
                 include_padding: self.options.include_padding,
             },
-        );
+        )?;
         let segment_id = segment_writer.put(&buffers);
 
         self.layout = Some(Layout::new_owned(
@@ -142,7 +142,7 @@ mod tests {
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout =
                 FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
-                    .push_one(&mut segments, array.into_array())
+                    .push_one(&mut segments, array.to_array())
                     .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 

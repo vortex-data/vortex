@@ -1,14 +1,14 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{InvertKernel, InvertKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
-impl InvertKernel for ConstantEncoding {
+impl InvertKernel for ConstantVTable {
     fn invert(&self, array: &ConstantArray) -> VortexResult<ArrayRef> {
         match array.scalar().as_bool().value() {
-            None => Ok(array.to_array().into_array()),
+            None => Ok(array.to_array()),
             Some(b) => Ok(ConstantArray::new(
                 Scalar::bool(!b, array.dtype().nullability()),
                 array.len(),
@@ -18,27 +18,25 @@ impl InvertKernel for ConstantEncoding {
     }
 }
 
-register_kernel!(InvertKernelAdapter(ConstantEncoding).lift());
+register_kernel!(InvertKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod tests {
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::{ConstantArray, ConstantEncoding};
-    use crate::compute::InvertKernel;
+    use crate::arrays::ConstantArray;
+    use crate::compute::invert;
     use crate::{Array, ArrayStatistics};
 
     #[test]
     fn invert_nullable_const() {
         let constant = ConstantArray::new(Scalar::bool(false, Nullable), 10);
 
-        let invert = ConstantEncoding.invert(&constant).unwrap();
-        assert_eq!(invert.dtype(), constant.dtype());
+        let inverted = invert(constant.as_ref()).unwrap();
+        assert_eq!(inverted.dtype(), constant.dtype());
 
-        let orig = ConstantEncoding
-            .invert(invert.as_any().downcast_ref::<ConstantArray>().unwrap())
-            .unwrap();
+        let orig = invert(inverted.as_ref()).unwrap();
 
         assert_eq!(orig.dtype(), constant.dtype());
         assert_eq!(orig.as_constant(), constant.as_constant())

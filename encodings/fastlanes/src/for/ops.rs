@@ -1,29 +1,30 @@
-use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
+use vortex_array::vtable::OperationsVTable;
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::FoRArray;
+use crate::{FoRArray, FoRVTable};
 
-impl ArrayOperationsImpl for FoRArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+impl OperationsVTable<FoRVTable> for FoRVTable {
+    fn slice(array: &FoRArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
-            self.encoded().slice(start, stop)?,
-            self.reference_scalar().clone(),
+            array.encoded().slice(start, stop)?,
+            array.reference_scalar().clone(),
         )
         .map(|a| a.into_array())
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let encoded_pvalue = self
+    fn scalar_at(array: &FoRArray, index: usize) -> VortexResult<Scalar> {
+        let encoded_pvalue = array
             .encoded()
             .scalar_at(index)?
-            .reinterpret_cast(self.ptype());
+            .reinterpret_cast(array.ptype());
         let encoded_pvalue = encoded_pvalue.as_primitive();
-        let reference = self.reference_scalar();
+        let reference = array.reference_scalar();
         let reference = reference.as_primitive();
 
-        Ok(match_each_integer_ptype!(self.ptype(), |$P| {
+        Ok(match_each_integer_ptype!(array.ptype(), |$P| {
             encoded_pvalue
                 .typed_value::<$P>()
                 .map(|v|
@@ -31,15 +32,14 @@ impl ArrayOperationsImpl for FoRArray {
                          reference
                              .typed_value::<$P>()
                              .vortex_expect("FoRArray Reference value cannot be null")))
-                .map(|v| Scalar::primitive::<$P>(v, self.dtype().nullability()))
-                .unwrap_or_else(|| Scalar::null(self.dtype().clone()))
+                .map(|v| Scalar::primitive::<$P>(v, array.dtype().nullability()))
+                .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
         }))
     }
 }
 
 #[cfg(test)]
 mod test {
-    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
 
     use crate::FoRArray;

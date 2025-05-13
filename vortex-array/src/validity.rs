@@ -477,7 +477,6 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_mask::Mask;
 
-    use crate::array::Array;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::validity::Validity;
     use crate::{ArrayRef, IntoArray};

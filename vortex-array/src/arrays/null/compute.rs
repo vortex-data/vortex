@@ -2,31 +2,31 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::arrays::NullEncoding;
+use crate::arrays::NullVTable;
 use crate::arrays::null::NullArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
     MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter,
 };
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
-impl FilterKernel for NullEncoding {
+impl FilterKernel for NullVTable {
     fn filter(&self, _array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(NullArray::new(mask.true_count()).into_array())
     }
 }
 
-register_kernel!(FilterKernelAdapter(NullEncoding).lift());
+register_kernel!(FilterKernelAdapter(NullVTable).lift());
 
-impl MaskKernel for NullEncoding {
+impl MaskKernel for NullVTable {
     fn mask(&self, array: &NullArray, _mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(array.to_array().into_array())
+        Ok(array.to_array())
     }
 }
 
-register_kernel!(MaskKernelAdapter(NullEncoding).lift());
+register_kernel!(MaskKernelAdapter(NullVTable).lift());
 
-impl TakeKernel for NullEncoding {
+impl TakeKernel for NullVTable {
     fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
 
@@ -43,15 +43,15 @@ impl TakeKernel for NullEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(NullEncoding).lift());
+register_kernel!(TakeKernelAdapter(NullVTable).lift());
 
-impl MinMaxKernel for NullEncoding {
+impl MinMaxKernel for NullVTable {
     fn min_max(&self, _array: &NullArray) -> VortexResult<Option<MinMaxResult>> {
         Ok(None)
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(NullEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(NullVTable).lift());
 
 #[cfg(test)]
 mod test {
@@ -59,15 +59,14 @@ mod test {
     use vortex_dtype::DType;
     use vortex_mask::Mask;
 
-    use crate::array::Array;
     use crate::arrays::null::NullArray;
     use crate::compute::take;
-    use crate::{ArrayExt, IntoArray};
+    use crate::{IntoArray, ToCanonical};
 
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
-        let sliced = nulls.slice(0, 4).unwrap().as_::<NullArray>().clone();
+        let sliced = nulls.slice(0, 4).unwrap().to_null().unwrap();
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(sliced.validity_mask().unwrap(), Mask::AllFalse(4)));
@@ -76,10 +75,10 @@ mod test {
     #[test]
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
-        let taken = take(&nulls, &buffer![0u64, 2, 4, 6, 8].into_array())
+        let taken = take(nulls.as_ref(), &buffer![0u64, 2, 4, 6, 8].into_array())
             .unwrap()
-            .as_::<NullArray>()
-            .clone();
+            .to_null()
+            .unwrap();
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(taken.validity_mask().unwrap(), Mask::AllFalse(5)));

@@ -3,12 +3,12 @@ mod compare;
 mod nan_count;
 
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 
-use crate::{ALPArray, ALPEncoding};
+use crate::{ALPArray, ALPVTable};
 
-impl TakeKernel for ALPEncoding {
+impl TakeKernel for ALPVTable {
     fn take(&self, array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let taken_encoded = take(array.encoded(), indices)?;
         let taken_patches = array
@@ -16,8 +16,8 @@ impl TakeKernel for ALPEncoding {
             .map(|p| p.take(indices))
             .transpose()?
             .flatten()
-            .map(|p| {
-                p.cast_values(
+            .map(|patches| {
+                patches.cast_values(
                     &array
                         .dtype()
                         .with_nullability(taken_encoded.dtype().nullability()),
@@ -28,4 +28,4 @@ impl TakeKernel for ALPEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ALPEncoding).lift());
+register_kernel!(TakeKernelAdapter(ALPVTable).lift());

@@ -23,7 +23,6 @@ doctest = false                 # TODO(ngates): why?
 name = "pyvortex"
 
 [dependencies]
-arcref = { workspace = true }
 arrow = { workspace = true, features = ["pyarrow"] }
 futures = { workspace = true }
 itertools = { workspace = true }

@@ -3,11 +3,11 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
 
-use crate::arrays::{DecimalArray, DecimalEncoding};
+use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
-use crate::{Array, register_kernel};
+use crate::register_kernel;
 
-impl IsSortedKernel for DecimalEncoding {
+impl IsSortedKernel for DecimalVTable {
     fn is_sorted(&self, array: &DecimalArray) -> VortexResult<bool> {
         is_decimal_sorted(array, false)
     }
@@ -17,7 +17,7 @@ impl IsSortedKernel for DecimalEncoding {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(DecimalEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(DecimalVTable).lift());
 
 fn is_decimal_sorted(array: &DecimalArray, strict: bool) -> VortexResult<bool> {
     match_each_decimal_value_type!(array.values_type, |$S| {
@@ -83,8 +83,8 @@ mod tests {
         let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
         let unsorted_array = DecimalArray::new(unsorted, dtype, Validity::NonNullable);
 
-        assert!(is_sorted(&sorted_array).unwrap());
-        assert!(!is_sorted(&unsorted_array).unwrap());
+        assert!(is_sorted(sorted_array.as_ref()).unwrap());
+        assert!(!is_sorted(unsorted_array.as_ref()).unwrap());
     }
 
     #[test]
@@ -105,7 +105,7 @@ mod tests {
         let strict_sorted_array = DecimalArray::new(strict_sorted, dtype, Validity::NonNullable);
         let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
 
-        assert!(is_strict_sorted(&strict_sorted_array).unwrap());
-        assert!(!is_strict_sorted(&sorted_array).unwrap());
+        assert!(is_strict_sorted(strict_sorted_array.as_ref()).unwrap());
+        assert!(!is_strict_sorted(sorted_array.as_ref()).unwrap());
     }
 }

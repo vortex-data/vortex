@@ -7,7 +7,8 @@ use vortex_scalar::Scalar;
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::stats::{Precision, Stat, StatsProviderExt};
-use crate::{Array, Encoding};
+use crate::vtable::VTable;
+use crate::{Array, ArrayExt};
 
 /// Computes the min & max of an array, returning the (min, max) values
 /// The return values are (min, max) scalars, where None indicates that the value is non-existent
@@ -63,7 +64,7 @@ impl ComputeFnVTable for MinMax {
                     "min > max: min={} max={} encoding={}",
                     min,
                     max,
-                    array.encoding()
+                    array.encoding_id()
                 );
 
                 // Update the stats set with the computed min/max
@@ -142,12 +143,12 @@ fn min_max_impl(
         return min_max(array.as_ref());
     }
 
-    vortex_bail!(NotImplemented: "min_max", array.encoding());
+    vortex_bail!(NotImplemented: "min_max", array.encoding_id());
 }
 
 /// Computes the min and max of an array, returning the (min, max) values
 /// If the array is empty or has only nulls, the result is `None`.
-pub trait MinMaxKernel: Encoding {
+pub trait MinMaxKernel: VTable {
     fn min_max(&self, array: &Self::Array) -> VortexResult<Option<MinMaxResult>>;
 }
 
@@ -155,18 +156,18 @@ pub struct MinMaxKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(MinMaxKernelRef);
 
 #[derive(Debug)]
-pub struct MinMaxKernelAdapter<E: Encoding>(pub E);
+pub struct MinMaxKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + MinMaxKernel> MinMaxKernelAdapter<E> {
+impl<V: VTable + MinMaxKernel> MinMaxKernelAdapter<V> {
     pub const fn lift(&'static self) -> MinMaxKernelRef {
         MinMaxKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + MinMaxKernel> Kernel for MinMaxKernelAdapter<E> {
+impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = UnaryArgs::<()>::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
         let dtype = DType::Struct(
@@ -176,7 +177,7 @@ impl<E: Encoding + MinMaxKernel> Kernel for MinMaxKernelAdapter<E> {
             )),
             Nullability::Nullable,
         );
-        Ok(Some(match E::min_max(&self.0, array)? {
+        Ok(Some(match V::min_max(&self.0, array)? {
             None => Scalar::null(dtype).into(),
             Some(MinMaxResult { min, max }) => Scalar::struct_(dtype, vec![min, max]).into(),
         }))
@@ -204,7 +205,7 @@ mod tests {
     fn test_prim_max() {
         let p = PrimitiveArray::new(buffer![1, 2, 3], Validity::NonNullable);
         assert_eq!(
-            min_max(&p).unwrap(),
+            min_max(p.as_ref()).unwrap(),
             Some(MinMaxResult {
                 min: 1.into(),
                 max: 3.into()
@@ -219,7 +220,7 @@ mod tests {
             Validity::NonNullable,
         );
         assert_eq!(
-            min_max(&p).unwrap(),
+            min_max(p.as_ref()).unwrap(),
             Some(MinMaxResult {
                 min: true.into(),
                 max: true.into()
@@ -231,7 +232,7 @@ mod tests {
             Validity::NonNullable,
         );
         assert_eq!(
-            min_max(&p).unwrap(),
+            min_max(p.as_ref()).unwrap(),
             Some(MinMaxResult {
                 min: false.into(),
                 max: false.into()
@@ -243,7 +244,7 @@ mod tests {
             Validity::NonNullable,
         );
         assert_eq!(
-            min_max(&p).unwrap(),
+            min_max(p.as_ref()).unwrap(),
             Some(MinMaxResult {
                 min: false.into(),
                 max: true.into()
@@ -254,6 +255,6 @@ mod tests {
     #[test]
     fn test_null() {
         let p = NullArray::new(1);
-        assert_eq!(min_max(&p).unwrap(), None);
+        assert_eq!(min_max(p.as_ref()).unwrap(), None);
     }
 }

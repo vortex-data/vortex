@@ -1,20 +1,20 @@
-#define ENABLE_DUCKDB_FFI
-
-#include "vortex_write.hpp"
-#include "vortex_common.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
-
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/multi_file_reader.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/function/copy_function.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
 
-// TODO(joe): enable multi-threaded writes, see `VortexWriteSink`.
+#include "vortex_write.hpp"
+#include "vortex_common.hpp"
 
-namespace duckdb {
+// TODO(joe): enable multi-threaded writes, see `WriteSink`.
 
-struct VortexWriteBindData : public TableFunctionData {
+using namespace duckdb;
+
+namespace vortex {
+
+struct WriteBindData : public TableFunctionData {
 	//! True is the column is nullable
 	vector<unsigned char> column_nullable;
 
@@ -22,16 +22,16 @@ struct VortexWriteBindData : public TableFunctionData {
 	vector<string> column_names;
 };
 
-struct VortexWriteGlobalData : public GlobalFunctionData {
+struct WriteGlobalData : public GlobalFunctionData {
 	unique_ptr<ArrayStreamSink> sink;
 };
 
-struct VortexWriteLocalData : public LocalFunctionData {};
+struct WriteLocalData : public LocalFunctionData {};
 
-void VortexWriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalFunctionData &gstate,
-                     LocalFunctionData &lstate, DataChunk &input) {
-	auto &global_state = gstate.Cast<VortexWriteGlobalData>();
-	auto bind = bind_data.Cast<VortexWriteBindData>();
+void WriteSink(ExecutionContext &context, FunctionData &bind_data, GlobalFunctionData &gstate,
+               LocalFunctionData &lstate, DataChunk &input) {
+	auto &global_state = gstate.Cast<WriteGlobalData>();
+	auto bind = bind_data.Cast<WriteBindData>();
 
 	for (auto i = 0u; i < input.ColumnCount(); i++) {
 		input.data[i].Flatten(input.size());
@@ -67,11 +67,11 @@ std::vector<idx_t> TableNullability(ClientContext &context, const string &catalo
 	return vec;
 }
 
-void RegisterVortexWriteFunction(DatabaseInstance &instance) {
+void RegisterWriteFunction(DatabaseInstance &instance) {
 	CopyFunction function("vortex");
 	function.copy_to_bind = [](ClientContext &context, CopyFunctionBindInput &input, const vector<string> &names,
 	                           const vector<LogicalType> &sql_types) -> unique_ptr<FunctionData> {
-		auto result = make_uniq<VortexWriteBindData>();
+		auto result = make_uniq<WriteBindData>();
 
 		auto not_null = TableNullability(context, input.info.catalog, input.info.schema, input.info.table);
 
@@ -86,8 +86,8 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 	};
 	function.copy_to_initialize_global = [](ClientContext &context, FunctionData &bind_data,
 	                                        const string &file_path) -> unique_ptr<GlobalFunctionData> {
-		auto &bind = bind_data.Cast<VortexWriteBindData>();
-		auto gstate = make_uniq<VortexWriteGlobalData>();
+		auto &bind = bind_data.Cast<WriteBindData>();
+		auto gstate = make_uniq<WriteGlobalData>();
 
 		auto column_names = std::vector<const char *>();
 		for (const auto &col_id : bind.column_names) {
@@ -105,11 +105,11 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 	};
 	function.copy_to_initialize_local = [](ExecutionContext &context,
 	                                       FunctionData &bind_data) -> unique_ptr<LocalFunctionData> {
-		return std::move(make_uniq<VortexWriteLocalData>());
+		return std::move(make_uniq<WriteLocalData>());
 	};
-	function.copy_to_sink = VortexWriteSink;
+	function.copy_to_sink = WriteSink;
 	function.copy_to_finalize = [](ClientContext &context, FunctionData &bind_data, GlobalFunctionData &gstate) {
-		auto &global_state = gstate.Cast<VortexWriteGlobalData>();
+		auto &global_state = gstate.Cast<WriteGlobalData>();
 		global_state.sink->Close();
 	};
 	function.execution_mode = [](bool preserve_insertion_order,
@@ -121,4 +121,4 @@ void RegisterVortexWriteFunction(DatabaseInstance &instance) {
 	ExtensionUtil::RegisterFunction(instance, function);
 }
 
-} // namespace duckdb
+} // namespace vortex
