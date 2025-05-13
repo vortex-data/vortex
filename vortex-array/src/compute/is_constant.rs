@@ -46,7 +46,11 @@ pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexRe
 
     if options.cost == Cost::Canonicalize {
         // When we run linear canonicalize, there we must always return an exact answer.
-        assert!(result.is_some())
+        assert!(
+            result.is_some(),
+            "is constant in array {} canonicalize returned None",
+            array
+        );
     }
 
     Ok(result)
