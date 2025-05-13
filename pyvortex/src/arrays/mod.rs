@@ -19,7 +19,7 @@ use vortex::nbytes::NBytes;
 use vortex::{Array, ArrayExt, ArrayRef};
 
 use crate::arrays::native::PyNativeArray;
-use crate::arrays::py::PythonArray;
+use crate::arrays::py::{PyPythonArray, PythonArray};
 use crate::dtype::PyDType;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
@@ -33,6 +33,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     m.add_class::<PyArray>()?;
     m.add_class::<PyNativeArray>()?;
+    m.add_class::<PyPythonArray>()?;
 
     // Canonical encodings
     m.add_class::<builtins::PyNullArray>()?;
