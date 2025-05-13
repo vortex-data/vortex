@@ -226,7 +226,7 @@ fn verify_row_counts(
                 if actual_row_count != expected_row_counts[idx] {
                     if idx == 15 && actual_row_count == 0 {
                         warn!(
-                            "*IGNORING* mismatched row count {} instead of {} for format {:?} because Query 15 is flaky. See: https://github.com/spiraldb/vortex/issues/2395",
+                            "*IGNORING* mismatched row count {} instead of {} for format {:?} because Query 15 is flaky. See: https://github.com/vortex-data/vortex/issues/2395",
                             actual_row_count,
                             expected_row_counts[idx],
                             format,

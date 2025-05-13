@@ -1,6 +1,59 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "local>spiraldb/renovate-config"
+    "config:base",
+    ":automergeMinor",
+    ":automergePr",
+    ":automergeRequireAllStatusChecks",
+    ":combinePatchMinorReleases",
+    ":dependencyDashboard",
+    ":separateMultipleMajorReleases"
+  ],
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "autoApprove": true,
+  "automergeStrategy": "squash",
+  "rebaseWhen": "conflicted",
+  "cloneSubmodules": true,
+  "platformAutomerge": true,
+  "separateMinorPatch": true,
+  "patch": {
+    "groupName": "all patch updates"
+  },
+  "packageRules": [
+    {
+      "matchPackagePrefixes": [
+        "arrow",
+        "parquet",
+        "datafusion",
+        "pyo3"
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch"
+      ],
+      "groupName": "datafusion and friends"
+    },
+    {
+      "matchPackagePrefixes": [
+        "flatbuffers",
+        "flexbuffers"
+      ],
+      "groupName": "flatbuffers"
+    },
+    {
+      "matchPackagePrefixes": [
+        "futures"
+      ],
+      "groupName": "futures"
+    },
+    {
+      "matchPackagePrefixes": [
+        "tonic"
+      ],
+      "groupName": "tonic"
+    }
   ]
 }

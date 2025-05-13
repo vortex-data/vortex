@@ -106,7 +106,7 @@ impl StatsTable {
 /// TODO(ngates): we should make it such that the stats table stores a mirror of the DType
 ///  underneath each stats column. For example, `min: i32` for an `i32` array.
 ///  Or `min: {a: i32, b: i32}` for a struct array of type `{a: i32, b: i32}`.
-///  See: <https://github.com/spiraldb/vortex/issues/1835>
+///  See: <https://github.com/vortex-data/vortex/issues/1835>
 pub struct StatsAccumulator {
     stats: Arc<[Stat]>,
     builders: Vec<Box<dyn ArrayBuilder>>,

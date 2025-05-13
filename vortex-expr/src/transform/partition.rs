@@ -27,7 +27,7 @@ static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
 /// of the scope itself. The fix would be for the returned `PartitionedExpr` to include a partition
 /// expression for computing the validity, or to include that expression as part of the root.
 ///
-/// See <https://github.com/spiraldb/vortex/issues/1907>.
+/// See <https://github.com/vortex-data/vortex/issues/1907>.
 ///
 // TODO(ngates): document the behaviour of conflicting `Field::Index` and `Field::Name`.
 pub fn partition(expr: ExprRef, dtype: &DType) -> VortexResult<PartitionedExpr> {
