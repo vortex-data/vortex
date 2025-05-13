@@ -34,7 +34,6 @@ impl OperationsVTable<DictVTable> for DictVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ArrayStatistics;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_scalar::Scalar;
 
