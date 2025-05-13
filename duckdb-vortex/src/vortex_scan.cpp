@@ -67,10 +67,10 @@ struct ScanPartition {
 /// parallelized by dividing it into ranges, each handled by a different scan.
 struct ScanLocalState : public LocalTableFunctionState {
 	idx_t array_row_offset;
-	unique_ptr<Array> array;
-	unique_ptr<ArrayIterator> iter;
-	unique_ptr<ConversionCache> cache;
-	duckdb_moodycamel::ConcurrentQueue<ScanPartition> scan_partitions{8192};
+	unique_ptr<Array> currently_scanned_array;
+	unique_ptr<ArrayIterator> array_iterator;
+	unique_ptr<ConversionCache> conversion_cache;
+	duckdb_moodycamel::ConcurrentQueue<ScanPartition> scan_partitions {8192};
 };
 
 struct ScanGlobalState : public GlobalTableFunctionState {
@@ -94,7 +94,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	std::atomic_uint32_t next_file_idx;
 
 	// Multi producer, multi consumer lockfree queue.
-	duckdb_moodycamel::ConcurrentQueue<ScanPartition> scan_partitions{8192};
+	duckdb_moodycamel::ConcurrentQueue<ScanPartition> scan_partitions {8192};
 
 	std::vector<std::shared_ptr<LayoutReader>> layout_readers;
 
@@ -287,12 +287,12 @@ static unique_ptr<ArrayIterator> OpenArrayIter(ScanGlobalState &global_state,
 static bool GetNextArray(ClientContext &context, const BindData &bind_data, ScanGlobalState &global_state,
                          ScanLocalState &local_state, DataChunk &output) {
 
-	if (local_state.iter == nullptr) {
+	if (local_state.array_iterator == nullptr) {
 		ScanPartition partition;
 
 		// Try to pop a partition off the thread local queue first.
-		if (bool success =
-		        (local_state.scan_partitions.try_dequeue(partition) || global_state.scan_partitions.try_dequeue(partition));
+		if (bool success = (local_state.scan_partitions.try_dequeue(partition) ||
+		                    global_state.scan_partitions.try_dequeue(partition));
 		    !success) {
 
 			// Check if all files have been partitioned.
@@ -315,14 +315,14 @@ static bool GetNextArray(ClientContext &context, const BindData &bind_data, Scan
 
 		global_state.partitons_processed += 1;
 		std::shared_ptr<LayoutReader> layout_reader = global_state.layout_readers[partition.file_idx];
-		local_state.iter = OpenArrayIter(global_state, layout_reader, partition);
+		local_state.array_iterator = OpenArrayIter(global_state, layout_reader, partition);
 	}
 
-	local_state.array = local_state.iter->NextArray();
+	local_state.currently_scanned_array = local_state.array_iterator->NextArray();
 	local_state.array_row_offset = 0;
 
-	if (local_state.array == nullptr) {
-		local_state.iter = nullptr;
+	if (local_state.currently_scanned_array == nullptr) {
+		local_state.array_iterator = nullptr;
 		return false;
 	}
 
@@ -334,7 +334,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 	auto &global_state = data.global_state->Cast<ScanGlobalState>();
 	auto &local_state = data.local_state->Cast<ScanLocalState>();
 
-	if (local_state.array == nullptr) {
+	if (local_state.currently_scanned_array == nullptr) {
 		while (!GetNextArray(context, bind_data, global_state, local_state, output)) {
 			if (global_state.finished) {
 				output.Reset();
@@ -353,16 +353,16 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		}
 	}
 
-	if (local_state.cache == nullptr) {
-		local_state.cache = make_uniq<ConversionCache>(global_state.cache_id++);
+	if (local_state.conversion_cache == nullptr) {
+		local_state.conversion_cache = make_uniq<ConversionCache>(global_state.cache_id++);
 	}
 
-	local_state.array_row_offset = local_state.array->ToDuckDBVector(
-	    local_state.array_row_offset, reinterpret_cast<duckdb_data_chunk>(&output), local_state.cache.get());
+	local_state.array_row_offset = local_state.currently_scanned_array->ToDuckDBVector(
+	    local_state.array_row_offset, reinterpret_cast<duckdb_data_chunk>(&output), local_state.conversion_cache.get());
 
 	if (local_state.array_row_offset == 0) {
-		local_state.array = nullptr;
-		local_state.cache = nullptr;
+		local_state.currently_scanned_array = nullptr;
+		local_state.conversion_cache = nullptr;
 	}
 }
 
