@@ -7,5 +7,5 @@ duckdb_extension_load(vortex
 )
 
 # These are only build and included with the duckdb prebuild executable used locally
-duckdb_extension_load(tpch)
-duckdb_extension_load(tpcds)
+#duckdb_extension_load(tpch)
+#duckdb_extension_load(tpcds)

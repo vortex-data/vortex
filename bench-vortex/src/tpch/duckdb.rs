@@ -98,6 +98,16 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
 
     let mut command = Command::new(opts.duckdb_path.unwrap_or_else(|| PathBuf::from("duckdb")));
 
+    command.arg("-c")
+    .arg(r#"load "/Users/joeisaacs/git/spiraldb/vortex/duckdb-vortex/build/release/extension/vortex/vortex.duckdb_extension";"#);
+
+    // command
+    //     .arg("-c")
+    //     .arg("SET autoinstall_known_extensions=1;")
+    //     .arg("SET autoload_known_extensions=1;");
+
+    // command.arg("-c").arg("INSTALL httpfs;").arg("LOAD httpfs;");
+
     match opts.dataset {
         TpcDataset::TpcH => command
             .arg("-c")

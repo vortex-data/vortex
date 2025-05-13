@@ -19,13 +19,14 @@ use crate::ddb::timing::parse_query_output;
 
 #[derive(Debug, Clone)]
 pub struct DuckDBExecutor {
+    #[allow(dead_code)]
     duckdb_path: PathBuf,
     duckdb_file: PathBuf,
 }
 
 impl DuckDBExecutor {
     pub fn command(&self) -> Command {
-        let mut command = Command::new(&self.duckdb_path);
+        let mut command = Command::new("duckdb -unsigned");
         command.arg(&self.duckdb_file);
         command
     }
@@ -257,6 +258,23 @@ pub fn register_tables(
     };
 
     let mut command = duckdb_executor.command();
+
+    // command
+    //     .arg("-c")
+    //     .arg("SET autoinstall_known_extensions=1;")
+    //     .arg("SET autoload_known_extensions=1;");
+    // command.arg("-c").arg("INSTALL httpfs;").arg("LOAD httpfs;");
+    // command.arg("-c").arg("install aws; load aws;");
+
+    command.arg("-c")
+        .arg(r#"load "/Users/joeisaacs/git/spiraldb/vortex/duckdb-vortex/build/release/extension/vortex/vortex.duckdb_extension";"#);
+
+    command.arg("-c").arg(
+        "CREATE OR REPLACE SECRET secret (
+            TYPE s3,
+            PROVIDER credential_chain
+        );",
+    );
 
     command.arg("-c").arg(create_table_registration(
         &effective_url,
