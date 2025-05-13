@@ -8,22 +8,22 @@ use crate::{DictArray, DictVTable};
 
 impl OperationsVTable<DictVTable> for DictVTable {
     fn slice(array: &DictArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let sliced_code = self.codes().slice(start, stop)?;
+        let sliced_code = array.codes().slice(start, stop)?;
         if sliced_code.is::<ConstantVTable>() {
             let code = Option::<usize>::try_from(&sliced_code.scalar_at(0)?)?;
             return if let Some(code) = code {
                 Ok(
-                    ConstantArray::new(self.values().scalar_at(code)?, sliced_code.len())
+                    ConstantArray::new(array.values().scalar_at(code)?, sliced_code.len())
                         .to_array(),
                 )
             } else {
-                let dtype = self.values().dtype().with_nullability(
-                    self.values().dtype().nullability() | self.codes().dtype().nullability(),
+                let dtype = array.values().dtype().with_nullability(
+                    array.values().dtype().nullability() | array.codes().dtype().nullability(),
                 );
                 Ok(ConstantArray::new(Scalar::null(dtype), sliced_code.len()).to_array())
             };
         }
-        DictArray::try_new(sliced_code, self.values().clone()).map(|a| a.into_array())
+        DictArray::try_new(sliced_code, array.values().clone()).map(|a| a.into_array())
     }
 
     fn scalar_at(array: &DictArray, index: usize) -> VortexResult<Scalar> {
@@ -34,8 +34,8 @@ impl OperationsVTable<DictVTable> for DictVTable {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ArrayStatistics;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{Array, ArrayStatistics};
     use vortex_scalar::Scalar;
 
     use crate::DictArray;
