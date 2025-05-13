@@ -4,7 +4,6 @@
 #![feature(trusted_len)]
 #![feature(array_chunks)]
 #![feature(iterator_try_collect)]
-#![feature(associated_type_defaults)]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
 //! At the heart of Vortex are [arrays](ArrayRef) and [encodings](EncodingRef).
