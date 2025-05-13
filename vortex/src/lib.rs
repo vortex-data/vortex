@@ -69,7 +69,6 @@ mod test {
     fn compress() -> VortexResult<()> {
         // [compress]
         use vortex::compressor::BtrBlocksCompressor;
-        use vortex::nbytes::NBytes;
 
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 

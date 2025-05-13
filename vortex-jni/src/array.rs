@@ -9,7 +9,6 @@ use vortex::arrays::{VarBinArray, VarBinViewArray};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_err};
-use vortex::nbytes::NBytes;
 use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::errors::try_or_throw;
