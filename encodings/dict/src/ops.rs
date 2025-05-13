@@ -10,10 +10,18 @@ impl ArrayOperationsImpl for DictArray {
     fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         let sliced_code = self.codes().slice(start, stop)?;
         if sliced_code.is_encoding(ConstantEncoding.id()) {
-            let code = usize::try_from(&sliced_code.scalar_at(0)?)?;
-            return Ok(
-                ConstantArray::new(self.values().scalar_at(code)?, sliced_code.len()).to_array(),
-            );
+            let code = Option::<usize>::try_from(&sliced_code.scalar_at(0)?)?;
+            return if let Some(code) = code {
+                Ok(
+                    ConstantArray::new(self.values().scalar_at(code)?, sliced_code.len())
+                        .to_array(),
+                )
+            } else {
+                let dtype = self.values().dtype().with_nullability(
+                    self.values().dtype().nullability() | self.codes().dtype().nullability(),
+                );
+                Ok(ConstantArray::new(Scalar::null(dtype), sliced_code.len()).to_array())
+            };
         }
         DictArray::try_new(sliced_code, self.values().clone()).map(|a| a.into_array())
     }
