@@ -68,11 +68,8 @@ jobs:
         run: |
           cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
 
-      - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
-
-      - name: Install gzip
-        run: sudo apt-get update && sudo apt-get install -y gzip
+      - name: Install ninja & gzip
+        run: sudo apt-get update && sudo apt-get install -y ninja-build gzip
 
       - name: DuckDB extension build
         env:
@@ -86,9 +83,9 @@ jobs:
         shell: bash
         run: |
           # Generate data, running each query once to make sure they don't panic.
-          target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json
-          target/release_debug/${{ matrix.binary_name }} --targets datafusion:vortex -i1 -d gh-json
-          target/release_debug/${{ matrix.binary_name }} --targets duckdb:vortex -i1 -d gh-json
+          RUST_BACKTRACE = 1 target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json
+          RUST_BACKTRACE = 1 target/release_debug/${{ matrix.binary_name }} --targets datafusion:vortex -i1 -d gh-json
+          RUST_BACKTRACE = 1 target/release_debug/${{ matrix.binary_name }} --targets duckdb:vortex -i1 -d gh-json
 
       - name: Upload data
         if: matrix.remote_storage != null

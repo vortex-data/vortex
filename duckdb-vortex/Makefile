@@ -17,4 +17,6 @@ export VCPKG_FEATURE_FLAGS=-binarycaching
 export VCPKG_OSX_DEPLOYMENT_TARGET=12.0
 export VCPKG_TOOLCHAIN_PATH := ${PROJ_DIR}vcpkg/scripts/buildsystems/vcpkg.cmake
 
+export BUILD_EXTENSIONS_ONLY=1
+
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
