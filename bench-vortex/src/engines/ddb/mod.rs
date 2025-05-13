@@ -102,7 +102,7 @@ pub fn build_vortex_duckdb() {
         .output()
         .expect("Trying to build duckdb vortex extension");
 
-    if !output.status.success() || !output.stderr.is_empty() {
+    if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         vortex_panic!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
