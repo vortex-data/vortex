@@ -43,7 +43,7 @@ where
 /// A return value of `true` indicates that another element was pulled from the iterator, and a return
 /// of `false` indicates that the iterator is finished.
 ///
-/// It is an error to call this function again after the stream is finished.
+/// It is an error to call this function again after the iterator is finished.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_iter_next(
     iter: *mut vx_array_iter,

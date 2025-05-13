@@ -200,7 +200,7 @@ typedef struct vx_file_scan_options {
  * A return value of `true` indicates that another element was pulled from the iterator, and a return
  * of `false` indicates that the iterator is finished.
  *
- * It is an error to call this function again after the stream is finished.
+ * It is an error to call this function again after the iterator is finished.
  */
 struct vx_array *vx_array_iter_next(struct vx_array_iter *iter,
                                     struct vx_error **error);
