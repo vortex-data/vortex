@@ -41,7 +41,7 @@ impl CompareKernel for DecimalBytePartsEncoding {
     }
 }
 
-// clippy prefer smaller functions
+// clippy prefers smaller functions
 fn decimal_value_wrapper_to_primitive(
     decimal_value: DecimalValue,
     ptype: PType,
