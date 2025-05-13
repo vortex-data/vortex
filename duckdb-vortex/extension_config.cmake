@@ -5,7 +5,3 @@ duckdb_extension_load(vortex
     SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}
     LOAD_TESTS
 )
-
-# These are only build and included with the duckdb prebuild executable used locally
-#duckdb_extension_load(tpch)
-#duckdb_extension_load(tpcds)
