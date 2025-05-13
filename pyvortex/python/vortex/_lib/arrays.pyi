@@ -37,6 +37,9 @@ class Array:
 
 class NativeArray(vx.Array): ...
 
+class PythonArray(vx.Array):
+    def __init__(self, len: int, dtype: vx.DType): ...
+
 @final
 class NullArray(vx.Array): ...
 
