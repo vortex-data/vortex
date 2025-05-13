@@ -6,7 +6,7 @@ mod serde;
 
 pub use array::*;
 
-use crate::vtable::VTable;
+use crate::vtable::{NotSupported, VTable};
 use crate::{EncodingId, EncodingRef, vtable};
 
 vtable!(Chunked);
@@ -21,7 +21,7 @@ impl VTable for ChunkedVTable {
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = Self;
-    type EncodeVTable = ();
+    type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

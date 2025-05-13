@@ -5,7 +5,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
+    ValidityVTableFromValidityHelper,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 use vortex_buffer::Buffer;
@@ -27,8 +28,8 @@ impl VTable for DeltaVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
-    type EncodeVTable = ();
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

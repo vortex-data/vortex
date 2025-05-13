@@ -1,6 +1,6 @@
 use vortex_error::VortexResult;
 
-use crate::vtable::VTable;
+use crate::vtable::{NotSupported, VTable};
 use crate::{Array, Canonical};
 
 pub trait EncodeVTable<V: VTable> {
@@ -16,7 +16,7 @@ pub trait EncodeVTable<V: VTable> {
 }
 
 /// Default implementation for encodings that do not support encoding.
-impl<V: VTable> EncodeVTable<V> for () {
+impl<V: VTable> EncodeVTable<V> for NotSupported {
     fn encode(
         _encoding: &V::Encoding,
         _canonical: &Canonical,

@@ -24,7 +24,8 @@ pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
 pub use native_value::NativeValue;
 
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
+    ValidityVTableFromValidityHelper,
 };
 
 vtable!(Primitive);
@@ -38,8 +39,8 @@ impl VTable for PrimitiveVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
-    type EncodeVTable = ();
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

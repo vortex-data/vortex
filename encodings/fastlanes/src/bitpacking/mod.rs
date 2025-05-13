@@ -8,7 +8,8 @@ use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
+    ValidityVTableFromValidityHelper,
 };
 use vortex_array::{Array, ArrayExt, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_buffer::ByteBuffer;
@@ -34,7 +35,7 @@ impl VTable for BitPackedVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
+    type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
 

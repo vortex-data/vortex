@@ -5,7 +5,7 @@ use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, VTable, ValidityChild, ValidityVTableFromChild,
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
 use vortex_buffer::Buffer;
@@ -25,7 +25,7 @@ impl VTable for ALPRDVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
+    type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
 

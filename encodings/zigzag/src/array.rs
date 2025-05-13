@@ -1,6 +1,7 @@
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityChild, ValidityVTableFromChild,
+    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityChild,
+    ValidityVTableFromChild,
 };
 use vortex_array::{
     Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
@@ -24,7 +25,7 @@ impl VTable for ZigZagVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
+    type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
 

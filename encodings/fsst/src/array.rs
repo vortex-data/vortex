@@ -1,7 +1,9 @@
 use fsst::{Decompressor, Symbol};
 use vortex_array::arrays::VarBinArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, VTable, ValidityChild, ValidityVTableFromChild};
+use vortex_array::vtable::{
+    ArrayVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
+};
 use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -18,7 +20,7 @@ impl VTable for FSSTVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
+    type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
 

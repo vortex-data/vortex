@@ -8,7 +8,7 @@ pub use array::*;
 // Re-export the BooleanBuffer type on our API surface.
 pub use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder};
 
-use crate::vtable::{VTable, ValidityVTableFromValidityHelper};
+use crate::vtable::{NotSupported, VTable, ValidityVTableFromValidityHelper};
 use crate::{EncodingId, EncodingRef, vtable};
 
 vtable!(Bool);
@@ -22,8 +22,8 @@ impl VTable for BoolVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
-    type EncodeVTable = ();
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
     // Enable serde for this encoding
     type SerdeVTable = Self;
 

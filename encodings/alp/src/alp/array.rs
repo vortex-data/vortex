@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, VTable, ValidityChild, ValidityVTableFromChild,
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::{DType, PType};
@@ -22,7 +22,7 @@ impl VTable for ALPVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
+    type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
 

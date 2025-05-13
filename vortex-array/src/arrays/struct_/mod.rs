@@ -9,7 +9,7 @@ use vortex_scalar::Scalar;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityHelper,
+    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
 use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
@@ -28,8 +28,8 @@ impl VTable for StructVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
-    type EncodeVTable = ();
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

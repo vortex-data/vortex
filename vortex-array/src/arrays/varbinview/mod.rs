@@ -14,7 +14,8 @@ use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, VTable, ValidityHelper, ValidityVTableFromValidityHelper,
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
+    ValidityVTableFromValidityHelper,
 };
 use crate::{ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
 
@@ -267,8 +268,8 @@ impl VTable for VarBinViewVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
-    type EncodeVTable = ();
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

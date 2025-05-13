@@ -7,8 +7,8 @@ use vortex_scalar::Scalar;
 use crate::serde::ArrayParts;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, OperationsVTable, SerdeVTable, VTable, ValidityVTable,
-    VisitorVTable,
+    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, SerdeVTable, VTable,
+    ValidityVTable, VisitorVTable,
 };
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical, EmptyMetadata,
@@ -28,8 +28,8 @@ impl VTable for NullVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
-    type EncodeVTable = ();
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

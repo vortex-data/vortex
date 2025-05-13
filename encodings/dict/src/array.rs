@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use arrow_buffer::BooleanBuffer;
 use vortex_array::compute::{cast, take};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, CanonicalVTable, VTable, ValidityVTable};
+use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
     Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
@@ -22,7 +22,7 @@ impl VTable for DictVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
+    type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
 

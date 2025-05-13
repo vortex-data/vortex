@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, CanonicalVTable, VTable, ValidityVTable};
+use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
     Array, ArrayExt, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
@@ -25,7 +25,7 @@ impl VTable for RunEndVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
+    type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
 

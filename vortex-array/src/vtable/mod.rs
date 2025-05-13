@@ -49,14 +49,14 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type VisitorVTable: VisitorVTable<Self>;
 
     /// Optionally enable implementing dynamic compute dispatch for this encoding.
-    /// Can be disabled by assigning to the unit `()` type.
+    /// Can be disabled by assigning to the [`NotSupported`] type.
     type ComputeVTable: ComputeVTable<Self>;
     /// Optionally enable the [`EncodeVTable`] for this encoding. This allows it to partake in
     /// compression.
-    /// Can be disabled by assigning to the unit `()` type.
+    /// Can be disabled by assigning to the [`NotSupported`] type.
     type EncodeVTable: EncodeVTable<Self>;
     /// Optionally enable serde for this encoding by implementing the [`SerdeVTable`] trait.
-    /// Can be disabled by assigning to the unit `()` type.
+    /// Can be disabled by assigning to the [`NotSupported`] type.
     type SerdeVTable: SerdeVTable<Self>;
 
     /// Returns the ID of the encoding.
@@ -65,6 +65,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Returns the encoding for the array.
     fn encoding(array: &Self::Array) -> EncodingRef;
 }
+
+/// Placeholder type used to indicate when a particular vtable is not supported by the encoding.
+pub struct NotSupported;
 
 #[macro_export]
 macro_rules! vtable {

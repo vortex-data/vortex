@@ -7,8 +7,8 @@ use itertools::Itertools;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
-    ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityChild, ValidityHelper,
-    ValidityVTableFromChild,
+    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityChild,
+    ValidityHelper, ValidityVTableFromChild,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::Nullability::NonNullable;
@@ -27,8 +27,8 @@ impl VTable for DecimalBytePartsVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
-    type EncodeVTable = ();
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {

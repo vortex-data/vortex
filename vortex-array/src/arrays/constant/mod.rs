@@ -5,7 +5,9 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
-use crate::vtable::{ArrayVTable, OperationsVTable, VTable, ValidityVTable, VisitorVTable};
+use crate::vtable::{
+    ArrayVTable, NotSupported, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
+};
 use crate::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingId, EncodingRef, IntoArray, vtable,
 };
@@ -37,7 +39,7 @@ impl VTable for ConstantVTable {
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     // TODO(ngates): implement a compute kernel for elementwise operations
-    type ComputeVTable = ();
+    type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
 

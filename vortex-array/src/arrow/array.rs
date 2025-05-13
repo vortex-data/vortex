@@ -10,7 +10,8 @@ use vortex_scalar::Scalar;
 use crate::arrow::FromArrowArray;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
-    ArrayVTable, CanonicalVTable, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
+    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityVTable,
+    VisitorVTable,
 };
 use crate::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef,
@@ -27,9 +28,9 @@ impl VTable for ArrowVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
-    type EncodeVTable = ();
-    type SerdeVTable = ();
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
+    type SerdeVTable = NotSupported;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
         EncodingId::new_ref("vortex.arrow")

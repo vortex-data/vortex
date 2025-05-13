@@ -4,7 +4,7 @@ use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray};
 use vortex_array::compute::{Operator, compare, fill_null, filter, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::{ArrayVTable, VTable, ValidityVTable};
+use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, match_each_integer_ptype};
@@ -28,7 +28,7 @@ impl VTable for SparseVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = ();
+    type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
     type SerdeVTable = Self;
 

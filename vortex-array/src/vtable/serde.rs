@@ -5,7 +5,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::serde::ArrayParts;
-use crate::vtable::VTable;
+use crate::vtable::{NotSupported, VTable};
 use crate::{ArrayContext, DeserializeMetadata, EmptyMetadata, SerializeMetadata};
 
 /// VTable for implementing marshalling of arrays.
@@ -35,7 +35,7 @@ pub trait SerdeVTable<V: VTable> {
     ) -> VortexResult<V::Array>;
 }
 
-impl<V: VTable> SerdeVTable<V> for () {
+impl<V: VTable> SerdeVTable<V> for NotSupported {
     type Metadata = EmptyMetadata;
 
     fn metadata(_array: &V::Array) -> Option<Self::Metadata> {
