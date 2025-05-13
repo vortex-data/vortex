@@ -71,6 +71,11 @@ jobs:
       - name: Install ninja & gzip
         run: sudo apt-get update && sudo apt-get install -y ninja-build gzip
 
+      - name: Install DuckDB
+        uses: opt-nc/setup-duckdb-action@v1.0.12
+        with:
+          version: v1.2.2
+
       - name: DuckDB extension build
         env:
           # Build DuckDB and the Vortex extension with `-march=native`.
