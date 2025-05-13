@@ -17,7 +17,7 @@ impl SerdeVTable<ZigZagVTable> for ZigZagVTable {
         Some(EmptyMetadata)
     }
 
-    fn decode(
+    fn build(
         _encoding: &ZigZagEncoding,
         dtype: DType,
         len: usize,

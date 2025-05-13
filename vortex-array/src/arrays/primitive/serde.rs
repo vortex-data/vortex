@@ -16,7 +16,7 @@ impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
         Some(EmptyMetadata)
     }
 
-    fn decode(
+    fn build(
         _encoding: &PrimitiveEncoding,
         dtype: DType,
         len: usize,

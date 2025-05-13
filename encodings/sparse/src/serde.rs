@@ -31,7 +31,7 @@ impl SerdeVTable<SparseVTable> for SparseVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &SparseEncoding,
         dtype: DType,
         len: usize,

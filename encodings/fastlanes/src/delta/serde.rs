@@ -31,7 +31,7 @@ impl SerdeVTable<DeltaVTable> for DeltaVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &DeltaEncoding,
         dtype: DType,
         len: usize,

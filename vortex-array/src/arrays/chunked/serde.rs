@@ -19,7 +19,7 @@ impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
         Some(EmptyMetadata)
     }
 
-    fn decode(
+    fn build(
         _encoding: &ChunkedEncoding,
         dtype: DType,
         _len: usize,

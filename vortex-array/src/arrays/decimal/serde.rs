@@ -26,7 +26,7 @@ impl SerdeVTable<DecimalVTable> for DecimalVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &DecimalEncoding,
         dtype: DType,
         len: usize,
@@ -101,7 +101,8 @@ mod tests {
         let ctx = ArrayContext::empty().with(EncodingRef::new_ref(DecimalEncoding.as_ref()));
         let out = array
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default());
+            .serialize(&ctx, &SerializeOptions::default())
+            .unwrap();
         // Concat into a single buffer
         let mut concat = ByteBufferMut::empty();
         for buf in out {

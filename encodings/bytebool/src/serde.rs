@@ -18,7 +18,7 @@ impl SerdeVTable<ByteBoolVTable> for ByteBoolVTable {
         Some(EmptyMetadata)
     }
 
-    fn decode(
+    fn build(
         _encoding: &ByteBoolEncoding,
         dtype: DType,
         len: usize,

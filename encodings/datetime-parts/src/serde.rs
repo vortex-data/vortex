@@ -38,7 +38,7 @@ impl SerdeVTable<DateTimePartsVTable> for DateTimePartsVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &DateTimePartsEncoding,
         dtype: DType,
         len: usize,

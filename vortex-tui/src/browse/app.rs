@@ -100,7 +100,11 @@ impl LayoutCursor {
                     // codes
                     1 => {
                         let metadata = ProstMetadata::<DictLayoutMetadata>::deserialize(
-                            layout.metadata().as_ref().map(|b| b.as_ref()),
+                            layout
+                                .metadata()
+                                .as_ref()
+                                .map(|b| b.as_ref())
+                                .unwrap_or(&[]),
                         )
                         .expect("dict metadata");
                         DType::from(metadata.codes_ptype()).with_nullability(dtype.nullability())

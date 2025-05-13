@@ -31,7 +31,7 @@ impl SerdeVTable<DictVTable> for DictVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &DictEncoding,
         dtype: DType,
         len: usize,

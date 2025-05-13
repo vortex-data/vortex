@@ -34,7 +34,11 @@ impl DictReader {
             vortex_panic!("Mismatched layout ID")
         }
         let metadata = ProstMetadata::<DictLayoutMetadata>::deserialize(
-            layout.metadata().as_ref().map(|b| b.as_ref()),
+            layout
+                .metadata()
+                .as_ref()
+                .map(|b| b.as_ref())
+                .unwrap_or(&[]),
         )?;
 
         let values = layout

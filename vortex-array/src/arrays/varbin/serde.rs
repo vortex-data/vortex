@@ -25,7 +25,7 @@ impl SerdeVTable<VarBinVTable> for VarBinVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &VarBinEncoding,
         dtype: DType,
         len: usize,

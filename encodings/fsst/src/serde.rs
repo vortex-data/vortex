@@ -29,7 +29,7 @@ impl SerdeVTable<FSSTVTable> for FSSTVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &FSSTEncoding,
         dtype: DType,
         len: usize,

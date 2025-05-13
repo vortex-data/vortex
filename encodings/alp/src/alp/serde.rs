@@ -38,7 +38,7 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &ALPEncoding,
         dtype: DType,
         len: usize,

@@ -33,7 +33,7 @@ impl SerdeVTable<RunEndVTable> for RunEndVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &RunEndEncoding,
         dtype: DType,
         len: usize,

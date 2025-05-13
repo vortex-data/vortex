@@ -16,7 +16,7 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
         Some(EmptyMetadata)
     }
 
-    fn decode(
+    fn build(
         _encoding: &VarBinViewEncoding,
         dtype: DType,
         len: usize,

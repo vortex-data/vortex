@@ -38,7 +38,7 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &BitPackedEncoding,
         dtype: DType,
         len: usize,

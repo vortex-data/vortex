@@ -5,7 +5,7 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 
 mod repeating;
 
@@ -141,11 +141,8 @@ impl DictLayoutMetadata {
 }
 
 fn dict_layout(values: Layout, codes: Layout) -> VortexResult<Layout> {
-    let metadata = Bytes::from(
-        ProstMetadata(DictLayoutMetadata::new(codes.dtype().try_into()?))
-            .serialize()
-            .ok_or_else(|| vortex_err!("could not serialize dict layout metadata"))?,
-    );
+    let metadata =
+        Bytes::from(ProstMetadata(DictLayoutMetadata::new(codes.dtype().try_into()?)).serialize());
     Ok(Layout::new_owned(
         "dict".into(),
         LayoutVTableRef::new_ref(&DictLayout),

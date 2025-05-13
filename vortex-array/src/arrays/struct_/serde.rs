@@ -17,7 +17,7 @@ impl SerdeVTable<StructVTable> for StructVTable {
         Some(EmptyMetadata)
     }
 
-    fn decode(
+    fn build(
         _encoding: &StructEncoding,
         dtype: DType,
         len: usize,

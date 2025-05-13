@@ -28,7 +28,7 @@ impl SerdeVTable<BoolVTable> for BoolVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &<BoolVTable as VTable>::Encoding,
         dtype: DType,
         len: usize,

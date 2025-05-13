@@ -15,7 +15,7 @@ impl SerdeVTable<ConstantVTable> for ConstantVTable {
         Some(EmptyMetadata)
     }
 
-    fn decode(
+    fn build(
         _encoding: &ConstantEncoding,
         dtype: DType,
         len: usize,

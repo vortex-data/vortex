@@ -50,7 +50,7 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &ALPRDEncoding,
         dtype: DType,
         len: usize,

@@ -32,13 +32,12 @@ pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the ID of the encoding.
     fn id(&self) -> EncodingId;
 
-    /// Decode an array from the given [`ArrayParts`] and [`ArrayContext`].
-    /// The array parts must be valid for the given encoding.
-    fn decode(
+    /// Build an array from its parts.
+    fn build(
         &self,
         dtype: DType,
         len: usize,
-        metadata: Option<&[u8]>,
+        metadata: &[u8],
         buffers: &[ByteBuffer],
         children: &[ArrayParts],
         ctx: &ArrayContext,
@@ -82,11 +81,11 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
         V::id(&self.0)
     }
 
-    fn decode(
+    fn build(
         &self,
         dtype: DType,
         len: usize,
-        metadata: Option<&[u8]>,
+        metadata: &[u8],
         buffers: &[ByteBuffer],
         children: &[ArrayParts],
         ctx: &ArrayContext,
@@ -95,10 +94,10 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
             <<V::SerdeVTable as SerdeVTable<V>>::Metadata as DeserializeMetadata>::deserialize(
                 metadata,
             )?;
-        let array = <V::SerdeVTable as SerdeVTable<V>>::decode(
+        let array = <V::SerdeVTable as SerdeVTable<V>>::build(
             &self.0, dtype, len, &metadata, buffers, children, ctx,
         )?;
-        assert_eq!(array.len(), len, "Array length mismatch after decode");
+        assert_eq!(array.len(), len, "Array length mismatch after building");
         Ok(array.to_array())
     }
 

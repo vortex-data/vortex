@@ -33,7 +33,7 @@ impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &DecimalBytePartsEncoding,
         dtype: DType,
         len: usize,

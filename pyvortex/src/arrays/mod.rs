@@ -591,7 +591,7 @@ impl PyArray {
         // FIXME(ngates): do not copy to vec, use buffer protocol
         let array = PyArrayRef::extract_bound(slf.as_any())?;
         Ok(array
-            .serialize(ctx, &Default::default())
+            .serialize(ctx, &Default::default())?
             .into_iter()
             .map(|buffer| buffer.to_vec())
             .collect())

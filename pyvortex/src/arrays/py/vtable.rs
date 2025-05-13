@@ -130,7 +130,7 @@ impl SerdeVTable<PythonVTable> for PythonVTable {
         todo!()
     }
 
-    fn decode(
+    fn build(
         _encoding: &PythonEncoding,
         _dtype: DType,
         _len: usize,

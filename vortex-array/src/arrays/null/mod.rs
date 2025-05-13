@@ -80,7 +80,7 @@ impl SerdeVTable<NullVTable> for NullVTable {
         Some(EmptyMetadata)
     }
 
-    fn decode(
+    fn build(
         _encoding: &NullEncoding,
         _dtype: DType,
         len: usize,

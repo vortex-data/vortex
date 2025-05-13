@@ -15,7 +15,7 @@ impl SerdeVTable<ExtensionVTable> for ExtensionVTable {
         Some(EmptyMetadata)
     }
 
-    fn decode(
+    fn build(
         _encoding: &ExtensionEncoding,
         dtype: DType,
         len: usize,

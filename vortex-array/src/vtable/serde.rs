@@ -8,23 +8,25 @@ use crate::serde::ArrayParts;
 use crate::vtable::{NotSupported, VTable};
 use crate::{ArrayContext, DeserializeMetadata, EmptyMetadata, SerializeMetadata};
 
-/// VTable for implementing marshalling of arrays.
+/// VTable for assisting with the serialization and deserialiation of arrays.
 ///
-/// This is required to be implemented in order to support:
+/// It is required to implement this vtable in order to support:
 ///  * Serialization to disk or over IPC.
 ///  * Import/export over FFI.
 pub trait SerdeVTable<V: VTable> {
     type Metadata: Debug + SerializeMetadata + DeserializeMetadata;
 
-    /// Returns the metadata for the given array.
+    /// Exports the metadata for the array.
     ///
-    /// If `None` is returned, the array does not support serialization.
+    /// All other parts of the array are exported using the [`crate::vtable::VisitorVTable`].
+    ///
+    /// * If the array does not require serialized metadata, it should return
+    ///   [`crate::metadata::EmptyMetadata`].
+    /// * If the array does not support serialization, it should return `None`.
     fn metadata(array: &V::Array) -> Option<Self::Metadata>;
 
-    /// Unmarshall an array from the given [`ArrayParts`] and [`ArrayContext`].
-    /// The array parts must be valid for the given encoding.
-    // TODO(ngates): rename to `unmarshal`
-    fn decode(
+    /// Build an array from its given parts.
+    fn build(
         encoding: &V::Encoding,
         dtype: DType,
         len: usize,
@@ -42,7 +44,7 @@ impl<V: VTable> SerdeVTable<V> for NotSupported {
         None
     }
 
-    fn decode(
+    fn build(
         encoding: &V::Encoding,
         _dtype: DType,
         _len: usize,

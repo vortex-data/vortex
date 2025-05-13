@@ -29,7 +29,7 @@ impl SerdeVTable<ListVTable> for ListVTable {
         }))
     }
 
-    fn decode(
+    fn build(
         _encoding: &ListEncoding,
         dtype: DType,
         len: usize,
