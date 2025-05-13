@@ -118,14 +118,14 @@ impl Canonical {
 impl AsRef<dyn Array> for Canonical {
     fn as_ref(&self) -> &(dyn Array + 'static) {
         match &self {
-            Canonical::Null(a) => a,
-            Canonical::Bool(a) => a,
-            Canonical::Primitive(a) => a,
-            Canonical::Decimal(a) => a,
-            Canonical::Struct(a) => a,
-            Canonical::List(a) => a,
-            Canonical::VarBinView(a) => a,
-            Canonical::Extension(a) => a,
+            Canonical::Null(a) => a.as_ref(),
+            Canonical::Bool(a) => a.as_ref(),
+            Canonical::Primitive(a) => a.as_ref(),
+            Canonical::Decimal(a) => a.as_ref(),
+            Canonical::Struct(a) => a.as_ref(),
+            Canonical::List(a) => a.as_ref(),
+            Canonical::VarBinView(a) => a.as_ref(),
+            Canonical::Extension(a) => a.as_ref(),
         }
     }
 }
@@ -221,7 +221,6 @@ mod test {
     use arrow_schema::{DataType, Field};
     use vortex_buffer::buffer;
 
-    use crate::array::Array;
     use crate::arrays::{ConstantArray, StructArray};
     use crate::arrow::{FromArrowArray, IntoArrowArray};
     use crate::{ArrayRef, IntoArray};

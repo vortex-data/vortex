@@ -112,7 +112,7 @@ pub use memory::*;
 pub use open::*;
 pub use strategy::*;
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::{ArrayRegistry, Encoding};
+use vortex_array::{ArrayRegistry, EncodingRef};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
@@ -162,19 +162,19 @@ pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
     // Register the compressed encodings that Vortex ships with.
     let mut registry = ArrayRegistry::canonical_only();
     registry.register_many([
-        ALPEncoding.vtable(),
-        ALPRDEncoding.vtable(),
-        BitPackedEncoding.vtable(),
-        ByteBoolEncoding.vtable(),
-        DateTimePartsEncoding.vtable(),
-        DecimalBytePartsEncoding.vtable(),
-        DeltaEncoding.vtable(),
-        DictEncoding.vtable(),
-        FoREncoding.vtable(),
-        FSSTEncoding.vtable(),
-        RunEndEncoding.vtable(),
-        SparseEncoding.vtable(),
-        ZigZagEncoding.vtable(),
+        EncodingRef::new_ref(ALPEncoding.as_ref()),
+        EncodingRef::new_ref(ALPRDEncoding.as_ref()),
+        EncodingRef::new_ref(BitPackedEncoding.as_ref()),
+        EncodingRef::new_ref(ByteBoolEncoding.as_ref()),
+        EncodingRef::new_ref(DateTimePartsEncoding.as_ref()),
+        EncodingRef::new_ref(DecimalBytePartsEncoding.as_ref()),
+        EncodingRef::new_ref(DeltaEncoding.as_ref()),
+        EncodingRef::new_ref(DictEncoding.as_ref()),
+        EncodingRef::new_ref(FoREncoding.as_ref()),
+        EncodingRef::new_ref(FSSTEncoding.as_ref()),
+        EncodingRef::new_ref(RunEndEncoding.as_ref()),
+        EncodingRef::new_ref(SparseEncoding.as_ref()),
+        EncodingRef::new_ref(ZigZagEncoding.as_ref()),
     ]);
     Arc::new(registry)
 });

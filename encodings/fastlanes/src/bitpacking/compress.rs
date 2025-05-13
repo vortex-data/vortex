@@ -8,7 +8,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::{ArrayBuilder as _, PrimitiveBuilder, UninitRange};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, IntoArray, ToCanonical};
+use vortex_array::vtable::ValidityHelper;
+use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{
     NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
@@ -464,7 +465,7 @@ pub mod test_harness {
     use rand::rngs::StdRng;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::BufferMut;
     use vortex_error::VortexResult;
 
@@ -508,6 +509,7 @@ mod test {
     use vortex_error::VortexError;
 
     use super::*;
+    use crate::BitPackedVTable;
     use crate::bitpacking::compress::test_harness::make_array;
 
     #[test]
@@ -596,7 +598,7 @@ mod test {
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
         let bitpacked = bitpacked.slice(1023, 1025).unwrap();
-        let actual = unpack(bitpacked.as_::<BitPackedArray>()).unwrap();
+        let actual = unpack(bitpacked.as_::<BitPackedVTable>()).unwrap();
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &[1535, 1536]);
     }
@@ -611,7 +613,7 @@ mod test {
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());
         let bitpacked = bitpacked.slice(1023, 2049).unwrap();
-        let actual = unpack(bitpacked.as_::<BitPackedArray>()).unwrap();
+        let actual = unpack(bitpacked.as_::<BitPackedVTable>()).unwrap();
         let actual = actual.as_slice::<u16>();
         assert_eq!(actual, &(1023..2049).map(|x| x + 512).collect::<Vec<_>>());
     }
@@ -635,7 +637,7 @@ mod test {
             Validity::from_iter(valid_values),
         );
         assert!(values.ptype().is_unsigned_int());
-        let compressed = BitPackedArray::encode(&values, 4).unwrap();
+        let compressed = BitPackedArray::encode(values.as_ref(), 4).unwrap();
         assert!(compressed.patches().is_none());
         assert_eq!(
             (0..(1 << 4)).collect::<Vec<_>>(),
@@ -665,7 +667,7 @@ mod test {
 
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
-        let compressed = BitPackedArray::encode(&values, 11).unwrap();
+        let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
         let decompressed = compressed.to_primitive().unwrap();
         assert_eq!(decompressed.as_slice::<u16>(), values.as_slice::<u16>());
 
@@ -685,7 +687,7 @@ mod test {
         let array = PrimitiveArray::new(values, Validity::AllValid);
         assert!(array.ptype().is_signed_int());
 
-        let err = BitPackedArray::encode(&array, 1024u32.ilog2() as u8).unwrap_err();
+        let err = BitPackedArray::encode(array.as_ref(), 1024u32.ilog2() as u8).unwrap_err();
         assert!(matches!(err, VortexError::InvalidArgument(_, _)));
     }
 

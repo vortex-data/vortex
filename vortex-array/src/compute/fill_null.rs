@@ -6,8 +6,8 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
-use crate::encoding::Encoding;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::vtable::VTable;
+use crate::{Array, ArrayExt, ArrayRef, IntoArray};
 
 pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     FILL_NULL_FN
@@ -18,7 +18,7 @@ pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRe
         .unwrap_array()
 }
 
-pub trait FillNullKernel: Encoding {
+pub trait FillNullKernel: VTable {
     fn fill_null(&self, array: &Self::Array, fill_value: &Scalar) -> VortexResult<ArrayRef>;
 }
 
@@ -26,22 +26,22 @@ pub struct FillNullKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(FillNullKernelRef);
 
 #[derive(Debug)]
-pub struct FillNullKernelAdapter<E: Encoding>(pub E);
+pub struct FillNullKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + FillNullKernel> FillNullKernelAdapter<E> {
+impl<V: VTable + FillNullKernel> FillNullKernelAdapter<V> {
     pub const fn lift(&'static self) -> FillNullKernelRef {
         FillNullKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + FillNullKernel> Kernel for FillNullKernelAdapter<E> {
+impl<V: VTable + FillNullKernel> Kernel for FillNullKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = FillNullArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(Some(
-            E::fill_null(&self.0, array, inputs.fill_value)?.into(),
+            V::fill_null(&self.0, array, inputs.fill_value)?.into(),
         ))
     }
 }
@@ -85,7 +85,7 @@ impl ComputeFnVTable for FillNull {
             return Ok(output);
         }
 
-        log::debug!("FillNullFn not implemented for {}", array.encoding());
+        log::debug!("FillNullFn not implemented for {}", array.encoding_id());
         if !array.is_canonical() {
             let canonical_arr = array.to_canonical()?.into_array();
             return Ok(fill_null(canonical_arr.as_ref(), fill_value)?.into());

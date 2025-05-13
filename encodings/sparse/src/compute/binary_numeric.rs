@@ -1,12 +1,12 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{NumericKernel, NumericKernelAdapter, numeric};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::NumericOperator;
 
-use crate::{SparseArray, SparseEncoding};
+use crate::{SparseArray, SparseVTable};
 
-impl NumericKernel for SparseEncoding {
+impl NumericKernel for SparseVTable {
     fn numeric(
         &self,
         array: &SparseArray,
@@ -34,4 +34,4 @@ impl NumericKernel for SparseEncoding {
     }
 }
 
-register_kernel!(NumericKernelAdapter(SparseEncoding).lift());
+register_kernel!(NumericKernelAdapter(SparseVTable).lift());

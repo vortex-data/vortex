@@ -1,11 +1,12 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{StructArray, StructEncoding};
+use crate::arrays::{StructArray, StructVTable};
 use crate::compute::{FilterKernel, FilterKernelAdapter, filter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
-impl FilterKernel for StructEncoding {
+impl FilterKernel for StructVTable {
     fn filter(&self, array: &StructArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 
@@ -24,4 +25,4 @@ impl FilterKernel for StructEncoding {
     }
 }
 
-register_kernel!(FilterKernelAdapter(StructEncoding).lift());
+register_kernel!(FilterKernelAdapter(StructVTable).lift());

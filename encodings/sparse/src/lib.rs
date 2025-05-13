@@ -4,23 +4,42 @@ use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray};
 use vortex_array::compute::{Operator, compare, fill_null, filter, sub_scalar};
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::VTableRef;
-use vortex_array::{
-    Array, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl, Encoding, IntoArray,
-    ProstMetadata, ToCanonical, try_from_array_ref,
-};
+use vortex_array::vtable::{ArrayVTable, NotSupported, VTable, ValidityVTable};
+use vortex_array::{Array, ArrayRef, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
-use crate::serde::SparseMetadata;
-
 mod canonical;
 mod compute;
 mod ops;
 mod serde;
+
+vtable!(Sparse);
+
+impl VTable for SparseVTable {
+    type Array = SparseArray;
+    type Encoding = SparseEncoding;
+
+    type ArrayVTable = Self;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
+    type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = Self;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.sparse")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        EncodingRef::new_ref(SparseEncoding.as_ref())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct SparseArray {
@@ -29,14 +48,8 @@ pub struct SparseArray {
     stats_set: ArrayStats,
 }
 
-try_from_array_ref!(SparseArray);
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SparseEncoding;
-impl Encoding for SparseEncoding {
-    type Array = SparseArray;
-    type Metadata = ProstMetadata<SparseMetadata>;
-}
 
 impl SparseArray {
     pub fn try_new(
@@ -197,92 +210,65 @@ impl SparseArray {
             Mask::Values(values) => values.indices().iter().map(|v| *v as u64).collect(),
         };
 
-        SparseArray::try_new(
-            indices.into_array(),
-            non_top_values.into_array(),
-            array.len(),
-            fill,
-        )
-        .map(|a| a.into_array())
+        SparseArray::try_new(indices.into_array(), non_top_values, array.len(), fill)
+            .map(|a| a.into_array())
     }
 }
 
-impl ArrayImpl for SparseArray {
-    type Encoding = SparseEncoding;
-
-    fn _len(&self) -> usize {
-        self.patches.array_len()
+impl ArrayVTable<SparseVTable> for SparseVTable {
+    fn len(array: &SparseArray) -> usize {
+        array.patches.array_len()
     }
 
-    fn _dtype(&self) -> &DType {
-        self.fill_value.dtype()
+    fn dtype(array: &SparseArray) -> &DType {
+        array.fill_scalar().dtype()
     }
 
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&SparseEncoding)
-    }
-
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let patch_indices = children[0].clone();
-        let patch_values = children[1].clone();
-
-        let patches = Patches::new(
-            self.patches().array_len(),
-            self.patches().offset(),
-            patch_indices,
-            patch_values,
-        );
-
-        Self::try_new_from_patches(patches, self.fill_value.clone())
+    fn stats(array: &SparseArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 
-impl ArrayStatisticsImpl for SparseArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
-    }
-}
-
-impl ArrayValidityImpl for SparseArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        Ok(match self.patches().get_patched(index)? {
-            None => self.fill_scalar().is_valid(),
+impl ValidityVTable<SparseVTable> for SparseVTable {
+    fn is_valid(array: &SparseArray, index: usize) -> VortexResult<bool> {
+        Ok(match array.patches().get_patched(index)? {
+            None => array.fill_scalar().is_valid(),
             Some(patch_value) => patch_value.is_valid(),
         })
     }
 
-    fn _all_valid(&self) -> VortexResult<bool> {
-        if self.fill_scalar().is_null() {
+    fn all_valid(array: &SparseArray) -> VortexResult<bool> {
+        if array.fill_scalar().is_null() {
             // We need _all_ values to be patched, and all patches to be valid
-            return Ok(self.patches().values().len() == self.len()
-                && self.patches().values().all_valid()?);
+            return Ok(array.patches().values().len() == array.len()
+                && array.patches().values().all_valid()?);
         }
 
-        self.patches().values().all_valid()
+        array.patches().values().all_valid()
     }
 
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        if !self.fill_scalar().is_null() {
+    fn all_invalid(array: &SparseArray) -> VortexResult<bool> {
+        if !array.fill_scalar().is_null() {
             // We need _all_ values to be patched, and all patches to be invalid
-            return Ok(self.patches().values().len() == self.len()
-                && self.patches().values().all_invalid()?);
+            return Ok(array.patches().values().len() == array.len()
+                && array.patches().values().all_invalid()?);
         }
 
-        self.patches().values().all_invalid()
+        array.patches().values().all_invalid()
     }
 
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        let indices = self.patches().indices().to_primitive()?;
+    fn validity_mask(array: &SparseArray) -> VortexResult<Mask> {
+        let indices = array.patches().indices().to_primitive()?;
 
-        if self.fill_scalar().is_null() {
+        if array.fill_scalar().is_null() {
             // If we have a null fill value, then we set each patch value to true.
-            let mut buffer = BooleanBufferBuilder::new(self.len());
+            let mut buffer = BooleanBufferBuilder::new(array.len());
             // TODO(ngates): use vortex-buffer::BitBufferMut when it exists.
-            buffer.append_n(self.len(), false);
+            buffer.append_n(array.len(), false);
 
             match_each_integer_ptype!(indices.ptype(), |$I| {
                 indices.as_slice::<$I>().into_iter().for_each(|&index| {
-                    buffer.set_bit(usize::try_from(index).vortex_expect("Failed to cast to usize") - self.patches().offset(), true);
+                    buffer.set_bit(usize::try_from(index).vortex_expect("Failed to cast to usize") - array.patches().offset(), true);
                 });
             });
 
@@ -291,16 +277,16 @@ impl ArrayValidityImpl for SparseArray {
 
         // If the fill_value is non-null, then the validity is based on the validity of the
         // patch values.
-        let mut buffer = BooleanBufferBuilder::new(self.len());
-        buffer.append_n(self.len(), true);
+        let mut buffer = BooleanBufferBuilder::new(array.len());
+        buffer.append_n(array.len(), true);
 
-        let values_validity = self.patches().values().validity_mask()?;
+        let values_validity = array.patches().values().validity_mask()?;
         match_each_integer_ptype!(indices.ptype(), |$I| {
             indices.as_slice::<$I>()
                 .into_iter()
                 .enumerate()
                 .for_each(|(patch_idx, &index)| {
-                    buffer.set_bit(usize::try_from(index).vortex_expect("Failed to cast to usize") - self.patches().offset(), values_validity.value(patch_idx));
+                    buffer.set_bit(usize::try_from(index).vortex_expect("Failed to cast to usize") - array.patches().offset(), values_validity.value(patch_idx));
                 })
         });
 

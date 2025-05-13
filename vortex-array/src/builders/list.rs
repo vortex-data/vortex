@@ -11,7 +11,7 @@ use crate::arrays::{ConstantArray, ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_with_capacity};
 use crate::compute::{cast, numeric};
-use crate::{Array, ArrayRef, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct ListBuilder<O: NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
@@ -134,7 +134,7 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
                 &list.offsets().slice(1, list.offsets().len())?,
                 &DType::Primitive(O::PTYPE, NonNullable),
             )?,
-            &ConstantArray::new(cursor, list.len()),
+            ConstantArray::new(cursor, list.len()).as_ref(),
             NumericOperator::Add,
         )?;
         self.index_builder.extend_from_array(&offsets)?;
@@ -194,6 +194,7 @@ mod tests {
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
     use crate::validity::Validity;
+    use crate::vtable::ValidityHelper;
     use crate::{IntoArray as _, ToCanonical};
 
     #[test]

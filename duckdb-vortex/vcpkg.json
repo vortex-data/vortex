@@ -1,7 +1,3 @@
 {
-  "dependencies": [
-    { "name": "atomic-queue" },
-    { "name": "catch2" },
-    { "name": "protobuf" }
-  ]
+  "dependencies": [{ "name": "catch2" }, { "name": "protobuf" }]
 }

@@ -7,22 +7,22 @@ use vortex_scalar::{
     StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
 };
 
-use crate::array::ArrayCanonicalImpl;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
-    BinaryView, BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, StructArray,
-    VarBinViewArray, precision_to_storage_size,
+    BinaryView, BoolArray, ConstantVTable, DecimalArray, ExtensionArray, ListArray, NullArray,
+    StructArray, VarBinViewArray, precision_to_storage_size,
 };
 use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
-use crate::{Array, Canonical, IntoArray};
+use crate::vtable::CanonicalVTable;
+use crate::{Canonical, IntoArray};
 
-impl ArrayCanonicalImpl for ConstantArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        let scalar = self.scalar();
+impl CanonicalVTable<ConstantVTable> for ConstantVTable {
+    fn canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {
+        let scalar = array.scalar();
 
-        let validity = match self.dtype().nullability() {
+        let validity = match array.dtype().nullability() {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => match scalar.is_null() {
                 true => Validity::AllInvalid,
@@ -30,13 +30,13 @@ impl ArrayCanonicalImpl for ConstantArray {
             },
         };
 
-        Ok(match self.dtype() {
-            DType::Null => Canonical::Null(NullArray::new(self.len())),
+        Ok(match array.dtype() {
+            DType::Null => Canonical::Null(NullArray::new(array.len())),
             DType::Bool(..) => Canonical::Bool(BoolArray::new(
                 if BoolScalar::try_from(scalar)?.value().unwrap_or_default() {
-                    BooleanBuffer::new_set(self.len())
+                    BooleanBuffer::new_set(array.len())
                 } else {
-                    BooleanBuffer::new_unset(self.len())
+                    BooleanBuffer::new_unset(array.len())
                 },
                 validity,
             )),
@@ -47,10 +47,10 @@ impl ArrayCanonicalImpl for ConstantArray {
                             Buffer::full(
                                 $P::try_from(scalar)
                                     .vortex_expect("Couldn't unwrap scalar to primitive"),
-                                self.len(),
+                                array.len(),
                             )
                         } else {
-                            Buffer::zeroed(self.len())
+                            Buffer::zeroed(array.len())
                         },
                         validity,
                     ))
@@ -62,7 +62,7 @@ impl ArrayCanonicalImpl for ConstantArray {
                 let Some(value) = decimal.decimal_value() else {
                     let all_null = match_each_decimal_value_type!(size, |$D| {
                        DecimalArray::new(
-                                Buffer::<$D>::zeroed(self.len()),
+                                Buffer::<$D>::zeroed(array.len()),
                                 *decimal_type,
                                 validity,
                             )
@@ -72,7 +72,7 @@ impl ArrayCanonicalImpl for ConstantArray {
 
                 let decimal_array = match_each_decimal_value!(value, |$V| {
                    DecimalArray::new(
-                        Buffer::full(*$V, self.len()),
+                        Buffer::full(*$V, array.len()),
                         *decimal_type,
                         validity,
                     )
@@ -82,25 +82,33 @@ impl ArrayCanonicalImpl for ConstantArray {
             DType::Utf8(_) => {
                 let value = Utf8Scalar::try_from(scalar)?.value();
                 let const_value = value.as_ref().map(|v| v.as_bytes());
-                Canonical::VarBinView(canonical_byte_view(const_value, self.dtype(), self.len())?)
+                Canonical::VarBinView(canonical_byte_view(
+                    const_value,
+                    array.dtype(),
+                    array.len(),
+                )?)
             }
             DType::Binary(_) => {
                 let value = BinaryScalar::try_from(scalar)?.value();
                 let const_value = value.as_ref().map(|v| v.as_slice());
-                Canonical::VarBinView(canonical_byte_view(const_value, self.dtype(), self.len())?)
+                Canonical::VarBinView(canonical_byte_view(
+                    const_value,
+                    array.dtype(),
+                    array.len(),
+                )?)
             }
             DType::Struct(struct_dtype, _) => {
                 let value = StructScalar::try_from(scalar)?;
                 let fields = value.fields().map(|fields| {
                     fields
                         .into_iter()
-                        .map(|s| ConstantArray::new(s, self.len()).into_array())
+                        .map(|s| ConstantArray::new(s, array.len()).into_array())
                         .collect::<Vec<_>>()
                 });
                 Canonical::Struct(StructArray::try_new_with_dtype(
                     fields.unwrap_or_default(),
                     struct_dtype.clone(),
-                    self.len(),
+                    array.len(),
                     validity,
                 )?)
             }
@@ -110,14 +118,14 @@ impl ArrayCanonicalImpl for ConstantArray {
                     value.elements(),
                     value.element_dtype(),
                     value.dtype().nullability(),
-                    self.len(),
+                    array.len(),
                 )?)
             }
             DType::Extension(ext_dtype) => {
                 let s = ExtScalar::try_from(scalar)?;
 
                 let storage_scalar = s.storage();
-                let storage_self = ConstantArray::new(storage_scalar, self.len()).into_array();
+                let storage_self = ConstantArray::new(storage_scalar, array.len()).into_array();
                 Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
             }
         })
@@ -215,10 +223,10 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
-    use crate::array::Array;
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
     use crate::stats::{Stat, StatsProviderExt, StatsSet};
+    use crate::{Array, IntoArray};
 
     #[test]
     fn test_canonicalize_null() {

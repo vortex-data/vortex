@@ -1,22 +1,23 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::BoolArray;
-use crate::{Array, ArrayOperationsImpl, ArrayRef};
+use crate::arrays::{BoolArray, BoolVTable};
+use crate::vtable::{OperationsVTable, ValidityHelper};
+use crate::{ArrayRef, IntoArray};
 
-impl ArrayOperationsImpl for BoolArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+impl OperationsVTable<BoolVTable> for BoolVTable {
+    fn slice(array: &BoolArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(BoolArray::new(
-            self.boolean_buffer().slice(start, stop - start),
-            self.validity().slice(start, stop)?,
+            array.boolean_buffer().slice(start, stop - start),
+            array.validity().slice(start, stop)?,
         )
         .into_array())
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &BoolArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
-            self.boolean_buffer().value(index),
-            self.dtype().nullability(),
+            array.boolean_buffer().value(index),
+            array.dtype().nullability(),
         ))
     }
 }

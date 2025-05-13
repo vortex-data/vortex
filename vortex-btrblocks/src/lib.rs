@@ -6,7 +6,8 @@ use std::hash::Hash;
 use itertools::Itertools;
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
 use vortex_array::nbytes::NBytes;
-use vortex_array::{Array, ArrayRef, Canonical};
+use vortex_array::vtable::{VTable, ValidityHelper};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, VortexUnwrap};
@@ -44,16 +45,19 @@ const SAMPLE_SIZE: u32 = 64;
 
 /// Stats for the compressor.
 pub trait CompressorStats: Debug + Clone {
-    type ArrayType: Array;
+    type ArrayVTable: VTable;
 
     // Generate with options.
-    fn generate(input: &Self::ArrayType) -> Self {
+    fn generate(input: &<Self::ArrayVTable as VTable>::Array) -> Self {
         Self::generate_opts(input, GenerateStatsOptions::default())
     }
 
-    fn generate_opts(input: &Self::ArrayType, opts: GenerateStatsOptions) -> Self;
+    fn generate_opts(
+        input: &<Self::ArrayVTable as VTable>::Array,
+        opts: GenerateStatsOptions,
+    ) -> Self;
 
-    fn source(&self) -> &Self::ArrayType;
+    fn source(&self) -> &<Self::ArrayVTable as VTable>::Array;
 
     fn sample(&self, sample_size: u32, sample_count: u32) -> Self {
         self.sample_opts(sample_size, sample_count, GenerateStatsOptions::default())
@@ -169,18 +173,18 @@ const MAX_CASCADE: usize = 3;
 ///
 /// Compressors expose a `compress` function.
 pub trait Compressor {
-    type ArrayType: Array;
+    type ArrayVTable: VTable;
     type SchemeType: Scheme<StatsType = Self::StatsType> + ?Sized;
 
     // Stats type instead?
-    type StatsType: CompressorStats<ArrayType = Self::ArrayType>;
+    type StatsType: CompressorStats<ArrayVTable = Self::ArrayVTable>;
 
     fn schemes() -> &'static [&'static Self::SchemeType];
     fn default_scheme() -> &'static Self::SchemeType;
     fn dict_scheme_code() -> <Self::SchemeType as Scheme>::CodeType;
 
     fn compress(
-        array: &Self::ArrayType,
+        array: &<Self::ArrayVTable as VTable>::Array,
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[<Self::SchemeType as Scheme>::CodeType],
@@ -326,9 +330,7 @@ impl BtrBlocksCompressor {
             }
             Canonical::Extension(ext_array) => {
                 // We compress Timestamp-level arrays with DateTimeParts compression
-                if let Ok(temporal_array) =
-                    TemporalArray::try_from(ext_array.to_array().into_array())
-                {
+                if let Ok(temporal_array) = TemporalArray::try_from(ext_array.to_array()) {
                     if let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata() {
                         return compress_temporal(temporal_array);
                     }

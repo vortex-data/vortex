@@ -1,11 +1,11 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter, fill_null};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{ArrayRef, IntoArray, register_kernel};
 
-impl FillNullKernel for ChunkedEncoding {
+impl FillNullKernel for ChunkedVTable {
     fn fill_null(&self, array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
         Ok(ChunkedArray::new_unchecked(
             array
@@ -19,7 +19,7 @@ impl FillNullKernel for ChunkedEncoding {
     }
 }
 
-register_kernel!(FillNullKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(FillNullKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -42,7 +42,7 @@ mod tests {
         )
         .unwrap();
 
-        let filled = fill_null(&chunked, &false.into()).unwrap();
+        let filled = fill_null(chunked.as_ref(), &false.into()).unwrap();
         assert_eq!(*filled.dtype(), DType::Bool(Nullability::NonNullable));
     }
 }

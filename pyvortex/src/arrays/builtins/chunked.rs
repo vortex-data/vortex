@@ -1,5 +1,5 @@
 use pyo3::{PyRef, pyclass, pymethods};
-use vortex::arrays::ChunkedEncoding;
+use vortex::arrays::ChunkedVTable;
 
 use crate::arrays::PyArrayRef;
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
@@ -9,7 +9,7 @@ use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 pub(crate) struct PyChunkedArray;
 
 impl EncodingSubclass for PyChunkedArray {
-    type Encoding = ChunkedEncoding;
+    type VTable = ChunkedVTable;
 }
 
 #[pymethods]

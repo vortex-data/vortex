@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use vortex::arrays::ChunkedArray;
+use vortex::arrays::{ChunkedArray, ChunkedVTable};
 use vortex::dtype::FieldName;
-use vortex::{Array, ArrayExt, ArrayRef, ToCanonical};
+use vortex::{ArrayExt, ArrayRef, IntoArray, ToCanonical};
 
 use crate::datasets::Dataset;
 use crate::ddb::{build_vortex_duckdb, get_executable_path};
@@ -26,7 +26,7 @@ impl Dataset for TPCHLCommentChunked {
 
         let lineitem_vortex = tpch::load_table(data_dir, "lineitem", &tpch::schema::LINEITEM).await;
 
-        let lineitem_chunked = lineitem_vortex.as_::<ChunkedArray>();
+        let lineitem_chunked = lineitem_vortex.as_::<ChunkedVTable>();
         let comment_chunks = lineitem_chunked.chunks().iter().map(|chunk| {
             chunk
                 .to_struct()

@@ -4,11 +4,11 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::{MinMaxKernel, MinMaxKernelAdapter, MinMaxResult};
-use crate::{Array, register_kernel};
+use crate::register_kernel;
 
-impl MinMaxKernel for PrimitiveEncoding {
+impl MinMaxKernel for PrimitiveVTable {
     fn min_max(&self, array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>> {
         match_each_native_ptype!(array.ptype(), |$T| {
             compute_min_max_with_validity::<$T>(array)
@@ -16,7 +16,7 @@ impl MinMaxKernel for PrimitiveEncoding {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(PrimitiveVTable).lift());
 
 #[inline]
 fn compute_min_max_with_validity<T>(array: &PrimitiveArray) -> VortexResult<Option<MinMaxResult>>
@@ -76,7 +76,7 @@ mod tests {
             buffer![f32::NAN, -f32::NAN, -1.0, 1.0],
             Validity::NonNullable,
         );
-        let min_max = min_max(&array).unwrap().unwrap();
+        let min_max = min_max(array.as_ref()).unwrap().unwrap();
         assert_eq!(f32::try_from(min_max.min).unwrap(), -1.0);
         assert_eq!(f32::try_from(min_max.max).unwrap(), 1.0);
     }
@@ -87,7 +87,7 @@ mod tests {
             buffer![f32::INFINITY, f32::NEG_INFINITY, -1.0, 1.0],
             Validity::NonNullable,
         );
-        let min_max = min_max(&array).unwrap().unwrap();
+        let min_max = min_max(array.as_ref()).unwrap().unwrap();
         assert_eq!(f32::try_from(min_max.min).unwrap(), f32::NEG_INFINITY);
         assert_eq!(f32::try_from(min_max.max).unwrap(), f32::INFINITY);
     }

@@ -2,16 +2,16 @@ use vortex_buffer::BufferMut;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::arrays::{ChunkedArray, ChunkedEncoding, PrimitiveArray};
+use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
 use crate::compute::{FilterKernel, FilterKernelAdapter, filter, take};
 use crate::search_sorted::{SearchSorted, SearchSortedSide};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for ChunkedEncoding {
+impl FilterKernel for ChunkedVTable {
     fn filter(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let mask_values = mask
             .values()
@@ -28,7 +28,7 @@ impl FilterKernel for ChunkedEncoding {
     }
 }
 
-register_kernel!(FilterKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(FilterKernelAdapter(ChunkedVTable).lift());
 
 /// The filter to apply to each chunk.
 ///
@@ -147,7 +147,8 @@ fn filter_indices(
                     .vortex_expect("find_chunk_idx must return valid chunk ID");
                 let filtered_chunk = take(
                     chunk,
-                    &PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable),
+                    PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable)
+                        .as_ref(),
                 )?;
                 result.push(filtered_chunk);
             }
@@ -166,7 +167,7 @@ fn filter_indices(
             .vortex_expect("find_chunk_idx must return valid chunk ID");
         let filtered_chunk = take(
             chunk,
-            &PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable),
+            PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable).as_ref(),
         )?;
         result.push(filtered_chunk);
     }
@@ -225,7 +226,7 @@ mod test {
         let mask = Mask::from_iter([
             true, false, false, true, true, true, true, true, true, true, true,
         ]);
-        let filtered = filter(&chunked, &mask).unwrap();
+        let filtered = filter(chunked.as_ref(), &mask).unwrap();
         assert_eq!(filtered.len(), 9);
     }
 }

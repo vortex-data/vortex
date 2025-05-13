@@ -1,10 +1,10 @@
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 
-use crate::{DateTimePartsArray, DateTimePartsEncoding};
+use crate::{DateTimePartsArray, DateTimePartsVTable};
 
-impl TakeKernel for DateTimePartsEncoding {
+impl TakeKernel for DateTimePartsVTable {
     fn take(&self, array: &DateTimePartsArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(DateTimePartsArray::try_new(
             array.dtype().clone(),
@@ -16,4 +16,4 @@ impl TakeKernel for DateTimePartsEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(DateTimePartsEncoding).lift());
+register_kernel!(TakeKernelAdapter(DateTimePartsVTable).lift());

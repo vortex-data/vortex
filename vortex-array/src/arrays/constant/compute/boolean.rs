@@ -2,11 +2,11 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{BooleanKernel, BooleanKernelAdapter, BooleanOperator};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
-impl BooleanKernel for ConstantEncoding {
+impl BooleanKernel for ConstantVTable {
     fn boolean(
         &self,
         lhs: &ConstantArray,
@@ -45,7 +45,7 @@ impl BooleanKernel for ConstantEncoding {
     }
 }
 
-register_kernel!(BooleanKernelAdapter(ConstantEncoding).lift());
+register_kernel!(BooleanKernelAdapter(ConstantVTable).lift());
 
 fn and(left: Option<bool>, right: Option<bool>) -> Option<bool> {
     left.zip(right).map(|(l, r)| l & r)
@@ -83,7 +83,7 @@ mod test {
     use crate::arrays::constant::ConstantArray;
     use crate::canonical::ToCanonical;
     use crate::compute::{and, or};
-    use crate::{Array, ArrayRef};
+    use crate::{Array, ArrayRef, IntoArray};
 
     #[rstest]
     #[case(ConstantArray::new(true, 4).into_array(), BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array()

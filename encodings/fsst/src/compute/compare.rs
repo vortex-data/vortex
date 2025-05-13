@@ -3,15 +3,15 @@ use vortex_array::compute::{
     CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
 };
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
-use crate::{FSSTArray, FSSTEncoding};
+use crate::{FSSTArray, FSSTVTable};
 
-impl CompareKernel for FSSTEncoding {
+impl CompareKernel for FSSTVTable {
     fn compare(
         &self,
         lhs: &FSSTArray,
@@ -28,7 +28,7 @@ impl CompareKernel for FSSTEncoding {
     }
 }
 
-register_kernel!(CompareKernelAdapter(FSSTEncoding).lift());
+register_kernel!(CompareKernelAdapter(FSSTVTable).lift());
 
 /// Specialized compare function implementation used when performing against a constant
 fn compare_fsst_constant(
@@ -65,7 +65,8 @@ fn compare_fsst_constant(
         return Ok(Some(
             BoolArray::new(
                 buffer,
-                Validity::copy_from_array(left)?.union_nullability(right.dtype().nullability()),
+                Validity::copy_from_array(left.as_ref())?
+                    .union_nullability(right.dtype().nullability()),
             )
             .into_array(),
         ));
@@ -104,7 +105,7 @@ fn compare_fsst_constant(
     );
 
     let rhs = ConstantArray::new(encoded_scalar, left.len());
-    compare(left.codes(), &rhs, operator).map(Some)
+    compare(left.codes().as_ref(), rhs.as_ref(), operator).map(Some)
 }
 
 #[cfg(test)]
@@ -130,13 +131,13 @@ mod tests {
             ],
             DType::Utf8(Nullability::Nullable),
         );
-        let compressor = fsst_train_compressor(&lhs).unwrap();
-        let lhs = fsst_compress(&lhs, &compressor).unwrap();
+        let compressor = fsst_train_compressor(lhs.as_ref()).unwrap();
+        let lhs = fsst_compress(lhs.as_ref(), &compressor).unwrap();
 
         let rhs = ConstantArray::new("world", lhs.len());
 
         // Ensure fastpath for Eq exists, and returns correct answer
-        let equals = compare(&lhs, &rhs, Operator::Eq)
+        let equals = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq)
             .unwrap()
             .to_bool()
             .unwrap();
@@ -149,7 +150,7 @@ mod tests {
         );
 
         // Ensure fastpath for Eq exists, and returns correct answer
-        let not_equals = compare(&lhs, &rhs, Operator::NotEq)
+        let not_equals = compare(lhs.as_ref(), rhs.as_ref(), Operator::NotEq)
             .unwrap()
             .to_bool()
             .unwrap();
@@ -163,12 +164,12 @@ mod tests {
         // Ensure null constants are handled correctly.
         let null_rhs =
             ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), lhs.len());
-        let equals_null = compare(&lhs, &null_rhs, Operator::Eq).unwrap();
+        let equals_null = compare(lhs.as_ref(), null_rhs.as_ref(), Operator::Eq).unwrap();
         for idx in 0..lhs.len() {
             assert!(equals_null.scalar_at(idx).unwrap().is_null());
         }
 
-        let noteq_null = compare(&lhs, &null_rhs, Operator::NotEq).unwrap();
+        let noteq_null = compare(lhs.as_ref(), null_rhs.as_ref(), Operator::NotEq).unwrap();
         for idx in 0..lhs.len() {
             assert!(noteq_null.scalar_at(idx).unwrap().is_null());
         }

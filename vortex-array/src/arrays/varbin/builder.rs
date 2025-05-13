@@ -4,7 +4,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexExpect as _, vortex_panic};
 
-use crate::Array;
+use crate::IntoArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::VarBinArray;
 use crate::validity::Validity;
@@ -106,7 +106,6 @@ mod test {
     use vortex_dtype::Nullability::Nullable;
     use vortex_scalar::Scalar;
 
-    use crate::array::Array;
     use crate::arrays::varbin::builder::VarBinBuilder;
 
     #[test]

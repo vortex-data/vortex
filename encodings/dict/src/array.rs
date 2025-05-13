@@ -3,16 +3,37 @@ use std::fmt::Debug;
 use arrow_buffer::BooleanBuffer;
 use vortex_array::compute::{cast, take};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
-use vortex_array::vtable::VTableRef;
+use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding, IntoArray, ProstMetadata, ToCanonical,
+    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
 use vortex_dtype::{DType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_mask::{AllOr, Mask};
 
-use crate::serde::DictMetadata;
+vtable!(Dict);
+
+impl VTable for DictVTable {
+    type Array = DictArray;
+    type Encoding = DictEncoding;
+
+    type ArrayVTable = Self;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = Self;
+    type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = Self;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.dict")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        EncodingRef::new_ref(DictEncoding.as_ref())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct DictArray {
@@ -21,12 +42,8 @@ pub struct DictArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DictEncoding;
-impl Encoding for DictEncoding {
-    type Array = DictArray;
-    type Metadata = ProstMetadata<DictMetadata>;
-}
 
 impl DictArray {
     pub fn try_new(mut codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
@@ -68,48 +85,39 @@ impl DictArray {
     }
 }
 
-impl ArrayImpl for DictArray {
-    type Encoding = DictEncoding;
-
-    fn _len(&self) -> usize {
-        self.codes.len()
+impl ArrayVTable<DictVTable> for DictVTable {
+    fn len(array: &DictArray) -> usize {
+        array.codes.len()
     }
 
-    fn _dtype(&self) -> &DType {
-        self.values.dtype()
+    fn dtype(array: &DictArray) -> &DType {
+        array.values.dtype()
     }
 
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&DictEncoding)
-    }
-
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let codes = children[0].clone();
-        let values = children[1].clone();
-
-        Self::try_new(codes, values)
+    fn stats(array: &DictArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 
-impl ArrayCanonicalImpl for DictArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        match self.dtype() {
+impl CanonicalVTable<DictVTable> for DictVTable {
+    fn canonicalize(array: &DictArray) -> VortexResult<Canonical> {
+        match array.dtype() {
             // NOTE: Utf8 and Binary will decompress into VarBinViewArray, which requires a full
             // decompression to construct the views child array.
             // For this case, it is *always* faster to decompress the values first and then create
             // copies of the view pointers.
             DType::Utf8(_) | DType::Binary(_) => {
-                let canonical_values: ArrayRef = self.values().to_canonical()?.into_array();
-                take(&canonical_values, self.codes())?.to_canonical()
+                let canonical_values: ArrayRef = array.values().to_canonical()?.into_array();
+                take(&canonical_values, array.codes())?.to_canonical()
             }
-            _ => take(self.values(), self.codes())?.to_canonical(),
+            _ => take(array.values(), array.codes())?.to_canonical(),
         }
     }
 }
 
-impl ArrayValidityImpl for DictArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        let scalar = self.codes().scalar_at(index).map_err(|err| {
+impl ValidityVTable<DictVTable> for DictVTable {
+    fn is_valid(array: &DictArray, index: usize) -> VortexResult<bool> {
+        let scalar = array.codes().scalar_at(index).map_err(|err| {
             err.with_context(format!(
                 "Failed to get index {} from DictArray codes",
                 index
@@ -123,58 +131,44 @@ impl ArrayValidityImpl for DictArray {
             .as_ref()
             .try_into()
             .vortex_expect("Failed to convert dictionary code to usize");
-        self.values().is_valid(values_index)
+        array.values().is_valid(values_index)
     }
 
-    fn _all_valid(&self) -> VortexResult<bool> {
-        if !self.dtype().is_nullable() {
-            return Ok(true);
-        }
-
-        Ok(self.codes().all_valid()? && self.values().all_valid()?)
+    fn all_valid(array: &DictArray) -> VortexResult<bool> {
+        Ok(array.codes().all_valid()? && array.values().all_valid()?)
     }
 
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        if !self.dtype().is_nullable() {
-            return Ok(false);
-        }
-
-        Ok(self.codes().all_invalid()? || self.values().all_invalid()?)
+    fn all_invalid(array: &DictArray) -> VortexResult<bool> {
+        Ok(array.codes().all_invalid()? || array.values().all_invalid()?)
     }
 
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        let codes_validity = self.codes().validity_mask()?;
+    fn validity_mask(array: &DictArray) -> VortexResult<Mask> {
+        let codes_validity = array.codes().validity_mask()?;
         match codes_validity.boolean_buffer() {
             AllOr::All => {
-                let primitive_codes = self.codes().to_primitive()?;
-                let values_mask = self.values().validity_mask()?;
+                let primitive_codes = array.codes().to_primitive()?;
+                let values_mask = array.values().validity_mask()?;
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
                     let codes_slice = primitive_codes.as_slice::<$P>();
-                    BooleanBuffer::collect_bool(self.len(), |idx| {
+                    BooleanBuffer::collect_bool(array.len(), |idx| {
                        values_mask.value(codes_slice[idx] as usize)
                     })
                 });
                 Ok(Mask::from_buffer(is_valid_buffer))
             }
-            AllOr::None => Ok(Mask::AllFalse(self.len())),
+            AllOr::None => Ok(Mask::AllFalse(array.len())),
             AllOr::Some(validity_buff) => {
-                let primitive_codes = self.codes().to_primitive()?;
-                let values_mask = self.values().validity_mask()?;
+                let primitive_codes = array.codes().to_primitive()?;
+                let values_mask = array.values().validity_mask()?;
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
                     let codes_slice = primitive_codes.as_slice::<$P>();
-                    BooleanBuffer::collect_bool(self.len(), |idx| {
+                    BooleanBuffer::collect_bool(array.len(), |idx| {
                        validity_buff.value(idx) && values_mask.value(codes_slice[idx] as usize)
                     })
                 });
                 Ok(Mask::from_buffer(is_valid_buffer))
             }
         }
-    }
-}
-
-impl ArrayStatisticsImpl for DictArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
     }
 }
 

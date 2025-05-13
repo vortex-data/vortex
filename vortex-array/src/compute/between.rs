@@ -11,7 +11,8 @@ use crate::compute::{
     BooleanOperator, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Options, Output,
     boolean, compare,
 };
-use crate::{Array, ArrayRef, Canonical, Encoding, IntoArray};
+use crate::vtable::VTable;
+use crate::{Array, ArrayExt, ArrayRef, Canonical, IntoArray};
 
 /// Compute between (a <= x <= b), this can be implemented using compare and boolean and but this
 /// will likely have a lower runtime.
@@ -56,7 +57,7 @@ pub fn between(
 pub struct BetweenKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(BetweenKernelRef);
 
-pub trait BetweenKernel: Encoding {
+pub trait BetweenKernel: VTable {
     fn between(
         &self,
         arr: &Self::Array,
@@ -67,22 +68,22 @@ pub trait BetweenKernel: Encoding {
 }
 
 #[derive(Debug)]
-pub struct BetweenKernelAdapter<E: Encoding>(pub E);
+pub struct BetweenKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + BetweenKernel> BetweenKernelAdapter<E> {
+impl<V: VTable + BetweenKernel> BetweenKernelAdapter<V> {
     pub const fn lift(&'static self) -> BetweenKernelRef {
         BetweenKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + BetweenKernel> Kernel for BetweenKernelAdapter<E> {
+impl<V: VTable + BetweenKernel> Kernel for BetweenKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = BetweenArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
         Ok(
-            E::between(&self.0, array, inputs.lower, inputs.upper, inputs.options)?
+            V::between(&self.0, array, inputs.lower, inputs.upper, inputs.options)?
                 .map(|array| array.into()),
         )
     }
@@ -113,7 +114,13 @@ impl ComputeFnVTable for Between {
 
         let return_dtype = self.return_dtype(args)?;
 
+        // Bail early if the array is empty.
+        if array.is_empty() {
+            return Ok(Canonical::empty(&return_dtype).into_array().into());
+        }
+
         // A quick check to see if either array might is a null constant array.
+        // Note: Depends on returning early if array is empty for is_invalid check.
         if lower.is_invalid(0)? || upper.is_invalid(0)? {
             if let (Some(c_lower), Some(c_upper)) = (lower.as_constant(), upper.as_constant()) {
                 if c_lower.is_null() || c_upper.is_null() {

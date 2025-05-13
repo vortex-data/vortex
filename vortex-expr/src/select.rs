@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -236,7 +236,7 @@ mod tests {
     pub fn include_columns() {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], ident());
-        let selected = select.evaluate(&st).unwrap().to_struct().unwrap();
+        let selected = select.evaluate(st.as_ref()).unwrap().to_struct().unwrap();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a".into()]);
     }
@@ -245,7 +245,7 @@ mod tests {
     pub fn exclude_columns() {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], ident());
-        let selected = select.evaluate(&st).unwrap().to_struct().unwrap();
+        let selected = select.evaluate(st.as_ref()).unwrap().to_struct().unwrap();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);
     }

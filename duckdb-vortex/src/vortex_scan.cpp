@@ -12,7 +12,7 @@
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/common/file_system.hpp"
 
-#include "atomic_queue/atomic_queue.h"
+#include "concurrentqueue.h"
 
 #include "vortex.hpp"
 #include "vortex_extension.hpp"
@@ -67,10 +67,10 @@ struct ScanPartition {
 /// parallelized by dividing it into ranges, each handled by a different scan.
 struct ScanLocalState : public LocalTableFunctionState {
 	idx_t array_row_offset;
-	unique_ptr<Array> array;
-	unique_ptr<ArrayIterator> iter;
-	unique_ptr<ConversionCache> cache;
-	atomic_queue::AtomicQueue2<ScanPartition, 8192> scan_partitions;
+	unique_ptr<VortexArray> array;
+	unique_ptr<VortexArrayStream> stream;
+	unique_ptr<VortexConversionCache> cache;
+	duckdb_moodycamel::ConcurrentQueue<VortexScanPartition> scan_partitions{8192};
 };
 
 struct ScanGlobalState : public GlobalTableFunctionState {
@@ -94,7 +94,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	std::atomic_uint32_t next_file_idx;
 
 	// Multi producer, multi consumer lockfree queue.
-	atomic_queue::AtomicQueue2<ScanPartition, 8192> scan_partitions;
+	duckdb_moodycamel::ConcurrentQueue<VortexScanPartition> scan_partitions{8192};
 
 	std::vector<std::shared_ptr<LayoutReader>> layout_readers;
 
@@ -254,7 +254,8 @@ static void CreateScanPartitions(ClientContext &context, const BindData &bind, S
 	auto &partitions_queue = pin_file_to_thread ? local_state.scan_partitions : global_state.scan_partitions;
 
 	for (size_t partition_idx = 0; partition_idx < partition_count; ++partition_idx) {
-		partitions_queue.push(ScanPartition {
+
+		partitions_queue.enqueue(VortexScanPartition {
 		    .file_idx = file_idx,
 		    .start_row = partition_idx * partition_size,
 		    .end_row = (partition_idx + 1) == partition_count ? row_count : (partition_idx + 1) * partition_size,
@@ -291,7 +292,7 @@ static bool GetNextArray(ClientContext &context, const BindData &bind_data, Scan
 
 		// Try to pop a partition off the thread local queue first.
 		if (bool success =
-		        (local_state.scan_partitions.try_pop(partition) || global_state.scan_partitions.try_pop(partition));
+		        (local_state.scan_partitions.try_dequeue(partition) || global_state.scan_partitions.try_dequeue(partition));
 		    !success) {
 
 			// Check if all files have been partitioned.
@@ -299,7 +300,7 @@ static bool GetNextArray(ClientContext &context, const BindData &bind_data, Scan
 
 				// A new partition might have been created after the first pop. Therefore,
 				// one more pop is necessary to be sure no more partitions are left to process.
-				if (success = global_state.scan_partitions.try_pop(partition); !success) {
+				if (success = global_state.scan_partitions.try_dequeue(partition); !success) {
 
 					// The queue is empty and all files had been partitioned.
 					global_state.finished = true;

@@ -18,7 +18,7 @@ fn varbin(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&array, &indices))
-        .bench_refs(|(array, indices)| take(*array, *indices).unwrap());
+        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
 }
 
 #[divan::bench]
@@ -28,7 +28,7 @@ fn varbinview(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&array, &indices))
-        .bench_refs(|(array, indices)| take(*array, *indices).unwrap());
+        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
 }
 
 fn fixture(len: usize) -> VarBinArray {

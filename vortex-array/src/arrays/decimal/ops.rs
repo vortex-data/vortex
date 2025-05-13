@@ -3,29 +3,30 @@ use vortex_dtype::DecimalDType;
 use vortex_error::VortexResult;
 use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
 
-use crate::arrays::DecimalArray;
+use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::validity::Validity;
-use crate::{Array, ArrayOperationsImpl, ArrayRef};
+use crate::vtable::OperationsVTable;
+use crate::{ArrayRef, IntoArray};
 
-impl ArrayOperationsImpl for DecimalArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        match_each_decimal_value_type!(self.values_type, |$D| {
+impl OperationsVTable<DecimalVTable> for DecimalVTable {
+    fn slice(array: &DecimalArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        match_each_decimal_value_type!(array.values_type, |$D| {
             slice_typed(
-                self.buffer::<$D>(),
+                array.buffer::<$D>(),
                 start,
                 stop,
-                self.decimal_dtype(),
-                self.validity.clone(),
+                array.decimal_dtype(),
+                array.validity.clone(),
             )
         })
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let scalar = match_each_decimal_value_type!(self.values_type(), |($D, $CTor)| {
+    fn scalar_at(array: &DecimalArray, index: usize) -> VortexResult<Scalar> {
+        let scalar = match_each_decimal_value_type!(array.values_type(), |($D, $CTor)| {
            Scalar::decimal(
-                $CTor(self.buffer::<$D>()[index]),
-                self.decimal_dtype(),
-                self.dtype().nullability(),
+                $CTor(array.buffer::<$D>()[index]),
+                array.decimal_dtype(),
+                array.dtype().nullability(),
             )
         });
         Ok(scalar)
@@ -50,9 +51,9 @@ mod tests {
     use vortex_dtype::{DecimalDType, Nullability};
     use vortex_scalar::{DecimalValue, Scalar};
 
-    use crate::Array;
-    use crate::arrays::DecimalArray;
+    use crate::arrays::{DecimalArray, DecimalVTable};
     use crate::validity::Validity;
+    use crate::{Array, ArrayExt};
 
     #[test]
     fn test_slice() {
@@ -66,7 +67,7 @@ mod tests {
         let sliced = array.slice(1, 3).unwrap();
         assert_eq!(sliced.len(), 2);
 
-        let decimal = sliced.as_any().downcast_ref::<DecimalArray>().unwrap();
+        let decimal = sliced.as_::<DecimalVTable>();
         assert_eq!(decimal.buffer::<i128>(), buffer![200i128, 300i128]);
     }
 

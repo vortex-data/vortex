@@ -5,8 +5,8 @@ use futures::future::ready;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
+use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
@@ -208,7 +208,7 @@ mod test {
 
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
-    use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
+    use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};

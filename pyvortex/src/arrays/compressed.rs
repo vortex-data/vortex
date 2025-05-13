@@ -1,11 +1,11 @@
 use pyo3::prelude::*;
-use vortex::encodings::alp::{ALPEncoding, ALPRDEncoding};
-use vortex::encodings::datetime_parts::DateTimePartsEncoding;
-use vortex::encodings::dict::DictEncoding;
-use vortex::encodings::fsst::FSSTEncoding;
-use vortex::encodings::runend::RunEndEncoding;
-use vortex::encodings::sparse::SparseEncoding;
-use vortex::encodings::zigzag::ZigZagEncoding;
+use vortex::encodings::alp::{ALPRDVTable, ALPVTable};
+use vortex::encodings::datetime_parts::DateTimePartsVTable;
+use vortex::encodings::dict::DictVTable;
+use vortex::encodings::fsst::FSSTVTable;
+use vortex::encodings::runend::RunEndVTable;
+use vortex::encodings::sparse::SparseVTable;
+use vortex::encodings::zigzag::ZigZagVTable;
 
 use crate::arrays::native::{EncodingSubclass, PyNativeArray};
 
@@ -14,7 +14,7 @@ use crate::arrays::native::{EncodingSubclass, PyNativeArray};
 pub(crate) struct PyAlpArray;
 
 impl EncodingSubclass for PyAlpArray {
-    type Encoding = ALPEncoding;
+    type VTable = ALPVTable;
 }
 
 /// Concrete class for arrays with `vortex.alprd` encoding.
@@ -22,7 +22,7 @@ impl EncodingSubclass for PyAlpArray {
 pub(crate) struct PyAlpRdArray;
 
 impl EncodingSubclass for PyAlpRdArray {
-    type Encoding = ALPRDEncoding;
+    type VTable = ALPRDVTable;
 }
 
 /// Concrete class for arrays with `vortex.datetimeparts` encoding.
@@ -30,7 +30,7 @@ impl EncodingSubclass for PyAlpRdArray {
 pub(crate) struct PyDateTimePartsArray;
 
 impl EncodingSubclass for PyDateTimePartsArray {
-    type Encoding = DateTimePartsEncoding;
+    type VTable = DateTimePartsVTable;
 }
 
 /// Concrete class for arrays with `vortex.dict` encoding.
@@ -38,7 +38,7 @@ impl EncodingSubclass for PyDateTimePartsArray {
 pub(crate) struct PyDictArray;
 
 impl EncodingSubclass for PyDictArray {
-    type Encoding = DictEncoding;
+    type VTable = DictVTable;
 }
 
 /// Concrete class for arrays with `vortex.fsst` encoding.
@@ -46,7 +46,7 @@ impl EncodingSubclass for PyDictArray {
 pub(crate) struct PyFsstArray;
 
 impl EncodingSubclass for PyFsstArray {
-    type Encoding = FSSTEncoding;
+    type VTable = FSSTVTable;
 }
 
 /// Concrete class for arrays with `vortex.runend` encoding.
@@ -54,7 +54,7 @@ impl EncodingSubclass for PyFsstArray {
 pub(crate) struct PyRunEndArray;
 
 impl EncodingSubclass for PyRunEndArray {
-    type Encoding = RunEndEncoding;
+    type VTable = RunEndVTable;
 }
 
 /// Concrete class for arrays with `vortex.sparse` encoding.
@@ -62,7 +62,7 @@ impl EncodingSubclass for PyRunEndArray {
 pub(crate) struct PySparseArray;
 
 impl EncodingSubclass for PySparseArray {
-    type Encoding = SparseEncoding;
+    type VTable = SparseVTable;
 }
 
 /// Concrete class for arrays with `vortex.zigzag` encoding.
@@ -70,5 +70,5 @@ impl EncodingSubclass for PySparseArray {
 pub(crate) struct PyZigZagArray;
 
 impl EncodingSubclass for PyZigZagArray {
-    type Encoding = ZigZagEncoding;
+    type VTable = ZigZagVTable;
 }

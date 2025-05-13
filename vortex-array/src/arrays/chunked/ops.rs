@@ -1,27 +1,29 @@
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
+use crate::arrays::ChunkedVTable;
 use crate::arrays::chunked::ChunkedArray;
-use crate::{Array, ArrayOperationsImpl, ArrayRef};
+use crate::vtable::OperationsVTable;
+use crate::{Array, ArrayRef, IntoArray};
 
-impl ArrayOperationsImpl for ChunkedArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let (offset_chunk, offset_in_first_chunk) = self.find_chunk_idx(start);
-        let (length_chunk, length_in_last_chunk) = self.find_chunk_idx(stop);
+impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
+    fn slice(array: &ChunkedArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(start);
+        let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(stop);
 
-        if self.is_empty() && (start != 0 || stop != 0) {
+        if array.is_empty() && (start != 0 || stop != 0) {
             vortex_bail!(ComputeError: "Empty chunked array can't be sliced from {start} to {stop}");
-        } else if self.is_empty() {
-            return Ok(ChunkedArray::new_unchecked(vec![], self.dtype().clone()).into_array());
+        } else if array.is_empty() {
+            return Ok(ChunkedArray::new_unchecked(vec![], array.dtype().clone()).into_array());
         }
 
         if length_chunk == offset_chunk {
-            let chunk = self.chunk(offset_chunk)?;
+            let chunk = array.chunk(offset_chunk)?;
             return chunk.slice(offset_in_first_chunk, length_in_last_chunk);
         }
 
         let mut chunks = (offset_chunk..length_chunk + 1)
-            .map(|i| self.chunk(i).cloned())
+            .map(|i| array.chunk(i).cloned())
             .collect::<VortexResult<Vec<_>>>()?;
         if let Some(c) = chunks.first_mut() {
             *c = c.slice(offset_in_first_chunk, c.len())?;
@@ -33,12 +35,12 @@ impl ArrayOperationsImpl for ChunkedArray {
             *c = c.slice(0, length_in_last_chunk)?;
         }
 
-        Ok(ChunkedArray::new_unchecked(chunks, self.dtype().clone()).into_array())
+        Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        let (chunk_index, chunk_offset) = self.find_chunk_idx(index);
-        self.chunk(chunk_index)?.scalar_at(chunk_offset)
+    fn scalar_at(array: &ChunkedArray, index: usize) -> VortexResult<Scalar> {
+        let (chunk_index, chunk_offset) = array.find_chunk_idx(index);
+        array.chunk(chunk_index)?.scalar_at(chunk_offset)
     }
 }
 
@@ -48,7 +50,7 @@ mod tests {
     use vortex_dtype::{DType, NativePType, Nullability, PType};
 
     use crate::array::Array;
-    use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
     use crate::canonical::ToCanonical;
     use crate::{ArrayExt, IntoArray};
 
@@ -66,7 +68,7 @@ mod tests {
 
     fn assert_equal_slices<T: NativePType>(arr: &dyn Array, slice: &[T]) {
         let mut values = Vec::with_capacity(arr.len());
-        if let Some(arr) = arr.as_opt::<ChunkedArray>() {
+        if let Some(arr) = arr.as_opt::<ChunkedVTable>() {
             arr.chunks()
                 .iter()
                 .map(|a| a.to_primitive().unwrap())

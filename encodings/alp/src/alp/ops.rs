@@ -1,15 +1,17 @@
-use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
+use vortex_array::vtable::OperationsVTable;
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::{ALPArray, ALPFloat, match_each_alp_float_ptype};
+use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
 
-impl ArrayOperationsImpl for ALPArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+impl OperationsVTable<ALPVTable> for ALPVTable {
+    fn slice(array: &ALPArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ALPArray::try_new(
-            self.encoded().slice(start, stop)?,
-            self.exponents(),
-            self.patches()
+            array.encoded().slice(start, stop)?,
+            array.exponents(),
+            array
+                .patches()
                 .map(|p| p.slice(start, stop))
                 .transpose()?
                 .flatten(),
@@ -17,25 +19,25 @@ impl ArrayOperationsImpl for ALPArray {
         .into_array())
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        if !self.encoded().is_valid(index)? {
-            return Ok(Scalar::null(self.dtype().clone()));
+    fn scalar_at(array: &ALPArray, index: usize) -> VortexResult<Scalar> {
+        if !array.encoded().is_valid(index)? {
+            return Ok(Scalar::null(array.dtype().clone()));
         }
 
-        if let Some(patches) = self.patches() {
+        if let Some(patches) = array.patches() {
             if let Some(patch) = patches.get_patched(index)? {
-                return patch.cast(self.dtype());
+                return patch.cast(array.dtype());
             }
         }
 
-        let encoded_val = self.encoded().scalar_at(index)?;
+        let encoded_val = array.encoded().scalar_at(index)?;
 
-        Ok(match_each_alp_float_ptype!(self.ptype(), |$T| {
+        Ok(match_each_alp_float_ptype!(array.ptype(), |$T| {
             let encoded_val: <$T as ALPFloat>::ALPInt = encoded_val.as_ref().try_into().unwrap();
             Scalar::primitive(<$T as ALPFloat>::decode_single(
                 encoded_val,
-                self.exponents(),
-            ), self.dtype().nullability())
+                array.exponents(),
+            ), array.dtype().nullability())
         }))
     }
 }

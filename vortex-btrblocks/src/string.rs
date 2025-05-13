@@ -1,6 +1,7 @@
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::arrays::{VarBinArray, VarBinViewArray};
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::arrays::{VarBinArray, VarBinViewArray, VarBinViewVTable};
+use vortex_array::vtable::ValidityHelper;
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
 use vortex_error::{VortexExpect, VortexResult};
@@ -41,9 +42,9 @@ fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
 }
 
 impl CompressorStats for StringStats {
-    type ArrayType = VarBinViewArray;
+    type ArrayVTable = VarBinViewVTable;
 
-    fn generate_opts(input: &Self::ArrayType, opts: GenerateStatsOptions) -> Self {
+    fn generate_opts(input: &VarBinViewArray, opts: GenerateStatsOptions) -> Self {
         let null_count = input
             .statistics()
             .compute_null_count()
@@ -63,12 +64,12 @@ impl CompressorStats for StringStats {
         }
     }
 
-    fn source(&self) -> &Self::ArrayType {
+    fn source(&self) -> &VarBinViewArray {
         &self.src
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.clone(), sample_size, sample_count)
+        let sampled = sample(self.src.as_ref(), sample_size, sample_count)
             .to_varbinview()
             .vortex_expect("varbinview");
 
@@ -79,7 +80,7 @@ impl CompressorStats for StringStats {
 pub struct StringCompressor;
 
 impl Compressor for StringCompressor {
-    type ArrayType = VarBinViewArray;
+    type ArrayVTable = VarBinViewVTable;
     type SchemeType = dyn StringScheme;
     type StatsType = StringStats;
 
@@ -141,7 +142,7 @@ impl Scheme for UncompressedScheme {
         _allowed_cascading: usize,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(stats.source().clone().into_array())
+        Ok(stats.source().to_array())
     }
 }
 
@@ -267,7 +268,6 @@ impl Scheme for FSSTScheme {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::Array;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_dtype::{DType, Nullability};
 
@@ -285,10 +285,7 @@ mod tests {
         }
         let strings = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
 
-        println!(
-            "original array: {}",
-            (&strings as &dyn Array).tree_display()
-        );
+        println!("original array: {}", strings.as_ref().tree_display());
 
         let compressed = StringCompressor::compress(&strings, false, 3, &[]).unwrap();
 

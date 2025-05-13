@@ -334,6 +334,17 @@ impl TryFrom<&Scalar> for usize {
     }
 }
 
+impl TryFrom<&Scalar> for Option<usize> {
+    type Error = VortexError;
+
+    fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
+        Ok(PrimitiveScalar::try_from(value)?
+            .as_::<u64>()?
+            .map(usize::try_from)
+            .transpose()?)
+    }
+}
+
 /// Read a scalar as usize. For usize only, we implicitly cast for better ergonomics.
 impl From<usize> for Scalar {
     fn from(value: usize) -> Self {

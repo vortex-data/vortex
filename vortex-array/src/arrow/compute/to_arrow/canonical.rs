@@ -27,7 +27,7 @@ use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::ToArrowArgs;
 use crate::compute::{InvocationArgs, Kernel, Output, cast};
-use crate::{Array as _, Canonical, ToCanonical};
+use crate::{Array as _, Canonical, IntoArray, ToCanonical};
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
 #[derive(Debug)]
@@ -145,7 +145,7 @@ impl Kernel for ToArrowCanonical {
             }
             _ => vortex_bail!(
                 "Cannot convert canonical array {} with dtype {} to: {:?}",
-                array.encoding(),
+                array.encoding_id(),
                 array.dtype(),
                 &arrow_type
             ),
@@ -339,7 +339,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DecimalDType, FieldNames};
 
-    use crate::Array as _;
+    use crate::IntoArray;
     use crate::arrays::{DecimalArray, PrimitiveArray, StructArray};
     use crate::arrow::IntoArrowArray;
     use crate::arrow::compute::to_arrow;
@@ -353,7 +353,7 @@ mod tests {
             DecimalDType::new(19, 2),
             Validity::NonNullable,
         );
-        let arrow = to_arrow(&decimal_vortex, &DataType::Decimal128(19, 2)).unwrap();
+        let arrow = to_arrow(decimal_vortex.as_ref(), &DataType::Decimal128(19, 2)).unwrap();
         assert_eq!(arrow.data_type(), &DataType::Decimal128(19, 2));
         let decimal_array = arrow.as_any().downcast_ref::<Decimal128Array>().unwrap();
         assert_eq!(

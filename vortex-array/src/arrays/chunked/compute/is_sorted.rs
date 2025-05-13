@@ -1,10 +1,10 @@
 use vortex_error::VortexResult;
 
-use crate::arrays::{ChunkedArray, ChunkedEncoding};
+use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::compute::{IsSortedKernel, IsSortedKernelAdapter, is_sorted, is_strict_sorted};
 use crate::{Array, register_kernel};
 
-impl IsSortedKernel for ChunkedEncoding {
+impl IsSortedKernel for ChunkedVTable {
     fn is_sorted(&self, array: &ChunkedArray) -> VortexResult<bool> {
         is_sorted_impl(array, false, is_sorted)
     }
@@ -14,7 +14,7 @@ impl IsSortedKernel for ChunkedEncoding {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(ChunkedVTable).lift());
 
 fn is_sorted_impl(
     array: &ChunkedArray,

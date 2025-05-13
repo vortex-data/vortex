@@ -1,16 +1,17 @@
 use vortex_array::arrays::ConstantArray;
-use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
+use vortex_array::vtable::OperationsVTable;
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::SparseArray;
+use crate::{SparseArray, SparseVTable};
 
-impl ArrayOperationsImpl for SparseArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let new_patches = self.patches().slice(start, stop)?;
+impl OperationsVTable<SparseVTable> for SparseVTable {
+    fn slice(array: &SparseArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let new_patches = array.patches().slice(start, stop)?;
 
         let Some(new_patches) = new_patches else {
-            return Ok(ConstantArray::new(self.fill_scalar().clone(), stop - start).into_array());
+            return Ok(ConstantArray::new(array.fill_scalar().clone(), stop - start).into_array());
         };
 
         // If the number of values in the sparse array matches the array length, then all
@@ -20,16 +21,16 @@ impl ArrayOperationsImpl for SparseArray {
         }
 
         Ok(
-            SparseArray::try_new_from_patches(new_patches, self.fill_scalar().clone())?
+            SparseArray::try_new_from_patches(new_patches, array.fill_scalar().clone())?
                 .into_array(),
         )
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(self
+    fn scalar_at(array: &SparseArray, index: usize) -> VortexResult<Scalar> {
+        Ok(array
             .patches()
             .get_patched(index)?
-            .unwrap_or_else(|| self.fill_scalar().clone()))
+            .unwrap_or_else(|| array.fill_scalar().clone()))
     }
 }
 

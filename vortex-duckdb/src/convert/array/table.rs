@@ -1,7 +1,7 @@
 use duckdb::core::DataChunkHandle;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 
 use crate::convert::array::array_ref::to_duckdb;
@@ -64,6 +64,6 @@ impl<'a> FromDuckDB<&'a NamedDataChunk<'a>> for ArrayRef {
 
         // All top level struct are non-nullable in duckdb, only inner columns can be nullable.
         StructArray::try_new(names.into(), arrays, len, Validity::NonNullable)
-            .map(StructArray::into_array)
+            .map(IntoArray::into_array)
     }
 }

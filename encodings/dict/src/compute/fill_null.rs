@@ -4,15 +4,15 @@ use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::{DictArray, DictEncoding};
+use crate::{DictArray, DictVTable};
 
-impl FillNullKernel for DictEncoding {
+impl FillNullKernel for DictVTable {
     fn fill_null(&self, array: &DictArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
         // If the fill value exists in the dictionary, we can simply rewrite the null codes to
         // point to the value.
         let found_fill_values = compare(
             array.values(),
-            &ConstantArray::new(fill_value.clone(), array.values().len()),
+            ConstantArray::new(fill_value.clone(), array.values().len()).as_ref(),
             Operator::Eq,
         )?
         .to_bool()?;
@@ -39,4 +39,4 @@ impl FillNullKernel for DictEncoding {
     }
 }
 
-register_kernel!(FillNullKernelAdapter(DictEncoding).lift());
+register_kernel!(FillNullKernelAdapter(DictVTable).lift());

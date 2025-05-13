@@ -3,11 +3,11 @@ use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::{IsSortedIteratorExt, IsSortedKernel, IsSortedKernelAdapter};
-use crate::{Array, register_kernel};
+use crate::register_kernel;
 
-impl IsSortedKernel for PrimitiveEncoding {
+impl IsSortedKernel for PrimitiveVTable {
     fn is_sorted(&self, array: &PrimitiveArray) -> VortexResult<bool> {
         match_each_native_ptype!(array.ptype(), |$P| {
             compute_is_sorted::<$P>(array, false)
@@ -21,7 +21,7 @@ impl IsSortedKernel for PrimitiveEncoding {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(PrimitiveVTable).lift());
 
 #[derive(Copy, Clone)]
 struct ComparablePrimitive<T: NativePType>(T);
@@ -97,7 +97,7 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(1)]), true)]
     #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
-        assert_eq!(is_sorted(&array).vortex_unwrap(), expected);
+        assert_eq!(is_sorted(array.as_ref()).vortex_unwrap(), expected);
     }
 
     #[rstest]
@@ -107,6 +107,6 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([None, None, Some(1i32), Some(1), None]), false)]
     #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_strict_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
-        assert_eq!(is_strict_sorted(&array).vortex_unwrap(), expected);
+        assert_eq!(is_strict_sorted(array.as_ref()).vortex_unwrap(), expected);
     }
 }

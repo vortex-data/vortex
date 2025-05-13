@@ -7,8 +7,8 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::encoding::Encoding;
-use crate::{Array, ArrayRef};
+use crate::vtable::VTable;
+use crate::{Array, ArrayExt, ArrayRef};
 
 /// Perform SQL left LIKE right
 ///
@@ -31,7 +31,7 @@ pub fn like(
 pub struct LikeKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(LikeKernelRef);
 
-pub trait LikeKernel: Encoding {
+pub trait LikeKernel: VTable {
     fn like(
         &self,
         array: &Self::Array,
@@ -41,21 +41,21 @@ pub trait LikeKernel: Encoding {
 }
 
 #[derive(Debug)]
-pub struct LikeKernelAdapter<E: Encoding>(pub E);
+pub struct LikeKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + LikeKernel> LikeKernelAdapter<E> {
+impl<V: VTable + LikeKernel> LikeKernelAdapter<V> {
     pub const fn lift(&'static self) -> LikeKernelRef {
         LikeKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + LikeKernel> Kernel for LikeKernelAdapter<E> {
+impl<V: VTable + LikeKernel> Kernel for LikeKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = LikeArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
-        Ok(E::like(&self.0, array, inputs.pattern, inputs.options)?.map(|array| array.into()))
+        Ok(V::like(&self.0, array, inputs.pattern, inputs.options)?.map(|array| array.into()))
     }
 }
 
@@ -112,9 +112,9 @@ impl ComputeFnVTable for Like {
             vortex_bail!(
                 "Length mismatch lhs len {} ({}) != rhs len {} ({})",
                 array.len(),
-                array.encoding(),
+                array.encoding_id(),
                 pattern.len(),
-                pattern.encoding()
+                pattern.encoding_id()
             );
         }
         Ok(array.len())
@@ -183,7 +183,7 @@ pub(crate) fn arrow_like(
         array.len(),
         pattern.len(),
         "Arrow Like: length mismatch for {}",
-        array.encoding()
+        array.encoding_id()
     );
     let lhs = Datum::try_new(array)?;
     let rhs = Datum::try_new(pattern)?;

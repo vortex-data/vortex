@@ -7,7 +7,7 @@ use crate::arrays::StructArray;
 use crate::arrow::FromArrowArray;
 use crate::arrow::compute::{to_arrow, to_arrow_preferred};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ToCanonical, TryIntoArray};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, TryIntoArray};
 
 impl TryIntoArray for RecordBatch {
     fn try_into_array(self) -> VortexResult<ArrayRef> {
@@ -43,13 +43,13 @@ impl TryFrom<&dyn Array> for RecordBatch {
 
 impl StructArray {
     pub fn into_record_batch(self) -> VortexResult<RecordBatch> {
-        let array_ref = to_arrow_preferred(&self)?;
+        let array_ref = to_arrow_preferred(self.as_ref())?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 
     pub fn into_record_batch_with_schema(self, schema: &Schema) -> VortexResult<RecordBatch> {
         let data_type = DataType::Struct(schema.fields.clone());
-        let array_ref = to_arrow(&self, &data_type)?;
+        let array_ref = to_arrow(self.as_ref(), &data_type)?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }

@@ -3,13 +3,13 @@ use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
 use vortex_mask::Mask;
 
-use crate::arrays::VarBinEncoding;
+use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
-impl TakeKernel for VarBinEncoding {
+impl TakeKernel for VarBinVTable {
     fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let offsets = array.offsets().to_primitive()?;
         let data = array.bytes();
@@ -29,7 +29,7 @@ impl TakeKernel for VarBinEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(VarBinEncoding).lift());
+register_kernel!(TakeKernelAdapter(VarBinVTable).lift());
 
 fn take<I: NativePType, O: NativePType + PrimInt>(
     dtype: DType,

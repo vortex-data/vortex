@@ -3,13 +3,14 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 use vortex_scalar::match_each_decimal_value_type;
 
-use crate::arrays::{DecimalArray, DecimalEncoding};
+use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{FilterKernel, FilterKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for DecimalEncoding {
+impl FilterKernel for DecimalVTable {
     fn filter(&self, array: &DecimalArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 
@@ -50,7 +51,7 @@ impl FilterKernel for DecimalEncoding {
     }
 }
 
-register_kernel!(FilterKernelAdapter(DecimalEncoding).lift());
+register_kernel!(FilterKernelAdapter(DecimalVTable).lift());
 
 fn filter_primitive_indices<T: Copy>(
     values: &[T],

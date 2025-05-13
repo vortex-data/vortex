@@ -1,27 +1,28 @@
 use arrow_schema::DataType;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::VortexResult;
 
-use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
-use crate::{Array, ArrayCanonicalImpl, ArrayRef, Canonical, TryFromArrayRef};
+use crate::vtable::CanonicalVTable;
+use crate::{ArrayRef, Canonical, ToCanonical};
 
-impl ArrayCanonicalImpl for VarBinArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        let dtype = self.dtype().clone();
+impl CanonicalVTable<VarBinVTable> for VarBinVTable {
+    fn canonicalize(array: &VarBinArray) -> VortexResult<Canonical> {
+        let dtype = array.dtype().clone();
         let nullable = dtype.is_nullable();
 
-        let array_ref = self.to_array().into_arrow_preferred()?;
+        let array_ref = array.to_array().into_arrow_preferred()?;
         let array = match dtype {
             DType::Utf8(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::Utf8View)?,
             DType::Binary(_) => arrow_cast::cast(array_ref.as_ref(), &DataType::BinaryView)?,
 
             _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
         };
-        VarBinViewArray::try_from_array(ArrayRef::from_arrow(array, nullable))
-            .map(Canonical::VarBinView)
-            .map_err(|_| vortex_err!("Array wasn't a VarBinViewArray"))
+        Ok(Canonical::VarBinView(
+            ArrayRef::from_arrow(array, nullable).to_varbinview()?,
+        ))
     }
 }
 
@@ -30,7 +31,6 @@ mod test {
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::array::Array;
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::canonical::ToCanonical;
 

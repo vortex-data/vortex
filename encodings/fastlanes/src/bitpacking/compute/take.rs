@@ -5,7 +5,8 @@ use fastlanes::BitPacking;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
+use vortex_array::vtable::ValidityHelper;
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{
     NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
@@ -13,18 +14,18 @@ use vortex_dtype::{
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::chunked_indices;
-use crate::{BitPackedArray, BitPackedEncoding, unpack_single_primitive};
+use crate::{BitPackedArray, BitPackedVTable, unpack_single_primitive};
 
 // assuming the buffer is already allocated (which will happen at most once) then unpacking
 // all 1024 elements takes ~8.8x as long as unpacking a single element on an M2 Macbook Air.
 // see https://github.com/vortex-data/vortex/pull/190#issue-2223752833
 pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 
-impl TakeKernel for BitPackedEncoding {
+impl TakeKernel for BitPackedVTable {
     fn take(&self, array: &BitPackedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            return take(&array.to_primitive()?, indices);
+            return take(array.to_primitive()?.as_ref(), indices);
         }
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
@@ -43,7 +44,7 @@ impl TakeKernel for BitPackedEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(BitPackedEncoding).lift());
+register_kernel!(TakeKernelAdapter(BitPackedVTable).lift());
 
 fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     array: &BitPackedArray,
@@ -118,7 +119,7 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
         unpatched_taken = unpatched_taken.reinterpret_cast(array.ptype());
     }
     if let Some(patches) = array.patches() {
-        if let Some(patches) = patches.take(indices)? {
+        if let Some(patches) = patches.take(indices.as_ref())? {
             let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
             return unpatched_taken.patch(&cast_patches);
         }
@@ -147,9 +148,12 @@ mod test {
 
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedArray::encode(&unpacked, 6).unwrap();
+        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
 
-        let primitive_result = take(&bitpacked, &indices).unwrap().to_primitive().unwrap();
+        let primitive_result = take(bitpacked.as_ref(), &indices)
+            .unwrap()
+            .to_primitive()
+            .unwrap();
         let res_bytes = primitive_result.as_slice::<u8>();
         assert_eq!(res_bytes, &[0, 62, 31, 33, 9, 18]);
     }
@@ -161,7 +165,10 @@ mod test {
 
         let indices = PrimitiveArray::from_iter([0, 2, 4, 6]);
 
-        let primitive_result = take(&bitpacked, &indices).unwrap().to_primitive().unwrap();
+        let primitive_result = take(bitpacked.as_ref(), indices.as_ref())
+            .unwrap()
+            .to_primitive()
+            .unwrap();
         let res_bytes = primitive_result.as_slice::<u32>();
         assert_eq!(res_bytes, &[0, 2, 4, 6]);
     }
@@ -172,7 +179,7 @@ mod test {
 
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedArray::encode(&unpacked, 6).unwrap();
+        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let sliced = bitpacked.slice(128, 2050).unwrap();
 
         let primitive_result = take(&sliced, &indices).unwrap().to_primitive().unwrap();
@@ -186,14 +193,14 @@ mod test {
         let num_patches: usize = 128;
         let values = (0..u16::MAX as u32 + num_patches as u32).collect::<Buffer<_>>();
         let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-        let packed = BitPackedArray::encode(&uncompressed, 16).unwrap();
+        let packed = BitPackedArray::encode(uncompressed.as_ref(), 16).unwrap();
         assert!(packed.patches().is_some());
 
         let rng = rng();
         let range = Uniform::new(0, values.len()).unwrap();
         let random_indices =
             PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
-        let taken = take(&packed, &random_indices).unwrap();
+        let taken = take(packed.as_ref(), random_indices.as_ref()).unwrap();
 
         // sanity check
         random_indices
@@ -233,8 +240,8 @@ mod test {
             BitPackedArray::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
 
         let taken_primitive = take(
-            &start,
-            &PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]),
+            start.as_ref(),
+            PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]).as_ref(),
         )
         .unwrap()
         .to_primitive()

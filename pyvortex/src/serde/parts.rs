@@ -54,7 +54,7 @@ impl PyArrayParts {
 
     /// Fetch the serialized metadata of the array.
     #[getter]
-    fn metadata(&self) -> Option<&[u8]> {
+    fn metadata(&self) -> &[u8] {
         self.0.metadata()
     }
 

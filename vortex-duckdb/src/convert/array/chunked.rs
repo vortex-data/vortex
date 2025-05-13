@@ -45,8 +45,8 @@ impl ToDuckDB for ChunkedArray {
 #[cfg(test)]
 mod tests {
     use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+    use vortex_array::IntoArray;
     use vortex_array::arrays::{ChunkedArray, StructArray};
-    use vortex_array::{Array, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dict::DictArray;
 

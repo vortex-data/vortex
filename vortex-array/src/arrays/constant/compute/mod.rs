@@ -12,7 +12,7 @@ mod test {
     use vortex_dtype::half::f16;
     use vortex_scalar::Scalar;
 
-    use crate::array::Array;
+    use crate::IntoArray;
     use crate::arrays::constant::ConstantArray;
     use crate::compute::conformance::mask::test_mask;
 

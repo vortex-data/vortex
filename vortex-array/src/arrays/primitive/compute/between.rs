@@ -2,11 +2,12 @@ use arrow_buffer::BooleanBuffer;
 use vortex_dtype::{NativePType, Nullability, match_each_native_ptype};
 use vortex_error::VortexResult;
 
-use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveVTable};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
-impl BetweenKernel for PrimitiveEncoding {
+impl BetweenKernel for PrimitiveVTable {
     fn between(
         &self,
         arr: &PrimitiveArray,
@@ -30,7 +31,7 @@ impl BetweenKernel for PrimitiveEncoding {
     }
 }
 
-register_kernel!(BetweenKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(BetweenKernelAdapter(PrimitiveVTable).lift());
 
 fn between_impl<T: NativePType + Copy>(
     arr: &PrimitiveArray,

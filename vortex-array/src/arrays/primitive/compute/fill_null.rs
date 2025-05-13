@@ -6,12 +6,13 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::{ConstantArray, PrimitiveEncoding};
+use crate::arrays::{ConstantArray, PrimitiveVTable};
 use crate::compute::{FillNullKernel, FillNullKernelAdapter};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
 
-impl FillNullKernel for PrimitiveEncoding {
+impl FillNullKernel for PrimitiveVTable {
     fn fill_null(&self, array: &PrimitiveArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
         let result_validity = match fill_value.dtype().nullability() {
             Nullability::NonNullable => Validity::NonNullable,
@@ -46,7 +47,7 @@ impl FillNullKernel for PrimitiveEncoding {
     }
 }
 
-register_kernel!(FillNullKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(FillNullKernelAdapter(PrimitiveVTable).lift());
 
 #[cfg(test)]
 mod test {
@@ -54,7 +55,6 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::IntoArray;
-    use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::canonical::ToCanonical;
@@ -64,7 +64,7 @@ mod test {
     #[test]
     fn fill_null_leading_none() {
         let arr = PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]);
-        let p = fill_null(&arr, &Scalar::from(42u8))
+        let p = fill_null(arr.as_ref(), &Scalar::from(42u8))
             .unwrap()
             .to_primitive()
             .unwrap();
@@ -76,7 +76,7 @@ mod test {
     fn fill_null_all_none() {
         let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None]);
 
-        let p = fill_null(&arr, &Scalar::from(255u8))
+        let p = fill_null(arr.as_ref(), &Scalar::from(255u8))
             .unwrap()
             .to_primitive()
             .unwrap();
@@ -90,7 +90,7 @@ mod test {
             buffer![8u8, 10, 12, 14, 16],
             Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
         );
-        let p = fill_null(&arr, &Scalar::from(255u8))
+        let p = fill_null(arr.as_ref(), &Scalar::from(255u8))
             .unwrap()
             .to_primitive()
             .unwrap();

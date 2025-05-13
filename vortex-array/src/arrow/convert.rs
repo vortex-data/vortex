@@ -27,7 +27,7 @@ use crate::arrays::{
 };
 use crate::arrow::FromArrowArray;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{ArrayRef, IntoArray};
 
 impl IntoArray for ArrowBuffer {
     fn into_array(self) -> ArrayRef {
@@ -159,16 +159,12 @@ where
     match T::DATA_TYPE {
         DataType::Timestamp(time_unit, tz) => {
             let tz = tz.map(|s| s.to_string());
-            TemporalArray::new_timestamp(arr.into_array(), time_unit.into(), tz).into()
+            TemporalArray::new_timestamp(arr, time_unit.into(), tz).into()
         }
-        DataType::Time32(time_unit) => {
-            TemporalArray::new_time(arr.into_array(), time_unit.into()).into()
-        }
-        DataType::Time64(time_unit) => {
-            TemporalArray::new_time(arr.into_array(), time_unit.into()).into()
-        }
-        DataType::Date32 => TemporalArray::new_date(arr.into_array(), TimeUnit::D).into(),
-        DataType::Date64 => TemporalArray::new_date(arr.into_array(), TimeUnit::Ms).into(),
+        DataType::Time32(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
+        DataType::Time64(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
+        DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::D).into(),
+        DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Ms).into(),
         DataType::Duration(_) => unimplemented!(),
         DataType::Interval(_) => unimplemented!(),
         _ => vortex_panic!("Invalid temporal type: {}", T::DATA_TYPE),

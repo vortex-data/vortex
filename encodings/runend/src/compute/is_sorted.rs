@@ -1,9 +1,9 @@
 use vortex_array::compute::{IsSortedKernel, IsSortedKernelAdapter, is_sorted, is_strict_sorted};
-use vortex_array::{Array, register_kernel};
+use vortex_array::register_kernel;
 
-use crate::{RunEndArray, RunEndEncoding};
+use crate::{RunEndArray, RunEndVTable};
 
-impl IsSortedKernel for RunEndEncoding {
+impl IsSortedKernel for RunEndVTable {
     fn is_sorted(&self, array: &RunEndArray) -> vortex_error::VortexResult<bool> {
         is_sorted(array.values())
     }
@@ -13,4 +13,4 @@ impl IsSortedKernel for RunEndEncoding {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(RunEndEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(RunEndVTable).lift());

@@ -1,12 +1,13 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::PrimitiveEncoding;
+use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{MaskKernel, MaskKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{ArrayRef, IntoArray, register_kernel};
 
-impl MaskKernel for PrimitiveEncoding {
+impl MaskKernel for PrimitiveVTable {
     fn mask(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().mask(mask)?;
         Ok(
@@ -16,7 +17,7 @@ impl MaskKernel for PrimitiveEncoding {
     }
 }
 
-register_kernel!(MaskKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(MaskKernelAdapter(PrimitiveVTable).lift());
 
 #[cfg(test)]
 mod test {
@@ -26,6 +27,6 @@ mod test {
     #[test]
     fn test_mask_non_nullable_array() {
         let non_nullable_array = PrimitiveArray::from_iter([1, 2, 3, 4, 5]);
-        test_mask(&non_nullable_array);
+        test_mask(non_nullable_array.as_ref());
     }
 }

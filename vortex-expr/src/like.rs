@@ -166,7 +166,7 @@ mod tests {
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
-                .evaluate(&bools)
+                .evaluate(bools.as_ref())
                 .unwrap()
                 .to_bool()
                 .unwrap()

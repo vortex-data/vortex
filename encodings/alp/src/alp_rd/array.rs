@@ -4,18 +4,39 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
-use vortex_array::vtable::VTableRef;
-use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding, ProstMetadata, ToCanonical,
+use vortex_array::vtable::{
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityChild, ValidityVTableFromChild,
 };
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_mask::Mask;
 
 use crate::alp_rd::alp_rd_decode;
-use crate::alp_rd::serde::ALPRDMetadata;
+
+vtable!(ALPRD);
+
+impl VTable for ALPRDVTable {
+    type Array = ALPRDArray;
+    type Encoding = ALPRDEncoding;
+
+    type ArrayVTable = Self;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = ValidityVTableFromChild;
+    type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = Self;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.alprd")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        EncodingRef::new_ref(ALPRDEncoding.as_ref())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ALPRDArray {
@@ -28,12 +49,8 @@ pub struct ALPRDArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ALPRDEncoding;
-impl Encoding for ALPRDEncoding {
-    type Array = ALPRDArray;
-    type Metadata = ProstMetadata<ALPRDMetadata>;
-}
 
 impl ALPRDArray {
     pub fn try_new(
@@ -137,99 +154,59 @@ impl ALPRDArray {
     }
 }
 
-impl ArrayImpl for ALPRDArray {
-    type Encoding = ALPRDEncoding;
-
-    fn _len(&self) -> usize {
-        self.left_parts.len()
-    }
-
-    fn _dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&ALPRDEncoding)
-    }
-
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let left_parts = children[0].clone();
-        let right_parts = children[1].clone();
-
-        let left_part_patches = self.left_parts_patches().map(|existing| {
-            let indices = children[2].clone();
-            let values = children[3].clone();
-            Patches::new(existing.array_len(), existing.offset(), indices, values)
-        });
-
-        ALPRDArray::try_new(
-            self.dtype().clone(),
-            left_parts,
-            self.left_parts_dictionary().clone(),
-            right_parts,
-            self.right_bit_width(),
-            left_part_patches,
-        )
+impl ValidityChild<ALPRDVTable> for ALPRDVTable {
+    fn validity_child(array: &ALPRDArray) -> &dyn Array {
+        array.left_parts()
     }
 }
 
-impl ArrayCanonicalImpl for ALPRDArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        let left_parts = self.left_parts().to_primitive()?;
-        let right_parts = self.right_parts().to_primitive()?;
+impl ArrayVTable<ALPRDVTable> for ALPRDVTable {
+    fn len(array: &ALPRDArray) -> usize {
+        array.left_parts.len()
+    }
+
+    fn dtype(array: &ALPRDArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ALPRDArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+}
+
+impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
+    fn canonicalize(array: &ALPRDArray) -> VortexResult<Canonical> {
+        let left_parts = array.left_parts().to_primitive()?;
+        let right_parts = array.right_parts().to_primitive()?;
 
         // Decode the left_parts using our builtin dictionary.
-        let left_parts_dict = self.left_parts_dictionary();
+        let left_parts_dict = array.left_parts_dictionary();
 
-        let decoded_array = if self.is_f32() {
+        let decoded_array = if array.is_f32() {
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
                     left_parts.into_buffer::<u16>(),
                     left_parts_dict,
-                    self.right_bit_width,
+                    array.right_bit_width,
                     right_parts.into_buffer_mut::<u32>(),
-                    self.left_parts_patches(),
+                    array.left_parts_patches(),
                 )?,
-                Validity::copy_from_array(self)?,
+                Validity::copy_from_array(array.as_ref())?,
             )
         } else {
             PrimitiveArray::new(
                 alp_rd_decode::<f64>(
                     left_parts.into_buffer::<u16>(),
                     left_parts_dict,
-                    self.right_bit_width,
+                    array.right_bit_width,
                     right_parts.into_buffer_mut::<u64>(),
-                    self.left_parts_patches(),
+                    array.left_parts_patches(),
                 )?,
-                Validity::copy_from_array(self)?,
+                Validity::copy_from_array(array.as_ref())?,
             )
         };
 
         Ok(Canonical::Primitive(decoded_array))
-    }
-}
-
-impl ArrayStatisticsImpl for ALPRDArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
-    }
-}
-
-impl ArrayValidityImpl for ALPRDArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.left_parts().is_valid(index)
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.left_parts().all_valid()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.left_parts().all_invalid()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.left_parts().validity_mask()
     }
 }
 

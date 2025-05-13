@@ -4,16 +4,39 @@ use arrow_buffer::BooleanBuffer;
 use vortex_array::arrays::BoolArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
-use vortex_array::vtable::VTableRef;
-use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, Canonical, EmptyMetadata, Encoding, try_from_array_ref,
+use vortex_array::vtable::{
+    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
+    ValidityVTableFromValidityHelper,
 };
+use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_panic};
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+
+vtable!(ByteBool);
+
+impl VTable for ByteBoolVTable {
+    type Array = ByteBoolArray;
+    type Encoding = ByteBoolEncoding;
+
+    type ArrayVTable = Self;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.bytebool")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        EncodingRef::new_ref(ByteBoolEncoding.as_ref())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ByteBoolArray {
@@ -23,14 +46,8 @@ pub struct ByteBoolArray {
     stats_set: ArrayStats,
 }
 
-try_from_array_ref!(ByteBoolArray);
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ByteBoolEncoding;
-impl Encoding for ByteBoolEncoding {
-    type Array = ByteBoolArray;
-    type Metadata = EmptyMetadata;
-}
 
 impl ByteBoolArray {
     pub fn new(buffer: ByteBuffer, validity: Validity) -> Self {
@@ -64,88 +81,54 @@ impl ByteBoolArray {
         &self.buffer
     }
 
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     pub fn as_slice(&self) -> &[bool] {
         // Safety: The internal buffer contains byte-sized bools
         unsafe { std::mem::transmute(self.buffer().as_slice()) }
     }
 }
 
-impl ArrayImpl for ByteBoolArray {
-    type Encoding = ByteBoolEncoding;
-
-    fn _len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    fn _dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&ByteBoolEncoding)
-    }
-
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let validity = if self.validity().is_array() {
-            Validity::Array(children[0].clone())
-        } else {
-            self.validity().clone()
-        };
-
-        Ok(Self::new(self.buffer().clone(), validity))
+impl ValidityHelper for ByteBoolArray {
+    fn validity(&self) -> &Validity {
+        &self.validity
     }
 }
 
-impl ArrayCanonicalImpl for ByteBoolArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        let boolean_buffer = BooleanBuffer::from(self.as_slice());
-        let validity = self.validity().clone();
+impl ArrayVTable<ByteBoolVTable> for ByteBoolVTable {
+    fn len(array: &ByteBoolArray) -> usize {
+        array.buffer.len()
+    }
+
+    fn dtype(array: &ByteBoolArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ByteBoolArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+}
+
+impl CanonicalVTable<ByteBoolVTable> for ByteBoolVTable {
+    fn canonicalize(array: &ByteBoolArray) -> VortexResult<Canonical> {
+        let boolean_buffer = BooleanBuffer::from(array.as_slice());
+        let validity = array.validity().clone();
         Ok(Canonical::Bool(BoolArray::new(boolean_buffer, validity)))
     }
 }
 
-impl ArrayOperationsImpl for ByteBoolArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
+    fn slice(array: &ByteBoolArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(ByteBoolArray::new(
-            self.buffer().slice(start..stop),
-            self.validity().slice(start, stop)?,
+            array.buffer().slice(start..stop),
+            array.validity().slice(start, stop)?,
         )
         .into_array())
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &ByteBoolArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
-            self.buffer()[index] == 1,
-            self.dtype().nullability(),
+            array.buffer()[index] == 1,
+            array.dtype().nullability(),
         ))
-    }
-}
-
-impl ArrayStatisticsImpl for ByteBoolArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
-    }
-}
-
-impl ArrayValidityImpl for ByteBoolArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.validity.is_valid(index)
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.validity.all_valid()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.validity.all_invalid()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.validity.to_mask(self.len())
     }
 }
 
@@ -168,7 +151,6 @@ impl From<Vec<Option<bool>>> for ByteBoolArray {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     // #[cfg_attr(miri, ignore)]
