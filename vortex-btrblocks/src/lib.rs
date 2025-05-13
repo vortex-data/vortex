@@ -5,7 +5,6 @@ use std::hash::Hash;
 
 use itertools::Itertools;
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
-use vortex_array::nbytes::NBytes;
 use vortex_array::vtable::{VTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
 use vortex_dtype::datetime::TemporalMetadata;

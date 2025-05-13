@@ -13,7 +13,6 @@ use vortex_mask::Mask;
 
 use crate::arrays::ChunkedVTable;
 use crate::iter::{ArrayIterator, ArrayIteratorAdapter};
-use crate::nbytes::NBytes;
 use crate::search_sorted::{SearchSorted, SearchSortedSide};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};

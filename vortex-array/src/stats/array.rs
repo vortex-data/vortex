@@ -13,7 +13,6 @@ use crate::Array;
 use crate::compute::{
     MinMaxResult, is_constant, is_sorted, is_strict_sorted, min_max, nan_count, sum,
 };
-use crate::nbytes::NBytes;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 // TODO(adamg): This is a very bad name.

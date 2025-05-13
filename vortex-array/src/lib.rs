@@ -33,7 +33,6 @@ mod context;
 mod encoding;
 pub mod iter;
 mod metadata;
-pub mod nbytes;
 mod partial_ord;
 pub mod patches;
 pub mod search_sorted;

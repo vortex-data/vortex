@@ -6,7 +6,6 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use itertools::Itertools;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::nbytes::NBytes;
 use vortex_array::stats::{PRUNING_STATS, Precision, STATS_TO_WRITE, Stat};
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;

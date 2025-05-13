@@ -17,7 +17,6 @@ use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sparse::SparseVTable;
 use vortex::encodings::zigzag::ZigZagVTable;
 use vortex::error::VortexExpect;
-use vortex::nbytes::NBytes;
 use vortex::vtable::VTable;
 use vortex::{Array, ArrayExt, ArrayRef};
 

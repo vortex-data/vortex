@@ -15,7 +15,6 @@ use vortex::arrow::IntoArrowArray;
 use vortex::compute::{Operator, compare, take};
 use vortex::error::VortexError;
 use vortex::mask::Mask;
-use vortex::nbytes::NBytes;
 use vortex::{Array, ArrayExt, ArrayRef};
 
 use crate::arrays::native::PyNativeArray;

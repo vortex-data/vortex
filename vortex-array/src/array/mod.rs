@@ -246,7 +246,7 @@ impl ToOwned for dyn Array {
     }
 }
 
-// FIXME(ngates): require AsRef<dyn Array> instead of Array?
+// TODO(ngates): move this to impl dyn Array.
 pub trait ArrayExt: Array {
     /// Returns the array downcast to the given `A`.
     fn as_<V: VTable>(&self) -> &V::Array {
@@ -277,6 +277,20 @@ impl Display for dyn Array {
             self.dtype(),
             self.len()
         )
+    }
+}
+
+impl dyn Array + '_ {
+    /// Total size of the array in bytes, including all children and buffers.
+    // TODO(ngates): this should return u64
+    pub fn nbytes(&self) -> usize {
+        let mut nbytes = 0;
+        for array in self.depth_first_traversal() {
+            for buffer in array.buffers() {
+                nbytes += buffer.len();
+            }
+        }
+        nbytes
     }
 }
 
