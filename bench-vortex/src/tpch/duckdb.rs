@@ -100,6 +100,7 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
 
     let vortex_path = vortex_duckdb_extension_path();
     command
+        .arg("-unsigned")
         .arg("-c")
         .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
 
