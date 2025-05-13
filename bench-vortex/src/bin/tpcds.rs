@@ -177,14 +177,12 @@ async fn bench_main(
         match engine {
             // TODO(joe): support datafusion
             Engine::DuckDB => {
-                //TODO: remove
-                let _ = duckdb_resolved_path;
                 let temp_dir = tempdir()?;
                 let duckdb_file = temp_dir
                     .path()
                     .join(format!("duckdb-file-{}.db", format.name()));
 
-                let executor = DuckDBExecutor::new(PathBuf::from("duckdb"), duckdb_file);
+                let executor = DuckDBExecutor::new(duckdb_resolved_path.to_owned(), duckdb_file);
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcDS)?;
 
                 for (query_idx, sql_query) in tpch_queries.clone() {

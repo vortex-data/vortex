@@ -38,9 +38,9 @@ impl DuckDBExecutor {
     }
 }
 
-fn validate_path(duckdb_path: &PathBuf) {
+fn validate_path(duckdb_path: &Path) {
     assert!(
-        duckdb_path.as_path().exists(),
+        duckdb_path.exists(),
         "failed to find duckdb executable at: {}",
         duckdb_path.display()
     );
@@ -63,17 +63,9 @@ pub fn vortex_duckdb_folder() -> PathBuf {
         }
     }
 
-    let duckdb_vortex_path = PathBuf::from_str(&repo_root.unwrap_or_else(|| ".".to_string()))
+    PathBuf::from_str(&repo_root.unwrap_or_else(|| ".".to_string()))
         .expect("failed to find the vortex repo")
-        .join("duckdb-vortex");
-
-    duckdb_vortex_path
-}
-
-pub fn vortex_duckdb_path() -> PathBuf {
-    let duckdb_path = vortex_duckdb_folder().join("build/release/duckdb");
-    validate_path(&duckdb_path);
-    duckdb_path
+        .join("duckdb-vortex")
 }
 
 pub fn vortex_duckdb_extension_path() -> PathBuf {
@@ -86,7 +78,8 @@ pub fn get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf
         validate_path(duckdb_path);
         return duckdb_path.to_owned();
     };
-    vortex_duckdb_path()
+    // Use the binary
+    PathBuf::from("duckdb")
 }
 
 /// Finds the path to the DuckDB executable
@@ -271,7 +264,7 @@ pub fn register_tables(
     trace!("register duckdb tables with command: {:?}", command);
 
     // Don't trace env vars.
-    command.envs(std::env::vars_os().into_iter());
+    command.envs(std::env::vars_os());
     let output = command.output()?;
 
     // DuckDB does not return non-zero exit codes in case of failures.
