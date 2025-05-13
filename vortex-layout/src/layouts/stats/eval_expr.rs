@@ -136,7 +136,7 @@ mod test {
     use arcref::ArcRef;
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
-    use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
+    use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};

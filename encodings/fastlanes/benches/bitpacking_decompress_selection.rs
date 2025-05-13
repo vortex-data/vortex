@@ -38,7 +38,12 @@ fn decompress_bitpacking_early_filter<T: NativePType>(bencher: Bencher, fraction
         .collect::<BooleanBuffer>();
     let mask = &Mask::from_buffer(mask);
 
-    bencher.bench(|| filter(&array, mask).unwrap().to_canonical().unwrap());
+    bencher.bench(|| {
+        filter(array.as_ref(), mask)
+            .unwrap()
+            .to_canonical()
+            .unwrap()
+    });
 }
 
 // #[divan::bench(types = [i8, i16, i32, i64], args = [0.001, 0.01, 0.1, 0.5, 0.9, 0.99, 0.999])]

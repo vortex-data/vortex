@@ -2,22 +2,20 @@ use std::fmt::Debug;
 
 pub use compress::*;
 use fastlanes::BitPacking;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::patches::Patches;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
-use vortex_array::vtable::VTableRef;
-use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayExt, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayValidityImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
+use vortex_array::vtable::{
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
+    ValidityVTableFromValidityHelper,
 };
+use vortex_array::{Array, ArrayExt, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex_mask::Mask;
 
-use crate::bitpacking::serde::BitPackedMetadata;
 use crate::unpack_iter::{BitPacked, BitUnpackedChunks};
 
 mod compress;
@@ -25,6 +23,30 @@ mod compute;
 mod ops;
 mod serde;
 pub mod unpack_iter;
+
+vtable!(BitPacked);
+
+impl VTable for BitPackedVTable {
+    type Array = BitPackedArray;
+    type Encoding = BitPackedEncoding;
+
+    type ArrayVTable = Self;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = Self;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("fastlanes.bitpacked")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        EncodingRef::new_ref(BitPackedEncoding.as_ref())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct BitPackedArray {
@@ -38,14 +60,8 @@ pub struct BitPackedArray {
     stats_set: ArrayStats,
 }
 
-try_from_array_ref!(BitPackedArray);
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BitPackedEncoding;
-impl Encoding for BitPackedEncoding {
-    type Array = BitPackedArray;
-    type Metadata = ProstMetadata<BitPackedMetadata>;
-}
 
 /// NB: All non-null values in the patches array are considered patches
 impl BitPackedArray {
@@ -206,10 +222,6 @@ impl BitPackedArray {
         self.offset
     }
 
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     /// Bit-pack an array of primitive integers down to the target bit-width using the FastLanes
     /// SIMD-accelerated packing kernels.
     ///
@@ -221,8 +233,9 @@ impl BitPackedArray {
     ///
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
+    // FIXME(ngates): take a PrimitiveArray
     pub fn encode(array: &dyn Array, bit_width: u8) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<PrimitiveArray>() {
+        if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
             bitpack_encode(parray, bit_width, None)
         } else {
             vortex_bail!("Bitpacking can only encode primitive arrays");
@@ -238,87 +251,44 @@ impl BitPackedArray {
     }
 }
 
-impl ArrayImpl for BitPackedArray {
-    type Encoding = BitPackedEncoding;
-
-    fn _len(&self) -> usize {
-        self.len
-    }
-
-    fn _dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&BitPackedEncoding)
-    }
-
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let patches = self.patches().map(|existing| {
-            let indices = children[0].clone();
-            let values = children[1].clone();
-            Patches::new(existing.array_len(), existing.offset(), indices, values)
-        });
-
-        let validity = if self.validity().is_array() {
-            Validity::Array(children[children.len() - 1].clone())
-        } else {
-            self.validity().clone()
-        };
-
-        unsafe {
-            Self::new_unchecked_with_offset(
-                self.packed().clone(),
-                self.ptype(),
-                validity,
-                patches,
-                self.bit_width(),
-                self.len(),
-                self.offset(),
-            )
-        }
+impl ValidityHelper for BitPackedArray {
+    fn validity(&self) -> &Validity {
+        &self.validity
     }
 }
 
-impl ArrayCanonicalImpl for BitPackedArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        unpack(self).map(Canonical::Primitive)
+impl ArrayVTable<BitPackedVTable> for BitPackedVTable {
+    fn len(array: &BitPackedArray) -> usize {
+        array.len
     }
 
-    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        match_each_integer_ptype!(self.ptype(), |$T| {
+    fn dtype(array: &BitPackedArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &BitPackedArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+}
+
+impl CanonicalVTable<BitPackedVTable> for BitPackedVTable {
+    fn canonicalize(array: &BitPackedArray) -> VortexResult<Canonical> {
+        unpack(array).map(Canonical::Primitive)
+    }
+
+    fn append_to_builder(
+        array: &BitPackedArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        match_each_integer_ptype!(array.ptype(), |$T| {
             unpack_into::<$T>(
-                self,
+                array,
                 builder
                     .as_any_mut()
                     .downcast_mut()
                     .vortex_expect("bit packed array must canonicalize into a primitive array"),
             )
         })
-    }
-}
-
-impl ArrayStatisticsImpl for BitPackedArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
-    }
-}
-
-impl ArrayValidityImpl for BitPackedArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.validity.is_valid(index)
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.validity.all_valid()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.validity.all_invalid()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.validity.to_mask(self.len())
     }
 }
 
@@ -348,7 +318,7 @@ mod test {
     fn test_encode() {
         let values = [Some(1), None, Some(1), None, Some(1), None, Some(u64::MAX)];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let packed = BitPackedArray::encode(&uncompressed, 1).unwrap();
+        let packed = BitPackedArray::encode(uncompressed.as_ref(), 1).unwrap();
         let expected = &[1, 0, 1, 0, 1, 0, u64::MAX];
         let results = packed.to_primitive().unwrap().as_slice::<u64>().to_vec();
         assert_eq!(results, expected);
@@ -358,9 +328,9 @@ mod test {
     fn test_encode_too_wide() {
         let values = [Some(1u8), None, Some(1), None, Some(1), None];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let _packed = BitPackedArray::encode(&uncompressed, 8)
+        let _packed = BitPackedArray::encode(uncompressed.as_ref(), 8)
             .expect_err("Cannot pack value into the same width");
-        let _packed = BitPackedArray::encode(&uncompressed, 9)
+        let _packed = BitPackedArray::encode(uncompressed.as_ref(), 9)
             .expect_err("Cannot pack value into larger width");
     }
 

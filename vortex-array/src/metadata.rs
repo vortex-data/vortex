@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Formatter};
+use std::ops::Deref;
 
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
@@ -62,6 +63,14 @@ impl DeserializeMetadata for EmptyMetadata {
 
 /// A utility wrapper for Prost metadata serialization.
 pub struct ProstMetadata<M>(pub M);
+
+impl<M> Deref for ProstMetadata<M> {
+    type Target = M;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl<M: Debug> Debug for ProstMetadata<M> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

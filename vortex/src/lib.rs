@@ -25,10 +25,10 @@ pub mod encodings {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
-    use vortex_array::TryIntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stream::{ArrayStreamArrayExt, ArrayStreamExt};
     use vortex_array::validity::Validity;
+    use vortex_array::{IntoArray, TryIntoArray};
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_expr::{gt, ident, lit};
@@ -73,7 +73,7 @@ mod test {
 
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
-        let compressed = BtrBlocksCompressor.compress(&array)?;
+        let compressed = BtrBlocksCompressor.compress(array.as_ref())?;
         println!("{} / {}", compressed.nbytes(), array.nbytes());
         // [compress]
 

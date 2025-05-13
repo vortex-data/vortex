@@ -2,15 +2,15 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
     CompareKernel, CompareKernelAdapter, Operator, and, cast, compare, or,
 };
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_error::{VortexExpect as _, VortexResult};
 
-use crate::array::{DateTimePartsArray, DateTimePartsEncoding};
+use crate::array::{DateTimePartsArray, DateTimePartsVTable};
 use crate::timestamp;
 
-impl CompareKernel for DateTimePartsEncoding {
+impl CompareKernel for DateTimePartsVTable {
     /// Compares two arrays and returns a new boolean array with the result of the comparison.
     /// Or, returns None if comparison is not supported.
     fn compare(
@@ -56,7 +56,7 @@ impl CompareKernel for DateTimePartsEncoding {
     }
 }
 
-register_kernel!(CompareKernelAdapter(DateTimePartsEncoding).lift());
+register_kernel!(CompareKernelAdapter(DateTimePartsVTable).lift());
 
 fn compare_eq(
     lhs: &DateTimePartsArray,
@@ -141,7 +141,7 @@ fn compare_gt(
 }
 
 fn compare_dtp(lhs: &dyn Array, rhs: i64, operator: Operator) -> VortexResult<ArrayRef> {
-    match cast(&ConstantArray::new(rhs, lhs.len()), lhs.dtype()) {
+    match cast(ConstantArray::new(rhs, lhs.len()).as_ref(), lhs.dtype()) {
         Ok(casted) => compare(lhs, &casted, operator),
         // The narrowing cast failed. Therefore, we know lhs < rhs.
         _ => {
@@ -178,17 +178,11 @@ mod test {
     fn compare_date_time_parts_eq() {
         let lhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
         let rhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::Eq)
-            .unwrap()
-            .unwrap();
+        let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
         let rhs = dtp_array_from_timestamp(0i64); // January 1, 1970, 00:00:00 UTC
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::Eq)
-            .unwrap()
-            .unwrap();
+        let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
     }
 
@@ -196,17 +190,11 @@ mod test {
     fn compare_date_time_parts_ne() {
         let lhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
         let rhs = dtp_array_from_timestamp(86401i64); // January 2, 1970, 00:00:01 UTC
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::NotEq)
-            .unwrap()
-            .unwrap();
+        let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::NotEq).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
         let rhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::NotEq)
-            .unwrap()
-            .unwrap();
+        let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::NotEq).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
     }
 
@@ -215,10 +203,7 @@ mod test {
         let lhs = dtp_array_from_timestamp(0i64); // January 1, 1970, 01:00:00 UTC
         let rhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
 
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::Lt)
-            .unwrap()
-            .unwrap();
+        let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
     }
 
@@ -227,10 +212,7 @@ mod test {
         let lhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 02:00:00 UTC
         let rhs = dtp_array_from_timestamp(0i64); // January 1, 1970, 01:00:00 UTC
 
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::Gt)
-            .unwrap()
-            .unwrap();
+        let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
     }
 
@@ -253,28 +235,16 @@ mod test {
         // Timestamp with a value larger than i32::MAX.
         let rhs = dtp_array_from_timestamp(i64::MAX);
 
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::Eq)
-            .unwrap()
-            .unwrap();
+        let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
 
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::NotEq)
-            .unwrap()
-            .unwrap();
+        let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::NotEq).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::Lt)
-            .unwrap()
-            .unwrap();
+        let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
-        let comparison = DateTimePartsEncoding
-            .compare(&lhs, &rhs, Operator::Lte)
-            .unwrap()
-            .unwrap();
+        let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lte).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
         // `Operator::Gt` and `Operator::Gte` only cover the case of all lhs values

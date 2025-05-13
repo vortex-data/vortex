@@ -11,8 +11,8 @@ use vortex_scalar::Scalar;
 use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, fill_null};
-use crate::encoding::Encoding;
-use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical};
+use crate::vtable::VTable;
+use crate::{Array, ArrayExt, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 /// Keep only the elements for which the corresponding mask value is true.
 ///
@@ -32,7 +32,7 @@ use crate::{Array, ArrayRef, ArrayStatistics, Canonical, IntoArray, ToCanonical}
 /// )
 /// .unwrap();
 ///
-/// let filtered = filter(&array, &mask).unwrap();
+/// let filtered = filter(array.as_ref(), &mask).unwrap();
 /// assert_eq!(filtered.len(), 2);
 /// assert_eq!(filtered.scalar_at(0).unwrap(), Scalar::from(Some(0_i32)));
 /// assert_eq!(filtered.scalar_at(1).unwrap(), Scalar::from(Some(2_i32)));
@@ -99,7 +99,8 @@ impl ComputeFnVTable for Filter {
                 .into());
         }
 
-        log::debug!("No filter implementation found for {}", array.encoding(),);
+        // Fallback: implement using Arrow kernels.
+        log::debug!("No filter implementation found for {}", array.encoding_id(),);
 
         if !array.is_canonical() {
             let canonical = array.to_canonical()?.into_array();
@@ -159,7 +160,7 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for FilterArgs<'a> {
 pub struct FilterKernelRef(pub ArcRef<dyn Kernel>);
 inventory::collect!(FilterKernelRef);
 
-pub trait FilterKernel: Encoding {
+pub trait FilterKernel: VTable {
     /// Filter an array by the provided predicate.
     ///
     /// Note that the entry-point filter functions handles `Mask::AllTrue` and `Mask::AllFalse`,
@@ -169,21 +170,21 @@ pub trait FilterKernel: Encoding {
 
 /// Adapter to convert a [`FilterKernel`] into a [`Kernel`].
 #[derive(Debug)]
-pub struct FilterKernelAdapter<E: Encoding>(pub E);
+pub struct FilterKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + FilterKernel> FilterKernelAdapter<E> {
+impl<V: VTable + FilterKernel> FilterKernelAdapter<V> {
     pub const fn lift(&'static self) -> FilterKernelRef {
         FilterKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + FilterKernel> Kernel for FilterKernelAdapter<E> {
+impl<V: VTable + FilterKernel> Kernel for FilterKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = FilterArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
-        let filtered = E::filter(&self.0, array, inputs.mask)?;
+        let filtered = V::filter(&self.0, array, inputs.mask)?;
         Ok(Some(filtered.into()))
     }
 }

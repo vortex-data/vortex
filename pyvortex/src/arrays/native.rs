@@ -4,21 +4,22 @@ use pyo3::PyClass;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use vortex::arrays::{
-    BoolArray, ChunkedArray, ConstantArray, DecimalArray, ExtensionArray, ListArray, NullArray,
-    PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
+    BoolVTable, ChunkedVTable, ConstantVTable, DecimalVTable, ExtensionVTable, ListVTable,
+    NullVTable, PrimitiveVTable, StructVTable, VarBinVTable, VarBinViewVTable,
 };
-use vortex::encodings::alp::{ALPArray, ALPRDArray};
-use vortex::encodings::bytebool::ByteBoolArray;
-use vortex::encodings::datetime_parts::DateTimePartsArray;
-use vortex::encodings::dict::DictArray;
-use vortex::encodings::fastlanes::{BitPackedArray, DeltaArray, FoRArray};
-use vortex::encodings::fsst::FSSTArray;
-use vortex::encodings::runend::RunEndArray;
-use vortex::encodings::sparse::SparseArray;
-use vortex::encodings::zigzag::ZigZagArray;
+use vortex::encodings::alp::{ALPRDVTable, ALPVTable};
+use vortex::encodings::bytebool::ByteBoolVTable;
+use vortex::encodings::datetime_parts::DateTimePartsVTable;
+use vortex::encodings::dict::DictVTable;
+use vortex::encodings::fastlanes::{BitPackedVTable, DeltaVTable, FoRVTable};
+use vortex::encodings::fsst::FSSTVTable;
+use vortex::encodings::runend::RunEndVTable;
+use vortex::encodings::sparse::SparseVTable;
+use vortex::encodings::zigzag::ZigZagVTable;
 use vortex::error::VortexExpect;
 use vortex::nbytes::NBytes;
-use vortex::{Array, ArrayRef, Encoding};
+use vortex::vtable::VTable;
+use vortex::{Array, ArrayExt, ArrayRef};
 
 use crate::arrays::PyArray;
 use crate::arrays::builtins::{
@@ -50,103 +51,101 @@ impl PyNativeArray {
     /// Initialize a [`PyArray`] from a Vortex [`ArrayRef`], ensuring we return the correct typed
     /// subclass array.
     pub fn init(py: Python, array: ArrayRef) -> PyResult<Bound<PyNativeArray>> {
-        let any = array.as_any();
-
-        if any.is::<NullArray>() {
+        if array.is::<NullVTable>() {
             return Self::with_subclass(py, array, PyNullArray);
         }
 
-        if any.is::<BoolArray>() {
+        if array.is::<BoolVTable>() {
             return Self::with_subclass(py, array, PyBoolArray);
         }
 
-        if any.is::<PrimitiveArray>() {
+        if array.is::<PrimitiveVTable>() {
             return Self::with_subclass(py, array, PyPrimitiveArray);
         }
 
-        if any.is::<VarBinArray>() {
+        if array.is::<VarBinVTable>() {
             return Self::with_subclass(py, array, PyVarBinArray);
         }
 
-        if any.is::<VarBinViewArray>() {
+        if array.is::<VarBinViewVTable>() {
             return Self::with_subclass(py, array, PyVarBinViewArray);
         }
 
-        if any.is::<StructArray>() {
+        if array.is::<StructVTable>() {
             return Self::with_subclass(py, array, PyStructArray);
         }
 
-        if any.is::<ListArray>() {
+        if array.is::<ListVTable>() {
             return Self::with_subclass(py, array, PyListArray);
         }
 
-        if any.is::<ExtensionArray>() {
+        if array.is::<ExtensionVTable>() {
             return Self::with_subclass(py, array, PyExtensionArray);
         }
 
-        if any.is::<ChunkedArray>() {
+        if array.is::<ChunkedVTable>() {
             return Self::with_subclass(py, array, PyChunkedArray);
         }
 
-        if any.is::<ConstantArray>() {
+        if array.is::<ConstantVTable>() {
             return Self::with_subclass(py, array, PyConstantArray);
         }
 
-        if any.is::<ByteBoolArray>() {
+        if array.is::<ByteBoolVTable>() {
             return Self::with_subclass(py, array, PyByteBoolArray);
         }
 
-        if any.is::<SparseArray>() {
+        if array.is::<SparseVTable>() {
             return Self::with_subclass(py, array, PySparseArray);
         }
 
-        if any.is::<ALPArray>() {
+        if array.is::<ALPVTable>() {
             return Self::with_subclass(py, array, PyAlpArray);
         }
 
-        if any.is::<ALPRDArray>() {
+        if array.is::<ALPRDVTable>() {
             return Self::with_subclass(py, array, PyAlpRdArray);
         }
 
-        if any.is::<DateTimePartsArray>() {
+        if array.is::<DateTimePartsVTable>() {
             return Self::with_subclass(py, array, PyDateTimePartsArray);
         }
 
-        if any.is::<DictArray>() {
+        if array.is::<DictVTable>() {
             return Self::with_subclass(py, array, PyDictArray);
         }
 
-        if any.is::<FSSTArray>() {
+        if array.is::<FSSTVTable>() {
             return Self::with_subclass(py, array, PyFsstArray);
         }
 
-        if any.is::<RunEndArray>() {
+        if array.is::<RunEndVTable>() {
             return Self::with_subclass(py, array, PyRunEndArray);
         }
 
-        if any.is::<ZigZagArray>() {
+        if array.is::<ZigZagVTable>() {
             return Self::with_subclass(py, array, PyZigZagArray);
         }
 
-        if any.is::<BitPackedArray>() {
+        if array.is::<BitPackedVTable>() {
             return Self::with_subclass(py, array, PyFastLanesBitPackedArray);
         }
 
-        if any.is::<DeltaArray>() {
+        if array.is::<DeltaVTable>() {
             return Self::with_subclass(py, array, PyFastLanesDeltaArray);
         }
 
-        if any.is::<FoRArray>() {
+        if array.is::<FoRVTable>() {
             return Self::with_subclass(py, array, PyFastLanesFoRArray);
         }
 
-        if any.is::<DecimalArray>() {
+        if array.is::<DecimalVTable>() {
             return Self::with_subclass(py, array, PyDecimalArray);
         }
 
         Err(PyTypeError::new_err(format!(
             "Unrecognized native array {}",
-            array.encoding()
+            array.encoding_id()
         )))
     }
 
@@ -187,7 +186,7 @@ impl PyNativeArray {
     /// Returns the encoding ID of this array.
     #[getter]
     fn id(&self) -> String {
-        self.0.encoding().to_string()
+        self.0.encoding_id().to_string()
     }
 
     /// Returns the number of bytes used by this array.
@@ -204,7 +203,7 @@ impl PyNativeArray {
 
 /// A marker trait indicating a PyO3 class is a subclass of Vortex `Array`.
 pub trait EncodingSubclass: PyClass<BaseType = PyNativeArray> {
-    type Encoding: Encoding;
+    type VTable: VTable;
 }
 
 /// Unwrap a downcasted Vortex array from a `PyRef<ArraySubclass>`.
@@ -212,12 +211,12 @@ pub trait AsArrayRef<T> {
     fn as_array_ref(&self) -> &T;
 }
 
-impl<A: EncodingSubclass> AsArrayRef<<A::Encoding as Encoding>::Array> for PyRef<'_, A> {
-    fn as_array_ref(&self) -> &<A::Encoding as Encoding>::Array {
+impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::Array> for PyRef<'_, V> {
+    fn as_array_ref(&self) -> &<V::VTable as VTable>::Array {
         self.as_super()
             .inner()
             .as_any()
-            .downcast_ref::<<A::Encoding as Encoding>::Array>()
+            .downcast_ref::<<V::VTable as VTable>::Array>()
             .vortex_expect("Failed to downcast array")
     }
 }

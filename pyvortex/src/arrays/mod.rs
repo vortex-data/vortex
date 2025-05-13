@@ -5,14 +5,12 @@ pub(crate) mod from_arrow;
 mod native;
 pub(crate) mod py;
 
-use std::sync::Arc;
-
 use arrow::array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
 use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use vortex::arrays::ChunkedArray;
+use vortex::arrays::ChunkedVTable;
 use vortex::arrow::IntoArrowArray;
 use vortex::compute::{Operator, compare, take};
 use vortex::error::VortexError;
@@ -21,7 +19,7 @@ use vortex::nbytes::NBytes;
 use vortex::{Array, ArrayExt, ArrayRef};
 
 use crate::arrays::native::PyNativeArray;
-use crate::arrays::py::PyArrayInstance;
+use crate::arrays::py::{PyPythonArray, PythonArray};
 use crate::dtype::PyDType;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
@@ -35,6 +33,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
     m.add_class::<PyArray>()?;
     m.add_class::<PyNativeArray>()?;
+    m.add_class::<PyPythonArray>()?;
 
     // Canonical encodings
     m.add_class::<builtins::PyNullArray>()?;
@@ -80,7 +79,7 @@ impl<'py> FromPyObject<'py> for PyArrayRef {
         }
 
         // Otherwise, if it's a subclass of `PyArray`, then we can extract the inner array.
-        PyArrayInstance::extract_bound(ob).map(|instance| Self(Arc::new(instance)))
+        PythonArray::extract_bound(ob).map(|instance| Self(instance.to_array()))
     }
 }
 
@@ -91,7 +90,7 @@ impl<'py> IntoPyObject<'py> for PyArrayRef {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         // If the ArrayRef is a PyArrayInstance, extract the Python object.
-        if let Some(pyarray) = self.0.as_any().downcast_ref::<PyArrayInstance>() {
+        if let Some(pyarray) = self.0.as_any().downcast_ref::<PythonArray>() {
             return pyarray.clone().into_pyobject(py);
         }
 
@@ -217,7 +216,7 @@ impl PyArray {
         let array = PyArrayRef::extract_bound(self_.as_any())?.into_inner();
         let py = self_.py();
 
-        if let Some(chunked_array) = array.as_opt::<ChunkedArray>() {
+        if let Some(chunked_array) = array.as_opt::<ChunkedVTable>() {
             // We figure out a single Arrow Data Type to convert all chunks into, otherwise
             // the preferred type of each chunk may be different.
             let arrow_dtype = chunked_array.dtype().to_arrow_dtype()?;
@@ -265,7 +264,7 @@ impl PyArray {
     #[getter]
     fn id(slf: &Bound<Self>) -> PyResult<String> {
         Ok(PyArrayRef::extract_bound(slf.as_any())?
-            .encoding()
+            .encoding_id()
             .to_string())
     }
 

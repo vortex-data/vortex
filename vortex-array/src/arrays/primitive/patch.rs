@@ -2,10 +2,11 @@ use arrow_buffer::ArrowNativeType;
 use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::VortexResult;
 
+use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::{Array, ToCanonical};
+use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
@@ -17,7 +18,7 @@ impl PrimitiveArray {
         let patched_validity = self.validity().clone().patch(
             self.len(),
             offset,
-            &patch_indices,
+            patch_indices.as_ref(),
             patch_values.validity(),
         )?;
         match_each_integer_ptype!(patch_indices.ptype(), |$I| {

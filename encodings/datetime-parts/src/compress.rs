@@ -1,6 +1,7 @@
 use vortex_array::arrays::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::cast;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::vtable::ValidityHelper;
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult};
@@ -23,7 +24,7 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
 
     // After this operation, timestamps will be non-nullable PrimitiveArray<i64>
     let timestamps = cast(
-        &temporal_values,
+        temporal_values.as_ref(),
         &DType::Primitive(PType::I64, temporal_values.dtype().nullability()),
     )?
     .to_primitive()?;
@@ -66,7 +67,8 @@ mod tests {
     use rstest::rstest;
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ToCanonical};
+    use vortex_array::vtable::ValidityHelper;
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::datetime::TimeUnit;
 

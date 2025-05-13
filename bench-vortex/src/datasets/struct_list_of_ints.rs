@@ -4,7 +4,7 @@ use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexResult, VortexUnwrap};
 use vortex::validity::Validity;
-use vortex::{Array, ArrayRef};
+use vortex::{ArrayRef, IntoArray};
 
 use crate::datasets::Dataset;
 

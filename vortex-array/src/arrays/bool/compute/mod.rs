@@ -1,7 +1,6 @@
 mod cast;
 mod fill_null;
 pub mod filter;
-mod flatten;
 mod invert;
 mod is_constant;
 mod is_sorted;

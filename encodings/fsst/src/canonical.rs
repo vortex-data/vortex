@@ -2,29 +2,30 @@ use fsst::Decompressor;
 use vortex_array::arrays::{BinaryView, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayCanonicalImpl, Canonical, IntoArray, ToCanonical};
+use vortex_array::vtable::CanonicalVTable;
+use vortex_array::{Canonical, IntoArray, ToCanonical};
 use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
-use crate::FSSTArray;
+use crate::{FSSTArray, FSSTVTable};
 
-impl ArrayCanonicalImpl for FSSTArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        fsst_into_varbin_view(self.decompressor(), self, 0).map(Canonical::VarBinView)
+impl CanonicalVTable<FSSTVTable> for FSSTVTable {
+    fn canonicalize(array: &FSSTArray) -> VortexResult<Canonical> {
+        fsst_into_varbin_view(array.decompressor(), array, 0).map(Canonical::VarBinView)
     }
 
-    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            return builder.extend_from_array(&self.to_canonical()?.into_array());
+            return builder.extend_from_array(&array.to_canonical()?.into_array());
         };
         let view =
-            fsst_into_varbin_view(self.decompressor(), self, builder.completed_block_count())?;
+            fsst_into_varbin_view(array.decompressor(), array, builder.completed_block_count())?;
 
         builder.push_buffer_and_adjusted_views(
             view.buffers().iter().cloned(),
             view.views().iter().cloned(),
-            self.validity_mask()?,
+            array.validity_mask()?,
         );
         Ok(())
     }
@@ -89,7 +90,7 @@ fn fsst_into_varbin_view(
         views,
         vec![uncompressed_bytes_array],
         fsst_array.dtype().clone(),
-        Validity::copy_from_array(fsst_array)?,
+        Validity::copy_from_array(fsst_array.as_ref())?,
     )
 }
 
@@ -100,7 +101,7 @@ mod tests {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ChunkedArray, VarBinArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
-    use vortex_array::{Array, ArrayRef, ToCanonical};
+    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
     use vortex_dtype::{DType, Nullability};
 
     use crate::{fsst_compress, fsst_train_compressor};

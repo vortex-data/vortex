@@ -4,7 +4,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::arrays::ExtensionEncoding;
+use crate::arrays::ExtensionVTable;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
@@ -12,9 +12,9 @@ use crate::compute::{
     SumKernel, SumKernelAdapter, TakeKernel, TakeKernelAdapter, filter, is_constant_opts,
     is_sorted, is_strict_sorted, min_max, sum, take,
 };
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
-impl FilterKernel for ExtensionEncoding {
+impl FilterKernel for ExtensionVTable {
     fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(
             ExtensionArray::new(array.ext_dtype().clone(), filter(array.storage(), mask)?)
@@ -23,17 +23,17 @@ impl FilterKernel for ExtensionEncoding {
     }
 }
 
-register_kernel!(FilterKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(FilterKernelAdapter(ExtensionVTable).lift());
 
-impl SumKernel for ExtensionEncoding {
+impl SumKernel for ExtensionVTable {
     fn sum(&self, array: &ExtensionArray) -> VortexResult<Scalar> {
         sum(array.storage())
     }
 }
 
-register_kernel!(SumKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(SumKernelAdapter(ExtensionVTable).lift());
 
-impl TakeKernel for ExtensionEncoding {
+impl TakeKernel for ExtensionVTable {
     fn take(&self, array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         Ok(
             ExtensionArray::new(array.ext_dtype().clone(), take(array.storage(), indices)?)
@@ -42,9 +42,9 @@ impl TakeKernel for ExtensionEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(TakeKernelAdapter(ExtensionVTable).lift());
 
-impl MinMaxKernel for ExtensionEncoding {
+impl MinMaxKernel for ExtensionVTable {
     fn min_max(&self, array: &ExtensionArray) -> VortexResult<Option<MinMaxResult>> {
         Ok(
             min_max(array.storage())?.map(|MinMaxResult { min, max }| MinMaxResult {
@@ -55,9 +55,9 @@ impl MinMaxKernel for ExtensionEncoding {
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(ExtensionVTable).lift());
 
-impl IsConstantKernel for ExtensionEncoding {
+impl IsConstantKernel for ExtensionVTable {
     fn is_constant(
         &self,
         array: &ExtensionArray,
@@ -67,9 +67,9 @@ impl IsConstantKernel for ExtensionEncoding {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(ExtensionVTable).lift());
 
-impl IsSortedKernel for ExtensionEncoding {
+impl IsSortedKernel for ExtensionVTable {
     fn is_sorted(&self, array: &ExtensionArray) -> VortexResult<bool> {
         is_sorted(array.storage())
     }
@@ -79,4 +79,4 @@ impl IsSortedKernel for ExtensionEncoding {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(ExtensionVTable).lift());

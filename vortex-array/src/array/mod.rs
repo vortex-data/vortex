@@ -1,56 +1,42 @@
-mod canonical;
 mod convert;
-mod implementation;
-mod operations;
 mod statistics;
-mod validity;
 mod visitor;
 
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
-pub use canonical::*;
 pub use convert::*;
-pub use implementation::*;
-pub use operations::*;
 pub use statistics::*;
-pub use validity::*;
 pub use visitor::*;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
+    BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
-use crate::stats::StatsSetRef;
-use crate::vtable::{EncodingVTable, VTableRef};
-use crate::{Canonical, EncodingId};
+use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
+use crate::vtable::{
+    ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
+    ValidityVTable, VisitorVTable,
+};
+use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
 
-/// The base trait for all Vortex arrays.
-///
-/// Users should invoke functions on this trait. Implementations should implement the corresponding
-/// function on the `_Impl` traits, e.g. [`ArrayValidityImpl`]. The functions here dispatch to the
-/// implementations, while validating pre- and post-conditions.
-pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVisitor {
+/// The public API trait for all Vortex arrays.
+pub trait Array:
+    'static + private::Sealed + Send + Sync + Debug + ArrayStatistics + ArrayVisitor
+{
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
-    /// Returns the array as an [`Arc`] reference to a generic [`Any`] trait object.
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
-
     /// Returns the array as an [`ArrayRef`].
     fn to_array(&self) -> ArrayRef;
-
-    /// Converts the array into an [`ArrayRef`].
-    fn into_array(self) -> ArrayRef
-    where
-        Self: Sized;
 
     /// Returns the length of the array.
     fn len(&self) -> usize;
@@ -64,10 +50,10 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVisitor {
     fn dtype(&self) -> &DType;
 
     /// Returns the encoding of the array.
-    fn encoding(&self) -> EncodingId;
+    fn encoding(&self) -> EncodingRef;
 
-    /// Returns the encoding VTable.
-    fn vtable(&self) -> VTableRef;
+    /// Returns the encoding ID of the array.
+    fn encoding_id(&self) -> EncodingId;
 
     /// Performs a constant-time slice of the array.
     fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayRef>;
@@ -77,7 +63,7 @@ pub trait Array: Send + Sync + Debug + ArrayStatistics + ArrayVisitor {
 
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {
-        self.encoding() == encoding
+        self.encoding_id() == encoding
     }
 
     /// Returns whether this array is an arrow encoding.
@@ -168,16 +154,8 @@ impl Array for Arc<dyn Array> {
         self.as_ref().as_any()
     }
 
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
-        self
-    }
-
     fn to_array(&self) -> ArrayRef {
         self.clone()
-    }
-
-    fn into_array(self) -> ArrayRef {
-        self
     }
 
     fn len(&self) -> usize {
@@ -188,12 +166,12 @@ impl Array for Arc<dyn Array> {
         self.as_ref().dtype()
     }
 
-    fn encoding(&self) -> EncodingId {
+    fn encoding(&self) -> EncodingRef {
         self.as_ref().encoding()
     }
 
-    fn vtable(&self) -> VTableRef {
-        self.as_ref().vtable()
+    fn encoding_id(&self) -> EncodingId {
+        self.as_ref().encoding_id()
     }
 
     fn slice(&self, start: usize, end: usize) -> VortexResult<ArrayRef> {
@@ -268,42 +246,23 @@ impl ToOwned for dyn Array {
     }
 }
 
-impl<A: Array + Clone + 'static> TryFromArrayRef for A {
-    fn try_from_array(array: ArrayRef) -> Result<Self, ArrayRef> {
-        let fallback = array.clone();
-        if let Ok(array) = array.as_any_arc().downcast::<A>() {
-            // manually drop the fallback value so `Arc::unwrap_or_clone` doesn't always have to clone
-            drop(fallback);
-            Ok(Arc::unwrap_or_clone(array))
-        } else {
-            Err(fallback)
-        }
-    }
-}
-
-impl<A: Array + Clone + 'static> TryFromArrayRef for Arc<A> {
-    fn try_from_array(array: ArrayRef) -> Result<Self, ArrayRef> {
-        let fallback = array.clone();
-        array.as_any_arc().downcast::<A>().map_err(|_| fallback)
-    }
-}
-
+// FIXME(ngates): require AsRef<dyn Array> instead of Array?
 pub trait ArrayExt: Array {
     /// Returns the array downcast to the given `A`.
-    fn as_<A: Array + 'static>(&self) -> &A {
-        self.as_any()
-            .downcast_ref::<A>()
-            .vortex_expect("Failed to downcast")
+    fn as_<V: VTable>(&self) -> &V::Array {
+        self.as_opt::<V>().vortex_expect("Failed to downcast")
     }
 
     /// Returns the array downcast to the given `A`.
-    fn as_opt<A: Array + 'static>(&self) -> Option<&A> {
-        self.as_any().downcast_ref::<A>()
+    fn as_opt<V: VTable>(&self) -> Option<&V::Array> {
+        self.as_any()
+            .downcast_ref::<ArrayAdapter<V>>()
+            .map(|array_adapter| &array_adapter.0)
     }
 
-    /// Is self an array with encoding `A`.
-    fn is<A: Array + 'static>(&self) -> bool {
-        self.as_opt::<A>().is_some()
+    /// Is self an array with encoding from vtable `V`.
+    fn is<V: VTable>(&self) -> bool {
+        self.as_opt::<V>().is_some()
     }
 }
 
@@ -314,29 +273,369 @@ impl Display for dyn Array {
         write!(
             f,
             "{}({}, len={})",
-            self.encoding(),
+            self.encoding_id(),
             self.dtype(),
             self.len()
         )
     }
 }
 
-#[macro_export]
-macro_rules! try_from_array_ref {
-    ($Array:ty) => {
-        impl TryFrom<$crate::ArrayRef> for $Array {
-            type Error = vortex_error::VortexError;
+mod private {
+    use super::*;
 
-            fn try_from(value: $crate::ArrayRef) -> Result<Self, Self::Error> {
-                Ok(::std::sync::Arc::unwrap_or_clone(
-                    value.as_any_arc().downcast::<Self>().map_err(|_| {
-                        vortex_error::vortex_err!(
-                            "Cannot downcast to {}",
-                            std::any::type_name::<Self>()
-                        )
-                    })?,
-                ))
+    pub trait Sealed {}
+
+    impl<V: VTable> Sealed for ArrayAdapter<V> {}
+    impl Sealed for Arc<dyn Array> {}
+}
+
+/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`Array`]
+/// implementation.
+///
+/// Since this is a unit struct with `repr(transparent)`, we are able to turn un-adapted array
+/// structs into [`dyn Array`] using some cheeky casting inside [`std::ops::Deref`] and
+/// [`AsRef`]. See the `vtable!` macro for more details.
+#[repr(transparent)]
+pub struct ArrayAdapter<V: VTable>(V::Array);
+
+impl<V: VTable> Debug for ArrayAdapter<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<V: VTable> Array for ArrayAdapter<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn to_array(&self) -> ArrayRef {
+        Arc::new(ArrayAdapter::<V>(self.0.clone()))
+    }
+
+    fn len(&self) -> usize {
+        <V::ArrayVTable as ArrayVTable<V>>::len(&self.0)
+    }
+
+    fn dtype(&self) -> &DType {
+        <V::ArrayVTable as ArrayVTable<V>>::dtype(&self.0)
+    }
+
+    fn encoding(&self) -> EncodingRef {
+        V::encoding(&self.0)
+    }
+
+    fn encoding_id(&self) -> EncodingId {
+        V::encoding(&self.0).id()
+    }
+
+    fn slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        if start == 0 && stop == self.len() {
+            return Ok(self.to_array());
+        }
+
+        if start > self.len() {
+            vortex_bail!(OutOfBounds: start, 0, self.len());
+        }
+        if stop > self.len() {
+            vortex_bail!(OutOfBounds: stop, 0, self.len());
+        }
+        if start > stop {
+            vortex_bail!("start ({start}) must be <= stop ({stop})");
+        }
+
+        if start == stop {
+            return Ok(Canonical::empty(self.dtype()).into_array());
+        }
+
+        // We know that constant array don't need stats propagation, so we can avoid the overhead of
+        // computing derived stats and merging them in.
+        // TODO(ngates): skip the is_constant check here, it can force an expensive compute.
+        // TODO(ngates): provide a means to slice an array _without_ propagating stats.
+        let derived_stats = (!self.is::<ConstantVTable>()).then(|| {
+            let stats = self.statistics().to_owned();
+
+            // an array that is not constant can become constant after slicing
+            let is_constant = stats.get_as::<bool>(Stat::IsConstant);
+            let is_sorted = stats.get_as::<bool>(Stat::IsSorted);
+            let is_strict_sorted = stats.get_as::<bool>(Stat::IsStrictSorted);
+
+            let mut stats = stats.keep_inexact_stats(&[
+                Stat::Max,
+                Stat::Min,
+                Stat::NullCount,
+                Stat::UncompressedSizeInBytes,
+            ]);
+
+            if is_constant == Some(Precision::Exact(true)) {
+                stats.set(Stat::IsConstant, Precision::exact(true));
+            }
+            if is_sorted == Some(Precision::Exact(true)) {
+                stats.set(Stat::IsSorted, Precision::exact(true));
+            }
+            if is_strict_sorted == Some(Precision::Exact(true)) {
+                stats.set(Stat::IsStrictSorted, Precision::exact(true));
+            }
+
+            stats
+        });
+
+        let sliced = <V::OperationsVTable as OperationsVTable<V>>::slice(&self.0, start, stop)?;
+
+        assert_eq!(
+            sliced.len(),
+            stop - start,
+            "Slice length mismatch {}",
+            self.encoding_id()
+        );
+        assert_eq!(
+            sliced.dtype(),
+            self.dtype(),
+            "Slice dtype mismatch {}",
+            self.encoding_id()
+        );
+
+        if let Some(derived_stats) = derived_stats {
+            let mut stats = sliced.statistics().to_owned();
+            stats.combine_sets(&derived_stats, self.dtype())?;
+            for (stat, val) in stats.into_iter() {
+                sliced.statistics().set(stat, val)
             }
         }
-    };
+
+        Ok(sliced)
+    }
+
+    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        if index >= self.len() {
+            vortex_bail!(OutOfBounds: index, 0, self.len());
+        }
+        if self.is_invalid(index)? {
+            return Ok(Scalar::null(self.dtype().clone()));
+        }
+        let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.0, index)?;
+        assert_eq!(self.dtype(), scalar.dtype(), "Scalar dtype mismatch");
+        Ok(scalar)
+    }
+
+    fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        if index >= self.len() {
+            vortex_bail!(OutOfBounds: index, 0, self.len());
+        }
+        <V::ValidityVTable as ValidityVTable<V>>::is_valid(&self.0, index)
+    }
+
+    fn is_invalid(&self, index: usize) -> VortexResult<bool> {
+        self.is_valid(index).map(|valid| !valid)
+    }
+
+    fn all_valid(&self) -> VortexResult<bool> {
+        <V::ValidityVTable as ValidityVTable<V>>::all_valid(&self.0)
+    }
+
+    fn all_invalid(&self) -> VortexResult<bool> {
+        <V::ValidityVTable as ValidityVTable<V>>::all_invalid(&self.0)
+    }
+
+    fn valid_count(&self) -> VortexResult<usize> {
+        if let Some(Precision::Exact(invalid_count)) =
+            self.statistics().get_as::<usize>(Stat::NullCount)
+        {
+            return Ok(self.len() - invalid_count);
+        }
+
+        let count = <V::ValidityVTable as ValidityVTable<V>>::valid_count(&self.0)?;
+        assert!(count <= self.len(), "Valid count exceeds array length");
+
+        self.statistics()
+            .set(Stat::NullCount, Precision::exact(self.len() - count));
+
+        Ok(count)
+    }
+
+    fn invalid_count(&self) -> VortexResult<usize> {
+        if let Some(Precision::Exact(invalid_count)) =
+            self.statistics().get_as::<usize>(Stat::NullCount)
+        {
+            return Ok(invalid_count);
+        }
+
+        let count = <V::ValidityVTable as ValidityVTable<V>>::invalid_count(&self.0)?;
+        assert!(count <= self.len(), "Invalid count exceeds array length");
+
+        self.statistics()
+            .set(Stat::NullCount, Precision::exact(count));
+
+        Ok(count)
+    }
+
+    fn validity_mask(&self) -> VortexResult<Mask> {
+        let mask = <V::ValidityVTable as ValidityVTable<V>>::validity_mask(&self.0)?;
+        assert_eq!(mask.len(), self.len(), "Validity mask length mismatch");
+        Ok(mask)
+    }
+
+    fn to_canonical(&self) -> VortexResult<Canonical> {
+        let canonical = <V::CanonicalVTable as CanonicalVTable<V>>::canonicalize(&self.0)?;
+        assert_eq!(
+            self.len(),
+            canonical.as_ref().len(),
+            "Canonical length mismatch {}. Expected {} but encoded into {}.",
+            self.encoding_id(),
+            self.len(),
+            canonical.as_ref().len()
+        );
+        assert_eq!(
+            self.dtype(),
+            canonical.as_ref().dtype(),
+            "Canonical dtype mismatch {}. Expected {} but encoded into {}.",
+            self.encoding_id(),
+            self.dtype(),
+            canonical.as_ref().dtype()
+        );
+        canonical.as_ref().statistics().inherit(self.statistics());
+        Ok(canonical)
+    }
+
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        if builder.dtype() != self.dtype() {
+            vortex_bail!(
+                "Builder dtype mismatch: expected {}, got {}",
+                self.dtype(),
+                builder.dtype(),
+            );
+        }
+        let len = builder.len();
+
+        <V::CanonicalVTable as CanonicalVTable<V>>::append_to_builder(&self.0, builder)?;
+        assert_eq!(
+            len + self.len(),
+            builder.len(),
+            "Builder length mismatch after writing array for encoding {}",
+            self.encoding_id(),
+        );
+        Ok(())
+    }
+
+    fn statistics(&self) -> StatsSetRef<'_> {
+        <V::ArrayVTable as ArrayVTable<V>>::stats(&self.0)
+    }
+
+    fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
+        if self.nchildren() != children.len() {
+            vortex_bail!("Child count mismatch");
+        }
+
+        for (s, o) in self.children().iter().zip(children.iter()) {
+            assert_eq!(s.len(), o.len());
+        }
+
+        Ok(<V::VisitorVTable as VisitorVTable<V>>::with_children(&self.0, children)?.into_array())
+    }
+
+    fn invoke(
+        &self,
+        compute_fn: &ComputeFn,
+        args: &InvocationArgs,
+    ) -> VortexResult<Option<Output>> {
+        <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
+    }
+}
+
+impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
+    fn children(&self) -> Vec<ArrayRef> {
+        struct ChildrenCollector {
+            children: Vec<ArrayRef>,
+        }
+
+        impl ArrayChildVisitor for ChildrenCollector {
+            fn visit_child(&mut self, _name: &str, array: &dyn Array) {
+                self.children.push(array.to_array());
+            }
+        }
+
+        let mut collector = ChildrenCollector {
+            children: Vec::new(),
+        };
+        <V::VisitorVTable as VisitorVTable<V>>::visit_children(&self.0, &mut collector);
+        collector.children
+    }
+
+    fn nchildren(&self) -> usize {
+        <V::VisitorVTable as VisitorVTable<V>>::nchildren(&self.0)
+    }
+
+    fn children_names(&self) -> Vec<String> {
+        struct ChildNameCollector {
+            names: Vec<String>,
+        }
+
+        impl ArrayChildVisitor for ChildNameCollector {
+            fn visit_child(&mut self, name: &str, _array: &dyn Array) {
+                self.names.push(name.to_string());
+            }
+        }
+
+        let mut collector = ChildNameCollector { names: Vec::new() };
+        <V::VisitorVTable as VisitorVTable<V>>::visit_children(&self.0, &mut collector);
+        collector.names
+    }
+
+    fn named_children(&self) -> Vec<(String, ArrayRef)> {
+        struct NamedChildrenCollector {
+            children: Vec<(String, ArrayRef)>,
+        }
+
+        impl ArrayChildVisitor for NamedChildrenCollector {
+            fn visit_child(&mut self, name: &str, array: &dyn Array) {
+                self.children.push((name.to_string(), array.to_array()));
+            }
+        }
+
+        let mut collector = NamedChildrenCollector {
+            children: Vec::new(),
+        };
+
+        <V::VisitorVTable as VisitorVTable<V>>::visit_children(&self.0, &mut collector);
+        collector.children
+    }
+
+    fn buffers(&self) -> Vec<ByteBuffer> {
+        struct BufferCollector {
+            buffers: Vec<ByteBuffer>,
+        }
+
+        impl ArrayBufferVisitor for BufferCollector {
+            fn visit_buffer(&mut self, buffer: &ByteBuffer) {
+                self.buffers.push(buffer.clone());
+            }
+        }
+
+        let mut collector = BufferCollector {
+            buffers: Vec::new(),
+        };
+        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);
+        collector.buffers
+    }
+
+    fn nbuffers(&self) -> usize {
+        <V::VisitorVTable as VisitorVTable<V>>::nbuffers(&self.0)
+    }
+
+    fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
+        let metadata = <V::SerdeVTable as SerdeVTable<V>>::metadata(&self.0).ok_or_else(|| {
+            vortex_err!(
+                "Array {} does not support serialization",
+                self.encoding_id()
+            )
+        })?;
+        Ok(metadata.serialize())
+    }
+
+    fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match <V::SerdeVTable as SerdeVTable<V>>::metadata(&self.0) {
+            None => write!(f, "<serde not supported>"),
+            Some(metadata) => Debug::fmt(&metadata, f),
+        }
+    }
 }

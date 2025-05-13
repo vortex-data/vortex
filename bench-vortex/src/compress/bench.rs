@@ -6,10 +6,10 @@ use bytes::Bytes;
 use indicatif::ProgressBar;
 use parquet::basic::{Compression, ZstdLevel};
 use tokio::runtime::Runtime;
-use vortex::arrays::ChunkedArray;
+use vortex::arrays::{ChunkedArray, ChunkedVTable};
 use vortex::builders::builder_with_capacity;
 use vortex::error::VortexUnwrap;
-use vortex::{Array, ArrayExt};
+use vortex::{Array, ArrayExt, IntoArray};
 
 use crate::Format;
 use crate::bench_run::run;
@@ -58,13 +58,18 @@ pub fn benchmark_compress(
     tracing::info!("Running {bench_name} benchmark");
 
     let vx_array = runtime.block_on(async { dataset_handle.to_vortex_array().await });
-    let uncompressed =
-        ChunkedArray::from_iter(vx_array.as_::<ChunkedArray>().chunks().iter().map(|chunk| {
-            let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
-            chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
-            builder.finish()
-        }))
-        .into_array();
+    let uncompressed = ChunkedArray::from_iter(
+        vx_array
+            .as_::<ChunkedVTable>()
+            .chunks()
+            .iter()
+            .map(|chunk| {
+                let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
+                chunk.append_to_builder(builder.as_mut()).vortex_unwrap();
+                builder.finish()
+            }),
+    )
+    .into_array();
 
     let compressed_size = AtomicU64::default();
 
@@ -103,7 +108,7 @@ pub fn benchmark_compress(
 
     if formats.contains(&Format::Parquet) {
         let parquet_compressed_size = AtomicU64::default();
-        let chunked = uncompressed.as_::<ChunkedArray>().clone();
+        let chunked = uncompressed.as_::<ChunkedVTable>().clone();
         let (batches, schema) = chunked_to_vec_record_batch(chunked);
         let time = run(runtime, iterations, || async {
             parquet_compressed_size.store(
@@ -165,7 +170,7 @@ pub fn benchmark_compress(
 
     if formats.contains(&Format::Parquet) {
         let buffer = LazyCell::new(|| {
-            let chunked = uncompressed.as_::<ChunkedArray>().clone();
+            let chunked = uncompressed.as_::<ChunkedVTable>().clone();
             let (batches, schema) = chunked_to_vec_record_batch(chunked);
             let mut buf = Vec::new();
             parquet_compress_write(

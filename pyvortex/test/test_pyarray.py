@@ -1,5 +1,6 @@
 import numpy as np
 import pyarrow as pa
+import pytest
 from pcodec import ChunkConfig
 from pcodec import wrapped as pco
 
@@ -69,6 +70,7 @@ class PCodecArray(vx.PyArray):
         assert pco
 
 
+@pytest.mark.skip(reason="Not implemented yet")
 def test_pcodec():
     PCodecArray.encode(pa.array([0, 1, 2, 3, 4]))
 

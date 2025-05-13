@@ -7,7 +7,8 @@ use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::stats::{Precision, Stat};
-use crate::{Array, Encoding};
+use crate::vtable::VTable;
+use crate::{Array, ArrayExt};
 
 /// Computes the number of NaN values in the array.
 pub fn nan_count(array: &dyn Array) -> VortexResult<usize> {
@@ -60,7 +61,7 @@ impl ComputeFnVTable for NaNCount {
 }
 
 /// Computes the min and max of an array, returning the (min, max) values
-pub trait NaNCountKernel: Encoding {
+pub trait NaNCountKernel: VTable {
     fn nan_count(&self, array: &Self::Array) -> VortexResult<usize>;
 }
 
@@ -76,21 +77,21 @@ pub struct NaNCountKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(NaNCountKernelRef);
 
 #[derive(Debug)]
-pub struct NaNCountKernelAdapter<E: Encoding>(pub E);
+pub struct NaNCountKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + NaNCountKernel> NaNCountKernelAdapter<E> {
+impl<V: VTable + NaNCountKernel> NaNCountKernelAdapter<V> {
     pub const fn lift(&'static self) -> NaNCountKernelRef {
         NaNCountKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + NaNCountKernel> Kernel for NaNCountKernelAdapter<E> {
+impl<V: VTable + NaNCountKernel> Kernel for NaNCountKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
-        let Some(array) = array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = array.as_opt::<V>() else {
             return Ok(None);
         };
-        let nan_count = E::nan_count(&self.0, array)?;
+        let nan_count = V::nan_count(&self.0, array)?;
         Ok(Some(Scalar::from(nan_count as u64).into()))
     }
 }

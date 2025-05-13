@@ -4,20 +4,42 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::array::{ArrayCanonicalImpl, ArrayValidityImpl};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::vtable::VTableRef;
-use crate::{
-    Array, ArrayImpl, ArrayOperationsImpl, ArrayRef, ArrayStatisticsImpl, Canonical, EmptyMetadata,
-    Encoding,
+use crate::vtable::{
+    ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
+    ValidityVTableFromValidityHelper,
 };
+use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 
 mod compute;
 mod serde;
+
+vtable!(Struct);
+
+impl VTable for StructVTable {
+    type Array = StructArray;
+    type Encoding = StructEncoding;
+
+    type ArrayVTable = Self;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.struct")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        EncodingRef::new_ref(StructEncoding.as_ref())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct StructArray {
@@ -28,18 +50,10 @@ pub struct StructArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StructEncoding;
-impl Encoding for StructEncoding {
-    type Array = StructArray;
-    type Metadata = EmptyMetadata;
-}
 
 impl StructArray {
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     pub fn fields(&self) -> &[ArrayRef] {
         &self.fields
     }
@@ -188,89 +202,57 @@ impl StructArray {
     }
 }
 
-impl ArrayImpl for StructArray {
-    type Encoding = StructEncoding;
-
-    fn _len(&self) -> usize {
-        self.len
-    }
-
-    fn _dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&StructEncoding)
-    }
-
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let validity = if self.validity().is_array() {
-            Validity::Array(children[0].clone())
-        } else {
-            self.validity().clone()
-        };
-
-        let fields_idx = if validity.is_array() { 1_usize } else { 0 };
-        let fields = children[fields_idx..].to_vec();
-
-        Self::try_new_with_dtype(fields, self.struct_dtype().clone(), self.len(), validity)
+impl ValidityHelper for StructArray {
+    fn validity(&self) -> &Validity {
+        &self.validity
     }
 }
 
-impl ArrayStatisticsImpl for StructArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
+impl ArrayVTable<StructVTable> for StructVTable {
+    fn len(array: &StructArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &StructArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &StructArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 
-impl ArrayCanonicalImpl for StructArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(self.clone()))
+impl CanonicalVTable<StructVTable> for StructVTable {
+    fn canonicalize(array: &StructArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Struct(array.clone()))
     }
 }
 
-impl ArrayOperationsImpl for StructArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let fields = self
+impl OperationsVTable<StructVTable> for StructVTable {
+    fn slice(array: &StructArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let fields = array
             .fields()
             .iter()
             .map(|field| field.slice(start, stop))
             .try_collect()?;
         StructArray::try_new_with_dtype(
             fields,
-            self.struct_dtype().clone(),
+            array.struct_dtype().clone(),
             stop - start,
-            self.validity().slice(start, stop)?,
+            array.validity().slice(start, stop)?,
         )
         .map(|a| a.into_array())
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &StructArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::struct_(
-            self.dtype().clone(),
-            self.fields()
+            array.dtype().clone(),
+            array
+                .fields()
                 .iter()
                 .map(|field| field.scalar_at(index))
                 .try_collect()?,
         ))
-    }
-}
-
-impl ArrayValidityImpl for StructArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.validity.is_valid(index)
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.validity.all_valid()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.validity.all_invalid()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.validity.to_mask(self.len())
     }
 }
 
@@ -279,12 +261,12 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
-    use crate::ArrayExt;
-    use crate::array::Array;
-    use crate::arrays::BoolArray;
+    use crate::IntoArray;
+    use crate::array::ArrayExt;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::struct_::StructArray;
     use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::{BoolArray, BoolVTable, PrimitiveVTable};
     use crate::validity::Validity;
 
     #[test]
@@ -317,7 +299,7 @@ mod test {
         let bools = &struct_b.fields[0];
         assert_eq!(
             bools
-                .as_::<BoolArray>()
+                .as_::<BoolVTable>()
                 .boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>(),
@@ -326,7 +308,7 @@ mod test {
 
         let prims = &struct_b.fields[1];
         assert_eq!(
-            prims.as_::<PrimitiveArray>().as_slice::<i64>(),
+            prims.as_::<PrimitiveVTable>().as_slice::<i64>(),
             [0i64, 1, 2, 3, 4]
         );
     }

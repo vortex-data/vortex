@@ -11,7 +11,7 @@ use crate::arrays::{BoolArray, PrimitiveArray};
 use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Builder for [`PrimitiveArray`].
 pub struct PrimitiveBuilder<T> {

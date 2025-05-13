@@ -12,7 +12,8 @@ use vortex_scalar::Scalar;
 use crate::arrays::{BoolArray, ConstantArray, ListArray};
 use crate::compute::{Operator, compare, invert};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
+use crate::vtable::ValidityHelper;
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Compute a `Bool`-typed array the same length as `array` where elements are `true` if the list
 /// item contains the `value`, or `false` otherwise.
@@ -40,7 +41,7 @@ use crate::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 /// let offsets = buffer![0u32, 1, 3, 5].into_array();
 /// let list_array = ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap();
 ///
-/// let matches = list_contains(&list_array, "b".into()).unwrap();
+/// let matches = list_contains(list_array.as_ref(), "b".into()).unwrap();
 /// let to_vec: Vec<bool> = matches.to_bool().unwrap().boolean_buffer().iter().collect();
 /// assert_eq!(to_vec, vec![false, true, false]);
 /// ```
@@ -70,7 +71,7 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
     let ends = list_array.offsets().to_primitive()?;
 
     let rhs = ConstantArray::new(value, elems.len());
-    let matching_elements = compare(elems, &rhs, Operator::Eq)?;
+    let matching_elements = compare(elems, rhs.as_ref(), Operator::Eq)?;
     let matches = matching_elements.to_bool()?;
 
     // Fast path: no elements match.
@@ -166,7 +167,7 @@ fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
 /// let offsets = buffer![0u32, 1, 3, 5].into_array();
 /// let list_array = ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap();
 ///
-/// let lens = list_elem_len(&list_array).unwrap();
+/// let lens = list_elem_len(list_array.as_ref()).unwrap();
 /// assert_eq!(lens.scalar_at(0).unwrap(), 1u32.into());
 /// assert_eq!(lens.scalar_at(1).unwrap(), 2u32.into());
 /// assert_eq!(lens.scalar_at(2).unwrap(), 2u32.into());
@@ -208,17 +209,16 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
-    use crate::array::IntoArray;
-    use crate::arrays::{BoolArray, ConstantArray, ListArray, VarBinArray};
+    use crate::arrays::{BoolArray, ConstantArray, ConstantVTable, ListArray, VarBinArray};
     use crate::canonical::ToCanonical;
     use crate::compute::list_contains;
     use crate::validity::Validity;
-    use crate::{Array, ArrayExt, ArrayRef};
+    use crate::vtable::ValidityHelper;
+    use crate::{ArrayExt, ArrayRef, IntoArray};
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
         ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
             .unwrap()
-            .into_array()
     }
 
     fn null_strings(values: Vec<Vec<Option<&str>>>) -> ArrayRef {
@@ -313,7 +313,7 @@ mod tests {
         .into_array();
 
         let contains = list_contains(&list_array, 2i32.into()).unwrap();
-        assert!(contains.is::<ConstantArray>(), "Expected constant result");
+        assert!(contains.is::<ConstantVTable>(), "Expected constant result");
         assert_eq!(
             contains
                 .to_bool()

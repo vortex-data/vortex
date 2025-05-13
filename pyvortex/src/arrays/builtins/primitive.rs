@@ -1,5 +1,5 @@
 use pyo3::{PyRef, pyclass, pymethods};
-use vortex::arrays::PrimitiveEncoding;
+use vortex::arrays::PrimitiveVTable;
 
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 use crate::dtype::PyPType;
@@ -9,7 +9,7 @@ use crate::dtype::PyPType;
 pub(crate) struct PyPrimitiveArray;
 
 impl EncodingSubclass for PyPrimitiveArray {
-    type Encoding = PrimitiveEncoding;
+    type VTable = PrimitiveVTable;
 }
 
 #[pymethods]

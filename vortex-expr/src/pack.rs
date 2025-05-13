@@ -6,7 +6,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructDType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
@@ -191,6 +191,7 @@ mod tests {
 
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::validity::Validity;
+    use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{FieldNames, Nullability};
@@ -242,25 +243,29 @@ mod tests {
         )
         .unwrap();
 
-        let actual_array = expr.evaluate(&test_array()).unwrap().to_struct().unwrap();
+        let actual_array = expr
+            .evaluate(test_array().as_ref())
+            .unwrap()
+            .to_struct()
+            .unwrap();
         let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
         assert_eq!(actual_array.names(), &expected_names);
         assert_eq!(actual_array.validity(), &Validity::NonNullable);
 
         assert_eq!(
-            primitive_field(&actual_array, &["one"])
+            primitive_field(actual_array.as_ref(), &["one"])
                 .unwrap()
                 .as_slice::<i32>(),
             [0, 1, 2]
         );
         assert_eq!(
-            primitive_field(&actual_array, &["two"])
+            primitive_field(actual_array.as_ref(), &["two"])
                 .unwrap()
                 .as_slice::<i32>(),
             [4, 5, 6]
         );
         assert_eq!(
-            primitive_field(&actual_array, &["three"])
+            primitive_field(actual_array.as_ref(), &["three"])
                 .unwrap()
                 .as_slice::<i32>(),
             [0, 1, 2]
@@ -285,30 +290,34 @@ mod tests {
         )
         .unwrap();
 
-        let actual_array = expr.evaluate(&test_array()).unwrap().to_struct().unwrap();
+        let actual_array = expr
+            .evaluate(test_array().as_ref())
+            .unwrap()
+            .to_struct()
+            .unwrap();
         let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
         assert_eq!(actual_array.names(), &expected_names);
 
         assert_eq!(
-            primitive_field(&actual_array, &["one"])
+            primitive_field(actual_array.as_ref(), &["one"])
                 .unwrap()
                 .as_slice::<i32>(),
             [0, 1, 2]
         );
         assert_eq!(
-            primitive_field(&actual_array, &["two", "two_one"])
+            primitive_field(actual_array.as_ref(), &["two", "two_one"])
                 .unwrap()
                 .as_slice::<i32>(),
             [4, 5, 6]
         );
         assert_eq!(
-            primitive_field(&actual_array, &["two", "two_two"])
+            primitive_field(actual_array.as_ref(), &["two", "two_two"])
                 .unwrap()
                 .as_slice::<i32>(),
             [4, 5, 6]
         );
         assert_eq!(
-            primitive_field(&actual_array, &["three"])
+            primitive_field(actual_array.as_ref(), &["three"])
                 .unwrap()
                 .as_slice::<i32>(),
             [0, 1, 2]
@@ -324,7 +333,11 @@ mod tests {
         )
         .unwrap();
 
-        let actual_array = expr.evaluate(&test_array()).unwrap().to_struct().unwrap();
+        let actual_array = expr
+            .evaluate(test_array().as_ref())
+            .unwrap()
+            .to_struct()
+            .unwrap();
         let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
         assert_eq!(actual_array.names(), &expected_names);
         assert_eq!(actual_array.validity(), &Validity::AllValid);

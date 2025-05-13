@@ -157,10 +157,11 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
-        let encoding = self.ctx.encoding_idx(&self.array.vtable());
+        let encoding = self.ctx.encoding_idx(&self.array.encoding());
         let metadata = self
             .array
             .metadata()
+            .vortex_expect("Failed to serialize Array metadata")
             .map(|bytes| fbb.create_vector(bytes.as_slice()));
 
         // Assign buffer indices for all child arrays.
@@ -241,7 +242,14 @@ impl ArrayParts {
         let vtable = ctx
             .lookup_encoding(encoding_id)
             .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
-        let decoded = vtable.decode(self, ctx, dtype, len)?;
+
+        let buffers: Vec<_> = (0..self.nbuffers())
+            .map(|idx| self.buffer(idx))
+            .try_collect()?;
+        let children: Vec<_> = (0..self.nchildren()).map(|idx| self.child(idx)).collect();
+
+        let decoded = vtable.decode(dtype, len, self.metadata(), &buffers, &children, ctx)?;
+
         assert_eq!(
             decoded.len(),
             len,
@@ -251,11 +259,11 @@ impl ArrayParts {
             len
         );
         assert_eq!(
-            decoded.encoding(),
+            decoded.encoding_id(),
             vtable.id(),
             "Array decoded from {} has incorrect encoding {}",
             vtable.id(),
-            decoded.encoding(),
+            decoded.encoding_id(),
         );
 
         // Populate statistics from the serialized array.

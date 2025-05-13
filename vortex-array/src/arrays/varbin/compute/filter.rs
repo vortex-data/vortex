@@ -4,20 +4,21 @@ use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_mask::{AllOr, Mask, MaskIter};
 
-use crate::arrays::VarBinEncoding;
+use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::compute::{FilterKernel, FilterKernelAdapter};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{ArrayRef, IntoArray, ToCanonical, register_kernel};
 
-impl FilterKernel for VarBinEncoding {
+impl FilterKernel for VarBinVTable {
     fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {
         filter_select_var_bin(array, mask).map(|a| a.into_array())
     }
 }
 
-register_kernel!(FilterKernelAdapter(VarBinEncoding).lift());
+register_kernel!(FilterKernelAdapter(VarBinVTable).lift());
 
 fn filter_select_var_bin(arr: &VarBinArray, mask: &Mask) -> VortexResult<VarBinArray> {
     match mask
@@ -183,7 +184,7 @@ mod test {
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_scalar::Scalar;
 
-    use crate::array::Array;
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::varbin::VarBinArray;

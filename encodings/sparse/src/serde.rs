@@ -1,16 +1,16 @@
-use vortex_array::patches::PatchesMetadata;
+use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::EncodingVTable;
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
-    ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, Canonical,
+    DeserializeMetadata, ProstMetadata,
 };
-use vortex_buffer::ByteBufferMut;
+use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::{SparseArray, SparseEncoding};
+use crate::{SparseArray, SparseEncoding, SparseVTable};
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]
@@ -19,60 +19,68 @@ pub struct SparseMetadata {
     patches: PatchesMetadata,
 }
 
-impl EncodingVTable for SparseEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.sparse")
+impl SerdeVTable<SparseVTable> for SparseVTable {
+    type Metadata = ProstMetadata<SparseMetadata>;
+
+    fn metadata(array: &SparseArray) -> Option<Self::Metadata> {
+        Some(ProstMetadata(SparseMetadata {
+            patches: array
+                .patches()
+                .to_metadata(array.len(), array.dtype())
+                .vortex_expect("Failed to create patches metadata"),
+        }))
     }
 
     fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
+        _encoding: &SparseEncoding,
         dtype: DType,
         len: usize,
-    ) -> VortexResult<ArrayRef> {
-        if parts.nchildren() != 2 {
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<SparseArray> {
+        if children.len() != 2 {
             vortex_bail!(
                 "Expected 2 children for sparse encoding, found {}",
-                parts.nchildren()
+                children.len()
             )
         }
-        let metadata = ProstMetadata::<SparseMetadata>::deserialize(parts.metadata())?;
         assert_eq!(
             metadata.patches.offset(),
             0,
             "Patches must start at offset 0"
         );
 
-        let patch_indices = parts.child(0).decode(
+        let patch_indices = children[0].decode(
             ctx,
             metadata.patches.indices_dtype(),
             metadata.patches.len(),
         )?;
-        let patch_values = parts
-            .child(1)
-            .decode(ctx, dtype.clone(), metadata.patches.len())?;
+        let patch_values = children[1].decode(ctx, dtype.clone(), metadata.patches.len())?;
 
-        if parts.nbuffers() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
+        if buffers.len() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let fill_value = Scalar::new(dtype, ScalarValue::from_protobytes(&parts.buffer(0)?)?);
+        let fill_value = Scalar::new(dtype, ScalarValue::from_protobytes(&buffers[0])?);
 
-        Ok(SparseArray::try_new(patch_indices, patch_values, len, fill_value)?.into_array())
+        SparseArray::try_new(patch_indices, patch_values, len, fill_value)
     }
+}
 
+impl EncodeVTable<SparseVTable> for SparseVTable {
     fn encode(
-        &self,
+        encoding: &SparseEncoding,
         input: &Canonical,
         like: Option<&dyn Array>,
-    ) -> VortexResult<Option<ArrayRef>> {
+    ) -> VortexResult<Option<SparseArray>> {
         let like = like
             .map(|like| {
-                like.as_opt::<<Self as Encoding>::Array>().ok_or_else(|| {
+                like.as_opt::<Self>().ok_or_else(|| {
                     vortex_err!(
                         "Expected {} encoded array but got {}",
-                        self.id(),
-                        like.encoding()
+                        encoding.id(),
+                        like.encoding_id()
                     )
                 })
             })
@@ -81,13 +89,16 @@ impl EncodingVTable for SparseEncoding {
         // Try and cast the "like" fill value into the array's type. This is useful for cases where we narrow the arrays type.
         let fill_value = like.and_then(|arr| arr.fill_scalar().cast(input.as_ref().dtype()).ok());
 
-        Ok(Some(SparseArray::encode(input.as_ref(), fill_value)?))
+        // TODO(ngates): encode should only handle arrays that _can_ be made sparse.
+        Ok(SparseArray::encode(input.as_ref(), fill_value)?
+            .as_opt::<SparseVTable>()
+            .cloned())
     }
 }
 
-impl ArrayVisitorImpl<ProstMetadata<SparseMetadata>> for SparseArray {
-    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        let fill_value_buffer = self
+impl VisitorVTable<SparseVTable> for SparseVTable {
+    fn visit_buffers(array: &SparseArray, visitor: &mut dyn ArrayBufferVisitor) {
+        let fill_value_buffer = array
             .fill_value
             .value()
             .to_protobytes::<ByteBufferMut>()
@@ -95,16 +106,21 @@ impl ArrayVisitorImpl<ProstMetadata<SparseMetadata>> for SparseArray {
         visitor.visit_buffer(&fill_value_buffer);
     }
 
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_patches(self.patches())
+    fn visit_children(array: &SparseArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_patches(array.patches())
     }
 
-    fn _metadata(&self) -> ProstMetadata<SparseMetadata> {
-        ProstMetadata(SparseMetadata {
-            patches: self
-                .patches()
-                .to_metadata(self.len(), self.dtype())
-                .vortex_expect("Failed to create patches metadata"),
-        })
+    fn with_children(array: &SparseArray, children: &[ArrayRef]) -> VortexResult<SparseArray> {
+        let patch_indices = children[0].clone();
+        let patch_values = children[1].clone();
+
+        let patches = Patches::new(
+            array.patches().array_len(),
+            array.patches().offset(),
+            patch_indices,
+            patch_values,
+        );
+
+        SparseArray::try_new_from_patches(patches, array.fill_value.clone())
     }
 }

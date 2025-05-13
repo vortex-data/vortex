@@ -1,69 +1,80 @@
 use std::fmt::Formatter;
 
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::EncodingVTable;
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical,
-    DeserializeMetadata, EncodingId, SerializeMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical,
+    DeserializeMetadata, SerializeMetadata,
 };
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use super::FoREncoding;
-use crate::FoRArray;
+use crate::{FoRArray, FoRVTable};
 
-impl ArrayVisitorImpl<ScalarValueMetadata> for FoRArray {
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("encoded", self.encoded())
-    }
+impl SerdeVTable<FoRVTable> for FoRVTable {
+    type Metadata = ScalarValueMetadata;
 
-    fn _metadata(&self) -> ScalarValueMetadata {
-        ScalarValueMetadata(self.reference_scalar().value().clone())
-    }
-}
-
-impl EncodingVTable for FoREncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("fastlanes.for")
+    fn metadata(array: &FoRArray) -> Option<Self::Metadata> {
+        Some(ScalarValueMetadata(
+            array.reference_scalar().value().clone(),
+        ))
     }
 
     fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
+        _encoding: &FoREncoding,
         dtype: DType,
         len: usize,
-    ) -> VortexResult<ArrayRef> {
-        if parts.nchildren() != 1 {
+        metadata: &ScalarValue,
+        _buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<FoRArray> {
+        if children.len() != 1 {
             vortex_bail!(
                 "Expected 1 child for FoR encoding, found {}",
-                parts.nchildren()
+                children.len()
             )
         }
 
         let ptype = PType::try_from(&dtype)?;
         let encoded_dtype = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
-        let encoded = parts.child(0).decode(ctx, encoded_dtype, len)?;
+        let encoded = children[0].decode(ctx, encoded_dtype, len)?;
 
-        let reference = ScalarValue::from_protobytes(
-            parts
-                .metadata()
-                .ok_or_else(|| vortex_err!("Missing FoR metadata"))?,
-        )?;
-        let reference = Scalar::new(dtype, reference);
+        let reference = Scalar::new(dtype, metadata.clone());
 
-        Ok(FoRArray::try_new(encoded, reference)?.into_array())
+        FoRArray::try_new(encoded, reference)
+    }
+}
+
+impl EncodeVTable<FoRVTable> for FoRVTable {
+    fn encode(
+        _encoding: &FoREncoding,
+        canonical: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<FoRArray>> {
+        let parray = canonical.clone().into_primitive()?;
+        Ok(Some(FoRArray::encode(parray)?))
+    }
+}
+
+impl VisitorVTable<FoRVTable> for FoRVTable {
+    fn visit_buffers(_array: &FoRArray, _visitor: &mut dyn ArrayBufferVisitor) {}
+
+    fn visit_children(array: &FoRArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("encoded", array.encoded())
     }
 
-    fn encode(
-        &self,
-        input: &Canonical,
-        _like: Option<&dyn Array>,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let parray = input.clone().into_primitive()?;
-
-        Ok(Some(FoRArray::encode(parray)?.to_array()))
+    fn with_children(array: &FoRArray, children: &[ArrayRef]) -> VortexResult<FoRArray> {
+        if children.len() != 1 {
+            vortex_bail!(
+                "Expected 1 child for FoR encoding, found {}",
+                children.len()
+            )
+        }
+        FoRArray::try_new(children[0].clone(), array.reference_scalar().clone())
     }
 }
 

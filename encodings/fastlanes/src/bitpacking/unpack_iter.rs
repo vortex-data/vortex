@@ -6,7 +6,6 @@ use lending_iterator::gat;
 use lending_iterator::prelude::Item;
 #[gat(Item)]
 use lending_iterator::prelude::LendingIterator;
-use vortex_array::Array;
 use vortex_array::builders::UninitRange;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::NativePType;

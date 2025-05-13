@@ -1,12 +1,14 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::Formatter;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexResult;
 
 use crate::arrays::ConstantArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::{Array, ArrayImpl, ArrayRef, DeserializeMetadata, EmptyMetadata, SerializeMetadata};
+use crate::{Array, ArrayRef};
 
 pub trait ArrayVisitor {
     /// Returns the children of the array.
@@ -28,7 +30,7 @@ pub trait ArrayVisitor {
     fn nbuffers(&self) -> usize;
 
     /// Returns the serialized metadata of the array.
-    fn metadata(&self) -> Option<Vec<u8>>;
+    fn metadata(&self) -> VortexResult<Option<Vec<u8>>>;
 
     /// Formats a human-readable metadata description.
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
@@ -59,7 +61,7 @@ impl ArrayVisitor for Arc<dyn Array> {
         self.as_ref().nbuffers()
     }
 
-    fn metadata(&self) -> Option<Vec<u8>> {
+    fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
         self.as_ref().metadata()
     }
 
@@ -105,43 +107,6 @@ pub trait ArrayVisitorExt: Array {
 
 impl<A: Array + ?Sized> ArrayVisitorExt for A {}
 
-// TODO(ngates): rename to ArraySerdeImpl?
-pub trait ArrayVisitorImpl<M: SerializeMetadata + DeserializeMetadata + Debug = EmptyMetadata> {
-    fn _visit_buffers(&self, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn _nbuffers(&self) -> usize {
-        struct NBuffers(usize);
-
-        impl ArrayBufferVisitor for NBuffers {
-            fn visit_buffer(&mut self, _buffer: &ByteBuffer) {
-                self.0 += 1;
-            }
-        }
-
-        let mut visitor = NBuffers(0);
-        self._visit_buffers(&mut visitor);
-        visitor.0
-    }
-
-    fn _visit_children(&self, _visitor: &mut dyn ArrayChildVisitor) {}
-
-    fn _nchildren(&self) -> usize {
-        struct NChildren(usize);
-
-        impl ArrayChildVisitor for NChildren {
-            fn visit_child(&mut self, _name: &str, _array: &dyn Array) {
-                self.0 += 1;
-            }
-        }
-
-        let mut visitor = NChildren(0);
-        self._visit_children(&mut visitor);
-        visitor.0
-    }
-
-    fn _metadata(&self) -> M;
-}
-
 pub trait ArrayBufferVisitor {
     fn visit_buffer(&mut self, buffer: &ByteBuffer);
 }
@@ -165,7 +130,7 @@ pub trait ArrayChildVisitor {
                 //  * is_nullable & has_validity => Validity::Array (or Validity::AllInvalid)
                 //  * is_nullable & !has_validity => Validity::AllValid
                 //  * !is_nullable => Validity::NonNullable
-                self.visit_child("validity", &ConstantArray::new(false, len))
+                self.visit_child("validity", ConstantArray::new(false, len).deref())
             }
             Validity::Array(array) => {
                 self.visit_child("validity", array);
@@ -177,94 +142,5 @@ pub trait ArrayChildVisitor {
     fn visit_patches(&mut self, patches: &Patches) {
         self.visit_child("patch_indices", patches.indices());
         self.visit_child("patch_values", patches.values());
-    }
-}
-
-impl<A: ArrayImpl> ArrayVisitor for A {
-    fn children(&self) -> Vec<ArrayRef> {
-        struct ChildrenCollector {
-            children: Vec<ArrayRef>,
-        }
-
-        impl ArrayChildVisitor for ChildrenCollector {
-            fn visit_child(&mut self, _name: &str, array: &dyn Array) {
-                self.children.push(array.to_array());
-            }
-        }
-
-        let mut collector = ChildrenCollector {
-            children: Vec::new(),
-        };
-        ArrayVisitorImpl::_visit_children(self, &mut collector);
-        collector.children
-    }
-
-    fn nchildren(&self) -> usize {
-        ArrayVisitorImpl::_nchildren(self)
-    }
-
-    fn children_names(&self) -> Vec<String> {
-        struct ChildNameCollector {
-            names: Vec<String>,
-        }
-
-        impl ArrayChildVisitor for ChildNameCollector {
-            fn visit_child(&mut self, name: &str, _array: &dyn Array) {
-                self.names.push(name.to_string());
-            }
-        }
-
-        let mut collector = ChildNameCollector { names: Vec::new() };
-        ArrayVisitorImpl::_visit_children(self, &mut collector);
-        collector.names
-    }
-
-    fn named_children(&self) -> Vec<(String, ArrayRef)> {
-        struct NamedChildrenCollector {
-            children: Vec<(String, ArrayRef)>,
-        }
-
-        impl ArrayChildVisitor for NamedChildrenCollector {
-            fn visit_child(&mut self, name: &str, array: &dyn Array) {
-                self.children.push((name.to_string(), array.to_array()));
-            }
-        }
-
-        let mut collector = NamedChildrenCollector {
-            children: Vec::new(),
-        };
-
-        ArrayVisitorImpl::_visit_children(self, &mut collector);
-        collector.children
-    }
-
-    fn buffers(&self) -> Vec<ByteBuffer> {
-        struct BufferCollector {
-            buffers: Vec<ByteBuffer>,
-        }
-
-        impl ArrayBufferVisitor for BufferCollector {
-            fn visit_buffer(&mut self, buffer: &ByteBuffer) {
-                self.buffers.push(buffer.clone());
-            }
-        }
-
-        let mut collector = BufferCollector {
-            buffers: Vec::new(),
-        };
-        ArrayVisitorImpl::_visit_buffers(self, &mut collector);
-        collector.buffers
-    }
-
-    fn nbuffers(&self) -> usize {
-        ArrayVisitorImpl::_nbuffers(self)
-    }
-
-    fn metadata(&self) -> Option<Vec<u8>> {
-        SerializeMetadata::serialize(&ArrayVisitorImpl::_metadata(self))
-    }
-
-    fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&ArrayVisitorImpl::_metadata(self), f)
     }
 }

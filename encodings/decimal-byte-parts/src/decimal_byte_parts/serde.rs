@@ -1,50 +1,17 @@
+use itertools::Itertools;
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::EncodingVTable;
+use vortex_array::vtable::{SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, DeserializeMetadata,
+    ProstMetadata,
 };
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::PType::U64;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::{DecimalBytePartsArray, DecimalBytePartsEncoding};
-
-impl EncodingVTable for DecimalBytePartsEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.decimal_bytes_parts")
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = ProstMetadata::<DecimalBytesPartsMetadata>::deserialize(parts.metadata())?;
-
-        let Some(decimal_dtype) = dtype.as_decimal() else {
-            vortex_bail!("decoding decimal but given non decimal dtype {}", dtype)
-        };
-
-        let encoded_dtype = DType::Primitive(metadata.zeroth_child_ptype(), dtype.nullability());
-
-        let msp = parts.child(0).decode(ctx, encoded_dtype, len)?;
-
-        let mut lower_parts = Vec::with_capacity(metadata.lower_part_count as usize);
-        for idx in 0..metadata.lower_part_count {
-            lower_parts.push(parts.child((idx + 1) as usize).decode(
-                ctx,
-                DType::Primitive(U64, NonNullable),
-                len,
-            )?)
-        }
-
-        DecimalBytePartsArray::try_new(msp, lower_parts, *decimal_dtype).map(|d| d.to_array())
-    }
-}
+use crate::{DecimalBytePartsArray, DecimalBytePartsEncoding, DecimalBytePartsVTable};
 
 #[derive(Clone, prost::Message)]
 pub struct DecimalBytesPartsMetadata {
@@ -54,23 +21,67 @@ pub struct DecimalBytesPartsMetadata {
     lower_part_count: u32,
 }
 
+impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
+    type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
+
+    fn metadata(array: &DecimalBytePartsArray) -> Option<Self::Metadata> {
+        Some(ProstMetadata(DecimalBytesPartsMetadata {
+            zeroth_child_ptype: PType::try_from(array.msp.dtype()).vortex_expect("must be a PType")
+                as i32,
+            lower_part_count: u32::try_from(array.lower_parts.len())
+                .vortex_expect("1..=3 fits in u8"),
+        }))
+    }
+
+    fn decode(
+        _encoding: &DecimalBytePartsEncoding,
+        dtype: DType,
+        len: usize,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<DecimalBytePartsArray> {
+        let Some(decimal_dtype) = dtype.as_decimal() else {
+            vortex_bail!("decoding decimal but given non decimal dtype {}", dtype)
+        };
+
+        let encoded_dtype = DType::Primitive(metadata.zeroth_child_ptype(), dtype.nullability());
+
+        let msp = children[0].decode(ctx, encoded_dtype, len)?;
+
+        let mut lower_parts = Vec::with_capacity(metadata.lower_part_count as usize);
+        for idx in 0..metadata.lower_part_count {
+            lower_parts.push(children[(idx + 1) as usize].decode(
+                ctx,
+                DType::Primitive(U64, NonNullable),
+                len,
+            )?)
+        }
+
+        DecimalBytePartsArray::try_new(msp, lower_parts, *decimal_dtype)
+    }
+}
+
 const ENCODED_NAMES: [&str; 3] = ["lower-0", "lower-1", "lower-2"];
 
-impl ArrayVisitorImpl<ProstMetadata<DecimalBytesPartsMetadata>> for DecimalBytePartsArray {
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        assert!(self.lower_parts.len() <= 3);
-        visitor.visit_child("msp", &self.msp);
-        self.lower_parts.iter().enumerate().for_each(|(idx, arr)| {
+impl VisitorVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
+    fn visit_buffers(_array: &DecimalBytePartsArray, _visitor: &mut dyn ArrayBufferVisitor) {}
+
+    fn visit_children(array: &DecimalBytePartsArray, visitor: &mut dyn ArrayChildVisitor) {
+        assert!(array.lower_parts.len() <= 3);
+        visitor.visit_child("msp", &array.msp);
+        array.lower_parts.iter().enumerate().for_each(|(idx, arr)| {
             visitor.visit_child(ENCODED_NAMES[idx], arr);
         })
     }
 
-    fn _metadata(&self) -> ProstMetadata<DecimalBytesPartsMetadata> {
-        ProstMetadata(DecimalBytesPartsMetadata {
-            zeroth_child_ptype: PType::try_from(self.msp.dtype()).vortex_expect("must be a PType")
-                as i32,
-            lower_part_count: u32::try_from(self.lower_parts.len())
-                .vortex_expect("1..=3 fits in u8"),
-        })
+    fn with_children(
+        array: &DecimalBytePartsArray,
+        children: &[ArrayRef],
+    ) -> VortexResult<DecimalBytePartsArray> {
+        let msp = children[0].clone();
+        let lower_parts = children.iter().skip(1).cloned().collect_vec();
+        DecimalBytePartsArray::try_new(msp, lower_parts, *array.decimal_dtype())
     }
 }

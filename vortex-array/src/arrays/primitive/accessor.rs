@@ -3,10 +3,11 @@ use std::iter;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 
+use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::validity::Validity;
-use crate::{Array, ToCanonical};
+use crate::vtable::ValidityHelper;
 
 impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
     fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>

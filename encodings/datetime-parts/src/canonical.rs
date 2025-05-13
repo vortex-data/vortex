@@ -1,7 +1,8 @@
 use vortex_array::arrays::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::cast;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayCanonicalImpl, Canonical, ToCanonical};
+use vortex_array::vtable::CanonicalVTable;
+use vortex_array::{Canonical, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
@@ -9,11 +10,11 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_scalar::PrimitiveScalar;
 
-use crate::DateTimePartsArray;
+use crate::{DateTimePartsArray, DateTimePartsVTable};
 
-impl ArrayCanonicalImpl for DateTimePartsArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(decode_to_temporal(self)?.into()))
+impl CanonicalVTable<DateTimePartsVTable> for DateTimePartsVTable {
+    fn canonicalize(array: &DateTimePartsArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(decode_to_temporal(array)?.into()))
     }
 }
 
@@ -89,7 +90,8 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
     }
 
     Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::new(values.freeze(), Validity::copy_from_array(array)?).into_array(),
+        PrimitiveArray::new(values.freeze(), Validity::copy_from_array(array.as_ref())?)
+            .into_array(),
         temporal_metadata.time_unit(),
         temporal_metadata.time_zone().map(ToString::to_string),
     ))
@@ -101,7 +103,8 @@ mod test {
     use rstest::rstest;
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ToCanonical};
+    use vortex_array::vtable::ValidityHelper;
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::datetime::TimeUnit;
 

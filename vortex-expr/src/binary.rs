@@ -137,7 +137,7 @@ impl PartialEq for BinaryExpr {
 /// use vortex_expr::{eq, ident, lit};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = eq(ident(), lit(3)).evaluate(&xs).unwrap();
+/// let result = eq(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -160,7 +160,7 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{ident, lit, not_eq};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = not_eq(ident(), lit(3)).evaluate(&xs).unwrap();
+/// let result = not_eq(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -183,7 +183,7 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{gt_eq, ident, lit};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = gt_eq(ident(), lit(3)).evaluate(&xs).unwrap();
+/// let result = gt_eq(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -206,7 +206,7 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{gt, ident, lit};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = gt(ident(), lit(2)).evaluate(&xs).unwrap();
+/// let result = gt(ident(), lit(2)).evaluate(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -229,7 +229,7 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{ident, lit, lt_eq};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = lt_eq(ident(), lit(2)).evaluate(&xs).unwrap();
+/// let result = lt_eq(ident(), lit(2)).evaluate(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -252,7 +252,7 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{ident, lit, lt};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = lt(ident(), lit(3)).evaluate(&xs).unwrap();
+/// let result = lt(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -273,7 +273,7 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{ ident, lit, or};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = or(ident(), lit(false)).evaluate(&xs).unwrap();
+/// let result = or(ident(), lit(false)).evaluate(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -294,7 +294,7 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{and, ident, lit};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = and(ident(), lit(true)).evaluate(&xs).unwrap();
+/// let result = and(ident(), lit(true)).evaluate(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),

@@ -1,5 +1,5 @@
 use pyo3::{PyRef, PyResult, pyclass, pymethods};
-use vortex::arrays::StructEncoding;
+use vortex::arrays::StructVTable;
 
 use crate::arrays::PyArrayRef;
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
@@ -9,7 +9,7 @@ use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 pub(crate) struct PyStructArray;
 
 impl EncodingSubclass for PyStructArray {
-    type Encoding = StructEncoding;
+    type VTable = StructVTable;
 }
 
 #[pymethods]

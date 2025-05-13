@@ -4,27 +4,18 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use pyo3::{Bound, FromPyObject, Py, PyAny, PyResult};
-use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexResult};
-use vortex::serde::ArrayParts;
-use vortex::vtable::EncodingVTable;
-use vortex::{ArrayContext, ArrayRef, EmptyMetadata, Encoding, EncodingId};
-
-use crate::arrays::py::array::PyArrayInstance;
-use crate::dtype::PyDType;
-use crate::serde::context::PyArrayContext;
-use crate::serde::parts::PyArrayParts;
+use vortex::EncodingId;
 
 /// Wrapper struct encapsulating a Python encoding.
 #[allow(dead_code)]
-#[derive(Debug)]
-pub struct PyEncodingClass {
-    id: EncodingId,
-    cls: Py<PyType>,
+#[derive(Clone, Debug)]
+pub struct PythonEncoding {
+    pub(super) id: EncodingId,
+    cls: Arc<Py<PyType>>,
 }
 
-/// Convert a Python class into a [`PyEncodingClass`].
-impl<'py> FromPyObject<'py> for PyEncodingClass {
+/// Convert a Python class into a [`PythonEncoding`].
+impl<'py> FromPyObject<'py> for PythonEncoding {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let cls = ob.downcast::<PyType>()?;
 
@@ -41,43 +32,9 @@ impl<'py> FromPyObject<'py> for PyEncodingClass {
                 .into(),
         );
 
-        Ok(PyEncodingClass {
+        Ok(PythonEncoding {
             id,
-            cls: cls.clone().unbind(),
-        })
-    }
-}
-
-impl Encoding for PyEncodingClass {
-    type Array = PyArrayInstance;
-    type Metadata = EmptyMetadata;
-}
-
-impl EncodingVTable for PyEncodingClass {
-    fn id(&self) -> EncodingId {
-        self.id.clone()
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        Python::with_gil(|py| {
-            let cls = self.cls.bind(py);
-
-            let parts = PyArrayParts::from(parts.clone());
-            let ctx = PyArrayContext::from(ctx.clone());
-            let dtype = PyDType::from(dtype);
-            let pyarray = cls.call_method("decode", (parts, ctx, dtype, len), None)?;
-
-            // Wrap up the Python array object into a PyArrayInstance.
-            let pyarray = PyArrayInstance::extract_bound(&pyarray)?;
-            let array = Arc::new(pyarray) as ArrayRef;
-
-            Ok::<_, VortexError>(array)
+            cls: Arc::new(cls.clone().unbind()),
         })
     }
 }

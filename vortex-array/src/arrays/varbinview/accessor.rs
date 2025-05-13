@@ -6,6 +6,7 @@ use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::validity::Validity;
+use crate::vtable::ValidityHelper;
 
 impl ArrayAccessor<[u8]> for VarBinViewArray {
     fn with_iterator<F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R, R>(

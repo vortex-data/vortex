@@ -10,7 +10,7 @@ use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexResult};
-use vortex::{Array, ArrayRef, TryIntoArray};
+use vortex::{ArrayRef, IntoArray, TryIntoArray};
 
 use crate::arrays::PyArrayRef;
 

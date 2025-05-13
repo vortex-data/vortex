@@ -3,10 +3,11 @@ use std::iter;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
+use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::varbin::VarBinArray;
 use crate::validity::Validity;
-use crate::{Array, ToCanonical};
+use crate::vtable::ValidityHelper;
 
 impl ArrayAccessor<[u8]> for VarBinArray {
     fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>

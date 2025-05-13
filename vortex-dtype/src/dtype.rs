@@ -100,6 +100,12 @@ impl DType {
         }
     }
 
+    /// Union the nullability of this dtype with the other nullability, returning a new dtype.
+    pub fn union_nullability(&self, other: Nullability) -> Self {
+        let nullability = self.nullability() | other;
+        self.with_nullability(nullability)
+    }
+
     /// Check if `self` and `other` are equal, ignoring nullability
     pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
         match (self, other) {

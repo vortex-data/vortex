@@ -4,19 +4,18 @@ use std::sync::{Arc, RwLock, RwLockReadGuard};
 use itertools::Itertools;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
+use crate::EncodingRef;
 use crate::aliases::hash_map::HashMap;
 use crate::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
     ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
     VarBinViewEncoding,
 };
-use crate::encoding::Encoding;
-use crate::vtable::VTableRef;
 
 /// A collection of array encodings.
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
-pub type ArrayContext = VTableContext<VTableRef>;
-pub type ArrayRegistry = VTableRegistry<VTableRef>;
+pub type ArrayContext = VTableContext<EncodingRef>;
+pub type ArrayRegistry = VTableRegistry<EncodingRef>;
 
 impl ArrayRegistry {
     pub fn canonical_only() -> Self {
@@ -24,19 +23,22 @@ impl ArrayRegistry {
 
         // Register the canonical encodings
         this.register_many([
-            NullEncoding.vtable(),
-            BoolEncoding.vtable(),
-            PrimitiveEncoding.vtable(),
-            DecimalEncoding.vtable(),
-            StructEncoding.vtable(),
-            ListEncoding.vtable(),
-            VarBinEncoding.vtable(),
-            VarBinViewEncoding.vtable(),
-            ExtensionEncoding.vtable(),
+            EncodingRef::new_ref(NullEncoding.as_ref()) as EncodingRef,
+            EncodingRef::new_ref(BoolEncoding.as_ref()),
+            EncodingRef::new_ref(PrimitiveEncoding.as_ref()),
+            EncodingRef::new_ref(DecimalEncoding.as_ref()),
+            EncodingRef::new_ref(StructEncoding.as_ref()),
+            EncodingRef::new_ref(ListEncoding.as_ref()),
+            EncodingRef::new_ref(VarBinEncoding.as_ref()),
+            EncodingRef::new_ref(VarBinViewEncoding.as_ref()),
+            EncodingRef::new_ref(ExtensionEncoding.as_ref()),
         ]);
 
         // Register the utility encodings
-        this.register_many([ConstantEncoding.vtable(), ChunkedEncoding.vtable()]);
+        this.register_many([
+            EncodingRef::new_ref(ConstantEncoding.as_ref()) as EncodingRef,
+            EncodingRef::new_ref(ChunkedEncoding.as_ref()),
+        ]);
 
         this
     }

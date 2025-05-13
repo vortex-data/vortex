@@ -5,17 +5,17 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 pub use stats::IntegerStats;
-use vortex_array::arrays::{ConstantArray, PrimitiveArray};
+use vortex_array::arrays::{ConstantArray, PrimitiveArray, PrimitiveVTable};
 use vortex_array::compress::downscale_integer_array;
 use vortex_array::nbytes::NBytes;
-use vortex_array::{Array, ArrayExt, ArrayRef, ArrayStatistics, ToCanonical};
+use vortex_array::{ArrayExt, ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::{FoRArray, bit_width_histogram, bitpack_encode, find_best_bit_width};
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
 use vortex_scalar::Scalar;
-use vortex_sparse::SparseArray;
+use vortex_sparse::{SparseArray, SparseVTable};
 use vortex_zigzag::{ZigZagArray, zigzag_encode};
 
 use crate::integer::dictionary::dictionary_encode;
@@ -28,7 +28,7 @@ use crate::{
 pub struct IntCompressor;
 
 impl Compressor for IntCompressor {
-    type ArrayType = PrimitiveArray;
+    type ArrayVTable = PrimitiveVTable;
     type SchemeType = dyn IntegerScheme;
     type StatsType = IntegerStats;
 
@@ -149,7 +149,7 @@ impl Scheme for UncompressedScheme {
         _allowed_cascading: usize,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(stats.source().clone().into_array())
+        Ok(stats.source().to_array())
     }
 }
 
@@ -475,7 +475,7 @@ impl Scheme for SparseScheme {
         }
 
         let sparse_encoded = SparseArray::encode(
-            &stats.src,
+            stats.src.as_ref(),
             Some(Scalar::primitive_value(
                 top_pvalue,
                 top_pvalue.ptype(),
@@ -483,7 +483,7 @@ impl Scheme for SparseScheme {
             )),
         )?;
 
-        if let Some(sparse) = sparse_encoded.as_opt::<SparseArray>() {
+        if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the values
             let mut new_excludes = vec![SparseScheme.code()];
             new_excludes.extend_from_slice(excludes);
@@ -679,7 +679,7 @@ mod tests {
     use vortex_array::aliases::hash_set::HashSet;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::EncodingVTable;
+    use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
     use vortex_sparse::SparseEncoding;
@@ -761,7 +761,7 @@ mod tests {
         let compressed = SparseScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
-        assert_eq!(compressed.encoding(), SparseEncoding.id());
+        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
         let decoded = compressed.to_primitive().unwrap();
         let expected = [189u8, 189, 189, 0, 0];
         assert_eq!(decoded.as_slice::<u8>(), &expected);
@@ -779,7 +779,7 @@ mod tests {
         let compressed = SparseScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])
             .unwrap();
-        assert_eq!(compressed.encoding(), SparseEncoding.id());
+        assert_eq!(compressed.encoding_id(), SparseEncoding.id());
         let decoded = compressed.to_primitive().unwrap();
         let expected = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46];
         assert_eq!(decoded.as_slice::<u8>(), &expected);

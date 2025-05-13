@@ -3,14 +3,14 @@ mod mask;
 
 use vortex_error::VortexResult;
 
-use crate::arrays::{ListArray, ListEncoding};
+use crate::arrays::{ListArray, ListVTable};
 use crate::compute::{
     IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, IsSortedKernel,
     IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
 };
 use crate::register_kernel;
 
-impl IsConstantKernel for ListEncoding {
+impl IsConstantKernel for ListVTable {
     fn is_constant(
         &self,
         _array: &ListArray,
@@ -21,19 +21,19 @@ impl IsConstantKernel for ListEncoding {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(ListEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(ListVTable).lift());
 
-impl MinMaxKernel for ListEncoding {
+impl MinMaxKernel for ListVTable {
     fn min_max(&self, _array: &ListArray) -> VortexResult<Option<MinMaxResult>> {
         // TODO(joe): Implement list min max
         Ok(None)
     }
 }
 
-register_kernel!(MinMaxKernelAdapter(ListEncoding).lift());
+register_kernel!(MinMaxKernelAdapter(ListVTable).lift());
 
 // TODO(ngates): why do we report the wrong thing?
-impl IsSortedKernel for ListEncoding {
+impl IsSortedKernel for ListVTable {
     fn is_sorted(&self, _array: &ListArray) -> VortexResult<bool> {
         Ok(false)
     }
@@ -43,11 +43,11 @@ impl IsSortedKernel for ListEncoding {
     }
 }
 
-register_kernel!(IsSortedKernelAdapter(ListEncoding).lift());
+register_kernel!(IsSortedKernelAdapter(ListVTable).lift());
 
 #[cfg(test)]
 mod test {
-    use crate::array::Array;
+    use crate::IntoArray;
     use crate::arrays::{ListArray, PrimitiveArray};
     use crate::compute::conformance::mask::test_mask;
     use crate::validity::Validity;
@@ -60,6 +60,6 @@ mod test {
         let array =
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
-        test_mask(&array);
+        test_mask(array.as_ref());
     }
 }

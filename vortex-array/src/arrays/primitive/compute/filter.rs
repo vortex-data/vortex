@@ -3,15 +3,16 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{Mask, MaskIter};
 
-use crate::arrays::PrimitiveEncoding;
+use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::{FilterKernel, FilterKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for PrimitiveEncoding {
+impl FilterKernel for PrimitiveVTable {
     fn filter(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 
@@ -36,7 +37,7 @@ impl FilterKernel for PrimitiveEncoding {
     }
 }
 
-register_kernel!(FilterKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(FilterKernelAdapter(PrimitiveVTable).lift());
 
 fn filter_primitive_indices<T: Copy>(
     values: &[T],
@@ -64,7 +65,6 @@ mod test {
     use itertools::Itertools;
     use vortex_mask::Mask;
 
-    use crate::array::Array;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::filter;
@@ -74,7 +74,7 @@ mod test {
         let mask = [true, true, false, true, true, true, false, true];
         let arr = PrimitiveArray::from_iter([1u32, 24, 54, 2, 3, 2, 3, 2]);
 
-        let filtered = filter(&arr, &Mask::from_iter(mask))
+        let filtered = filter(arr.as_ref(), &Mask::from_iter(mask))
             .unwrap()
             .to_primitive()
             .unwrap();

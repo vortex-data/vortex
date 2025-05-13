@@ -10,9 +10,9 @@ use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_unsigned_in
 use vortex_error::VortexResult;
 
 use crate::unpack_iter::BitPacked;
-use crate::{BitPackedArray, BitPackedEncoding};
+use crate::{BitPackedArray, BitPackedVTable};
 
-impl IsConstantKernel for BitPackedEncoding {
+impl IsConstantKernel for BitPackedVTable {
     fn is_constant(
         &self,
         array: &BitPackedArray,
@@ -25,7 +25,7 @@ impl IsConstantKernel for BitPackedEncoding {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(BitPackedEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(BitPackedVTable).lift());
 
 fn bitpacked_is_constant<T: BitPacked, const WIDTH: usize>(
     array: &BitPackedArray,
@@ -162,6 +162,6 @@ mod tests {
     #[test]
     fn is_constant_with_patches() {
         let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2).unwrap();
-        assert!(is_constant(&array).unwrap().unwrap());
+        assert!(is_constant(array.as_ref()).unwrap().unwrap());
     }
 }

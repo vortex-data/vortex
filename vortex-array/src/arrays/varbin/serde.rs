@@ -1,17 +1,13 @@
-use arrow_schema::DataType;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::VarBinEncoding;
-use crate::arrays::VarBinArray;
-use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::EncodingVTable;
-use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    Canonical, DeserializeMetadata, EncodingId, IntoArray, ProstMetadata,
-};
+use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
+use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ProstMetadata};
 
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {
@@ -19,75 +15,85 @@ pub struct VarBinMetadata {
     pub(crate) offsets_ptype: i32,
 }
 
-impl EncodingVTable for VarBinEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.varbin")
+impl SerdeVTable<VarBinVTable> for VarBinVTable {
+    type Metadata = ProstMetadata<VarBinMetadata>;
+
+    fn metadata(array: &VarBinArray) -> Option<Self::Metadata> {
+        Some(ProstMetadata(VarBinMetadata {
+            offsets_ptype: PType::try_from(array.offsets().dtype())
+                .vortex_expect("Must be a valid PType") as i32,
+        }))
     }
 
     fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
+        _encoding: &VarBinEncoding,
         dtype: DType,
         len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = ProstMetadata::<VarBinMetadata>::deserialize(parts.metadata())?;
-
-        let validity = if parts.nchildren() == 1 {
+        metadata: &VarBinMetadata,
+        buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<VarBinArray> {
+        let validity = if children.len() == 1 {
             Validity::from(dtype.nullability())
-        } else if parts.nchildren() == 2 {
-            let validity = parts.child(1).decode(ctx, Validity::DTYPE, len)?;
+        } else if children.len() == 2 {
+            let validity = children[1].decode(ctx, Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
-            vortex_bail!("Expected 1 or 2 children, got {}", parts.nchildren());
+            vortex_bail!("Expected 1 or 2 children, got {}", children.len());
         };
 
-        let offsets = parts.child(0).decode(
+        let offsets = children[0].decode(
             ctx,
             DType::Primitive(metadata.offsets_ptype(), Nullability::NonNullable),
             len + 1,
         )?;
 
-        if parts.nbuffers() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
+        if buffers.len() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let bytes = parts.buffer(0)?;
+        let bytes = buffers[0].clone();
 
-        Ok(VarBinArray::try_new(offsets, bytes, dtype, validity)?.into_array())
-    }
-
-    fn encode(
-        &self,
-        input: &Canonical,
-        _like: Option<&dyn Array>,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let arrow_array = input.clone().into_array().into_arrow_preferred()?;
-        let array = match arrow_array.data_type() {
-            DataType::Utf8View => arrow_cast::cast(arrow_array.as_ref(), &DataType::Utf8)?,
-            DataType::BinaryView => arrow_cast::cast(arrow_array.as_ref(), &DataType::Binary)?,
-            _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
-        };
-        Ok(Some(ArrayRef::from_arrow(
-            array,
-            input.as_ref().dtype().nullability().into(),
-        )))
+        VarBinArray::try_new(offsets, bytes, dtype, validity)
     }
 }
 
-impl ArrayVisitorImpl<ProstMetadata<VarBinMetadata>> for VarBinArray {
-    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(self.bytes()); // TODO(ngates): sliced bytes?
+impl VisitorVTable<VarBinVTable> for VarBinVTable {
+    fn visit_buffers(array: &VarBinArray, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(array.bytes()); // TODO(ngates): sliced bytes?
     }
 
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("offsets", self.offsets());
-        visitor.visit_validity(self.validity(), self.len());
+    fn visit_children(array: &VarBinArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("offsets", array.offsets());
+        visitor.visit_validity(array.validity(), array.len());
     }
 
-    fn _metadata(&self) -> ProstMetadata<VarBinMetadata> {
-        ProstMetadata(VarBinMetadata {
-            offsets_ptype: PType::try_from(self.offsets().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
-        })
+    fn with_children(array: &VarBinArray, children: &[ArrayRef]) -> VortexResult<VarBinArray> {
+        let new = match children.len() {
+            // Only the offsets array is mandatory
+            1 => {
+                let offsets = children[0].clone();
+                VarBinArray::try_new(
+                    offsets,
+                    array.bytes().clone(),
+                    array.dtype().clone(),
+                    array.validity().clone(),
+                )?
+            }
+            // If are provided with both an offsets and validity arrays
+            2 => {
+                let offsets = children[0].clone();
+                let validity_array = children[1].clone();
+                VarBinArray::try_new(
+                    offsets,
+                    array.bytes().clone(),
+                    array.dtype().clone(),
+                    Validity::Array(validity_array),
+                )?
+            }
+            _ => vortex_bail!("unexpected number of new children"),
+        };
+
+        Ok(new)
     }
 }

@@ -6,9 +6,9 @@ use vortex_buffer::Buffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::{RunEndArray, RunEndEncoding};
+use crate::{RunEndArray, RunEndVTable};
 
-impl TakeKernel for RunEndEncoding {
+impl TakeKernel for RunEndVTable {
     fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let primitive_indices = indices.to_primitive()?;
 
@@ -31,7 +31,7 @@ impl TakeKernel for RunEndEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(RunEndEncoding).lift());
+register_kernel!(TakeKernelAdapter(RunEndVTable).lift());
 
 /// Perform a take operation on a RunEndArray by binary searching for each of the indices.
 pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
@@ -67,7 +67,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
 mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::take;
-    use vortex_array::{Array, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical};
 
     use crate::RunEndArray;
 
@@ -80,7 +80,11 @@ mod test {
 
     #[test]
     fn ree_take() {
-        let taken = take(&ree_array(), &PrimitiveArray::from_iter([9, 8, 1, 3])).unwrap();
+        let taken = take(
+            ree_array().as_ref(),
+            PrimitiveArray::from_iter([9, 8, 1, 3]).as_ref(),
+        )
+        .unwrap();
         assert_eq!(
             taken.to_primitive().unwrap().as_slice::<i32>(),
             &[5, 5, 1, 4]
@@ -89,20 +93,32 @@ mod test {
 
     #[test]
     fn ree_take_end() {
-        let taken = take(&ree_array(), &PrimitiveArray::from_iter([11])).unwrap();
+        let taken = take(
+            ree_array().as_ref(),
+            PrimitiveArray::from_iter([11]).as_ref(),
+        )
+        .unwrap();
         assert_eq!(taken.to_primitive().unwrap().as_slice::<i32>(), &[5]);
     }
 
     #[test]
     #[should_panic]
     fn ree_take_out_of_bounds() {
-        take(&ree_array(), &PrimitiveArray::from_iter([12])).unwrap();
+        take(
+            ree_array().as_ref(),
+            PrimitiveArray::from_iter([12]).as_ref(),
+        )
+        .unwrap();
     }
 
     #[test]
     fn sliced_take() {
         let sliced = ree_array().slice(4, 9).unwrap();
-        let taken = take(sliced.as_ref(), &PrimitiveArray::from_iter([1, 3, 4])).unwrap();
+        let taken = take(
+            sliced.as_ref(),
+            PrimitiveArray::from_iter([1, 3, 4]).as_ref(),
+        )
+        .unwrap();
 
         assert_eq!(taken.len(), 3);
         assert_eq!(taken.scalar_at(0).unwrap(), 4.into());

@@ -3,10 +3,10 @@ use std::hash::Hash;
 use arrow_buffer::BooleanBuffer;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
+use vortex_array::ToCanonical;
 use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::arrays::{NativeValue, PrimitiveArray};
+use vortex_array::arrays::{NativeValue, PrimitiveArray, PrimitiveVTable};
 use vortex_array::stats::Stat;
-use vortex_array::{Array, ToCanonical};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexUnwrap};
 use vortex_mask::AllOr;
@@ -129,7 +129,7 @@ pub struct IntegerStats {
 }
 
 impl CompressorStats for IntegerStats {
-    type ArrayType = PrimitiveArray;
+    type ArrayVTable = PrimitiveVTable;
 
     fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         match_each_integer_ptype!(input.ptype(), |$T| {
@@ -142,7 +142,7 @@ impl CompressorStats for IntegerStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.clone(), sample_size, sample_count)
+        let sampled = sample(self.src.as_ref(), sample_size, sample_count)
             .to_primitive()
             .vortex_expect("primitive");
 

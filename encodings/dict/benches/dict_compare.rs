@@ -2,7 +2,6 @@
 
 use std::str::from_utf8;
 
-use vortex_array::Array;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{ConstantArray, VarBinArray, VarBinViewArray};
 use vortex_array::compute::{Operator, compare};
@@ -34,39 +33,54 @@ const LENGTH_AND_UNIQUE_VALUES: &[(usize, usize)] = &[
 #[divan::bench(args = LENGTH_AND_UNIQUE_VALUES)]
 fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
     let primitive_arr = gen_primitive_for_dict::<i32>(len, uniqueness);
-    let dict = dict_encode(&primitive_arr).unwrap();
+    let dict = dict_encode(primitive_arr.as_ref()).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
 
-    bencher
-        .with_inputs(|| dict.clone())
-        .bench_refs(|dict| compare(dict, &ConstantArray::new(value, len), Operator::Eq).unwrap())
+    bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
+        compare(
+            dict.as_ref(),
+            ConstantArray::new(value, len).as_ref(),
+            Operator::Eq,
+        )
+        .unwrap()
+    })
 }
 
 #[divan::bench(args = LENGTH_AND_UNIQUE_VALUES)]
 fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(len, uniqueness));
-    let dict = dict_encode(&varbin_arr).unwrap();
+    let dict = dict_encode(varbin_arr.as_ref()).unwrap();
     let bytes = varbin_arr
         .with_iterator(|i| i.next().unwrap().unwrap().to_vec())
         .unwrap();
     let value = from_utf8(bytes.as_slice()).unwrap();
 
-    bencher
-        .with_inputs(|| dict.clone())
-        .bench_refs(|dict| compare(dict, &ConstantArray::new(value, len), Operator::Eq).unwrap())
+    bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
+        compare(
+            dict.as_ref(),
+            ConstantArray::new(value, len).as_ref(),
+            Operator::Eq,
+        )
+        .unwrap()
+    })
 }
 
 #[divan::bench(args = LENGTH_AND_UNIQUE_VALUES)]
 fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(len, uniqueness));
-    let dict = dict_encode(&varbinview_arr).unwrap();
+    let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
     let bytes = varbinview_arr
         .with_iterator(|i| i.next().unwrap().unwrap().to_vec())
         .unwrap();
     let value = from_utf8(bytes.as_slice()).unwrap();
-    bencher
-        .with_inputs(|| dict.clone())
-        .bench_refs(|dict| compare(dict, &ConstantArray::new(value, len), Operator::Eq).unwrap())
+    bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
+        compare(
+            dict.as_ref(),
+            ConstantArray::new(value, len).as_ref(),
+            Operator::Eq,
+        )
+        .unwrap()
+    })
 }
 
 const CODES_AND_VALUES_LENGTHS: &[(usize, usize)] = &[
@@ -87,12 +101,17 @@ fn bench_compare_sliced_dict_primitive(
     (codes_len, values_len): (usize, usize),
 ) {
     let primitive_arr = gen_primitive_for_dict::<i32>(codes_len.max(values_len), values_len);
-    let dict = dict_encode(&primitive_arr).unwrap();
+    let dict = dict_encode(primitive_arr.as_ref()).unwrap();
     let dict = dict.slice(0, codes_len).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
 
     bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
-        compare(dict, &ConstantArray::new(value, codes_len), Operator::Eq).unwrap()
+        compare(
+            dict,
+            ConstantArray::new(value, codes_len).as_ref(),
+            Operator::Eq,
+        )
+        .unwrap()
     })
 }
 
@@ -102,7 +121,7 @@ fn bench_compare_sliced_dict_varbinview(
     (codes_len, values_len): (usize, usize),
 ) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(codes_len.max(values_len), values_len));
-    let dict = dict_encode(&varbin_arr).unwrap();
+    let dict = dict_encode(varbin_arr.as_ref()).unwrap();
     let dict = dict.slice(0, codes_len).unwrap();
     let bytes = varbin_arr
         .with_iterator(|i| i.next().unwrap().unwrap().to_vec())
@@ -110,6 +129,11 @@ fn bench_compare_sliced_dict_varbinview(
     let value = from_utf8(bytes.as_slice()).unwrap();
 
     bencher.with_inputs(|| dict.clone()).bench_refs(|dict| {
-        compare(dict, &ConstantArray::new(value, codes_len), Operator::Eq).unwrap()
+        compare(
+            dict,
+            ConstantArray::new(value, codes_len).as_ref(),
+            Operator::Eq,
+        )
+        .unwrap()
     })
 }

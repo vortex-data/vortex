@@ -4,12 +4,11 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
 
 use super::{DecimalArray, DecimalEncoding};
+use crate::arrays::DecimalVTable;
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::EncodingVTable;
-use crate::{
-    Array, ArrayContext, ArrayRef, Canonical, DeserializeMetadata, EncodingId, ProstMetadata,
-};
+use crate::vtable::SerdeVTable;
+use crate::{ArrayContext, ProstMetadata};
 
 // The type of the values can be determined by looking at the type info...right?
 #[derive(prost::Message)]
@@ -18,48 +17,45 @@ pub struct DecimalMetadata {
     pub(super) values_type: i32,
 }
 
-impl EncodingVTable for DecimalEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.decimal")
+impl SerdeVTable<DecimalVTable> for DecimalVTable {
+    type Metadata = ProstMetadata<DecimalMetadata>;
+
+    fn metadata(array: &DecimalArray) -> Option<Self::Metadata> {
+        Some(ProstMetadata(DecimalMetadata {
+            values_type: array.values_type() as i32,
+        }))
     }
 
     fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
+        _encoding: &DecimalEncoding,
         dtype: DType,
         len: usize,
-    ) -> VortexResult<ArrayRef> {
-        if parts.nbuffers() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
+        metadata: &DecimalMetadata,
+        buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<DecimalArray> {
+        if buffers.len() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let buffer = parts.buffer(0)?;
+        let buffer = buffers[0].clone();
 
-        let validity = if parts.nchildren() == 0 {
+        let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
-        } else if parts.nchildren() == 1 {
-            let validity = parts.child(0).decode(ctx, Validity::DTYPE, len)?;
+        } else if children.len() == 1 {
+            let validity = children[0].decode(ctx, Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
-            vortex_bail!("Expected 0 or 1 child, got {}", parts.nchildren());
+            vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
         let Some(decimal_dtype) = dtype.as_decimal() else {
             vortex_bail!("Expected Decimal dtype, got {:?}", dtype)
         };
 
-        let metadata = ProstMetadata::<DecimalMetadata>::deserialize(parts.metadata())?;
         match_each_decimal_value_type!(metadata.values_type(), |$D| {
            check_and_build_decimal::<$D>(len, buffer, *decimal_dtype, validity)
         })
-    }
-
-    fn encode(
-        &self,
-        input: &Canonical,
-        _like: Option<&dyn Array>,
-    ) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(input.clone().into_decimal()?.into_array()))
     }
 }
 
@@ -68,7 +64,7 @@ fn check_and_build_decimal<T: NativeDecimalType>(
     buffer: ByteBuffer,
     decimal_dtype: DecimalDType,
     validity: Validity,
-) -> VortexResult<ArrayRef> {
+) -> VortexResult<DecimalArray> {
     // Assuming 16-byte alignment for decimal values
     if !buffer.is_aligned(Alignment::of::<T>()) {
         vortex_bail!("Buffer is not aligned to 16-byte boundary");
@@ -83,7 +79,7 @@ fn check_and_build_decimal<T: NativeDecimalType>(
         );
     }
 
-    Ok(DecimalArray::new(buffer, decimal_dtype, validity).into_array())
+    Ok(DecimalArray::new(buffer, decimal_dtype, validity))
 }
 
 #[cfg(test)]
@@ -91,8 +87,8 @@ mod tests {
     use vortex_buffer::{ByteBufferMut, buffer};
 
     use super::*;
-    use crate::Encoding;
     use crate::serde::SerializeOptions;
+    use crate::{EncodingRef, IntoArray};
 
     #[test]
     fn test_array_serde() {
@@ -102,7 +98,7 @@ mod tests {
             Validity::NonNullable,
         );
         let dtype = array.dtype().clone();
-        let ctx = ArrayContext::empty().with(DecimalEncoding.vtable());
+        let ctx = ArrayContext::empty().with(EncodingRef::new_ref(DecimalEncoding.as_ref()));
         let out = array
             .into_array()
             .serialize(&ctx, &SerializeOptions::default());
@@ -117,6 +113,6 @@ mod tests {
         let parts = ArrayParts::try_from(concat).unwrap();
 
         let decoded = parts.decode(&ctx, dtype, 5).unwrap();
-        assert_eq!(decoded.encoding(), DecimalEncoding.id());
+        assert_eq!(decoded.encoding_id(), DecimalEncoding.id());
     }
 }

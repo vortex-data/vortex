@@ -3,11 +3,12 @@ use vortex_dtype::Nullability;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{DecimalValue, NativeDecimalType, Scalar, match_each_decimal_value_type};
 
-use crate::arrays::{BoolArray, DecimalArray, DecimalEncoding};
+use crate::arrays::{BoolArray, DecimalArray, DecimalVTable};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
-impl BetweenKernel for DecimalEncoding {
+impl BetweenKernel for DecimalVTable {
     // Determine if the values are between the lower and upper bounds
     fn between(
         &self,
@@ -78,7 +79,7 @@ fn between_unpack<T: NativeDecimalType>(
     )))
 }
 
-register_kernel!(BetweenKernelAdapter(DecimalEncoding).lift());
+register_kernel!(BetweenKernelAdapter(DecimalVTable).lift());
 
 fn between_impl<T: NativeDecimalType>(
     arr: &DecimalArray,
@@ -135,9 +136,9 @@ mod tests {
 
         // Strict lower bound, non-strict upper bound
         let between_strict = between(
-            &array,
-            &lower,
-            &upper,
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
             &BetweenOptions {
                 lower_strict: StrictComparison::Strict,
                 upper_strict: StrictComparison::NonStrict,
@@ -148,9 +149,9 @@ mod tests {
 
         // Non-strict lower bound, strict upper bound
         let between_strict = between(
-            &array,
-            &lower,
-            &upper,
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
             &BetweenOptions {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::Strict,

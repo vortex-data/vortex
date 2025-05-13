@@ -2,11 +2,11 @@ use vortex_dtype::{NativePType, match_each_float_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::{NaNCountKernel, NaNCountKernelAdapter};
-use crate::{Array, register_kernel};
+use crate::register_kernel;
 
-impl NaNCountKernel for PrimitiveEncoding {
+impl NaNCountKernel for PrimitiveVTable {
     fn nan_count(&self, array: &PrimitiveArray) -> VortexResult<usize> {
         Ok(match_each_float_ptype!(array.ptype(), |$F| {
             compute_nan_count_with_validity(array.as_slice::<$F>(), array.validity_mask()?)
@@ -14,7 +14,7 @@ impl NaNCountKernel for PrimitiveEncoding {
     }
 }
 
-register_kernel!(NaNCountKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(NaNCountKernelAdapter(PrimitiveVTable).lift());
 
 #[inline]
 fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask) -> usize {
@@ -52,6 +52,6 @@ mod tests {
             ],
             Validity::NonNullable,
         );
-        assert_eq!(nan_count(&p).unwrap(), 2);
+        assert_eq!(nan_count(p.as_ref()).unwrap(), 2);
     }
 }

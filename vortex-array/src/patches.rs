@@ -16,6 +16,7 @@ use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{cast, filter, take};
 use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
+use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 #[derive(Copy, Clone, Serialize, Deserialize, prost::Message)]
@@ -581,7 +582,6 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
-    use crate::array::Array;
     use crate::arrays::PrimitiveArray;
     use crate::patches::Patches;
     use crate::search_sorted::{SearchResult, SearchSortedSide};

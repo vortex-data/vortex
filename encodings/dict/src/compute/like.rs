@@ -1,11 +1,11 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{LikeKernel, LikeKernelAdapter, LikeOptions, like};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 
-use crate::{DictArray, DictEncoding};
+use crate::{DictArray, DictVTable};
 
-impl LikeKernel for DictEncoding {
+impl LikeKernel for DictVTable {
     fn like(
         &self,
         array: &DictArray,
@@ -28,4 +28,4 @@ impl LikeKernel for DictEncoding {
     }
 }
 
-register_kernel!(LikeKernelAdapter(DictEncoding).lift());
+register_kernel!(LikeKernelAdapter(DictVTable).lift());

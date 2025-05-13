@@ -1,14 +1,15 @@
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::EncodingVTable;
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, Canonical,
-    DeserializeMetadata, EncodingId, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical,
+    DeserializeMetadata, ProstMetadata,
 };
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::compress::runend_encode;
-use crate::{RunEndArray, RunEndEncoding};
+use crate::{RunEndArray, RunEndEncoding, RunEndVTable};
 
 #[derive(Clone, prost::Message)]
 pub struct RunEndMetadata {
@@ -20,63 +21,70 @@ pub struct RunEndMetadata {
     offset: u64,
 }
 
-impl EncodingVTable for RunEndEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.runend")
+impl SerdeVTable<RunEndVTable> for RunEndVTable {
+    type Metadata = ProstMetadata<RunEndMetadata>;
+
+    fn metadata(array: &RunEndArray) -> Option<Self::Metadata> {
+        Some(ProstMetadata(RunEndMetadata {
+            ends_ptype: PType::try_from(array.ends().dtype()).vortex_expect("Must be a valid PType")
+                as i32,
+            num_runs: array.ends().len() as u64,
+            offset: array.offset() as u64,
+        }))
     }
 
     fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
+        _encoding: &RunEndEncoding,
         dtype: DType,
         len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = ProstMetadata::<RunEndMetadata>::deserialize(parts.metadata())?;
-
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<RunEndArray> {
         let ends_dtype = DType::Primitive(metadata.ends_ptype(), Nullability::NonNullable);
         let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
-        let ends = parts.child(0).decode(ctx, ends_dtype, runs)?;
+        let ends = children[0].decode(ctx, ends_dtype, runs)?;
 
-        let values = parts.child(1).decode(ctx, dtype, runs)?;
+        let values = children[1].decode(ctx, dtype, runs)?;
 
-        Ok(RunEndArray::with_offset_and_length(
+        RunEndArray::with_offset_and_length(
             ends,
             values,
             usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
             len,
-        )?
-        .into_array())
-    }
-
-    fn encode(
-        &self,
-        input: &Canonical,
-        _like: Option<&dyn Array>,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let parray = input.clone().into_primitive()?;
-
-        let (ends, values) = runend_encode(&parray)?;
-
-        Ok(Some(
-            RunEndArray::try_new(ends.to_array(), values)?.to_array(),
-        ))
+        )
     }
 }
 
-impl ArrayVisitorImpl<ProstMetadata<RunEndMetadata>> for RunEndArray {
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("ends", self.ends());
-        visitor.visit_child("values", self.values());
+impl EncodeVTable<RunEndVTable> for RunEndVTable {
+    fn encode(
+        _encoding: &RunEndEncoding,
+        canonical: &Canonical,
+        _like: Option<&dyn Array>,
+    ) -> VortexResult<Option<RunEndArray>> {
+        let parray = canonical.clone().into_primitive()?;
+        let (ends, values) = runend_encode(&parray)?;
+        Ok(Some(RunEndArray::try_new(ends.to_array(), values)?))
+    }
+}
+
+impl VisitorVTable<RunEndVTable> for RunEndVTable {
+    fn visit_buffers(_array: &RunEndArray, _visitor: &mut dyn ArrayBufferVisitor) {}
+
+    fn visit_children(array: &RunEndArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("ends", array.ends());
+        visitor.visit_child("values", array.values());
     }
 
-    fn _metadata(&self) -> ProstMetadata<RunEndMetadata> {
-        ProstMetadata(RunEndMetadata {
-            ends_ptype: PType::try_from(self.ends().dtype()).vortex_expect("Must be a valid PType")
-                as i32,
-            num_runs: self.ends().len() as u64,
-            offset: self.offset() as u64,
-        })
+    fn with_children(array: &RunEndArray, children: &[ArrayRef]) -> VortexResult<RunEndArray> {
+        if children.len() != 2 {
+            vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
+        }
+        if array.offset() != 0 {
+            vortex_bail!(InvalidArgument: "RunEndArray with offset cannot have children replaced");
+        }
+        RunEndArray::try_new(children[0].clone(), children[1].clone())
     }
 }
 

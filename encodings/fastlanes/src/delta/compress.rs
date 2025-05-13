@@ -1,9 +1,10 @@
 use arrayref::{array_mut_ref, array_ref};
 use fastlanes::{Delta, Transpose};
 use num_traits::{WrappingAdd, WrappingSub};
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ToCanonical};
+use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{NativePType, Nullability, match_each_unsigned_integer_ptype};
 use vortex_error::VortexResult;

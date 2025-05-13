@@ -1,11 +1,11 @@
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarValue};
 
-use crate::{ALPRDArray, ALPRDEncoding};
+use crate::{ALPRDArray, ALPRDVTable};
 
-impl TakeKernel for ALPRDEncoding {
+impl TakeKernel for ALPRDVTable {
     fn take(&self, array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let taken_left_parts = take(array.left_parts(), indices)?;
         let left_parts_exceptions = array
@@ -40,14 +40,14 @@ impl TakeKernel for ALPRDEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ALPRDEncoding).lift());
+register_kernel!(TakeKernelAdapter(ALPRDVTable).lift());
 
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::take;
-    use vortex_array::{Array, ToCanonical};
 
     use crate::{ALPRDFloat, RDEncoder};
 
@@ -67,7 +67,7 @@ mod test {
                 .is_unsigned_int()
         );
 
-        let taken = take(&encoded, &PrimitiveArray::from_iter([0, 2]))
+        let taken = take(encoded.as_ref(), PrimitiveArray::from_iter([0, 2]).as_ref())
             .unwrap()
             .to_primitive()
             .unwrap();
@@ -92,8 +92,8 @@ mod test {
         );
 
         let taken = take(
-            &encoded,
-            &PrimitiveArray::from_option_iter([Some(0), Some(2), None]),
+            encoded.as_ref(),
+            PrimitiveArray::from_option_iter([Some(0), Some(2), None]).as_ref(),
         )
         .unwrap()
         .to_primitive()

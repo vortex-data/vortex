@@ -7,8 +7,8 @@ use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, T
 use vortex_dtype::{DType, ExtDType};
 use vortex_error::{VortexError, vortex_err, vortex_panic};
 
-use crate::arrays::ExtensionArray;
-use crate::{Array, ArrayRef};
+use crate::arrays::{ExtensionArray, ExtensionVTable};
+use crate::{Array, ArrayExt, ArrayRef, IntoArray};
 
 /// An array wrapper for primitive values that have an associated temporal meaning.
 ///
@@ -205,14 +205,11 @@ impl TryFrom<ArrayRef> for TemporalArray {
     /// `TemporalMetadata` variants, an error is returned.
     fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
         let ext = value
-            .as_any_arc()
-            .downcast::<ExtensionArray>()
-            .map_err(|_| vortex_err!("array must be an ExtensionArray"))?;
-        let ext = Arc::unwrap_or_clone(ext);
-        let temporal_metadata = TemporalMetadata::try_from(ext.ext_dtype().as_ref())?;
-
+            .as_opt::<ExtensionVTable>()
+            .ok_or_else(|| vortex_err!("array must be an ExtensionArray"))?;
+        let temporal_metadata = TemporalMetadata::try_from(ext.ext_dtype())?;
         Ok(Self {
-            ext,
+            ext: ext.clone(),
             temporal_metadata,
         })
     }

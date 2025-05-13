@@ -3,12 +3,12 @@ use vortex_dtype::{NativePType, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_scalar::{FromPrimitiveOrF16, PrimitiveScalar, Scalar};
 
-use crate::arrays::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
+use crate::register_kernel;
 use crate::stats::Stat;
-use crate::{Array, register_kernel};
 
-impl SumKernel for ConstantEncoding {
+impl SumKernel for ConstantVTable {
     fn sum(&self, array: &ConstantArray) -> VortexResult<Scalar> {
         let sum_dtype = Stat::Sum
             .dtype(array.dtype())
@@ -53,4 +53,4 @@ fn sum_float(primitive_scalar: PrimitiveScalar<'_>, array_len: usize) -> VortexR
     Ok(v.map(|v| v * array_len))
 }
 
-register_kernel!(SumKernelAdapter(ConstantEncoding).lift());
+register_kernel!(SumKernelAdapter(ConstantVTable).lift());

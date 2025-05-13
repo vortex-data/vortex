@@ -1,16 +1,16 @@
 use fsst::{Compressor, Symbol};
-use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::VarBinVTable;
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::EncodingVTable;
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef,
-    ArrayVisitorImpl, Canonical, DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, Canonical,
+    DeserializeMetadata, ProstMetadata,
 };
-use vortex_buffer::Buffer;
+use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use crate::{FSSTArray, FSSTEncoding, fsst_compress, fsst_train_compressor};
+use crate::{FSSTArray, FSSTEncoding, FSSTVTable, fsst_compress, fsst_train_compressor};
 
 #[derive(Clone, prost::Message)]
 pub struct FSSTMetadata {
@@ -18,41 +18,46 @@ pub struct FSSTMetadata {
     uncompressed_lengths_ptype: i32,
 }
 
-impl EncodingVTable for FSSTEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.fsst")
+impl SerdeVTable<FSSTVTable> for FSSTVTable {
+    type Metadata = ProstMetadata<FSSTMetadata>;
+
+    fn metadata(array: &FSSTArray) -> Option<Self::Metadata> {
+        Some(ProstMetadata(FSSTMetadata {
+            uncompressed_lengths_ptype: PType::try_from(array.uncompressed_lengths().dtype())
+                .vortex_expect("Must be a valid PType")
+                as i32,
+        }))
     }
 
     fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
+        _encoding: &FSSTEncoding,
         dtype: DType,
         len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = ProstMetadata::<FSSTMetadata>::deserialize(parts.metadata())?;
-
-        if parts.nbuffers() != 2 {
-            vortex_bail!(InvalidArgument: "Expected 2 buffers, got {}", parts.nbuffers());
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<FSSTArray> {
+        if buffers.len() != 2 {
+            vortex_bail!(InvalidArgument: "Expected 2 buffers, got {}", buffers.len());
         }
-        let symbols = Buffer::<Symbol>::from_byte_buffer(parts.buffer(0)?);
-        let symbol_lengths = Buffer::<u8>::from_byte_buffer(parts.buffer(1)?);
+        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone());
+        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone());
 
-        if parts.nchildren() != 2 {
-            vortex_bail!(InvalidArgument: "Expected 2 children, got {}", parts.nchildren());
+        if children.len() != 2 {
+            vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
         }
-        let codes = parts
-            .child(0)
+        let codes = children[0]
             .decode(ctx, DType::Binary(dtype.nullability()), len)?
-            .as_opt::<VarBinArray>()
+            .as_opt::<VarBinVTable>()
             .ok_or_else(|| {
                 vortex_err!(
                     "Expected VarBinArray for codes, got {:?}",
-                    ctx.lookup_encoding(parts.child(0).encoding_id())
+                    ctx.lookup_encoding(children[0].encoding_id())
                 )
             })?
             .clone();
-        let uncompressed_lengths = parts.child(1).decode(
+        let uncompressed_lengths = children[1].decode(
             ctx,
             DType::Primitive(
                 metadata.uncompressed_lengths_ptype(),
@@ -61,59 +66,67 @@ impl EncodingVTable for FSSTEncoding {
             len,
         )?;
 
-        Ok(
-            FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)?
-                .into_array(),
-        )
+        FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
     }
+}
 
+impl EncodeVTable<FSSTVTable> for FSSTVTable {
     fn encode(
-        &self,
-        input: &Canonical,
+        encoding: &FSSTEncoding,
+        canonical: &Canonical,
         like: Option<&dyn Array>,
-    ) -> VortexResult<Option<ArrayRef>> {
+    ) -> VortexResult<Option<FSSTArray>> {
         let like = like
             .map(|like| {
-                like.as_opt::<<Self as Encoding>::Array>().ok_or_else(|| {
+                like.as_opt::<Self>().ok_or_else(|| {
                     vortex_err!(
                         "Expected {} encoded array but got {}",
-                        self.id(),
-                        like.encoding()
+                        encoding.id(),
+                        like.encoding_id()
                     )
                 })
             })
             .transpose()?;
 
-        let array = input.clone().into_varbinview()?;
+        let array = canonical.clone().into_varbinview()?;
 
         let compressor = match like {
             Some(like) => Compressor::rebuild_from(like.symbols(), like.symbol_lengths()),
-            None => fsst_train_compressor(&array)?,
+            None => fsst_train_compressor(array.as_ref())?,
         };
 
-        let fsst = fsst_compress(&array, &compressor)?;
-
-        Ok(Some(fsst.into_array()))
+        Ok(Some(fsst_compress(array.as_ref(), &compressor)?))
     }
 }
 
-impl ArrayVisitorImpl<ProstMetadata<FSSTMetadata>> for FSSTArray {
-    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(&self.symbols().clone().into_byte_buffer());
-        visitor.visit_buffer(&self.symbol_lengths().clone().into_byte_buffer());
+impl VisitorVTable<FSSTVTable> for FSSTVTable {
+    fn visit_buffers(array: &FSSTArray, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(&array.symbols().clone().into_byte_buffer());
+        visitor.visit_buffer(&array.symbol_lengths().clone().into_byte_buffer());
     }
 
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("codes", self.codes());
-        visitor.visit_child("uncompressed_lengths", self.uncompressed_lengths());
+    fn visit_children(array: &FSSTArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("codes", array.codes().as_ref());
+        visitor.visit_child("uncompressed_lengths", array.uncompressed_lengths());
     }
 
-    fn _metadata(&self) -> ProstMetadata<FSSTMetadata> {
-        ProstMetadata(FSSTMetadata {
-            uncompressed_lengths_ptype: PType::try_from(self.uncompressed_lengths().dtype())
-                .vortex_expect("Must be a valid PType")
-                as i32,
-        })
+    fn with_children(array: &FSSTArray, children: &[ArrayRef]) -> VortexResult<FSSTArray> {
+        if children.len() != 2 {
+            vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
+        }
+        let codes = children[0]
+            .as_opt::<VarBinVTable>()
+            .ok_or_else(|| vortex_err!("FSSTArray codes must be a VarBinArray"))?
+            .clone();
+        let uncompressed_lengths = children[1].clone();
+
+        FSSTArray::try_new(
+            array.dtype().clone(),
+            array.symbols().clone(),
+            array.symbol_lengths().clone(),
+            codes,
+            uncompressed_lengths,
+        )
     }
 }
 

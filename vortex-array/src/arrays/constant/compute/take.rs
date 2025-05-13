@@ -2,31 +2,33 @@ use vortex_error::VortexResult;
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
-use crate::arrays::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::builders::builder_with_capacity;
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
-impl TakeKernel for ConstantEncoding {
+impl TakeKernel for ConstantVTable {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         match indices.validity_mask()?.boolean_buffer() {
             AllOr::All => {
-                let nullability = array.dtype().nullability() | indices.dtype().nullability();
                 let scalar = Scalar::new(
-                    array.scalar().dtype().with_nullability(nullability),
+                    array
+                        .scalar()
+                        .dtype()
+                        .union_nullability(indices.dtype().nullability()),
                     array.scalar().value().clone(),
                 );
                 Ok(ConstantArray::new(scalar, indices.len()).into_array())
             }
-            AllOr::None => {
-                Ok(ConstantArray::new(
-                    Scalar::null(array.dtype().with_nullability(
-                        array.dtype().nullability() | indices.dtype().nullability(),
-                    )),
-                    indices.len(),
-                )
-                .into_array())
-            }
+            AllOr::None => Ok(ConstantArray::new(
+                Scalar::null(
+                    array
+                        .dtype()
+                        .union_nullability(indices.dtype().nullability()),
+                ),
+                indices.len(),
+            )
+            .into_array()),
             AllOr::Some(v) => {
                 let arr = ConstantArray::new(array.scalar().clone(), indices.len()).into_array();
 
@@ -44,7 +46,7 @@ impl TakeKernel for ConstantEncoding {
     }
 }
 
-register_kernel!(TakeKernelAdapter(ConstantEncoding).lift());
+register_kernel!(TakeKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -55,7 +57,7 @@ mod tests {
     use crate::arrays::{ConstantArray, PrimitiveArray};
     use crate::compute::take;
     use crate::validity::Validity;
-    use crate::{Array, ToCanonical};
+    use crate::{Array, IntoArray, ToCanonical};
 
     #[test]
     fn take_nullable_indices() {

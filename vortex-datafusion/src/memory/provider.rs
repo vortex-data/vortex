@@ -13,7 +13,7 @@ use datafusion_physical_expr::{EquivalenceProperties, create_physical_expr};
 use datafusion_physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion_physical_plan::{ExecutionPlan, Partitioning, PlanProperties};
 use itertools::Itertools;
-use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::{ChunkedArray, ChunkedVTable};
 use vortex_array::{ArrayExt, ArrayRef};
 use vortex_error::{VortexError, VortexExpect as _};
 use vortex_expr::ExprRef;
@@ -46,7 +46,7 @@ impl VortexMemTable {
             .vortex_expect("schema is inferable");
         let schema_ref = SchemaRef::new(arrow_schema);
 
-        let array = match array.as_opt::<ChunkedArray>() {
+        let array = match array.as_opt::<ChunkedVTable>() {
             Some(a) => a.clone(),
             _ => {
                 let dtype = array.dtype().clone();
@@ -188,7 +188,7 @@ mod test {
     use datafusion_common::{Column, Spans, TableReference};
     use datafusion_expr::{BinaryExpr, Expr, Operator, and, col, lit};
     use vortex_array::arrays::{PrimitiveArray, StructArray, VarBinViewArray};
-    use vortex_array::{Array, ArrayRef};
+    use vortex_array::{ArrayRef, IntoArray};
 
     use crate::{SessionContextExt as _, can_be_pushed_down};
 

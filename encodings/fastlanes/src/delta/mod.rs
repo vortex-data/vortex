@@ -4,21 +4,42 @@ pub use compress::*;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
-use vortex_array::vtable::VTableRef;
-use vortex_array::{
-    Array, ArrayCanonicalImpl, ArrayImpl, ArrayRef, ArrayStatisticsImpl, ArrayValidityImpl,
-    Canonical, Encoding, ProstMetadata,
+use vortex_array::vtable::{
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
+    ValidityVTableFromValidityHelper,
 };
+use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
-use vortex_mask::Mask;
-
-use crate::delta::serde::DeltaMetadata;
 
 mod compress;
 mod ops;
 mod serde;
+
+vtable!(Delta);
+
+impl VTable for DeltaVTable {
+    type Array = DeltaArray;
+    type Encoding = DeltaEncoding;
+
+    type ArrayVTable = Self;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("fastlanes.delta")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        EncodingRef::new_ref(DeltaEncoding.as_ref())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct DeltaArray {
@@ -31,12 +52,8 @@ pub struct DeltaArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DeltaEncoding;
-impl Encoding for DeltaEncoding {
-    type Array = DeltaArray;
-    type Metadata = ProstMetadata<DeltaMetadata>;
-}
 
 /// A FastLanes-style delta-encoded array of primitive values.
 ///
@@ -195,10 +212,6 @@ impl DeltaArray {
         self.offset
     }
 
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     fn bases_len(&self) -> usize {
         self.bases.len()
     }
@@ -208,64 +221,28 @@ impl DeltaArray {
     }
 }
 
-impl ArrayImpl for DeltaArray {
-    type Encoding = DeltaEncoding;
-
-    fn _len(&self) -> usize {
-        self.len
-    }
-
-    fn _dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&DeltaEncoding)
-    }
-
-    fn _with_children(&self, children: &[ArrayRef]) -> VortexResult<Self> {
-        let validity = if self.validity().is_array() {
-            Validity::Array(children[2].clone())
-        } else {
-            self.validity().clone()
-        };
-
-        Self::try_new(
-            children[0].clone(),
-            children[1].clone(),
-            validity,
-            self.offset,
-            self.len(),
-        )
+impl ValidityHelper for DeltaArray {
+    fn validity(&self) -> &Validity {
+        &self.validity
     }
 }
 
-impl ArrayCanonicalImpl for DeltaArray {
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        delta_decompress(self).map(Canonical::Primitive)
+impl ArrayVTable<DeltaVTable> for DeltaVTable {
+    fn len(array: &DeltaArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &DeltaArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &DeltaArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 
-impl ArrayStatisticsImpl for DeltaArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
-    }
-}
-
-impl ArrayValidityImpl for DeltaArray {
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.validity.is_valid(index)
-    }
-
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.validity.all_valid()
-    }
-
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.validity.all_invalid()
-    }
-
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.validity.to_mask(self.len)
+impl CanonicalVTable<DeltaVTable> for DeltaVTable {
+    fn canonicalize(array: &DeltaArray) -> VortexResult<Canonical> {
+        delta_decompress(array).map(Canonical::Primitive)
     }
 }

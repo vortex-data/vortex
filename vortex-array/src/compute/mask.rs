@@ -10,8 +10,8 @@ use vortex_scalar::Scalar;
 use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
-use crate::encoding::Encoding;
-use crate::{Array, ArrayRef};
+use crate::vtable::VTable;
+use crate::{Array, ArrayExt, ArrayRef, IntoArray};
 
 /// Replace values with null where the mask is true.
 ///
@@ -33,7 +33,7 @@ use crate::{Array, ArrayRef};
 /// )
 /// .unwrap();
 ///
-/// let masked = mask(&array, &mask_array).unwrap();
+/// let masked = mask(array.as_ref(), &mask_array).unwrap();
 /// assert_eq!(masked.len(), 5);
 /// assert!(!masked.is_valid(0).unwrap());
 /// assert!(!masked.is_valid(1).unwrap());
@@ -54,27 +54,27 @@ pub fn mask(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
 pub struct MaskKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(MaskKernelRef);
 
-pub trait MaskKernel: Encoding {
+pub trait MaskKernel: VTable {
     /// Replace masked values with null in array.
     fn mask(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
 #[derive(Debug)]
-pub struct MaskKernelAdapter<E: Encoding>(pub E);
+pub struct MaskKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + MaskKernel> MaskKernelAdapter<E> {
+impl<V: VTable + MaskKernel> MaskKernelAdapter<V> {
     pub const fn lift(&'static self) -> MaskKernelRef {
         MaskKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + MaskKernel> Kernel for MaskKernelAdapter<E> {
+impl<V: VTable + MaskKernel> Kernel for MaskKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = MaskArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
-        Ok(Some(E::mask(&self.0, array, inputs.mask)?.into()))
+        Ok(Some(V::mask(&self.0, array, inputs.mask)?.into()))
     }
 }
 
@@ -121,7 +121,7 @@ impl ComputeFnVTable for MaskFn {
         }
 
         // Fallback: implement using Arrow kernels.
-        log::debug!("No mask implementation found for {}", array.encoding());
+        log::debug!("No mask implementation found for {}", array.encoding_id());
 
         let array_ref = array.to_array().into_arrow_preferred()?;
         let mask = BooleanArray::new(mask.to_boolean_buffer(), None);

@@ -1,39 +1,41 @@
 use itertools::Itertools;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::ChunkedEncoding;
-use crate::arrays::{ChunkedArray, PrimitiveArray};
+use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::EncodingVTable;
+use crate::vtable::{SerdeVTable, VisitorVTable};
 use crate::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, EmptyMetadata, EncodingId,
-    ToCanonical,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata, ToCanonical,
 };
 
-impl EncodingVTable for ChunkedEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.chunked")
+impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
+    type Metadata = EmptyMetadata;
+
+    fn metadata(_array: &ChunkedArray) -> Option<Self::Metadata> {
+        Some(EmptyMetadata)
     }
 
     fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
+        _encoding: &ChunkedEncoding,
         dtype: DType,
-        // TODO(ngates): should we avoid storing the final chunk offset and push the length instead?
         _len: usize,
-    ) -> VortexResult<ArrayRef> {
-        if parts.nchildren() == 0 {
+        _metadata: &Self::Metadata,
+        _buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<ChunkedArray> {
+        if children.is_empty() {
             vortex_bail!("Chunked array needs at least one child");
         }
 
-        let nchunks = parts.nchildren() - 1;
+        let nchunks = children.len() - 1;
 
         // The first child contains the row offsets of the chunks
-        let chunk_offsets = parts
-            .child(0)
+        let chunk_offsets = children[0]
             .decode(
                 ctx,
                 DType::Primitive(PType::U64, Nullability::NonNullable),
@@ -51,26 +53,33 @@ impl EncodingVTable for ChunkedEncoding {
             .map(|(idx, (start, end))| {
                 let chunk_len =
                     usize::try_from(end - start).vortex_expect("chunk length exceeds usize");
-                parts.child(idx + 1).decode(ctx, dtype.clone(), chunk_len)
+                children[idx + 1].decode(ctx, dtype.clone(), chunk_len)
             })
             .try_collect()?;
 
         // Unchecked because we just created each chunk with the same DType.
-        Ok(ChunkedArray::new_unchecked(chunks, dtype).into_array())
+        Ok(ChunkedArray::new_unchecked(chunks, dtype))
     }
 }
 
-impl ArrayVisitorImpl for ChunkedArray {
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        let chunk_offsets = PrimitiveArray::new(self.chunk_offsets.clone(), Validity::NonNullable);
-        visitor.visit_child("chunk_offsets", &chunk_offsets);
+impl VisitorVTable<ChunkedVTable> for ChunkedVTable {
+    fn visit_buffers(_array: &ChunkedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
-        for (idx, chunk) in self.chunks().iter().enumerate() {
+    fn visit_children(array: &ChunkedArray, visitor: &mut dyn ArrayChildVisitor) {
+        let chunk_offsets =
+            PrimitiveArray::new(array.chunk_offsets().clone(), Validity::NonNullable);
+        visitor.visit_child("chunk_offsets", chunk_offsets.as_ref());
+
+        for (idx, chunk) in array.chunks().iter().enumerate() {
             visitor.visit_child(format!("chunks[{}]", idx).as_str(), chunk);
         }
     }
 
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
+    fn with_children(array: &ChunkedArray, children: &[ArrayRef]) -> VortexResult<ChunkedArray> {
+        Ok(ChunkedArray::new_unchecked(
+            // We skip the first child as it contains the offsets buffer.
+            children[1..].to_vec(),
+            array.dtype().clone(),
+        ))
     }
 }

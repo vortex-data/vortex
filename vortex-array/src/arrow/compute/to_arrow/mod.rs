@@ -12,9 +12,10 @@ use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use crate::arrow::array::ArrowArray;
+use crate::arrow::array::{ArrowArray, ArrowVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::{Array, Encoding};
+use crate::vtable::VTable;
+use crate::{Array, ArrayExt};
 
 /// Convert a Vortex array to an Arrow array with the encoding's preferred `DataType`.
 ///
@@ -44,8 +45,7 @@ pub fn to_arrow_opts(array: &dyn Array, options: &ToArrowOptions) -> VortexResul
             options,
         })?
         .unwrap_array()?
-        .as_any()
-        .downcast_ref::<ArrowArray>()
+        .as_opt::<ArrowVTable>()
         .ok_or_else(|| vortex_err!("ToArrow compute kernels must return a Vortex ArrowArray"))?
         .inner()
         .clone();
@@ -109,7 +109,7 @@ impl ComputeFnVTable for ToArrow {
 
         vortex_bail!(
             "Failed to convert array {} to Arrow {:?}",
-            array.encoding(),
+            array.encoding_id(),
             arrow_type
         );
     }
@@ -175,7 +175,7 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for ToArrowArgs<'a> {
 pub struct ToArrowKernelRef(pub ArcRef<dyn Kernel>);
 inventory::collect!(ToArrowKernelRef);
 
-pub trait ToArrowKernel: Encoding {
+pub trait ToArrowKernel: VTable {
     fn to_arrow(
         &self,
         arr: &Self::Array,
@@ -184,22 +184,22 @@ pub trait ToArrowKernel: Encoding {
 }
 
 #[derive(Debug)]
-pub struct ToArrowKernelAdapter<E: Encoding>(pub E);
+pub struct ToArrowKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + ToArrowKernel> ToArrowKernelAdapter<E> {
+impl<V: VTable + ToArrowKernel> ToArrowKernelAdapter<V> {
     pub const fn lift(&'static self) -> ToArrowKernelRef {
         ToArrowKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + ToArrowKernel> Kernel for ToArrowKernelAdapter<E> {
+impl<V: VTable + ToArrowKernel> Kernel for ToArrowKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = ToArrowArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_any().downcast_ref::<E::Array>() else {
+        let Some(array) = inputs.array.as_opt::<V>() else {
             return Ok(None);
         };
 
-        let Some(arrow_array) = E::to_arrow(&self.0, array, inputs.arrow_type)? else {
+        let Some(arrow_array) = V::to_arrow(&self.0, array, inputs.arrow_type)? else {
             return Ok(None);
         };
 
@@ -220,8 +220,7 @@ mod tests {
     use arrow_buffer::NullBuffer;
 
     use super::to_arrow;
-    use crate::array::Array;
-    use crate::arrays;
+    use crate::{IntoArray, arrays};
 
     #[test]
     fn test_to_arrow() {
@@ -259,7 +258,7 @@ mod tests {
         );
 
         assert_eq!(
-            &to_arrow(&array, &array.dtype().to_arrow_dtype().unwrap()).unwrap(),
+            &to_arrow(array.as_ref(), &array.dtype().to_arrow_dtype().unwrap()).unwrap(),
             &arrow_array
         );
     }

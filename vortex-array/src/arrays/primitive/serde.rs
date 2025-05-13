@@ -1,41 +1,42 @@
-use vortex_buffer::{Alignment, Buffer};
+use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::{DType, PType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 
 use super::PrimitiveEncoding;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::serde::ArrayParts;
 use crate::validity::Validity;
-use crate::vtable::EncodingVTable;
-use crate::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl,
-    Canonical, EmptyMetadata, EncodingId,
-};
+use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, EmptyMetadata};
 
-impl EncodingVTable for PrimitiveEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.primitive")
+impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
+    type Metadata = EmptyMetadata;
+
+    fn metadata(_array: &PrimitiveArray) -> Option<Self::Metadata> {
+        Some(EmptyMetadata)
     }
 
     fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
+        _encoding: &PrimitiveEncoding,
         dtype: DType,
         len: usize,
-    ) -> VortexResult<ArrayRef> {
-        if parts.nbuffers() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", parts.nbuffers());
+        _metadata: &Self::Metadata,
+        buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<PrimitiveArray> {
+        if buffers.len() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let buffer = parts.buffer(0)?;
+        let buffer = buffers[0].clone();
 
-        let validity = if parts.nchildren() == 0 {
+        let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
-        } else if parts.nchildren() == 1 {
-            let validity = parts.child(0).decode(ctx, Validity::DTYPE, len)?;
+        } else if children.len() == 1 {
+            let validity = children[0].decode(ctx, Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
-            vortex_bail!("Expected 0 or 1 child, got {}", parts.nchildren());
+            vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
         let ptype = PType::try_from(&dtype)?;
@@ -48,40 +49,44 @@ impl EncodingVTable for PrimitiveEncoding {
         }
         if buffer.len() != ptype.byte_width() * len {
             vortex_bail!(
-                "Buffer length {} does not match expected length {} for {}, {} in {:?}",
+                "Buffer length {} does not match expected length {} for {}, {}",
                 buffer.len(),
                 ptype.byte_width() * len,
                 ptype.byte_width(),
                 len,
-                parts,
             );
         }
 
         match_each_native_ptype!(ptype, |$P| {
             let buffer = Buffer::<$P>::from_byte_buffer(buffer);
-            Ok(PrimitiveArray::new(buffer, validity).into_array())
+            Ok(PrimitiveArray::new(buffer, validity))
         })
-    }
-
-    fn encode(
-        &self,
-        input: &Canonical,
-        _like: Option<&dyn Array>,
-    ) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(input.clone().into_primitive()?.into_array()))
     }
 }
 
-impl ArrayVisitorImpl for PrimitiveArray {
-    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(self.byte_buffer());
+impl VisitorVTable<PrimitiveVTable> for PrimitiveVTable {
+    fn visit_buffers(array: &PrimitiveArray, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(array.byte_buffer());
     }
 
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(self.validity(), self.len());
+    fn visit_children(array: &PrimitiveArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(array.validity(), array.len());
     }
 
-    fn _metadata(&self) -> EmptyMetadata {
-        EmptyMetadata
+    fn with_children(
+        array: &PrimitiveArray,
+        children: &[ArrayRef],
+    ) -> VortexResult<PrimitiveArray> {
+        let validity = if array.validity().is_array() {
+            Validity::Array(children[0].clone())
+        } else {
+            array.validity().clone()
+        };
+
+        Ok(PrimitiveArray::from_byte_buffer(
+            array.byte_buffer().clone(),
+            array.ptype(),
+            validity,
+        ))
     }
 }

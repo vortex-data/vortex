@@ -1,15 +1,16 @@
 use vortex_array::serde::ArrayParts;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::EncodingVTable;
+use vortex_array::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayRef, ArrayVisitorImpl, DeserializeMetadata,
-    EncodingId, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, DeserializeMetadata,
+    ProstMetadata,
 };
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::DeltaEncoding;
-use crate::DeltaArray;
+use crate::{DeltaArray, DeltaVTable};
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]
@@ -20,29 +21,34 @@ pub struct DeltaMetadata {
     offset: u32, // must be <1024
 }
 
-impl EncodingVTable for DeltaEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("fastlanes.delta")
+impl SerdeVTable<DeltaVTable> for DeltaVTable {
+    type Metadata = ProstMetadata<DeltaMetadata>;
+
+    fn metadata(array: &DeltaArray) -> Option<Self::Metadata> {
+        Some(ProstMetadata(DeltaMetadata {
+            deltas_len: array.deltas().len() as u64,
+            offset: array.offset() as u32,
+        }))
     }
 
     fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
+        _encoding: &DeltaEncoding,
         dtype: DType,
         len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = ProstMetadata::<DeltaMetadata>::deserialize(parts.metadata())?;
-
-        let validity = if parts.nchildren() == 2 {
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _buffers: &[ByteBuffer],
+        children: &[ArrayParts],
+        ctx: &ArrayContext,
+    ) -> VortexResult<DeltaArray> {
+        let validity = if children.len() == 2 {
             Validity::from(dtype.nullability())
-        } else if parts.nchildren() == 3 {
-            let validity = parts.child(2).decode(ctx, Validity::DTYPE, len)?;
+        } else if children.len() == 3 {
+            let validity = children[2].decode(ctx, Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
             vortex_bail!(
                 "DeltaArray: expected 2 or 3 children, got {}",
-                parts.nchildren()
+                children.len()
             );
         };
 
@@ -58,28 +64,36 @@ impl EncodingVTable for DeltaEncoding {
         let remainder_base_size = if deltas_len % 1024 > 0 { 1 } else { 0 };
         let bases_len = num_chunks * lanes + remainder_base_size;
 
-        let bases = parts.child(0).decode(ctx, dtype.clone(), bases_len)?;
-        let deltas = parts.child(1).decode(ctx, dtype, deltas_len)?;
+        let bases = children[0].decode(ctx, dtype.clone(), bases_len)?;
+        let deltas = children[1].decode(ctx, dtype, deltas_len)?;
 
-        Ok(
-            DeltaArray::try_new(bases, deltas, validity, metadata.offset as usize, len)?
-                .into_array(),
-        )
+        DeltaArray::try_new(bases, deltas, validity, metadata.offset as usize, len)
     }
 }
 
-impl ArrayVisitorImpl<ProstMetadata<DeltaMetadata>> for DeltaArray {
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("bases", self.bases());
-        visitor.visit_child("deltas", self.deltas());
-        visitor.visit_validity(self.validity(), self.len());
+impl VisitorVTable<DeltaVTable> for DeltaVTable {
+    fn visit_buffers(_array: &DeltaArray, _visitor: &mut dyn ArrayBufferVisitor) {}
+
+    fn visit_children(array: &DeltaArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("bases", array.bases());
+        visitor.visit_child("deltas", array.deltas());
+        visitor.visit_validity(array.validity(), array.len());
     }
 
-    fn _metadata(&self) -> ProstMetadata<DeltaMetadata> {
-        ProstMetadata(DeltaMetadata {
-            deltas_len: self.deltas().len() as u64,
-            offset: self.offset() as u32,
-        })
+    fn with_children(array: &DeltaArray, children: &[ArrayRef]) -> VortexResult<DeltaArray> {
+        let validity = if array.validity().is_array() {
+            Validity::Array(children[2].clone())
+        } else {
+            array.validity().clone()
+        };
+
+        DeltaArray::try_new(
+            children[0].clone(),
+            children[1].clone(),
+            validity,
+            array.offset,
+            array.len(),
+        )
     }
 }
 

@@ -6,11 +6,11 @@ use vortex_scalar::Scalar;
 
 use super::filter::{ChunkFilter, chunk_filters, find_chunk_idx};
 use crate::arrays::chunked::compute::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD;
-use crate::arrays::{ChunkedArray, ChunkedEncoding, ConstantArray};
+use crate::arrays::{ChunkedArray, ChunkedVTable, ConstantArray};
 use crate::compute::{MaskKernel, MaskKernelAdapter, cast, mask};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
-impl MaskKernel for ChunkedEncoding {
+impl MaskKernel for ChunkedVTable {
     fn mask(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let new_dtype = array.dtype().as_nullable();
         let new_chunks = match mask.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
@@ -30,7 +30,7 @@ impl MaskKernel for ChunkedEncoding {
     }
 }
 
-register_kernel!(MaskKernelAdapter(ChunkedEncoding).lift());
+register_kernel!(MaskKernelAdapter(ChunkedVTable).lift());
 
 fn mask_indices(
     array: &ChunkedArray,
@@ -124,7 +124,6 @@ mod test {
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::IntoArray;
-    use crate::array::Array;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::compute::conformance::mask::test_mask;
 
@@ -142,6 +141,6 @@ mod test {
         )
         .unwrap();
 
-        test_mask(&chunked);
+        test_mask(chunked.as_ref());
     }
 }

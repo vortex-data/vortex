@@ -41,8 +41,7 @@ impl DictReader {
             .child(0, layout.dtype().clone(), "values")?
             .reader(segment_source, ctx)?;
 
-        let codes_dtype =
-            DType::from(metadata.codes_ptype()).with_nullability(values.dtype().nullability());
+        let codes_dtype = DType::Primitive(metadata.codes_ptype(), values.dtype().nullability());
 
         let codes = layout
             .child(1, codes_dtype, "codes")?

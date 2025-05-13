@@ -1,12 +1,12 @@
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{NumericKernel, NumericKernelAdapter, numeric};
-use vortex_array::{Array, ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_scalar::NumericOperator;
 
-use crate::{DictArray, DictEncoding};
+use crate::{DictArray, DictVTable};
 
-impl NumericKernel for DictEncoding {
+impl NumericKernel for DictVTable {
     fn numeric(
         &self,
         array: &DictArray,
@@ -33,13 +33,13 @@ impl NumericKernel for DictEncoding {
     }
 }
 
-register_kernel!(NumericKernelAdapter(DictEncoding).lift());
+register_kernel!(NumericKernelAdapter(DictVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::ArrayRef;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_numeric;
-    use vortex_array::{Array, ArrayRef};
 
     use crate::builders::dict_encode;
 
@@ -52,7 +52,7 @@ mod tests {
             Some(1),
             Some(5),
         ]);
-        let dict = dict_encode(&reference).unwrap();
+        let dict = dict_encode(reference.as_ref()).unwrap();
         dict.slice(1, 4).unwrap()
     }
 
