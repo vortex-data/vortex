@@ -21,13 +21,14 @@ use crate::ddb::timing::parse_query_output;
 pub struct DuckDBExecutor {
     #[allow(dead_code)]
     duckdb_path: PathBuf,
+    #[allow(dead_code)]
     duckdb_file: PathBuf,
 }
 
 impl DuckDBExecutor {
     pub fn command(&self) -> Command {
-        let mut command = Command::new("duckdb -unsigned");
-        command.arg(&self.duckdb_file);
+        let mut command = Command::new("duckdb");
+        command.arg("-unsigned").arg(&self.duckdb_file);
         command
     }
 
@@ -39,69 +40,60 @@ impl DuckDBExecutor {
     }
 }
 
-pub fn get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
-    let validate_path = |duckdb_path: &PathBuf| {
-        assert!(
-            duckdb_path.as_path().exists(),
-            "failed to find duckdb executable at: {}",
-            duckdb_path.display()
-        );
-    };
+fn validate_path(duckdb_path: &PathBuf) {
+    assert!(
+        duckdb_path.as_path().exists(),
+        "failed to find duckdb executable at: {}",
+        duckdb_path.display()
+    );
+}
 
+pub fn vortex_duckdb_folder() -> PathBuf {
+    // Try to find the 'vortex' top-level directory. This is preferred over logic along
+    // the lines of `git rev-parse --show-toplevel`, as the repository uses submodules.
+    let mut repo_root = None;
+    let mut current_dir = std::env::current_dir().expect("failed to get current dir");
+
+    while current_dir.file_name().is_some() {
+        if current_dir.file_name().and_then(|name| name.to_str()) == Some("vortex") {
+            repo_root = Some(current_dir.to_string_lossy().into_owned());
+            break;
+        }
+
+        if !current_dir.pop() {
+            break;
+        }
+    }
+
+    let duckdb_vortex_path = PathBuf::from_str(&repo_root.unwrap_or_else(|| ".".to_string()))
+        .expect("failed to find the vortex repo")
+        .join("duckdb-vortex");
+
+    duckdb_vortex_path
+}
+
+pub fn vortex_duckdb_path() -> PathBuf {
+    let duckdb_path = vortex_duckdb_folder().join("build/release/duckdb");
+    validate_path(&duckdb_path);
+    duckdb_path
+}
+
+pub fn vortex_duckdb_extension_path() -> PathBuf {
+    vortex_duckdb_folder().join("build/release/extension/vortex/vortex.duckdb_extension")
+}
+
+pub fn get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
     // User supplied path takes priority.
     if let Some(duckdb_path) = user_supplied_path_flag {
         validate_path(duckdb_path);
         return duckdb_path.to_owned();
-    }
-
-    // Try to find the 'vortex' top-level directory. This is preferred over logic along
-    // the lines of `git rev-parse --show-toplevel`, as the repository uses submodules.
-    let mut repo_root = None;
-    let mut current_dir = std::env::current_dir().expect("failed to get current dir");
-
-    while current_dir.file_name().is_some() {
-        if current_dir.file_name().and_then(|name| name.to_str()) == Some("vortex") {
-            repo_root = Some(current_dir.to_string_lossy().into_owned());
-            break;
-        }
-
-        if !current_dir.pop() {
-            break;
-        }
-    }
-
-    let duckdb_vortex_path = PathBuf::from_str(&repo_root.unwrap_or_else(|| ".".to_string()))
-        .expect("failed to find the vortex repo")
-        .join("duckdb-vortex");
-
-    let duckdb_path = duckdb_vortex_path.join("build/release/duckdb");
-
-    validate_path(&duckdb_path);
-
-    duckdb_path
+    };
+    vortex_duckdb_path()
 }
 
 /// Finds the path to the DuckDB executable
 pub fn build_vortex_duckdb() {
-    // Try to find the 'vortex' top-level directory. This is preferred over logic along
-    // the lines of `git rev-parse --show-toplevel`, as the repository uses submodules.
-    let mut repo_root = None;
-    let mut current_dir = std::env::current_dir().expect("failed to get current dir");
-
-    while current_dir.file_name().is_some() {
-        if current_dir.file_name().and_then(|name| name.to_str()) == Some("vortex") {
-            repo_root = Some(current_dir.to_string_lossy().into_owned());
-            break;
-        }
-
-        if !current_dir.pop() {
-            break;
-        }
-    }
-
-    let duckdb_vortex_path = PathBuf::from_str(&repo_root.unwrap_or_else(|| ".".to_string()))
-        .expect("failed to find the vortex repo")
-        .join("duckdb-vortex");
+    let duckdb_vortex_path = vortex_duckdb_folder();
 
     let mut command = Command::new("make");
     command
@@ -119,7 +111,7 @@ pub fn build_vortex_duckdb() {
         .output()
         .expect("Trying to build duckdb vortex extension");
 
-    if !output.status.success() {
+    if !output.status.success() || !output.stderr.is_empty() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         vortex_panic!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
@@ -248,9 +240,7 @@ pub fn register_tables(
         f => f,
     };
 
-    // println!("base url {}", base_url);
     let effective_url = resolve_storage_url(base_url, load_format, dataset);
-    // let effective_url = base_url;
     let extension = match load_format {
         Format::Parquet => "parquet",
         Format::OnDiskVortex => "vortex",
@@ -259,20 +249,17 @@ pub fn register_tables(
 
     let mut command = duckdb_executor.command();
 
-    // command
-    //     .arg("-c")
-    //     .arg("SET autoinstall_known_extensions=1;")
-    //     .arg("SET autoload_known_extensions=1;");
-    // command.arg("-c").arg("INSTALL httpfs;").arg("LOAD httpfs;");
-    // command.arg("-c").arg("install aws; load aws;");
-
-    command.arg("-c")
-        .arg(r#"load "/Users/joeisaacs/git/spiraldb/vortex/duckdb-vortex/build/release/extension/vortex/vortex.duckdb_extension";"#);
+    let vortex_path = vortex_duckdb_extension_path();
+    command
+        .arg("-c")
+        .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
 
     command.arg("-c").arg(
         "CREATE OR REPLACE SECRET secret (
             TYPE s3,
-            PROVIDER credential_chain
+            PROVIDER credential_chain,
+            CHAIN config,
+            REGION 'eu-west-1'
         );",
     );
 
@@ -285,13 +272,16 @@ pub fn register_tables(
 
     trace!("register duckdb tables with command: {:?}", command);
 
+    // Don't trace env vars.
+    command.envs(std::env::vars_os().into_iter());
     let output = command.output()?;
 
     // DuckDB does not return non-zero exit codes in case of failures.
     // Therefore, we need to additionally check whether stderr is set.
     if !output.status.success() || !output.stderr.is_empty() {
         anyhow::bail!(
-            "DuckDB query failed: {}",
+            "DuckDB query failed: stdout=({})\n, stderr=({})",
+            String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
     };
@@ -305,6 +295,9 @@ pub fn execute_query(
     duckdb_executor: &DuckDBExecutor,
 ) -> anyhow::Result<Duration> {
     let mut command = duckdb_executor.command();
+
+    command.arg("-c")
+        .arg(r#"load "/Users/joeisaacs/git/spiraldb/vortex/duckdb-vortex/build/release/extension/vortex/vortex.duckdb_extension";"#);
 
     let query = queries.join(";") + ";";
     command
