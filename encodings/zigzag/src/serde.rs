@@ -13,8 +13,8 @@ use crate::{ZigZagArray, ZigZagEncoding, ZigZagVTable, zigzag_encode};
 impl SerdeVTable<ZigZagVTable> for ZigZagVTable {
     type Metadata = EmptyMetadata;
 
-    fn metadata(_array: &ZigZagArray) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn metadata(_array: &ZigZagArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(EmptyMetadata))
     }
 
     fn build(

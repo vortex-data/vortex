@@ -147,7 +147,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
     pub fn try_new(ctx: &'a ArrayContext, array: &'a dyn Array) -> VortexResult<Self> {
         // Depth-first traversal of the array to ensure it supports serialization.
         for child in array.depth_first_traversal() {
-            if child.metadata().is_none() {
+            if child.metadata()?.is_none() {
                 vortex_bail!(
                     "Array {} does not support serialization",
                     child.encoding_id()
@@ -175,6 +175,8 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         let metadata = self
             .array
             .metadata()
+            // TODO(ngates): add try_write_flatbuffer
+            .vortex_expect("Failed to serialize metadata")
             .vortex_expect("Validated that all arrays support serialization");
         let metadata = Some(fbb.create_vector(metadata.as_slice()));
 

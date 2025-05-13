@@ -1,7 +1,10 @@
+use pyo3::prelude::*;
+use pyo3::types::PyBytes;
+use pyo3::{Python, intern};
 use vortex::buffer::ByteBuffer;
 use vortex::compute::{ComputeFn, InvocationArgs, Output};
 use vortex::dtype::DType;
-use vortex::error::VortexResult;
+use vortex::error::{VortexResult, vortex_err};
 use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 use vortex::serde::ArrayParts;
@@ -12,7 +15,7 @@ use vortex::vtable::{
 };
 use vortex::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical,
-    DeserializeMetadata, EmptyMetadata, EncodingId, EncodingRef, vtable,
+    DeserializeMetadata, EncodingId, EncodingRef, RawMetadata, vtable,
 };
 
 use crate::arrays::py::{PythonArray, PythonEncoding};
@@ -124,10 +127,26 @@ impl EncodeVTable<PythonVTable> for PythonVTable {
 }
 
 impl SerdeVTable<PythonVTable> for PythonVTable {
-    type Metadata = EmptyMetadata;
+    type Metadata = RawMetadata;
 
-    fn metadata(_array: &PythonArray) -> Option<Self::Metadata> {
-        todo!()
+    fn metadata(array: &PythonArray) -> VortexResult<Option<Self::Metadata>> {
+        let encoding = array.encoding.as_::<PythonVTable>();
+        Python::with_gil(|py| {
+            let cls = encoding.cls.bind(py);
+            if !cls.hasattr(intern!(py, "metadata"))? {
+                // The class does not have a metadata attribute so does not support serialization.
+                return Ok(None);
+            }
+
+            let bytes = cls
+                .call_method("metadata", (), None)?
+                .downcast::<PyBytes>()
+                .map_err(|_| vortex_err!("Expected array metadata to be Python bytes"))?
+                .as_bytes()
+                .to_vec();
+
+            Ok(Some(RawMetadata(bytes)))
+        })
     }
 
     fn build(

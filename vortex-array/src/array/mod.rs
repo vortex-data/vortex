@@ -622,14 +622,15 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         <V::VisitorVTable as VisitorVTable<V>>::nbuffers(&self.0)
     }
 
-    fn metadata(&self) -> Option<Vec<u8>> {
-        <V::SerdeVTable as SerdeVTable<V>>::metadata(&self.0).map(|m| m.serialize())
+    fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
+        Ok(<V::SerdeVTable as SerdeVTable<V>>::metadata(&self.0)?.map(|m| m.serialize()))
     }
 
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match <V::SerdeVTable as SerdeVTable<V>>::metadata(&self.0) {
-            None => write!(f, "<serde not supported>"),
-            Some(metadata) => Debug::fmt(&metadata, f),
+            Err(e) => write!(f, "<serde error: {}>", e),
+            Ok(None) => write!(f, "<serde not supported>"),
+            Ok(Some(metadata)) => Debug::fmt(&metadata, f),
         }
     }
 }

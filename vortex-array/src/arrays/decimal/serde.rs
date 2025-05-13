@@ -20,10 +20,10 @@ pub struct DecimalMetadata {
 impl SerdeVTable<DecimalVTable> for DecimalVTable {
     type Metadata = ProstMetadata<DecimalMetadata>;
 
-    fn metadata(array: &DecimalArray) -> Option<Self::Metadata> {
-        Some(ProstMetadata(DecimalMetadata {
+    fn metadata(array: &DecimalArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ProstMetadata(DecimalMetadata {
             values_type: array.values_type() as i32,
-        }))
+        })))
     }
 
     fn build(

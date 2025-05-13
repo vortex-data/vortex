@@ -1,4 +1,4 @@
-use std::fmt::Formatter;
+use std::fmt::{Debug, Formatter};
 
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
@@ -17,10 +17,10 @@ use crate::{FoRArray, FoRVTable};
 impl SerdeVTable<FoRVTable> for FoRVTable {
     type Metadata = ScalarValueMetadata;
 
-    fn metadata(array: &FoRArray) -> Option<Self::Metadata> {
-        Some(ScalarValueMetadata(
+    fn metadata(array: &FoRArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ScalarValueMetadata(
             array.reference_scalar().value().clone(),
-        ))
+        )))
     }
 
     fn build(
@@ -78,7 +78,7 @@ impl VisitorVTable<FoRVTable> for FoRVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ScalarValueMetadata(ScalarValue);
 
 impl SerializeMetadata for ScalarValueMetadata {
@@ -93,10 +93,10 @@ impl DeserializeMetadata for ScalarValueMetadata {
     fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
         ScalarValue::from_protobytes(metadata)
     }
+}
 
-    fn format(metadata: &[u8], f: &mut Formatter<'_>) -> std::fmt::Result {
-        Self::deserialize(metadata)
-            .map(|value| write!(f, "{}", value))
-            .unwrap_or_else(|_| write!(f, "<unknown>"))
+impl Debug for ScalarValueMetadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.0)
     }
 }

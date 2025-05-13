@@ -3,6 +3,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexResult;
 
 use crate::arrays::ConstantArray;
 use crate::patches::Patches;
@@ -30,7 +31,7 @@ pub trait ArrayVisitor {
 
     /// Returns the serialized metadata of the array, or `None` if the array does not
     /// support serialization.
-    fn metadata(&self) -> Option<Vec<u8>>;
+    fn metadata(&self) -> VortexResult<Option<Vec<u8>>>;
 
     /// Formats a human-readable metadata description.
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
@@ -61,7 +62,7 @@ impl ArrayVisitor for Arc<dyn Array> {
         self.as_ref().nbuffers()
     }
 
-    fn metadata(&self) -> Option<Vec<u8>> {
+    fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
         self.as_ref().metadata()
     }
 

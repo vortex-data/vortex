@@ -12,8 +12,8 @@ use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Empty
 impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
     type Metadata = EmptyMetadata;
 
-    fn metadata(_array: &PrimitiveArray) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn metadata(_array: &PrimitiveArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(EmptyMetadata))
     }
 
     fn build(

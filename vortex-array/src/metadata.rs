@@ -18,9 +18,6 @@ where
 
     /// Deserialize metadata from a vector of unaligned bytes.
     fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output>;
-
-    /// Format metadata for display.
-    fn format(metadata: &[u8], f: &mut Formatter<'_>) -> std::fmt::Result;
 }
 
 /// Empty array metadata
@@ -42,10 +39,6 @@ impl DeserializeMetadata for EmptyMetadata {
         }
         Ok(EmptyMetadata)
     }
-
-    fn format(_metadata: &[u8], f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("EmptyMetadata")
-    }
 }
 
 /// A utility wrapper for raw metadata serialization. This delegates the serialiation step
@@ -64,9 +57,11 @@ impl DeserializeMetadata for RawMetadata {
     fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
         Ok(metadata.to_vec())
     }
+}
 
-    fn format(metadata: &[u8], f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\"{}\"", metadata.escape_ascii())
+impl Debug for RawMetadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\"{}\"", self.0.escape_ascii())
     }
 }
 
@@ -105,13 +100,5 @@ where
 
     fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
         Ok(M::decode(metadata)?)
-    }
-
-    #[allow(clippy::use_debug)]
-    fn format(metadata: &[u8], f: &mut Formatter<'_>) -> std::fmt::Result {
-        match Self::deserialize(metadata) {
-            Ok(m) => write!(f, "{:?}", m),
-            Err(_) => write!(f, "Failed to deserialize metadata"),
-        }
     }
 }

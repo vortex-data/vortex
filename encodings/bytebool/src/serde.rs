@@ -14,8 +14,8 @@ use crate::{ByteBoolArray, ByteBoolEncoding, ByteBoolVTable};
 impl SerdeVTable<ByteBoolVTable> for ByteBoolVTable {
     type Metadata = EmptyMetadata;
 
-    fn metadata(_array: &ByteBoolArray) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn metadata(_array: &ByteBoolArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(EmptyMetadata))
     }
 
     fn build(

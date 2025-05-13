@@ -12,8 +12,8 @@ use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Empty
 impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
     type Metadata = EmptyMetadata;
 
-    fn metadata(_array: &VarBinViewArray) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn metadata(_array: &VarBinViewArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(EmptyMetadata))
     }
 
     fn build(

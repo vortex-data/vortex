@@ -15,8 +15,8 @@ use crate::{
 impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
     type Metadata = EmptyMetadata;
 
-    fn metadata(_array: &ChunkedArray) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn metadata(_array: &ChunkedArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(EmptyMetadata))
     }
 
     fn build(

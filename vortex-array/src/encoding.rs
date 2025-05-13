@@ -7,7 +7,7 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::serde::ArrayParts;
 use crate::vtable::{EncodeVTable, SerdeVTable, VTable};
@@ -130,6 +130,15 @@ impl PartialEq for dyn Encoding + '_ {
 }
 
 impl Eq for dyn Encoding + '_ {}
+
+impl dyn Encoding + '_ {
+    pub fn as_<V: VTable>(&self) -> &V::Encoding {
+        self.as_any()
+            .downcast_ref::<EncodingAdapter<V>>()
+            .map(|e| &e.0)
+            .vortex_expect("Encoding is not of the expected type")
+    }
+}
 
 mod private {
     use super::*;

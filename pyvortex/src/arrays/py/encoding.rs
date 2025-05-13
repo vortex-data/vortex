@@ -11,7 +11,7 @@ use vortex::EncodingId;
 #[derive(Clone, Debug)]
 pub struct PythonEncoding {
     pub(super) id: EncodingId,
-    cls: Arc<Py<PyType>>,
+    pub(super) cls: Arc<Py<PyType>>,
 }
 
 /// Convert a Python class into a [`PythonEncoding`].

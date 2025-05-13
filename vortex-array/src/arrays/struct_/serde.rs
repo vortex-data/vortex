@@ -13,8 +13,8 @@ use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Empty
 impl SerdeVTable<StructVTable> for StructVTable {
     type Metadata = EmptyMetadata;
 
-    fn metadata(_array: &StructArray) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn metadata(_array: &StructArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(EmptyMetadata))
     }
 
     fn build(

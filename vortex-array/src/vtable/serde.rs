@@ -23,7 +23,7 @@ pub trait SerdeVTable<V: VTable> {
     /// * If the array does not require serialized metadata, it should return
     ///   [`crate::metadata::EmptyMetadata`].
     /// * If the array does not support serialization, it should return `None`.
-    fn metadata(array: &V::Array) -> Option<Self::Metadata>;
+    fn metadata(array: &V::Array) -> VortexResult<Option<Self::Metadata>>;
 
     /// Build an array from its given parts.
     fn build(
@@ -40,8 +40,8 @@ pub trait SerdeVTable<V: VTable> {
 impl<V: VTable> SerdeVTable<V> for NotSupported {
     type Metadata = EmptyMetadata;
 
-    fn metadata(_array: &V::Array) -> Option<Self::Metadata> {
-        None
+    fn metadata(_array: &V::Array) -> VortexResult<Option<Self::Metadata>> {
+        Ok(None)
     }
 
     fn build(
