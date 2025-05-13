@@ -14,7 +14,7 @@ use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, DecimalDType, PType, match_each_signed_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
-use vortex_scalar::Scalar;
+use vortex_scalar::{DecimalValue, Scalar};
 
 vtable!(DecimalByteParts);
 
@@ -171,10 +171,20 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     }
 
     fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> VortexResult<Scalar> {
-        // TODO(joe): suppor parts len != 1
+        // TODO(joe): support parts len != 1
         assert!(array.lower_parts.is_empty());
         let scalar = array.msp.scalar_at(index)?;
-        scalar.cast(array.dtype())
+
+        // Note. values in msp, can only be signed integers upto size i64.
+        let primitive_scalar = scalar.as_primitive();
+        // TODO(joe): extend this to support multiple parts.
+        let value = match_each_signed_integer_ptype!(primitive_scalar.ptype(), |$P| {
+            i64::from(primitive_scalar.typed_value::<$P>().vortex_expect("scalar must have correct ptype"))
+        });
+        Ok(Scalar::new(
+            array.dtype.clone(),
+            DecimalValue::I64(value).into(),
+        ))
     }
 }
 
@@ -182,5 +192,44 @@ impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn validity_child(array: &DecimalBytePartsArray) -> &dyn Array {
         // validity stored in 0th child
         array.msp.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::Array;
+    use vortex_array::arrays::{BoolArray, PrimitiveArray};
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_dtype::{DType, DecimalDType, Nullability};
+    use vortex_scalar::{DecimalValue, Scalar};
+
+    use crate::DecimalBytePartsArray;
+
+    #[test]
+    fn test_scalar_at_decimal_parts() {
+        let decimal_dtype = DecimalDType::new(8, 2);
+        let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
+        let array = DecimalBytePartsArray::try_new(
+            PrimitiveArray::new(
+                buffer![100i32, 200i32, 400i32],
+                Validity::Array(BoolArray::from_iter(vec![false, true, true]).to_array()),
+            )
+            .to_array(),
+            vec![],
+            decimal_dtype,
+        )
+        .unwrap()
+        .to_array();
+
+        assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0).unwrap());
+        assert_eq!(
+            Scalar::new(dtype.clone(), DecimalValue::I64(200).into()),
+            array.scalar_at(1).unwrap()
+        );
+        assert_eq!(
+            Scalar::new(dtype, DecimalValue::I64(400).into()),
+            array.scalar_at(2).unwrap()
+        );
     }
 }
