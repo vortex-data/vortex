@@ -5,6 +5,7 @@ use duckdb::vtab::arrow::{
 };
 use vortex_array::arrays::{ChunkedVTable, DecimalArray, VarBinViewVTable};
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
+use vortex_array::compute::Cost;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictVTable;
 use vortex_error::{VortexResult, vortex_err};
@@ -38,7 +39,7 @@ fn try_to_duckdb(
     chunk: &mut dyn WritableVector,
     cache: &mut ConversionCache,
 ) -> VortexResult<Option<()>> {
-    if array.statistics().get_as::<bool>(Stat::IsConstant) == Some(Precision::Exact(true)) {
+    if array.is_constant_opts(Cost::Negligible) {
         let constant = array.scalar_at(0)?;
         let value = constant.try_to_duckdb_scalar()?;
         chunk.flat_vector().assign_to_constant(&value);
