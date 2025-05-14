@@ -79,7 +79,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         # Latest macOS doesn't allow maturin to install stuff into the global Python interpreter
-        if: "${{ matrix.runs-on == 'macos-latest' }}"
+        if: "${{ matrix.target.runs-on == 'macos-latest' }}"
         with:
           python-version: '3.10'
 
@@ -108,7 +108,7 @@ jobs:
 
   publish-python:
     name: "Release to PyPi"
-    needs: [ prepare-python ]
+    needs: [ prepare-python, publish-rust ]
     runs-on: ubuntu-latest
     if: "false"
     permissions:
