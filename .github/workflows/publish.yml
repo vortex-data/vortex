@@ -68,7 +68,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target.target }}
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.10.0
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.11.0
         with:
           sync: false  # Don't need to build the project
 
@@ -82,12 +82,6 @@ jobs:
         run: |
           cargo install cargo-edit --version 0.13.0 && \
           cargo set-version --workspace ${{ github.event.release.tag_name || github.event.inputs.version }}
-
-      # Setup Zig for cross-compilation
-      - uses: mlugg/setup-zig@v2
-        if: matrix.target.os == 'ubuntu'
-        with:
-          version: 0.14.0
 
       - name: Build wheel
         uses: PyO3/maturin-action@v1
