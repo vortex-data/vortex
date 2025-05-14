@@ -1,0 +1,92 @@
+name: Publish
+concurrency:
+  group: publish
+  cancel-in-progress: true
+
+on:
+  release:
+    types: [ published ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release'
+        required: true
+
+jobs:
+  publish-python:
+    runs-on: ${{ matrix.target.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: macos, runs-on: "macos-latest", target: aarch64-apple-darwin }
+          - { os: macos, runs-on: "macos-13", target: x86_64-apple-darwin }
+          - { os: ubuntu, runs-on: "ubuntu-latest-medium", target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "ubuntu-latest-medium", target: x86_64-unknown-linux-gnu }
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pyspiral
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "26.1"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: spiraldb/actions/.github/actions/setup-rust@0.10.0
+        with:
+          targets: ${{ matrix.target.target }}
+      - uses: spiraldb/actions/.github/actions/setup-uv@0.10.0
+        with:
+          sync: false # Don't need to build the project
+
+      - name: Disable SCCACHE Config  # Doesn't work with cross-compilation
+        shell: bash
+        run: echo "RUSTC_WRAPPER=" >> $GITHUB_ENV
+
+      - name: Cargo Set Version
+        shell: bash
+        # TODO(marko): Remove version after move to rust 2024 edition.
+        run: cargo install cargo-edit --version 0.13.0
+      - name: Set Version
+        shell: bash
+        run: cargo set-version --workspace ${{ github.event.release.tag_name }}
+
+      # Setup Zig for cross-compilation
+      - uses: mlugg/setup-zig@v2
+        if: matrix.target.os == 'ubuntu'
+        with:
+          version: 0.14.0
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          target: ${{ matrix.target.target }}
+          args: >
+            ${{ (matrix.target.os == 'ubuntu' && '--zig') || '' }}
+            --compatibility manylinux2014
+            --release
+            --manifest-path pyvortex/Cargo.toml
+            --out dist
+            --interpreter python3.11
+        env:
+          MATURIN_PEP517_USE_BASE_PYTHON: "true"
+          # Keep this constant to avoid pyo3 invalidating itself
+          PYO3_ENVIRONMENT_SIGNATURE: "cpython3"
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ matrix.target.target }}-wheels"
+          path: dist/
+
+      #- name: Publish wheel
+      #  run: uv publish --trusted-publishing always dist/*.whl
