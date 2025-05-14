@@ -38,7 +38,11 @@ impl dyn Array + '_ {
     /// The format of this blob is a sequence of data buffers, possible with prefixed padding,
     /// followed by a flatbuffer containing an [`fba::Array`] message, and ending with a
     /// little-endian u32 describing the length of the flatbuffer message.
-    pub fn serialize(&self, ctx: &ArrayContext, options: &SerializeOptions) -> Vec<ByteBuffer> {
+    pub fn serialize(
+        &self,
+        ctx: &ArrayContext,
+        options: &SerializeOptions,
+    ) -> VortexResult<Vec<ByteBuffer>> {
         // Collect all array buffers
         let mut array_buffers = vec![];
         for a in self.depth_first_traversal() {
@@ -86,7 +90,8 @@ impl dyn Array + '_ {
                 u16::try_from(padding).vortex_expect("padding fits into u16"),
                 buffer.alignment().exponent(),
                 Compression::None,
-                u32::try_from(buffer.len()).vortex_expect("buffers fit into u32"),
+                u32::try_from(buffer.len())
+                    .map_err(|_| vortex_err!("All buffers must fit into u32 for serialization"))?,
             ));
 
             pos += buffer.len();
@@ -95,7 +100,7 @@ impl dyn Array + '_ {
 
         // Set up the flatbuffer builder
         let mut fbb = FlatBufferBuilder::new();
-        let root = ArrayNodeFlatBuffer::new(ctx, self);
+        let root = ArrayNodeFlatBuffer::try_new(ctx, self)?;
         let fb_root = root.write_flatbuffer(&mut fbb);
         let fb_buffers = fbb.create_vector(&fb_buffers);
         let fb_array = fba::Array::create(
@@ -122,12 +127,12 @@ impl dyn Array + '_ {
         // Finally, we write down the u32 length for the flatbuffer.
         buffers.push(ByteBuffer::from(
             u32::try_from(fb_length)
-                .vortex_expect("u32 fits into usize")
+                .map_err(|_| vortex_err!("Array metadata flatbuffer must fit into u32 for serialization. Array encoding tree is too large."))?
                 .to_le_bytes()
                 .to_vec(),
         ));
 
-        buffers
+        Ok(buffers)
     }
 }
 
@@ -139,12 +144,21 @@ pub struct ArrayNodeFlatBuffer<'a> {
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn new(ctx: &'a ArrayContext, array: &'a dyn Array) -> Self {
-        Self {
+    pub fn try_new(ctx: &'a ArrayContext, array: &'a dyn Array) -> VortexResult<Self> {
+        // Depth-first traversal of the array to ensure it supports serialization.
+        for child in array.depth_first_traversal() {
+            if child.metadata()?.is_none() {
+                vortex_bail!(
+                    "Array {} does not support serialization",
+                    child.encoding_id()
+                );
+            }
+        }
+        Ok(Self {
             ctx,
             array,
             buffer_idx: 0,
-        }
+        })
     }
 }
 
@@ -161,8 +175,10 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         let metadata = self
             .array
             .metadata()
-            .vortex_expect("Failed to serialize Array metadata")
-            .map(|bytes| fbb.create_vector(bytes.as_slice()));
+            // TODO(ngates): add try_write_flatbuffer
+            .vortex_expect("Failed to serialize metadata")
+            .vortex_expect("Validated that all arrays support serialization");
+        let metadata = Some(fbb.create_vector(metadata.as_slice()));
 
         // Assign buffer indices for all child arrays.
         let nbuffers = u16::try_from(self.array.nbuffers())
@@ -248,7 +264,7 @@ impl ArrayParts {
             .try_collect()?;
         let children: Vec<_> = (0..self.nchildren()).map(|idx| self.child(idx)).collect();
 
-        let decoded = vtable.decode(dtype, len, self.metadata(), &buffers, &children, ctx)?;
+        let decoded = vtable.build(dtype, len, self.metadata(), &buffers, &children, ctx)?;
 
         assert_eq!(
             decoded.len(),
@@ -283,10 +299,11 @@ impl ArrayParts {
     }
 
     /// Returns the array metadata bytes.
-    pub fn metadata(&self) -> Option<&[u8]> {
+    pub fn metadata(&self) -> &[u8] {
         self.flatbuffer()
             .metadata()
             .map(|metadata| metadata.bytes())
+            .unwrap_or(&[])
     }
 
     /// Returns the number of children.

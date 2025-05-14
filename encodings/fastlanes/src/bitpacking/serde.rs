@@ -26,19 +26,18 @@ pub struct BitPackedMetadata {
 impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
     type Metadata = ProstMetadata<BitPackedMetadata>;
 
-    fn metadata(array: &BitPackedArray) -> Option<Self::Metadata> {
-        Some(ProstMetadata(BitPackedMetadata {
+    fn metadata(array: &BitPackedArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ProstMetadata(BitPackedMetadata {
             bit_width: array.bit_width() as u32,
             offset: array.offset() as u32,
             patches: array
                 .patches()
                 .map(|p| p.to_metadata(array.len(), array.dtype()))
-                .transpose()
-                .vortex_expect("Failed to create patches metadata"),
-        }))
+                .transpose()?,
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &BitPackedEncoding,
         dtype: DType,
         len: usize,

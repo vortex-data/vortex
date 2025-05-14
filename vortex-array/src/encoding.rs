@@ -7,7 +7,7 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::serde::ArrayParts;
 use crate::vtable::{EncodeVTable, SerdeVTable, VTable};
@@ -32,13 +32,12 @@ pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the ID of the encoding.
     fn id(&self) -> EncodingId;
 
-    /// Decode an array from the given [`ArrayParts`] and [`ArrayContext`].
-    /// The array parts must be valid for the given encoding.
-    fn decode(
+    /// Build an array from its parts.
+    fn build(
         &self,
         dtype: DType,
         len: usize,
-        metadata: Option<&[u8]>,
+        metadata: &[u8],
         buffers: &[ByteBuffer],
         children: &[ArrayParts],
         ctx: &ArrayContext,
@@ -82,11 +81,11 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
         V::id(&self.0)
     }
 
-    fn decode(
+    fn build(
         &self,
         dtype: DType,
         len: usize,
-        metadata: Option<&[u8]>,
+        metadata: &[u8],
         buffers: &[ByteBuffer],
         children: &[ArrayParts],
         ctx: &ArrayContext,
@@ -95,10 +94,10 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
             <<V::SerdeVTable as SerdeVTable<V>>::Metadata as DeserializeMetadata>::deserialize(
                 metadata,
             )?;
-        let array = <V::SerdeVTable as SerdeVTable<V>>::decode(
+        let array = <V::SerdeVTable as SerdeVTable<V>>::build(
             &self.0, dtype, len, &metadata, buffers, children, ctx,
         )?;
-        assert_eq!(array.len(), len, "Array length mismatch after decode");
+        assert_eq!(array.len(), len, "Array length mismatch after building");
         Ok(array.to_array())
     }
 
@@ -131,6 +130,15 @@ impl PartialEq for dyn Encoding + '_ {
 }
 
 impl Eq for dyn Encoding + '_ {}
+
+impl dyn Encoding + '_ {
+    pub fn as_<V: VTable>(&self) -> &V::Encoding {
+        self.as_any()
+            .downcast_ref::<EncodingAdapter<V>>()
+            .map(|e| &e.0)
+            .vortex_expect("Encoding is not of the expected type")
+    }
+}
 
 mod private {
     use super::*;

@@ -7,7 +7,8 @@ use std::ptr;
 
 use vortex::dtype::DType;
 use vortex::dtype::half::f16;
-use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
+use vortex::error::{VortexExpect, VortexUnwrap, vortex_bail, vortex_err};
+use vortex::iter::ArrayIterator;
 use vortex::{Array, ArrayRef, ToCanonical};
 
 use crate::error::{try_or, vx_error};
@@ -20,6 +21,56 @@ use crate::error::{try_or, vx_error};
 #[allow(non_camel_case_types)]
 pub struct vx_array {
     pub inner: ArrayRef,
+}
+
+/// The FFI interface for an [`ArrayIterator`].
+#[allow(non_camel_case_types)]
+pub struct vx_array_iter {
+    pub inner: Option<Box<dyn ArrayIterator>>,
+}
+
+/// Creates a new ArrayIterator wrapper for FFI use.
+pub fn vx_array_iter<I>(iter: I) -> vortex::error::VortexResult<*mut vx_array_iter>
+where
+    I: ArrayIterator + 'static,
+{
+    let inner = Some(Box::new(iter) as Box<dyn ArrayIterator>);
+    Ok(Box::into_raw(Box::new(vx_array_iter { inner })))
+}
+
+/// Attempt to advance the `current` pointer of the iterator.
+///
+/// A return value of `true` indicates that another element was pulled from the iterator, and a return
+/// of `false` indicates that the iterator is finished.
+///
+/// It is an error to call this function again after the iterator is finished.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_iter_next(
+    iter: *mut vx_array_iter,
+    error: *mut *mut vx_error,
+) -> *mut vx_array {
+    try_or(error, ptr::null_mut(), || {
+        let iter = unsafe { iter.as_mut() }.vortex_expect("iter null");
+        let Some(inner) = iter.inner.as_mut() else {
+            vortex_bail!("vx_array_iter_next called after finish")
+        };
+
+        let element = inner.next();
+
+        if let Some(element) = element {
+            Ok(Box::into_raw(Box::new(vx_array { inner: element? })))
+        } else {
+            // Drop the iter pointer.
+            iter.inner.take();
+            Ok(ptr::null_mut())
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_iter_free(array_iter: *mut vx_array_iter) {
+    assert!(!array_iter.is_null());
+    drop(unsafe { Box::from_raw(array_iter) });
 }
 
 /// Get the length of the array.

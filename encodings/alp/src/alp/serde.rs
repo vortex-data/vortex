@@ -25,20 +25,19 @@ pub struct ALPMetadata {
 impl SerdeVTable<ALPVTable> for ALPVTable {
     type Metadata = ProstMetadata<ALPMetadata>;
 
-    fn metadata(array: &ALPArray) -> Option<Self::Metadata> {
+    fn metadata(array: &ALPArray) -> VortexResult<Option<Self::Metadata>> {
         let exponents = array.exponents();
-        Some(ProstMetadata(ALPMetadata {
+        Ok(Some(ProstMetadata(ALPMetadata {
             exp_e: exponents.e as u32,
             exp_f: exponents.f as u32,
             patches: array
                 .patches()
                 .map(|p| p.to_metadata(array.len(), array.dtype()))
-                .transpose()
-                .vortex_expect("Failed to create patches metadata"),
-        }))
+                .transpose()?,
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &ALPEncoding,
         dtype: DType,
         len: usize,

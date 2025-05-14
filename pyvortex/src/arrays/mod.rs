@@ -15,7 +15,6 @@ use vortex::arrow::IntoArrowArray;
 use vortex::compute::{Operator, compare, take};
 use vortex::error::VortexError;
 use vortex::mask::Mask;
-use vortex::nbytes::NBytes;
 use vortex::{Array, ArrayExt, ArrayRef};
 
 use crate::arrays::native::PyNativeArray;
@@ -591,7 +590,7 @@ impl PyArray {
         // FIXME(ngates): do not copy to vec, use buffer protocol
         let array = PyArrayRef::extract_bound(slf.as_any())?;
         Ok(array
-            .serialize(ctx, &Default::default())
+            .serialize(ctx, &Default::default())?
             .into_iter()
             .map(|buffer| buffer.to_vec())
             .collect())

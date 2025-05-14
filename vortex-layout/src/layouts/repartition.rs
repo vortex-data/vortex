@@ -2,7 +2,6 @@ use std::collections::VecDeque;
 
 use arcref::ArcRef;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::nbytes::NBytes;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};

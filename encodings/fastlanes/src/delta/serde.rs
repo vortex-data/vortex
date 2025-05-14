@@ -24,14 +24,14 @@ pub struct DeltaMetadata {
 impl SerdeVTable<DeltaVTable> for DeltaVTable {
     type Metadata = ProstMetadata<DeltaMetadata>;
 
-    fn metadata(array: &DeltaArray) -> Option<Self::Metadata> {
-        Some(ProstMetadata(DeltaMetadata {
+    fn metadata(array: &DeltaArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ProstMetadata(DeltaMetadata {
             deltas_len: array.deltas().len() as u64,
             offset: array.offset() as u32,
-        }))
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &DeltaEncoding,
         dtype: DType,
         len: usize,

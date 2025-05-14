@@ -29,14 +29,14 @@ pub struct ALPRDMetadata {
 impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
     type Metadata = ProstMetadata<ALPRDMetadata>;
 
-    fn metadata(array: &ALPRDArray) -> Option<Self::Metadata> {
+    fn metadata(array: &ALPRDArray) -> VortexResult<Option<Self::Metadata>> {
         let dict = array
             .left_parts_dictionary()
             .iter()
             .map(|&i| i as u32)
             .collect::<Vec<_>>();
 
-        Some(ProstMetadata(ALPRDMetadata {
+        Ok(Some(ProstMetadata(ALPRDMetadata {
             right_bit_width: array.right_bit_width() as u32,
             dict_len: array.left_parts_dictionary().len() as u32,
             dict,
@@ -45,12 +45,11 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
             patches: array
                 .left_parts_patches()
                 .map(|p| p.to_metadata(array.len(), array.left_parts().dtype()))
-                .transpose()
-                .vortex_expect("Failed to create patches metadata"),
-        }))
+                .transpose()?,
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &ALPRDEncoding,
         dtype: DType,
         len: usize,

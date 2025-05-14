@@ -87,7 +87,7 @@ impl LayoutWriter for FlatLayoutWriter {
                 offset: 0,
                 include_padding: self.options.include_padding,
             },
-        );
+        )?;
         let segment_id = segment_writer.put(&buffers);
 
         self.layout = Some(Layout::new_owned(

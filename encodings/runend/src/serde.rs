@@ -24,16 +24,16 @@ pub struct RunEndMetadata {
 impl SerdeVTable<RunEndVTable> for RunEndVTable {
     type Metadata = ProstMetadata<RunEndMetadata>;
 
-    fn metadata(array: &RunEndArray) -> Option<Self::Metadata> {
-        Some(ProstMetadata(RunEndMetadata {
+    fn metadata(array: &RunEndArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ProstMetadata(RunEndMetadata {
             ends_ptype: PType::try_from(array.ends().dtype()).vortex_expect("Must be a valid PType")
                 as i32,
             num_runs: array.ends().len() as u64,
             offset: array.offset() as u64,
-        }))
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &RunEndEncoding,
         dtype: DType,
         len: usize,

@@ -11,11 +11,11 @@ use crate::{ArrayContext, EmptyMetadata};
 impl SerdeVTable<ExtensionVTable> for ExtensionVTable {
     type Metadata = EmptyMetadata;
 
-    fn metadata(_array: &ExtensionArray) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn metadata(_array: &ExtensionArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(EmptyMetadata))
     }
 
-    fn decode(
+    fn build(
         _encoding: &ExtensionEncoding,
         dtype: DType,
         len: usize,

@@ -21,15 +21,15 @@ pub struct FSSTMetadata {
 impl SerdeVTable<FSSTVTable> for FSSTVTable {
     type Metadata = ProstMetadata<FSSTMetadata>;
 
-    fn metadata(array: &FSSTArray) -> Option<Self::Metadata> {
-        Some(ProstMetadata(FSSTMetadata {
+    fn metadata(array: &FSSTArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ProstMetadata(FSSTMetadata {
             uncompressed_lengths_ptype: PType::try_from(array.uncompressed_lengths().dtype())
                 .vortex_expect("Must be a valid PType")
                 as i32,
-        }))
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &FSSTEncoding,
         dtype: DType,
         len: usize,

@@ -20,15 +20,15 @@ pub struct BoolMetadata {
 impl SerdeVTable<BoolVTable> for BoolVTable {
     type Metadata = ProstMetadata<BoolMetadata>;
 
-    fn metadata(array: &BoolArray) -> Option<Self::Metadata> {
+    fn metadata(array: &BoolArray) -> VortexResult<Option<Self::Metadata>> {
         let bit_offset = array.boolean_buffer().offset();
         assert!(bit_offset < 8, "Offset must be <8, got {}", bit_offset);
-        Some(ProstMetadata(BoolMetadata {
+        Ok(Some(ProstMetadata(BoolMetadata {
             offset: u32::try_from(bit_offset).vortex_expect("checked"),
-        }))
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &<BoolVTable as VTable>::Encoding,
         dtype: DType,
         len: usize,

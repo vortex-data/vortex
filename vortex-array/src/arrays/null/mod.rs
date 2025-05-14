@@ -76,11 +76,11 @@ impl ArrayVTable<NullVTable> for NullVTable {
 impl SerdeVTable<NullVTable> for NullVTable {
     type Metadata = EmptyMetadata;
 
-    fn metadata(_array: &NullArray) -> Option<Self::Metadata> {
-        Some(EmptyMetadata)
+    fn metadata(_array: &NullArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(EmptyMetadata))
     }
 
-    fn decode(
+    fn build(
         _encoding: &NullEncoding,
         _dtype: DType,
         len: usize,

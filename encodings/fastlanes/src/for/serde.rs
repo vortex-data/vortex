@@ -1,4 +1,4 @@
-use std::fmt::Formatter;
+use std::fmt::{Debug, Formatter};
 
 use vortex_array::serde::ArrayParts;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
@@ -8,7 +8,7 @@ use vortex_array::{
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use super::FoREncoding;
@@ -17,13 +17,13 @@ use crate::{FoRArray, FoRVTable};
 impl SerdeVTable<FoRVTable> for FoRVTable {
     type Metadata = ScalarValueMetadata;
 
-    fn metadata(array: &FoRArray) -> Option<Self::Metadata> {
-        Some(ScalarValueMetadata(
+    fn metadata(array: &FoRArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ScalarValueMetadata(
             array.reference_scalar().value().clone(),
-        ))
+        )))
     }
 
-    fn decode(
+    fn build(
         _encoding: &FoREncoding,
         dtype: DType,
         len: usize,
@@ -78,27 +78,25 @@ impl VisitorVTable<FoRVTable> for FoRVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ScalarValueMetadata(ScalarValue);
 
 impl SerializeMetadata for ScalarValueMetadata {
-    fn serialize(&self) -> Option<Vec<u8>> {
-        Some(self.0.to_protobytes())
+    fn serialize(self) -> Vec<u8> {
+        self.0.to_protobytes()
     }
 }
 
 impl DeserializeMetadata for ScalarValueMetadata {
     type Output = ScalarValue;
 
-    fn deserialize(metadata: Option<&[u8]>) -> VortexResult<Self::Output> {
-        ScalarValue::from_protobytes(
-            metadata.ok_or_else(|| vortex_err!("Missing ScalarValue metadata"))?,
-        )
+    fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
+        ScalarValue::from_protobytes(metadata)
     }
+}
 
-    fn format(metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Self::deserialize(metadata)
-            .map(|value| write!(f, "{}", value))
-            .unwrap_or_else(|_| write!(f, "<unknown>"))
+impl Debug for ScalarValueMetadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.0)
     }
 }

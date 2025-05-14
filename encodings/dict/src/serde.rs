@@ -6,7 +6,7 @@ use vortex_array::{
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::builders::dict_encode;
 use crate::{DictArray, DictEncoding, DictVTable};
@@ -22,16 +22,17 @@ pub struct DictMetadata {
 impl SerdeVTable<DictVTable> for DictVTable {
     type Metadata = ProstMetadata<DictMetadata>;
 
-    fn metadata(array: &DictArray) -> Option<Self::Metadata> {
-        Some(ProstMetadata(DictMetadata {
+    fn metadata(array: &DictArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ProstMetadata(DictMetadata {
             codes_ptype: PType::try_from(array.codes().dtype())
                 .vortex_expect("Must be a valid PType") as i32,
-            values_len: u32::try_from(array.values().len())
-                .vortex_expect("Values length cannot exceed u32"),
-        }))
+            values_len: u32::try_from(array.values().len()).map_err(|_| {
+                vortex_err!("Diction values cannot exceed u32 in length for serialization")
+            })?,
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &DictEncoding,
         dtype: DType,
         len: usize,

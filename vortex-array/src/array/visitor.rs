@@ -29,7 +29,8 @@ pub trait ArrayVisitor {
     /// Returns the number of buffers of the array.
     fn nbuffers(&self) -> usize;
 
-    /// Returns the serialized metadata of the array.
+    /// Returns the serialized metadata of the array, or `None` if the array does not
+    /// support serialization.
     fn metadata(&self) -> VortexResult<Option<Vec<u8>>>;
 
     /// Formats a human-readable metadata description.

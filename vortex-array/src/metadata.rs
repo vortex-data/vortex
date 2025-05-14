@@ -1,39 +1,23 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 
+/// Trait for serializing Vortex metadata to a vector of unaligned bytes.
 pub trait SerializeMetadata {
-    fn serialize(&self) -> Option<Vec<u8>>;
+    fn serialize(self) -> Vec<u8>;
 }
 
-impl SerializeMetadata for () {
-    fn serialize(&self) -> Option<Vec<u8>> {
-        None
-    }
-}
-
+/// Trait for deserializing Vortex metadata from a vector of unaligned bytes.
 pub trait DeserializeMetadata
 where
     Self: Sized,
 {
+    /// The fully deserialized type of the metadata.
     type Output;
 
-    fn deserialize(metadata: Option<&[u8]>) -> VortexResult<Self::Output>;
-
-    /// Deserialize metadata without validation.
-    ///
-    /// ## Safety
-    ///
-    /// Those who use this API must be sure to have invoked deserialize at least once before
-    /// calling this method.
-    unsafe fn deserialize_unchecked(metadata: Option<&[u8]>) -> Self::Output {
-        Self::deserialize(metadata)
-            .vortex_expect("Metadata should have been validated before calling this method")
-    }
-
-    /// Format metadata for display.
-    fn format(metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result;
+    /// Deserialize metadata from a vector of unaligned bytes.
+    fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output>;
 }
 
 /// Empty array metadata
@@ -41,23 +25,43 @@ where
 pub struct EmptyMetadata;
 
 impl SerializeMetadata for EmptyMetadata {
-    fn serialize(&self) -> Option<Vec<u8>> {
-        None
+    fn serialize(self) -> Vec<u8> {
+        vec![]
     }
 }
 
 impl DeserializeMetadata for EmptyMetadata {
     type Output = EmptyMetadata;
 
-    fn deserialize(metadata: Option<&[u8]>) -> VortexResult<Self::Output> {
-        if metadata.is_some() {
+    fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
+        if !metadata.is_empty() {
             vortex_bail!("EmptyMetadata should not have metadata bytes")
         }
         Ok(EmptyMetadata)
     }
+}
 
-    fn format(_metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("EmptyMetadata")
+/// A utility wrapper for raw metadata serialization. This delegates the serialiation step
+/// to the arrays' vtable.
+pub struct RawMetadata(pub Vec<u8>);
+
+impl SerializeMetadata for RawMetadata {
+    fn serialize(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+impl DeserializeMetadata for RawMetadata {
+    type Output = Vec<u8>;
+
+    fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
+        Ok(metadata.to_vec())
+    }
+}
+
+impl Debug for RawMetadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\"{}\"", self.0.escape_ascii())
     }
 }
 
@@ -82,8 +86,8 @@ impl<M> SerializeMetadata for ProstMetadata<M>
 where
     M: prost::Message,
 {
-    fn serialize(&self) -> Option<Vec<u8>> {
-        Some(self.0.encode_to_vec())
+    fn serialize(self) -> Vec<u8> {
+        self.0.encode_to_vec()
     }
 }
 
@@ -94,17 +98,7 @@ where
 {
     type Output = M;
 
-    fn deserialize(metadata: Option<&[u8]>) -> VortexResult<Self::Output> {
-        let bytes =
-            metadata.ok_or_else(|| vortex_err!("Prost metadata requires metadata bytes"))?;
-        Ok(M::decode(bytes)?)
-    }
-
-    #[allow(clippy::use_debug)]
-    fn format(metadata: Option<&[u8]>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match Self::deserialize(metadata) {
-            Ok(m) => write!(f, "{:?}", m),
-            Err(_) => write!(f, "Failed to deserialize metadata"),
-        }
+    fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
+        Ok(M::decode(metadata)?)
     }
 }

@@ -7,7 +7,7 @@ use vortex_array::{
 };
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{SparseArray, SparseEncoding, SparseVTable};
@@ -22,16 +22,13 @@ pub struct SparseMetadata {
 impl SerdeVTable<SparseVTable> for SparseVTable {
     type Metadata = ProstMetadata<SparseMetadata>;
 
-    fn metadata(array: &SparseArray) -> Option<Self::Metadata> {
-        Some(ProstMetadata(SparseMetadata {
-            patches: array
-                .patches()
-                .to_metadata(array.len(), array.dtype())
-                .vortex_expect("Failed to create patches metadata"),
-        }))
+    fn metadata(array: &SparseArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ProstMetadata(SparseMetadata {
+            patches: array.patches().to_metadata(array.len(), array.dtype())?,
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &SparseEncoding,
         dtype: DType,
         len: usize,

@@ -16,7 +16,7 @@ use crate::arrays::py::PyPythonArray;
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PythonArray {
-    object: Arc<Py<PyAny>>,
+    pub(super) object: Arc<Py<PyAny>>,
     pub(super) encoding: EncodingRef,
     pub(super) len: usize,
     pub(super) dtype: DType,

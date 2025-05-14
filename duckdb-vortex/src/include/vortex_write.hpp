@@ -2,6 +2,6 @@
 
 #include "duckdb/main/extension_util.hpp"
 
-namespace duckdb {
-	void RegisterVortexWriteFunction(duckdb::DatabaseInstance &instance);
+namespace vortex {
+void RegisterWriteFunction(duckdb::DatabaseInstance &instance);
 }

@@ -27,18 +27,18 @@ pub struct DateTimePartsMetadata {
 impl SerdeVTable<DateTimePartsVTable> for DateTimePartsVTable {
     type Metadata = ProstMetadata<DateTimePartsMetadata>;
 
-    fn metadata(array: &DateTimePartsArray) -> Option<Self::Metadata> {
-        Some(ProstMetadata(DateTimePartsMetadata {
+    fn metadata(array: &DateTimePartsArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ProstMetadata(DateTimePartsMetadata {
             days_ptype: PType::try_from(array.days().dtype()).vortex_expect("Must be a valid PType")
                 as i32,
             seconds_ptype: PType::try_from(array.seconds().dtype())
                 .vortex_expect("Must be a valid PType") as i32,
             subseconds_ptype: PType::try_from(array.subseconds().dtype())
                 .vortex_expect("Must be a valid PType") as i32,
-        }))
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &DateTimePartsEncoding,
         dtype: DType,
         len: usize,

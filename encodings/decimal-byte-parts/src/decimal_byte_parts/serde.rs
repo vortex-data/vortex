@@ -24,16 +24,16 @@ pub struct DecimalBytesPartsMetadata {
 impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
 
-    fn metadata(array: &DecimalBytePartsArray) -> Option<Self::Metadata> {
-        Some(ProstMetadata(DecimalBytesPartsMetadata {
+    fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ProstMetadata(DecimalBytesPartsMetadata {
             zeroth_child_ptype: PType::try_from(array.msp.dtype()).vortex_expect("must be a PType")
                 as i32,
             lower_part_count: u32::try_from(array.lower_parts.len())
                 .vortex_expect("1..=3 fits in u8"),
-        }))
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &DecimalBytePartsEncoding,
         dtype: DType,
         len: usize,

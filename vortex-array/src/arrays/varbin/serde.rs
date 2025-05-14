@@ -18,14 +18,14 @@ pub struct VarBinMetadata {
 impl SerdeVTable<VarBinVTable> for VarBinVTable {
     type Metadata = ProstMetadata<VarBinMetadata>;
 
-    fn metadata(array: &VarBinArray) -> Option<Self::Metadata> {
-        Some(ProstMetadata(VarBinMetadata {
+    fn metadata(array: &VarBinArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ProstMetadata(VarBinMetadata {
             offsets_ptype: PType::try_from(array.offsets().dtype())
                 .vortex_expect("Must be a valid PType") as i32,
-        }))
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &VarBinEncoding,
         dtype: DType,
         len: usize,

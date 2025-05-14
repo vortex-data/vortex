@@ -20,16 +20,15 @@ pub struct ListMetadata {
 impl SerdeVTable<ListVTable> for ListVTable {
     type Metadata = ProstMetadata<ListMetadata>;
 
-    fn metadata(array: &ListArray) -> Option<Self::Metadata> {
-        Some(ProstMetadata(ListMetadata {
-            elements_len: u64::try_from(array.elements().len())
-                .vortex_expect("More elements than u64"),
+    fn metadata(array: &ListArray) -> VortexResult<Option<Self::Metadata>> {
+        Ok(Some(ProstMetadata(ListMetadata {
+            elements_len: array.elements().len() as u64,
             offset_ptype: PType::try_from(array.offsets().dtype())
                 .vortex_expect("Must be a valid PType") as i32,
-        }))
+        })))
     }
 
-    fn decode(
+    fn build(
         _encoding: &ListEncoding,
         dtype: DType,
         len: usize,

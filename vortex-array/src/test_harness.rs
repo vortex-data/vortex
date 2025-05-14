@@ -15,10 +15,9 @@ where
     T: DeserializeMetadata,
 {
     let mut mint = Mint::new("goldenfiles/");
-    if let Some(meta) = metadata.serialize() {
-        let mut f = mint
-            .new_goldenfile_with_differ(name, Box::new(binary_diff))
-            .unwrap();
-        f.write_all(&meta).unwrap();
-    }
+    let meta = metadata.serialize();
+    let mut f = mint
+        .new_goldenfile_with_differ(name, Box::new(binary_diff))
+        .unwrap();
+    f.write_all(&meta).unwrap();
 }
