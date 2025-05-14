@@ -70,7 +70,7 @@ jobs:
           targets: ${{ matrix.target.target }}
       - uses: spiraldb/actions/.github/actions/setup-uv@0.10.0
         with:
-          sync: false # Don't need to build the project
+          sync: false  # Don't need to build the project
 
       - name: Disable SCCACHE Config  # Doesn't work with cross-compilation
         shell: bash
@@ -111,6 +111,3 @@ jobs:
         with:
           name: "${{ matrix.target.target }}-wheels"
           path: dist/
-
-      #- name: Publish wheel
-      #  run: uv publish --trusted-publishing always dist/*.whl
