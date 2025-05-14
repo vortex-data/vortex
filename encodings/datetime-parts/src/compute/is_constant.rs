@@ -1,5 +1,5 @@
 use vortex_array::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
-use vortex_array::{ArrayStatistics, register_kernel};
+use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
 use crate::{DateTimePartsArray, DateTimePartsVTable};

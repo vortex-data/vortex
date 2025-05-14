@@ -5,7 +5,12 @@ use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
 
 impl IsConstantKernel for BoolVTable {
-    fn is_constant(&self, array: &BoolArray, _opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
+    fn is_constant(&self, array: &BoolArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
+        // If the array is small, then it is a constant time operation.
+        if opts.is_negligible_cost() && array.len() > 64 {
+            return Ok(None);
+        }
+
         let buffer = array.boolean_buffer();
 
         // Safety:

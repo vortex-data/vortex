@@ -47,7 +47,7 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
 mod tests {
 
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{Array, ArrayStatistics, IntoArray, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 

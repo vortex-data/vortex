@@ -18,8 +18,11 @@ impl IsConstantKernel for PrimitiveVTable {
     fn is_constant(
         &self,
         array: &PrimitiveArray,
-        _opts: &IsConstantOpts,
+        opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
+        if opts.is_negligible_cost() {
+            return Ok(None);
+        }
         let is_constant = match_each_native_ptype!(array.ptype(), integral: |$P| {
             compute_is_constant::<_, {IS_CONST_LANE_WIDTH / size_of::<$P>()}>(array.as_slice::<$P>())
         } floating_point: |$P| {

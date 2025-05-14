@@ -16,8 +16,11 @@ impl IsConstantKernel for BitPackedVTable {
     fn is_constant(
         &self,
         array: &BitPackedArray,
-        _opts: &IsConstantOpts,
+        opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
+        if opts.is_negligible_cost() {
+            return Ok(None);
+        }
         match_each_integer_ptype!(array.ptype(), |$P| {
             bitpacked_is_constant::<$P, {IS_CONST_LANE_WIDTH / size_of::<$P>()}>(array)
         })

@@ -7,7 +7,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
 pub use convert::*;
-pub use statistics::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -16,11 +15,11 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
+    BoolEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, InvocationArgs, Output};
+use crate::compute::{ComputeFn, Cost, InvocationArgs, Output};
 use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
@@ -30,9 +29,7 @@ use crate::vtable::{
 use crate::{Canonical, EncodingId, EncodingRef, SerializeMetadata};
 
 /// The public API trait for all Vortex arrays.
-pub trait Array:
-    'static + private::Sealed + Send + Sync + Debug + ArrayStatistics + ArrayVisitor
-{
+pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
@@ -364,7 +361,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         // computing derived stats and merging them in.
         // TODO(ngates): skip the is_constant check here, it can force an expensive compute.
         // TODO(ngates): provide a means to slice an array _without_ propagating stats.
-        let derived_stats = (self.encoding_id() != ConstantEncoding.id()).then(|| {
+        let derived_stats = (!self.0.is_constant_opts(Cost::Negligible)).then(|| {
             let stats = self.statistics().to_owned();
 
             // an array that is not constant can become constant after slicing

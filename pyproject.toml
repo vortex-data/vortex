@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 authors = [{ name = "Nicholas Gates", email = "nick@nickgates.com" }]
 requires-python = ">= 3.10"
-dependencies = ["vortex-array", "docs"]
+dependencies = ["vortex-data", "docs"]
 
 [build-system]
 requires = ["hatchling"]
@@ -35,7 +35,7 @@ dev-dependencies = [
 members = ["pyvortex", "docs"]
 
 [tool.uv.sources]
-vortex-array = { workspace = true }
+vortex-data = { workspace = true }
 docs = { workspace = true }
 
 [tool.ruff]

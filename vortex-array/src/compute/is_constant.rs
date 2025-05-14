@@ -7,7 +7,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::arrays::{ConstantVTable, NullVTable};
+use crate::arrays::{ConstantVTable, ListVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
@@ -35,14 +35,16 @@ pub fn is_constant(array: &dyn Array) -> VortexResult<Option<bool>> {
 ///
 /// Please see [`is_constant`] for a more detailed explanation of its behavior.
 pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexResult<Option<bool>> {
-    Ok(IS_CONSTANT_FN
+    let result = IS_CONSTANT_FN
         .invoke(&InvocationArgs {
             inputs: &[array.into()],
             options,
         })?
         .unwrap_scalar()?
         .as_bool()
-        .value())
+        .value();
+
+    Ok(result)
 }
 
 pub static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -69,6 +71,16 @@ impl ComputeFnVTable for IsConstant {
         }
 
         let value = is_constant_impl(array, options, kernels)?;
+
+        // TODO(joe): add is_constant for ListArray
+        if options.cost == Cost::Canonicalize && !array.is::<ListVTable>() {
+            // When we run linear canonicalize, there we must always return an exact answer.
+            assert!(
+                value.is_some(),
+                "is constant in array {} canonicalize returned None",
+                array
+            );
+        }
 
         // Only if we made a determination do we update the stats.
         if let Some(value) = value {
@@ -163,7 +175,7 @@ fn is_constant_impl(
         array.encoding_id()
     );
 
-    if options.canonicalize && !array.is_canonical() {
+    if options.cost == Cost::Canonicalize && !array.is_canonical() {
         let array = array.to_canonical()?;
         let is_constant = is_constant_opts(array.as_ref(), options)?;
         return Ok(is_constant);
@@ -231,21 +243,45 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for IsConstantArgs<'a> {
     }
 }
 
+/// When calling `is_constant` the children are all checked for constantness.
+/// This enum decide at each precision/cost level the constant check should run as.
+/// The cost increase as we move down the list.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Cost {
+    /// Only apply constant time computation to estimate constantness.
+    Negligible,
+    /// Allow the encoding to do a linear amount of work to determine is constant.
+    /// Each encoding should implement short-circuiting make the common case runtime well below
+    /// a linear scan.
+    Specialized,
+    /// Same as linear, but when necessary canonicalize the array and check is constant.
+    /// This *must* always return a known answer.
+    Canonicalize,
+}
+
 /// Configuration for [`is_constant_opts`] operations.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IsConstantOpts {
-    /// Should the operation make an effort to canonicalize the target array if its encoding doesn't implement [`IsConstantKernel`].
-    pub canonicalize: bool,
+    /// What precision cost trade off should be used
+    pub cost: Cost,
 }
 
 impl Default for IsConstantOpts {
     fn default() -> Self {
-        Self { canonicalize: true }
+        Self {
+            cost: Cost::Canonicalize,
+        }
     }
 }
 
 impl Options for IsConstantOpts {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+impl IsConstantOpts {
+    pub fn is_negligible_cost(&self) -> bool {
+        self.cost == Cost::Negligible
     }
 }

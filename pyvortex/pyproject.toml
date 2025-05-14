@@ -1,5 +1,5 @@
 [project]
-name = "vortex-array"
+name = "vortex-data"
 # Maturin copies these, at build time, from Cargo.toml.
 # https://github.com/PyO3/maturin/blob/main/src/metadata.rs#L127-L129
 dynamic = ["version", "description", "authors"]
@@ -15,8 +15,8 @@ duckdb = ["duckdb>=1.1.2"]
 
 [project.urls]
 Documentation = "https://docs.vortex.dev"
-Changelog = "https://github.com/spiraldb/vortex/blob/develop/CHANGELOG.md"
-Issues = "https://github.com/spiraldb/vortex/issues"
+Changelog = "https://github.com/vortex-data/vortex/blob/develop/CHANGELOG.md"
+Issues = "https://github.com/vortex-data/vortex/issues"
 Benchmarks = "https://bench.vortex.dev"
 
 [build-system]
