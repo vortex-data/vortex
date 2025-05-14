@@ -234,18 +234,14 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
         let mut field_arrays = Vec::with_capacity(value.fields().len());
 
         for (field, column) in value.fields().iter().zip(value.columns()) {
-            let array = match field.extension_type_name() {
-                Some(_) => {
-                    match arrow_field_to_dtype(field).vortex_expect("arrow_field_to_dtype") {
-                        Some(DType::Extension(ext_dtype)) => {
-                            let storage = Self::from_arrow(column.clone(), field.is_nullable());
-                            ExtensionArray::new(ext_dtype, storage).into_array()
-                        }
-                        _ => Self::from_arrow(column.clone(), field.is_nullable()),
-                    }
+            let mut array = Self::from_arrow(column.clone(), field.is_nullable());
+            if field.extension_type_name().is_some() {
+                if let Some(DType::Extension(ext_dtype)) =
+                    arrow_field_to_dtype(field).vortex_expect("arrow_field_to_dtype")
+                {
+                    array = ExtensionArray::new(ext_dtype, array).into_array()
                 }
-                None => Self::from_arrow(column.clone(), field.is_nullable()),
-            };
+            }
             field_names.push(field.name().to_string().into());
             field_arrays.push(array);
         }
