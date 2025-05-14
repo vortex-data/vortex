@@ -30,7 +30,7 @@ jobs:
         # TODO(marko): Remove version after move to rust 2024 edition.
         run: |
           cargo install cargo-edit --version 0.13.0 && \
-          cargo set-version --workspace ${{ github.event.release.tag_name }}
+          cargo set-version --workspace ${{ github.event.release.tag_name || github.event.inputs.version }}
 
       - name: Run release-plz
         id: run-release-plz
@@ -50,11 +50,11 @@ jobs:
         target:
           - { os: macos, runs-on: "macos-latest", target: aarch64-apple-darwin }
           - { os: macos, runs-on: "macos-13", target: x86_64-apple-darwin }
-          - { os: ubuntu, runs-on: "ubuntu-latest-medium", target: aarch64-unknown-linux-gnu }
-          - { os: ubuntu, runs-on: "ubuntu-latest-medium", target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "ubuntu-latest", target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "ubuntu-latest", target: x86_64-unknown-linux-gnu }
     environment:
       name: pypi
-      url: https://pypi.org/p/pyspiral
+      url: https://pypi.org/p/vortex-data
     permissions:
       contents: read
       id-token: write
@@ -81,7 +81,7 @@ jobs:
         # TODO(marko): Remove version after move to rust 2024 edition.
         run: |
           cargo install cargo-edit --version 0.13.0 && \
-          cargo set-version --workspace ${{ github.event.release.tag_name }}
+          cargo set-version --workspace ${{ github.event.release.tag_name || github.event.inputs.version }}
 
       # Setup Zig for cross-compilation
       - uses: mlugg/setup-zig@v2
@@ -100,7 +100,7 @@ jobs:
             --release
             --manifest-path pyvortex/Cargo.toml
             --out dist
-            --interpreter python3.11
+            --interpreter python3.10
         env:
           MATURIN_PEP517_USE_BASE_PYTHON: "true"
           # Keep this constant to avoid pyo3 invalidating itself

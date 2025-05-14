@@ -19,21 +19,24 @@ categories:
     labels:
       - 'chore'
     collapse-after: 3
-change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
-change-title-escapes: '\<*_&' # You can add # and @ to disable mentions, and add ` to disable code blocks.
+
 version-resolver:
   major:
     labels:
+      # We must explicitly label a PR with "major" to trigger a major version bump.
       - 'major'
   minor:
     labels:
-      - 'minor'
-  patch:
-    labels:
-      - 'patch'
+      # Any features or breaks will trigger a minor version bump (while we are 0.x)
+      - 'feature'
+      - 'break'
+      - 'wire-break'
   default: patch
 
 autolabeler:
+  - label: 'break'
+    title:
+      - '/break/i'
   - label: 'chore'
     title:
       - '/chore/i'
