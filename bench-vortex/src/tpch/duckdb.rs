@@ -150,7 +150,7 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
     if !output.status.success() || !output.stderr.is_empty() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
+        anyhow::bail!("duckdb failed, generating tpc*: stdout=\"{stdout}\", stderr=\"{stderr}\"");
     }
 
     // Write a success file to indicate this scale-factor is created.
