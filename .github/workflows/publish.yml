@@ -110,6 +110,7 @@ jobs:
     name: "Release to PyPi"
     needs: [ prepare-python ]
     runs-on: ubuntu-latest
+    if: "false"
     permissions:
       id-token: write  # IMPORTANT: mandatory for trusted publishing
     environment:
