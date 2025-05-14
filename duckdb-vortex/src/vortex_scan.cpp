@@ -106,7 +106,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 
 	// This is the max number threads that the extension might use.
 	idx_t MaxThreads() const override {
-		constexpr uint32_t MAX_THREAD_COUNT = 1;
+		constexpr uint32_t MAX_THREAD_COUNT = 192;
 		return MAX_THREAD_COUNT;
 	}
 };
