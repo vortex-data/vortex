@@ -42,7 +42,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-  publish-python:
+  prepare-python:
     runs-on: ${{ matrix.target.runs-on }}
     strategy:
       fail-fast: false
@@ -68,13 +68,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target.target }}
-      - uses: spiraldb/actions/.github/actions/setup-uv@0.11.0
-        with:
-          sync: false  # Don't need to build the project
-
-      - name: Disable SCCACHE Config  # Doesn't work with cross-compilation
-        shell: bash
-        run: echo "RUSTC_WRAPPER=" >> $GITHUB_ENV
 
       - name: Cargo Set Version
         shell: bash
@@ -82,6 +75,13 @@ jobs:
         run: |
           cargo install cargo-edit --version 0.13.0 && \
           cargo set-version --workspace ${{ github.event.release.tag_name || github.event.inputs.version }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        # Latest macOS doesn't allow maturin to install stuff into the global Python interpreter
+        if: "${{ matrix.runs-on == 'macos-latest' }}"
+        with:
+          python-version: '3.10'
 
       - name: Build wheel
         uses: PyO3/maturin-action@v1
@@ -105,3 +105,27 @@ jobs:
         with:
           name: "${{ matrix.target.target }}-wheels"
           path: dist/
+
+  publish-python:
+    name: "Release to PyPi"
+    needs: [ prepare-python ]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # IMPORTANT: mandatory for trusted publishing
+    environment:
+      name: push-to-pypi
+      url: https://pypi.org/p/vortex-data
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          # https://github.com/actions/download-artifact?tab=readme-ov-file#download-all-artifacts
+          # "To download them to the same directory:"
+          path: dist/
+          merge-multiple: true
+      - name: Display structure of downloaded files
+        run: ls -R dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
+          verbose: true
