@@ -2,12 +2,11 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayExt, ArrayRef, Canonical,
-    DeserializeMetadata, ProstMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::{SparseArray, SparseEncoding, SparseVTable};
@@ -63,22 +62,10 @@ impl SerdeVTable<SparseVTable> for SparseVTable {
 
 impl EncodeVTable<SparseVTable> for SparseVTable {
     fn encode(
-        encoding: &SparseEncoding,
+        _encoding: &SparseEncoding,
         input: &Canonical,
-        like: Option<&dyn Array>,
+        like: Option<&SparseArray>,
     ) -> VortexResult<Option<SparseArray>> {
-        let like = like
-            .map(|like| {
-                like.as_opt::<Self>().ok_or_else(|| {
-                    vortex_err!(
-                        "Expected {} encoded array but got {}",
-                        encoding.id(),
-                        like.encoding_id()
-                    )
-                })
-            })
-            .transpose()?;
-
         // Try and cast the "like" fill value into the array's type. This is useful for cases where we narrow the arrays type.
         let fill_value = like.and_then(|arr| arr.fill_scalar().cast(input.as_ref().dtype()).ok());
 

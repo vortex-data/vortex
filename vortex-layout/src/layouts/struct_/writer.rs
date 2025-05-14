@@ -1,6 +1,5 @@
 use itertools::Itertools;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::iter::ArrayIteratorArrayExt;
 use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};

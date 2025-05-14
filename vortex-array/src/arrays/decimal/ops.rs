@@ -51,9 +51,9 @@ mod tests {
     use vortex_dtype::{DecimalDType, Nullability};
     use vortex_scalar::{DecimalValue, Scalar};
 
+    use crate::Array;
     use crate::arrays::{DecimalArray, DecimalVTable};
     use crate::validity::Validity;
-    use crate::{Array, ArrayExt};
 
     #[test]
     fn test_slice() {

@@ -14,8 +14,8 @@ use vortex::vtable::{
     VTable, ValidityVTable, VisitorVTable,
 };
 use vortex::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
-    EncodingId, EncodingRef, RawMetadata, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EncodingId,
+    EncodingRef, RawMetadata, vtable,
 };
 
 use crate::arrays::py::{PythonArray, PythonEncoding};
@@ -120,7 +120,7 @@ impl EncodeVTable<PythonVTable> for PythonVTable {
     fn encode(
         _encoding: &PythonEncoding,
         _canonical: &Canonical,
-        _like: Option<&dyn Array>,
+        _like: Option<&PythonArray>,
     ) -> VortexResult<Option<PythonArray>> {
         todo!()
     }

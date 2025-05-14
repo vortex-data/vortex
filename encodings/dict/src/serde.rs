@@ -59,7 +59,7 @@ impl EncodeVTable<DictVTable> for DictVTable {
     fn encode(
         _encoding: &DictEncoding,
         canonical: &Canonical,
-        _like: Option<&dyn Array>,
+        _like: Option<&DictArray>,
     ) -> VortexResult<Option<DictArray>> {
         Ok(Some(dict_encode(canonical.as_ref())?))
     }

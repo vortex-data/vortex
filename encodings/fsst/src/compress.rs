@@ -4,7 +4,7 @@ use fsst::{Compressor, Symbol};
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::arrays::{VarBinVTable, VarBinViewVTable};
-use vortex_array::{Array, ArrayExt, IntoArray};
+use vortex_array::{Array, IntoArray};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};

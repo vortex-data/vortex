@@ -110,7 +110,7 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{ArrayExt, IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_mask::Mask;
 
     use super::filter_run_end;

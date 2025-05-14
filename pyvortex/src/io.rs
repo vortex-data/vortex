@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use pyo3::pyfunction;
 use tokio::fs::File;
 use vortex::file::VortexWriteOptions;
-use vortex::iter::{ArrayIterator, ArrayIteratorArrayExt, ArrayIteratorExt};
+use vortex::iter::{ArrayIterator, ArrayIteratorExt};
 use vortex::{Canonical, IntoArray};
 
 use crate::arrays::{PyArray, PyArrayRef};

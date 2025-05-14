@@ -49,10 +49,10 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_dtype::{DType, NativePType, Nullability, PType};
 
+    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
     use crate::canonical::ToCanonical;
-    use crate::{ArrayExt, IntoArray};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

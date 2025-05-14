@@ -77,7 +77,7 @@ impl EncodeVTable<DateTimePartsVTable> for DateTimePartsVTable {
     fn encode(
         _encoding: &DateTimePartsEncoding,
         canonical: &Canonical,
-        _like: Option<&dyn Array>,
+        _like: Option<&DateTimePartsArray>,
     ) -> VortexResult<Option<DateTimePartsArray>> {
         let ext_array = canonical.clone().into_extension()?;
         let temporal = TemporalArray::try_from(ext_array)?;

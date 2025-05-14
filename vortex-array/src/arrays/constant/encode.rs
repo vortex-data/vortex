@@ -1,14 +1,14 @@
 use vortex_error::VortexResult;
 
+use crate::Canonical;
 use crate::arrays::{ConstantArray, ConstantEncoding, ConstantVTable};
 use crate::vtable::EncodeVTable;
-use crate::{Array, Canonical};
 
 impl EncodeVTable<ConstantVTable> for ConstantVTable {
     fn encode(
         _encoding: &ConstantEncoding,
         canonical: &Canonical,
-        _like: Option<&dyn Array>,
+        _like: Option<&ConstantArray>,
     ) -> VortexResult<Option<ConstantArray>> {
         let canonical = canonical.as_ref();
         if canonical.is_constant() {

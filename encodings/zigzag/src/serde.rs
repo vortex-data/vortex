@@ -1,8 +1,7 @@
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
-    EmptyMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EmptyMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
@@ -41,7 +40,7 @@ impl EncodeVTable<ZigZagVTable> for ZigZagVTable {
     fn encode(
         encoding: &ZigZagEncoding,
         canonical: &Canonical,
-        _like: Option<&dyn Array>,
+        _like: Option<&ZigZagArray>,
     ) -> VortexResult<Option<ZigZagArray>> {
         let parray = canonical.clone().into_primitive()?;
 

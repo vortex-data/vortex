@@ -3,7 +3,7 @@ use std::fmt::{Debug, Formatter};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
     SerializeMetadata,
 };
 use vortex_buffer::ByteBuffer;
@@ -52,7 +52,7 @@ impl EncodeVTable<FoRVTable> for FoRVTable {
     fn encode(
         _encoding: &FoREncoding,
         canonical: &Canonical,
-        _like: Option<&dyn Array>,
+        _like: Option<&FoRArray>,
     ) -> VortexResult<Option<FoRArray>> {
         let parray = canonical.clone().into_primitive()?;
         Ok(Some(FoRArray::encode(parray)?))

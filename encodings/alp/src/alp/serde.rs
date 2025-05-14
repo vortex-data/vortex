@@ -2,12 +2,11 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayExt, ArrayRef, Canonical,
-    DeserializeMetadata, ProstMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
 
 use super::{ALPEncoding, alp_encode};
 use crate::{ALPArray, ALPVTable, Exponents};
@@ -74,24 +73,12 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
 
 impl EncodeVTable<ALPVTable> for ALPVTable {
     fn encode(
-        encoding: &ALPEncoding,
+        _encoding: &ALPEncoding,
         canonical: &Canonical,
-        like: Option<&dyn Array>,
+        like: Option<&ALPArray>,
     ) -> VortexResult<Option<ALPArray>> {
         let parray = canonical.clone().into_primitive()?;
-
-        let like_alp = like
-            .map(|like| {
-                like.as_opt::<Self>().ok_or_else(|| {
-                    vortex_err!(
-                        "Expected {} encoded array but got {}",
-                        encoding.id(),
-                        like.encoding_id()
-                    )
-                })
-            })
-            .transpose()?;
-        let exponents = like_alp.map(|a| a.exponents());
+        let exponents = like.map(|a| a.exponents());
         let alp = alp_encode(&parray, exponents)?;
 
         Ok(Some(alp))

@@ -16,7 +16,7 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
+    BoolEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
@@ -246,27 +246,24 @@ impl ToOwned for dyn Array {
     }
 }
 
-// TODO(ngates): move this to impl dyn Array.
-pub trait ArrayExt: Array {
+impl dyn Array + '_ {
     /// Returns the array downcast to the given `A`.
-    fn as_<V: VTable>(&self) -> &V::Array {
+    pub fn as_<V: VTable>(&self) -> &V::Array {
         self.as_opt::<V>().vortex_expect("Failed to downcast")
     }
 
     /// Returns the array downcast to the given `A`.
-    fn as_opt<V: VTable>(&self) -> Option<&V::Array> {
+    pub fn as_opt<V: VTable>(&self) -> Option<&V::Array> {
         self.as_any()
             .downcast_ref::<ArrayAdapter<V>>()
             .map(|array_adapter| &array_adapter.0)
     }
 
     /// Is self an array with encoding from vtable `V`.
-    fn is<V: VTable>(&self) -> bool {
+    pub fn is<V: VTable>(&self) -> bool {
         self.as_opt::<V>().is_some()
     }
 }
-
-impl<A: Array + ?Sized> ArrayExt for A {}
 
 impl Display for dyn Array {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -366,7 +363,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         // computing derived stats and merging them in.
         // TODO(ngates): skip the is_constant check here, it can force an expensive compute.
         // TODO(ngates): provide a means to slice an array _without_ propagating stats.
-        let derived_stats = (!self.is::<ConstantVTable>()).then(|| {
+        let derived_stats = (self.encoding_id() != ConstantEncoding.id()).then(|| {
             let stats = self.statistics().to_owned();
 
             // an array that is not constant can become constant after slicing

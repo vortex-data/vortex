@@ -6,11 +6,11 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::arrays::{ConstantVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt};
 
 /// Computes whether an array has constant values. If the array's encoding doesn't implement the
 /// relevant VTable, it'll try and canonicalize in order to make a determination.

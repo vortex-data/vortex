@@ -12,10 +12,10 @@ use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
+use crate::Array;
 use crate::arrow::array::{ArrowArray, ArrowVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt};
 
 /// Convert a Vortex array to an Arrow array with the encoding's preferred `DataType`.
 ///

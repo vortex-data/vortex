@@ -2,12 +2,10 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper, VisitorVTable};
-use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayExt, ArrayRef, Canonical, ProstMetadata,
-};
+use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 
 use super::{BitPackedEncoding, bit_width_histogram, find_best_bit_width};
 use crate::{BitPackedArray, BitPackedVTable, bitpack_encode};
@@ -97,23 +95,13 @@ impl SerdeVTable<BitPackedVTable> for BitPackedVTable {
 
 impl EncodeVTable<BitPackedVTable> for BitPackedVTable {
     fn encode(
-        encoding: &BitPackedEncoding,
+        _encoding: &BitPackedEncoding,
         canonical: &Canonical,
-        like: Option<&dyn Array>,
+        like: Option<&BitPackedArray>,
     ) -> VortexResult<Option<BitPackedArray>> {
         let parray = canonical.clone().into_primitive()?;
 
         let bit_width = like
-            .map(|like| {
-                like.as_opt::<Self>().ok_or_else(|| {
-                    vortex_err!(
-                        "Expected {} encoded array but got {}",
-                        encoding.id(),
-                        like.encoding_id()
-                    )
-                })
-            })
-            .transpose()?
             .map(|like_array| like_array.bit_width())
             // Only reuse the bitwidth if its smaller than the array's original bitwidth.
             .filter(|bw| (*bw as usize) < parray.ptype().bit_width());

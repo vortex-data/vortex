@@ -262,7 +262,6 @@ mod test {
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
 
     use crate::IntoArray;
-    use crate::array::ArrayExt;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::struct_::StructArray;
     use crate::arrays::varbin::VarBinArray;

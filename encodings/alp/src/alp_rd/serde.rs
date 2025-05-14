@@ -2,12 +2,12 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayExt, ArrayRef, Canonical,
-    DeserializeMetadata, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
+    ProstMetadata,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 
 use super::{ALPRDEncoding, RDEncoder};
 use crate::{ALPRDArray, ALPRDVTable};
@@ -105,25 +105,13 @@ impl SerdeVTable<ALPRDVTable> for ALPRDVTable {
 
 impl EncodeVTable<ALPRDVTable> for ALPRDVTable {
     fn encode(
-        encoding: &ALPRDEncoding,
+        _encoding: &ALPRDEncoding,
         canonical: &Canonical,
-        like: Option<&dyn Array>,
+        like: Option<&ALPRDArray>,
     ) -> VortexResult<Option<ALPRDArray>> {
         let parray = canonical.clone().into_primitive()?;
 
-        let like_alprd = like
-            .map(|like| {
-                like.as_opt::<Self>().ok_or_else(|| {
-                    vortex_err!(
-                        "Expected {} encoded array but got {}",
-                        encoding.id(),
-                        like.encoding_id()
-                    )
-                })
-            })
-            .transpose()?;
-
-        let alprd_array = match like_alprd {
+        let alprd_array = match like {
             None => {
                 let encoder = match parray.ptype() {
                     PType::F32 => RDEncoder::new(parray.as_slice::<f32>()),

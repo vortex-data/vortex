@@ -7,11 +7,11 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::serde::ArrayChildren;
 use crate::vtable::{EncodeVTable, SerdeVTable, VTable};
-use crate::{Array, ArrayRef, Canonical, DeserializeMetadata, IntoArray};
+use crate::{Array, ArrayRef, Canonical, DeserializeMetadata};
 
 /// EncodingId is a globally unique name of the array's encoding.
 pub type EncodingId = ArcRef<str>;
@@ -104,8 +104,41 @@ impl<V: VTable> Encoding for EncodingAdapter<V> {
         input: &Canonical,
         like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
-        let array = <V::EncodeVTable as EncodeVTable<V>>::encode(&self.0, input, like)?;
-        Ok(array.map(|a| a.into_array()))
+        let downcast_like = like
+            .map(|like| {
+                like.as_opt::<V>().ok_or_else(|| {
+                    vortex_err!(
+                        "Like array {} does not match requested encoding {}",
+                        like.encoding_id(),
+                        self.id()
+                    )
+                })
+            })
+            .transpose()?;
+
+        let Some(array) =
+            <V::EncodeVTable as EncodeVTable<V>>::encode(&self.0, input, downcast_like)?
+        else {
+            return Ok(None);
+        };
+
+        let input = input.as_ref();
+        if array.len() != input.len() {
+            vortex_bail!(
+                "Array length mismatch after encoding: {} != {}",
+                array.len(),
+                input.len()
+            );
+        }
+        if array.dtype() != input.dtype() {
+            vortex_bail!(
+                "Array dtype mismatch after encoding: {} != {}",
+                array.dtype(),
+                input.dtype()
+            );
+        }
+
+        Ok(Some(array.to_array()))
     }
 }
 

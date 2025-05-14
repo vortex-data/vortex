@@ -11,7 +11,7 @@ use vortex_array::arrays::{
     ChunkedArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
     VarBinViewArray,
 };
-use vortex_array::stream::{ArrayStreamArrayExt, ArrayStreamExt};
+use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};

@@ -60,7 +60,7 @@ impl EncodeVTable<RunEndVTable> for RunEndVTable {
     fn encode(
         _encoding: &RunEndEncoding,
         canonical: &Canonical,
-        _like: Option<&dyn Array>,
+        _like: Option<&RunEndArray>,
     ) -> VortexResult<Option<RunEndArray>> {
         let parray = canonical.clone().into_primitive()?;
         let (ends, values) = runend_encode(&parray)?;

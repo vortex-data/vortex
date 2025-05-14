@@ -6,11 +6,11 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::arrays::{ConstantVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt};
 
 pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
     is_sorted_opts(array, false)
