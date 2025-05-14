@@ -258,7 +258,7 @@ mod tests {
         );
 
         assert_eq!(
-            &to_arrow(array.as_ref(), &array.dtype().to_arrow_dtype().unwrap()).unwrap(),
+            &to_arrow(array.as_ref(), &array.dtype().to_arrow().unwrap()).unwrap(),
             &arrow_array
         );
     }
