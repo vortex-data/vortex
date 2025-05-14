@@ -360,7 +360,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         // computing derived stats and merging them in.
         // TODO(ngates): skip the is_constant check here, it can force an expensive compute.
         // TODO(ngates): provide a means to slice an array _without_ propagating stats.
-        let derived_stats = self.0.is_constant_opts(Cost::Negligible).then(|| {
+        let derived_stats = (!self.0.is_constant_opts(Cost::Negligible)).then(|| {
             let stats = self.statistics().to_owned();
 
             // an array that is not constant can become constant after slicing
