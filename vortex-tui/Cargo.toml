@@ -26,6 +26,8 @@ taffy = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 vortex = { workspace = true, features = ["tokio", "parquet"] }
 vortex-layout = { workspace = true }
+vortex-geo = { workspace = true }
+# Load the extensions
 
 [lints]
 workspace = true

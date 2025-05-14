@@ -20,6 +20,9 @@ const BATCH_SIZE: usize = 8192;
 
 /// Convert Parquet files to Vortex.
 pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexResult<()> {
+    // Register any relevant extension types here.
+    vortex_geo::arrow::REGISTER_EXTENSION_TYPES();
+
     if !flags.quiet {
         eprintln!(
             "Converting input Parquet file: {}",

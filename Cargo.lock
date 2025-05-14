@@ -7107,6 +7107,7 @@ dependencies = [
  "taffy",
  "tokio",
  "vortex",
+ "vortex-geo",
  "vortex-layout",
 ]
 

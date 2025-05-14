@@ -81,12 +81,12 @@
 //! use std::sync::Arc;
 //!
 //! use arcref::ArcRef;
-//! use arrow_schema::Field;
 //! use arrow_schema::extension::{EXTENSION_TYPE_METADATA_KEY, EXTENSION_TYPE_NAME_KEY};
-//! use vortex_dtype::{register_extension_type, DType, ExtDType, ExtID, PType, StructDType};
+//! use vortex_dtype::{DType, ExtDType, ExtID, PType, StructDType};
 //! use vortex_dtype::arrow::{ArrowTypeConversion, ArrowTypeConversionRef};
 //! use vortex_error::VortexResult;
 //!
+//! #[derive(Debug)]
 //! pub struct TemperatureConversion;
 //!
 //! impl ArrowTypeConversion for TemperatureConversion {
@@ -103,9 +103,7 @@
 //! }
 //!
 //! // Register the extension type so `DType` methods are aware of it at runtime.
-//! register_extension_type! {
-//!     ArrowTypeConversionRef::new(ArcRef::new_ref(&TemperatureConversion))
-//! };
+//! DType::register_extension_type(ArrowTypeConversionRef(ArcRef::new_ref(&TemperatureConversion)));
 //!
 //! // Attempt to use the extension type
 //! let ext_type = ExtDType::new(
@@ -139,7 +137,7 @@
 
 use std::fmt::Debug;
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, RwLock};
 
 use arcref::ArcRef;
 use arrow_schema::{DECIMAL128_MAX_SCALE, DataType, Field, FieldRef, Fields, Schema, SchemaRef};
@@ -262,8 +260,7 @@ impl FromArrowType<&Field> for DType {
         if let Some(ext_type) = field.extension_type_name() {
             // Check the registry for any Vortex extension types that represent the Arrow
             // extension type named here.
-            for converter in inventory::iter::<ArrowTypeConversionRef> {
-                println!("trying a converter");
+            for converter in EXTENSION_TYPES.read().vortex_expect("poisoned").iter() {
                 if let Some(converted) = converter
                     .to_vortex(field)
                     .vortex_expect("Conversion from GeoArrow type to GeoVortex")
@@ -280,6 +277,38 @@ impl FromArrowType<&Field> for DType {
 
         Self::from_arrow((field.data_type(), field.is_nullable().into()))
     }
+}
+
+/// Registry of extension types that can be updated at runtime to add new types to it.
+static EXTENSION_TYPES: LazyLock<RwLock<Vec<ArrowTypeConversionRef>>> =
+    LazyLock::new(|| RwLock::new(Vec::new()));
+
+impl DType {
+    /// Register a new Arrow extension type conversion function dynamically.
+    ///
+    /// This associated function should be called early in the program before any data is processed, to ensure that
+    /// subsequent calls to [`DType::to_arrow`] or [`DType::from_arrow`] are aware of it.
+    pub fn register_extension_type(extension: ArrowTypeConversionRef) {
+        EXTENSION_TYPES
+            .write()
+            .vortex_expect("poisoned")
+            .push(extension);
+    }
+}
+
+/// If a suitable [conversion is registered][DType::register_extension_type], returns the Arrow `Field`
+/// representing that this extension type converts into. Otherwise, `None` is returned.
+///
+/// Any errors from the conversion function are propagated here via
+/// the outer `VortexResult` wrapper.
+pub fn try_extension_type_to_arrow(ext_type: &ExtDType) -> VortexResult<Option<Field>> {
+    for kernel in EXTENSION_TYPES.read().vortex_expect("poisoned").iter() {
+        if let Some(metadata) = kernel.0.to_arrow(ext_type)? {
+            return Ok(Some(metadata));
+        }
+    }
+
+    Ok(None)
 }
 
 impl DType {
@@ -335,22 +364,25 @@ impl DType {
                 let mut fields = Vec::with_capacity(struct_dtype.names().len());
                 for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields())
                 {
-                    let mut field = Field::new(
-                        field_name.to_string(),
-                        field_dt.to_arrow()?,
-                        field_dt.is_nullable(),
-                    );
-
-                    // Optionally: attach any Arrow extension type metadata, if an ArrowMetadata
-                    // kernel is defined for the extension type.
-                    if let DType::Extension(ext_type) = field_dt {
-                        for kernel in inventory::iter::<ArrowTypeConversionRef> {
-                            if let Some(metadata) = kernel.0.arrow_metadata(ext_type.as_ref())? {
-                                field.set_metadata(metadata);
-                                break;
-                            }
+                    // Special handling for extension types, which may go through special conversion kernels
+                    // that are registered in `DType::register_extension_type`.
+                    let field = if let DType::Extension(ext_type) = &field_dt {
+                        if let Some(f) = try_extension_type_to_arrow(ext_type.as_ref())? {
+                            f.with_name(field_name.to_string())
+                        } else {
+                            Field::new(
+                                field_name.to_string(),
+                                field_dt.to_arrow()?,
+                                field_dt.is_nullable(),
+                            )
                         }
-                    }
+                    } else {
+                        Field::new(
+                            field_name.to_string(),
+                            field_dt.to_arrow()?,
+                            field_dt.is_nullable(),
+                        )
+                    };
 
                     fields.push(field);
                 }
@@ -380,7 +412,7 @@ impl DType {
 ///
 /// If no suitable conversion has been registered, `Ok(None)` is returned.
 pub fn arrow_field_to_dtype(field: impl AsRef<Field>) -> VortexResult<Option<DType>> {
-    for converter in inventory::iter::<ArrowTypeConversionRef> {
+    for converter in EXTENSION_TYPES.read().vortex_expect("poisoned").iter() {
         if let Some(converted) = converter.to_vortex(field.as_ref())? {
             return Ok(Some(converted));
         }
@@ -402,17 +434,13 @@ pub trait ArrowTypeConversion: 'static + Send + Sync + Debug {
         Ok(None)
     }
 
-    /// Returns any Arrow metadata that should be added to the field when a field of this
-    /// type is converted [into an Arrow data type][DType::to_arrow].
+    /// Map a type into an Arrow [`Field`] type.
     ///
     /// This method should be implemented if you want to add support for a Vortex
     /// [extension type][ExtDType] that also has a corresponding canonical Arrow
     /// extension type, to preserve round-trip between the two.
     #[allow(clippy::disallowed_types)]
-    fn arrow_metadata(
-        &self,
-        _dtype: &ExtDType,
-    ) -> VortexResult<Option<std::collections::HashMap<String, String>>> {
+    fn to_arrow(&self, _dtype: &ExtDType) -> VortexResult<Option<Field>> {
         Ok(None)
     }
 }
@@ -420,7 +448,6 @@ pub trait ArrowTypeConversion: 'static + Send + Sync + Debug {
 /// Conversion token
 #[derive(Debug)]
 pub struct ArrowTypeConversionRef(pub ArcRef<dyn ArrowTypeConversion>);
-inventory::collect!(ArrowTypeConversionRef);
 
 impl Deref for ArrowTypeConversionRef {
     type Target = dyn ArrowTypeConversion;
@@ -435,17 +462,6 @@ impl ArrowTypeConversionRef {
     pub const fn new(conversion: ArcRef<dyn ArrowTypeConversion>) -> Self {
         Self(conversion)
     }
-}
-
-/// Register an Arrow extension type for lookup.
-///
-/// This is required to enable the type to be recognized by [`DType::from_arrow`]
-/// as well as [`DType::to_arrow`].
-#[macro_export]
-macro_rules! register_extension_type {
-    ($extension:expr) => {
-        $crate::inventory::submit!($extension);
-    };
 }
 
 #[cfg(test)]

@@ -1,6 +1,8 @@
 use std::convert::Into;
 use std::sync::Arc;
 
+use arrow_schema::Field;
+use geoarrow_schema::{CoordType, Crs, LineStringType, PointType, PolygonType, WkbType};
 use vortex_dtype::{DType, ExtDType, ExtMetadata, Nullability, PType, StructDType};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
@@ -36,6 +38,21 @@ pub struct OwnedGeoMetadata {
     pub crs: Option<String>,
 }
 
+impl From<OwnedGeoMetadata> for geoarrow_schema::Metadata {
+    fn from(value: OwnedGeoMetadata) -> Self {
+        let crs = value
+            .crs
+            .as_ref()
+            .map(|crs| match serde_json::from_str(crs) {
+                Ok(value) => Crs::from_projjson(value),
+                Err(_) => Crs::from_unknown_crs_type(crs.to_string()),
+            })
+            .unwrap_or_default();
+
+        Self::new(crs, None)
+    }
+}
+
 // TODO(aduffy): add more geometry types like MultiPolygon.
 /// Zero-copy view of an `ExtDType` as one of the GeoVortex builtin geometry types.
 ///
@@ -45,6 +62,26 @@ pub enum GeometryType<'a> {
     LineString(GeoMetadata<'a>),
     Polygon(GeoMetadata<'a>),
     WKB(GeoMetadata<'a>),
+}
+
+impl GeometryType<'_> {
+    pub fn to_owned(&self) -> OwnedGeometryType {
+        macro_rules! owned_meta {
+            ($meta:expr) => {
+                OwnedGeoMetadata {
+                    dimension: $meta.dimension,
+                    crs: $meta.crs.map(String::from),
+                }
+            };
+        }
+
+        match self {
+            GeometryType::Point(meta) => OwnedGeometryType::Point(owned_meta!(meta)),
+            GeometryType::LineString(meta) => OwnedGeometryType::LineString(owned_meta!(meta)),
+            GeometryType::Polygon(meta) => OwnedGeometryType::Polygon(owned_meta!(meta)),
+            GeometryType::WKB(meta) => OwnedGeometryType::WKB(owned_meta!(meta)),
+        }
+    }
 }
 
 /// An owned geometry type.
@@ -73,9 +110,8 @@ impl OwnedGeometryType {
     }
 }
 
-// We need to provide nullability info.
 impl OwnedGeometryType {
-    pub fn into_ext_dtype(self: OwnedGeometryType, nullability: Nullability) -> ExtDType {
+    pub fn into_ext_dtype(self, nullability: Nullability) -> ExtDType {
         let ext_meta = self.metadata();
 
         match self {
@@ -120,6 +156,32 @@ impl OwnedGeometryType {
                 Arc::new(DType::Binary(nullability)),
                 Some(ExtMetadata::new(ext_meta.into())),
             ),
+        }
+    }
+
+    pub fn into_arrow_field(self, nullability: Nullability) -> Field {
+        match self {
+            OwnedGeometryType::Point(meta) => PointType::new(
+                CoordType::Separated,
+                meta.dimension.into(),
+                Arc::new(meta.into()),
+            )
+            .to_field("point_type", nullability.into()),
+            OwnedGeometryType::LineString(meta) => LineStringType::new(
+                CoordType::Separated,
+                meta.dimension.into(),
+                Arc::new(meta.into()),
+            )
+            .to_field("line_string_type", nullability.into()),
+            OwnedGeometryType::Polygon(meta) => PolygonType::new(
+                CoordType::Separated,
+                meta.dimension.into(),
+                Arc::new(meta.into()),
+            )
+            .to_field("polygon_type", nullability.into()),
+            OwnedGeometryType::WKB(meta) => {
+                WkbType::new(Arc::new(meta.into())).to_field("wkb_type", nullability.into(), false)
+            }
         }
     }
 }

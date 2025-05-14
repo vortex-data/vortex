@@ -14,8 +14,11 @@ pub struct Args {
     input: PathBuf,
 }
 
+#[allow(clippy::use_debug)]
 #[tokio::main]
 pub async fn main() -> anyhow::Result<()> {
+    vortex_geo::arrow::register_extension_types();
+
     let args = Args::parse();
     let reader = VortexOpenOptions::file()
         .open(&args.input)
@@ -27,8 +30,10 @@ pub async fn main() -> anyhow::Result<()> {
         .to_arrow_schema()
         .context("get arrow schema")?;
 
-    let out = File::open("ipc.arrow").context("open IPC file")?;
+    let out = File::create("ipc.arrow").context("open IPC file")?;
     let mut writer = arrow_ipc::writer::StreamWriter::try_new(out, &arrow_schema)?;
+
+    println!("arrow schema: {:?}", arrow_schema);
 
     // Stream batches to read the file as-is.
     let batches = reader.scan().context("scan builder")?.into_array_iter()?;

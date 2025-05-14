@@ -6,21 +6,12 @@ use std::fs::File;
 use vortex_array::variants::StructArrayTrait;
 use vortex_array::{ArrayRef, ToCanonical, TryIntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_dtype::arrow::ArrowTypeConversionRef;
 use vortex_geo::POLYGON_ID;
-
-#[used]
-static TEST: fn() = || {
-    // Dummy function to force linker to pick up geo plugin
-    vortex_geo::arrow::registry_link()
-};
 
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 pub fn main() {
-    println!(
-        "number of conversions: {}",
-        vortex_dtype::inventory::iter::<ArrowTypeConversionRef>().count()
-    );
+    vortex_geo::arrow::register_extension_types();
+
     let file = File::open("/Volumes/Code/Data/afghan.parquet").unwrap();
     let mut geo = geoarrow_geoparquet::GeoParquetRecordBatchReaderBuilder::try_new(file)
         .unwrap()
