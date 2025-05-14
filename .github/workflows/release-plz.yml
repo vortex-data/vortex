@@ -76,7 +76,7 @@ jobs:
           working-directory: pyvortex
           target: x86_64
           command: build
-          args: --release --interpreter python3.10 --auditwheel check --sdist
+          args: --release --interpreter python3.11 --auditwheel check --sdist
       - name: Build wheels - aarch64
         uses: PyO3/maturin-action@v1
         with:
@@ -84,7 +84,7 @@ jobs:
           working-directory: pyvortex
           target: aarch64  # NB: aarch64 becomes arm64 in the wheel's platform tag.
           command: build
-          args: --release --interpreter python3.10 --auditwheel check
+          args: --release --interpreter python3.11 --auditwheel check
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -110,7 +110,7 @@ jobs:
           target: x86_64
           manylinux: auto
           command: build
-          args: --release --interpreter python3.10 --auditwheel check --zig
+          args: --release --interpreter python3.11 --auditwheel check --zig
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
