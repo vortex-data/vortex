@@ -8,7 +8,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt, ArrayRef};
+use crate::{Array, ArrayRef};
 
 /// Perform SQL left LIKE right
 ///

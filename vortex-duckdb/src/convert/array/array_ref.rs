@@ -5,7 +5,7 @@ use duckdb::vtab::arrow::{
 };
 use vortex_array::arrays::{ChunkedVTable, DecimalArray, VarBinViewVTable};
 use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
-use vortex_array::{Array, ArrayExt, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, ArrayStatistics, IntoArray, ToCanonical};
 use vortex_dict::DictVTable;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_fsst::FSSTVTable;

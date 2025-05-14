@@ -12,7 +12,7 @@ use crate::arrays::{BoolArray, ConstantArray};
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, fill_null};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt, ArrayRef, Canonical, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 /// Keep only the elements for which the corresponding mask value is true.
 ///

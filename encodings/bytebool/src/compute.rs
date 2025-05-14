@@ -66,7 +66,6 @@ register_kernel!(TakeKernelAdapter(ByteBoolVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ArrayExt;
     use vortex_array::compute::conformance::mask::test_mask;
     use vortex_array::compute::{Operator, compare};
 

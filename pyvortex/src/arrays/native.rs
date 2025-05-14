@@ -18,7 +18,7 @@ use vortex::encodings::sparse::SparseVTable;
 use vortex::encodings::zigzag::ZigZagVTable;
 use vortex::error::VortexExpect;
 use vortex::vtable::VTable;
-use vortex::{Array, ArrayExt, ArrayRef};
+use vortex::{Array, ArrayRef};
 
 use crate::arrays::PyArray;
 use crate::arrays::builtins::{

@@ -7,7 +7,7 @@ use vortex_scalar::Scalar;
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     FILL_NULL_FN

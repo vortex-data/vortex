@@ -3,7 +3,7 @@ mod stats;
 
 use vortex_alp::{ALPArray, ALPEncoding, ALPVTable, RDEncoder};
 use vortex_array::arrays::{ConstantArray, PrimitiveVTable};
-use vortex_array::{ArrayExt as _, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::PType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};

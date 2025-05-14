@@ -129,7 +129,7 @@ impl ValidityChild<ZigZagVTable> for ZigZagVTable {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::{ArrayExt, IntoArray};
+    use vortex_array::IntoArray;
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 

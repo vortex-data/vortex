@@ -5,10 +5,10 @@ use vortex_dtype::{DType, Nullability, StructDType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt};
 
 /// Computes the min & max of an array, returning the (min, max) values
 /// The return values are (min, max) scalars, where None indicates that the value is non-existent

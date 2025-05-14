@@ -5,10 +5,10 @@ use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::stats::{Precision, Stat, StatsProvider};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt};
 
 /// Sum an array.
 ///

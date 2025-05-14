@@ -5,7 +5,7 @@ use vortex_scalar::Scalar;
 
 use crate::arrays::{ConstantArray, PrimitiveArray, PrimitiveEncoding, PrimitiveVTable};
 use crate::compute::{cast, min_max};
-use crate::{Array, ArrayExt, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Downscale a primitive array to the narrowest PType that fits all the values.
 pub fn downscale_integer_array(array: ArrayRef) -> VortexResult<ArrayRef> {

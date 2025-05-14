@@ -8,7 +8,7 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::arrays::{ChunkedArray, ChunkedVTable};
 use crate::stream::{ArrayStream, ArrayStreamAdapter};
-use crate::{Array, ArrayExt, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// Iterator of array with a known [`DType`].
 ///
@@ -81,9 +81,9 @@ pub trait ArrayIteratorExt: ArrayIterator {
 
 impl<I: ArrayIterator> ArrayIteratorExt for I {}
 
-pub trait ArrayIteratorArrayExt: Array {
+impl dyn Array + '_ {
     /// Create an [`ArrayIterator`] over the array.
-    fn to_array_iterator(&self) -> impl ArrayIterator + 'static {
+    pub fn to_array_iterator(&self) -> impl ArrayIterator + 'static {
         let dtype = self.dtype().clone();
         let iter = if let Some(chunked) = self.as_opt::<ChunkedVTable>() {
             ArrayChunkIterator::Chunked(Arc::new(chunked.clone()), 0)
@@ -93,8 +93,6 @@ pub trait ArrayIteratorArrayExt: Array {
         ArrayIteratorAdapter::new(dtype, iter)
     }
 }
-
-impl<A: ?Sized + Array> ArrayIteratorArrayExt for A {}
 
 /// We define a single iterator that can handle both chunked and non-chunked arrays.
 /// This avoids the need to create boxed static iterators for the two chunked and non-chunked cases.

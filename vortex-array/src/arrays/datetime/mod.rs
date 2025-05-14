@@ -8,7 +8,7 @@ use vortex_dtype::{DType, ExtDType};
 use vortex_error::{VortexError, vortex_err, vortex_panic};
 
 use crate::arrays::{ExtensionArray, ExtensionVTable};
-use crate::{Array, ArrayExt, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// An array wrapper for primitive values that have an associated temporal meaning.
 ///

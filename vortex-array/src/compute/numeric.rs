@@ -10,7 +10,7 @@ use crate::arrays::ConstantArray;
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 /// Point-wise add two numeric arrays.
 pub fn add(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {

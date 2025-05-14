@@ -187,7 +187,7 @@ mod test {
     use futures_util::io::Cursor;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::stream::{ArrayStream, ArrayStreamArrayExt, ArrayStreamExt};
+    use vortex_array::stream::{ArrayStream, ArrayStreamExt};
 
     use super::*;
 

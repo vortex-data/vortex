@@ -9,7 +9,7 @@ use tokio::runtime::Runtime;
 use vortex::arrays::{ChunkedArray, ChunkedVTable};
 use vortex::builders::builder_with_capacity;
 use vortex::error::VortexUnwrap;
-use vortex::{Array, ArrayExt, IntoArray};
+use vortex::{Array, IntoArray};
 
 use crate::Format;
 use crate::bench_run::run;

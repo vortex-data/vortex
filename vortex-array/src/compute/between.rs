@@ -12,7 +12,7 @@ use crate::compute::{
     boolean, compare,
 };
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt, ArrayRef, Canonical, IntoArray};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 /// Compute between (a <= x <= b), this can be implemented using compare and boolean and but this
 /// will likely have a lower runtime.

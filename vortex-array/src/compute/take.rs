@@ -9,7 +9,7 @@ use crate::arrays::ConstantArray;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     TAKE_FN

@@ -503,8 +503,8 @@ pub mod test_harness {
 mod test {
     use rand::SeedableRng as _;
     use rand::rngs::StdRng;
+    use vortex_array::ToCanonical as _;
     use vortex_array::arrays::ChunkedArray;
-    use vortex_array::{ArrayExt, ToCanonical as _};
     use vortex_buffer::buffer;
     use vortex_error::VortexError;
 

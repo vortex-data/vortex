@@ -6,7 +6,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_pa
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Logically invert a boolean array, preserving its validity.
 pub fn invert(array: &dyn Array) -> VortexResult<ArrayRef> {

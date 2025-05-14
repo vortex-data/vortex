@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use vortex::arrays::{ChunkedArray, ChunkedVTable};
 use vortex::dtype::FieldName;
-use vortex::{ArrayExt, ArrayRef, IntoArray, ToCanonical};
+use vortex::{ArrayRef, IntoArray, ToCanonical};
 
 use crate::datasets::Dataset;
 use crate::ddb::{build_vortex_duckdb, get_executable_path};

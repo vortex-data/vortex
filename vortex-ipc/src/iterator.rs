@@ -153,7 +153,7 @@ mod test {
 
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::iter::{ArrayIterator, ArrayIteratorArrayExt, ArrayIteratorExt};
+    use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
 
     use super::*;
 

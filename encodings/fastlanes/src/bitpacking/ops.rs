@@ -54,7 +54,7 @@ mod test {
     use vortex_array::compute::take;
     use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayExt, IntoArray};
+    use vortex_array::{Array, IntoArray};
     use vortex_buffer::{Alignment, Buffer, ByteBuffer, buffer};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;

@@ -1,6 +1,6 @@
 use vortex_array::arrays::{VarBinVTable, varbin_scalar};
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayExt, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::Scalar;

@@ -221,7 +221,6 @@ mod tests {
 
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
-    use crate::array::ArrayExt;
     use crate::arrays::VarBinViewVTable;
     use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 

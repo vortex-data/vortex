@@ -10,7 +10,6 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{Operator, compare};
-use vortex_array::stream::ArrayStreamArrayExt;
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::{DType, StructDType};

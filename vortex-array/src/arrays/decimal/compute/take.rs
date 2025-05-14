@@ -40,7 +40,6 @@ mod tests {
     use vortex_dtype::DecimalDType;
 
     use crate::IntoArray;
-    use crate::array::ArrayExt;
     use crate::arrays::{DecimalArray, DecimalVTable};
     use crate::compute::take;
     use crate::validity::Validity;
