@@ -2,7 +2,7 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper, VisitorVTable};
-use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, ProstMetadata};
+use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, Canonical, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
@@ -143,34 +143,5 @@ impl VisitorVTable<BitPackedVTable> for BitPackedVTable {
             visitor.visit_patches(patches);
         }
         visitor.visit_validity(array.validity(), array.len());
-    }
-
-    fn with_children(
-        array: &BitPackedArray,
-        children: &[ArrayRef],
-    ) -> VortexResult<BitPackedArray> {
-        let patches = array.patches().map(|existing| {
-            let indices = children[0].clone();
-            let values = children[1].clone();
-            Patches::new(existing.array_len(), existing.offset(), indices, values)
-        });
-
-        let validity = if array.validity().is_array() {
-            Validity::Array(children[children.len() - 1].clone())
-        } else {
-            array.validity().clone()
-        };
-
-        unsafe {
-            BitPackedArray::new_unchecked_with_offset(
-                array.packed().clone(),
-                array.ptype(),
-                validity,
-                patches,
-                array.bit_width(),
-                array.len(),
-                array.offset(),
-            )
-        }
     }
 }

@@ -8,7 +8,7 @@ use crate::arrays::{StructArray, StructVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EmptyMetadata};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
 
 impl SerdeVTable<StructVTable> for StructVTable {
     type Metadata = EmptyMetadata;
@@ -65,18 +65,5 @@ impl VisitorVTable<StructVTable> for StructVTable {
         for (idx, name) in array.names().iter().enumerate() {
             visitor.visit_child(name.as_ref(), &array.fields()[idx]);
         }
-    }
-
-    fn with_children(array: &StructArray, children: &[ArrayRef]) -> VortexResult<StructArray> {
-        let validity = if array.validity().is_array() {
-            Validity::Array(children[0].clone())
-        } else {
-            array.validity().clone()
-        };
-
-        let fields_idx = if validity.is_array() { 1_usize } else { 0 };
-        let fields = children[fields_idx..].to_vec();
-
-        StructArray::try_new_with_dtype(fields, array.struct_dtype().clone(), array.len(), validity)
     }
 }

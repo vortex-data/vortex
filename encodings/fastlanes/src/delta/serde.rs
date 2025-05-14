@@ -2,7 +2,7 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
@@ -76,22 +76,6 @@ impl VisitorVTable<DeltaVTable> for DeltaVTable {
         visitor.visit_child("bases", array.bases());
         visitor.visit_child("deltas", array.deltas());
         visitor.visit_validity(array.validity(), array.len());
-    }
-
-    fn with_children(array: &DeltaArray, children: &[ArrayRef]) -> VortexResult<DeltaArray> {
-        let validity = if array.validity().is_array() {
-            Validity::Array(children[2].clone())
-        } else {
-            array.validity().clone()
-        };
-
-        DeltaArray::try_new(
-            children[0].clone(),
-            children[1].clone(),
-            validity,
-            array.offset,
-            array.len(),
-        )
     }
 }
 

@@ -5,23 +5,9 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{ListArray, ListVTable};
 use crate::compute::{
-    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, IsSortedKernel,
-    IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
+    IsSortedKernel, IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
 };
 use crate::register_kernel;
-
-impl IsConstantKernel for ListVTable {
-    fn is_constant(
-        &self,
-        _array: &ListArray,
-        _opts: &IsConstantOpts,
-    ) -> VortexResult<Option<bool>> {
-        // TODO(adam): Do we want to fallback to arrow here?
-        Ok(None)
-    }
-}
-
-register_kernel!(IsConstantKernelAdapter(ListVTable).lift());
 
 impl MinMaxKernel for ListVTable {
     fn min_max(&self, _array: &ListArray) -> VortexResult<Option<MinMaxResult>> {

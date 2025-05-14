@@ -1,7 +1,6 @@
 mod binary_numeric;
 mod compare;
 mod fill_null;
-mod is_constant;
 mod is_sorted;
 mod like;
 mod min_max;

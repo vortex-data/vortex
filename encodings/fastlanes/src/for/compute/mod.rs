@@ -1,5 +1,4 @@
 mod compare;
-mod is_constant;
 
 use vortex_array::compute::{
     FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,

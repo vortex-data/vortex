@@ -1,8 +1,7 @@
-use itertools::Itertools;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::Nullability::NonNullable;
@@ -72,14 +71,5 @@ impl VisitorVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         array.lower_parts.iter().enumerate().for_each(|(idx, arr)| {
             visitor.visit_child(ENCODED_NAMES[idx], arr);
         })
-    }
-
-    fn with_children(
-        array: &DecimalBytePartsArray,
-        children: &[ArrayRef],
-    ) -> VortexResult<DecimalBytePartsArray> {
-        let msp = children[0].clone();
-        let lower_parts = children.iter().skip(1).cloned().collect_vec();
-        DecimalBytePartsArray::try_new(msp, lower_parts, *array.decimal_dtype())
     }
 }

@@ -118,7 +118,7 @@ mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
 num-traits = "0.2.19"
 num_enum = "0.7.2"
-object_store = "0.12"
+object_store = "0.12.1"
 opentelemetry = "0.29.0"
 opentelemetry-otlp = "0.29.0"
 opentelemetry_sdk = "0.29.0"

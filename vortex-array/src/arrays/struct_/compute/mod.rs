@@ -8,8 +8,7 @@ use vortex_error::VortexResult;
 use crate::arrays::StructVTable;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
-    IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, MinMaxKernel, MinMaxKernelAdapter,
-    MinMaxResult, TakeKernel, TakeKernelAdapter, is_constant_opts, take,
+    MinMaxKernel, MinMaxKernelAdapter, MinMaxResult, TakeKernel, TakeKernelAdapter, take,
 };
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
@@ -40,32 +39,6 @@ impl MinMaxKernel for StructVTable {
 }
 
 register_kernel!(MinMaxKernelAdapter(StructVTable).lift());
-
-impl IsConstantKernel for StructVTable {
-    fn is_constant(
-        &self,
-        array: &StructArray,
-        opts: &IsConstantOpts,
-    ) -> VortexResult<Option<bool>> {
-        let children = array.children();
-        if children.is_empty() {
-            return Ok(None);
-        }
-
-        for child in children.iter() {
-            match is_constant_opts(child, opts)? {
-                // Un-determined
-                None => return Ok(None),
-                Some(false) => return Ok(Some(false)),
-                Some(true) => {}
-            }
-        }
-
-        Ok(Some(true))
-    }
-}
-
-register_kernel!(IsConstantKernelAdapter(StructVTable).lift());
 
 #[cfg(test)]
 mod tests {

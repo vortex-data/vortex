@@ -19,7 +19,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use crate::{Array, ArrayRef, Canonical, Cost, EncodingId, EncodingRef, IntoArray, vtable};
 
 vtable!(List);
 
@@ -170,6 +170,11 @@ impl OperationsVTable<ListVTable> for ListVTable {
             scalars,
             array.dtype().nullability(),
         ))
+    }
+
+    fn is_constant(_array: &ListArray, _cost: Cost) -> VortexResult<Option<bool>> {
+        // TODO(ngates): implement for list arrays
+        Ok(Some(false))
     }
 }
 

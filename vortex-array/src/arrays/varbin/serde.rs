@@ -7,7 +7,7 @@ use crate::arrays::{VarBinArray, VarBinVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ProstMetadata};
+use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
 
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {
@@ -65,34 +65,5 @@ impl VisitorVTable<VarBinVTable> for VarBinVTable {
     fn visit_children(array: &VarBinArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("offsets", array.offsets());
         visitor.visit_validity(array.validity(), array.len());
-    }
-
-    fn with_children(array: &VarBinArray, children: &[ArrayRef]) -> VortexResult<VarBinArray> {
-        let new = match children.len() {
-            // Only the offsets array is mandatory
-            1 => {
-                let offsets = children[0].clone();
-                VarBinArray::try_new(
-                    offsets,
-                    array.bytes().clone(),
-                    array.dtype().clone(),
-                    array.validity().clone(),
-                )?
-            }
-            // If are provided with both an offsets and validity arrays
-            2 => {
-                let offsets = children[0].clone();
-                let validity_array = children[1].clone();
-                VarBinArray::try_new(
-                    offsets,
-                    array.bytes().clone(),
-                    array.dtype().clone(),
-                    Validity::Array(validity_array),
-                )?
-            }
-            _ => vortex_bail!("unexpected number of new children"),
-        };
-
-        Ok(new)
     }
 }

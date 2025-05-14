@@ -7,7 +7,7 @@ use crate::arrays::ListEncoding;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ProstMetadata};
+use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
 
 #[derive(Clone, prost::Message)]
 pub struct ListMetadata {
@@ -71,17 +71,5 @@ impl VisitorVTable<ListVTable> for ListVTable {
         visitor.visit_child("elements", array.elements());
         visitor.visit_child("offsets", array.offsets());
         visitor.visit_validity(array.validity(), array.len());
-    }
-
-    fn with_children(array: &ListArray, children: &[ArrayRef]) -> VortexResult<ListArray> {
-        let elements = children[0].clone();
-        let offsets = children[1].clone();
-        let validity = if array.validity().is_array() {
-            Validity::Array(children[2].clone())
-        } else {
-            array.validity().clone()
-        };
-
-        ListArray::try_new(elements, offsets, validity)
     }
 }

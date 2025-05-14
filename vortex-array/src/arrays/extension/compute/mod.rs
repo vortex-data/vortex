@@ -7,10 +7,9 @@ use vortex_scalar::Scalar;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
-    FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    IsSortedKernel, IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
-    SumKernel, SumKernelAdapter, TakeKernel, TakeKernelAdapter, filter, is_constant_opts,
-    is_sorted, is_strict_sorted, min_max, sum, take,
+    FilterKernel, FilterKernelAdapter, IsSortedKernel, IsSortedKernelAdapter, MinMaxKernel,
+    MinMaxKernelAdapter, MinMaxResult, SumKernel, SumKernelAdapter, TakeKernel, TakeKernelAdapter,
+    filter, is_sorted, is_strict_sorted, min_max, sum, take,
 };
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
@@ -56,18 +55,6 @@ impl MinMaxKernel for ExtensionVTable {
 }
 
 register_kernel!(MinMaxKernelAdapter(ExtensionVTable).lift());
-
-impl IsConstantKernel for ExtensionVTable {
-    fn is_constant(
-        &self,
-        array: &ExtensionArray,
-        opts: &IsConstantOpts,
-    ) -> VortexResult<Option<bool>> {
-        is_constant_opts(array.storage(), opts)
-    }
-}
-
-register_kernel!(IsConstantKernelAdapter(ExtensionVTable).lift());
 
 impl IsSortedKernel for ExtensionVTable {
     fn is_sorted(&self, array: &ExtensionArray) -> VortexResult<bool> {

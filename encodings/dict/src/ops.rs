@@ -1,6 +1,6 @@
 use vortex_array::arrays::{ConstantArray, ConstantVTable};
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef, Cost, IntoArray};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -29,6 +29,13 @@ impl OperationsVTable<DictVTable> for DictVTable {
     fn scalar_at(array: &DictArray, index: usize) -> VortexResult<Scalar> {
         let dict_index: usize = array.codes().scalar_at(index)?.as_ref().try_into()?;
         array.values().scalar_at(dict_index)
+    }
+
+    fn is_constant(array: &DictArray, cost: Cost) -> VortexResult<Option<bool>> {
+        if array.codes().is_constant_with_cost(cost) == Some(true) {
+            return Ok(Some(true));
+        }
+        Ok(array.values().is_constant_with_cost(cost))
     }
 }
 

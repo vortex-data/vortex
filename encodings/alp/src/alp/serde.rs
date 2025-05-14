@@ -2,7 +2,7 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, ProstMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
@@ -93,18 +93,6 @@ impl VisitorVTable<ALPVTable> for ALPVTable {
         if let Some(patches) = array.patches() {
             visitor.visit_patches(patches);
         }
-    }
-
-    fn with_children(array: &ALPArray, children: &[ArrayRef]) -> VortexResult<ALPArray> {
-        let encoded = children[0].clone();
-
-        let patches = array.patches().map(|existing| {
-            let indices = children[1].clone();
-            let values = children[2].clone();
-            Patches::new(existing.array_len(), existing.offset(), indices, values)
-        });
-
-        ALPArray::try_new(encoded, array.exponents(), patches)
     }
 }
 

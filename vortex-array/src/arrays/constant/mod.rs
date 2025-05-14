@@ -4,12 +4,13 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::stats::{ArrayStats, StatsSet, StatsSetRef};
+use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
     ArrayVTable, NotSupported, OperationsVTable, VTable, ValidityVTable, VisitorVTable,
 };
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EncodingId, EncodingRef, IntoArray, vtable,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Cost, EncodingId, EncodingRef, IntoArray,
+    vtable,
 };
 
 mod canonical;
@@ -58,11 +59,10 @@ impl ConstantArray {
         S: Into<Scalar>,
     {
         let scalar = scalar.into();
-        let stats = StatsSet::constant(scalar.clone(), len);
         Self {
             scalar,
             len,
-            stats_set: ArrayStats::from(stats),
+            stats_set: Default::default(),
         }
     }
 
@@ -93,6 +93,10 @@ impl OperationsVTable<ConstantVTable> for ConstantVTable {
 
     fn scalar_at(array: &ConstantArray, _index: usize) -> VortexResult<Scalar> {
         Ok(array.scalar.clone())
+    }
+
+    fn is_constant(_array: &ConstantArray, _cost: Cost) -> VortexResult<Option<bool>> {
+        Ok(Some(true))
     }
 }
 
@@ -128,8 +132,4 @@ impl VisitorVTable<ConstantVTable> for ConstantVTable {
     }
 
     fn visit_children(_array: &ConstantArray, _visitor: &mut dyn ArrayChildVisitor) {}
-
-    fn with_children(array: &ConstantArray, _children: &[ArrayRef]) -> VortexResult<ConstantArray> {
-        Ok(array.clone())
-    }
 }

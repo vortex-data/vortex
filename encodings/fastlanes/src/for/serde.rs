@@ -3,8 +3,7 @@ use std::fmt::{Debug, Formatter};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
-    SerializeMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, SerializeMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
@@ -64,16 +63,6 @@ impl VisitorVTable<FoRVTable> for FoRVTable {
 
     fn visit_children(array: &FoRArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("encoded", array.encoded())
-    }
-
-    fn with_children(array: &FoRArray, children: &[ArrayRef]) -> VortexResult<FoRArray> {
-        if children.len() != 1 {
-            vortex_bail!(
-                "Expected 1 child for FoR encoding, found {}",
-                children.len()
-            )
-        }
-        FoRArray::try_new(children[0].clone(), array.reference_scalar().clone())
     }
 }
 

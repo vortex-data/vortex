@@ -2,8 +2,7 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
-    ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
@@ -142,26 +141,6 @@ impl VisitorVTable<ALPRDVTable> for ALPRDVTable {
         if let Some(patches) = array.left_parts_patches() {
             visitor.visit_patches(patches);
         }
-    }
-
-    fn with_children(array: &ALPRDArray, children: &[ArrayRef]) -> VortexResult<ALPRDArray> {
-        let left_parts = children[0].clone();
-        let right_parts = children[1].clone();
-
-        let left_part_patches = array.left_parts_patches().map(|existing| {
-            let indices = children[2].clone();
-            let values = children[3].clone();
-            Patches::new(existing.array_len(), existing.offset(), indices, values)
-        });
-
-        ALPRDArray::try_new(
-            array.dtype().clone(),
-            left_parts,
-            array.left_parts_dictionary().clone(),
-            right_parts,
-            array.right_bit_width(),
-            left_part_patches,
-        )
     }
 }
 

@@ -20,8 +20,8 @@ mod patch;
 mod serde;
 mod top_value;
 
-pub use compute::{IS_CONST_LANE_WIDTH, compute_is_constant};
 pub use native_value::NativeValue;
+pub use ops::{IS_CONST_LANE_WIDTH, compute_is_constant};
 
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,

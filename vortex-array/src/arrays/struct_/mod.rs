@@ -12,7 +12,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use crate::{Array, ArrayRef, Canonical, Cost, EncodingId, EncodingRef, IntoArray, vtable};
 
 mod compute;
 mod serde;
@@ -253,6 +253,24 @@ impl OperationsVTable<StructVTable> for StructVTable {
                 .map(|field| field.scalar_at(index))
                 .try_collect()?,
         ))
+    }
+
+    fn is_constant(array: &StructArray, cost: Cost) -> VortexResult<Option<bool>> {
+        let children = array.children();
+        if children.is_empty() {
+            return Ok(None);
+        }
+
+        for child in children.iter() {
+            match child.is_constant_with_cost(cost) {
+                // Un-determined
+                None => return Ok(None),
+                Some(false) => return Ok(Some(false)),
+                Some(true) => {}
+            }
+        }
+
+        Ok(Some(true))
     }
 }
 

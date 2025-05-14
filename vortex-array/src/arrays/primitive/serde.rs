@@ -7,7 +7,7 @@ use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EmptyMetadata};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
 
 impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
     type Metadata = EmptyMetadata;
@@ -70,22 +70,5 @@ impl VisitorVTable<PrimitiveVTable> for PrimitiveVTable {
 
     fn visit_children(array: &PrimitiveArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(array.validity(), array.len());
-    }
-
-    fn with_children(
-        array: &PrimitiveArray,
-        children: &[ArrayRef],
-    ) -> VortexResult<PrimitiveArray> {
-        let validity = if array.validity().is_array() {
-            Validity::Array(children[0].clone())
-        } else {
-            array.validity().clone()
-        };
-
-        Ok(PrimitiveArray::from_byte_buffer(
-            array.byte_buffer().clone(),
-            array.ptype(),
-            validity,
-        ))
     }
 }

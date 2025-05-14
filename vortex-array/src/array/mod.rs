@@ -1,5 +1,4 @@
 mod convert;
-mod statistics;
 mod visitor;
 
 use std::any::Any;
@@ -10,7 +9,7 @@ pub use convert::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -19,7 +18,8 @@ use crate::arrays::{
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, Cost, InvocationArgs, Output};
+use crate::compute::{ComputeFn, InvocationArgs, Output};
+use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
@@ -85,6 +85,18 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
             || self.is_encoding(VarBinViewEncoding.id())
             || self.is_encoding(ExtensionEncoding.id())
     }
+
+    /// Whether all values in the array are the same.
+    ///
+    /// The cost parameter determines how much work should be done by this function to reach
+    /// that determination. Any recursion into child arrays should therefore be careful to forward
+    /// the cost parameter.
+    ///
+    /// If the const-ness of the array cannot be determined under the cost constraints, then
+    /// `None` is returned.
+    ///
+    /// Computing const-ness with [`Cost::Canonicalize`] will guarantee an exact result.
+    fn is_constant_with_cost(&self, cost: Cost) -> Option<bool>;
 
     /// Returns whether the item at `index` is valid.
     fn is_valid(&self, index: usize) -> VortexResult<bool>;
@@ -179,6 +191,10 @@ impl Array for Arc<dyn Array> {
         self.as_ref().scalar_at(index)
     }
 
+    fn is_constant_with_cost(&self, cost: Cost) -> Option<bool> {
+        self.as_ref().is_constant_with_cost(cost)
+    }
+
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
         self.as_ref().is_valid(index)
     }
@@ -259,6 +275,23 @@ impl dyn Array + '_ {
     /// Is self an array with encoding from vtable `V`.
     pub fn is<V: VTable>(&self) -> bool {
         self.as_opt::<V>().is_some()
+    }
+
+    /// Whether all values in the array are the same, computed with [`Cost::Specialized`].
+    ///
+    /// See [`Array::is_constant_with_cost`] for more details.
+    pub fn is_constant(&self) -> bool {
+        self.is_constant_with_cost(Cost::Specialized)
+            .unwrap_or_default()
+    }
+
+    /// Returns the constant [`Scalar`] value of the array if it is constant computed with
+    /// [`Cost::Specialized`].
+    pub fn as_constant(&self) -> Option<Scalar> {
+        self.is_constant_with_cost(Cost::Specialized)
+            .unwrap_or_default()
+            .then(|| self.scalar_at(0).ok())
+            .flatten()
     }
 }
 
@@ -360,7 +393,11 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         // computing derived stats and merging them in.
         // TODO(ngates): skip the is_constant check here, it can force an expensive compute.
         // TODO(ngates): provide a means to slice an array _without_ propagating stats.
-        let derived_stats = (!self.0.is_constant_opts(Cost::Negligible)).then(|| {
+        let derived_stats = (!self
+            .0
+            .is_constant_with_cost(Cost::Negligible)
+            .unwrap_or_default())
+        .then(|| {
             let stats = self.statistics().to_owned();
 
             // an array that is not constant can become constant after slicing
@@ -424,6 +461,81 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.0, index)?;
         assert_eq!(self.dtype(), scalar.dtype(), "Scalar dtype mismatch");
         Ok(scalar)
+    }
+
+    fn is_constant_with_cost(&self, cost: Cost) -> Option<bool> {
+        if let Some(Precision::Exact(is_const)) = self.statistics().get_as::<bool>(Stat::IsConstant)
+        {
+            return Some(is_const);
+        }
+
+        // Some short-circuiting logic
+        let is_constant_impl = || {
+            match self.len() {
+                // Our current semantics are that we can always get a value out of a constant array,
+                // therefore an empty array is not considered constant.
+                // We might want to change that in the future.
+                0 => return Some(false),
+                // Array of length 1 is always constant.
+                1 => return Some(true),
+                _ => {}
+            }
+
+            let all_invalid = self.all_invalid().unwrap_or_default();
+            if all_invalid {
+                return Some(true);
+            }
+
+            // If we have some nulls, array can't be constant
+            let all_valid = self.all_valid().unwrap_or_default();
+            if !all_valid && !all_invalid {
+                return Some(false);
+            }
+
+            // We now know that the array is all valid, so we check for min/max stats.
+            let min = self
+                .statistics()
+                .get_scalar(Stat::Min, self.dtype())
+                .and_then(|p| p.as_exact());
+            let max = self
+                .statistics()
+                .get_scalar(Stat::Max, self.dtype())
+                .and_then(|p| p.as_exact());
+            if let Some((min, max)) = min.zip(max) {
+                if min == max {
+                    return Some(true);
+                }
+            }
+
+            None
+        };
+
+        let mut is_const = is_constant_impl().or_else(|| {
+            <V::OperationsVTable as OperationsVTable<V>>::is_constant(&self.0, cost)
+                .inspect_err(|e| {
+                    log::warn!(
+                        "Failed to compute {} is_constant: {}",
+                        self.encoding_id(),
+                        e
+                    )
+                })
+                .ok()
+                .flatten()
+        });
+
+        // If the cost allows for canonicalization, we do that as a fallback.
+        if is_const.is_none() && cost == Cost::Canonicalize && !self.is_canonical() {
+            if let Ok(canonical) = self.to_canonical() {
+                is_const = canonical.as_ref().is_constant_with_cost(Cost::Specialized);
+            }
+        }
+
+        if let Some(is_const) = is_const {
+            self.statistics()
+                .set(Stat::IsConstant, Precision::exact(is_const));
+        }
+
+        is_const
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
@@ -530,15 +642,50 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
-        if self.nchildren() != children.len() {
-            vortex_bail!("Child count mismatch");
+        struct ReplacementChildren<'a> {
+            children: &'a [ArrayRef],
         }
 
-        for (s, o) in self.children().iter().zip(children.iter()) {
-            assert_eq!(s.len(), o.len());
+        impl ArrayChildren for ReplacementChildren<'_> {
+            fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
+                if index >= self.children.len() {
+                    vortex_bail!(OutOfBounds: index, 0, self.children.len());
+                }
+                let child = &self.children[index];
+                if child.len() != len {
+                    vortex_bail!(
+                        "Child length mismatch: expected {}, got {}",
+                        len,
+                        child.len()
+                    );
+                }
+                if child.dtype() != dtype {
+                    vortex_bail!(
+                        "Child dtype mismatch: expected {}, got {}",
+                        dtype,
+                        child.dtype()
+                    );
+                }
+                Ok(child.clone())
+            }
+
+            fn len(&self) -> usize {
+                self.children.len()
+            }
         }
 
-        Ok(<V::VisitorVTable as VisitorVTable<V>>::with_children(&self.0, children)?.into_array())
+        let metadata = self.metadata()?.ok_or_else(|| {
+            vortex_err!("Cannot replace children for arrays that do not support serialization")
+        })?;
+
+        // Replace the children of the array by re-building the array from parts.
+        self.encoding().build(
+            self.dtype(),
+            self.len(),
+            &metadata,
+            &self.buffers(),
+            &ReplacementChildren { children },
+        )
     }
 
     fn invoke(
@@ -640,5 +787,27 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
             Ok(None) => write!(f, "<serde not supported>"),
             Ok(Some(metadata)) => Debug::fmt(&metadata, f),
         }
+    }
+}
+
+/// When calling `is_constant` the children are all checked for constantness.
+/// This enum decide at each precision/cost level the constant check should run as.
+/// The cost increase as we move down the list.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Cost {
+    /// Only apply constant time computation to estimate constantness.
+    Negligible,
+    /// Allow the encoding to do a linear amount of work to determine is constant.
+    /// Each encoding should implement short-circuiting make the common case runtime well below
+    /// a linear scan.
+    Specialized,
+    /// Same as linear, but when necessary canonicalize the array and check is constant.
+    /// This *must* always return a known answer.
+    Canonicalize,
+}
+
+impl Cost {
+    pub fn is_negligible(&self) -> bool {
+        matches!(self, Cost::Negligible)
     }
 }

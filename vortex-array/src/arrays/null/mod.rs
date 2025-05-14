@@ -11,7 +11,7 @@ use crate::vtable::{
     ValidityVTable, VisitorVTable,
 };
 use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EmptyMetadata, EncodingId,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, Cost, EmptyMetadata, EncodingId,
     EncodingRef, IntoArray, vtable,
 };
 
@@ -96,10 +96,6 @@ impl VisitorVTable<NullVTable> for NullVTable {
     fn visit_buffers(_array: &NullArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(_array: &NullArray, _visitor: &mut dyn ArrayChildVisitor) {}
-
-    fn with_children(array: &NullArray, _children: &[ArrayRef]) -> VortexResult<NullArray> {
-        Ok(array.clone())
-    }
 }
 
 impl CanonicalVTable<NullVTable> for NullVTable {
@@ -115,6 +111,10 @@ impl OperationsVTable<NullVTable> for NullVTable {
 
     fn scalar_at(_array: &NullArray, _index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::null(DType::Null))
+    }
+
+    fn is_constant(_array: &NullArray, _cost: Cost) -> VortexResult<Option<bool>> {
+        Ok(Some(true))
     }
 }
 

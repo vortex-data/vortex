@@ -1,5 +1,5 @@
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef, Cost, IntoArray};
 use vortex_dtype::Nullability::{NonNullable, Nullable};
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, PType};
@@ -62,5 +62,21 @@ impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
         )?;
 
         Ok(Scalar::extension(ext, Scalar::from(ts)))
+    }
+
+    fn is_constant(array: &DateTimePartsArray, cost: Cost) -> VortexResult<Option<bool>> {
+        match array.days().is_constant_with_cost(cost) {
+            None => return Ok(None),
+            Some(false) => return Ok(Some(false)),
+            Some(true) => {}
+        }
+
+        match array.seconds().is_constant_with_cost(cost) {
+            None => return Ok(None),
+            Some(false) => return Ok(Some(false)),
+            Some(true) => {}
+        }
+
+        Ok(array.subseconds().is_constant_with_cost(cost))
     }
 }

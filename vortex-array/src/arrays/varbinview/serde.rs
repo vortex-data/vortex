@@ -7,7 +7,7 @@ use crate::arrays::{VarBinViewArray, VarBinViewEncoding};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EmptyMetadata};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata};
 
 impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
     type Metadata = EmptyMetadata;
@@ -59,18 +59,5 @@ impl VisitorVTable<VarBinViewVTable> for VarBinViewVTable {
 
     fn visit_children(array: &VarBinViewArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(array.validity(), array.len())
-    }
-
-    fn with_children(
-        array: &VarBinViewArray,
-        children: &[ArrayRef],
-    ) -> VortexResult<VarBinViewArray> {
-        let mut this = array.clone();
-
-        if let Validity::Array(array) = &mut this.validity {
-            *array = children[0].clone();
-        }
-
-        Ok(this)
     }
 }

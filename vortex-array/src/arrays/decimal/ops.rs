@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use vortex_buffer::Buffer;
 use vortex_dtype::DecimalDType;
 use vortex_error::VortexResult;
@@ -6,7 +7,7 @@ use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::validity::Validity;
 use crate::vtable::OperationsVTable;
-use crate::{ArrayRef, IntoArray};
+use crate::{ArrayRef, Cost, IntoArray};
 
 impl OperationsVTable<DecimalVTable> for DecimalVTable {
     fn slice(array: &DecimalArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
@@ -30,6 +31,18 @@ impl OperationsVTable<DecimalVTable> for DecimalVTable {
             )
         });
         Ok(scalar)
+    }
+
+    fn is_constant(array: &DecimalArray, cost: Cost) -> VortexResult<Option<bool>> {
+        if cost.is_negligible() {
+            return Ok(None);
+        }
+
+        Ok(Some(
+            match_each_decimal_value_type!(array.values_type, |$S| {
+               array.buffer::<$S>().iter().all_equal()
+            }),
+        ))
     }
 }
 
@@ -100,5 +113,24 @@ mod tests {
                 Nullability::NonNullable
             )
         );
+    }
+
+    #[test]
+    fn test_is_constant() {
+        let array = DecimalArray::new(
+            buffer![0i128, 1i128, 2i128],
+            DecimalDType::new(19, 0),
+            Validity::NonNullable,
+        );
+
+        assert!(!array.is_constant());
+
+        let array = DecimalArray::new(
+            buffer![100i128, 100i128, 100i128],
+            DecimalDType::new(19, 0),
+            Validity::NonNullable,
+        );
+
+        assert!(array.is_constant());
     }
 }

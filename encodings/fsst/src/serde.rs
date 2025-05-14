@@ -3,8 +3,7 @@ use vortex_array::arrays::VarBinVTable;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
-    ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
@@ -101,25 +100,6 @@ impl VisitorVTable<FSSTVTable> for FSSTVTable {
     fn visit_children(array: &FSSTArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("codes", array.codes().as_ref());
         visitor.visit_child("uncompressed_lengths", array.uncompressed_lengths());
-    }
-
-    fn with_children(array: &FSSTArray, children: &[ArrayRef]) -> VortexResult<FSSTArray> {
-        if children.len() != 2 {
-            vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
-        }
-        let codes = children[0]
-            .as_opt::<VarBinVTable>()
-            .ok_or_else(|| vortex_err!("FSSTArray codes must be a VarBinArray"))?
-            .clone();
-        let uncompressed_lengths = children[1].clone();
-
-        FSSTArray::try_new(
-            array.dtype().clone(),
-            array.symbols().clone(),
-            array.symbol_lengths().clone(),
-            codes,
-            uncompressed_lengths,
-        )
     }
 }
 

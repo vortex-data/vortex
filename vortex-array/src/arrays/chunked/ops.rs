@@ -1,10 +1,10 @@
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::arrays::ChunkedVTable;
 use crate::arrays::chunked::ChunkedArray;
 use crate::vtable::OperationsVTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, Cost, IntoArray};
 
 impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
     fn slice(array: &ChunkedArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
@@ -42,17 +42,52 @@ impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
         let (chunk_index, chunk_offset) = array.find_chunk_idx(index);
         array.chunk(chunk_index)?.scalar_at(chunk_offset)
     }
+
+    fn is_constant(array: &ChunkedArray, cost: Cost) -> VortexResult<Option<bool>> {
+        let mut chunks = array.chunks().iter().skip_while(|c| c.is_empty());
+
+        let first_chunk = chunks
+            .next()
+            .vortex_expect("is_constant is only called for len > 1");
+
+        match first_chunk.is_constant_with_cost(cost) {
+            // Un-determined
+            None => return Ok(None),
+            Some(false) => return Ok(Some(false)),
+            Some(true) => {}
+        }
+
+        let first_value = first_chunk.scalar_at(0)?.into_nullable();
+
+        for chunk in chunks {
+            if chunk.is_empty() {
+                continue;
+            }
+
+            match chunk.is_constant_with_cost(cost) {
+                // Un-determined
+                None => return Ok(None),
+                Some(false) => return Ok(Some(false)),
+                Some(true) => {}
+            }
+
+            if first_value != chunk.scalar_at(0)?.into_nullable() {
+                return Ok(Some(false));
+            }
+        }
+
+        Ok(Some(true))
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::Buffer;
+    use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::{DType, NativePType, Nullability, PType};
 
-    use crate::IntoArray;
-    use crate::array::Array;
     use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
     use crate::canonical::ToCanonical;
+    use crate::{Array, IntoArray};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
@@ -171,5 +206,23 @@ mod tests {
         assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
         assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
         assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
+    }
+
+    #[test]
+    fn empty_chunk_is_constant() {
+        let chunked = ChunkedArray::try_new(
+            vec![
+                Buffer::<u8>::empty().into_array(),
+                Buffer::<u8>::empty().into_array(),
+                buffer![255u8, 255].into_array(),
+                Buffer::<u8>::empty().into_array(),
+                buffer![255u8, 255].into_array(),
+            ],
+            DType::Primitive(PType::U8, Nullability::NonNullable),
+        )
+        .unwrap()
+        .into_array();
+
+        assert!(chunked.statistics().compute_is_constant().unwrap());
     }
 }

@@ -1,8 +1,7 @@
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexResult;
 
 use crate::vtable::VTable;
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef};
+use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor};
 
 pub trait VisitorVTable<V: VTable> {
     /// Visit the buffers of the array.
@@ -40,12 +39,4 @@ pub trait VisitorVTable<V: VTable> {
         <V::VisitorVTable as VisitorVTable<V>>::visit_children(array, &mut visitor);
         visitor.0
     }
-
-    /// Replace the children of this array with the given arrays.
-    ///
-    /// ## Pre-conditions
-    ///
-    /// - The number of given children matches the current number of children of the array.
-    // TODO(ngates): pass a Vec<ArrayRef> so the implementation can take ownership
-    fn with_children(array: &V::Array, children: &[ArrayRef]) -> VortexResult<V::Array>;
 }

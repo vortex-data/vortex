@@ -1,5 +1,5 @@
 use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayRef, Cost, IntoArray};
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
@@ -35,6 +35,10 @@ impl OperationsVTable<FoRVTable> for FoRVTable {
                 .map(|v| Scalar::primitive::<$P>(v, array.dtype().nullability()))
                 .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
         }))
+    }
+
+    fn is_constant(array: &FoRArray, cost: Cost) -> VortexResult<Option<bool>> {
+        Ok(array.encoded.is_constant_with_cost(cost))
     }
 }
 

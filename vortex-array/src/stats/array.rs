@@ -9,10 +9,8 @@ use vortex_scalar::ScalarValue;
 use super::{
     Precision, Stat, StatType, StatsProvider, StatsProviderExt, StatsSet, StatsSetIntoIter,
 };
-use crate::Array;
-use crate::compute::{
-    MinMaxResult, is_constant, is_sorted, is_strict_sorted, min_max, nan_count, sum,
-};
+use crate::compute::{MinMaxResult, is_sorted, is_strict_sorted, min_max, nan_count, sum};
+use crate::{Array, Cost};
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 // TODO(adamg): This is a very bad name.
@@ -125,13 +123,10 @@ impl StatsSetRef<'_> {
                     .map(|s| s.into_value())
             }
             Stat::NullCount => Some(self.dyn_array_ref.invalid_count()?.into()),
-            Stat::IsConstant => {
-                if self.dyn_array_ref.is_empty() {
-                    None
-                } else {
-                    is_constant(self.dyn_array_ref)?.map(ScalarValue::from)
-                }
-            }
+            Stat::IsConstant => self
+                .dyn_array_ref
+                .is_constant_with_cost(Cost::Canonicalize)
+                .map(ScalarValue::from),
             Stat::IsSorted => Some(is_sorted(self.dyn_array_ref)?.into()),
             Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref)?.into()),
             Stat::UncompressedSizeInBytes => {

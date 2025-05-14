@@ -1,8 +1,7 @@
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
-    ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
@@ -71,12 +70,6 @@ impl VisitorVTable<DictVTable> for DictVTable {
     fn visit_children(array: &DictArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("codes", array.codes());
         visitor.visit_child("values", array.values());
-    }
-
-    fn with_children(_array: &DictArray, children: &[ArrayRef]) -> VortexResult<DictArray> {
-        let codes = children[0].clone();
-        let values = children[1].clone();
-        DictArray::try_new(codes, values)
     }
 }
 

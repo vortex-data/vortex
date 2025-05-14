@@ -2,8 +2,7 @@ use vortex_array::arrays::TemporalArray;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
-    ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
@@ -93,18 +92,6 @@ impl VisitorVTable<DateTimePartsVTable> for DateTimePartsVTable {
         visitor.visit_child("days", array.days());
         visitor.visit_child("seconds", array.seconds());
         visitor.visit_child("subseconds", array.subseconds());
-    }
-
-    fn with_children(
-        array: &DateTimePartsArray,
-        children: &[ArrayRef],
-    ) -> VortexResult<DateTimePartsArray> {
-        DateTimePartsArray::try_new(
-            array.dtype().clone(),
-            children[0].clone(),
-            children[1].clone(),
-            children[2].clone(),
-        )
     }
 }
 

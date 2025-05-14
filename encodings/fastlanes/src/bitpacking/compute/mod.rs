@@ -1,6 +1,5 @@
 mod between;
 mod filter;
-mod is_constant;
 mod take;
 
 fn chunked_indices<F: FnMut(usize, &[usize])>(

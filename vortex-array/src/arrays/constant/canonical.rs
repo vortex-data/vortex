@@ -225,7 +225,7 @@ mod tests {
 
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
-    use crate::stats::{Stat, StatsProviderExt, StatsSet};
+    use crate::stats::{Stat, StatsProviderExt};
     use crate::{Array, IntoArray};
 
     #[test]
@@ -253,13 +253,15 @@ mod tests {
     #[test]
     fn test_canonicalize_propagates_stats() {
         let scalar = Scalar::bool(true, Nullability::NonNullable);
-        let const_array = ConstantArray::new(scalar.clone(), 4).into_array();
-        let stats = const_array.statistics().to_owned();
+        let const_array = ConstantArray::new(scalar, 4).into_array();
+        let stats = const_array
+            .statistics()
+            .compute_all(&all::<Stat>().collect::<Vec<_>>())
+            .unwrap();
 
         let canonical = const_array.to_canonical().unwrap();
         let canonical_stats = canonical.as_ref().statistics().to_owned();
 
-        let reference = StatsSet::constant(scalar, 4);
         for stat in all::<Stat>() {
             if stat.dtype(canonical.as_ref().dtype()).is_none() {
                 continue;
@@ -267,12 +269,9 @@ mod tests {
 
             let canonical_stat =
                 canonical_stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
-            let reference_stat =
-                reference.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
             let original_stat =
                 stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
-            assert_eq!(canonical_stat, reference_stat);
-            assert_eq!(canonical_stat, original_stat);
+            assert_eq!(canonical_stat, original_stat, "Mismatch {}", stat);
         }
     }
 

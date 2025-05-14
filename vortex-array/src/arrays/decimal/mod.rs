@@ -15,9 +15,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper, VisitorVTable,
 };
-use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
-};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, Canonical, EncodingId, EncodingRef, vtable};
 
 vtable!(Decimal);
 
@@ -164,13 +162,6 @@ impl VisitorVTable<DecimalVTable> for DecimalVTable {
 
     fn visit_children(array: &DecimalArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(array.validity(), array.len())
-    }
-
-    fn with_children(array: &DecimalArray, _children: &[ArrayRef]) -> VortexResult<DecimalArray> {
-        // FIXME(ngates): ported this logic from old code, but it needs to handle replacing
-        //  any validity child.
-        // No non-validity child arrays to replace.
-        Ok(array.clone())
     }
 }
 
