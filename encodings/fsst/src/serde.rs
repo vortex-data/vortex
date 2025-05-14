@@ -1,10 +1,10 @@
 use fsst::{Compressor, Symbol};
 use vortex_array::arrays::VarBinVTable;
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, Canonical,
-    DeserializeMetadata, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
+    ProstMetadata,
 };
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, Nullability, PType};
@@ -31,12 +31,11 @@ impl SerdeVTable<FSSTVTable> for FSSTVTable {
 
     fn build(
         _encoding: &FSSTEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<FSSTArray> {
         if buffers.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 buffers, got {}", buffers.len());
@@ -47,47 +46,41 @@ impl SerdeVTable<FSSTVTable> for FSSTVTable {
         if children.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
         }
-        let codes = children[0]
-            .decode(ctx, DType::Binary(dtype.nullability()), len)?
+        let codes = children.get(0, &DType::Binary(dtype.nullability()), len)?;
+        let codes = codes
             .as_opt::<VarBinVTable>()
             .ok_or_else(|| {
                 vortex_err!(
-                    "Expected VarBinArray for codes, got {:?}",
-                    ctx.lookup_encoding(children[0].encoding_id())
+                    "Expected VarBinArray for codes, got {}",
+                    codes.encoding_id()
                 )
             })?
             .clone();
-        let uncompressed_lengths = children[1].decode(
-            ctx,
-            DType::Primitive(
+        let uncompressed_lengths = children.get(
+            1,
+            &DType::Primitive(
                 metadata.uncompressed_lengths_ptype(),
                 Nullability::NonNullable,
             ),
             len,
         )?;
 
-        FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
+        FSSTArray::try_new(
+            dtype.clone(),
+            symbols,
+            symbol_lengths,
+            codes,
+            uncompressed_lengths,
+        )
     }
 }
 
 impl EncodeVTable<FSSTVTable> for FSSTVTable {
     fn encode(
-        encoding: &FSSTEncoding,
+        _encoding: &FSSTEncoding,
         canonical: &Canonical,
-        like: Option<&dyn Array>,
+        like: Option<&FSSTArray>,
     ) -> VortexResult<Option<FSSTArray>> {
-        let like = like
-            .map(|like| {
-                like.as_opt::<Self>().ok_or_else(|| {
-                    vortex_err!(
-                        "Expected {} encoded array but got {}",
-                        encoding.id(),
-                        like.encoding_id()
-                    )
-                })
-            })
-            .transpose()?;
-
         let array = canonical.clone().into_varbinview()?;
 
         let compressor = match like {

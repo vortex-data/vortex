@@ -1,6 +1,6 @@
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::compute::{FilterKernel, FilterKernelAdapter, filter};
-use vortex_array::{ArrayExt, ArrayRef, IntoArray, register_kernel};
+use vortex_array::{ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 

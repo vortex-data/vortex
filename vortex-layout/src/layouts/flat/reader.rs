@@ -63,7 +63,7 @@ impl FlatReader {
                 async move {
                     let segment = segment_fut.await?;
                     ArrayParts::try_from(segment)?
-                        .decode(&ctx, dtype.clone(), row_count)
+                        .decode(&ctx, &dtype, row_count)
                         .map_err(Arc::new)
                 }
                 .boxed()

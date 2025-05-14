@@ -30,6 +30,7 @@ mod canonical;
 pub mod compress;
 pub mod compute;
 mod context;
+pub mod data;
 mod encoding;
 pub mod iter;
 mod metadata;

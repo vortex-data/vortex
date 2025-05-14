@@ -11,7 +11,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt, ArrayRef};
+use crate::{Array, ArrayRef};
 
 /// Point-wise logical _and_ between two Boolean arrays.
 ///

@@ -17,7 +17,7 @@ use crate::arrays::{ExtensionVTable, TemporalArray};
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::to_arrow::ToArrowArgs;
 use crate::compute::{InvocationArgs, Kernel, Output, cast};
-use crate::{Array as _, ArrayExt, IntoArray, ToCanonical};
+use crate::{Array as _, IntoArray, ToCanonical};
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
 #[derive(Debug)]

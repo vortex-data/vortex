@@ -238,7 +238,7 @@ mod test {
     use crate::arrays::chunked::ChunkedArray;
     use crate::compute::conformance::binary_numeric::test_numeric;
     use crate::compute::{cast, sub_scalar};
-    use crate::{ArrayExt, IntoArray, ToCanonical, assert_arrays_eq};
+    use crate::{IntoArray, ToCanonical, assert_arrays_eq};
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

@@ -1,8 +1,7 @@
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, Canonical,
-    DeserializeMetadata, EmptyMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, EmptyMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
@@ -19,21 +18,20 @@ impl SerdeVTable<ZigZagVTable> for ZigZagVTable {
 
     fn build(
         _encoding: &ZigZagEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<ZigZagArray> {
         if children.len() != 1 {
             vortex_bail!("Expected 1 child, got {}", children.len());
         }
 
-        let ptype = PType::try_from(&dtype)?;
+        let ptype = PType::try_from(dtype)?;
         let encoded_type = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
 
-        let encoded = children[0].decode(ctx, encoded_type, len)?;
+        let encoded = children.get(0, &encoded_type, len)?;
         ZigZagArray::try_new(encoded)
     }
 }
@@ -42,7 +40,7 @@ impl EncodeVTable<ZigZagVTable> for ZigZagVTable {
     fn encode(
         encoding: &ZigZagEncoding,
         canonical: &Canonical,
-        _like: Option<&dyn Array>,
+        _like: Option<&ZigZagArray>,
     ) -> VortexResult<Option<ZigZagArray>> {
         let parray = canonical.clone().into_primitive()?;
 

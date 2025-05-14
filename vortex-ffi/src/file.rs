@@ -23,7 +23,6 @@ use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
-use vortex::stream::ArrayStreamArrayExt;
 
 use crate::array::{vx_array, vx_array_iter};
 use crate::error::{try_or, vx_error};

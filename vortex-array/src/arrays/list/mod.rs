@@ -19,7 +19,7 @@ use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{Array, ArrayExt, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
 
 vtable!(List);
 

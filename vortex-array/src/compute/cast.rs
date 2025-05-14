@@ -6,7 +6,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::vtable::VTable;
-use crate::{Array, ArrayExt, ArrayRef};
+use crate::{Array, ArrayRef};
 
 /// Attempt to cast an array to a desired DType.
 ///

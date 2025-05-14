@@ -179,7 +179,7 @@ mod test {
 
         // Decode the array parts with the context
         let actual = array_parts
-            .decode(&ctx, expected.dtype().clone(), row_count)
+            .decode(&ctx, expected.dtype(), row_count)
             .unwrap();
 
         assert_eq!(expected.len(), actual.len());

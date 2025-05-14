@@ -8,7 +8,6 @@ use tempfile::tempdir;
 use tokio::fs::OpenOptions;
 use vortex_array::IntoArray;
 use vortex_array::arrays::{ChunkedArray, StructArray, VarBinArray};
-use vortex_array::stream::ArrayStreamArrayExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::buffer;
 use vortex_datafusion::persistent::VortexFormat;

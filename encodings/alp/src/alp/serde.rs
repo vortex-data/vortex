@@ -1,13 +1,12 @@
 use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, Canonical,
-    DeserializeMetadata, ProstMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
 
 use super::{ALPEncoding, alp_encode};
 use crate::{ALPArray, ALPVTable, Exponents};
@@ -39,25 +38,24 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
 
     fn build(
         _encoding: &ALPEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<ALPArray> {
         let encoded_ptype = match &dtype {
             DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
             DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
             d => vortex_panic!(MismatchedTypes: "f32 or f64", d),
         };
-        let encoded = children[0].decode(ctx, encoded_ptype, len)?;
+        let encoded = children.get(0, &encoded_ptype, len)?;
 
         let patches = metadata
             .patches
             .map(|p| {
-                let indices = children[1].decode(ctx, p.indices_dtype(), p.len())?;
-                let values = children[2].decode(ctx, dtype, p.len())?;
+                let indices = children.get(1, &p.indices_dtype(), p.len())?;
+                let values = children.get(2, dtype, p.len())?;
                 Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
             })
             .transpose()?;
@@ -75,24 +73,12 @@ impl SerdeVTable<ALPVTable> for ALPVTable {
 
 impl EncodeVTable<ALPVTable> for ALPVTable {
     fn encode(
-        encoding: &ALPEncoding,
+        _encoding: &ALPEncoding,
         canonical: &Canonical,
-        like: Option<&dyn Array>,
+        like: Option<&ALPArray>,
     ) -> VortexResult<Option<ALPArray>> {
         let parray = canonical.clone().into_primitive()?;
-
-        let like_alp = like
-            .map(|like| {
-                like.as_opt::<Self>().ok_or_else(|| {
-                    vortex_err!(
-                        "Expected {} encoded array but got {}",
-                        encoding.id(),
-                        like.encoding_id()
-                    )
-                })
-            })
-            .transpose()?;
-        let exponents = like_alp.map(|a| a.exponents());
+        let exponents = like.map(|a| a.exponents());
         let alp = alp_encode(&parray, exponents)?;
 
         Ok(Some(alp))

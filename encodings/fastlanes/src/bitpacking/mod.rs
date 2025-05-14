@@ -11,7 +11,7 @@ use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use vortex_array::{Array, ArrayExt, Canonical, EncodingId, EncodingRef, vtable};
+use vortex_array::{Array, Canonical, EncodingId, EncodingRef, vtable};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};

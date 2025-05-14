@@ -4,10 +4,10 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use super::VarBinEncoding;
 use crate::arrays::{VarBinArray, VarBinVTable};
-use crate::serde::ArrayParts;
+use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, ProstMetadata};
+use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ProstMetadata};
 
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {
@@ -27,25 +27,24 @@ impl SerdeVTable<VarBinVTable> for VarBinVTable {
 
     fn build(
         _encoding: &VarBinEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &VarBinMetadata,
         buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<VarBinArray> {
         let validity = if children.len() == 1 {
             Validity::from(dtype.nullability())
         } else if children.len() == 2 {
-            let validity = children[1].decode(ctx, Validity::DTYPE, len)?;
+            let validity = children.get(1, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
             vortex_bail!("Expected 1 or 2 children, got {}", children.len());
         };
 
-        let offsets = children[0].decode(
-            ctx,
-            DType::Primitive(metadata.offsets_ptype(), Nullability::NonNullable),
+        let offsets = children.get(
+            0,
+            &DType::Primitive(metadata.offsets_ptype(), Nullability::NonNullable),
             len + 1,
         )?;
 
@@ -54,7 +53,7 @@ impl SerdeVTable<VarBinVTable> for VarBinVTable {
         }
         let bytes = buffers[0].clone();
 
-        VarBinArray::try_new(offsets, bytes, dtype, validity)
+        VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
     }
 }
 

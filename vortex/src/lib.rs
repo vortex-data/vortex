@@ -26,7 +26,7 @@ pub mod encodings {
 mod test {
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::stream::{ArrayStreamArrayExt, ArrayStreamExt};
+    use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_array::{IntoArray, TryIntoArray};
     use vortex_buffer::buffer;

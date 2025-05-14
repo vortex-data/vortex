@@ -35,7 +35,7 @@ mod test {
     use vortex_array::compute::conformance::mask::test_mask;
     use vortex_array::compute::{cast, filter};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayExt, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_mask::Mask;

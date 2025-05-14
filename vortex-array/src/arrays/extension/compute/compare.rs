@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 
 use crate::arrays::{ConstantArray, ExtensionArray, ExtensionVTable};
 use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
-use crate::{Array, ArrayExt, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, register_kernel};
 
 impl CompareKernel for ExtensionVTable {
     fn compare(

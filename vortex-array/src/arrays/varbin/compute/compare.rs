@@ -11,7 +11,7 @@ use crate::compute::{
     CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
 };
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayExt, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBinVTable {

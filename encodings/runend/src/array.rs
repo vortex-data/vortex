@@ -5,7 +5,7 @@ use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
-    Array, ArrayExt, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
+    Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable,
 };
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};

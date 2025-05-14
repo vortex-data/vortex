@@ -1,9 +1,8 @@
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, DeserializeMetadata,
-    ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType, match_each_unsigned_integer_ptype};
@@ -33,17 +32,16 @@ impl SerdeVTable<DeltaVTable> for DeltaVTable {
 
     fn build(
         _encoding: &DeltaEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<DeltaArray> {
         let validity = if children.len() == 2 {
             Validity::from(dtype.nullability())
         } else if children.len() == 3 {
-            let validity = children[2].decode(ctx, Validity::DTYPE, len)?;
+            let validity = children.get(2, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
             vortex_bail!(
@@ -52,7 +50,7 @@ impl SerdeVTable<DeltaVTable> for DeltaVTable {
             );
         };
 
-        let ptype = PType::try_from(&dtype)?;
+        let ptype = PType::try_from(dtype)?;
         let lanes = match_each_unsigned_integer_ptype!(ptype, |$T| {
             <$T as fastlanes::FastLanes>::LANES
         });
@@ -64,8 +62,8 @@ impl SerdeVTable<DeltaVTable> for DeltaVTable {
         let remainder_base_size = if deltas_len % 1024 > 0 { 1 } else { 0 };
         let bases_len = num_chunks * lanes + remainder_base_size;
 
-        let bases = children[0].decode(ctx, dtype.clone(), bases_len)?;
-        let deltas = children[1].decode(ctx, dtype, deltas_len)?;
+        let bases = children.get(0, dtype, bases_len)?;
+        let deltas = children.get(1, dtype, deltas_len)?;
 
         DeltaArray::try_new(bases, deltas, validity, metadata.offset as usize, len)
     }

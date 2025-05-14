@@ -1,9 +1,8 @@
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
 use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayContext, ArrayRef, DeserializeMetadata,
-    EmptyMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata, EmptyMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -20,17 +19,16 @@ impl SerdeVTable<ByteBoolVTable> for ByteBoolVTable {
 
     fn build(
         _encoding: &ByteBoolEncoding,
-        dtype: DType,
+        dtype: &DType,
         len: usize,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
-        children: &[ArrayParts],
-        ctx: &ArrayContext,
+        children: &dyn ArrayChildren,
     ) -> VortexResult<ByteBoolArray> {
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
-            let validity = children[0].decode(ctx, Validity::DTYPE, len)?;
+            let validity = children.get(0, &Validity::DTYPE, len)?;
             Validity::Array(validity)
         } else {
             vortex_bail!("Expected 0 or 1 child, got {}", children.len());

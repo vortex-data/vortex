@@ -35,7 +35,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::take;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayExt, ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 

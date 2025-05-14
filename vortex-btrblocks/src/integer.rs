@@ -7,7 +7,7 @@ use std::hash::Hash;
 pub use stats::IntegerStats;
 use vortex_array::arrays::{ConstantArray, PrimitiveArray, PrimitiveVTable};
 use vortex_array::compress::downscale_integer_array;
-use vortex_array::{ArrayExt, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_fastlanes::{FoRArray, bit_width_histogram, bitpack_encode, find_best_bit_width};
