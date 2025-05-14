@@ -1,12 +1,11 @@
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, DeserializeMetadata,
-    ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, Nullability, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::compress::runend_encode;
 use crate::{RunEndArray, RunEndEncoding, RunEndVTable};
@@ -74,16 +73,6 @@ impl VisitorVTable<RunEndVTable> for RunEndVTable {
     fn visit_children(array: &RunEndArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("ends", array.ends());
         visitor.visit_child("values", array.values());
-    }
-
-    fn with_children(array: &RunEndArray, children: &[ArrayRef]) -> VortexResult<RunEndArray> {
-        if children.len() != 2 {
-            vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
-        }
-        if array.offset() != 0 {
-            vortex_bail!(InvalidArgument: "RunEndArray with offset cannot have children replaced");
-        }
-        RunEndArray::try_new(children[0].clone(), children[1].clone())
     }
 }
 

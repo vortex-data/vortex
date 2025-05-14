@@ -100,10 +100,6 @@ impl VisitorVTable<PythonVTable> for PythonVTable {
     fn visit_children(_array: &PythonArray, _visitor: &mut dyn ArrayChildVisitor) {
         todo!()
     }
-
-    fn with_children(_array: &PythonArray, _children: &[ArrayRef]) -> VortexResult<PythonArray> {
-        todo!()
-    }
 }
 
 impl ComputeVTable<PythonVTable> for PythonVTable {

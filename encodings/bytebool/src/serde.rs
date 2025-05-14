@@ -1,9 +1,7 @@
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{SerdeVTable, ValidityHelper, VisitorVTable};
-use vortex_array::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, DeserializeMetadata, EmptyMetadata,
-};
+use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, EmptyMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -50,15 +48,5 @@ impl VisitorVTable<ByteBoolVTable> for ByteBoolVTable {
 
     fn visit_children(array: &ByteBoolArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(array.validity(), array.len());
-    }
-
-    fn with_children(array: &ByteBoolArray, children: &[ArrayRef]) -> VortexResult<ByteBoolArray> {
-        let validity = if array.validity().is_array() {
-            Validity::Array(children[0].clone())
-        } else {
-            array.validity().clone()
-        };
-
-        Ok(ByteBoolArray::new(array.buffer().clone(), validity))
     }
 }

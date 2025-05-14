@@ -11,7 +11,7 @@ pub use statistics::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -21,6 +21,7 @@ use crate::arrays::{
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, InvocationArgs, Output};
+use crate::serde::ArrayChildren;
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
@@ -536,15 +537,50 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn with_children(&self, children: &[ArrayRef]) -> VortexResult<ArrayRef> {
-        if self.nchildren() != children.len() {
-            vortex_bail!("Child count mismatch");
+        struct ReplacementChildren<'a> {
+            children: &'a [ArrayRef],
         }
 
-        for (s, o) in self.children().iter().zip(children.iter()) {
-            assert_eq!(s.len(), o.len());
+        impl ArrayChildren for ReplacementChildren<'_> {
+            fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
+                if index >= self.children.len() {
+                    vortex_bail!(OutOfBounds: index, 0, self.children.len());
+                }
+                let child = &self.children[index];
+                if child.len() != len {
+                    vortex_bail!(
+                        "Child length mismatch: expected {}, got {}",
+                        len,
+                        child.len()
+                    );
+                }
+                if child.dtype() != dtype {
+                    vortex_bail!(
+                        "Child dtype mismatch: expected {}, got {}",
+                        dtype,
+                        child.dtype()
+                    );
+                }
+                Ok(child.clone())
+            }
+
+            fn len(&self) -> usize {
+                self.children.len()
+            }
         }
 
-        Ok(<V::VisitorVTable as VisitorVTable<V>>::with_children(&self.0, children)?.into_array())
+        let metadata = self.metadata()?.ok_or_else(|| {
+            vortex_err!("Cannot replace children for arrays that do not support serialization")
+        })?;
+
+        // Replace the children of the array by re-building the array from parts.
+        self.encoding().build(
+            &self.dtype(),
+            self.len(),
+            &metadata,
+            &self.buffers(),
+            &ReplacementChildren { children },
+        )
     }
 
     fn invoke(

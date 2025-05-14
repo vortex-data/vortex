@@ -8,7 +8,7 @@ use crate::arrays::{ChunkedArray, ChunkedVTable, PrimitiveArray};
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable::{SerdeVTable, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, EmptyMetadata, ToCanonical};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, EmptyMetadata, ToCanonical};
 
 impl SerdeVTable<ChunkedVTable> for ChunkedVTable {
     type Metadata = EmptyMetadata;
@@ -70,13 +70,5 @@ impl VisitorVTable<ChunkedVTable> for ChunkedVTable {
         for (idx, chunk) in array.chunks().iter().enumerate() {
             visitor.visit_child(format!("chunks[{}]", idx).as_str(), chunk);
         }
-    }
-
-    fn with_children(array: &ChunkedArray, children: &[ArrayRef]) -> VortexResult<ChunkedArray> {
-        Ok(ChunkedArray::new_unchecked(
-            // We skip the first child as it contains the offsets buffer.
-            children[1..].to_vec(),
-            array.dtype().clone(),
-        ))
     }
 }

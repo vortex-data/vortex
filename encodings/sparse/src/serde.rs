@@ -1,9 +1,9 @@
-use vortex_array::patches::{Patches, PatchesMetadata};
+use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayExt, ArrayRef, Canonical,
-    DeserializeMetadata, ProstMetadata,
+    Array, ArrayBufferVisitor, ArrayChildVisitor, ArrayExt, Canonical, DeserializeMetadata,
+    ProstMetadata,
 };
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
@@ -101,19 +101,5 @@ impl VisitorVTable<SparseVTable> for SparseVTable {
 
     fn visit_children(array: &SparseArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_patches(array.patches())
-    }
-
-    fn with_children(array: &SparseArray, children: &[ArrayRef]) -> VortexResult<SparseArray> {
-        let patch_indices = children[0].clone();
-        let patch_values = children[1].clone();
-
-        let patches = Patches::new(
-            array.patches().array_len(),
-            array.patches().offset(),
-            patch_indices,
-            patch_values,
-        );
-
-        SparseArray::try_new_from_patches(patches, array.fill_value.clone())
     }
 }

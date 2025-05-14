@@ -96,10 +96,6 @@ impl VisitorVTable<NullVTable> for NullVTable {
     fn visit_buffers(_array: &NullArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(_array: &NullArray, _visitor: &mut dyn ArrayChildVisitor) {}
-
-    fn with_children(array: &NullArray, _children: &[ArrayRef]) -> VortexResult<NullArray> {
-        Ok(array.clone())
-    }
 }
 
 impl CanonicalVTable<NullVTable> for NullVTable {

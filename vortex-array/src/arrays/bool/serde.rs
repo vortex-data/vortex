@@ -7,8 +7,8 @@ use super::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable::{SerdeVTable, VTable, ValidityHelper, VisitorVTable};
-use crate::{ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, ProstMetadata};
+use crate::vtable::{SerdeVTable, VTable, VisitorVTable};
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
 
 #[derive(prost::Message)]
 pub struct BoolMetadata {
@@ -68,14 +68,5 @@ impl VisitorVTable<BoolVTable> for BoolVTable {
 
     fn visit_children(array: &BoolArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(&array.validity, array.len());
-    }
-
-    fn with_children(array: &BoolArray, children: &[ArrayRef]) -> VortexResult<BoolArray> {
-        let validity = if array.validity().is_array() {
-            Validity::Array(children[0].clone())
-        } else {
-            array.validity().clone()
-        };
-        Ok(BoolArray::new(array.boolean_buffer().clone(), validity))
     }
 }

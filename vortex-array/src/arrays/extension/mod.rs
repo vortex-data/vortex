@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use vortex_dtype::{DType, ExtDType, ExtID};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -131,28 +131,5 @@ impl VisitorVTable<ExtensionVTable> for ExtensionVTable {
 
     fn visit_children(array: &ExtensionArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("storage", array.storage.as_ref());
-    }
-
-    fn with_children(
-        array: &ExtensionArray,
-        children: &[ArrayRef],
-    ) -> VortexResult<ExtensionArray> {
-        let storage = children.first().ok_or_else(|| {
-            vortex_err!(
-                "ExtensionArray: expected 1 child array, got {}",
-                children.len()
-            )
-        })?;
-        if storage.dtype() != array.ext_dtype().storage_dtype() {
-            vortex_bail!(
-                "ExtensionArray: expected child dtype to be {}, got {}",
-                array.ext_dtype().storage_dtype(),
-                storage.dtype()
-            );
-        }
-        Ok(ExtensionArray::new(
-            array.ext_dtype().clone(),
-            storage.clone(),
-        ))
     }
 }
