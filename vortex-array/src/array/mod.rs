@@ -575,7 +575,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 
         // Replace the children of the array by re-building the array from parts.
         self.encoding().build(
-            &self.dtype(),
+            self.dtype(),
             self.len(),
             &metadata,
             &self.buffers(),
