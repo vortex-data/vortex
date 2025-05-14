@@ -2,7 +2,7 @@ use vortex_array::patches::{Patches, PatchesMetadata};
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, ValidityHelper, VisitorVTable};
-use vortex_array::{Array, ArrayBufferVisitor, ArrayChildVisitor, Canonical, ProstMetadata};
+use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, Canonical, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
