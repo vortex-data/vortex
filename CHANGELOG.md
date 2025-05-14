@@ -7,6 +7,488 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## `vortex-tui` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-tui-v0.32.0...vortex-tui-v0.33.0) - 2025-05-14
+
+### Other
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Vx browse supports rendering visual segment map of the file ([#3195](https://github.com/vortex-data/vortex/pull/3195))
+- DictLayout uses regular PType for metadata ([#3199](https://github.com/vortex-data/vortex/pull/3199))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-datafusion` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-datafusion-v0.32.0...vortex-datafusion-v0.33.0) - 2025-05-14
+
+### Other
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Remove nbytes trait ([#3285](https://github.com/vortex-data/vortex/pull/3285))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- Port ToArrow to ToArrowKernel ([#3186](https://github.com/vortex-data/vortex/pull/3186))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+- Upgrade to datafusion 47 ([#3016](https://github.com/vortex-data/vortex/pull/3016))
+- [datafusion] Split scan by layout then flat_map record batches to batch_size ([#3157](https://github.com/vortex-data/vortex/pull/3157))
+
+## `vortex` - [0.33.0](https://github.com/vortex-data/vortex/compare/0.32.0...0.33.0) - 2025-05-14
+
+### Other
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Remove nbytes trait ([#3285](https://github.com/vortex-data/vortex/pull/3285))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-ipc` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-ipc-v0.32.0...vortex-ipc-v0.33.0) - 2025-05-14
+
+### Other
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-file` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-file-v0.32.0...vortex-file-v0.33.0) - 2025-05-14
+
+### Fixed
+- fix rustfmt ([#3190](https://github.com/vortex-data/vortex/pull/3190))
+
+### Other
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Remove nbytes trait ([#3285](https://github.com/vortex-data/vortex/pull/3285))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Add simple decimal compression ([#3244](https://github.com/vortex-data/vortex/pull/3244))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- switch to new arcref crate ([#3242](https://github.com/vortex-data/vortex/pull/3242))
+- Uncompressed size in bytes ([#3230](https://github.com/vortex-data/vortex/pull/3230))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Add tpcds benchmark ([#3189](https://github.com/vortex-data/vortex/pull/3189))
+
+## `vortex-layout` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-layout-v0.32.0...vortex-layout-v0.33.0) - 2025-05-14
+
+### Other
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove nbytes trait ([#3285](https://github.com/vortex-data/vortex/pull/3285))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- Add a union nullability method on dtype ([#3280](https://github.com/vortex-data/vortex/pull/3280))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Nullability handling improvements for struct (pack & merge) expressions ([#3271](https://github.com/vortex-data/vortex/pull/3271))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- switch to new arcref crate ([#3242](https://github.com/vortex-data/vortex/pull/3242))
+- Assert correct dtype in LayoutWriters ([#3237](https://github.com/vortex-data/vortex/pull/3237))
+- DictLayout uses regular PType for metadata ([#3199](https://github.com/vortex-data/vortex/pull/3199))
+- Move SliceFn to an array operation ([#3197](https://github.com/vortex-data/vortex/pull/3197))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+- Upgrade to datafusion 47 ([#3016](https://github.com/vortex-data/vortex/pull/3016))
+- Add NaNCount statistic ([#3120](https://github.com/vortex-data/vortex/pull/3120))
+
+## `vortex-io` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-io-v0.32.0...vortex-io-v0.33.0) - 2025-05-14
+
+### Other
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+- Upgrade to datafusion 47 ([#3016](https://github.com/vortex-data/vortex/pull/3016))
+
+## `vortex-metrics` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-metrics-v0.32.0...vortex-metrics-v0.33.0) - 2025-05-14
+
+### Other
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-expr` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-expr-v0.32.0...vortex-expr-v0.33.0) - 2025-05-14
+
+### Other
+- Invoke up visitor when down visitor returns skip ([#3281](https://github.com/vortex-data/vortex/pull/3281))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Nullability handling improvements for struct (pack & merge) expressions ([#3271](https://github.com/vortex-data/vortex/pull/3271))
+- Remove random extern crate ([#3264](https://github.com/vortex-data/vortex/pull/3264))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Use protobuf to serialize scalars ([#3141](https://github.com/vortex-data/vortex/pull/3141))
+- Upgrade to datafusion 47 ([#3016](https://github.com/vortex-data/vortex/pull/3016))
+
+## `vortex-bytebool` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-bytebool-v0.32.0...vortex-bytebool-v0.33.0) - 2025-05-14
+
+### Other
+- Remove with-children from visitor vtable ([#3288](https://github.com/vortex-data/vortex/pull/3288))
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- Remove compute vtable ([#3250](https://github.com/vortex-data/vortex/pull/3250))
+- Port TakeFn to TakeKernel ([#3239](https://github.com/vortex-data/vortex/pull/3239))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Move SliceFn to an array operation ([#3197](https://github.com/vortex-data/vortex/pull/3197))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-btrblocks` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-btrblocks-v0.32.0...vortex-btrblocks-v0.33.0) - 2025-05-14
+
+### Other
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Remove nbytes trait ([#3285](https://github.com/vortex-data/vortex/pull/3285))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Add simple decimal compression ([#3244](https://github.com/vortex-data/vortex/pull/3244))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Move SliceFn to an array operation ([#3197](https://github.com/vortex-data/vortex/pull/3197))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-zigzag` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-zigzag-v0.32.0...vortex-zigzag-v0.33.0) - 2025-05-14
+
+### Other
+- Remove with-children from visitor vtable ([#3288](https://github.com/vortex-data/vortex/pull/3288))
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- Remove compute vtable ([#3250](https://github.com/vortex-data/vortex/pull/3250))
+- Remove search sorted many ([#3247](https://github.com/vortex-data/vortex/pull/3247))
+- Port TakeFn to TakeKernel ([#3239](https://github.com/vortex-data/vortex/pull/3239))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Move SliceFn to an array operation ([#3197](https://github.com/vortex-data/vortex/pull/3197))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-sparse` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-sparse-v0.32.0...vortex-sparse-v0.33.0) - 2025-05-14
+
+### Other
+- Remove with-children from visitor vtable ([#3288](https://github.com/vortex-data/vortex/pull/3288))
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- Add a union nullability method on dtype ([#3280](https://github.com/vortex-data/vortex/pull/3280))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- Remove compute vtable ([#3250](https://github.com/vortex-data/vortex/pull/3250))
+- Remove search sorted many ([#3247](https://github.com/vortex-data/vortex/pull/3247))
+- Remove search sorted usize ([#3240](https://github.com/vortex-data/vortex/pull/3240))
+- Port TakeFn to TakeKernel ([#3239](https://github.com/vortex-data/vortex/pull/3239))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Port FillNullFn to FillNullKernel ([#3208](https://github.com/vortex-data/vortex/pull/3208))
+- Move SliceFn to an array operation ([#3197](https://github.com/vortex-data/vortex/pull/3197))
+- Use protobuf to serialize scalars ([#3141](https://github.com/vortex-data/vortex/pull/3141))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-runend` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-runend-v0.32.0...vortex-runend-v0.33.0) - 2025-05-14
+
+### Added
+- is constant with cost enum ([#3283](https://github.com/vortex-data/vortex/pull/3283))
+
+### Other
+- Remove with-children from visitor vtable ([#3288](https://github.com/vortex-data/vortex/pull/3288))
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- Remove compute vtable ([#3250](https://github.com/vortex-data/vortex/pull/3250))
+- Remove search sorted many ([#3247](https://github.com/vortex-data/vortex/pull/3247))
+- SearchSorted non-null ([#3249](https://github.com/vortex-data/vortex/pull/3249))
+- Remove search sorted usize ([#3240](https://github.com/vortex-data/vortex/pull/3240))
+- Port TakeFn to TakeKernel ([#3239](https://github.com/vortex-data/vortex/pull/3239))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Port MinMaxFn to MinMaxKernel ([#3221](https://github.com/vortex-data/vortex/pull/3221))
+- Port FillNullFn to FillNullKernel ([#3208](https://github.com/vortex-data/vortex/pull/3208))
+- Port IsSortedFn to IsSortedKernel ([#3203](https://github.com/vortex-data/vortex/pull/3203))
+- Move SliceFn to an array operation ([#3197](https://github.com/vortex-data/vortex/pull/3197))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-dict` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-dict-v0.32.0...vortex-dict-v0.33.0) - 2025-05-14
+
+### Added
+- is constant with cost enum ([#3283](https://github.com/vortex-data/vortex/pull/3283))
+
+### Fixed
+- compress bench, correct slice with optional codes ([#3278](https://github.com/vortex-data/vortex/pull/3278))
+
+### Other
+- Remove with-children from visitor vtable ([#3288](https://github.com/vortex-data/vortex/pull/3288))
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- slice dict propagate const ([#3265](https://github.com/vortex-data/vortex/pull/3265))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- Remove compute vtable ([#3250](https://github.com/vortex-data/vortex/pull/3250))
+- Port TakeFn to TakeKernel ([#3239](https://github.com/vortex-data/vortex/pull/3239))
+- Remove unused take_into function ([#3236](https://github.com/vortex-data/vortex/pull/3236))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Port MinMaxFn to MinMaxKernel ([#3221](https://github.com/vortex-data/vortex/pull/3221))
+- Port FillNullFn to FillNullKernel ([#3208](https://github.com/vortex-data/vortex/pull/3208))
+- Port IsSortedFn to IsSortedKernel ([#3203](https://github.com/vortex-data/vortex/pull/3203))
+- Remove unused optimize fn ([#3202](https://github.com/vortex-data/vortex/pull/3202))
+- Move SliceFn to an array operation ([#3197](https://github.com/vortex-data/vortex/pull/3197))
+- Port LikeFn to LikeKernel ([#3196](https://github.com/vortex-data/vortex/pull/3196))
+- Port IsConstantFn to IsConstantKernel ([#3166](https://github.com/vortex-data/vortex/pull/3166))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-fsst` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-fsst-v0.32.0...vortex-fsst-v0.33.0) - 2025-05-14
+
+### Other
+- Remove with-children from visitor vtable ([#3288](https://github.com/vortex-data/vortex/pull/3288))
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- Remove compute vtable ([#3250](https://github.com/vortex-data/vortex/pull/3250))
+- Port TakeFn to TakeKernel ([#3239](https://github.com/vortex-data/vortex/pull/3239))
+- Remove unused take_into function ([#3236](https://github.com/vortex-data/vortex/pull/3236))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Port FillNullFn to FillNullKernel ([#3208](https://github.com/vortex-data/vortex/pull/3208))
+- Move SliceFn to an array operation ([#3197](https://github.com/vortex-data/vortex/pull/3197))
+
+## `vortex-decimal-byte-parts` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-decimal-byte-parts-v0.32.0...vortex-decimal-byte-parts-v0.33.0) - 2025-05-14
+
+### Fixed
+- decimal byte parts scalar at incorrectly casted when it should transmute ([#3277](https://github.com/vortex-data/vortex/pull/3277))
+- python publishing pipeline ([#2898](https://github.com/vortex-data/vortex/pull/2898))
+- update setup instructions (rye -> uv) ([#1176](https://github.com/vortex-data/vortex/pull/1176))
+- fix docs badge in readme ([#753](https://github.com/vortex-data/vortex/pull/753))
+
+### Other
+- Remove with-children from visitor vtable ([#3288](https://github.com/vortex-data/vortex/pull/3288))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- decimal_bytes_parts compare ([#3269](https://github.com/vortex-data/vortex/pull/3269))
+- Add simple decimal compression ([#3244](https://github.com/vortex-data/vortex/pull/3244))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+- Cleanup readme ([#2968](https://github.com/vortex-data/vortex/pull/2968))
+- Make `vx` more visible in the README ([#2933](https://github.com/vortex-data/vortex/pull/2933))
+- Update README.md ([#2774](https://github.com/vortex-data/vortex/pull/2774))
+- mention benchmarks in README.md ([#2709](https://github.com/vortex-data/vortex/pull/2709))
+- update readme for submodules setup ([#2672](https://github.com/vortex-data/vortex/pull/2672))
+- remove b16 from list of supported dtypes ([#2479](https://github.com/vortex-data/vortex/pull/2479))
+- Docs oriented cleanup and some minor refactoring ([#2432](https://github.com/vortex-data/vortex/pull/2432))
+- remove unused Decimal dtype in proto/fbs ([#2156](https://github.com/vortex-data/vortex/pull/2156))
+- Add bibtex to docs ([#2094](https://github.com/vortex-data/vortex/pull/2094))
+- link docs from README ([#1521](https://github.com/vortex-data/vortex/pull/1521))
+- deny missing_docs on vortex-dtype ([#1182](https://github.com/vortex-data/vortex/pull/1182))
+- very small README.md fixes
+- More README.md improvements ([#1084](https://github.com/vortex-data/vortex/pull/1084))
+- Update README.md ([#1055](https://github.com/vortex-data/vortex/pull/1055))
+- minor addition to README ([#1030](https://github.com/vortex-data/vortex/pull/1030))
+- updated README ([#876](https://github.com/vortex-data/vortex/pull/876))
+- release to Test PyPI on each push to version tags ([#760](https://github.com/vortex-data/vortex/pull/760))
+- Run ETE benchmarks with MiMalloc and leave a note encouraging its usage ([#399](https://github.com/vortex-data/vortex/pull/399))
+- README updates ([#394](https://github.com/vortex-data/vortex/pull/394))
+- Download flatc instead of building it from source ([#374](https://github.com/vortex-data/vortex/pull/374))
+- Update README.md ([#337](https://github.com/vortex-data/vortex/pull/337))
+- IPC Prototype ([#181](https://github.com/vortex-data/vortex/pull/181))
+- Add note to readme about git submodules and zig version ([#176](https://github.com/vortex-data/vortex/pull/176))
+- acknowledgments ([#171](https://github.com/vortex-data/vortex/pull/171))
+- Update README.md ([#168](https://github.com/vortex-data/vortex/pull/168))
+- More README updates ([#140](https://github.com/vortex-data/vortex/pull/140))
+- Update README.md
+- readme improvements ([#137](https://github.com/vortex-data/vortex/pull/137))
+- README ([#102](https://github.com/vortex-data/vortex/pull/102))
+- Root project is vortex-array ([#67](https://github.com/vortex-data/vortex/pull/67))
+- Add minimal description to readme and fixup cargo metadata ([#30](https://github.com/vortex-data/vortex/pull/30))
+- Add Readme
+
+## `vortex-datetime-parts` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-datetime-parts-v0.32.0...vortex-datetime-parts-v0.33.0) - 2025-05-14
+
+### Added
+- is constant with cost enum ([#3283](https://github.com/vortex-data/vortex/pull/3283))
+
+### Other
+- Remove with-children from visitor vtable ([#3288](https://github.com/vortex-data/vortex/pull/3288))
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- Remove compute vtable ([#3250](https://github.com/vortex-data/vortex/pull/3250))
+- Port TakeFn to TakeKernel ([#3239](https://github.com/vortex-data/vortex/pull/3239))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Move SliceFn to an array operation ([#3197](https://github.com/vortex-data/vortex/pull/3197))
+- Port IsConstantFn to IsConstantKernel ([#3166](https://github.com/vortex-data/vortex/pull/3166))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-alp` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-alp-v0.32.0...vortex-alp-v0.33.0) - 2025-05-14
+
+### Other
+- Remove with-children from visitor vtable ([#3288](https://github.com/vortex-data/vortex/pull/3288))
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- Add a union nullability method on dtype ([#3280](https://github.com/vortex-data/vortex/pull/3280))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- Remove compute vtable ([#3250](https://github.com/vortex-data/vortex/pull/3250))
+- Port TakeFn to TakeKernel ([#3239](https://github.com/vortex-data/vortex/pull/3239))
+- NaNCountKernel ([#3232](https://github.com/vortex-data/vortex/pull/3232))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Port FillNullFn to FillNullKernel ([#3208](https://github.com/vortex-data/vortex/pull/3208))
+- Move SliceFn to an array operation ([#3197](https://github.com/vortex-data/vortex/pull/3197))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+- Add NaNCount statistic ([#3120](https://github.com/vortex-data/vortex/pull/3120))
+
+## `vortex-fastlanes` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-fastlanes-v0.32.0...vortex-fastlanes-v0.33.0) - 2025-05-14
+
+### Added
+- is constant with cost enum ([#3283](https://github.com/vortex-data/vortex/pull/3283))
+
+### Other
+- Remove with-children from visitor vtable ([#3288](https://github.com/vortex-data/vortex/pull/3288))
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- Remove compute vtable ([#3250](https://github.com/vortex-data/vortex/pull/3250))
+- Remove search sorted many ([#3247](https://github.com/vortex-data/vortex/pull/3247))
+- Remove search sorted usize ([#3240](https://github.com/vortex-data/vortex/pull/3240))
+- Port TakeFn to TakeKernel ([#3239](https://github.com/vortex-data/vortex/pull/3239))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Move SliceFn to an array operation ([#3197](https://github.com/vortex-data/vortex/pull/3197))
+- Use protobuf to serialize scalars ([#3141](https://github.com/vortex-data/vortex/pull/3141))
+- Port IsConstantFn to IsConstantKernel ([#3166](https://github.com/vortex-data/vortex/pull/3166))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-array` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-array-v0.32.0...vortex-array-v0.33.0) - 2025-05-14
+
+### Added
+- is constant with cost enum ([#3283](https://github.com/vortex-data/vortex/pull/3283))
+- list_contains, list_lens ([#3169](https://github.com/vortex-data/vortex/pull/3169))
+
+### Fixed
+- Adjust the constant optimization in `list_contains` ([#3211](https://github.com/vortex-data/vortex/pull/3211))
+
+### Other
+- Remove with-children from visitor vtable ([#3288](https://github.com/vortex-data/vortex/pull/3288))
+- Encode-like using typed array ([#3289](https://github.com/vortex-data/vortex/pull/3289))
+- Abstract access to ArrayChildren during decode ([#3287](https://github.com/vortex-data/vortex/pull/3287))
+- Remove nbytes trait ([#3285](https://github.com/vortex-data/vortex/pull/3285))
+- Remove optional metadata since empty vec is zero cost ([#3282](https://github.com/vortex-data/vortex/pull/3282))
+- Compute between on empty array should not error ([#3284](https://github.com/vortex-data/vortex/pull/3284))
+- Add a union nullability method on dtype ([#3280](https://github.com/vortex-data/vortex/pull/3280))
+- VTable Trait ([#3273](https://github.com/vortex-data/vortex/pull/3273))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- decimal_bytes_parts compare ([#3269](https://github.com/vortex-data/vortex/pull/3269))
+- Add simple decimal compression ([#3244](https://github.com/vortex-data/vortex/pull/3244))
+- Remove default arrow filter impl. ([#3256](https://github.com/vortex-data/vortex/pull/3256))
+- Quicker check constant check in slice ([#3259](https://github.com/vortex-data/vortex/pull/3259))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- Apply search_sorted conformance tests to primitive array ([#3253](https://github.com/vortex-data/vortex/pull/3253))
+- Remove compute vtable ([#3250](https://github.com/vortex-data/vortex/pull/3250))
+- Remove search sorted many ([#3247](https://github.com/vortex-data/vortex/pull/3247))
+- SearchSorted non-null ([#3249](https://github.com/vortex-data/vortex/pull/3249))
+- Remove unused fast path for ChunkedArray take ([#3246](https://github.com/vortex-data/vortex/pull/3246))
+- Patches to use native search_sorted ([#3245](https://github.com/vortex-data/vortex/pull/3245))
+- Remove search sorted usize ([#3240](https://github.com/vortex-data/vortex/pull/3240))
+- switch to new arcref crate ([#3242](https://github.com/vortex-data/vortex/pull/3242))
+- Port TakeFn to TakeKernel ([#3239](https://github.com/vortex-data/vortex/pull/3239))
+- Remove unused take_into function ([#3236](https://github.com/vortex-data/vortex/pull/3236))
+- Assert correct dtype in LayoutWriters ([#3237](https://github.com/vortex-data/vortex/pull/3237))
+- NaNCountKernel ([#3232](https://github.com/vortex-data/vortex/pull/3232))
+- Uncompressed size in bytes ([#3230](https://github.com/vortex-data/vortex/pull/3230))
+- ScalarAt operation ([#3228](https://github.com/vortex-data/vortex/pull/3228))
+- Add details to assertions in `into_canonical` ([#3225](https://github.com/vortex-data/vortex/pull/3225))
+- :from_scalar takes ownership of the scalar ([#3223](https://github.com/vortex-data/vortex/pull/3223))
+- :unwrap_xxx functions don't need to clone ([#3222](https://github.com/vortex-data/vortex/pull/3222))
+- Port MinMaxFn to MinMaxKernel ([#3221](https://github.com/vortex-data/vortex/pull/3221))
+- List contains constant ([#3215](https://github.com/vortex-data/vortex/pull/3215))
+- Port FillNullFn to FillNullKernel ([#3208](https://github.com/vortex-data/vortex/pull/3208))
+- Port IsSortedFn to IsSortedKernel ([#3203](https://github.com/vortex-data/vortex/pull/3203))
+- Add datafusion tpcds and generate all tpc* data with duckdb  ([#3192](https://github.com/vortex-data/vortex/pull/3192))
+- Remove unused optimize fn ([#3202](https://github.com/vortex-data/vortex/pull/3202))
+- Move SliceFn to an array operation ([#3197](https://github.com/vortex-data/vortex/pull/3197))
+- Port LikeFn to LikeKernel ([#3196](https://github.com/vortex-data/vortex/pull/3196))
+- Add tpcds benchmark ([#3189](https://github.com/vortex-data/vortex/pull/3189))
+- Port ToArrow to ToArrowKernel ([#3186](https://github.com/vortex-data/vortex/pull/3186))
+- Use protobuf to serialize scalars ([#3141](https://github.com/vortex-data/vortex/pull/3141))
+- Add compute fns + duckdb fns to support decimal in duckdb ([#3176](https://github.com/vortex-data/vortex/pull/3176))
+- Port IsConstantFn to IsConstantKernel ([#3166](https://github.com/vortex-data/vortex/pull/3166))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+- Add NaNCount statistic ([#3120](https://github.com/vortex-data/vortex/pull/3120))
+- Duckdb run over public_bi ([#3143](https://github.com/vortex-data/vortex/pull/3143))
+
+## `vortex-scalar` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-scalar-v0.32.0...vortex-scalar-v0.33.0) - 2025-05-14
+
+### Fixed
+- compress bench, correct slice with optional codes ([#3278](https://github.com/vortex-data/vortex/pull/3278))
+- decimal precision/scale for fuzz ([#3266](https://github.com/vortex-data/vortex/pull/3266))
+
+### Other
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- decimal_bytes_parts compare ([#3269](https://github.com/vortex-data/vortex/pull/3269))
+- Add simple decimal compression ([#3244](https://github.com/vortex-data/vortex/pull/3244))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- SearchSorted non-null ([#3249](https://github.com/vortex-data/vortex/pull/3249))
+- Remove search sorted usize ([#3240](https://github.com/vortex-data/vortex/pull/3240))
+- Rename scalarvalue -> scalar value mod and github ci ([#3218](https://github.com/vortex-data/vortex/pull/3218))
+- Add datafusion tpcds and generate all tpc* data with duckdb  ([#3192](https://github.com/vortex-data/vortex/pull/3192))
+- Use protobuf to serialize scalars ([#3141](https://github.com/vortex-data/vortex/pull/3141))
+- Add compute fns + duckdb fns to support decimal in duckdb ([#3176](https://github.com/vortex-data/vortex/pull/3176))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-mask` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-mask-v0.32.0...vortex-mask-v0.33.0) - 2025-05-14
+
+### Other
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-dtype` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-dtype-v0.32.0...vortex-dtype-v0.33.0) - 2025-05-14
+
+### Fixed
+- decimal precision/scale for fuzz ([#3266](https://github.com/vortex-data/vortex/pull/3266))
+
+### Other
+- Add a union nullability method on dtype ([#3280](https://github.com/vortex-data/vortex/pull/3280))
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- decimal_bytes_parts compare ([#3269](https://github.com/vortex-data/vortex/pull/3269))
+- Add simple decimal compression ([#3244](https://github.com/vortex-data/vortex/pull/3244))
+- Turn variant traits into structs ([#3261](https://github.com/vortex-data/vortex/pull/3261))
+- Add datafusion tpcds and generate all tpc* data with duckdb  ([#3192](https://github.com/vortex-data/vortex/pull/3192))
+- Port ToArrow to ToArrowKernel ([#3186](https://github.com/vortex-data/vortex/pull/3186))
+- Rename and add decode of dtype decimal ([#3183](https://github.com/vortex-data/vortex/pull/3183))
+- Use protobuf to serialize scalars ([#3141](https://github.com/vortex-data/vortex/pull/3141))
+- Add compute fns + duckdb fns to support decimal in duckdb ([#3176](https://github.com/vortex-data/vortex/pull/3176))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-proto` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-proto-v0.32.0...vortex-proto-v0.33.0) - 2025-05-14
+
+### Other
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Use protobuf to serialize scalars ([#3141](https://github.com/vortex-data/vortex/pull/3141))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
+## `vortex-flatbuffers` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-flatbuffers-v0.32.0...vortex-flatbuffers-v0.33.0) - 2025-05-14
+
+### Other
+- Rename and add decode of dtype decimal ([#3183](https://github.com/vortex-data/vortex/pull/3183))
+- Use protobuf to serialize scalars ([#3141](https://github.com/vortex-data/vortex/pull/3141))
+- Add NaNCount statistic ([#3120](https://github.com/vortex-data/vortex/pull/3120))
+
+## `vortex-buffer` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-buffer-v0.32.0...vortex-buffer-v0.33.0) - 2025-05-14
+
+### Other
+- Upgrade to datafusion 47 ([#3016](https://github.com/vortex-data/vortex/pull/3016))
+
+## `vortex-error` - [0.33.0](https://github.com/vortex-data/vortex/compare/vortex-error-v0.32.0...vortex-error-v0.33.0) - 2025-05-14
+
+### Other
+- Move some things over to vortex-data ([#3255](https://github.com/vortex-data/vortex/pull/3255))
+- Run doctests in CI ([#3132](https://github.com/vortex-data/vortex/pull/3132))
+
 ## `vortex-tui` - [0.32.0](https://github.com/spiraldb/vortex/compare/vortex-tui-v0.31.0...vortex-tui-v0.32.0) - 2025-04-29
 
 ### Other
