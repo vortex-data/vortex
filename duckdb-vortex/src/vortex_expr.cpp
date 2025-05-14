@@ -1,21 +1,22 @@
-#include "expr/expr.hpp"
+#include <cstdint>
+
 #include "duckdb/planner/expression.hpp"
 #include "duckdb/planner/table_filter.hpp"
 #include "duckdb/planner/filter/constant_filter.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb/parser/expression/columnref_expression.hpp"
+#include "duckdb/parser/expression/comparison_expression.hpp"
+#include "duckdb/parser/expression/constant_expression.hpp"
+#include "duckdb/planner/expression/bound_between_expression.hpp"
+#include "duckdb/planner/expression/bound_columnref_expression.hpp"
+#include "duckdb/planner/expression/bound_comparison_expression.hpp"
+#include "duckdb/planner/expression/bound_constant_expression.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
+#include "duckdb/planner/expression/bound_operator_expression.hpp"
+#include "duckdb/planner/filter/conjunction_filter.hpp"
+#include "duckdb/planner/filter/optional_filter.hpp"
 
-#include <cstdint>
-#include <duckdb/parser/expression/columnref_expression.hpp>
-#include <duckdb/parser/expression/comparison_expression.hpp>
-#include <duckdb/parser/expression/constant_expression.hpp>
-#include <duckdb/planner/expression/bound_between_expression.hpp>
-#include <duckdb/planner/expression/bound_columnref_expression.hpp>
-#include <duckdb/planner/expression/bound_comparison_expression.hpp>
-#include <duckdb/planner/expression/bound_constant_expression.hpp>
-#include <duckdb/planner/expression/bound_function_expression.hpp>
-#include <duckdb/planner/expression/bound_operator_expression.hpp>
-#include <duckdb/planner/filter/conjunction_filter.hpp>
-#include <duckdb/planner/filter/optional_filter.hpp>
+#include "vortex_expr.hpp"
 
 using duckdb::ConjunctionAndFilter;
 using duckdb::ConstantFilter;
@@ -29,6 +30,8 @@ using duckdb::TableFilterType;
 using duckdb::Value;
 using google::protobuf::Arena;
 using std::string;
+
+namespace vortex {
 
 // vortex expr proto ids.
 const string BETWEEN_ID = "between";
@@ -59,16 +62,16 @@ enum TimeUnit : uint8_t {
 	D = 4,
 };
 
-vortex::expr::Kind_BinaryOp into_binary_operation(ExpressionType type) {
-	static const std::unordered_map<ExpressionType, vortex::expr::Kind_BinaryOp> op_map = {
-	    {ExpressionType::COMPARE_EQUAL, vortex::expr::Kind_BinaryOp_Eq},
-	    {ExpressionType::COMPARE_NOTEQUAL, vortex::expr::Kind_BinaryOp_NotEq},
-	    {ExpressionType::COMPARE_LESSTHAN, vortex::expr::Kind_BinaryOp_Lt},
-	    {ExpressionType::COMPARE_GREATERTHAN, vortex::expr::Kind_BinaryOp_Gt},
-	    {ExpressionType::COMPARE_LESSTHANOREQUALTO, vortex::expr::Kind_BinaryOp_Lte},
-	    {ExpressionType::COMPARE_GREATERTHANOREQUALTO, vortex::expr::Kind_BinaryOp_Gte},
-	    {ExpressionType::CONJUNCTION_AND, vortex::expr::Kind_BinaryOp_And},
-	    {ExpressionType::CONJUNCTION_OR, vortex::expr::Kind_BinaryOp_Or}};
+expr::Kind_BinaryOp into_binary_operation(ExpressionType type) {
+	static const std::unordered_map<ExpressionType, expr::Kind_BinaryOp> op_map = {
+	    {ExpressionType::COMPARE_EQUAL, expr::Kind_BinaryOp_Eq},
+	    {ExpressionType::COMPARE_NOTEQUAL, expr::Kind_BinaryOp_NotEq},
+	    {ExpressionType::COMPARE_LESSTHAN, expr::Kind_BinaryOp_Lt},
+	    {ExpressionType::COMPARE_GREATERTHAN, expr::Kind_BinaryOp_Gt},
+	    {ExpressionType::COMPARE_LESSTHANOREQUALTO, expr::Kind_BinaryOp_Lte},
+	    {ExpressionType::COMPARE_GREATERTHANOREQUALTO, expr::Kind_BinaryOp_Gte},
+	    {ExpressionType::CONJUNCTION_AND, expr::Kind_BinaryOp_And},
+	    {ExpressionType::CONJUNCTION_OR, expr::Kind_BinaryOp_Or}};
 
 	auto value = op_map.find(type);
 	if (value == op_map.end()) {
@@ -94,8 +97,8 @@ TimeUnit timestamp_to_time_unit(const LogicalType &type) {
 	}
 }
 
-vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, bool nullable) {
-	auto *dtype = Arena::Create<vortex::dtype::DType>(&arena);
+dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, bool nullable) {
+	auto *dtype = Arena::Create<dtype::DType>(&arena);
 	switch (type_.id()) {
 	case LogicalTypeId::INVALID:
 	case LogicalTypeId::SQLNULL:
@@ -106,43 +109,43 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		return dtype;
 	case LogicalTypeId::TINYINT:
 		dtype->mutable_primitive()->set_nullable(nullable);
-		dtype->mutable_primitive()->set_type(vortex::dtype::I8);
+		dtype->mutable_primitive()->set_type(dtype::I8);
 		return dtype;
 	case LogicalTypeId::SMALLINT:
 		dtype->mutable_primitive()->set_nullable(nullable);
-		dtype->mutable_primitive()->set_type(vortex::dtype::I16);
+		dtype->mutable_primitive()->set_type(dtype::I16);
 		return dtype;
 	case LogicalTypeId::INTEGER:
 		dtype->mutable_primitive()->set_nullable(nullable);
-		dtype->mutable_primitive()->set_type(vortex::dtype::I32);
+		dtype->mutable_primitive()->set_type(dtype::I32);
 		return dtype;
 	case LogicalTypeId::BIGINT:
 		dtype->mutable_primitive()->set_nullable(nullable);
-		dtype->mutable_primitive()->set_type(vortex::dtype::I64);
+		dtype->mutable_primitive()->set_type(dtype::I64);
 		return dtype;
 	case LogicalTypeId::UTINYINT:
 		dtype->mutable_primitive()->set_nullable(nullable);
-		dtype->mutable_primitive()->set_type(vortex::dtype::U8);
+		dtype->mutable_primitive()->set_type(dtype::U8);
 		return dtype;
 	case LogicalTypeId::USMALLINT:
 		dtype->mutable_primitive()->set_nullable(nullable);
-		dtype->mutable_primitive()->set_type(vortex::dtype::U16);
+		dtype->mutable_primitive()->set_type(dtype::U16);
 		return dtype;
 	case LogicalTypeId::UINTEGER:
 		dtype->mutable_primitive()->set_nullable(nullable);
-		dtype->mutable_primitive()->set_type(vortex::dtype::U32);
+		dtype->mutable_primitive()->set_type(dtype::U32);
 		return dtype;
 	case LogicalTypeId::UBIGINT:
 		dtype->mutable_primitive()->set_nullable(nullable);
-		dtype->mutable_primitive()->set_type(vortex::dtype::U64);
+		dtype->mutable_primitive()->set_type(dtype::U64);
 		return dtype;
 	case LogicalTypeId::FLOAT:
 		dtype->mutable_primitive()->set_nullable(nullable);
-		dtype->mutable_primitive()->set_type(vortex::dtype::F32);
+		dtype->mutable_primitive()->set_type(dtype::F32);
 		return dtype;
 	case LogicalTypeId::DOUBLE:
 		dtype->mutable_primitive()->set_nullable(nullable);
-		dtype->mutable_primitive()->set_type(vortex::dtype::F64);
+		dtype->mutable_primitive()->set_type(dtype::F64);
 		return dtype;
 	case LogicalTypeId::DECIMAL: {
 		dtype->mutable_decimal()->set_nullable(nullable);
@@ -162,7 +165,7 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		dtype->mutable_extension()->set_id(VORTEX_DATE_ID);
 		auto storage = dtype->mutable_extension()->mutable_storage_dtype();
 		storage->mutable_primitive()->set_nullable(nullable);
-		storage->mutable_primitive()->set_type(vortex::dtype::I32);
+		storage->mutable_primitive()->set_type(dtype::I32);
 		dtype->mutable_extension()->set_metadata(std::string({static_cast<uint8_t>(TimeUnit::D)}));
 		return dtype;
 	}
@@ -170,7 +173,7 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		dtype->mutable_extension()->set_id(VORTEX_TIME_ID);
 		auto storage = dtype->mutable_extension()->mutable_storage_dtype();
 		storage->mutable_primitive()->set_nullable(nullable);
-		storage->mutable_primitive()->set_type(vortex::dtype::I32);
+		storage->mutable_primitive()->set_type(dtype::I32);
 		dtype->mutable_extension()->set_metadata(std::string({static_cast<uint8_t>(TimeUnit::Us)}));
 		return dtype;
 	}
@@ -181,7 +184,7 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 		dtype->mutable_extension()->set_id(VORTEX_TIMESTAMP_ID);
 		auto storage = dtype->mutable_extension()->mutable_storage_dtype();
 		storage->mutable_primitive()->set_nullable(nullable);
-		storage->mutable_primitive()->set_type(vortex::dtype::I64);
+		storage->mutable_primitive()->set_type(dtype::I64);
 		auto time_unit = static_cast<char>(timestamp_to_time_unit(type_));
 		// This signifies a timestamp without a timezone
 		// TODO(joe): support timezones
@@ -193,15 +196,15 @@ vortex::dtype::DType *into_vortex_dtype(Arena &arena, const LogicalType &type_, 
 	}
 }
 
-vortex::scalar::Scalar *into_null_scalar(Arena &arena, LogicalType &logical_type) {
-	auto scalar = Arena::Create<vortex::scalar::Scalar>(&arena);
+scalar::Scalar *into_null_scalar(Arena &arena, LogicalType &logical_type) {
+	auto scalar = Arena::Create<scalar::Scalar>(&arena);
 	scalar->set_allocated_dtype(into_vortex_dtype(arena, logical_type, true));
 	scalar->mutable_value()->set_null_value(google::protobuf::NULL_VALUE);
 	return scalar;
 }
 
-vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullable) {
-	auto scalar = Arena::Create<vortex::scalar::Scalar>(&arena);
+scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullable) {
+	auto scalar = Arena::Create<scalar::Scalar>(&arena);
 	auto dtype = into_vortex_dtype(arena, value.type(), nullable);
 	scalar->set_allocated_dtype(dtype);
 
@@ -281,7 +284,7 @@ vortex::scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, boo
 	}
 }
 
-void set_column(const string &s, vortex::expr::Expr *column) {
+void set_column(const string &s, expr::Expr *column) {
 	column->set_id(GET_ITEM_ID);
 	auto kind = column->mutable_kind();
 	auto get_item = kind->mutable_get_item();
@@ -292,15 +295,15 @@ void set_column(const string &s, vortex::expr::Expr *column) {
 	id->set_id(IDENTITY_ID);
 }
 
-void set_literal(Arena &arena, const Value &value, bool nullable, vortex::expr::Expr *constant) {
+void set_literal(Arena &arena, const Value &value, bool nullable, expr::Expr *constant) {
 	auto literal = constant->mutable_kind()->mutable_literal();
 	auto dvalue = into_vortex_scalar(arena, value, nullable);
 	literal->set_allocated_value(dvalue);
 	constant->set_id(LITERAL_ID);
 }
 
-vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::unique_ptr<TableFilter>> &child_filters,
-                                          const string &column_name) {
+expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::unique_ptr<TableFilter>> &child_filters,
+                                  const string &column_name) {
 	D_ASSERT(!child_filters.empty());
 
 	if (child_filters.size() == 1) {
@@ -308,14 +311,14 @@ vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::u
 	}
 
 	// Start with the first expression
-	auto tail = static_cast<vortex::expr::Expr *>(nullptr);
-	auto hd = Arena::Create<vortex::expr::Expr>(&arena);
+	auto tail = static_cast<expr::Expr *>(nullptr);
+	auto hd = Arena::Create<expr::Expr>(&arena);
 
 	// Flatten the list of children into a linked list of AND values.
 	for (size_t i = 0; i < child_filters.size() - 1; i++) {
-		vortex::expr::Expr *new_and = !tail ? hd : tail->add_children();
+		expr::Expr *new_and = !tail ? hd : tail->add_children();
 		new_and->set_id(BINARY_ID);
-		new_and->mutable_kind()->set_binary_op(vortex::expr::Kind::And);
+		new_and->mutable_kind()->set_binary_op(expr::Kind::And);
 		new_and->add_children()->Swap(table_expression_into_expr(arena, *child_filters[i], column_name));
 
 		tail = new_and;
@@ -324,10 +327,10 @@ vortex::expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::u
 	return hd;
 }
 
-vortex::expr::Expr *flatten_exprs(Arena &arena, const duckdb::vector<vortex::expr::Expr *> &child_filters) {
+expr::Expr *flatten_exprs(Arena &arena, const duckdb::vector<vortex::expr::Expr *> &child_filters) {
 
 	if (child_filters.empty()) {
-		auto expr = arena.Create<vortex::expr::Expr>(&arena);
+		auto expr = arena.Create<expr::Expr>(&arena);
 		set_literal(arena, Value(true), true, expr);
 		return expr;
 	}
@@ -337,14 +340,14 @@ vortex::expr::Expr *flatten_exprs(Arena &arena, const duckdb::vector<vortex::exp
 	}
 
 	// Start with the first expression
-	auto tail = static_cast<vortex::expr::Expr *>(nullptr);
-	auto hd = Arena::Create<vortex::expr::Expr>(&arena);
+	auto tail = static_cast<expr::Expr *>(nullptr);
+	auto hd = Arena::Create<expr::Expr>(&arena);
 
 	// Flatten the list of children into a linked list of AND values.
 	for (size_t i = 0; i < child_filters.size() - 1; i++) {
-		vortex::expr::Expr *new_and = !tail ? hd : tail->add_children();
+		expr::Expr *new_and = !tail ? hd : tail->add_children();
 		new_and->set_id(BINARY_ID);
-		new_and->mutable_kind()->set_binary_op(vortex::expr::Kind::And);
+		new_and->mutable_kind()->set_binary_op(expr::Kind::And);
 		new_and->add_children()->Swap(child_filters[i]);
 
 		tail = new_and;
@@ -366,8 +369,8 @@ std::optional<string> expr_to_like_pattern(const duckdb::Expression &dexpr) {
 	}
 }
 
-vortex::expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expression &dexpr) {
-	auto expr = Arena::Create<vortex::expr::Expr>(&arena);
+expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expression &dexpr) {
+	auto expr = Arena::Create<expr::Expr>(&arena);
 	switch (dexpr.expression_class) {
 	case duckdb::ExpressionClass::BOUND_COLUMN_REF: {
 		auto &dcol_ref = dexpr.Cast<duckdb::BoundColumnRefExpression>();
@@ -449,8 +452,8 @@ vortex::expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expr
 	}
 }
 
-vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const string &column_name) {
-	auto expr = Arena::Create<vortex::expr::Expr>(&arena);
+expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const string &column_name) {
+	auto expr = Arena::Create<expr::Expr>(&arena);
 	switch (filter.filter_type) {
 	case TableFilterType::CONSTANT_COMPARISON: {
 		auto &constant_filter = filter.Cast<ConstantFilter>();
@@ -485,3 +488,5 @@ vortex::expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter
 	throw Exception(ExceptionType::NOT_IMPLEMENTED, "table_expression_into_expr",
 	                {{"filter_type_id", std::to_string(static_cast<uint8_t>(filter.filter_type))}});
 }
+
+} // namespace vortex

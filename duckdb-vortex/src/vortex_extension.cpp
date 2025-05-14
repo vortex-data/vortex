@@ -1,18 +1,14 @@
 #define DUCKDB_EXTENSION_MAIN
 
-#define ENABLE_DUCKDB_FFI
-
 #include "duckdb/main/extension_util.hpp"
-#include "vortex_extension.hpp"
 
+#include "vortex_extension.hpp"
 #include "vortex_write.hpp"
 #include "vortex_scan.hpp"
 
-#ifndef DUCKDB_EXTENSION_MAIN
-#error DUCKDB_EXTENSION_MAIN not defined
-#endif
+using namespace duckdb;
 
-namespace duckdb {
+// The entry point class API can't be scoped to the vortex namespace.
 
 /// Called when the extension is loaded by DuckDB.
 /// It is responsible for registering functions and initializing state.
@@ -22,8 +18,8 @@ namespace duckdb {
 void VortexExtension::Load(DuckDB &db) {
 	DatabaseInstance &instance = *db.instance;
 
-	RegisterVortexWriteFunction(instance);
-	RegisterVortexScanFunction(instance);
+	vortex::RegisterWriteFunction(instance);
+	vortex::RegisterScanFunction(instance);
 }
 
 /// Returns the name of the Vortex extension.
@@ -43,12 +39,10 @@ std::string VortexExtension::Version() const {
 	return "0.1.0";
 }
 
-} // namespace duckdb
-
 extern "C" {
 DUCKDB_EXTENSION_API void vortex_init(duckdb::DatabaseInstance &db) {
 	duckdb::DuckDB db_wrapper(db);
-	db_wrapper.LoadExtension<duckdb::VortexExtension>();
+	db_wrapper.LoadExtension<VortexExtension>();
 }
 
 DUCKDB_EXTENSION_API const char *vortex_version() {

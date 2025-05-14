@@ -4,15 +4,14 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
     BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison, between,
 };
-use vortex_array::variants::PrimitiveArrayTrait;
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_dtype::{NativePType, Nullability};
 use vortex_error::VortexResult;
 use vortex_scalar::{Scalar, ScalarType};
 
-use crate::{ALPArray, ALPEncoding, ALPFloat, match_each_alp_float_ptype};
+use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
 
-impl BetweenKernel for ALPEncoding {
+impl BetweenKernel for ALPVTable {
     fn between(
         &self,
         array: &ALPArray,
@@ -38,7 +37,7 @@ impl BetweenKernel for ALPEncoding {
     }
 }
 
-register_kernel!(BetweenKernelAdapter(ALPEncoding).lift());
+register_kernel!(BetweenKernelAdapter(ALPVTable).lift());
 
 fn between_impl<T: NativePType + ALPFloat>(
     array: &ALPArray,
@@ -75,8 +74,8 @@ where
 
     between(
         array.encoded(),
-        &ConstantArray::new(Scalar::primitive(lower_enc, nullability), array.len()),
-        &ConstantArray::new(Scalar::primitive(upper_enc, nullability), array.len()),
+        ConstantArray::new(Scalar::primitive(lower_enc, nullability), array.len()).as_ref(),
+        ConstantArray::new(Scalar::primitive(upper_enc, nullability), array.len()).as_ref(),
         &options,
     )
 }

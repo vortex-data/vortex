@@ -1,32 +1,33 @@
-use vortex_array::{Array, ArrayOperationsImpl, ArrayRef};
+use vortex_array::vtable::OperationsVTable;
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::ALPRDArray;
+use crate::{ALPRDArray, ALPRDVTable};
 
-impl ArrayOperationsImpl for ALPRDArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let left_parts_exceptions = self
+impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
+    fn slice(array: &ALPRDArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let left_parts_exceptions = array
             .left_parts_patches()
             .map(|patches| patches.slice(start, stop))
             .transpose()?
             .flatten();
 
         Ok(ALPRDArray::try_new(
-            self.dtype().clone(),
-            self.left_parts().slice(start, stop)?,
-            self.left_parts_dictionary().clone(),
-            self.right_parts().slice(start, stop)?,
-            self.right_bit_width(),
+            array.dtype().clone(),
+            array.left_parts().slice(start, stop)?,
+            array.left_parts_dictionary().clone(),
+            array.right_parts().slice(start, stop)?,
+            array.right_bit_width(),
             left_parts_exceptions,
         )?
         .into_array())
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &ALPRDArray, index: usize) -> VortexResult<Scalar> {
         // The left value can either be a direct value, or an exception.
         // The exceptions array represents exception positions with non-null values.
-        let maybe_patched_value = self
+        let maybe_patched_value = array
             .left_parts_patches()
             .map(|patches| patches.get_patched(index))
             .transpose()?
@@ -34,20 +35,20 @@ impl ArrayOperationsImpl for ALPRDArray {
         let left = match maybe_patched_value {
             Some(patched_value) => u16::try_from(patched_value)?,
             _ => {
-                let left_code: u16 = self.left_parts().scalar_at(index)?.try_into()?;
-                self.left_parts_dictionary()[left_code as usize]
+                let left_code: u16 = array.left_parts().scalar_at(index)?.try_into()?;
+                array.left_parts_dictionary()[left_code as usize]
             }
         };
 
         // combine left and right values
-        if self.is_f32() {
-            let right: u32 = self.right_parts().scalar_at(index)?.try_into()?;
-            let packed = f32::from_bits((left as u32) << self.right_bit_width() | right);
-            Ok(Scalar::primitive(packed, self.dtype().nullability()))
+        if array.is_f32() {
+            let right: u32 = array.right_parts().scalar_at(index)?.try_into()?;
+            let packed = f32::from_bits((left as u32) << array.right_bit_width() | right);
+            Ok(Scalar::primitive(packed, array.dtype().nullability()))
         } else {
-            let right: u64 = self.right_parts().scalar_at(index)?.try_into()?;
-            let packed = f64::from_bits(((left as u64) << self.right_bit_width()) | right);
-            Ok(Scalar::primitive(packed, self.dtype().nullability()))
+            let right: u64 = array.right_parts().scalar_at(index)?.try_into()?;
+            let packed = f64::from_bits(((left as u64) << array.right_bit_width()) | right);
+            Ok(Scalar::primitive(packed, array.dtype().nullability()))
         }
     }
 }
@@ -55,8 +56,8 @@ impl ArrayOperationsImpl for ALPRDArray {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::{Array, ToCanonical};
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 

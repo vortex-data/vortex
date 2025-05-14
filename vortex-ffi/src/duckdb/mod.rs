@@ -144,7 +144,6 @@ mod tests {
     use std::ptr::null_mut;
 
     use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
-    use vortex::Array;
     use vortex::arrays::{PrimitiveArray, StructArray};
     use vortex::error::VortexExpect;
 

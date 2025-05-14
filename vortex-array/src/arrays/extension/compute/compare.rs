@@ -1,10 +1,10 @@
 use vortex_error::VortexResult;
 
-use crate::arrays::{ConstantArray, ExtensionArray, ExtensionEncoding};
+use crate::arrays::{ConstantArray, ExtensionArray, ExtensionVTable};
 use crate::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
 use crate::{Array, ArrayRef, register_kernel};
 
-impl CompareKernel for ExtensionEncoding {
+impl CompareKernel for ExtensionVTable {
     fn compare(
         &self,
         lhs: &ExtensionArray,
@@ -16,15 +16,15 @@ impl CompareKernel for ExtensionEncoding {
             let storage_scalar = const_ext.as_extension().storage();
             return compare(
                 lhs.storage(),
-                &ConstantArray::new(storage_scalar, lhs.len()),
+                ConstantArray::new(storage_scalar, lhs.len()).as_ref(),
                 operator,
             )
             .map(Some);
         }
 
         // If the RHS is an extension array matching ours, we can extract the storage.
-        if let Some(rhs_ext) = rhs.as_extension_typed() {
-            return compare(lhs.storage(), &rhs_ext.storage_data(), operator).map(Some);
+        if let Some(rhs_ext) = rhs.as_opt::<ExtensionVTable>() {
+            return compare(lhs.storage(), rhs_ext.storage(), operator).map(Some);
         }
 
         // Otherwise, we need the RHS to handle this comparison.
@@ -32,4 +32,4 @@ impl CompareKernel for ExtensionEncoding {
     }
 }
 
-register_kernel!(CompareKernelAdapter(ExtensionEncoding).lift());
+register_kernel!(CompareKernelAdapter(ExtensionVTable).lift());

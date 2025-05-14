@@ -1,11 +1,12 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_scalar::match_each_decimal_value_type;
 
-use crate::arrays::{DecimalArray, DecimalEncoding};
+use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
-use crate::{match_each_decimal_value_type, register_kernel};
+use crate::register_kernel;
 
-impl IsConstantKernel for DecimalEncoding {
+impl IsConstantKernel for DecimalVTable {
     fn is_constant(
         &self,
         array: &DecimalArray,
@@ -18,7 +19,7 @@ impl IsConstantKernel for DecimalEncoding {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(DecimalEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(DecimalVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -37,7 +38,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        assert!(!is_constant(&array).unwrap().unwrap());
+        assert!(!is_constant(array.as_ref()).unwrap().unwrap());
 
         let array = DecimalArray::new(
             buffer![100i128, 100i128, 100i128],
@@ -45,6 +46,6 @@ mod tests {
             Validity::NonNullable,
         );
 
-        assert!(is_constant(&array).unwrap().unwrap());
+        assert!(is_constant(array.as_ref()).unwrap().unwrap());
     }
 }

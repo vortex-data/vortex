@@ -1,12 +1,12 @@
+#include <iostream>
+
 #include "catch2/catch_test_macros.hpp"
 #include "duckdb.hpp"
-#include "expr/expr.hpp"
+#include "duckdb/planner/filter/constant_filter.hpp"
 
-#include <iostream>
-#include <duckdb/planner/filter/constant_filter.hpp>
+#include "vortex_expr.hpp"
 
 TEST_CASE("Test DuckDB list handling", "[list]") {
-
 	google::protobuf::Arena arena;
 
 	auto filter = duckdb::make_uniq<duckdb::ConstantFilter>(duckdb::ExpressionType::COMPARE_EQUAL, duckdb::Value(1));
@@ -20,7 +20,7 @@ TEST_CASE("Test DuckDB list handling", "[list]") {
 	filter_and.child_filters.push_back(std::move(filter3));
 
 	auto col = std::string("a");
-	auto expr = table_expression_into_expr(arena, filter_and, col);
+	auto expr = vortex::table_expression_into_expr(arena, filter_and, col);
 
 	REQUIRE(expr->children().size() == 2);
 	REQUIRE(expr->kind().binary_op() == vortex::expr::Kind_BinaryOp_And);

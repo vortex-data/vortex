@@ -1,9 +1,9 @@
 use divan::Bencher;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
-use vortex_array::Array;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
+use vortex_array::{Array, IntoArray};
 use vortex_error::{VortexExpect as _, VortexUnwrap};
 use vortex_fastlanes::test_harness::make_array;
 

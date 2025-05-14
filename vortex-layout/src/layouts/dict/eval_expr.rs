@@ -3,10 +3,10 @@ use std::ops::{BitAnd, Range};
 use async_trait::async_trait;
 use futures::join;
 use vortex_array::arrays::StructArray;
-use vortex_array::compute::filter;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::compute::{MinMaxResult, filter, min_max};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dict::DictArray;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::VortexResult;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
@@ -78,16 +78,17 @@ impl MaskEvaluation for DictMaskEvaluation {
         }
 
         let values_result = self.values_eval.clone().await?;
-        match values_result
-            .as_bool_typed()
-            .ok_or_else(|| vortex_err!("expr must return bool"))?
-            .true_count()?
-        {
-            0 => return Ok(Mask::AllFalse(mask.len())),
-            count if count == values_result.len() => {
+
+        // Short-circuit when the values are all true/false.
+        if let Some(MinMaxResult { min, max }) = min_max(&values_result)? {
+            if !max.as_bool().value().unwrap_or(true) {
+                // All values are false
+                return Ok(Mask::AllFalse(mask.len()));
+            }
+            if min.as_bool().value().unwrap_or(false) {
+                // All values are true
                 return Ok(mask);
             }
-            _ => (),
         }
 
         let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
@@ -126,20 +127,23 @@ impl ArrayEvaluation for DictArrayEvaluation {
         let (values_result, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
         let (values_result, codes) = (values_result?, codes?);
 
-        match values_result.as_struct_typed() {
+        if values_result.dtype().is_struct() {
             // If the expression returns a struct push down the dict creation,
             // return a struct of dicts
-            Some(struct_typed) => Ok(StructArray::try_new(
-                struct_typed.names().clone(),
-                struct_typed
+            let values_result = values_result.to_struct()?;
+            Ok(StructArray::try_new(
+                values_result.names().clone(),
+                values_result
                     .fields()
-                    .map(|field| Ok(DictArray::try_new(codes.clone(), field)?.to_array()))
+                    .iter()
+                    .map(|field| Ok(DictArray::try_new(codes.clone(), field.clone())?.to_array()))
                     .collect::<VortexResult<Vec<_>>>()?,
                 codes.len(),
-                struct_typed.dtype().nullability().into(),
+                values_result.dtype().nullability().into(),
             )?
-            .to_array()),
-            None => Ok(DictArray::try_new(codes, values_result)?.to_array()),
+            .to_array())
+        } else {
+            Ok(DictArray::try_new(codes, values_result)?.to_array())
         }
     }
 }

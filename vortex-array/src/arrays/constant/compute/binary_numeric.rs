@@ -1,11 +1,11 @@
 use vortex_error::{VortexResult, vortex_err};
 use vortex_scalar::NumericOperator;
 
-use crate::arrays::{ConstantArray, ConstantEncoding};
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{NumericKernel, NumericKernelAdapter};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
-impl NumericKernel for ConstantEncoding {
+impl NumericKernel for ConstantVTable {
     fn numeric(
         &self,
         array: &ConstantArray,
@@ -30,4 +30,4 @@ impl NumericKernel for ConstantEncoding {
     }
 }
 
-register_kernel!(NumericKernelAdapter(ConstantEncoding).lift());
+register_kernel!(NumericKernelAdapter(ConstantVTable).lift());

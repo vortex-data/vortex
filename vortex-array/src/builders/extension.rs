@@ -8,7 +8,7 @@ use vortex_scalar::ExtScalar;
 
 use crate::arrays::ExtensionArray;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
-use crate::{Array, ArrayRef, Canonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 pub struct ExtensionBuilder {
     storage: Box<dyn ArrayBuilder>,

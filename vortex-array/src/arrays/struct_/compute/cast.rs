@@ -2,11 +2,12 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::arrays::{StructArray, StructEncoding};
+use crate::arrays::{StructArray, StructVTable};
 use crate::compute::{CastKernel, CastKernelAdapter, cast};
-use crate::{Array, ArrayRef, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{ArrayRef, IntoArray, register_kernel};
 
-impl CastKernel for StructEncoding {
+impl CastKernel for StructVTable {
     fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<ArrayRef> {
         let Some(target_sdtype) = dtype.as_struct() else {
             vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
@@ -41,4 +42,4 @@ impl CastKernel for StructEncoding {
     }
 }
 
-register_kernel!(CastKernelAdapter(StructEncoding).lift());
+register_kernel!(CastKernelAdapter(StructVTable).lift());

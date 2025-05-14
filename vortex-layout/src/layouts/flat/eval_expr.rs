@@ -157,7 +157,7 @@ mod test {
     use futures::executor::block_on;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayContext, ToCanonical};
+    use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{Identity, gt, ident, lit};
     use vortex_mask::Mask;
@@ -175,7 +175,7 @@ mod test {
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout =
                 FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
-                    .push_one(&mut segments, array.to_array().into_array())
+                    .push_one(&mut segments, array.to_array())
                     .unwrap();
 
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
@@ -235,7 +235,7 @@ mod test {
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout =
                 FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
-                    .push_one(&mut segments, array.to_array().into_array())
+                    .push_one(&mut segments, array.to_array())
                     .unwrap();
 
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);

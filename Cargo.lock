@@ -4311,7 +4311,6 @@ dependencies = [
 name = "pyvortex"
 version = "0.32.0"
 dependencies = [
- "arcref",
  "arrow",
  "futures",
  "itertools 0.14.0",
@@ -6099,6 +6098,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-datetime-parts",
+ "vortex-decimal-byte-parts",
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
@@ -6188,6 +6188,21 @@ dependencies = [
  "getrandom 0.2.16",
  "prost",
  "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-scalar",
+]
+
+[[package]]
+name = "vortex-decimal-byte-parts"
+version = "0.32.0"
+dependencies = [
+ "itertools 0.14.0",
+ "num-traits",
+ "prost",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -6370,6 +6385,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-bytebool",
  "vortex-datetime-parts",
+ "vortex-decimal-byte-parts",
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",

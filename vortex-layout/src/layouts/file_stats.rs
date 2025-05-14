@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::stats::{Stat, StatsSet};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
@@ -63,15 +63,13 @@ impl LayoutWriter for FileStatsLayoutWriter {
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
-        match chunk.as_struct_typed() {
-            None => {
-                self.stats_accumulators[0].push_chunk(&chunk)?;
+        if chunk.dtype().is_struct() {
+            let chunk = chunk.to_struct()?;
+            for (acc, field) in self.stats_accumulators.iter_mut().zip_eq(chunk.fields()) {
+                acc.push_chunk(field)?;
             }
-            Some(array) => {
-                for (acc, field) in self.stats_accumulators.iter_mut().zip_eq(array.fields()) {
-                    acc.push_chunk(&field)?;
-                }
-            }
+        } else {
+            self.stats_accumulators[0].push_chunk(&chunk)?;
         }
         self.inner.push_chunk(segment_writer, chunk)
     }

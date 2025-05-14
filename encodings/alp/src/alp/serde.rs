@@ -1,81 +1,15 @@
 use vortex_array::patches::{Patches, PatchesMetadata};
-use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::EncodingVTable;
+use vortex_array::serde::ArrayChildren;
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{
-    Array, ArrayChildVisitor, ArrayContext, ArrayExt, ArrayRef, ArrayVisitorImpl, Canonical,
-    DeserializeMetadata, Encoding, EncodingId, ProstMetadata,
+    ArrayBufferVisitor, ArrayChildVisitor, Canonical, DeserializeMetadata, ProstMetadata,
 };
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
 
 use super::{ALPEncoding, alp_encode};
-use crate::{ALPArray, Exponents};
-
-impl EncodingVTable for ALPEncoding {
-    fn id(&self) -> EncodingId {
-        EncodingId::new_ref("vortex.alp")
-    }
-
-    fn decode(
-        &self,
-        parts: &ArrayParts,
-        ctx: &ArrayContext,
-        dtype: DType,
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let metadata = ProstMetadata::<ALPMetadata>::deserialize(parts.metadata())?;
-
-        let encoded_ptype = match &dtype {
-            DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
-            DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
-            d => vortex_panic!(MismatchedTypes: "f32 or f64", d),
-        };
-        let encoded = parts.child(0).decode(ctx, encoded_ptype, len)?;
-
-        let patches = metadata
-            .patches
-            .map(|p| {
-                let indices = parts.child(1).decode(ctx, p.indices_dtype(), p.len())?;
-                let values = parts.child(2).decode(ctx, dtype, p.len())?;
-                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
-            })
-            .transpose()?;
-
-        Ok(ALPArray::try_new(
-            encoded,
-            Exponents {
-                e: u8::try_from(metadata.exp_e).vortex_expect("Exponent e overflow"),
-                f: u8::try_from(metadata.exp_f).vortex_expect("Exponent f overflow"),
-            },
-            patches,
-        )?
-        .into_array())
-    }
-
-    fn encode(
-        &self,
-        input: &Canonical,
-        like: Option<&dyn Array>,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let parray = input.clone().into_primitive()?;
-
-        let like_alp = like
-            .map(|like| {
-                like.as_opt::<<Self as Encoding>::Array>().ok_or_else(|| {
-                    vortex_err!(
-                        "Expected {} encoded array but got {}",
-                        self.id(),
-                        like.encoding()
-                    )
-                })
-            })
-            .transpose()?;
-        let exponents = like_alp.map(|a| a.exponents());
-        let alp = alp_encode(&parray, exponents)?;
-
-        Ok(Some(alp.into_array()))
-    }
-}
+use crate::{ALPArray, ALPVTable, Exponents};
 
 #[derive(Clone, prost::Message)]
 pub struct ALPMetadata {
@@ -87,25 +21,78 @@ pub struct ALPMetadata {
     patches: Option<PatchesMetadata>,
 }
 
-impl ArrayVisitorImpl<ProstMetadata<ALPMetadata>> for ALPArray {
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("encoded", self.encoded());
-        if let Some(patches) = self.patches() {
-            visitor.visit_patches(patches);
-        }
-    }
+impl SerdeVTable<ALPVTable> for ALPVTable {
+    type Metadata = ProstMetadata<ALPMetadata>;
 
-    fn _metadata(&self) -> ProstMetadata<ALPMetadata> {
-        let exponents = self.exponents();
-        ProstMetadata(ALPMetadata {
+    fn metadata(array: &ALPArray) -> VortexResult<Option<Self::Metadata>> {
+        let exponents = array.exponents();
+        Ok(Some(ProstMetadata(ALPMetadata {
             exp_e: exponents.e as u32,
             exp_f: exponents.f as u32,
-            patches: self
+            patches: array
                 .patches()
-                .map(|p| p.to_metadata(self.len(), self.dtype()))
-                .transpose()
-                .vortex_expect("Failed to create patches metadata"),
-        })
+                .map(|p| p.to_metadata(array.len(), array.dtype()))
+                .transpose()?,
+        })))
+    }
+
+    fn build(
+        _encoding: &ALPEncoding,
+        dtype: &DType,
+        len: usize,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _buffers: &[ByteBuffer],
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ALPArray> {
+        let encoded_ptype = match &dtype {
+            DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
+            DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
+            d => vortex_panic!(MismatchedTypes: "f32 or f64", d),
+        };
+        let encoded = children.get(0, &encoded_ptype, len)?;
+
+        let patches = metadata
+            .patches
+            .map(|p| {
+                let indices = children.get(1, &p.indices_dtype(), p.len())?;
+                let values = children.get(2, dtype, p.len())?;
+                Ok::<_, VortexError>(Patches::new(len, p.offset(), indices, values))
+            })
+            .transpose()?;
+
+        ALPArray::try_new(
+            encoded,
+            Exponents {
+                e: u8::try_from(metadata.exp_e).vortex_expect("Exponent e overflow"),
+                f: u8::try_from(metadata.exp_f).vortex_expect("Exponent f overflow"),
+            },
+            patches,
+        )
+    }
+}
+
+impl EncodeVTable<ALPVTable> for ALPVTable {
+    fn encode(
+        _encoding: &ALPEncoding,
+        canonical: &Canonical,
+        like: Option<&ALPArray>,
+    ) -> VortexResult<Option<ALPArray>> {
+        let parray = canonical.clone().into_primitive()?;
+        let exponents = like.map(|a| a.exponents());
+        let alp = alp_encode(&parray, exponents)?;
+
+        Ok(Some(alp))
+    }
+}
+
+impl VisitorVTable<ALPVTable> for ALPVTable {
+    fn visit_buffers(_array: &ALPArray, _visitor: &mut dyn ArrayBufferVisitor) {}
+
+    fn visit_children(array: &ALPArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_child("encoded", array.encoded());
+        if let Some(patches) = array.patches() {
+            visitor.visit_patches(patches);
+        }
     }
 }
 

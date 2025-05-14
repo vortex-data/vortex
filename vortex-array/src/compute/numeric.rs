@@ -9,8 +9,8 @@ use vortex_scalar::{NumericOperator, Scalar};
 use crate::arrays::ConstantArray;
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
-use crate::encoding::Encoding;
-use crate::{Array, ArrayRef};
+use crate::vtable::VTable;
+use crate::{Array, ArrayRef, IntoArray};
 
 /// Point-wise add two numeric arrays.
 pub fn add(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
@@ -81,7 +81,7 @@ pub fn numeric(lhs: &dyn Array, rhs: &dyn Array, op: NumericOperator) -> VortexR
 pub struct NumericKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(NumericKernelRef);
 
-pub trait NumericKernel: Encoding {
+pub trait NumericKernel: VTable {
     fn numeric(
         &self,
         array: &Self::Array,
@@ -91,21 +91,21 @@ pub trait NumericKernel: Encoding {
 }
 
 #[derive(Debug)]
-pub struct NumericKernelAdapter<E: Encoding>(pub E);
+pub struct NumericKernelAdapter<V: VTable>(pub V);
 
-impl<E: Encoding + NumericKernel> NumericKernelAdapter<E> {
+impl<V: VTable + NumericKernel> NumericKernelAdapter<V> {
     pub const fn lift(&'static self) -> NumericKernelRef {
         NumericKernelRef(ArcRef::new_ref(self))
     }
 }
 
-impl<E: Encoding + NumericKernel> Kernel for NumericKernelAdapter<E> {
+impl<V: VTable + NumericKernel> Kernel for NumericKernelAdapter<V> {
     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
         let inputs = NumericArgs::try_from(args)?;
-        let Some(lhs) = inputs.lhs.as_any().downcast_ref::<E::Array>() else {
+        let Some(lhs) = inputs.lhs.as_opt::<V>() else {
             return Ok(None);
         };
-        Ok(E::numeric(&self.0, lhs, inputs.rhs, inputs.operator)?.map(|array| array.into()))
+        Ok(V::numeric(&self.0, lhs, inputs.rhs, inputs.operator)?.map(|array| array.into()))
     }
 }
 
@@ -153,8 +153,8 @@ impl ComputeFnVTable for Numeric {
 
         log::debug!(
             "No numeric implementation found for LHS {}, RHS {}, and operator {:?}",
-            lhs.encoding(),
-            rhs.encoding(),
+            lhs.encoding_id(),
+            rhs.encoding_id(),
             operator,
         );
 
@@ -175,9 +175,7 @@ impl ComputeFnVTable for Numeric {
                 rhs.dtype()
             )
         }
-        Ok(lhs
-            .dtype()
-            .with_nullability((lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into()))
+        Ok(lhs.dtype().union_nullability(rhs.dtype().nullability()))
     }
 
     fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
@@ -264,7 +262,6 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::IntoArray;
-    use crate::array::Array;
     use crate::arrays::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::sub_scalar;
@@ -296,7 +293,7 @@ mod test {
     #[test]
     fn test_scalar_subtract_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
-        let result = sub_scalar(&values, Some(1u16).into())
+        let result = sub_scalar(values.as_ref(), Some(1u16).into())
             .unwrap()
             .to_primitive()
             .unwrap();

@@ -3,13 +3,11 @@
 pub use array::*;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::variants::PrimitiveArrayTrait;
 
 mod array;
 mod compute;
 mod ops;
 mod serde;
-mod variants;
 
 use std::ops::{Shl, Shr};
 
@@ -18,6 +16,7 @@ use num_traits::{Float, One, PrimInt};
 use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::vtable::ValidityHelper;
 use vortex_array::{Array, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype};

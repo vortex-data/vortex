@@ -1,9 +1,7 @@
 use vortex_error::VortexResult;
 
-use crate::Array;
-
 /// Trait for arrays that support iterative access to their elements.
-pub trait ArrayAccessor<Item: ?Sized>: Array {
+pub trait ArrayAccessor<Item: ?Sized> {
     /// Iterate over each element of the array, in-order.
     ///
     /// The function `f` will be passed an [`Iterator`], it can call [`next`][Iterator::next] on the

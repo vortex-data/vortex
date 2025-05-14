@@ -1,10 +1,10 @@
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::arrays::{Ref, VarBinViewArray, VarBinViewEncoding};
+use crate::arrays::{Ref, VarBinViewArray, VarBinViewVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
 
-impl IsConstantKernel for VarBinViewEncoding {
+impl IsConstantKernel for VarBinViewVTable {
     fn is_constant(
         &self,
         array: &VarBinViewArray,
@@ -52,4 +52,4 @@ impl IsConstantKernel for VarBinViewEncoding {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(VarBinViewEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(VarBinViewVTable).lift());

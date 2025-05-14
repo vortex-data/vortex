@@ -1,8 +1,9 @@
 //! Float-specific dictionary encoding implementation.
 
-use vortex_array::Array;
+use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_dict::DictArray;
 use vortex_dtype::half::f16;
@@ -92,7 +93,7 @@ impl_encode!(f64, u64);
 mod tests {
     use vortex_array::arrays::{BoolArray, PrimitiveArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 
     use crate::CompressorStats;

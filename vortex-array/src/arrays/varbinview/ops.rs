@@ -1,23 +1,24 @@
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::arrays::{VarBinViewArray, varbin_scalar};
-use crate::{Array, ArrayOperationsImpl, ArrayRef};
+use crate::arrays::{VarBinViewArray, VarBinViewVTable, varbin_scalar};
+use crate::vtable::{OperationsVTable, ValidityHelper};
+use crate::{ArrayRef, IntoArray};
 
-impl ArrayOperationsImpl for VarBinViewArray {
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let views = self.views().slice(start..stop);
+impl OperationsVTable<VarBinViewVTable> for VarBinViewVTable {
+    fn slice(array: &VarBinViewArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
+        let views = array.views().slice(start..stop);
 
         Ok(VarBinViewArray::try_new(
             views,
-            self.buffers().to_vec(),
-            self.dtype().clone(),
-            self.validity().slice(start, stop)?,
+            array.buffers().to_vec(),
+            array.dtype().clone(),
+            array.validity().slice(start, stop)?,
         )?
         .into_array())
     }
 
-    fn _scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        Ok(varbin_scalar(self.bytes_at(index), self.dtype()))
+    fn scalar_at(array: &VarBinViewArray, index: usize) -> VortexResult<Scalar> {
+        Ok(varbin_scalar(array.bytes_at(index), array.dtype()))
     }
 }

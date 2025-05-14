@@ -2,15 +2,15 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, cast, compare};
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::VortexResult;
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::Scalar;
 
-use crate::{DictArray, DictEncoding};
+use crate::{DictArray, DictVTable};
 
-impl CompareKernel for DictEncoding {
+impl CompareKernel for DictVTable {
     fn compare(
         &self,
         lhs: &DictArray,
@@ -25,7 +25,7 @@ impl CompareKernel for DictEncoding {
         if let Some(rhs) = rhs.as_constant() {
             let compare_result = compare(
                 lhs.values(),
-                &ConstantArray::new(rhs, lhs.values().len()),
+                ConstantArray::new(rhs, lhs.values().len()).as_ref(),
                 operator,
             )?;
             return if operator == Operator::Eq {
@@ -45,7 +45,7 @@ impl CompareKernel for DictEncoding {
     }
 }
 
-register_kernel!(CompareKernelAdapter(DictEncoding).lift());
+register_kernel!(CompareKernelAdapter(DictVTable).lift());
 
 fn dict_equal_to(
     values_compare: ArrayRef,
@@ -105,7 +105,10 @@ fn dict_equal_to(
         (Some(code), None) => cast(
             &compare(
                 codes,
-                &cast(&ConstantArray::new(code, codes.len()), codes.dtype())?,
+                &cast(
+                    ConstantArray::new(code, codes.len()).as_ref(),
+                    codes.dtype(),
+                )?,
                 Operator::Eq,
             )?,
             &DType::Bool(result_nullability),
@@ -120,7 +123,7 @@ mod tests {
     use vortex_array::arrays::{ConstantArray, PrimitiveArray};
     use vortex_array::compute::{Operator, compare};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_mask::Mask;
@@ -137,8 +140,8 @@ mod tests {
         .unwrap();
 
         let res = compare(
-            &dict,
-            &ConstantArray::new(Scalar::from(1i32), 3),
+            dict.as_ref(),
+            ConstantArray::new(Scalar::from(1i32), 3).as_ref(),
             Operator::Eq,
         )
         .unwrap();
@@ -158,8 +161,8 @@ mod tests {
         .unwrap();
 
         let res = compare(
-            &dict,
-            &ConstantArray::new(Scalar::from(1i32), 3),
+            dict.as_ref(),
+            ConstantArray::new(Scalar::from(1i32), 3).as_ref(),
             Operator::Gt,
         )
         .unwrap();
@@ -183,8 +186,8 @@ mod tests {
         .unwrap();
 
         let res = compare(
-            &dict,
-            &ConstantArray::new(Scalar::primitive(4i32, Nullability::Nullable), 3),
+            dict.as_ref(),
+            ConstantArray::new(Scalar::primitive(4i32, Nullability::Nullable), 3).as_ref(),
             Operator::Eq,
         )
         .unwrap();
@@ -213,8 +216,8 @@ mod tests {
         .unwrap();
 
         let res = compare(
-            &dict,
-            &ConstantArray::new(Scalar::primitive(4i32, Nullability::NonNullable), 3),
+            dict.as_ref(),
+            ConstantArray::new(Scalar::primitive(4i32, Nullability::NonNullable), 3).as_ref(),
             Operator::Eq,
         )
         .unwrap();

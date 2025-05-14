@@ -24,7 +24,7 @@ fn take_10_stratified(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 #[divan::bench]
@@ -36,7 +36,7 @@ fn take_10_contiguous(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 #[divan::bench]
@@ -51,7 +51,7 @@ fn take_10k_random(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 #[divan::bench]
@@ -63,7 +63,7 @@ fn take_10k_contiguous(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 #[divan::bench]
@@ -75,7 +75,7 @@ fn take_200k_dispersed(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 #[divan::bench]
@@ -87,7 +87,7 @@ fn take_200k_first_chunk_only(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 fn fixture(len: usize, bits: usize) -> Buffer<u32> {
@@ -128,7 +128,7 @@ fn patched_take_10_stratified(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 #[divan::bench]
@@ -147,7 +147,7 @@ fn patched_take_10_contiguous(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 #[divan::bench]
@@ -162,7 +162,7 @@ fn patched_take_10k_random(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 #[divan::bench]
@@ -174,7 +174,7 @@ fn patched_take_10k_contiguous_not_patches(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 #[divan::bench]
@@ -194,7 +194,7 @@ fn patched_take_10k_contiguous_patches(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 #[divan::bench]
@@ -206,7 +206,7 @@ fn patched_take_200k_dispersed(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 #[divan::bench]
@@ -218,7 +218,7 @@ fn patched_take_200k_first_chunk_only(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }
 
 #[divan::bench]
@@ -237,5 +237,5 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (packed.clone(), indices.clone()))
-        .bench_refs(|(packed, indices)| take(packed, indices).unwrap())
+        .bench_refs(|(packed, indices)| take(packed.as_ref(), indices.as_ref()).unwrap())
 }

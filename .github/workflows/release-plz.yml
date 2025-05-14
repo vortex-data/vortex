@@ -125,7 +125,7 @@ jobs:
       id-token: write  # IMPORTANT: mandatory for trusted publishing
     environment:
       name: push-to-pypi
-      url: https://pypi.org/p/vortex-array
+      url: https://pypi.org/p/vortex-data
     steps:
       - uses: actions/download-artifact@v4
         with:

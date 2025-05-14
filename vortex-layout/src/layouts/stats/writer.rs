@@ -3,7 +3,7 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use itertools::Itertools;
 use vortex_array::stats::{PRUNING_STATS, Stat, as_stat_bitset_bytes};
-use vortex_array::{ArrayContext, ArrayRef};
+use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -123,7 +123,7 @@ impl LayoutWriter for StatsLayoutWriter {
         let mut stats_writer = self
             .stats_strategy
             .new_writer(&self.ctx, stats_array.dtype())?;
-        let stats_layout = stats_writer.push_one(segment_writer, stats_table.array().clone())?;
+        let stats_layout = stats_writer.push_one(segment_writer, stats_table.array().to_array())?;
 
         let mut metadata = ByteBufferMut::empty();
 

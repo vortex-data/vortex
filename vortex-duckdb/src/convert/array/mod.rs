@@ -41,8 +41,7 @@ mod tests {
         BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
     };
     use vortex_array::validity::Validity;
-    use vortex_array::variants::StructArrayTrait;
-    use vortex_array::{Array, ArrayRef, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_dict::DictArray;
     use vortex_dtype::{DType, FieldNames, Nullability};
     use vortex_scalar::Scalar;

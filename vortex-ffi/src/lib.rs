@@ -10,7 +10,6 @@ mod error;
 mod file;
 mod log;
 mod sink;
-mod stream;
 
 use std::ffi::{CStr, c_char, c_int};
 use std::sync::LazyLock;

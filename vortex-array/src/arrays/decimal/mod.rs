@@ -1,63 +1,48 @@
 mod compute;
+mod macros;
 mod ops;
 mod serde;
 
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_panic};
-use vortex_mask::Mask;
-use vortex_scalar::i256;
+use vortex_scalar::{DecimalValueType, NativeDecimalType};
 
-use crate::array::{Array, ArrayCanonicalImpl, ArrayValidityImpl, ArrayVariantsImpl};
-use crate::arrays::decimal::serde::DecimalMetadata;
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::variants::DecimalArrayTrait;
-use crate::vtable::VTableRef;
-use crate::{
-    ArrayBufferVisitor, ArrayChildVisitor, ArrayImpl, ArrayRef, ArrayStatisticsImpl,
-    ArrayVisitorImpl, Canonical, Encoding, ProstMetadata, try_from_array_ref,
+use crate::vtable::{
+    ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
+    ValidityVTableFromValidityHelper, VisitorVTable,
 };
+use crate::{ArrayBufferVisitor, ArrayChildVisitor, Canonical, EncodingId, EncodingRef, vtable};
 
-#[derive(Debug)]
-pub struct DecimalEncoding;
+vtable!(Decimal);
 
-pub use crate::arrays::decimal::serde::DecimalValueType;
-
-impl Encoding for DecimalEncoding {
+impl VTable for DecimalVTable {
     type Array = DecimalArray;
-    type Metadata = ProstMetadata<DecimalMetadata>;
+    type Encoding = DecimalEncoding;
+
+    type ArrayVTable = Self;
+    type CanonicalVTable = Self;
+    type OperationsVTable = Self;
+    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
+    type EncodeVTable = NotSupported;
+    type SerdeVTable = Self;
+
+    fn id(_encoding: &Self::Encoding) -> EncodingId {
+        EncodingId::new_ref("vortex.decimal")
+    }
+
+    fn encoding(_array: &Self::Array) -> EncodingRef {
+        EncodingRef::new_ref(DecimalEncoding.as_ref())
+    }
 }
 
-/// Type of decimal scalar values.
-pub trait NativeDecimalType: Copy + Eq + Ord {
-    const VALUES_TYPE: DecimalValueType;
-}
-
-impl NativeDecimalType for i8 {
-    const VALUES_TYPE: DecimalValueType = DecimalValueType::I8;
-}
-
-impl NativeDecimalType for i16 {
-    const VALUES_TYPE: DecimalValueType = DecimalValueType::I16;
-}
-
-impl NativeDecimalType for i32 {
-    const VALUES_TYPE: DecimalValueType = DecimalValueType::I32;
-}
-
-impl NativeDecimalType for i64 {
-    const VALUES_TYPE: DecimalValueType = DecimalValueType::I64;
-}
-
-impl NativeDecimalType for i128 {
-    const VALUES_TYPE: DecimalValueType = DecimalValueType::I128;
-}
-
-impl NativeDecimalType for i256 {
-    const VALUES_TYPE: DecimalValueType = DecimalValueType::I256;
-}
+#[derive(Clone, Debug)]
+pub struct DecimalEncoding;
 
 /// Maps a decimal precision into the small type that can represent it.
 pub fn precision_to_storage_size(decimal_dtype: &DecimalDType) -> DecimalValueType {
@@ -82,8 +67,6 @@ pub struct DecimalArray {
     validity: Validity,
     stats_set: ArrayStats,
 }
-
-try_from_array_ref!(DecimalArray);
 
 impl DecimalArray {
     /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
@@ -128,11 +111,6 @@ impl DecimalArray {
         Buffer::<T>::from_byte_buffer(self.values.clone())
     }
 
-    /// Returns the underlying [`Validity`] of the array.
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
     /// Returns the decimal type information
     pub fn decimal_dtype(&self) -> DecimalDType {
         match &self.dtype {
@@ -154,99 +132,52 @@ impl DecimalArray {
     }
 }
 
-impl ArrayVisitorImpl<ProstMetadata<DecimalMetadata>> for DecimalArray {
-    fn _metadata(&self) -> ProstMetadata<DecimalMetadata> {
-        ProstMetadata(DecimalMetadata {
-            values_type: self.values_type as i32,
-        })
-    }
-
-    fn _visit_buffers(&self, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(&self.values);
-    }
-
-    fn _visit_children(&self, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(self.validity(), self.len())
-    }
-}
-
-impl ArrayImpl for DecimalArray {
-    type Encoding = DecimalEncoding;
-
-    #[inline]
-    fn _len(&self) -> usize {
-        let divisor = match self.values_type {
+impl ArrayVTable<DecimalVTable> for DecimalVTable {
+    fn len(array: &DecimalArray) -> usize {
+        let divisor = match array.values_type {
             DecimalValueType::I8 => 1,
             DecimalValueType::I16 => 2,
             DecimalValueType::I32 => 4,
             DecimalValueType::I64 => 8,
             DecimalValueType::I128 => 16,
             DecimalValueType::I256 => 32,
+            ty => vortex_panic!("unknown decimal value type {:?}", ty),
         };
-        self.values.len() / divisor
+        array.values.len() / divisor
     }
 
-    #[inline]
-    fn _dtype(&self) -> &DType {
-        &self.dtype
+    fn dtype(array: &DecimalArray) -> &DType {
+        &array.dtype
     }
 
-    #[inline]
-    fn _vtable(&self) -> VTableRef {
-        VTableRef::new_ref(&DecimalEncoding)
-    }
-
-    fn _with_children(&self, _children: &[ArrayRef]) -> VortexResult<Self> {
-        // No non-validity child arrays to replace.
-        Ok(self.clone())
+    fn stats(array: &DecimalArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
     }
 }
 
-impl ArrayStatisticsImpl for DecimalArray {
-    fn _stats_ref(&self) -> StatsSetRef<'_> {
-        self.stats_set.to_ref(self)
+impl VisitorVTable<DecimalVTable> for DecimalVTable {
+    fn visit_buffers(array: &DecimalArray, visitor: &mut dyn ArrayBufferVisitor) {
+        visitor.visit_buffer(&array.values);
+    }
+
+    fn visit_children(array: &DecimalArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(array.validity(), array.len())
     }
 }
 
-impl ArrayVariantsImpl for DecimalArray {
-    fn _as_decimal_typed(&self) -> Option<&dyn DecimalArrayTrait> {
-        Some(self)
+impl CanonicalVTable<DecimalVTable> for DecimalVTable {
+    fn canonicalize(array: &DecimalArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Decimal(array.clone()))
+    }
+
+    fn append_to_builder(array: &DecimalArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        builder.extend_from_array(array.as_ref())
     }
 }
 
-impl DecimalArrayTrait for DecimalArray {}
-
-impl ArrayCanonicalImpl for DecimalArray {
-    #[inline]
-    fn _to_canonical(&self) -> VortexResult<Canonical> {
-        Ok(Canonical::Decimal(self.clone()))
-    }
-
-    #[inline]
-    fn _append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        builder.extend_from_array(self)
-    }
-}
-
-impl ArrayValidityImpl for DecimalArray {
-    #[inline]
-    fn _is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.validity.is_valid(index)
-    }
-
-    #[inline]
-    fn _all_valid(&self) -> VortexResult<bool> {
-        self.validity.all_valid()
-    }
-
-    #[inline]
-    fn _all_invalid(&self) -> VortexResult<bool> {
-        self.validity.all_invalid()
-    }
-
-    #[inline]
-    fn _validity_mask(&self) -> VortexResult<Mask> {
-        self.validity.to_mask(self.len())
+impl ValidityHelper for DecimalArray {
+    fn validity(&self) -> &Validity {
+        &self.validity
     }
 }
 

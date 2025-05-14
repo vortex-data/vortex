@@ -2,7 +2,7 @@
 ///
 /// This is a simple wrapper around the `dbgen` tool.
 ///
-/// For more information, see the [dbgen](https://github.com/spiraldb/tpch-dbgen) project.
+/// For more information, see the [dbgen](https://github.com/vortex-data/tpch-dbgen) project.
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::copy;

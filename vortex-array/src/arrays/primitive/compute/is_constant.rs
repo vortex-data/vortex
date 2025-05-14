@@ -2,10 +2,9 @@ use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 
-use crate::arrays::{PrimitiveArray, PrimitiveEncoding};
+use crate::arrays::{PrimitiveArray, PrimitiveVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
-use crate::variants::PrimitiveArrayTrait;
 
 cfg_if::cfg_if! {
     if #[cfg(target_feature = "avx2")] {
@@ -15,12 +14,15 @@ cfg_if::cfg_if! {
     }
 }
 
-impl IsConstantKernel for PrimitiveEncoding {
+impl IsConstantKernel for PrimitiveVTable {
     fn is_constant(
         &self,
         array: &PrimitiveArray,
-        _opts: &IsConstantOpts,
+        opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
+        if opts.is_negligible_cost() {
+            return Ok(None);
+        }
         let is_constant = match_each_native_ptype!(array.ptype(), integral: |$P| {
             compute_is_constant::<_, {IS_CONST_LANE_WIDTH / size_of::<$P>()}>(array.as_slice::<$P>())
         } floating_point: |$P| {
@@ -31,7 +33,7 @@ impl IsConstantKernel for PrimitiveEncoding {
     }
 }
 
-register_kernel!(IsConstantKernelAdapter(PrimitiveEncoding).lift());
+register_kernel!(IsConstantKernelAdapter(PrimitiveVTable).lift());
 
 // Assumes any floating point has been cast into its bit representation for which != and !is_eq are the same
 // Assumes there's at least 1 value in the slice, which is an invariant of the entry level function.

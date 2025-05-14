@@ -6,7 +6,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructDType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
@@ -17,21 +17,24 @@ use crate::{ExprRef, VortexExpr};
 /// # Examples
 ///
 /// ```
-/// use vortex_array::IntoArray;
+/// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_buffer::buffer;
 /// use vortex_expr::{Pack, Identity, VortexExpr};
 /// use vortex_scalar::Scalar;
+/// use vortex_dtype::Nullability;
 ///
 /// let example = Pack::try_new_expr(
 ///     ["x".into(), "x copy".into(), "second x copy".into()].into(),
 ///     vec![Identity::new_expr(), Identity::new_expr(), Identity::new_expr()],
+///     Nullability::NonNullable,
 /// ).unwrap();
 /// let packed = example.evaluate(&buffer![100, 110, 200].into_array()).unwrap();
 /// let x_copy = packed
-///     .as_struct_typed()
+///     .to_struct()
 ///     .unwrap()
-///     .maybe_null_field_by_name("x copy")
-///     .unwrap();
+///     .field_by_name("x copy")
+///     .unwrap()
+///     .clone();
 /// assert_eq!(x_copy.scalar_at(0).unwrap(), Scalar::from(100));
 /// assert_eq!(x_copy.scalar_at(1).unwrap(), Scalar::from(110));
 /// assert_eq!(x_copy.scalar_at(2).unwrap(), Scalar::from(200));
@@ -41,14 +44,23 @@ use crate::{ExprRef, VortexExpr};
 pub struct Pack {
     names: FieldNames,
     values: Vec<ExprRef>,
+    nullability: Nullability,
 }
 
 impl Pack {
-    pub fn try_new_expr(names: FieldNames, values: Vec<ExprRef>) -> VortexResult<Arc<Self>> {
+    pub fn try_new_expr(
+        names: FieldNames,
+        values: Vec<ExprRef>,
+        nullability: Nullability,
+    ) -> VortexResult<Arc<Self>> {
         if names.len() != values.len() {
             vortex_bail!("length mismatch {} {}", names.len(), values.len());
         }
-        Ok(Arc::new(Pack { names, values }))
+        Ok(Arc::new(Pack {
+            names,
+            values,
+            nullability,
+        }))
     }
 
     pub fn names(&self) -> &FieldNames {
@@ -75,12 +87,15 @@ impl Pack {
     }
 }
 
-pub fn pack(elements: impl IntoIterator<Item = (impl Into<FieldName>, ExprRef)>) -> ExprRef {
+pub fn pack(
+    elements: impl IntoIterator<Item = (impl Into<FieldName>, ExprRef)>,
+    nullability: Nullability,
+) -> ExprRef {
     let (names, values): (Vec<_>, Vec<_>) = elements
         .into_iter()
         .map(|(name, value)| (name.into(), value))
         .unzip();
-    Pack::try_new_expr(names.into(), values)
+    Pack::try_new_expr(names.into(), values, nullability)
         .vortex_expect("pack names and values have the same length")
 }
 
@@ -140,10 +155,11 @@ impl VortexExpr for Pack {
             .iter()
             .map(|value_expr| value_expr.evaluate(batch))
             .process_results(|it| it.collect::<Vec<_>>())?;
-        Ok(
-            StructArray::try_new(self.names.clone(), value_arrays, len, Validity::NonNullable)?
-                .into_array(),
-        )
+        let validity = match self.nullability {
+            Nullability::NonNullable => Validity::NonNullable,
+            Nullability::Nullable => Validity::AllValid,
+        };
+        Ok(StructArray::try_new(self.names.clone(), value_arrays, len, validity)?.into_array())
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -152,7 +168,7 @@ impl VortexExpr for Pack {
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), self.values.len());
-        Self::try_new_expr(self.names.clone(), children)
+        Self::try_new_expr(self.names.clone(), children, self.nullability)
             .vortex_expect("children are known to have the same length as names")
     }
 
@@ -164,7 +180,7 @@ impl VortexExpr for Pack {
             .process_results(|it| it.collect())?;
         Ok(DType::Struct(
             Arc::new(StructDType::new(self.names.clone(), value_dtypes)),
-            Nullability::NonNullable,
+            self.nullability,
         ))
     }
 }
@@ -174,10 +190,12 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::arrays::{PrimitiveArray, StructArray};
+    use vortex_array::validity::Validity;
+    use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
-    use vortex_error::{VortexResult, vortex_bail, vortex_err};
+    use vortex_dtype::{FieldNames, Nullability};
+    use vortex_error::{VortexResult, vortex_bail};
 
     use crate::{Pack, VortexExpr, col};
 
@@ -196,28 +214,24 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array
-            .as_struct_typed()
-            .ok_or_else(|| vortex_err!("expected a struct"))?
-            .maybe_null_field_by_name(field)?;
-
+        let mut array = array.to_struct()?.field_by_name(field)?.clone();
         for field in field_path {
-            array = array
-                .as_struct_typed()
-                .ok_or_else(|| vortex_err!("expected a struct"))?
-                .maybe_null_field_by_name(field)?;
+            array = array.to_struct()?.field_by_name(field)?.clone();
         }
         Ok(array.to_primitive().unwrap())
     }
 
     #[test]
     pub fn test_empty_pack() {
-        let expr = Pack::try_new_expr(Arc::new([]), Vec::new()).unwrap();
+        let expr = Pack::try_new_expr(Arc::new([]), Vec::new(), Nullability::NonNullable).unwrap();
 
         let test_array = test_array().into_array();
         let actual_array = expr.evaluate(&test_array).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
-        assert!(actual_array.as_struct_typed().unwrap().nfields() == 0);
+        assert_eq!(
+            actual_array.to_struct().unwrap().struct_dtype().nfields(),
+            0
+        );
     }
 
     #[test]
@@ -225,30 +239,33 @@ mod tests {
         let expr = Pack::try_new_expr(
             ["one".into(), "two".into(), "three".into()].into(),
             vec![col("a"), col("b"), col("a")],
+            Nullability::NonNullable,
         )
         .unwrap();
 
-        let actual_array = expr.evaluate(&test_array()).unwrap();
+        let actual_array = expr
+            .evaluate(test_array().as_ref())
+            .unwrap()
+            .to_struct()
+            .unwrap();
         let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
-        assert_eq!(
-            actual_array.as_struct_typed().unwrap().names(),
-            &expected_names
-        );
+        assert_eq!(actual_array.names(), &expected_names);
+        assert_eq!(actual_array.validity(), &Validity::NonNullable);
 
         assert_eq!(
-            primitive_field(&actual_array, &["one"])
+            primitive_field(actual_array.as_ref(), &["one"])
                 .unwrap()
                 .as_slice::<i32>(),
             [0, 1, 2]
         );
         assert_eq!(
-            primitive_field(&actual_array, &["two"])
+            primitive_field(actual_array.as_ref(), &["two"])
                 .unwrap()
                 .as_slice::<i32>(),
             [4, 5, 6]
         );
         assert_eq!(
-            primitive_field(&actual_array, &["three"])
+            primitive_field(actual_array.as_ref(), &["three"])
                 .unwrap()
                 .as_slice::<i32>(),
             [0, 1, 2]
@@ -264,43 +281,65 @@ mod tests {
                 Pack::try_new_expr(
                     ["two_one".into(), "two_two".into()].into(),
                     vec![col("b"), col("b")],
+                    Nullability::NonNullable,
                 )
                 .unwrap(),
                 col("a"),
             ],
+            Nullability::NonNullable,
         )
         .unwrap();
 
-        let actual_array = expr.evaluate(&test_array()).unwrap();
+        let actual_array = expr
+            .evaluate(test_array().as_ref())
+            .unwrap()
+            .to_struct()
+            .unwrap();
         let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
-        assert_eq!(
-            actual_array.as_struct_typed().unwrap().names(),
-            &expected_names
-        );
+        assert_eq!(actual_array.names(), &expected_names);
 
         assert_eq!(
-            primitive_field(&actual_array, &["one"])
+            primitive_field(actual_array.as_ref(), &["one"])
                 .unwrap()
                 .as_slice::<i32>(),
             [0, 1, 2]
         );
         assert_eq!(
-            primitive_field(&actual_array, &["two", "two_one"])
+            primitive_field(actual_array.as_ref(), &["two", "two_one"])
                 .unwrap()
                 .as_slice::<i32>(),
             [4, 5, 6]
         );
         assert_eq!(
-            primitive_field(&actual_array, &["two", "two_two"])
+            primitive_field(actual_array.as_ref(), &["two", "two_two"])
                 .unwrap()
                 .as_slice::<i32>(),
             [4, 5, 6]
         );
         assert_eq!(
-            primitive_field(&actual_array, &["three"])
+            primitive_field(actual_array.as_ref(), &["three"])
                 .unwrap()
                 .as_slice::<i32>(),
             [0, 1, 2]
         );
+    }
+
+    #[test]
+    pub fn test_pack_nullable() {
+        let expr = Pack::try_new_expr(
+            ["one".into(), "two".into(), "three".into()].into(),
+            vec![col("a"), col("b"), col("a")],
+            Nullability::Nullable,
+        )
+        .unwrap();
+
+        let actual_array = expr
+            .evaluate(test_array().as_ref())
+            .unwrap()
+            .to_struct()
+            .unwrap();
+        let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
+        assert_eq!(actual_array.names(), &expected_names);
+        assert_eq!(actual_array.validity(), &Validity::AllValid);
     }
 }

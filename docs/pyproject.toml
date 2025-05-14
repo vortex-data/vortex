@@ -14,7 +14,7 @@ dependencies = [
     "sphinx>=8.0.2",
     "sphinxcontrib-bibtex>=2.6.3",
     "sphinxext-opengraph>=0.9.1",
-    "vortex-array",
+    "vortex-data",
     "libclang>=18.1.1",
 ]
 requires-python = ">= 3.10"
@@ -24,4 +24,4 @@ managed = true
 package = false
 
 [tool.uv.sources]
-vortex-array = { workspace = true }
+vortex-data = { workspace = true }

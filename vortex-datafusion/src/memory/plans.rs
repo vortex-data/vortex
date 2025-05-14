@@ -153,10 +153,7 @@ impl Stream for RowIndicesStream {
         // Get the unfiltered record batch.
         // Since this is a one-shot, we only want to poll the inner future once, to create the
         // initial batch for us to process.
-        let vortex_struct = next_chunk
-            .as_struct_typed()
-            .ok_or_else(|| vortex_err!("Not a struct array"))?
-            .project(&this.filter_projection)?;
+        let vortex_struct = next_chunk.to_struct()?.project(&this.filter_projection)?;
 
         let selection = to_arrow(
             &this
@@ -369,7 +366,7 @@ where
         //  We should find a way to avoid decoding the filter columns and only decode the other
         //  columns, then stitch the StructArray back together from those.
         let projected_for_output = chunk.project(this.output_projection)?;
-        let decoded = take(&projected_for_output, &row_indices)?.into_arrow_preferred()?;
+        let decoded = take(projected_for_output.as_ref(), &row_indices)?.into_arrow_preferred()?;
 
         // Send back a single record batch of the decoded data.
         let output_batch = RecordBatch::from(decoded.as_struct());

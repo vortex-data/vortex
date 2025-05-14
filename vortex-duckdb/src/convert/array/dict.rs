@@ -5,9 +5,7 @@ use duckdb::vtab::arrow::WritableVector;
 use num_traits::AsPrimitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::take;
-use vortex_array::stats::Stat;
-use vortex_array::variants::PrimitiveArrayTrait;
-use vortex_array::{Array, ArrayRef, ArrayStatistics, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
@@ -23,12 +21,6 @@ impl ToDuckDB for DictArray {
         cache: &mut ConversionCache,
     ) -> VortexResult<()> {
         let values = self.values();
-        println!(
-            "dict vec {}, const_q {:?}, is const slow {}",
-            self.to_array().tree_display(),
-            self.statistics().get_as::<bool>(Stat::IsConstant),
-            self.is_constant()
-        );
 
         // Note you can only have nullable values (not codes/selection vectors),
         // so we cannot assign a selection vector.

@@ -1,5 +1,5 @@
 use pyo3::{PyRef, pyclass, pymethods};
-use vortex::arrays::DecimalEncoding;
+use vortex::arrays::DecimalVTable;
 
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 
@@ -8,7 +8,7 @@ use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 pub(crate) struct PyDecimalArray;
 
 impl EncodingSubclass for PyDecimalArray {
-    type Encoding = DecimalEncoding;
+    type VTable = DecimalVTable;
 }
 
 #[pymethods]

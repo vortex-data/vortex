@@ -1,25 +1,29 @@
 #pragma once
 
 #include "vortex_common.hpp"
-#include "expr/expr.hpp"
+#include "vortex_expr.hpp"
 
-class VortexLayoutReader {
+namespace vortex {
+
+class LayoutReader {
 public:
-	explicit VortexLayoutReader(vx_layout_reader *reader) : reader(reader) {
+	explicit LayoutReader(vx_layout_reader *reader) : reader(reader) {
 	}
 
-	~VortexLayoutReader() {
+	~LayoutReader() {
 		vx_layout_reader_free(reader);
 	}
 
-	static std::shared_ptr<VortexLayoutReader> CreateFromFile(VortexFileReader *file) {
+	static std::shared_ptr<LayoutReader> CreateFromFile(vortex::FileReader *file) {
 		auto reader = Try([&](auto err) { return vx_layout_reader_create(file->file, err); });
-		return std::make_shared<VortexLayoutReader>(reader);
+		return std::make_shared<LayoutReader>(reader);
 	}
 
-	vx_array_stream *Scan(const vx_file_scan_options *options) {
+	vx_array_iter *Scan(const vx_file_scan_options *options) {
 		return Try([&](auto err) { return vx_layout_reader_scan(this->reader, options, err); });
 	}
 
 	vx_layout_reader *reader;
 };
+
+} // namespace vortex

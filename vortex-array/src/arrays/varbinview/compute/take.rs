@@ -5,13 +5,13 @@ use vortex_buffer::Buffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
-use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewEncoding};
+use crate::arrays::{BinaryView, VarBinViewArray, VarBinViewVTable};
 use crate::compute::{TakeKernel, TakeKernelAdapter};
-use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, ToCanonical, register_kernel};
+use crate::vtable::ValidityHelper;
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 /// Take involves creating a new array that references the old array, just with the given set of views.
-impl TakeKernel for VarBinViewEncoding {
+impl TakeKernel for VarBinViewVTable {
     fn take(&self, array: &VarBinViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // Compute the new validity
 
@@ -28,16 +28,16 @@ impl TakeKernel for VarBinViewEncoding {
         Ok(VarBinViewArray::try_new(
             views_buffer,
             array.buffers().to_vec(),
-            array.dtype().with_nullability(
-                (array.dtype().is_nullable() || indices.dtype().is_nullable()).into(),
-            ),
+            array
+                .dtype()
+                .union_nullability(indices.dtype().nullability()),
             validity,
         )?
         .into_array())
     }
 }
 
-register_kernel!(TakeKernelAdapter(VarBinViewEncoding).lift());
+register_kernel!(TakeKernelAdapter(VarBinViewVTable).lift());
 
 fn take_views<I: AsPrimitive<usize>>(
     views: &Buffer<BinaryView>,
@@ -70,7 +70,7 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = take(&arr, &buffer![0, 3].into_array()).unwrap();
+        let taken = take(arr.as_ref(), &buffer![0, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(

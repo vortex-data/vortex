@@ -16,7 +16,7 @@ use super::{
 use crate::arrays::{VarBinArray, VarBinViewArray};
 use crate::builders::ArrayBuilder;
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, ToCanonical, builders};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical, builders};
 
 /// A wrapper type to implement `Arbitrary` for `ArrayRef`.
 #[derive(Clone, Debug)]

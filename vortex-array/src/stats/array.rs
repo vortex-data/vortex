@@ -13,7 +13,6 @@ use crate::Array;
 use crate::compute::{
     MinMaxResult, is_constant, is_sorted, is_strict_sorted, min_max, nan_count, sum,
 };
-use crate::nbytes::NBytes;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 // TODO(adamg): This is a very bad name.
@@ -23,6 +22,8 @@ pub struct ArrayStats {
 }
 
 /// Reference to an array's [`StatsSet`]. Can be used to get and mutate the underlying stats.
+///
+/// Constructed by calling [`ArrayStats::to_ref`].
 pub struct StatsSetRef<'a> {
     // We need to reference back to the array
     dyn_array_ref: &'a dyn Array,

@@ -16,8 +16,8 @@ use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{cast, filter, take};
 use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
-use crate::variants::PrimitiveArrayTrait;
-use crate::{Array, ArrayRef, ArrayVariants, IntoArray, ToCanonical};
+use crate::vtable::ValidityHelper;
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 #[derive(Copy, Clone, Serialize, Deserialize, prost::Message)]
 pub struct PatchesMetadata {
@@ -219,14 +219,10 @@ impl Patches {
 
     /// Return the insertion point of `index` in the [Self::indices].
     pub fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
-        Ok(self
-            .indices
-            .as_primitive_typed()
-            .vortex_expect("must be primitive")
-            .search_sorted(
-                &PValue::U64((index + self.offset) as u64),
-                SearchSortedSide::Left,
-            ))
+        Ok(self.indices.as_primitive_typed().search_sorted(
+            &PValue::U64((index + self.offset) as u64),
+            SearchSortedSide::Left,
+        ))
     }
 
     /// Return the search_sorted result for the given target re-mapped into the original indices.
@@ -237,8 +233,10 @@ impl Patches {
     ) -> VortexResult<SearchResult> {
         let target = target.into();
 
-        let sr = if let Some(parray) = self.values().as_primitive_typed() {
-            parray.search_sorted(&target.as_primitive().pvalue(), side)
+        let sr = if self.values().dtype().is_primitive() {
+            self.values()
+                .as_primitive_typed()
+                .search_sorted(&target.as_primitive().pvalue(), side)
         } else {
             self.values().search_sorted(&target, side)
         };
@@ -584,7 +582,6 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
-    use crate::array::Array;
     use crate::arrays::PrimitiveArray;
     use crate::patches::Patches;
     use crate::search_sorted::{SearchResult, SearchSortedSide};

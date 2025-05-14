@@ -95,15 +95,15 @@ typedef struct vx_dtype vx_dtype;
 typedef struct vx_array vx_array;
 
 /**
+ * The FFI interface for an [`ArrayIterator`].
+ */
+typedef struct vx_array_iter vx_array_iter;
+
+/**
  * The `sink` interface is used to collect array chunks and place them into a resource
  * (e.g. an array stream or file (`vx_array_sink_open_file`)).
  */
 typedef struct vx_array_sink vx_array_sink;
-
-/**
- * FFI-exposed stream interface.
- */
-typedef struct vx_array_stream vx_array_stream;
 
 #if defined(ENABLE_DUCKDB_FFI)
 typedef struct vx_conversion_cache vx_conversion_cache;
@@ -169,7 +169,7 @@ typedef struct vx_file_scan_options {
   /**
    * Number of columns in `projection`.
    */
-  int projection_len;
+  unsigned int projection_len;
   /**
    * Serialized expressions for pushdown
    */
@@ -177,7 +177,7 @@ typedef struct vx_file_scan_options {
   /**
    * The len in bytes of the filter expression
    */
-  int filter_expression_len;
+  unsigned int filter_expression_len;
   /**
    * Splits the file into chunks of this size, if zero then we use the write layout.
    */
@@ -193,6 +193,19 @@ typedef struct vx_file_scan_options {
 } vx_file_scan_options;
 
 
+
+/**
+ * Attempt to advance the `current` pointer of the iterator.
+ *
+ * A return value of `true` indicates that another element was pulled from the iterator, and a return
+ * of `false` indicates that the iterator is finished.
+ *
+ * It is an error to call this function again after the iterator is finished.
+ */
+struct vx_array *vx_array_iter_next(struct vx_array_iter *iter,
+                                    struct vx_error **error);
+
+void vx_array_iter_free(struct vx_array_iter *array_iter);
 
 /**
  * Get the length of the array.
@@ -370,6 +383,8 @@ void vx_error_free(struct vx_error *error);
 struct vx_file_reader *vx_file_open_reader(const struct vx_file_open_options *options,
                                            struct vx_error **error);
 
+void vx_file_write_array(const char *path, struct vx_array *ffi_array, struct vx_error **error);
+
 struct vx_file_statistics *vx_file_extract_statistics(struct vx_file_reader *file);
 
 void vx_file_statistics_free(struct vx_file_statistics *stat);
@@ -380,15 +395,11 @@ void vx_file_statistics_free(struct vx_file_statistics *stat);
 struct vx_dtype *vx_file_dtype(const struct vx_file_reader *file);
 
 /**
- * Build a new `vx_array_stream` that return a series of `vx_array`s scan over a `vx_file`.
+ * Build a new `vx_array_iter` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
  */
-struct vx_array_stream *vx_file_scan(const struct vx_file_reader *file,
-                                     const struct vx_file_scan_options *opts,
-                                     struct vx_error **error);
-
-struct vx_array_stream *vx_layout_reader_scan(const struct vx_layout_reader *layout_reader,
-                                              const struct vx_file_scan_options *opts,
-                                              struct vx_error **error);
+struct vx_array_iter *vx_layout_reader_scan(const struct vx_layout_reader *layout_reader,
+                                            const struct vx_file_scan_options *opts,
+                                            struct vx_error **error);
 
 /**
  * Returns the row count for a given file reader.
@@ -406,7 +417,7 @@ void vx_layout_reader_free(struct vx_layout_reader *layout_reader);
 /**
  * Free the file and all associated resources.
  *
- * This function will not automatically free any :c:func:`vx_array_stream` that were built from
+ * This function will not automatically free any :c:func:`vx_array_iter` that were built from
  * this file.
  */
 void vx_file_reader_free(struct vx_file_reader *file);
@@ -439,31 +450,6 @@ void vx_array_sink_push(struct vx_array_sink *sink,
  * to the external resource.
  */
 void vx_array_sink_close(struct vx_array_sink *sink, struct vx_error **error);
-
-/**
- * Gets the dtype from an array `stream`, if the stream is finished the `DType` is null
- */
-const struct vx_dtype *vx_array_stream_dtype(const struct vx_array_stream *stream);
-
-/**
- * Attempt to advance the `current` pointer of the stream.
- *
- * A return value of `true` indicates that another element was pulled from the stream, and a return
- * of `false` indicates that the stream is finished.
- *
- * It is an error to call this function again after the stream is finished.
- */
-struct vx_array *vx_array_stream_next(struct vx_array_stream *stream, struct vx_error **error);
-
-/**
- * Predicate function to check if the array stream is finished.
- */
-bool vx_array_stream_finished(const struct vx_array_stream *stream);
-
-/**
- * Free the array stream and all associated resources.
- */
-void vx_array_stream_free(struct vx_array_stream *stream);
 
 #ifdef __cplusplus
 }

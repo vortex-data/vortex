@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::{Array, ArrayRef, ArrayVariants};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, vortex_err};
 
@@ -100,12 +100,11 @@ impl VortexExpr for GetItem {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let child = self.child.evaluate(batch)?;
-        child
-            .as_struct_typed()
-            .ok_or_else(|| vortex_err!("GetItem: child array into struct"))?
-            // TODO(joe): apply struct validity
-            .maybe_null_field_by_name(self.field())
+        self.child
+            .evaluate(batch)?
+            .to_struct()?
+            .field_by_name(self.field())
+            .cloned()
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -155,7 +154,7 @@ mod tests {
     pub fn get_item_by_name() {
         let st = test_array();
         let get_item = get_item("a", ident());
-        let item = get_item.evaluate(&st).unwrap();
+        let item = get_item.evaluate(st.as_ref()).unwrap();
         assert_eq!(item.dtype(), &DType::from(I32))
     }
 
@@ -163,6 +162,6 @@ mod tests {
     pub fn get_item_by_name_none() {
         let st = test_array();
         let get_item = get_item("c", ident());
-        assert!(get_item.evaluate(&st).is_err());
+        assert!(get_item.evaluate(st.as_ref()).is_err());
     }
 }

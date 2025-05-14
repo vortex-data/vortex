@@ -1,11 +1,10 @@
-use itertools::Itertools;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
-use crate::arrays::{DecimalArray, DecimalEncoding};
+use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
-use crate::{Array, match_each_decimal_value_type, register_kernel};
+use crate::register_kernel;
 
 macro_rules! sum_decimal {
     ($ty:ty, $values:expr) => {{
@@ -16,6 +15,8 @@ macro_rules! sum_decimal {
         sum
     }};
     ($ty:ty, $values:expr, $validity:expr) => {{
+        use itertools::Itertools;
+
         let mut sum: $ty = <$ty>::default();
         for (v, valid) in $values.iter().zip_eq($validity.iter()) {
             if valid {
@@ -26,7 +27,7 @@ macro_rules! sum_decimal {
     }};
 }
 
-impl SumKernel for DecimalEncoding {
+impl SumKernel for DecimalVTable {
     fn sum(&self, array: &DecimalArray) -> VortexResult<Scalar> {
         let decimal_dtype = array.decimal_dtype();
         let nullability = array.dtype.nullability();
@@ -61,4 +62,4 @@ impl SumKernel for DecimalEncoding {
     }
 }
 
-register_kernel!(SumKernelAdapter(DecimalEncoding).lift());
+register_kernel!(SumKernelAdapter(DecimalVTable).lift());

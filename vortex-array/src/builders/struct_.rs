@@ -10,8 +10,7 @@ use vortex_scalar::StructScalar;
 use crate::arrays::StructArray;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
-use crate::variants::StructArrayTrait;
-use crate::{Array, ArrayRef, ToCanonical};
+use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,
@@ -107,12 +106,8 @@ impl ArrayBuilder for StructBuilder {
             );
         }
 
-        for (a, builder) in (0..array.nfields())
-            .map(|i| {
-                array
-                    .maybe_null_field_by_idx(i)
-                    .vortex_expect("out of bounds")
-            })
+        for (a, builder) in (0..array.struct_dtype().nfields())
+            .map(|i| &array.fields()[i])
             .zip_eq(self.builders.iter_mut())
         {
             a.append_to_builder(builder.as_mut())?;

@@ -18,17 +18,16 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_scalar::DecimalValueType;
 
 use crate::arrays::{
-    BoolArray, DecimalArray, DecimalValueType, ListArray, NullArray, PrimitiveArray, StructArray,
-    VarBinViewArray,
+    BoolArray, DecimalArray, ListArray, NullArray, PrimitiveArray, StructArray, VarBinViewArray,
 };
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::ToArrowArgs;
 use crate::compute::{InvocationArgs, Kernel, Output, cast};
-use crate::variants::{PrimitiveArrayTrait, StructArrayTrait};
-use crate::{Array as _, Canonical, ToCanonical};
+use crate::{Array as _, Canonical, IntoArray, ToCanonical};
 
 /// Implementation of `ToArrow` kernel for canonical Vortex arrays.
 #[derive(Debug)]
@@ -146,7 +145,7 @@ impl Kernel for ToArrowCanonical {
             }
             _ => vortex_bail!(
                 "Cannot convert canonical array {} with dtype {} to: {:?}",
-                array.encoding(),
+                array.encoding_id(),
                 array.dtype(),
                 &arrow_type
             ),
@@ -192,6 +191,7 @@ fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
         DecimalValueType::I256 => {
             vortex_bail!("i256 decimals cannot be converted to Arrow i128 decimal")
         }
+        _ => vortex_bail!("unknown value type {:?}", array.values_type()),
     };
     Ok(Arc::new(
         ArrowDecimal128Array::new(buffer.into_arrow_scalar_buffer(), null_buffer)
@@ -211,6 +211,7 @@ fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
         DecimalValueType::I64 => array.buffer::<i8>().into_iter().map(|x| x.as_()).collect(),
         DecimalValueType::I128 => array.buffer::<i8>().into_iter().map(|x| x.as_()).collect(),
         DecimalValueType::I256 => Buffer::<i256>::from_byte_buffer(array.byte_buffer()),
+        _ => vortex_bail!("unknown type {:?}", array.values_type()),
     };
     Ok(Arc::new(
         ArrowDecimal256Array::new(buffer.into_arrow_scalar_buffer(), null_buffer)
@@ -338,7 +339,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DecimalDType, FieldNames};
 
-    use crate::Array as _;
+    use crate::IntoArray;
     use crate::arrays::{DecimalArray, PrimitiveArray, StructArray};
     use crate::arrow::IntoArrowArray;
     use crate::arrow::compute::to_arrow;
@@ -352,7 +353,7 @@ mod tests {
             DecimalDType::new(19, 2),
             Validity::NonNullable,
         );
-        let arrow = to_arrow(&decimal_vortex, &DataType::Decimal128(19, 2)).unwrap();
+        let arrow = to_arrow(decimal_vortex.as_ref(), &DataType::Decimal128(19, 2)).unwrap();
         assert_eq!(arrow.data_type(), &DataType::Decimal128(19, 2));
         let decimal_array = arrow.as_any().downcast_ref::<Decimal128Array>().unwrap();
         assert_eq!(

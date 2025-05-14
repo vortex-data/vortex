@@ -45,16 +45,12 @@ impl PyArrayParts {
     ///
     /// The decoded array.
     fn decode(&self, ctx: &PyArrayContext, dtype: PyDType, len: usize) -> PyResult<PyArrayRef> {
-        Ok(PyArrayRef::from(self.0.decode(
-            ctx,
-            dtype.into_inner(),
-            len,
-        )?))
+        Ok(PyArrayRef::from(self.0.decode(ctx, dtype.inner(), len)?))
     }
 
     /// Fetch the serialized metadata of the array.
     #[getter]
-    fn metadata(&self) -> Option<&[u8]> {
+    fn metadata(&self) -> &[u8] {
         self.0.metadata()
     }
 

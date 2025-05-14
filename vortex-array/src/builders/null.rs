@@ -6,7 +6,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
-use crate::{Array, ArrayRef};
+use crate::{Array, ArrayRef, IntoArray};
 
 pub struct NullBuilder {
     length: usize,

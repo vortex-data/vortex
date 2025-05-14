@@ -11,8 +11,3 @@ pub trait IntoArray {
 pub trait TryIntoArray {
     fn try_into_array(self) -> VortexResult<ArrayRef>;
 }
-
-/// Trait for converting a type from a Vortex [`ArrayRef`], returning an error if the conversion fails.
-pub trait TryFromArrayRef: Sized {
-    fn try_from_array(array: ArrayRef) -> Result<Self, ArrayRef>;
-}

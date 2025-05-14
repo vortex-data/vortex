@@ -1,6 +1,5 @@
 use pyo3::{PyRef, PyResult, pyclass, pymethods};
-use vortex::arrays::StructEncoding;
-use vortex::variants::StructArrayTrait;
+use vortex::arrays::StructVTable;
 
 use crate::arrays::PyArrayRef;
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
@@ -10,14 +9,14 @@ use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 pub(crate) struct PyStructArray;
 
 impl EncodingSubclass for PyStructArray {
-    type Encoding = StructEncoding;
+    type VTable = StructVTable;
 }
 
 #[pymethods]
 impl PyStructArray {
     /// Returns the given field of the struct array.
     pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyResult<PyArrayRef> {
-        let field = self_.as_array_ref().maybe_null_field_by_name(name)?;
+        let field = self_.as_array_ref().field_by_name(name)?.clone();
         Ok(PyArrayRef::from(field))
     }
 }

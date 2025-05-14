@@ -9,8 +9,7 @@ use vortex_array::arrays::{
 };
 use vortex_array::compute::{compare, filter, take};
 use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
-use vortex_array::vtable::EncodingVTable;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_fuzz::error::{VortexFuzzError, VortexFuzzResult};
@@ -50,7 +49,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                     StructEncoding.id(),
                     ListEncoding.id(),
                 ])
-                .contains(&current_array.encoding())
+                .contains(&current_array.encoding_id())
                 {
                     sorted = BtrBlocksCompressor.compress(&sorted).vortex_unwrap();
                 }
