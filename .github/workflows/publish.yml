@@ -67,7 +67,7 @@ jobs:
         shell: bash
         run: |
           cargo install cargo-release && \
-          cargo release version ${{ github.event.release.tag_name || github.event.inputs.version }} -x       
+          cargo release version ${{ github.event.release.tag_name || github.event.inputs.version }} -x
 
       - name: Set up Python
         uses: actions/setup-python@v5
