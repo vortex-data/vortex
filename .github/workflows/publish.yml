@@ -130,3 +130,71 @@ jobs:
         with:
           attestations: true
           verbose: true
+
+  prepare-java:
+    name: "Prepare Java Native Libraries"
+    runs-on: ${{ matrix.target.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: macos, runs-on: "macos-latest", target: aarch64-apple-darwin }
+          - { os: ubuntu, runs-on: "ubuntu-latest", target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "ubuntu-24.04-arm", target: x86_64-unknown-linux-gnu }
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "recursive"
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: ${{ matrix.target.target }}
+      - run: cargo build --release --package vortex-jni
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "libvortex_jni_${{ matrix.target.target }}.zip"
+          path: "target/release/libvortex_jni.${{ (matrix.target.os == 'macos' && 'dylib') || 'so' }}"
+          retention-days: 1
+          if-no-files-found: error
+
+  publish-java:
+    name: "Publish Jars"
+    needs: [ prepare-java, publish-rust ]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./java
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+      - uses: ./.github/actions/cleanup
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'corretto'
+          java-version: 17
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+      - name: Copy native JNI libs
+        run: |
+          mkdir -p vortex-jni/src/main/resources/native/darwin-aarch64
+          mkdir -p vortex-jni/src/main/resources/native/linux-aarch64
+          mkdir -p vortex-jni/src/main/resources/native/linux-amd64
+          cp ../libvortex_jni_darwin_aarch64.zip/libvortex_jni.dylib ./vortex-jni/src/main/resources/native/darwin-aarch64
+          cp ../libvortex_jni_linux_aarch64.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-aarch64
+          cp ../libvortex_jni_linux_amd64.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-amd64
+      - name: Build Java
+        run: ./gradlew shadowJar
+      - name: Publish to Maven Central
+        run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEYPASSWORD }}
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALUSERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALPASSWORD }}

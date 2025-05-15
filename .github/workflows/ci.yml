@@ -335,6 +335,20 @@ jobs:
         with:
           file: ${{ env.GRCOV_OUTPUT_FILE }}
 
+  build-java:
+    name: "Java"
+    runs-on: ${{ matrix.target.runs-on }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "recursive"
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+      # TODO(ngates): we should run tests here when they pass!
+      - run: ./gradlew shadowJar
+
   bench-codspeed:
     name: Benchmark with Codspeed
     runs-on:
