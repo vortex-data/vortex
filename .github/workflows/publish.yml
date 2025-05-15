@@ -98,7 +98,7 @@ jobs:
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: "${{ matrix.target.target }}-wheels"
+          name: "wheels-${{ matrix.target.target }}.zip"
           path: dist/
 
   publish-python:
@@ -112,6 +112,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: wheels-*.zip
           # https://github.com/actions/download-artifact?tab=readme-ov-file#download-all-artifacts
           # "To download them to the same directory:"
           path: dist/
@@ -154,6 +155,9 @@ jobs:
   publish-java:
     needs: [ prepare-java, publish-rust ]
     runs-on: ubuntu-latest
+    env:
+      # Picked up by gradle-git-version
+      GIT_VERSION: ${{ github.event.release.tag_name || github.event.inputs.version }}
     defaults:
       run:
         working-directory: ./java
@@ -168,6 +172,8 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
       - uses: actions/download-artifact@v4
+        with:
+          pattern: libvortex_jni_*.zip
       - name: Copy native JNI libs
         run: |
           mkdir -p vortex-jni/src/main/resources/native/darwin-aarch64
@@ -179,7 +185,7 @@ jobs:
       - name: Build Java
         run: ./gradlew shadowJar
       - name: Publish to Maven Central
-        run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+        run: ./gradlew -i publishAndReleaseToMavenCentral --no-configuration-cache -v
         env:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEYPASSWORD }}
