@@ -348,6 +348,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
       # TODO(ngates): we should run tests here when they pass!
       - run: ./gradlew shadowJar
+        working-directory: ./java
 
   bench-codspeed:
     name: Benchmark with Codspeed
