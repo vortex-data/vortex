@@ -6,6 +6,10 @@ mod array;
 pub mod arrow;
 mod types;
 
+mod layout;
+#[cfg(feature = "layouts")]
+pub mod layouts;
+
 pub use array::*;
 pub use types::*;
 

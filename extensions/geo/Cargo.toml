@@ -24,6 +24,8 @@ serde_json = { workspace = true }
 vortex-array = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
+vortex-layout = { workspace = true, optional = true }
 clap = { version = "4.5.37", features = ["derive"] }
 
 [dev-dependencies]
@@ -38,6 +40,11 @@ vortex-scalar = { workspace = true }
 geoarrow-geoparquet = { git = "https://github.com/geoarrow/geoarrow-rs.git", rev = "c241034f", features = [
     "compression",
 ] }
+
+
+[features]
+# layouts request both vortex-layout and vortex-expr for ExprEvaluator impls
+layouts = ["dep:vortex-layout", "dep:vortex-expr"]
 
 [lints]
 workspace = true

@@ -6913,7 +6913,9 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-dtype",
  "vortex-error",
+ "vortex-expr",
  "vortex-file",
+ "vortex-layout",
  "vortex-scalar",
 ]
 
