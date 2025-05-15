@@ -5,7 +5,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 
 on:
-  pull_request: { }
+  pull_request:
+    types: [ opened, reopened, synchronize, labeled, unlabeled ]
 
 jobs:
   check_release_label:
