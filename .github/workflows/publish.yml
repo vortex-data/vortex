@@ -20,16 +20,21 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
 
-      - name: Install Cargo Release
-        shell: bash
+      - name: Cargo Set Version
         run: |
-          cargo install cargo-release && \
-          cargo release version ${{ github.event.release.tag_name || github.event.inputs.version }} --allow-branch "*" --no-confirm -x
+          cargo install cargo-edit
+          cargo set-version --workspace ${{ github.event.release.tag_name || github.event.inputs.version }}
 
       - name: Release
         run: |
-          cargo release commit --allow-branch "*" --no-confirm -x && \
-          cargo release --unpublished --workspace --no-push --no-tag --allow-branch "*" --no-confirm --no-publish -x
+          cargo publish -Z package-workspace --allow-dirty --workspace -n \
+          --exclude bench-vortex \
+          --exclude pyvortex \
+          --exclude vortex-duckdb \
+          --exclude vortex-ffi \
+          --exclude vortex-fuzz \
+          --exclude vortex-jni \
+          --exclude xtask
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -62,11 +67,10 @@ jobs:
         with:
           targets: ${{ matrix.target.target }}
 
-      - name: Install Cargo Release
-        shell: bash
+      - name: Cargo Set Version
         run: |
-          cargo install cargo-release && \
-          cargo release version ${{ github.event.release.tag_name || github.event.inputs.version }} --allow-branch "*" --no-confirm -x
+          cargo install cargo-edit
+          cargo set-version --workspace ${{ github.event.release.tag_name || github.event.inputs.version }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -141,11 +145,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target.target }}
-      - name: Install Cargo Release
-        shell: bash
-        run: |
-          cargo install cargo-release && \
-          cargo release version ${{ github.event.release.tag_name || github.event.inputs.version }} --allow-branch "*" --no-confirm -x
       - run: cargo build --release --package vortex-jni
       - uses: actions/upload-artifact@v4
         with:
