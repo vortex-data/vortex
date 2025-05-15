@@ -6,11 +6,6 @@ concurrency:
 on:
   release:
     types: [ published ]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release'
-        required: true
 
 jobs:
   publish-rust:
@@ -146,6 +141,12 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target.target }}
+      - name: Cargo Set Version
+        shell: bash
+        # TODO(marko): Remove version after move to rust 2024 edition.
+        run: |
+          cargo install cargo-edit --version 0.13.0 && \
+          cargo set-version --workspace ${{ github.event.release.tag_name || github.event.inputs.version }}
       - run: cargo build --release --package vortex-jni
       - uses: actions/upload-artifact@v4
         with:
