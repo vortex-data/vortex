@@ -1,0 +1,56 @@
+name-template: '🌪 $RESOLVED_VERSION'
+tag-template: '$RESOLVED_VERSION'
+categories:
+  - title: '⚠️ Breaks'
+    labels:
+      - 'break'
+      - 'wire-break'
+  - title: '✨ Features'
+    labels:
+      - 'feature'
+  - title: '🚀 Performance'
+    labels:
+      - 'performance'
+  - title: '🐛 Bug Fixes'
+    collapse-after: 8
+    labels:
+      - 'bug'
+  - title: '🧰 Maintenance'
+    labels:
+      - 'chore'
+    collapse-after: 3
+
+version-resolver:
+  major:
+    labels:
+      # We must explicitly label a PR with "major" to trigger a major version bump.
+      - 'major'
+  minor:
+    labels:
+      # Any features or breaks will trigger a minor version bump (while we are 0.x)
+      - 'feature'
+      - 'break'
+      - 'wire-break'
+  default: patch
+
+autolabeler:
+  - label: 'break'
+    title:
+      - '/break/i'
+  - label: 'chore'
+    title:
+      - '/chore/i'
+  - label: 'bug'
+    title:
+      - '/fix/i'
+  - label: 'feature'
+    title:
+      - '/feat/i'
+  - label: 'performance'
+    title:
+      - '/perf/i'
+
+template: |
+  ## Changes
+
+  $CHANGES

@@ -27,7 +27,7 @@ testing {
 }
 
 mavenPublishing {
-    coordinates(groupId = "dev.vortex", artifactId = "vortex-spark", version = cargoVersion())
+    coordinates(groupId = "dev.vortex", artifactId = "vortex-spark", version = "${rootProject.version}")
 
     publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
 

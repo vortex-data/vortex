@@ -1,0 +1,193 @@
+name: Publish
+concurrency:
+  group: publish
+  cancel-in-progress: true
+
+on:
+  release:
+    types: [ published ]
+
+jobs:
+  publish-rust:
+    runs-on: ubuntu-latest
+    needs: [ prepare-python, prepare-java ]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "recursive"
+
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+
+      - name: Cargo Set Version
+        run: |
+          cargo install cargo-edit
+          cargo set-version --workspace ${{ github.event.release.tag_name || github.event.inputs.version }}
+
+      - name: Release
+        run: |
+          cargo publish -Z package-workspace --allow-dirty --workspace \
+          --exclude bench-vortex \
+          --exclude pyvortex \
+          --exclude vortex-duckdb \
+          --exclude vortex-ffi \
+          --exclude vortex-fuzz \
+          --exclude vortex-jni \
+          --exclude xtask
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  prepare-python:
+    runs-on: ${{ matrix.target.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: macos, runs-on: "macos-latest", target: aarch64-apple-darwin }
+          - { os: macos, runs-on: "macos-13", target: x86_64-apple-darwin }
+          - { os: ubuntu, runs-on: "ubuntu-latest", target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "ubuntu-latest", target: x86_64-unknown-linux-gnu }
+    environment:
+      name: pypi
+      url: https://pypi.org/p/vortex-data
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "recursive"
+
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: ${{ matrix.target.target }}
+
+      - name: Cargo Set Version
+        run: |
+          cargo install cargo-edit
+          cargo set-version --workspace ${{ github.event.release.tag_name || github.event.inputs.version }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        # Latest macOS doesn't allow maturin to install stuff into the global Python interpreter
+        if: "${{ matrix.target.runs-on == 'macos-latest' }}"
+        with:
+          python-version: '3.10'
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          target: ${{ matrix.target.target }}
+          args: >
+            ${{ (matrix.target.os == 'ubuntu' && '--zig') || '' }}
+            --compatibility manylinux2014
+            --release
+            --manifest-path pyvortex/Cargo.toml
+            --out dist
+            --interpreter python3.10
+        env:
+          MATURIN_PEP517_USE_BASE_PYTHON: "true"
+          # Keep this constant to avoid pyo3 invalidating itself
+          PYO3_ENVIRONMENT_SIGNATURE: "cpython3"
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: "wheels-${{ matrix.target.target }}.zip"
+          path: dist/
+
+  publish-python:
+    needs: [ prepare-python, publish-rust ]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # IMPORTANT: mandatory for trusted publishing
+    environment:
+      name: push-to-pypi
+      url: https://pypi.org/p/vortex-data
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*.zip
+          # https://github.com/actions/download-artifact?tab=readme-ov-file#download-all-artifacts
+          # "To download them to the same directory:"
+          path: dist/
+          merge-multiple: true
+      - name: Display structure of downloaded files
+        run: ls -R dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
+          verbose: true
+          skip-existing: true  # Idempotent releases
+
+  prepare-java:
+    runs-on: ${{ matrix.target.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: macos, runs-on: "macos-latest", target: aarch64-apple-darwin }
+          - { os: ubuntu, runs-on: "ubuntu-latest", target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "ubuntu-24.04-arm", target: x86_64-unknown-linux-gnu }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "recursive"
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: ${{ matrix.target.target }}
+      - run: cargo build --release --package vortex-jni
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "libvortex_jni_${{ matrix.target.target }}.zip"
+          path: "target/release/libvortex_jni.${{ (matrix.target.os == 'macos' && 'dylib') || 'so' }}"
+          retention-days: 1
+          if-no-files-found: error
+
+  publish-java:
+    needs: [ prepare-java, publish-rust ]
+    runs-on: ubuntu-latest
+    env:
+      # Picked up by gradle-git-version
+      GIT_VERSION: ${{ github.event.release.tag_name || github.event.inputs.version }}
+    defaults:
+      run:
+        working-directory: ./java
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+      - uses: ./.github/actions/cleanup
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'corretto'
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: libvortex_jni_*.zip
+      - name: Copy native JNI libs
+        run: |
+          mkdir -p vortex-jni/src/main/resources/native/darwin-aarch64
+          mkdir -p vortex-jni/src/main/resources/native/linux-aarch64
+          mkdir -p vortex-jni/src/main/resources/native/linux-amd64
+          cp ../libvortex_jni_aarch64-apple-darwin.zip/libvortex_jni.dylib ./vortex-jni/src/main/resources/native/darwin-aarch64
+          cp ../libvortex_jni_aarch64-unknown-linux-gnu.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-aarch64
+          cp ../libvortex_jni_x86_64-unknown-linux-gnu.zip/libvortex_jni.so ./vortex-jni/src/main/resources/native/linux-amd64
+      - name: Build Java
+        run: ./gradlew shadowJar
+      - name: Publish to Maven Central
+        run: ./gradlew -i publishAndReleaseToMavenCentral --no-configuration-cache -v
+        env:
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEYPASSWORD }}
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALUSERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALPASSWORD }}
