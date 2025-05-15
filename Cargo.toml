@@ -49,7 +49,7 @@ license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/spiraldb/vortex"
 rust-version = "1.86"
-version = "0.33.0"
+version = "0.33.2"
 
 [workspace.dependencies]
 anyhow = "1.0.95"
@@ -172,34 +172,34 @@ wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
 
 # BEGIN crates published by this project
-vortex = { version = "0.33.0", path = "./vortex" }
-vortex-alp = { version = "0.33.0", path = "./encodings/alp", default-features = false }
-vortex-array = { version = "0.33.0", path = "./vortex-array", default-features = false }
-vortex-btrblocks = { version = "0.33.0", path = "./vortex-btrblocks", default-features = false }
-vortex-buffer = { version = "0.33.0", path = "./vortex-buffer", default-features = false }
-vortex-bytebool = { version = "0.33.0", path = "./encodings/bytebool", default-features = false }
-vortex-datafusion = { version = "0.33.0", path = "./vortex-datafusion", default-features = false }
-vortex-datetime-parts = { version = "0.33.0", path = "./encodings/datetime-parts", default-features = false }
-vortex-decimal-byte-parts = { version = "0.33.0", path = "encodings/decimal-byte-parts", default-features = false }
-vortex-dict = { version = "0.33.0", path = "./encodings/dict", default-features = false }
-vortex-dtype = { version = "0.33.0", path = "./vortex-dtype", default-features = false }
-vortex-error = { version = "0.33.0", path = "./vortex-error", default-features = false }
-vortex-expr = { version = "0.33.0", path = "./vortex-expr", default-features = false }
-vortex-fastlanes = { version = "0.33.0", path = "./encodings/fastlanes", default-features = false }
-vortex-file = { version = "0.33.0", path = "./vortex-file", default-features = false }
-vortex-flatbuffers = { version = "0.33.0", path = "./vortex-flatbuffers", default-features = false }
-vortex-fsst = { version = "0.33.0", path = "./encodings/fsst", default-features = false }
-vortex-io = { version = "0.33.0", path = "./vortex-io", default-features = false }
-vortex-ipc = { version = "0.33.0", path = "./vortex-ipc", default-features = false }
-vortex-layout = { version = "0.33.0", path = "./vortex-layout", default-features = false }
-vortex-mask = { version = "0.33.0", path = "./vortex-mask", default-features = false }
-vortex-metrics = { version = "0.33.0", path = "./vortex-metrics", default-features = false }
-vortex-proto = { version = "0.33.0", path = "./vortex-proto", default-features = false }
-vortex-runend = { version = "0.33.0", path = "./encodings/runend", default-features = false }
-vortex-scalar = { version = "0.33.0", path = "./vortex-scalar", default-features = false }
-vortex-sparse = { version = "0.33.0", path = "./encodings/sparse", default-features = false }
-vortex-tui = { version = "0.33.0", path = "./vortex-tui", default-features = false }
-vortex-zigzag = { version = "0.33.0", path = "./encodings/zigzag", default-features = false }
+vortex = { version = "0.33.2", path = "./vortex" }
+vortex-alp = { version = "0.33.2", path = "./encodings/alp", default-features = false }
+vortex-array = { version = "0.33.2", path = "./vortex-array", default-features = false }
+vortex-btrblocks = { version = "0.33.2", path = "./vortex-btrblocks", default-features = false }
+vortex-buffer = { version = "0.33.2", path = "./vortex-buffer", default-features = false }
+vortex-bytebool = { version = "0.33.2", path = "./encodings/bytebool", default-features = false }
+vortex-datafusion = { version = "0.33.2", path = "./vortex-datafusion", default-features = false }
+vortex-datetime-parts = { version = "0.33.2", path = "./encodings/datetime-parts", default-features = false }
+vortex-decimal-byte-parts = { version = "0.33.2", path = "encodings/decimal-byte-parts", default-features = false }
+vortex-dict = { version = "0.33.2", path = "./encodings/dict", default-features = false }
+vortex-dtype = { version = "0.33.2", path = "./vortex-dtype", default-features = false }
+vortex-error = { version = "0.33.2", path = "./vortex-error", default-features = false }
+vortex-expr = { version = "0.33.2", path = "./vortex-expr", default-features = false }
+vortex-fastlanes = { version = "0.33.2", path = "./encodings/fastlanes", default-features = false }
+vortex-file = { version = "0.33.2", path = "./vortex-file", default-features = false }
+vortex-flatbuffers = { version = "0.33.2", path = "./vortex-flatbuffers", default-features = false }
+vortex-fsst = { version = "0.33.2", path = "./encodings/fsst", default-features = false }
+vortex-io = { version = "0.33.2", path = "./vortex-io", default-features = false }
+vortex-ipc = { version = "0.33.2", path = "./vortex-ipc", default-features = false }
+vortex-layout = { version = "0.33.2", path = "./vortex-layout", default-features = false }
+vortex-mask = { version = "0.33.2", path = "./vortex-mask", default-features = false }
+vortex-metrics = { version = "0.33.2", path = "./vortex-metrics", default-features = false }
+vortex-proto = { version = "0.33.2", path = "./vortex-proto", default-features = false }
+vortex-runend = { version = "0.33.2", path = "./encodings/runend", default-features = false }
+vortex-scalar = { version = "0.33.2", path = "./vortex-scalar", default-features = false }
+vortex-sparse = { version = "0.33.2", path = "./encodings/sparse", default-features = false }
+vortex-tui = { version = "0.33.2", path = "./vortex-tui", default-features = false }
+vortex-zigzag = { version = "0.33.2", path = "./encodings/zigzag", default-features = false }
 # END crates published by this project
 
 # No version contraints for unpublished crates.
