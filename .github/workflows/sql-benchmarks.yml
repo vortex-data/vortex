@@ -69,19 +69,26 @@ jobs:
           cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
 
       - name: Install ninja & gzip
-        run: sudo apt-get update && sudo apt-get install -y ninja-build gzip
+        run: sudo apt-get update && sudo apt-get install ninja-build cmake build-essential make ccache clang -y
 
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.12
-        with:
-          version: v1.2.2
+      - name: Build plain duckdb
+        working-directory: /
+        run: |
+          export CC=clang
+          export CXX=clang++
+          git clone https://github.com/duckdb/duckdb
+          cd duckdb
+          git checkout v1.2.2
+          GEN=ninja NATIVE_ARCH=1 LTO=thin make
+          export PATH="$PATH:`pwd`/build/release/"
+          cd ..
 
       - name: DuckDB extension build
         env:
           # Build DuckDB and the Vortex extension with `-march=native`.
           # The `NATIVE_ARCH` environment variable is picked up by `duckdb/Makefile`.
           NATIVE_ARCH: 1
-        run: GEN=ninja make release
+        run: CXXFLAGS="-ftls-model=global-dynamic" CFLAGS="-ftls-model=global-dynamic" DUCKDB_PLATFORM=linux_amd64 GEN=ninja NATIVE_ARCH=1 make release
         working-directory: ${{ github.workspace }}/duckdb-vortex
 
       - name: Generate data
