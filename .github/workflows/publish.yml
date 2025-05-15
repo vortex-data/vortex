@@ -10,7 +10,7 @@ on:
 jobs:
   publish-rust:
     runs-on: ubuntu-latest
-    # needs: [ prepare-python, prepare-java ]
+    needs: [ prepare-python, prepare-java ]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,7 +27,7 @@ jobs:
 
       - name: Release
         run: |
-          cargo publish -Z package-workspace --allow-dirty --workspace -n \
+          cargo publish -Z package-workspace --allow-dirty --workspace \
           --exclude bench-vortex \
           --exclude pyvortex \
           --exclude vortex-duckdb \
@@ -40,7 +40,6 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   prepare-python:
-    if: "false"
     runs-on: ${{ matrix.target.runs-on }}
     strategy:
       fail-fast: false
@@ -127,7 +126,6 @@ jobs:
           skip-existing: true  # Idempotent releases
 
   prepare-java:
-    if: "false"
     runs-on: ${{ matrix.target.runs-on }}
     strategy:
       fail-fast: false
