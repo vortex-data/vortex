@@ -24,7 +24,7 @@ jobs:
         run: cargo install cargo-release
 
       - name: Release
-        run: cargo release ${{ github.event.release.tag_name || github.event.inputs.version }} --workspace --no-push --no-tag
+        run: cargo release ${{ github.event.release.tag_name || github.event.inputs.version }} --workspace --no-push --no-tag --allow-branch "*"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
