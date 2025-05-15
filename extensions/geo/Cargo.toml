@@ -24,7 +24,7 @@ serde_json = { workspace = true }
 vortex-array = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
-vortex-expr = { workspace = true }
+vortex-expr = { workspace = true, optional = true }
 vortex-layout = { workspace = true, optional = true }
 clap = { version = "4.5.37", features = ["derive"] }
 

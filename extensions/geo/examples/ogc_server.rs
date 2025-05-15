@@ -38,6 +38,7 @@ pub async fn main() -> anyhow::Result<()> {
     // Stream batches to read the file as-is.
     let batches = reader.scan().context("scan builder")?.into_array_iter()?;
 
+    let mut written = 0;
     for batch in batches {
         let record_batch = batch?.into_arrow_preferred()?;
         let batch = RecordBatch::from(
@@ -47,9 +48,12 @@ pub async fn main() -> anyhow::Result<()> {
                 .clone(),
         );
         writer.write(&batch)?;
+        written += batch.num_rows();
     }
 
-    eprintln!("wrote ipc.arrow");
+    writer.finish()?;
+
+    eprintln!("wrote {written} rows to ipc.arrow");
 
     Ok(())
 }
