@@ -19,7 +19,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Needed to pull full commit history for release version number inference
           fetch-depth: 0
           submodules: "recursive"
 
@@ -35,7 +34,6 @@ jobs:
 
       - name: Run release-plz
         id: run-release-plz
-        if: "false"
         uses: release-plz/action@v0.5.106
         with:
           command: release
@@ -110,7 +108,6 @@ jobs:
   publish-python:
     needs: [ prepare-python, publish-rust ]
     runs-on: ubuntu-latest
-    if: "false"
     permissions:
       id-token: write  # IMPORTANT: mandatory for trusted publishing
     environment:
@@ -186,7 +183,6 @@ jobs:
         run: ./gradlew shadowJar
       - name: Publish to Maven Central
         run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
-        if: "false"
         env:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEYPASSWORD }}
