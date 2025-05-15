@@ -49,7 +49,7 @@ jobs:
         with:
           submodules: "recursive"
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.10.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.11.0
         with:
           sync: false
       - name: Python Lint - Format
@@ -70,7 +70,7 @@ jobs:
       - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.10.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.11.0
         with:
           sync: false
 
@@ -334,6 +334,21 @@ jobs:
         if: github.ref == 'refs/heads/develop'
         with:
           file: ${{ env.GRCOV_OUTPUT_FILE }}
+
+  build-java:
+    name: "Java"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "recursive"
+      - uses: ./.github/actions/cleanup
+      - uses: ./.github/actions/setup-rust
+      # TODO(ngates): we should run tests here when they pass!
+      - run: ./gradlew shadowJar
+        working-directory: ./java
 
   bench-codspeed:
     name: Benchmark with Codspeed
