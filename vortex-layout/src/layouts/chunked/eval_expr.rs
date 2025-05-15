@@ -14,7 +14,7 @@ use vortex_mask::Mask;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReader;
-use crate::{ArrayEvaluation, ExprEvaluator, Layout, MaskEvaluation, PruningEvaluation};
+use crate::{ArrayEvaluation, ExprEvaluator, LayoutData, MaskEvaluation, PruningEvaluation};
 
 impl ExprEvaluator for ChunkedReader {
     fn pruning_evaluation(
@@ -86,7 +86,7 @@ impl ExprEvaluator for ChunkedReader {
 }
 
 struct ChunkedPruningEvaluation {
-    layout: Layout,
+    layout: LayoutData,
     chunk_evals: Vec<Box<dyn PruningEvaluation>>,
     mask_ranges: Vec<Range<usize>>,
 }
@@ -129,7 +129,7 @@ impl PruningEvaluation for ChunkedPruningEvaluation {
 }
 
 struct ChunkedMaskEvaluation {
-    layout: Layout,
+    layout: LayoutData,
     chunk_evals: Vec<Box<dyn MaskEvaluation>>,
     mask_ranges: Vec<Range<usize>>,
 }
@@ -218,11 +218,11 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
-    use crate::{ExprEvaluator, Layout};
+    use crate::{ExprEvaluator, LayoutData};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn chunked_layout() -> (ArrayContext, Arc<dyn SegmentSource>, Layout) {
+    fn chunked_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutData) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
         let layout = ChunkedLayoutWriter::new(
@@ -247,7 +247,7 @@ mod test {
         #[from(chunked_layout)] (ctx, segments, layout): (
             ArrayContext,
             Arc<dyn SegmentSource>,
-            Layout,
+            LayoutData,
         ),
     ) {
         block_on(async {

@@ -10,7 +10,7 @@ use vortex_error::{VortexResult, vortex_bail};
 mod repeating;
 
 use crate::layouts::dict::DictLayout;
-use crate::{Layout, LayoutStrategy, LayoutVTableRef, LayoutWriter, LayoutWriterExt};
+use crate::{LayoutData, LayoutStrategy, LayoutVTableRef, LayoutWriter, LayoutWriterExt};
 
 #[derive(Clone)]
 pub struct DictLayoutOptions {
@@ -117,7 +117,7 @@ impl LayoutWriter for DelegatingDictLayoutWriter {
     fn finish(
         &mut self,
         segment_writer: &mut dyn crate::segments::SegmentWriter,
-    ) -> VortexResult<Layout> {
+    ) -> VortexResult<LayoutData> {
         match self.writer.as_mut() {
             None => vortex_bail!("finish called before push_chunk"),
             Some(writer) => writer.finish(segment_writer),
@@ -140,10 +140,10 @@ impl DictLayoutMetadata {
     }
 }
 
-fn dict_layout(values: Layout, codes: Layout) -> VortexResult<Layout> {
+fn dict_layout(values: LayoutData, codes: LayoutData) -> VortexResult<LayoutData> {
     let metadata =
         Bytes::from(ProstMetadata(DictLayoutMetadata::new(codes.dtype().try_into()?)).serialize());
-    Ok(Layout::new_owned(
+    Ok(LayoutData::new_owned(
         "dict".into(),
         LayoutVTableRef::new_ref(&DictLayout),
         values.dtype().clone(),

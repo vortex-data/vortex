@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 
 use crate::layouts::stats::reader::{SharedPruningResult, StatsReader};
 use crate::{
-    ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, PruningEvaluation,
+    ArrayEvaluation, ExprEvaluator, LayoutData, LayoutReader, MaskEvaluation, PruningEvaluation,
 };
 
 impl ExprEvaluator for StatsReader {
@@ -76,7 +76,7 @@ impl ExprEvaluator for StatsReader {
 }
 
 struct StatsPruningEvaluation {
-    layout: Layout,
+    layout: LayoutData,
     expr: ExprRef,
     pruning_mask_future: SharedPruningResult,
     // The range of zones that cover the evaluation's row range.
@@ -148,11 +148,11 @@ mod test {
     use crate::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
     use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
-    use crate::{ExprEvaluator, Layout};
+    use crate::{ExprEvaluator, LayoutData};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
-    fn stats_layout() -> (ArrayContext, Arc<dyn SegmentSource>, Layout) {
+    fn stats_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutData) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
         let layout = StatsLayoutWriter::new(
@@ -187,7 +187,7 @@ mod test {
         #[from(stats_layout)] (ctx, segments, layout): (
             ArrayContext,
             Arc<dyn SegmentSource>,
-            Layout,
+            LayoutData,
         ),
     ) {
         block_on(async {
@@ -212,7 +212,7 @@ mod test {
         #[from(stats_layout)] (ctx, segments, layout): (
             ArrayContext,
             Arc<dyn SegmentSource>,
-            Layout,
+            LayoutData,
         ),
     ) {
         block_on(async {

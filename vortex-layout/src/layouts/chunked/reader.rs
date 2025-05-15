@@ -9,11 +9,11 @@ use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
-use crate::{Layout, LayoutVTable};
+use crate::{LayoutData, LayoutVTable};
 
 #[derive(Clone)]
 pub struct ChunkedReader {
-    layout: Layout,
+    layout: LayoutData,
     pub(crate) segment_source: Arc<dyn SegmentSource>,
     ctx: ArrayContext,
 
@@ -25,7 +25,7 @@ pub struct ChunkedReader {
 
 impl ChunkedReader {
     pub(super) fn try_new(
-        layout: Layout,
+        layout: LayoutData,
         segment_source: Arc<dyn SegmentSource>,
         ctx: ArrayContext,
     ) -> VortexResult<Self> {
@@ -120,7 +120,7 @@ impl ChunkedReader {
 }
 
 impl LayoutReader for ChunkedReader {
-    fn layout(&self) -> &Layout {
+    fn layout(&self) -> &LayoutData {
         &self.layout
     }
 

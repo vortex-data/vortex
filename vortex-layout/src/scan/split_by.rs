@@ -5,7 +5,7 @@ use itertools::Itertools;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
-use crate::Layout;
+use crate::LayoutData;
 
 /// Defines how the Vortex file is split into batches for reading.
 ///
@@ -24,7 +24,7 @@ impl SplitBy {
     /// Compute the splits for the given layout.
     pub(crate) fn splits(
         &self,
-        layout: &Layout,
+        layout: &LayoutData,
         field_mask: &[FieldMask],
     ) -> VortexResult<Vec<Range<u64>>> {
         Ok(match *self {

@@ -10,8 +10,8 @@ use vortex_mask::Mask;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::reader::FlatReader;
 use crate::{
-    ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
+    ArrayEvaluation, ExprEvaluator, LayoutData, LayoutReader, MaskEvaluation,
+    NoOpPruningEvaluation, PruningEvaluation,
 };
 
 /// The threshold of mask density below which we will evaluate the expression only over the
@@ -67,7 +67,7 @@ impl ExprEvaluator for FlatReader {
 }
 
 struct FlatEvaluation {
-    layout: Layout,
+    layout: LayoutData,
     array: SharedArrayFuture,
     row_range: Range<usize>,
     expr: ExprRef,

@@ -13,7 +13,7 @@ use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
 use crate::{
-    ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, PruningEvaluation,
+    ArrayEvaluation, ExprEvaluator, LayoutData, LayoutReader, MaskEvaluation, PruningEvaluation,
 };
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
@@ -40,7 +40,7 @@ impl FilterLayoutReader {
 }
 
 impl LayoutReader for FilterLayoutReader {
-    fn layout(&self) -> &Layout {
+    fn layout(&self) -> &LayoutData {
         self.child.layout()
     }
 

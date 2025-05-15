@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -10,16 +11,20 @@ use vortex_error::{SharedVortexResult, VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
-use crate::Layout;
+use crate::LayoutData;
 
-/// A [`LayoutReader`] is an instance of a [`Layout`] that can cache state across multiple
+/// A [`LayoutReader`] is an instance of a [`LayoutData`] that can cache state across multiple
 /// operations.
 ///
 /// Since different row ranges of the reader may be evaluated by different threads, it is required
 /// to be both `Send` and `Sync`.
 pub trait LayoutReader: 'static + ExprEvaluator {
-    /// Returns the [`Layout`] of this reader.
-    fn layout(&self) -> &Layout;
+    fn as_any(&self) -> &dyn Any;
+
+    fn to_layout_reader(&self) -> LayoutReaderRef;
+
+    /// Returns the [`LayoutData`] of this reader.
+    fn layout(&self) -> &LayoutData;
 
     /// Returns the row count of the layout.
     fn row_count(&self) -> u64 {
@@ -33,6 +38,8 @@ pub trait LayoutReader: 'static + ExprEvaluator {
 
     fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>>;
 }
+
+pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
 pub trait LayoutReaderExt: LayoutReader {
     /// Box the layout scan.

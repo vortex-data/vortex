@@ -8,7 +8,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::data::Layout;
+use crate::data::LayoutData;
 use crate::layouts::stats::StatsLayout;
 use crate::layouts::stats::stats_table::StatsAccumulator;
 use crate::segments::SegmentWriter;
@@ -107,7 +107,7 @@ impl LayoutWriter for StatsLayoutWriter {
         self.child_writer.flush(segment_writer)
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
         let child = self.child_writer.finish(segment_writer)?;
 
         // Collect together the statistics
@@ -134,7 +134,7 @@ impl LayoutWriter for StatsLayoutWriter {
         // Then write the bit-set of statistics.
         metadata.extend_from_slice(&as_stat_bitset_bytes(stats_table.present_stats()));
 
-        Ok(Layout::new_owned(
+        Ok(LayoutData::new_owned(
             "stats".into(),
             LayoutVTableRef::new_ref(&StatsLayout),
             self.dtype.clone(),

@@ -16,14 +16,14 @@ use crate::layouts::stats::StatsLayout;
 use crate::layouts::stats::stats_table::StatsTable;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
-use crate::{ExprEvaluator, Layout, LayoutVTable};
+use crate::{ExprEvaluator, LayoutData, LayoutVTable};
 
 pub(crate) type SharedStatsTable = Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>>;
 pub(crate) type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
 pub(crate) type PredicateCache = Arc<OnceLock<Option<PruningPredicate>>>;
 
 pub struct StatsReader {
-    layout: Layout,
+    layout: LayoutData,
 
     /// Data layout reader
     pub(crate) data_child: Arc<dyn LayoutReader>,
@@ -49,7 +49,7 @@ pub struct StatsReader {
 
 impl StatsReader {
     pub(super) fn try_new(
-        layout: Layout,
+        layout: LayoutData,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<Self> {
@@ -180,7 +180,7 @@ impl StatsReader {
 }
 
 impl LayoutReader for StatsReader {
-    fn layout(&self) -> &Layout {
+    fn layout(&self) -> &LayoutData {
         &self.layout
     }
 

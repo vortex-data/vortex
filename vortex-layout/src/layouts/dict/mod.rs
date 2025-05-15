@@ -10,7 +10,7 @@ use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
 use crate::segments::SegmentSource;
-use crate::{DICT_LAYOUT_ID, Layout, LayoutReader, LayoutReaderExt as _, LayoutVTable};
+use crate::{DICT_LAYOUT_ID, LayoutData, LayoutReader, LayoutReaderExt as _, LayoutVTable};
 
 #[derive(Default, Debug)]
 pub struct DictLayout;
@@ -22,7 +22,7 @@ impl LayoutVTable for DictLayout {
 
     fn reader(
         &self,
-        layout: Layout,
+        layout: LayoutData,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
@@ -31,7 +31,7 @@ impl LayoutVTable for DictLayout {
 
     fn register_splits(
         &self,
-        layout: &Layout,
+        layout: &LayoutData,
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,

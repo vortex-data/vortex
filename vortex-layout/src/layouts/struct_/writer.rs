@@ -5,7 +5,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::LayoutVTableRef;
-use crate::data::Layout;
+use crate::data::LayoutData;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentWriter;
 use crate::strategy::LayoutStrategy;
@@ -98,12 +98,12 @@ impl LayoutWriter for StructLayoutWriter {
         Ok(())
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
         let mut column_layouts = vec![];
         for writer in self.column_strategies.iter_mut() {
             column_layouts.push(writer.finish(segment_writer)?);
         }
-        Ok(Layout::new_owned(
+        Ok(LayoutData::new_owned(
             "struct".into(),
             LayoutVTableRef::new_ref(&StructLayout),
             self.dtype.clone(),

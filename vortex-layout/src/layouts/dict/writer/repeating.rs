@@ -7,7 +7,7 @@ use super::{DictStrategy, EncodingState, encode_chunk, start_encoding};
 use crate::layouts::chunked::writer::chunked_layout;
 use crate::layouts::dict::writer::dict_layout;
 use crate::segments::SegmentWriter;
-use crate::{Layout, LayoutWriter};
+use crate::{LayoutData, LayoutWriter};
 
 pub struct DictLayoutWriter {
     ctx: ArrayContext,
@@ -132,7 +132,7 @@ impl LayoutWriter for DictLayoutWriter {
         Ok(())
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
         if self.encoder.is_some() {
             vortex_bail!("flush not called before finish")
         }

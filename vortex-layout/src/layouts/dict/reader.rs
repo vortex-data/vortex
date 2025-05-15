@@ -12,10 +12,10 @@ use super::DictLayout;
 use super::writer::DictLayoutMetadata;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
-use crate::{Layout, LayoutReader, LayoutVTable};
+use crate::{LayoutData, LayoutReader, LayoutVTable};
 
 pub struct DictReader {
-    layout: Layout,
+    layout: LayoutData,
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
@@ -26,7 +26,7 @@ pub struct DictReader {
 
 impl DictReader {
     pub(super) fn try_new(
-        layout: Layout,
+        layout: LayoutData,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<Self> {
@@ -98,7 +98,7 @@ impl DictReader {
 }
 
 impl LayoutReader for DictReader {
-    fn layout(&self) -> &Layout {
+    fn layout(&self) -> &LayoutData {
         &self.layout
     }
 

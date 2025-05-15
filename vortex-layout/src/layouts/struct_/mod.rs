@@ -10,7 +10,7 @@ use vortex_array::ArrayContext;
 use vortex_dtype::{DType, Field, FieldMask};
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::data::Layout;
+use crate::data::LayoutData;
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::SegmentSource;
 use crate::vtable::LayoutVTable;
@@ -26,7 +26,7 @@ impl LayoutVTable for StructLayout {
 
     fn reader(
         &self,
-        layout: Layout,
+        layout: LayoutData,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
@@ -35,7 +35,7 @@ impl LayoutVTable for StructLayout {
 
     fn register_splits(
         &self,
-        layout: &Layout,
+        layout: &LayoutData,
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
@@ -48,12 +48,12 @@ impl LayoutVTable for StructLayout {
 }
 
 fn for_all_matching_children<F>(
-    layout: &Layout,
+    layout: &LayoutData,
     field_mask: &[FieldMask],
     mut per_child: F,
 ) -> VortexResult<()>
 where
-    F: FnMut(FieldMask, Layout) -> VortexResult<()>,
+    F: FnMut(FieldMask, LayoutData) -> VortexResult<()>,
 {
     let DType::Struct(dtype, _) = layout.dtype() else {
         vortex_bail!("Mismatched dtype {} for struct layout", layout.dtype());

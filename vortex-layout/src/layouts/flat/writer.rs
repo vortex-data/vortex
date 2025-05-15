@@ -7,7 +7,7 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::writer::LayoutWriter;
-use crate::{Layout, LayoutStrategy, LayoutVTableRef, LayoutWriterExt};
+use crate::{LayoutData, LayoutStrategy, LayoutVTableRef, LayoutWriterExt};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -37,7 +37,7 @@ pub struct FlatLayoutWriter {
     ctx: ArrayContext,
     dtype: DType,
     options: FlatLayoutStrategy,
-    layout: Option<Layout>,
+    layout: Option<LayoutData>,
 }
 
 impl FlatLayoutWriter {
@@ -90,7 +90,7 @@ impl LayoutWriter for FlatLayoutWriter {
         )?;
         let segment_id = segment_writer.put(&buffers);
 
-        self.layout = Some(Layout::new_owned(
+        self.layout = Some(LayoutData::new_owned(
             "flat".into(),
             LayoutVTableRef::new_ref(&FlatLayout),
             self.dtype.clone(),
@@ -106,7 +106,7 @@ impl LayoutWriter for FlatLayoutWriter {
         Ok(())
     }
 
-    fn finish(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<Layout> {
+    fn finish(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
         self.layout
             .take()
             .ok_or_else(|| vortex_err!("FlatLayoutStrategy::finish called without push_batch"))

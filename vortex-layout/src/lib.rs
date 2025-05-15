@@ -7,10 +7,12 @@ pub use context::*;
 pub mod layouts;
 
 use arcref::ArcRef;
+pub use layout::*;
 pub use reader::*;
 pub use strategy::*;
 pub use vtable::*;
 pub use writer::*;
+mod layout;
 mod reader;
 pub mod scan;
 pub mod segments;

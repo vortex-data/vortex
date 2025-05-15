@@ -17,7 +17,7 @@ use vortex_layout::layouts::stats::stats_table::StatsTable;
 use vortex_layout::layouts::struct_::StructLayout;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{
-    CHUNKED_LAYOUT_ID, DICT_LAYOUT_ID, FLAT_LAYOUT_ID, Layout, LayoutVTable, LayoutVTableRef,
+    CHUNKED_LAYOUT_ID, DICT_LAYOUT_ID, FLAT_LAYOUT_ID, LayoutData, LayoutVTable, LayoutVTableRef,
     STATS_LAYOUT_ID, STRUCT_LAYOUT_ID,
 };
 
@@ -41,7 +41,7 @@ pub enum Tab {
 pub struct LayoutCursor {
     path: Vec<usize>,
     footer: Footer,
-    layout: Layout,
+    layout: LayoutData,
     segment_map: Arc<[SegmentSpec]>,
 }
 
@@ -189,7 +189,7 @@ impl LayoutCursor {
         self.layout.vtable()
     }
 
-    pub fn layout(&self) -> &Layout {
+    pub fn layout(&self) -> &LayoutData {
         &self.layout
     }
 
@@ -256,7 +256,7 @@ pub async fn create_file_app<'a>(path: impl AsRef<Path>) -> VortexResult<AppStat
     })
 }
 
-pub fn collect_segment_ids(root_layout: &Layout) -> (Vec<SegmentId>, Vec<SegmentId>) {
+pub fn collect_segment_ids(root_layout: &LayoutData) -> (Vec<SegmentId>, Vec<SegmentId>) {
     let mut data_segment_ids = Vec::default();
     let mut stats_segment_ids = Vec::default();
 
@@ -267,7 +267,7 @@ pub fn collect_segment_ids(root_layout: &Layout) -> (Vec<SegmentId>, Vec<Segment
 }
 
 fn collect_segment_ids_impl(
-    root: &Layout,
+    root: &LayoutData,
     data_segments: &mut Vec<SegmentId>,
     stats_segments: &mut Vec<SegmentId>,
 ) -> VortexResult<()> {

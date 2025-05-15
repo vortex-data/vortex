@@ -18,7 +18,7 @@ use vortex_layout::layouts::dict::DictLayout;
 use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::StatsLayout;
 use vortex_layout::layouts::struct_::StructLayout;
-use vortex_layout::{Layout, LayoutVTable};
+use vortex_layout::{LayoutData, LayoutVTable};
 
 use crate::browse::app::AppState;
 
@@ -349,7 +349,7 @@ fn to_display_segment_tree<'a>(
     Ok((tree, root, node_contents))
 }
 
-fn collect_segment_tree(root_layout: &Layout, segments: &Arc<[SegmentSpec]>) -> SegmentTree {
+fn collect_segment_tree(root_layout: &LayoutData, segments: &Arc<[SegmentSpec]>) -> SegmentTree {
     let mut tree = SegmentTree {
         segments: HashMap::new(),
         segment_ordering: Vec::new(),
@@ -365,7 +365,7 @@ struct SegmentTree {
 }
 
 fn segments_by_name_impl(
-    root: &Layout,
+    root: &LayoutData,
     group_name: Option<Arc<str>>,
     name: Option<Arc<str>>,
     segments: &Arc<[SegmentSpec]>,

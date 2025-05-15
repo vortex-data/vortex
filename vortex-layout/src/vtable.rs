@@ -1,17 +1,50 @@
 use std::collections::BTreeSet;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Deref;
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use vortex_array::ArrayContext;
-use vortex_dtype::FieldMask;
+use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::VortexResult;
 
-use crate::segments::SegmentSource;
-use crate::{Layout, LayoutId, LayoutReader};
+use crate::layout::LayoutRef;
+use crate::segments::{SegmentId, SegmentSource};
+use crate::{LayoutId, LayoutReader, ReaderChildren};
 
 /// A reference to a layout VTable, either static or arc'd.
 pub type LayoutVTableRef = ArcRef<dyn LayoutVTable>;
+
+pub trait VTable: 'static + Sized + Send + Sync + Debug {
+    type Reader: 'static + Send + Sync + Deref<Target = dyn LayoutReader>;
+    type Layout: 'static + Send + Sync;
+    type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
+
+    /// Returns the ID of the layout.
+    fn id(layout: &Self::Layout) -> LayoutId;
+
+    /// Returns the layout for the layout reader.
+    fn layout(reader: &Self::Reader) -> LayoutRef;
+
+    fn reader_from_parts(
+        layout: &Self::Layout,
+        dtype: &DType,
+        row_count: u64,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        segment_ids: Vec<SegmentId>,
+        children: &dyn ReaderChildren,
+    ) -> VortexResult<Self::Reader>;
+}
+
+#[macro_export]
+macro_rules! vtable {
+    ($V:ident) => {
+        $crate::aliases::paste::paste! {
+            #[derive(Debug)]
+            pub struct [<$V VTable>];
+        }
+    };
+}
 
 pub trait LayoutVTable: Debug + Send + Sync {
     /// Returns the globally unique ID for this type of layout.

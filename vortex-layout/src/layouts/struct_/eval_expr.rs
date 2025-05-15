@@ -16,8 +16,8 @@ use vortex_mask::Mask;
 
 use crate::layouts::struct_::reader::StructReader;
 use crate::{
-    ArrayEvaluation, ExprEvaluator, Layout, LayoutReader, MaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
+    ArrayEvaluation, ExprEvaluator, LayoutData, LayoutReader, MaskEvaluation,
+    NoOpPruningEvaluation, PruningEvaluation,
 };
 
 impl ExprEvaluator for StructReader {
@@ -157,7 +157,7 @@ impl MaskEvaluation for StructMaskEvaluation {
 }
 
 struct StructArrayEvaluation {
-    layout: Layout,
+    layout: LayoutData,
     partitioned: Arc<PartitionedExpr>,
     field_evals: Vec<Box<dyn ArrayEvaluation>>,
 }
@@ -212,11 +212,11 @@ mod tests {
     use crate::layouts::struct_::writer::StructLayoutWriter;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
-    use crate::{ExprEvaluator, Layout};
+    use crate::{ExprEvaluator, LayoutData};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (ArrayContext, Arc<dyn SegmentSource>, Layout) {
+    fn struct_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutData) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
 
@@ -269,7 +269,7 @@ mod tests {
         #[from(struct_layout)] (ctx, segments, layout): (
             ArrayContext,
             Arc<dyn SegmentSource>,
-            Layout,
+            LayoutData,
         ),
     ) {
         let reader = layout.reader(&segments, &ctx).unwrap();
@@ -297,7 +297,7 @@ mod tests {
         #[from(struct_layout)] (ctx, segments, layout): (
             ArrayContext,
             Arc<dyn SegmentSource>,
-            Layout,
+            LayoutData,
         ),
     ) {
         let reader = layout.reader(&segments, &ctx).unwrap();
@@ -328,7 +328,7 @@ mod tests {
         #[from(struct_layout)] (ctx, segments, layout): (
             ArrayContext,
             Arc<dyn SegmentSource>,
-            Layout,
+            LayoutData,
         ),
     ) {
         let reader = layout.reader(&segments, &ctx).unwrap();

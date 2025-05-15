@@ -9,10 +9,10 @@ use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
-use crate::{Layout, LayoutVTable};
+use crate::{LayoutData, LayoutVTable};
 
 pub struct FlatReader {
-    pub(crate) layout: Layout,
+    pub(crate) layout: LayoutData,
     pub(crate) segment_source: Arc<dyn SegmentSource>,
     pub(crate) ctx: ArrayContext,
     pub(crate) array: OnceLock<SharedArrayFuture>,
@@ -20,7 +20,7 @@ pub struct FlatReader {
 
 impl FlatReader {
     pub(crate) fn try_new(
-        layout: Layout,
+        layout: LayoutData,
         segment_source: Arc<dyn SegmentSource>,
         ctx: ArrayContext,
     ) -> VortexResult<Self> {
@@ -74,7 +74,7 @@ impl FlatReader {
 }
 
 impl LayoutReader for FlatReader {
-    fn layout(&self) -> &Layout {
+    fn layout(&self) -> &LayoutData {
         &self.layout
     }
 

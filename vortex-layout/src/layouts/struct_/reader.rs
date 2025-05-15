@@ -11,10 +11,10 @@ use vortex_expr::transform::partition::{PartitionedExpr, partition};
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
-use crate::{Layout, LayoutReader, LayoutVTable};
+use crate::{LayoutData, LayoutReader, LayoutVTable};
 
 pub struct StructReader {
-    layout: Layout,
+    layout: LayoutData,
     segment_source: Arc<dyn SegmentSource>,
     ctx: ArrayContext,
 
@@ -25,7 +25,7 @@ pub struct StructReader {
 
 impl StructReader {
     pub(super) fn try_new(
-        layout: Layout,
+        layout: LayoutData,
         segment_source: Arc<dyn SegmentSource>,
         ctx: ArrayContext,
     ) -> VortexResult<Self> {
@@ -106,7 +106,7 @@ impl StructReader {
 }
 
 impl LayoutReader for StructReader {
-    fn layout(&self) -> &Layout {
+    fn layout(&self) -> &LayoutData {
         &self.layout
     }
 

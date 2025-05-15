@@ -13,7 +13,7 @@ use crate::layouts::flat::reader::FlatReader;
 use crate::reader::{LayoutReader, LayoutReaderExt};
 use crate::segments::SegmentSource;
 use crate::vtable::LayoutVTable;
-use crate::{FLAT_LAYOUT_ID, Layout, LayoutId};
+use crate::{FLAT_LAYOUT_ID, LayoutData, LayoutId};
 
 #[derive(Debug)]
 pub struct FlatLayout;
@@ -25,7 +25,7 @@ impl LayoutVTable for FlatLayout {
 
     fn reader(
         &self,
-        layout: Layout,
+        layout: LayoutData,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<Arc<dyn LayoutReader>> {
@@ -34,7 +34,7 @@ impl LayoutVTable for FlatLayout {
 
     fn register_splits(
         &self,
-        layout: &Layout,
+        layout: &LayoutData,
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,

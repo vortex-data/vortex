@@ -24,14 +24,14 @@ use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, footer as fb, layout as fbl};
-use vortex_layout::{Layout, LayoutContext, LayoutRegistry};
+use vortex_layout::{LayoutContext, LayoutData, LayoutRegistry};
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct Footer {
     array_ctx: ArrayContext,
     layout_ctx: LayoutContext,
-    root_layout: Layout,
+    root_layout: LayoutData,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
 }
@@ -77,7 +77,7 @@ impl Footer {
 
         // SAFETY: We have validated the fb_root_layout at the beginning of this function
         let root_layout = unsafe {
-            Layout::new_viewed_unchecked(
+            LayoutData::new_viewed_unchecked(
                 "".into(),
                 root_encoding,
                 dtype,
@@ -118,8 +118,8 @@ impl Footer {
         &self.layout_ctx
     }
 
-    /// Returns the root [`Layout`] of the file.
-    pub fn layout(&self) -> &Layout {
+    /// Returns the root [`LayoutData`] of the file.
+    pub fn layout(&self) -> &LayoutData {
         &self.root_layout
     }
 
