@@ -28,7 +28,8 @@ jobs:
 
       - name: Release
         run: |
-          cargo release --unpublished --workspace --no-push --no-tag --allow-branch "*" -x --no-confirm --no-publish
+          cargo release commit -x && \
+          cargo release --unpublished --workspace --no-push --no-tag --allow-branch "*" --no-confirm --no-publish -x
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
