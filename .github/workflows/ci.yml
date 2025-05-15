@@ -26,8 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - if: >
-          contains(github.event.pull_request.labels.*.name, 'chore') == false && 
-          contains(github.event.pull_request.labels.*.name, 'bug') == false && 
+          contains(github.event.pull_request.labels.*.name, 'chore') == false &&
+          contains(github.event.pull_request.labels.*.name, 'bug') == false &&
           contains(github.event.pull_request.labels.*.name, 'feature') == false &&
           contains(github.event.pull_request.labels.*.name, 'performance') == false &&
           contains(github.event.pull_request.labels.*.name, 'break') == false &&
