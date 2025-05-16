@@ -11,8 +11,8 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_p
 
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutChildren, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor, VTable,
-    vtable,
+    LayoutChildren, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor,
+    OwnedLayoutChildren, VTable, vtable,
 };
 
 vtable!(Struct);
@@ -137,11 +137,11 @@ pub struct StructLayout {
 }
 
 impl StructLayout {
-    pub fn new(row_count: u64, dtype: DType, children: Arc<[LayoutRef]>) -> Self {
+    pub fn new(row_count: u64, dtype: DType, children: Vec<LayoutRef>) -> Self {
         Self {
             row_count,
             dtype,
-            children: children.to_arc(),
+            children: OwnedLayoutChildren::from(children).to_arc(),
         }
     }
 

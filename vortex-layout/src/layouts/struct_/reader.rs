@@ -88,7 +88,8 @@ impl StructReader {
             .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
 
         let field_dtype = self.struct_dtype().field_by_index(idx)?;
-        self.lazy_children.get(idx, &field_dtype)
+        self.lazy_children
+            .get(idx, &field_dtype, &format!("{}.{}", self.name, name).into())
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
@@ -382,7 +383,7 @@ mod tests {
             LayoutRef,
         ),
     ) {
-        let reader = layout.new_reader(&segments, &ctx).unwrap();
+        let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result = block_on(
             reader
@@ -410,7 +411,7 @@ mod tests {
             LayoutRef,
         ),
     ) {
-        let reader = layout.new_reader(&segments, &ctx).unwrap();
+        let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result = block_on(
             reader
@@ -441,7 +442,7 @@ mod tests {
             LayoutRef,
         ),
     ) {
-        let reader = layout.new_reader(&segments, &ctx).unwrap();
+        let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
         let expr = pack(
             [("a", get_item("a", ident())), ("b", get_item("b", ident()))],
             NonNullable,

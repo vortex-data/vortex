@@ -2,10 +2,10 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 
 use itertools::Itertools;
-use vortex_dtype::{FieldMask, FieldPath};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::FieldMask;
+use vortex_error::VortexResult;
 
-use crate::{Layout, LayoutRef, LayoutVisitor};
+use crate::Layout;
 
 /// Defines how the Vortex file is split into batches for reading.
 ///
@@ -35,7 +35,7 @@ impl SplitBy {
                 row_splits.insert(0);
                 row_splits.insert(layout.row_count());
                 // Register the splits for all the layouts.
-                layout.register_splits(field_mask, 0, &mut row_splits)?;
+                layout.register_splits(field_mask, 0, &mut row_splits);
 
                 row_splits
                     .into_iter()
@@ -80,7 +80,7 @@ mod test {
         .push_one(&mut segments, buffer![1_i32; 10].into_array())
         .unwrap();
         let splits = SplitBy::Layout
-            .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
+            .splits(layout.as_ref(), &[FieldMask::Exact(FieldPath::root())])
             .unwrap();
         assert_eq!(splits, vec![0..10]);
     }

@@ -55,7 +55,11 @@ impl ChunkedReader {
 
     /// Return the [`LayoutReader`] for the given chunk.
     fn chunk_reader(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
-        self.lazy_children.get(idx, &self.layout.dtype)
+        self.lazy_children.get(
+            idx,
+            &self.layout.dtype,
+            &format!("{}.[{}]", self.name, idx).into(),
+        )
     }
 
     fn chunk_offset(&self, idx: usize) -> u64 {
@@ -351,9 +355,9 @@ mod test {
     ) {
         block_on(async {
             let result = layout
-                .new_reader(&segments, &ctx)
+                .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
-                .projection_evaluation("".into(), &(0..layout.row_count()), &Identity::new_expr())
+                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
                 .unwrap()
                 .invoke(Mask::new_true(usize::try_from(layout.row_count()).unwrap()))
                 .await

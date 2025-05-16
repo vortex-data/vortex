@@ -37,14 +37,23 @@ impl LayoutChildren for Arc<dyn LayoutChildren> {
     }
 }
 
+#[derive(Clone)]
+pub struct OwnedLayoutChildren(Vec<LayoutRef>);
+
+impl From<Vec<LayoutRef>> for OwnedLayoutChildren {
+    fn from(value: Vec<LayoutRef>) -> Self {
+        OwnedLayoutChildren(value)
+    }
+}
+
 /// In-memory implementation of [`LayoutChildren`].
-impl LayoutChildren for [LayoutRef] {
+impl LayoutChildren for OwnedLayoutChildren {
     fn to_arc(&self) -> Arc<dyn LayoutChildren> {
-        Arc::<[LayoutRef]>::from(self)
+        Arc::new(self.clone())
     }
 
     fn child(&self, idx: usize, dtype: &DType) -> LayoutRef {
-        let child = &self[idx];
+        let child = &self.0[idx];
         if child.dtype() != dtype {
             vortex_panic!("Child dtype mismatch: {} != {}", child.dtype(), dtype);
         }
@@ -52,11 +61,11 @@ impl LayoutChildren for [LayoutRef] {
     }
 
     fn child_row_count(&self, idx: usize) -> u64 {
-        self[idx].row_count()
+        self.0[idx].row_count()
     }
 
     fn nchildren(&self) -> usize {
-        self.len()
+        self.0.len()
     }
 }
 

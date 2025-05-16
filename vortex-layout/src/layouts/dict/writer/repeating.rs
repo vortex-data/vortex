@@ -1,10 +1,8 @@
-use std::sync::Arc;
-
 use itertools::Itertools;
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_dict::builders::DictEncoder;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexError, VortexResult, vortex_bail};
 
 use super::{DictStrategy, EncodingState, encode_chunk, start_encoding};
 use crate::layouts::chunked::ChunkedLayout;
@@ -140,15 +138,17 @@ impl LayoutWriter for DictLayoutWriter {
             vortex_bail!("flush not called before finish")
         }
 
-        let mut children: Arc<[LayoutRef]> = self
+        let mut children: Vec<LayoutRef> = self
             .writers
             .iter_mut()
             .map(|(values, codes)| {
-                Ok(DictLayout::new(
-                    values.finish(segment_writer)?,
-                    codes.finish(segment_writer)?,
+                Ok::<_, VortexError>(
+                    DictLayout::new(
+                        values.finish(segment_writer)?,
+                        codes.finish(segment_writer)?,
+                    )
+                    .into_layout(),
                 )
-                .into_layout())
             })
             .try_collect()?;
 
@@ -157,6 +157,6 @@ impl LayoutWriter for DictLayoutWriter {
         }
 
         let row_count = children.iter().map(|child| child.row_count()).sum();
-        Ok(ChunkedLayout::new(row_count, self.dtype.clone(), children))
+        Ok(ChunkedLayout::new(row_count, self.dtype.clone(), children).into_layout())
     }
 }

@@ -1,17 +1,14 @@
-use std::collections::BTreeSet;
 use std::ops::Deref;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
-use vortex_array::ArrayContext;
-use vortex_dtype::{DType, FieldMask};
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
 
 use crate::context::LayoutContext;
-use crate::reader::LayoutReader;
-use crate::segments::{SegmentId, SegmentSource};
+use crate::segments::SegmentId;
 use crate::{LayoutEncodingId, LayoutEncodingRef};
 
 /// [`LayoutData`] captures a tree of layouts, providing hierarchical structure.
@@ -27,7 +24,7 @@ enum Inner {
 /// A layout that is fully deserialized and heap-allocated.
 #[derive(Debug, Clone)]
 pub struct OwnedLayoutData {
-    name: String,
+    name: Arc<str>,
     encoding: LayoutEncodingRef,
     dtype: DType,
     row_count: u64,
@@ -40,7 +37,7 @@ pub struct OwnedLayoutData {
 /// A layout that is lazily deserialized from a flatbuffer message.
 #[derive(Debug, Clone)]
 struct ViewedLayoutData {
-    name: String,
+    name: Arc<str>,
     encoding: LayoutEncodingRef,
     dtype: DType,
     flatbuffer: FlatBuffer,
@@ -58,7 +55,7 @@ impl ViewedLayoutData {
 impl LayoutData {
     /// Create a new owned layout.
     pub fn new_owned(
-        name: String,
+        name: Arc<str>,
         encoding: LayoutEncodingRef,
         dtype: DType,
         row_count: u64,
@@ -83,7 +80,7 @@ impl LayoutData {
     ///
     /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
     pub unsafe fn new_viewed_unchecked(
-        name: String,
+        name: Arc<str>,
         encoding: LayoutEncodingRef,
         dtype: DType,
         flatbuffer: FlatBuffer,
@@ -245,7 +242,7 @@ impl LayoutData {
     }
 
     /// Iterate the segment IDs of the layout.
-    pub fn segments(&self) -> impl Iterator<Item=SegmentId> + '_ {
+    pub fn segments(&self) -> impl Iterator<Item = SegmentId> + '_ {
         (0..self.nsegments()).map(move |i| self.segment_id(i).vortex_expect("segment bounds"))
     }
 
@@ -260,31 +257,11 @@ impl LayoutData {
         }
     }
 
-    /// Create a reader for this layout.
-    pub fn reader(
-        &self,
-        segment_source: &Arc<dyn SegmentSource>,
-        ctx: &ArrayContext,
-    ) -> VortexResult<Arc<dyn LayoutReader>> {
-        self.vtable().reader(self.clone(), segment_source, ctx)
-    }
-
-    /// Register splits for this layout.
-    pub fn register_splits(
-        &self,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        self.vtable()
-            .register_splits(self, field_mask, row_offset, splits)
-    }
-
     /// Serialize the layout into a [`FlatBufferBuilder`].
     pub fn flatbuffer_writer<'a>(
         &'a self,
         ctx: &'a LayoutContext,
-    ) -> impl WriteFlatBuffer<Target<'a>=layout::Layout<'a>> + FlatBufferRoot + 'a {
+    ) -> impl WriteFlatBuffer<Target<'a> = layout::Layout<'a>> + FlatBufferRoot + 'a {
         LayoutFlatBufferWriter { layout: self, ctx }
     }
 }
@@ -317,7 +294,7 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
                                 layout: c,
                                 ctx: self.ctx,
                             }
-                                .write_flatbuffer(fbb)
+                            .write_flatbuffer(fbb)
                         })
                         .collect::<Vec<_>>()
                 });

@@ -11,8 +11,8 @@ use vortex_error::VortexResult;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutChildren, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor, VTable,
-    vtable,
+    LayoutChildren, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor,
+    OwnedLayoutChildren, VTable, vtable,
 };
 
 vtable!(Chunked);
@@ -120,11 +120,11 @@ pub struct ChunkedLayout {
 }
 
 impl ChunkedLayout {
-    pub fn new(row_count: u64, dtype: DType, children: Arc<[LayoutRef]>) -> Self {
+    pub fn new(row_count: u64, dtype: DType, children: Vec<LayoutRef>) -> Self {
         Self {
             row_count,
             dtype,
-            children: children.to_arc(),
+            children: OwnedLayoutChildren::from(children).to_arc(),
         }
     }
 

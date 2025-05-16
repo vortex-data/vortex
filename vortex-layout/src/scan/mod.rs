@@ -1,5 +1,5 @@
 use std::iter;
-use std::ops::Range;
+use std::ops::{Deref, Range};
 use std::sync::Arc;
 
 use arrow_array::RecordBatch;
@@ -164,7 +164,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .cloned()
             .chain(projection_mask.iter().cloned())
             .collect();
-        let splits = self.split_by.splits(layout_reader.layout(), &field_mask)?;
+        let splits = self.split_by.splits(layout_reader.deref(), &field_mask)?;
 
         let row_masks = splits
             .into_iter()

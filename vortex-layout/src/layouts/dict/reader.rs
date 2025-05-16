@@ -22,6 +22,7 @@ use crate::{
 
 pub struct DictReader {
     layout: DictLayout,
+    #[allow(dead_code)] // Typically used for logging
     name: Arc<str>,
 
     /// Cached dict values array
