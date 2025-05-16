@@ -6310,6 +6310,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
+ "vortex-mask",
  "vortex-proto",
  "vortex-scalar",
 ]

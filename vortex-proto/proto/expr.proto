@@ -26,6 +26,7 @@ message Kind {
     Pack pack = 7;
     Between between = 8;
     Like like = 9;
+    IsNull is_null = 10;
   }
 
   message Literal {
@@ -71,6 +72,10 @@ message Kind {
   message Like {
     bool negated = 1;
     bool case_insensitive = 2;
+  }
+
+  message IsNull {
+
   }
 }
 
