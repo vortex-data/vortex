@@ -3,17 +3,12 @@ use std::collections::BTreeSet;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
-use flatbuffers::root;
-use vortex_array::ArrayContext;
+use vortex_array::{ArrayContext, SerializeMetadata};
 use vortex_dtype::{DType, FieldMask, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, layout as fbl};
 
-use crate::children::ViewedLayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
-use crate::{
-    LayoutContext, LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, LayoutVisitor, VTable,
-};
+use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, LayoutVisitor, VTable};
 
 pub type LayoutRef = Arc<dyn Layout>;
 
@@ -34,6 +29,8 @@ pub trait Layout: 'static + Send + Sync + private::Sealed {
         field_mask: Option<&[FieldMask]>,
         visitor: &mut dyn LayoutVisitor,
     ) -> VortexResult<()>;
+
+    fn metadata(&self) -> Vec<u8>;
 
     fn segment_ids(&self) -> Vec<SegmentId>;
 
@@ -142,6 +139,10 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         V::visit_children(&self.0, field_mask, visitor)
     }
 
+    fn metadata(&self) -> Vec<u8> {
+        V::metadata(&self.0).serialize()
+    }
+
     fn segment_ids(&self) -> Vec<SegmentId> {
         V::segment_ids(&self.0)
     }
@@ -171,46 +172,4 @@ mod private {
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for LayoutAdapter<V> {}
-}
-
-pub struct FlatBufferLayoutParser;
-
-impl FlatBufferLayoutParser {
-    pub fn try_parse(
-        flatbuffer: FlatBuffer,
-        dtype: &DType,
-        ctx: &LayoutContext,
-    ) -> VortexResult<LayoutRef> {
-        let fb_layout = root::<fbl::Layout>(&flatbuffer)?;
-        let encoding = ctx
-            .lookup_encoding(fb_layout.layout_id())
-            .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.layout_id()))?;
-
-        // SAFETY: we validate the flatbuffer above in the `root` call, and extract a loc.
-        let viewed_children = unsafe {
-            ViewedLayoutChildren::new_unchecked(
-                flatbuffer.clone(),
-                fb_layout._tab.loc(),
-                ctx.clone(),
-            )
-        };
-
-        let layout = encoding.build(
-            dtype,
-            fb_layout.row_count(),
-            fb_layout
-                .metadata()
-                .map(|m| m.bytes())
-                .unwrap_or_else(|| &[]),
-            fb_layout
-                .segments()
-                .unwrap_or_default()
-                .iter()
-                .map(SegmentId::from)
-                .collect(),
-            &viewed_children,
-        )?;
-
-        Ok(layout)
-    }
 }

@@ -41,6 +41,13 @@ impl VTable for ZoneMapVTable {
         layout.data.dtype()
     }
 
+    fn metadata(layout: &Self::Layout) -> Self::Metadata {
+        ZoneMapMetadata {
+            zone_len: u32::try_from(layout.zone_len).vortex_expect("Invalid zone length"),
+            present_stats: layout.present_stats.clone(),
+        }
+    }
+
     fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
         vec![]
     }

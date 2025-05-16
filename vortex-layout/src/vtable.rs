@@ -30,6 +30,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Returns the dtype for the layout reader.
     fn dtype(layout: &Self::Layout) -> &DType;
 
+    /// Returns the metadata for the layout.
+    fn metadata(layout: &Self::Layout) -> Self::Metadata;
+
     /// Returns the segment IDs for the layout.
     fn segment_ids(layout: &Self::Layout) -> Vec<SegmentId>;
 

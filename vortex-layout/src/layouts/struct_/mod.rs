@@ -38,6 +38,10 @@ impl VTable for StructVTable {
         &layout.dtype
     }
 
+    fn metadata(_layout: &Self::Layout) -> Self::Metadata {
+        EmptyMetadata
+    }
+
     fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
         vec![]
     }

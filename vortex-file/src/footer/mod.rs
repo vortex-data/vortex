@@ -24,7 +24,7 @@ use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, footer as fb};
-use vortex_layout::{FlatBufferLayoutParser, LayoutContext, LayoutRef, LayoutRegistry};
+use vortex_layout::{LayoutContext, LayoutRef, LayoutRegistry, layout_from_flatbuffer};
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
@@ -64,7 +64,7 @@ impl Footer {
             .map(|encoding| encoding.id());
         let array_ctx = array_registry.new_context(array_ids)?;
 
-        let root_layout = FlatBufferLayoutParser::try_parse(layout_bytes, &dtype, &layout_ctx)?;
+        let root_layout = layout_from_flatbuffer(layout_bytes, &dtype, &layout_ctx)?;
 
         let segments: Arc<[SegmentSpec]> = fb_footer
             .segment_specs()

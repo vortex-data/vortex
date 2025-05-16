@@ -7,7 +7,7 @@ use std::sync::Arc;
 use reader::DictReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, FieldMask, FieldPath, PType};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
@@ -36,6 +36,12 @@ impl VTable for DictVTable {
 
     fn dtype(layout: &Self::Layout) -> &DType {
         layout.values.dtype()
+    }
+
+    fn metadata(layout: &Self::Layout) -> Self::Metadata {
+        ProstMetadata(DictLayoutMetadata::new(
+            PType::try_from(layout.codes.dtype()).vortex_expect("ptype"),
+        ))
     }
 
     fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {

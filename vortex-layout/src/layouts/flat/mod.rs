@@ -36,6 +36,10 @@ impl VTable for FlatVTable {
         &layout.dtype
     }
 
+    fn metadata(_layout: &Self::Layout) -> Self::Metadata {
+        EmptyMetadata
+    }
+
     fn segment_ids(layout: &Self::Layout) -> Vec<SegmentId> {
         vec![layout.segment_id]
     }
