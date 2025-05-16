@@ -11,7 +11,37 @@ on:
         type: string
 
 jobs:
+  build-duckdb:
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c6id.8xlarge
+      - image=ubuntu24-full-x64
+      - spot=false
+      - tag=${{ matrix.id }}
+    steps:
+      - name: Cache duckdb compiled binary
+        uses: actions/cache@v4
+        id: cache-duckdb-binary
+        with:
+          key: "${{ runner.os }}-ducdkb-linux_amd64-${{ env.DUCKDB_VERSION }}"
+          path: duckdb/build/release/duckdb
+
+      - name: Install duckdb compile requirements
+        if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install ninja-build cmake build-essential make ccache clang -y
+
+      - name: Build duckdb binary
+        if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
+        run: |
+          export CC=clang
+          export CXX=clang++
+          git clone https://github.com/duckdb/duckdb
+          cd duckdb
+          git checkout "$DUCKDB_VERSION"
+          GEN=ninja NATIVE_ARCH=1 DUCKDB_PLATFORM=linux_amd64 LTO=thin make
+
   bench:
+    needs: build-duckdb
     # S3 is shared state here, and we want to make sure only one of each job runs at a time
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref_name }}-${{matrix.id}}
@@ -77,20 +107,6 @@ jobs:
           RUSTFLAGS: '-C target-cpu=native -C force-frame-pointers=yes'
         run: |
           cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
-
-      - name: Install duckdb compile requirements
-        if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
-        run: sudo apt-get update && sudo apt-get install ninja-build cmake build-essential make ccache clang -y
-
-      - name: Build duckdb binary
-        if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
-        run: |
-          export CC=clang
-          export CXX=clang++
-          git clone https://github.com/duckdb/duckdb
-          cd duckdb
-          git checkout "$DUCKDB_VERSION"
-          GEN=ninja NATIVE_ARCH=1 DUCKDB_PLATFORM=linux_amd64 LTO=thin make
 
       - name: Add duckdb to path
         run: |
