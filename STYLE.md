@@ -6,7 +6,7 @@
 - Follow standard Rust idioms and best practices
 - Prioritize safety and correctness
 - Prefer zero-cost abstractions where possible
-- Minimize use of `unsafe` to cases where it's truly necessary
+- Minimize use of `unsafe` to cases where it's truly necessary (i.e., typically when the performance benefits are large)
 
 ## Code Formatting
 
@@ -38,10 +38,10 @@
 
 ## Type System
 
-- Prefer strongly typed APIs over stringly typed ones
+- Prefer strongly typed APIs when possible
 - Use Rust's type system to prevent bugs at compile time
 - Implement appropriate traits for custom types
-- Prefer `impl AsRef<T>` to `&T` for public interfaces (e.g. `impl AsRef<Path>`)
+- Prefer `impl AsRef<T>` to `&T` for public APIs (e.g. `impl AsRef<Path>`)
 - Use type aliases to improve code readability and maintenance
 
 ## Error Handling
@@ -66,15 +66,13 @@
 
 ## Collections and Data Structures
 
-- Avoid using `HashMap` and `HashSet` from the standard library (use alternatives)
+- Avoid using `HashMap` and `HashSet` from the standard library (prefer the alternatives in `vortex-array::aliases`)
 - Prefer specialized collections when appropriate
 - Be mindful of performance implications when choosing data structures
 
 ## Safety and Unsafe Code
 
-- Avoid `unsafe` code where not necessary
-- Use zero-cost safe abstractions wherever possible
-- When `unsafe` is unavoidable, use cheap non-zero-cost abstractions
+- Avoid `unsafe` code unless strictly necessary for optimal performance
 - Document all uses of `unsafe` with detailed safety comments
 - Encapsulate `unsafe` code within safe abstractions
 
@@ -97,7 +95,7 @@
 
 ## Performance Considerations
 
-- Optimize for readability first, then for performance
+- Optimize for readability & performance (choose two)
 - Use benchmarks to measure performance improvements
 - Prefer algorithmic improvements over micro-optimizations
 - Document performance-critical sections
