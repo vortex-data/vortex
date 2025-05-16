@@ -21,16 +21,6 @@ jobs:
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
-
-      - run: |
-          pwd 
-          ls ./.github/actions/duckdb/build-duckdb-binary.yml
-          ls .././.github/actions/duckdb/build-duckdb-binary.yml
-          ls ./vortex/./.github/actions/duckdb/build-duckdb-binary.yml
-
-      #      - uses: actions/checkout@v4
-      #        with:
-      #          ref: ${{ github.event.pull_request.head.sha }}
       - uses: ./.github/actions/duckdb/build-duckdb-binary.yml
 
   bench:
