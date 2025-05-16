@@ -131,26 +131,26 @@ jobs:
         working-directory: ${{ github.workspace }}/duckdb-vortex
 
 
-      - name: sleep
-        run: |
-          sleep 10000
-          echo "sleep"
-          sleep 10000
-          echo "sleep"
-          sleep 10000
-          echo "sleep"
-          sleep 10000
-          echo "sleep"
-          sleep 10000
-          echo "sleep"
-          sleep 10000
-          echo "sleep"
-          sleep 10000
-          echo "sleep"
-          sleep 10000
-          echo "sleep"
-          sleep 10000
-          echo "sleep"
+      #      - name: sleep
+      #        run: |
+      #          sleep 10000
+      #          echo "sleep"
+      #          sleep 10000
+      #          echo "sleep"
+      #          sleep 10000
+      #          echo "sleep"
+      #          sleep 10000
+      #          echo "sleep"
+      #          sleep 10000
+      #          echo "sleep"
+      #          sleep 10000
+      #          echo "sleep"
+      #          sleep 10000
+      #          echo "sleep"
+      #          sleep 10000
+      #          echo "sleep"
+      #          sleep 10000
+      #          echo "sleep"
 
       - name: Generate data
         shell: bash
