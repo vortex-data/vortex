@@ -1,7 +1,8 @@
 use std::fmt::Display;
-use std::sync::{Arc, RwLock, RwLockReadGuard};
+use std::sync::Arc;
 
 use itertools::Itertools;
+use parking_lot::RwLock;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::EncodingRef;
@@ -56,7 +57,7 @@ impl<T: Clone + Eq> VTableContext<T> {
 
     pub fn with(self, encoding: T) -> Self {
         {
-            let mut write = self.0.write().vortex_expect("poisoned lock");
+            let mut write = self.0.write();
             if write.iter().all(|e| e != &encoding) {
                 write.push(encoding);
             }
@@ -68,13 +69,13 @@ impl<T: Clone + Eq> VTableContext<T> {
         items.into_iter().fold(self, |ctx, e| ctx.with(e))
     }
 
-    pub fn encodings(&self) -> RwLockReadGuard<Vec<T>> {
-        self.0.read().vortex_expect("poisoned lock")
+    pub fn encodings(&self) -> Vec<T> {
+        self.0.read().clone()
     }
 
     /// Returns the index of the encoding in the context, or adds it if it doesn't exist.
     pub fn encoding_idx(&self, encoding: &T) -> u16 {
-        let mut write = self.0.write().vortex_expect("poisoned lock");
+        let mut write = self.0.write();
         if let Some(idx) = write.iter().position(|e| e == encoding) {
             return u16::try_from(idx).vortex_expect("Cannot have more than u16::MAX encodings");
         }
@@ -88,11 +89,7 @@ impl<T: Clone + Eq> VTableContext<T> {
 
     /// Find an encoding by its position.
     pub fn lookup_encoding(&self, idx: u16) -> Option<T> {
-        self.0
-            .read()
-            .vortex_expect("poisoned lock")
-            .get(idx as usize)
-            .cloned()
+        self.0.read().get(idx as usize).cloned()
     }
 }
 

@@ -4319,6 +4319,7 @@ dependencies = [
  "log",
  "mimalloc",
  "object_store",
+ "parking_lot",
  "pyo3",
  "pyo3-log",
  "tokio",
@@ -6375,6 +6376,7 @@ dependencies = [
  "log",
  "moka",
  "object_store",
+ "parking_lot",
  "pin-project-lite",
  "rstest",
  "rustc-hash",
@@ -6498,6 +6500,7 @@ dependencies = [
  "jni",
  "log",
  "object_store",
+ "parking_lot",
  "prost",
  "simplelog",
  "thiserror 2.0.12",
@@ -6558,6 +6561,7 @@ name = "vortex-metrics"
 version = "0.1.0"
 dependencies = [
  "getrandom 0.3.2",
+ "parking_lot",
  "vortex-error",
  "witchcraft-metrics",
 ]

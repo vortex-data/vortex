@@ -1,7 +1,8 @@
 use std::ops::Range;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use futures::{StreamExt, pin_mut};
+use parking_lot::RwLock;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -248,11 +249,7 @@ impl VortexOpenOptions<GenericVortexFile> {
             .segment_map()
             .partition_point(|segment| segment.offset < initial_offset);
 
-        let mut initial_segments = self
-            .options
-            .initial_read_segments
-            .write()
-            .vortex_expect("poisoned lock");
+        let mut initial_segments = self.options.initial_read_segments.write();
 
         for idx in first_idx..footer.segment_map().len() {
             let segment = &footer.segment_map()[idx];

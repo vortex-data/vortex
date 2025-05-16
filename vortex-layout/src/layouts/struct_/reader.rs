@@ -1,7 +1,8 @@
 use std::hash::Hash;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
 use itertools::Itertools;
+use parking_lot::RwLock;
 use vortex_array::ArrayContext;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_dtype::{DType, FieldName, StructDType};
@@ -92,7 +93,6 @@ impl StructReader {
         match self
             .partitioned_expr_cache
             .write()
-            .vortex_expect("poisoned lock")
             .entry(ExactExpr(expr.clone()))
         {
             Entry::Occupied(entry) => entry.get().clone(),

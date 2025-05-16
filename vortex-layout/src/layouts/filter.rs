@@ -1,10 +1,11 @@
 use std::iter;
 use std::ops::{BitAnd, Range};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use bit_vec::BitVec;
 use itertools::Itertools;
+use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
@@ -57,7 +58,7 @@ impl ExprEvaluator for FilterLayoutReader {
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         let filter_expr = self
             .cache
-            .write()?
+            .write()
             .entry(expr.clone())
             .or_insert_with(|| Arc::new(FilterExpr::new(expr.clone())))
             .clone();
@@ -80,7 +81,7 @@ impl ExprEvaluator for FilterLayoutReader {
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let filter_expr = self
             .cache
-            .write()?
+            .write()
             .entry(expr.clone())
             .or_insert_with(|| Arc::new(FilterExpr::new(expr.clone())))
             .clone();
@@ -139,7 +140,7 @@ impl FilterExpr {
 
     /// Returns the next preferred conjunct to evaluate.
     fn next_conjunct(&self, remaining: &BitVec) -> Option<usize> {
-        let read = self.ordering.read().vortex_expect("poisoned lock");
+        let read = self.ordering.read();
         // Take the first remaining conjunct in the ordered list.
         read.iter().find(|&idx| remaining[*idx]).copied()
     }
@@ -155,9 +156,7 @@ impl FilterExpr {
         }
 
         {
-            let mut histogram = self.conjunct_selectivity[conjunct_idx]
-                .write()
-                .vortex_expect("poisoned lock");
+            let mut histogram = self.conjunct_selectivity[conjunct_idx].write();
 
             histogram.add(selectivity);
         }
@@ -168,7 +167,6 @@ impl FilterExpr {
             .map(|histogram| {
                 histogram
                     .read()
-                    .vortex_expect("poisoned lock")
                     .quantile(self.selectivity_quantile)
                     .map_err(|e| vortex_err!("{e}")) // Only errors when the quantile is out of range
                     .vortex_expect("quantile out of range")
@@ -178,14 +176,14 @@ impl FilterExpr {
             .collect::<Vec<_>>();
 
         {
-            let ordering = self.ordering.read().vortex_expect("lock poisoned");
+            let ordering = self.ordering.read();
             if ordering.is_sorted_by_key(|&idx| all_selectivity[idx]) {
                 return;
             }
         }
 
         // Re-sort our conjuncts based on the new statistics.
-        let mut ordering = self.ordering.write().vortex_expect("lock poisoned");
+        let mut ordering = self.ordering.write();
         ordering.sort_unstable_by(|&l_idx, &r_idx| {
             all_selectivity[l_idx]
                 .partial_cmp(&all_selectivity[r_idx])

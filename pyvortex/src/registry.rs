@@ -1,10 +1,10 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use itertools::Itertools;
+use parking_lot::RwLock;
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, Python};
 use vortex::ArrayRegistry;
-use vortex::error::VortexExpect;
 use vortex::file::DEFAULT_REGISTRY;
 use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
 
@@ -58,16 +58,13 @@ impl PyRegistry {
     /// It's not currently possible to register a layout encoding from Python.
     pub(crate) fn register(&self, cls: PythonEncoding) -> PyResult<()> {
         let encoding = cls.to_encoding();
-        self.array_registry
-            .write()
-            .vortex_expect("poisoned lock")
-            .register(encoding);
+        self.array_registry.write().register(encoding);
         Ok(())
     }
 
     /// Create an :class:`~vortex.ArrayContext` containing the given encodings.
     fn array_ctx(&self, encodings: Vec<Bound<PyAny>>) -> PyResult<PyArrayContext> {
-        let registry = self.array_registry.read().vortex_expect("poisoned lock");
+        let registry = self.array_registry.read();
         Ok(PyArrayContext::from(registry.new_context(
             encoding_ids(&encodings)?.iter().map(|s| s.as_str()),
         )?))

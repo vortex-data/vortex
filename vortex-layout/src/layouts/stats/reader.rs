@@ -1,8 +1,9 @@
 use std::ops::Range;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
+use parking_lot::RwLock;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::stats::{Stat, stats_from_bitset_bytes};
 use vortex_array::{ArrayContext, ToCanonical};
@@ -91,7 +92,6 @@ impl StatsReader {
     pub(crate) fn pruning_predicate(&self, expr: ExprRef) -> Option<PruningPredicate> {
         self.pruning_predicates
             .write()
-            .vortex_expect("poisoned lock")
             .entry(expr.clone())
             .or_default()
             .get_or_init(move || PruningPredicate::try_new(&expr))
@@ -130,12 +130,7 @@ impl StatsReader {
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
     pub(crate) fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
-        match self
-            .pruning_result
-            .write()
-            .vortex_expect("poisoned lock")
-            .entry(expr.clone())
-        {
+        match self.pruning_result.write().entry(expr.clone()) {
             Entry::Occupied(e) => e.get().clone(),
             Entry::Vacant(e) => e
                 .insert(match self.pruning_predicate(expr.clone()) {

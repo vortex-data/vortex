@@ -2,4 +2,5 @@ allow-dbg-in-tests = true
 allow-expect-in-tests = true
 allow-unwrap-in-tests = true
 single-char-binding-names-threshold = 2
-disallowed-types = ["std::collections::HashMap", "std::collections::HashSet"]
+# We prefer using parking_lot for improved ergonomics and performance.
+disallowed-types = ["std::collections::HashMap", "std::collections::HashSet", "std::sync::Mutex", "std::sync::RwLock"]
