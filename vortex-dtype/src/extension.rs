@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, RwLock};
 
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{DType, Nullability};
 
@@ -36,7 +37,7 @@ impl From<&str> for ExtID {
 }
 
 /// Opaque metadata for an extension type
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, PartialOrd, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExtMetadata(Arc<[u8]>);
 
@@ -150,6 +151,14 @@ impl ExtDType {
                 .storage_dtype()
                 .eq_ignore_nullability(other.storage_dtype())
     }
+
+    pub fn try_extension_type<T: ExtensionType>(&self) -> Option<T> {
+        if !ExtensionRegistry::shared().is_valid(self) {
+            None
+        } else {
+            ExtensionRegistry::shared().is_valid()
+        }
+    }
 }
 
 /// A trait covering pluggable extension types.
@@ -182,30 +191,35 @@ pub trait ExtensionType {
     fn try_new(storage_type: DType, metadata: Self::Metadata) -> VortexResult<Self>
     where
         Self: Sized;
-}
 
-impl ExtDType {
-    /// Downcast the ref.
-    pub fn downcast_ref<T: ExtensionType>(&self) -> Option<&T> {
-        if self.id() == &T::type_id() {
-            // Attempt to deserialize the metadata down.
-            // We could promote this with a `TryFrom` impl, but that would require
-            // `T` to be `Sized`.
-            let metadata = T::try_deserialize(self.metadata()?).ok();
-        } else {
-            None
-        }
+    #[cfg(feature = "arrow")]
+    /// Convert to an Arrow [`Field`] containing the data type and any Arrow extension metadata
+    /// that should be attached for Arrow clients.
+    ///
+    /// By default nothing is returned.
+    fn to_field(&self) -> Option<arrow_schema::Field> {
+        None
     }
 }
 
 #[cfg(feature = "arrow")]
 mod arrow_impl {
     use arrow_schema::extension::ExtensionType as ArrowExtensionType;
+    use arrow_schema::{DataType, Field};
     use vortex_error::{VortexResult, vortex_err};
 
     use crate::{DType, ExtID, ExtMetadata, ExtensionType};
 
-    // Arrow uses std HashMap which we disallow.
+    pub struct GenericArrowExtensionType<T: ArrowExtensionType> {
+        data_type: DataType,
+        extension_type: T,
+    }
+
+    // If it works, we can capture one from somewhere and deploy it here instead.
+    // If we're getting some sort of type here we can capture the extension type so
+    // that we get access to the type values here instead...I think?
+
+    // Arrow uses std HashMap which we otherwise disallow.
     #[allow(clippy::disallowed_types)]
     impl<T: ArrowExtensionType> ExtensionType for T {
         type Metadata = <T as ArrowExtensionType>::Metadata;
@@ -238,6 +252,98 @@ mod arrow_impl {
                 &storage_type.to_arrow()?,
                 metadata,
             )?)
+        }
+
+        /// Convert self into a field type.
+        /// If we have an Arrow extension type wrapping another type, then that works as expected.
+        fn to_field(&self) -> Option<Field> {
+            todo!()
+        }
+    }
+}
+
+/// Validation function, constructed from a T to validate that the metadata and storage
+/// type conform to the requirements of the type.
+type ValidateFn = Box<dyn Fn(&ExtDType) -> VortexResult<()> + Send + Sync + 'static>;
+
+#[cfg(feature = "arrow")]
+/// Convert the a storage type + metadata into some inner T and then convert it to a field.
+type ToFieldFn =
+    Box<dyn Fn(&DType, &ExtMetadata) -> Option<arrow_schema::Field> + Send + Sync + 'static>;
+
+// Entry in the extensions table
+struct Entry {
+    validate_fn: ValidateFn,
+    #[cfg(feature = "arrow")]
+    to_field_fn: ToFieldFn,
+}
+
+static REGISTRY: LazyLock<ExtensionRegistry> = LazyLock::new(|| ExtensionRegistry {
+    extensions: Arc::new(RwLock::new(HashMap::new())),
+});
+
+pub struct ExtensionRegistry {
+    extensions: Arc<RwLock<HashMap<ExtID, Entry>>>,
+}
+
+impl ExtensionRegistry {
+    /// Get access to the shared registry.
+    pub fn shared() -> &'static Self {
+        &REGISTRY
+    }
+
+    /// Register the extension type `T` so that it can be recognized by several intrinsic Vortex
+    /// functions that operate over extensions.
+    pub fn register<T: ExtensionType>(&self) {
+        let validate_fn = Box::new(|ext_dtype: &ExtDType| {
+            let m = T::try_deserialize(&ext_dtype.metadata().cloned().unwrap_or_default())?;
+            let _ = T::try_new(ext_dtype.storage_dtype().clone(), m)?;
+            Ok(())
+        });
+
+        #[cfg(feature = "arrow")]
+        let to_field_fn = Box::new(|storage_type: &DType, metadata: &ExtMetadata| {
+            let m = T::try_deserialize(&metadata)?;
+            let ext = T::try_new(storage_type.clone(), m)
+                .vortex_expect("validation should have succeeded previously");
+            ext.to_field()
+        });
+
+        self.extensions.write().unwrap().insert(
+            T::type_id(),
+            Entry {
+                validate_fn,
+                #[cfg(feature = "arrow")]
+                to_field_fn,
+            },
+        );
+    }
+
+    /// Validate that the metadata is valid according to our validation logic.
+    pub fn is_valid(&self, extension_type: &ExtDType) -> bool {
+        let map_guard = self.extensions.read().vortex_expect("poisoned");
+        if let Some(entry) = map_guard.get(extension_type.id()) {
+            (entry.validate_fn)(
+                extension_type.storage_dtype(),
+                &extension_type.metadata().cloned().unwrap_or_default(),
+            )
+            .is_ok()
+        } else {
+            false
+        }
+    }
+
+    #[cfg(feature = "arrow")]
+    pub fn try_to_arrow(&self, ext_dtype: &ExtDType) -> Option<arrow_schema::Field> {
+        if let Some(entry) = self
+            .extensions
+            .read()
+            .vortex_expect("poisoned")
+            .get(ext_dtype.id())
+        {
+            (entry.to_field_fn)()
+        } else {
+            None
         }
     }
 }

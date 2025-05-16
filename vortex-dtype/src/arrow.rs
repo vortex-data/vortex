@@ -148,7 +148,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_assert, vortex_bail, vorte
 
 use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use crate::datetime::is_temporal_ext_type;
-use crate::{DType, DecimalDType, ExtDType, FieldName, Nullability, PType, StructDType};
+use crate::{DType, DecimalDType, ExtDType, ExtensionRegistry, FieldName, Nullability, PType, StructDType};
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
@@ -351,7 +351,12 @@ impl DType {
                 {
                     // Special handling for extension types in case they should serialize
                     // to an Arrow extension type.
+                    // If the type is one of the ones that has a special arrow serialization, we use
+                    // it directly.
                     let field = if let DType::Extension(ext_type) = &field_dt {
+                        // If the field converts into Arrow in some way, convert it instead.
+                        ExtensionRegistry::shared()
+
                         if let Some(f) = extension_type_to_arrow(ext_type.as_ref())? {
                             f.with_name(field_name.to_string())
                         } else {
