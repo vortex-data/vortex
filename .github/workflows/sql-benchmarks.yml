@@ -41,7 +41,6 @@ jobs:
           git checkout "$DUCKDB_VERSION"
           GEN=ninja NATIVE_ARCH=1 DUCKDB_PLATFORM=linux_amd64 LTO=thin make
 
-
   bench:
     needs: build-duckdb
     # S3 is shared state here, and we want to make sure only one of each job runs at a time
@@ -127,8 +126,23 @@ jobs:
           # The `NATIVE_ARCH` environment variable is picked up by `duckdb/Makefile`.
           NATIVE_ARCH: 1
           DUCKDB_PLATFORM: linux_amd64
-        run: CXXFLAGS="-ftls-model=global-dynamic" CFLAGS="-ftls-model=global-dynamic" GEN=ninja NATIVE_ARCH=1 make release
+        run: CXXFLAGS="-ftls-model=global-dynamic" CFLAGS="-ftls-model=global-dynamic" GEN=ninja make release
         working-directory: ${{ github.workspace }}/duckdb-vortex
+
+      - name: sleep
+        run: |
+          echo sleep
+          sleep 18000
+          echo sleep
+          sleep 18000
+          echo sleep
+          sleep 18000
+          echo sleep
+          sleep 18000
+          echo sleep
+          sleep 18000
+          echo sleep
+          sleep 18000
 
       - name: Generate data
         shell: bash
