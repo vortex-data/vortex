@@ -90,8 +90,6 @@ jobs:
         with:
           submodules: "recursive"
 
-      #      - uses: ./.github/actions/duckdb/load-duckdb-binary.yml
-
       - name: Cache duckdb compiled binary
         uses: runs-on/cache@v4
         id: cache-duckdb-binary
@@ -105,6 +103,8 @@ jobs:
           echo ${{ github.workspace }}/duckdb/build/release/duckdb >> $GITHUB_PATH
           ls ${{ github.workspace }}
           ${{ github.workspace }}/duckdb/build/release/duckdb --version
+          echo $PATH
+          echo $GITHUB_PATH
           duckdb --version
 
       - name: Setup AWS CLI
