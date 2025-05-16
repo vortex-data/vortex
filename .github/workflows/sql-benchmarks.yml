@@ -1,5 +1,8 @@
 name: "SQL-related benchmarks"
 
+env:
+  DUCKDB_VERSION: v1.2.2
+
 on:
   workflow_call:
     inputs:
@@ -55,6 +58,13 @@ jobs:
         with:
           submodules: "recursive"
 
+      - name: Cache duckdb compiled binary
+        uses: actions/cache@v4
+        id: cache-duckdb-binary
+        with:
+          key: "${{ runner.os }}-ducdkb-linux_amd64-${{ env.DUCKDB_VERSION }}"
+          path: duckdb/build/release/duckdb
+
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -68,28 +78,32 @@ jobs:
         run: |
           cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
 
-      - name: Install ninja & gzip
+      - name: Install duckdb compile requirements
+        if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
         run: sudo apt-get update && sudo apt-get install ninja-build cmake build-essential make ccache clang -y
 
-      - name: Build plain duckdb
+      - name: Build duckdb binary
+        if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
         run: |
           export CC=clang
           export CXX=clang++
           git clone https://github.com/duckdb/duckdb
           cd duckdb
-          git checkout v1.2.2
+          git checkout "$DUCKDB_VERSION"
           GEN=ninja NATIVE_ARCH=1 DUCKDB_PLATFORM=linux_amd64 LTO=thin make
-          export PATH="$PATH:`pwd`/build/release/"
-          cd ..
-          ls
-          pwd
+
+      - name: Add duckdb to path
+        run: |
+          export PATH="$PATH:`pwd`/duckdb/build/release/"
+          duckdb --version
 
       - name: DuckDB extension build
         env:
           # Build DuckDB and the Vortex extension with `-march=native`.
           # The `NATIVE_ARCH` environment variable is picked up by `duckdb/Makefile`.
           NATIVE_ARCH: 1
-        run: CXXFLAGS="-ftls-model=global-dynamic" CFLAGS="-ftls-model=global-dynamic" DUCKDB_PLATFORM=linux_amd64 GEN=ninja NATIVE_ARCH=1 make release
+          DUCKDB_PLATFORM: linux_amd64
+        run: CXXFLAGS="-ftls-model=global-dynamic" CFLAGS="-ftls-model=global-dynamic" GEN=ninja NATIVE_ARCH=1 make release
         working-directory: ${{ github.workspace }}/duckdb-vortex
 
       - name: Generate data
