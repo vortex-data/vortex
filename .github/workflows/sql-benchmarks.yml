@@ -105,7 +105,9 @@ jobs:
           ${{ github.workspace }}/duckdb/build/release/duckdb --version
           echo $PATH
           echo $GITHUB_PATH
-          duckdb --version
+
+      - name: verify duckdb
+        run: duckdb --version
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
