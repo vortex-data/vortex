@@ -6,7 +6,7 @@ use std::sync::Arc;
 use vortex_array::arrays::{BoolArray, ConstantArray};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::{ExprRef, VortexExpr};
@@ -90,9 +90,12 @@ impl VortexExpr for IsNull {
         vec![&self.child]
     }
 
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), 1);
-        Self::new_expr(children[0].clone())
+    fn replacing_children(self: Arc<Self>, mut children: Vec<ExprRef>) -> ExprRef {
+        Self::new_expr(
+            children
+                .pop()
+                .vortex_expect("IsNull::replacing_children should have one child"),
+        )
     }
 
     fn return_dtype(&self, _scope_dtype: &DType) -> VortexResult<DType> {
