@@ -100,13 +100,9 @@ jobs:
 
       - name: Add duckdb to path
         run: |
-          echo "${{ github.workspace }}/duckdb/build/release/"
           echo "${{ github.workspace }}/duckdb/build/release/" >> $GITHUB_PATH
-          ${{ github.workspace }}/duckdb/build/release/duckdb --version
-          echo $PATH
-          echo $GITHUB_PATH
 
-      - name: verify duckdb
+      - name: Verify duckdb available
         run: duckdb --version
 
       - name: Setup AWS CLI
@@ -121,6 +117,9 @@ jobs:
           RUSTFLAGS: '-C target-cpu=native -C force-frame-pointers=yes'
         run: |
           cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
+
+      - name: Install ninja & gzip
+        run: sudo apt-get update && sudo apt-get install -y ninja-build gzip
 
       - name: DuckDB extension build
         env:
