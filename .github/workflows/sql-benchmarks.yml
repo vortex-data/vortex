@@ -130,7 +130,7 @@ jobs:
             -d gh-json \
             --targets ${{ matrix.targets }} \
             --export-spans \
-            -- --skip-rebuild \
+            --skip-rebuild \
           | tee results.json
 
       - name: Run ${{ matrix.name }} benchmark (remote)
@@ -148,6 +148,7 @@ jobs:
               --use-remote-data-dir ${{ matrix.remote_storage }} \
               --targets ${{ matrix.targets }} \
               --export-spans \
+              --skip-rebuild
               -d gh-json \
             | tee results.json
 
