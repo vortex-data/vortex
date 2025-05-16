@@ -62,7 +62,7 @@ jobs:
         id: cache-duckdb-binary
         with:
           path: duckdb/build/release/duckdb
-          key: ${{ runner.os }}-ducdkb-linux_amd64-$DUCKDB_VERSION
+          key: "${{ runner.os }}-ducdkb-linux_amd64-${{ env.DUCKDB_VERSION }}"
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
