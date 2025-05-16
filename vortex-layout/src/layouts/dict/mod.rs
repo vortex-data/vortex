@@ -54,7 +54,7 @@ impl VTable for DictVTable {
     }
 
     fn new_reader(
-        layout: &Arc<Self::Layout>,
+        layout: &Self::Layout,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
@@ -85,7 +85,7 @@ impl VTable for DictVTable {
 #[derive(Debug)]
 pub struct DictLayoutEncoding;
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct DictLayout {
     values: LayoutRef,
     codes: LayoutRef,

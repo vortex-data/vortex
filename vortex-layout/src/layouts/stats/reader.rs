@@ -90,7 +90,7 @@ impl ZoneMapReader {
 
                 let zones_eval = self
                     .zones_child
-                    .projection_evaluation(&(0..nzones as u64), &Identity::new_expr())
+                    .projection_evaluation(, &(0..nzones as u64), &Identity::new_expr())
                     .vortex_expect("Failed construct stats table evaluation");
 
                 async move {
@@ -162,6 +162,7 @@ impl ZoneMapReader {
 impl LayoutReader for ZoneMapReader {
     fn pruning_evaluation(
         &self,
+        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
@@ -170,7 +171,7 @@ impl LayoutReader for ZoneMapReader {
             self.layout().name(),
             expr
         );
-        let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
+        let data_eval = self.data_child.pruning_evaluation(, row_range, expr)?;
 
         let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
             log::debug!("Stats pruning evaluation: not prune-able {}", expr);
@@ -205,20 +206,22 @@ impl LayoutReader for ZoneMapReader {
 
     fn filter_evaluation(
         &self,
+        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        self.data_child.filter_evaluation(row_range, expr)
+        self.data_child.filter_evaluation(, row_range, expr)
     }
 
     fn projection_evaluation(
         &self,
+        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
-        self.data_child.projection_evaluation(row_range, expr)
+        self.data_child.projection_evaluation(, row_range, expr)
     }
 }
 
@@ -341,7 +344,7 @@ mod test {
             let result = layout
                 .new_reader(&segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
+                .projection_evaluation(, &(0..layout.row_count()), &Identity::new_expr())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -370,7 +373,7 @@ mod test {
             let expr = gt(Identity::new_expr(), lit(7));
 
             let result = reader
-                .pruning_evaluation(&(0..row_count), &expr)
+                .pruning_evaluation(, &(0..row_count), &expr)
                 .unwrap()
                 .invoke(Mask::new_true(row_count.try_into().unwrap()))
                 .await

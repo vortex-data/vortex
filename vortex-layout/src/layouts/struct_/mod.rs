@@ -110,7 +110,7 @@ impl VTable for StructVTable {
 #[derive(Debug)]
 pub struct StructLayoutEncoding;
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct StructLayout {
     row_count: u64,
     dtype: DType,
@@ -122,7 +122,7 @@ impl StructLayout {
         Self {
             row_count,
             dtype,
-            children,
+            children: children.to_arc(),
         }
     }
 

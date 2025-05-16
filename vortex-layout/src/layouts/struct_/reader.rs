@@ -128,6 +128,7 @@ impl Hash for ExactExpr {
 impl LayoutReader for StructReader {
     fn pruning_evaluation(
         &self,
+        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
@@ -137,7 +138,7 @@ impl LayoutReader for StructReader {
         if partitioned.partition_names.len() == 1 {
             return self
                 .child(&partitioned.partition_names[0])?
-                .pruning_evaluation(row_range, &partitioned.partitions[0]);
+                .pruning_evaluation(, row_range, &partitioned.partitions[0]);
         }
 
         // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
@@ -147,6 +148,7 @@ impl LayoutReader for StructReader {
 
     fn filter_evaluation(
         &self,
+        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
@@ -157,7 +159,7 @@ impl LayoutReader for StructReader {
         if partitioned.partition_names.len() == 1 {
             return self
                 .child(&partitioned.partition_names[0])?
-                .filter_evaluation(row_range, &partitioned.partitions[0]);
+                .filter_evaluation(, row_range, &partitioned.partitions[0]);
         }
 
         // TODO(ngates): for any partition that returns a boolean, we can use a mask evaluation.
@@ -174,11 +176,11 @@ impl LayoutReader for StructReader {
                     // If the partition evaluates to a boolean, we can evaluate it as a mask which
                     // can often be more efficient since nulls are turned into `false` early on,
                     // and layouts can perform predicate pruning / indexing.
-                    FieldEval::Mask(reader.filter_evaluation(row_range, expr)?)
+                    FieldEval::Mask(reader.filter_evaluation(, row_range, expr)?)
                 } else {
                     // Otherwise, we evaluate the projection as an array, and combine the results
                     // at the end.
-                    FieldEval::Array(reader.projection_evaluation(row_range, expr)?)
+                    FieldEval::Array(reader.projection_evaluation(, row_range, expr)?)
                 })
             })
             .try_collect()?;
@@ -191,6 +193,7 @@ impl LayoutReader for StructReader {
 
     fn projection_evaluation(
         &self,
+        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
@@ -201,7 +204,7 @@ impl LayoutReader for StructReader {
         if partitioned.partition_names.len() == 1 {
             return self
                 .child(&partitioned.partition_names[0])?
-                .projection_evaluation(row_range, &partitioned.partitions[0]);
+                .projection_evaluation(, row_range, &partitioned.partitions[0]);
         }
 
         // Construct evaluations for each child.
@@ -209,7 +212,7 @@ impl LayoutReader for StructReader {
             .partition_names
             .iter()
             .zip_eq(partitioned.partitions.iter())
-            .map(|(name, expr)| self.child(name)?.projection_evaluation(row_range, expr))
+            .map(|(name, expr)| self.child(name)?.projection_evaluation(, row_range, expr))
             .try_collect()?;
 
         Ok(Box::new(StructArrayEvaluation {
@@ -381,7 +384,7 @@ mod tests {
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result = block_on(
             reader
-                .projection_evaluation(&(0..3), &expr)
+                .projection_evaluation(, &(0..3), &expr)
                 .unwrap()
                 .invoke(Mask::new_true(3)),
         )
@@ -409,7 +412,7 @@ mod tests {
         let expr = gt(get_item("a", ident()), get_item("b", ident()));
         let result = block_on(
             reader
-                .projection_evaluation(&(0..3), &expr)
+                .projection_evaluation(, &(0..3), &expr)
                 .unwrap()
                 .invoke(Mask::from_iter([true, true, false])),
         )
@@ -443,7 +446,7 @@ mod tests {
         );
         let result = block_on(
             reader
-                .projection_evaluation(&(0..3), &expr)
+                .projection_evaluation(, &(0..3), &expr)
                 .unwrap()
                 // Take rows 0 and 1, skip row 2, and anything after that
                 .invoke(Mask::from_iter([true, true, false])),

@@ -1,9 +1,8 @@
 use std::any::Any;
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::ArrayContext;
-use vortex_dtype::{DType, FieldMask};
+use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::segments::{SegmentId, SegmentSource};
@@ -42,18 +41,12 @@ impl dyn Layout + '_ {
         self.encoding().id()
     }
 
-    /// Collect the row splits for this layout tree. Each split represents the start/end of a chunk
-    /// somewhere in the layout tree, filtered by the given field mask.
-    pub fn collect_splits(&self, field_mask: &[FieldMask], splits: &mut BTreeSet<u64>) {
-        todo!()
-    }
-
     /// Downcast a layout to a specific type.
     pub fn into<V: VTable>(self: Arc<Self>) -> Arc<V::Layout> {
         let layout_adapter = self
             .as_any_arc()
             .downcast::<LayoutAdapter<V>>()
-            .map_err(|this| vortex_err!("Invalid layout type"))
+            .map_err(|_| vortex_err!("Invalid layout type"))
             .vortex_expect("Invalid layout type");
 
         // Now we can perform a cheeky transmute since we know the adapter is transparent.
@@ -91,10 +84,10 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
     }
 
     fn new_reader(
-        &self,
+        self: Arc<Self>,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
-        todo!()
+        V::new_reader(&self.0, segment_source, ctx)
     }
 }

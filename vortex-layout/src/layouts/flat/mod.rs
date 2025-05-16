@@ -74,7 +74,7 @@ impl VTable for FlatVTable {
 #[derive(Debug)]
 pub struct FlatLayoutEncoding;
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct FlatLayout {
     row_count: u64,
     dtype: DType,

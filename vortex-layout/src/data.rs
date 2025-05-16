@@ -12,7 +12,7 @@ use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
 use crate::context::LayoutContext;
 use crate::reader::LayoutReader;
 use crate::segments::{SegmentId, SegmentSource};
-use crate::{LayoutEncodingRef, LayoutId, LayoutRef};
+use crate::{LayoutEncodingId, LayoutEncodingRef};
 
 /// [`LayoutData`] captures a tree of layouts, providing hierarchical structure.
 #[derive(Debug, Clone)]
@@ -27,7 +27,7 @@ enum Inner {
 /// A layout that is fully deserialized and heap-allocated.
 #[derive(Debug, Clone)]
 pub struct OwnedLayoutData {
-    name: Arc<str>,
+    name: String,
     encoding: LayoutEncodingRef,
     dtype: DType,
     row_count: u64,
@@ -40,7 +40,7 @@ pub struct OwnedLayoutData {
 /// A layout that is lazily deserialized from a flatbuffer message.
 #[derive(Debug, Clone)]
 struct ViewedLayoutData {
-    name: Arc<str>,
+    name: String,
     encoding: LayoutEncodingRef,
     dtype: DType,
     flatbuffer: FlatBuffer,
@@ -58,7 +58,7 @@ impl ViewedLayoutData {
 impl LayoutData {
     /// Create a new owned layout.
     pub fn new_owned(
-        name: Arc<str>,
+        name: String,
         encoding: LayoutEncodingRef,
         dtype: DType,
         row_count: u64,
@@ -83,7 +83,7 @@ impl LayoutData {
     ///
     /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
     pub unsafe fn new_viewed_unchecked(
-        name: Arc<str>,
+        name: String,
         encoding: LayoutEncodingRef,
         dtype: DType,
         flatbuffer: FlatBuffer,
@@ -109,8 +109,8 @@ impl LayoutData {
         }
     }
 
-    /// Returns the [`crate::Layout`] for this layout data.
-    pub fn layout(&self) -> &LayoutRef {
+    /// Returns the [`crate::LayoutEncodingRef`] for this layout data.
+    pub fn encoding(&self) -> &LayoutEncodingRef {
         match &self.0 {
             Inner::Owned(owned) => &owned.encoding,
             Inner::Viewed(viewed) => &viewed.encoding,
@@ -118,8 +118,8 @@ impl LayoutData {
     }
 
     /// Returns the ID of the layout.
-    pub fn id(&self) -> LayoutId {
-        self.vtable().id()
+    pub fn id(&self) -> LayoutEncodingId {
+        self.encoding().id()
     }
 
     /// Return the row-count of the layout.
@@ -245,7 +245,7 @@ impl LayoutData {
     }
 
     /// Iterate the segment IDs of the layout.
-    pub fn segments(&self) -> impl Iterator<Item = SegmentId> + '_ {
+    pub fn segments(&self) -> impl Iterator<Item=SegmentId> + '_ {
         (0..self.nsegments()).map(move |i| self.segment_id(i).vortex_expect("segment bounds"))
     }
 
@@ -284,7 +284,7 @@ impl LayoutData {
     pub fn flatbuffer_writer<'a>(
         &'a self,
         ctx: &'a LayoutContext,
-    ) -> impl WriteFlatBuffer<Target<'a> = layout::Layout<'a>> + FlatBufferRoot + 'a {
+    ) -> impl WriteFlatBuffer<Target<'a>=layout::Layout<'a>> + FlatBufferRoot + 'a {
         LayoutFlatBufferWriter { layout: self, ctx }
     }
 }
@@ -317,7 +317,7 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
                                 layout: c,
                                 ctx: self.ctx,
                             }
-                            .write_flatbuffer(fbb)
+                                .write_flatbuffer(fbb)
                         })
                         .collect::<Vec<_>>()
                 });

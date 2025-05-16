@@ -108,7 +108,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     let array = TOKIO_RUNTIME
         .block_on(
             reader
-                .projection_evaluation(&(0..reader.row_count()), &Identity::new_expr())
+                .projection_evaluation(, &(0..reader.row_count()), &Identity::new_expr())
                 .vortex_expect("Failed to construct projection")
                 .invoke(Mask::new_true(
                     reader.row_count().try_into().vortex_expect("row count"),

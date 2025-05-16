@@ -38,7 +38,7 @@ impl VTable for ChunkedVTable {
     }
 
     fn nchildren(layout: &Self::Layout) -> usize {
-        layout.children.len()
+        layout.children.nchildren()
     }
 
     fn visit_children(
@@ -47,7 +47,7 @@ impl VTable for ChunkedVTable {
         visitor: &mut dyn LayoutVisitor,
     ) {
         let mut row_offset = 0;
-        for i in 0..layout.children.len() {
+        for i in 0..layout.children.nchildren() {
             let child = layout.children.child(i, &layout.dtype);
             visitor.visit_child(
                 &format!("[{}]", i),
@@ -64,7 +64,7 @@ impl VTable for ChunkedVTable {
     }
 
     fn new_reader(
-        layout: &Arc<Self::Layout>,
+        layout: &Self::Layout,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
@@ -94,7 +94,7 @@ impl VTable for ChunkedVTable {
 #[derive(Debug)]
 pub struct ChunkedLayoutEncoding;
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct ChunkedLayout {
     row_count: u64,
     dtype: DType,
@@ -106,7 +106,7 @@ impl ChunkedLayout {
         Self {
             row_count,
             dtype,
-            children,
+            children: children.to_arc(),
         }
     }
 }

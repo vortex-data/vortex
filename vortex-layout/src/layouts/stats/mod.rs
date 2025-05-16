@@ -94,7 +94,7 @@ impl VTable for ZoneMapVTable {
 #[derive(Debug)]
 pub struct ZoneMapLayoutEncoding;
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct ZoneMapLayout {
     data: LayoutRef,
     zones: LayoutRef,

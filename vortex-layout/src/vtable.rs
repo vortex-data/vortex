@@ -44,7 +44,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
     /// Create a new reader for the layout.
     fn new_reader(
-        layout: &Arc<Self::Layout>,
+        layout: &Self::Layout,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<LayoutReaderRef>;

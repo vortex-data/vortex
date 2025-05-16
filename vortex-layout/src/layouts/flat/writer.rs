@@ -142,7 +142,7 @@ mod tests {
             let result = layout
                 .new_reader(&segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &ident())
+                .projection_evaluation(, &(0..layout.row_count()), &ident())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await

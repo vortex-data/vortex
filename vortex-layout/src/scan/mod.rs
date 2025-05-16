@@ -201,7 +201,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             let row_masks: Vec<_> = row_masks
                 .into_iter()
                 .map(|(row_range, mask_fut)| {
-                    let eval = layout_reader.pruning_evaluation(&row_range, filter)?;
+                    let eval = layout_reader.pruning_evaluation(, &row_range, filter)?;
                     let mask_fut = async move {
                         let mask = mask_fut.await?;
                         if mask.all_false() {
@@ -219,7 +219,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             row_masks
                 .into_iter()
                 .map(|(row_range, mask_fut)| {
-                    let eval = layout_reader.filter_evaluation(&row_range, filter)?;
+                    let eval = layout_reader.filter_evaluation(, &row_range, filter)?;
                     let mask_fut = async move {
                         let mask = mask_fut.await?;
                         if mask.all_false() {
@@ -241,7 +241,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .into_iter()
             .map(|(row_range, mask_fut)| {
                 let map_fn = self.map_fn.clone();
-                let eval = layout_reader.projection_evaluation(&row_range, &projection)?;
+                let eval = layout_reader.projection_evaluation(, &row_range, &projection)?;
                 let array_fut = async move {
                     let mask = mask_fut.await?;
                     if mask.all_false() {

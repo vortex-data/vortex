@@ -92,14 +92,16 @@ impl FlatReader {
 impl LayoutReader for FlatReader {
     fn pruning_evaluation(
         &self,
-        _row_range: &Range<u64>,
-        _expr: &ExprRef,
+        name: String,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         Ok(Box::new(NoOpPruningEvaluation))
     }
 
     fn filter_evaluation(
         &self,
+        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
@@ -118,6 +120,7 @@ impl LayoutReader for FlatReader {
 
     fn projection_evaluation(
         &self,
+        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
@@ -250,7 +253,7 @@ mod test {
             let result = layout
                 .new_reader(&segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
+                .projection_evaluation(, &(0..layout.row_count()), &Identity::new_expr())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -279,7 +282,7 @@ mod test {
             let result = layout
                 .new_reader(&segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &expr)
+                .projection_evaluation(, &(0..layout.row_count()), &expr)
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -310,7 +313,7 @@ mod test {
             let result = layout
                 .new_reader(&segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(2..4), &ident())
+                .projection_evaluation(, &(2..4), &ident())
                 .unwrap()
                 .invoke(Mask::new_true(2))
                 .await

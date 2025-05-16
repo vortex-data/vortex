@@ -17,13 +17,12 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, Layout, LayoutData, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
-    PruningEvaluation,
+    ArrayEvaluation, Layout, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
 };
 
 /// A [`LayoutReader`] for chunked layouts.
 pub struct ChunkedReader {
-    layout: Arc<ChunkedLayout>,
+    layout: ChunkedLayout,
     lazy_children: LazyReaderChildren,
     /// Row offset for each chunk
     chunk_offsets: Vec<u64>,
@@ -31,7 +30,7 @@ pub struct ChunkedReader {
 
 impl ChunkedReader {
     pub fn new(
-        layout: Arc<ChunkedLayout>,
+        layout: ChunkedLayout,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> Self {
@@ -53,9 +52,55 @@ impl ChunkedReader {
     }
 
     /// Return the [`LayoutReader`] for the given chunk.
-    pub(super) fn chunk_reader(&self, idx: usize) -> VortexResult<LayoutReaderRef> {
-        self.lazy_children
-            .get(idx, &self.layout.dtype, &format!("[{}]", idx))
+    fn chunk_reader(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
+        self.lazy_children.get(idx, &self.layout.dtype)
+    }
+
+    fn chunk_offset(&self, idx: usize) -> u64 {
+        self.chunk_offsets[idx]
+    }
+
+    fn chunk_range(&self, row_range: &Range<u64>) -> Range<usize> {
+        let start_chunk = self
+            .chunk_offsets
+            .binary_search(&row_range.start)
+            .unwrap_or_else(|x| x - 1);
+        let end_chunk = self
+            .chunk_offsets
+            .binary_search(&row_range.end)
+            .unwrap_or_else(|x| x);
+        start_chunk..end_chunk
+    }
+
+    fn ranges<'a>(
+        &'a self,
+        row_range: &'a Range<u64>,
+    ) -> impl Iterator<Item = (usize, Range<u64>, Range<usize>)> + 'a {
+        self.chunk_range(row_range).map(move |chunk_idx| {
+            // Figure out the chunk row range relative to the mask's row range.
+            let chunk_row_range = self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
+
+            // Find the intersection of the mask and the chunk row ranges.
+            let intersecting_row_range =
+                row_range.start.max(chunk_row_range.start)..row_range.end.min(chunk_row_range.end);
+            let intersecting_len =
+                usize::try_from(intersecting_row_range.end - intersecting_row_range.start)
+                    .vortex_expect("Invalid row range");
+
+            // Figure out the offset into the mask.
+            let mask_relative_start =
+                usize::try_from(intersecting_row_range.start - row_range.start)
+                    .vortex_expect("Invalid row range");
+            let mask_relative_end = mask_relative_start + intersecting_len;
+            let mask_range = mask_relative_start..mask_relative_end;
+
+            // Figure out the row range within the chunk.
+            let chunk_relative_start = intersecting_row_range.start - chunk_row_range.start;
+            let chunk_relative_end = chunk_relative_start + intersecting_len as u64;
+            let chunk_range = chunk_relative_start..chunk_relative_end;
+
+            (chunk_idx, chunk_range, mask_range)
+        })
     }
 }
 
@@ -70,6 +115,7 @@ impl Deref for ChunkedReader {
 impl LayoutReader for ChunkedReader {
     fn pruning_evaluation(
         &self,
+        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
@@ -77,14 +123,18 @@ impl LayoutReader for ChunkedReader {
         let mut mask_ranges = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
-            let chunk_reader = self.child(chunk_idx)?;
-            let chunk_eval = chunk_reader.pruning_evaluation(&chunk_range, expr)?;
+            let chunk_reader = self.chunk_reader(chunk_idx)?;
+            let chunk_eval = chunk_reader.pruning_evaluation(
+                format!("{}.[{}]", name, chunk_idx),
+                &chunk_range,
+                expr,
+            )?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
 
         Ok(Box::new(ChunkedPruningEvaluation {
-            layout: self.layout().clone(),
+            name,
             chunk_evals,
             mask_ranges,
         }))
@@ -92,6 +142,7 @@ impl LayoutReader for ChunkedReader {
 
     fn filter_evaluation(
         &self,
+        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
@@ -99,14 +150,18 @@ impl LayoutReader for ChunkedReader {
         let mut mask_ranges = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
-            let chunk_reader = self.child(chunk_idx)?;
-            let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr)?;
+            let chunk_reader = self.chunk_reader(chunk_idx)?;
+            let chunk_eval = chunk_reader.filter_evaluation(
+                format!("{}.[{}]", name, chunk_idx),
+                &chunk_range,
+                expr,
+            )?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
 
         Ok(Box::new(ChunkedMaskEvaluation {
-            layout: self.layout().clone(),
+            name,
             chunk_evals,
             mask_ranges,
         }))
@@ -114,6 +169,7 @@ impl LayoutReader for ChunkedReader {
 
     fn projection_evaluation(
         &self,
+        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
@@ -122,7 +178,7 @@ impl LayoutReader for ChunkedReader {
         let mut mask_ranges = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
-            let chunk_reader = self.child(chunk_idx)?;
+            let chunk_reader = self.chunk_reader(chunk_idx)?;
             let chunk_eval = chunk_reader.projection_evaluation(&chunk_range, expr)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
@@ -137,7 +193,7 @@ impl LayoutReader for ChunkedReader {
 }
 
 struct ChunkedPruningEvaluation {
-    layout: LayoutData,
+    name: String,
     chunk_evals: Vec<Box<dyn PruningEvaluation>>,
     mask_ranges: Vec<Range<usize>>,
 }
@@ -147,7 +203,7 @@ impl PruningEvaluation for ChunkedPruningEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         log::debug!(
             "Chunked pruning evaluation {} (mask = {})",
-            self.layout.name(),
+            self.name,
             mask.density()
         );
 
@@ -180,7 +236,7 @@ impl PruningEvaluation for ChunkedPruningEvaluation {
 }
 
 struct ChunkedMaskEvaluation {
-    layout: LayoutData,
+    name: String,
     chunk_evals: Vec<Box<dyn MaskEvaluation>>,
     mask_ranges: Vec<Range<usize>>,
 }
@@ -190,7 +246,7 @@ impl MaskEvaluation for ChunkedMaskEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         log::debug!(
             "Chunked mask evaluation {} (mask = {})",
-            self.layout.name(),
+            self.name,
             mask.density()
         );
 
@@ -266,14 +322,14 @@ mod test {
     use vortex_expr::Identity;
     use vortex_mask::Mask;
 
-    use crate::LayoutData;
+    use crate::LayoutRef;
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn chunked_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutData) {
+    fn chunked_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
         let layout = ChunkedLayoutWriter::new(
@@ -298,14 +354,14 @@ mod test {
         #[from(chunked_layout)] (ctx, segments, layout): (
             ArrayContext,
             Arc<dyn SegmentSource>,
-            LayoutData,
+            LayoutRef,
         ),
     ) {
         block_on(async {
             let result = layout
-                .reader(&segments, &ctx)
+                .new_reader(&segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
+                .projection_evaluation("".into(), &(0..layout.row_count()), &Identity::new_expr())
                 .unwrap()
                 .invoke(Mask::new_true(usize::try_from(layout.row_count()).unwrap()))
                 .await
