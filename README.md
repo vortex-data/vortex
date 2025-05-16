@@ -127,6 +127,10 @@ Vortex is an independent open-source project and not controlled by any single co
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
+### Reporting Vulnerabilities
+
+If you discovery a security vulnerability, please email <security@vortex.dev>.
+
 ### Trademarks
 
 Copyright © Vortex a Series of LF Projects, LLC.
