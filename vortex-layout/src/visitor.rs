@@ -73,8 +73,21 @@ pub trait LayoutVisitor {
     /// The `field_path` is the path relative to the current [`LayoutReader`] that this child
     /// occupies.
     ///
+    /// If the child is an auxiliary layout, such as a zone map or dictionary codes, then the
+    /// `field_path` should be `None`.
+    ///
+    /// If the child is a data layout, then the `field_path` should be the path inside the dtype
+    /// that this child occupies. If the child does not step into a field, for example the chunks
+    /// in a chunked array, then `field_path` should be [`FieldPath::root`].
+    ///
     /// The `row_offset` indicates the offset of the first row of the child relative to the
     /// current [`LayoutReader`]. This allows us to infer the positions of layout readers within
     /// a dataset, even when [`LayoutReader`]s are concatenated or otherwise combined.
-    fn visit_child(&self, name: &str, row_offset: u64, field_path: &FieldPath, child: &LayoutRef);
+    fn visit_child(
+        &self,
+        name: &str,
+        row_offset: u64,
+        field_path: Option<&FieldPath>,
+        child: &LayoutRef,
+    );
 }

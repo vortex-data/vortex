@@ -1,7 +1,7 @@
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 
-use crate::LayoutData;
+use crate::LayoutRef;
 use crate::segments::SegmentWriter;
 
 /// A strategy for writing chunks of an array into a layout.
@@ -17,8 +17,8 @@ pub trait LayoutWriter: Send {
     /// Flush any buffered chunks.
     fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()>;
 
-    /// Write any final data (e.g. stats) and return the finished [`LayoutData`].
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutData>;
+    /// Write any final data (e.g. stats) and return the finished [`LayoutRef`].
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef>;
 }
 // [layout writer]
 
@@ -36,7 +36,7 @@ pub trait LayoutWriterExt: LayoutWriter {
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         chunk: ArrayRef,
-    ) -> VortexResult<LayoutData> {
+    ) -> VortexResult<LayoutRef> {
         self.push_chunk(segment_writer, chunk)?;
         self.flush(segment_writer)?;
         self.finish(segment_writer)
@@ -48,7 +48,7 @@ pub trait LayoutWriterExt: LayoutWriter {
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
         iter: I,
-    ) -> VortexResult<LayoutData> {
+    ) -> VortexResult<LayoutRef> {
         for chunk in iter.into_iter() {
             self.push_chunk(segment_writer, chunk?)?
         }

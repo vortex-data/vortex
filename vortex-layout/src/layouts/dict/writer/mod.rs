@@ -1,16 +1,14 @@
 use arcref::ArcRef;
-use bytes::Bytes;
-use vortex_array::{Array, ArrayContext, ArrayRef, ProstMetadata, SerializeMetadata};
+use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
-use vortex_dtype::{DType, PType};
+use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
 mod repeating;
 
-use crate::layouts::dict::DictLayout;
-use crate::{LayoutData, LayoutStrategy, LayoutWriter, LayoutWriterExt};
+use crate::{LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
 #[derive(Clone)]
 pub struct DictLayoutOptions {
@@ -117,41 +115,12 @@ impl LayoutWriter for DelegatingDictLayoutWriter {
     fn finish(
         &mut self,
         segment_writer: &mut dyn crate::segments::SegmentWriter,
-    ) -> VortexResult<LayoutData> {
+    ) -> VortexResult<LayoutRef> {
         match self.writer.as_mut() {
             None => vortex_bail!("finish called before push_chunk"),
             Some(writer) => writer.finish(segment_writer),
         }
     }
-}
-
-#[derive(prost::Message)]
-pub struct DictLayoutMetadata {
-    #[prost(enumeration = "PType", tag = "1")]
-    // i32 is required for proto, use the generated getter to read this field.
-    codes_ptype: i32,
-}
-
-impl DictLayoutMetadata {
-    pub fn new(codes_ptype: PType) -> Self {
-        let mut metadata = Self::default();
-        metadata.set_codes_ptype(codes_ptype);
-        metadata
-    }
-}
-
-fn dict_layout(values: LayoutData, codes: LayoutData) -> VortexResult<LayoutData> {
-    let metadata =
-        Bytes::from(ProstMetadata(DictLayoutMetadata::new(codes.dtype().try_into()?)).serialize());
-    Ok(LayoutData::new_owned(
-        "dict".into(),
-        LayoutVTableRef::new_ref(&DictLayout),
-        values.dtype().clone(),
-        codes.row_count(),
-        vec![],
-        vec![values, codes],
-        Some(metadata),
-    ))
 }
 
 enum EncodingState {

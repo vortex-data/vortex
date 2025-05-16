@@ -50,7 +50,12 @@ impl VTable for ChunkedVTable {
         let mut row_offset = 0;
         for i in 0..layout.children.len() {
             let child = layout.children.child(i, &layout.dtype);
-            visitor.visit_child(&format!("[{}]", i), row_offset, &FieldPath::root(), &child);
+            visitor.visit_child(
+                &format!("[{}]", i),
+                row_offset,
+                Some(&FieldPath::root()),
+                &child,
+            );
             row_offset += child.row_count();
         }
     }
@@ -98,11 +103,11 @@ pub struct ChunkedLayout {
 }
 
 impl ChunkedLayout {
-    pub fn new(row_count: u64, dtype: DType, children: Arc<[LayoutRef]>) -> VortexResult<Self> {
-        Ok(Self {
+    pub fn new(row_count: u64, dtype: DType, children: Arc<[LayoutRef]>) -> Self {
+        Self {
             row_count,
             dtype,
             children,
-        })
+        }
     }
 }
