@@ -43,25 +43,25 @@ test_success_case!(
     test_roundtrip_time32_second,
     i32,
     TemporalArray::new_time,
-    TimeUnit::S
+    TimeUnit::Second
 );
 test_success_case!(
     test_roundtrip_time32_millisecond,
     i32,
     TemporalArray::new_time,
-    TimeUnit::Ms
+    TimeUnit::Milli
 );
 test_fail_case!(
     test_fail_time32_micro,
     i32,
     TemporalArray::new_time,
-    TimeUnit::Us
+    TimeUnit::Micro
 );
 test_fail_case!(
     test_fail_time32_nano,
     i32,
     TemporalArray::new_time,
-    TimeUnit::Ns
+    TimeUnit::Nano
 );
 
 // Time64 conformance tests
@@ -69,31 +69,31 @@ test_success_case!(
     test_roundtrip_time64_us,
     i64,
     TemporalArray::new_time,
-    TimeUnit::Us
+    TimeUnit::Micro
 );
 test_success_case!(
     test_roundtrip_time64_ns,
     i64,
     TemporalArray::new_time,
-    TimeUnit::Ns
+    TimeUnit::Nano
 );
 test_fail_case!(
     test_fail_time64_ms,
     i64,
     TemporalArray::new_time,
-    TimeUnit::Ms
+    TimeUnit::Milli
 );
 test_fail_case!(
     test_fail_time64_s,
     i64,
     TemporalArray::new_time,
-    TimeUnit::S
+    TimeUnit::Second
 );
 test_fail_case!(
     test_fail_time64_i32,
     i32,
     TemporalArray::new_time,
-    TimeUnit::Ns
+    TimeUnit::Nano
 );
 
 // Date32 conformance tests
@@ -101,18 +101,28 @@ test_success_case!(
     test_roundtrip_date32,
     i32,
     TemporalArray::new_date,
-    TimeUnit::D
+    TimeUnit::Day
 );
-test_fail_case!(test_fail_date32, i64, TemporalArray::new_date, TimeUnit::D);
+test_fail_case!(
+    test_fail_date32,
+    i64,
+    TemporalArray::new_date,
+    TimeUnit::Day
+);
 
 // Date64 conformance tests
 test_success_case!(
     test_roundtrip_date64,
     i64,
     TemporalArray::new_date,
-    TimeUnit::Ms
+    TimeUnit::Milli
 );
-test_fail_case!(test_fail_date64, i32, TemporalArray::new_date, TimeUnit::Ms);
+test_fail_case!(
+    test_fail_date64,
+    i32,
+    TemporalArray::new_date,
+    TimeUnit::Milli
+);
 
 // We test Timestamp explicitly to avoid the macro getting too complex.
 #[test]
@@ -120,7 +130,12 @@ fn test_timestamp() {
     let ts = PrimitiveArray::from_iter([100i64]);
     let ts_array = ts.into_array();
 
-    for unit in [TimeUnit::S, TimeUnit::Ms, TimeUnit::Us, TimeUnit::Ns] {
+    for unit in [
+        TimeUnit::Second,
+        TimeUnit::Milli,
+        TimeUnit::Micro,
+        TimeUnit::Nano,
+    ] {
         for tz in [Some("UTC".to_string()), None] {
             let temporal_array =
                 TemporalArray::new_timestamp(ts_array.to_array(), unit, tz.clone());
@@ -141,7 +156,7 @@ fn test_timestamp_fails_i32() {
     let ts = PrimitiveArray::from_iter([100i32]);
     let ts_array = ts.into_array();
 
-    let _ = TemporalArray::new_timestamp(ts_array, TimeUnit::S, None);
+    let _ = TemporalArray::new_timestamp(ts_array, TimeUnit::Second, None);
 }
 
 #[rstest]
@@ -160,7 +175,7 @@ fn test_validity_preservation(#[case] validity: Validity) {
     )
     .into_array();
     let temporal_array =
-        TemporalArray::new_timestamp(milliseconds, TimeUnit::Ms, Some("UTC".to_string()));
+        TemporalArray::new_timestamp(milliseconds, TimeUnit::Milli, Some("UTC".to_string()));
     assert_eq!(
         temporal_array
             .temporal_values()

@@ -31,11 +31,11 @@ pub fn decode_to_temporal(array: &DateTimePartsArray) -> VortexResult<TemporalAr
     };
 
     let divisor = match temporal_metadata.time_unit() {
-        TimeUnit::Ns => 1_000_000_000,
-        TimeUnit::Us => 1_000_000,
-        TimeUnit::Ms => 1_000,
-        TimeUnit::S => 1,
-        TimeUnit::D => vortex_bail!(InvalidArgument: "cannot decode into TimeUnit::D"),
+        TimeUnit::Nano => 1_000_000_000,
+        TimeUnit::Micro => 1_000_000,
+        TimeUnit::Milli => 1_000,
+        TimeUnit::Second => 1,
+        TimeUnit::Day => vortex_bail!(InvalidArgument: "cannot decode into TimeUnit::D"),
     };
 
     let days_buf = cast(
@@ -127,7 +127,7 @@ mod test {
         );
         let date_times = DateTimePartsArray::try_from(TemporalArray::new_timestamp(
             milliseconds.clone().into_array(),
-            TimeUnit::Ms,
+            TimeUnit::Milli,
             Some("UTC".to_string()),
         ))
         .unwrap();

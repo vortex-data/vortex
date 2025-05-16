@@ -237,11 +237,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeUnit(
 
         let temporal = TemporalMetadata::try_from(ext_dtype)?;
         Ok(match temporal.time_unit() {
-            TimeUnit::Ns => 0,
-            TimeUnit::Us => 1,
-            TimeUnit::Ms => 2,
-            TimeUnit::S => 3,
-            TimeUnit::D => 4,
+            TimeUnit::Nano => 0,
+            TimeUnit::Micro => 1,
+            TimeUnit::Milli => 2,
+            TimeUnit::Second => 3,
+            TimeUnit::Day => 4,
         })
     })
 }

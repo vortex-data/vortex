@@ -3,10 +3,12 @@ use std::sync::{Arc, LazyLock};
 
 use jiff::civil::{Date, Time};
 use jiff::{Timestamp, Zoned};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{
+    VortexError, VortexExpect, VortexResult, vortex_assert, vortex_bail, vortex_err, vortex_panic,
+};
 
 use crate::datetime::unit::TimeUnit;
-use crate::{ExtDType, ExtID, ExtMetadata};
+use crate::{DType, ExtDType, ExtID, ExtMetadata, ExtensionType, PType};
 
 /// ID for the Vortex time type.
 pub static TIME_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("vortex.time"));
@@ -18,6 +20,254 @@ pub static TIMESTAMP_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("vortex.
 /// Check if an `ExtID` is one of the temporal types.
 pub fn is_temporal_ext_type(id: &ExtID) -> bool {
     [&DATE_ID as &ExtID, &TIME_ID, &TIMESTAMP_ID].contains(&id)
+}
+
+/// An [`ExtensionType`] for time of day.
+///
+/// All values of this type are referenced to midnight being the start of a day.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TimeType {
+    /// The storage type for the time values.
+    pub storage_type: DType,
+
+    /// The metadata dictating the interpretation of the time scalars.
+    pub metadata: TimeMetadata,
+}
+
+/// Metadata for [`TimeType`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TimeMetadata {
+    /// The time unit for all values of this type.
+    ///
+    /// Valid values are `Second`, `Milli`, `Micro`, and `Nano`.
+    pub unit: TimeUnit,
+}
+
+// Extension type metadata involved here instead...I think we want to make a new creator
+// of this extension type? The metadata is really all that matters.
+
+impl ExtensionType for TimeType {
+    type Metadata = TimeMetadata;
+
+    fn type_id() -> ExtID {
+        TIME_ID.clone()
+    }
+
+    fn metadata(&self) -> &Self::Metadata {
+        &self.metadata
+    }
+
+    fn serialize(&self) -> Option<ExtMetadata> {
+        Some(ExtMetadata::new(vec![self.metadata.unit as u8].into()))
+    }
+
+    fn try_deserialize(serialized: &ExtMetadata) -> VortexResult<Self::Metadata>
+    where
+        Self: Sized,
+    {
+        vortex_assert!(
+            serialized.as_ref().len() == 1,
+            "TimeMetadata must be 1 byte: {:x?}",
+            serialized.as_ref()
+        );
+
+        let unit = TimeUnit::try_from(serialized.as_ref()[0])
+            .map_err(|e| vortex_err!(ComputeError: "invalid TimeUnit byte: {e}"))?;
+        Ok(TimeMetadata { unit })
+    }
+
+    fn try_new(storage_type: DType, metadata: Self::Metadata) -> VortexResult<Self> {
+        fn is_valid(dtype: &DType, unit: &TimeUnit) -> bool {
+            match (dtype, unit) {
+                (DType::Primitive(PType::I32, _), TimeUnit::Second | TimeUnit::Milli) => true,
+                (DType::Primitive(PType::I64, _), TimeUnit::Micro | TimeUnit::Nano) => true,
+                _ => false,
+            }
+        }
+
+        vortex_assert!(
+            is_valid(&storage_type, &metadata.unit),
+            "Invalid storage type for TimeType: {:?} with unit {:?}",
+            storage_type,
+            metadata.unit
+        );
+
+        Ok(Self {
+            storage_type,
+            metadata,
+        })
+    }
+}
+
+/// Extension type for date values.
+///
+/// Date values are number of days since January 1, 1970 in multiple units.
+#[derive(Debug, Clone)]
+pub struct DateType {
+    /// The storage type for the date values.
+    pub storage_type: DType,
+
+    /// Metadata used to interpret the values of this type.
+    pub metadata: DateMetadata,
+}
+
+/// Metadata for interpreting values of a `DateType` array.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DateMetadata {
+    /// The time unit for all values of this type.
+    ///
+    /// Valid values are `Day` and `Milli`.
+    pub unit: TimeUnit,
+}
+
+impl ExtensionType for DateType {
+    type Metadata = DateMetadata;
+
+    fn type_id() -> ExtID {
+        DATE_ID.clone()
+    }
+
+    fn metadata(&self) -> &Self::Metadata {
+        &self.metadata
+    }
+
+    fn serialize(&self) -> Option<ExtMetadata> {
+        Some(ExtMetadata::new(vec![self.metadata.unit as u8].into()))
+    }
+
+    fn try_deserialize(serialized: &ExtMetadata) -> VortexResult<Self::Metadata>
+    where
+        Self: Sized,
+    {
+        vortex_assert!(
+            serialized.as_ref().len() == 1,
+            "DateMetadata must be 1 byte: {:x?}",
+            serialized.as_ref()
+        );
+
+        let unit = TimeUnit::try_from(serialized.as_ref()[0])
+            .map_err(|e| vortex_err!(ComputeError: "invalid TimeUnit byte: {e}"))?;
+        Ok(DateMetadata { unit })
+    }
+
+    fn try_new(storage_type: DType, metadata: Self::Metadata) -> VortexResult<Self> {
+        fn is_valid(dtype: &DType, unit: &TimeUnit) -> bool {
+            match (dtype, unit) {
+                (DType::Primitive(PType::I32, _), TimeUnit::Day) => true,
+                (DType::Primitive(PType::I64, _), TimeUnit::Milli) => true,
+                _ => false,
+            }
+        }
+
+        vortex_assert!(
+            is_valid(&storage_type, &metadata.unit),
+            "Invalid storage type for DateType: {:?} with unit {:?}",
+            storage_type,
+            metadata.unit
+        );
+
+        Ok(Self {
+            storage_type,
+            metadata,
+        })
+    }
+}
+
+/// Timestamp extension type.
+#[derive(Debug, Clone)]
+pub struct TimestampType {
+    /// Storage type for timestamp values.
+    pub storage_type: DType,
+
+    /// Metadata used to interpret the values of this type.
+    pub metadata: TimestampMetadata,
+}
+
+/// Metadata for interpreting values of a `TimestampType`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TimestampMetadata {
+    /// Unit for timestamp values. Valid options are `Second`, `Milli`, `Micro`, and `Nano`.
+    pub unit: TimeUnit,
+
+    /// An optional time zone string.
+    ///
+    /// The timezone can be any of the formats supported by Arrow:
+    ///
+    /// * IANA tzdata zone names (e.g. "America/New_York")
+    /// * An absolute zone offset in the form "+XX:XX" or "-XX:XX", e.g. "+07:30"
+    pub tz: Option<String>,
+}
+
+impl ExtensionType for TimestampType {
+    type Metadata = TimestampMetadata;
+
+    fn type_id() -> ExtID {
+        TIMESTAMP_ID.clone()
+    }
+
+    fn metadata(&self) -> &Self::Metadata {
+        &self.metadata
+    }
+
+    fn serialize(&self) -> Option<ExtMetadata> {
+        let mut serialized = Vec::new();
+        serialized.push(self.metadata.unit as u8);
+
+        if let Some(tz) = self.metadata.tz.as_ref() {
+            serialized.push(tz.len().try_into().vortex_expect("tz len overflow"));
+            serialized.extend_from_slice(tz.as_bytes());
+        }
+
+        Some(ExtMetadata::new(serialized.into()))
+    }
+
+    fn try_deserialize(serialized: &ExtMetadata) -> VortexResult<Self::Metadata>
+    where
+        Self: Sized,
+    {
+        vortex_assert!(
+            !serialized.as_ref().is_empty(),
+            "TimestampType must have at least 1 byte: {:x?}",
+            serialized.as_ref()
+        );
+        let unit = TimeUnit::try_from(serialized.as_ref()[0])
+            .map_err(|e| vortex_err!(ComputeError: "invalid TimeUnit byte: {e}"))?;
+
+        let tz = (serialized.as_ref().len() > 1).then(|| {
+            let tz_len = serialized.as_ref()[1];
+            let tz_bytes = &serialized.as_ref()[2..(2 + (tz_len as usize))];
+            String::from_utf8_lossy(tz_bytes).to_string()
+        });
+
+        Ok(TimestampMetadata { unit, tz })
+    }
+
+    fn try_new(storage_type: DType, metadata: Self::Metadata) -> VortexResult<Self>
+    where
+        Self: Sized,
+    {
+        fn is_valid(dtype: &DType, unit: &TimeUnit) -> bool {
+            match (dtype, unit) {
+                (DType::Primitive(PType::I32, _), TimeUnit::Second | TimeUnit::Milli) => true,
+                (DType::Primitive(PType::I64, _), TimeUnit::Micro | TimeUnit::Nano) => true,
+                _ => false,
+            }
+        }
+
+        vortex_assert!(
+            is_valid(&storage_type, &metadata.unit),
+            "Invalid storage type for TimestampType: {:?} with unit {:?}",
+            storage_type,
+            metadata.unit
+        );
+
+        // TODO(aduffy): check that timezone is valid using jiff TimeZoneDatabase?
+
+        Ok(Self {
+            storage_type,
+            metadata,
+        })
+    }
 }
 
 /// Metadata for TemporalArray.
@@ -80,21 +330,21 @@ impl TemporalMetadata {
     /// Convert a timestamp value to a Jiff value.
     pub fn to_jiff(&self, v: i64) -> VortexResult<TemporalJiff> {
         match self {
-            TemporalMetadata::Time(TimeUnit::D) => {
+            TemporalMetadata::Time(TimeUnit::Day) => {
                 vortex_bail!("Invalid TimeUnit TimeUnit::D for TemporalMetadata::Time")
             }
             TemporalMetadata::Time(unit) => Ok(TemporalJiff::Time(
                 Time::MIN.checked_add(unit.to_jiff_span(v)?)?,
             )),
             TemporalMetadata::Date(unit) => match unit {
-                TimeUnit::D | TimeUnit::Ms => Ok(TemporalJiff::Date(
+                TimeUnit::Day | TimeUnit::Milli => Ok(TemporalJiff::Date(
                     Date::new(1970, 1, 1)?.checked_add(unit.to_jiff_span(v)?)?,
                 )),
                 _ => {
                     vortex_bail!("Invalid TimeUnit {} for TemporalMetadata::Time", unit)
                 }
             },
-            TemporalMetadata::Timestamp(TimeUnit::D, _) => {
+            TemporalMetadata::Timestamp(TimeUnit::Day, _) => {
                 vortex_bail!("Invalid TimeUnit TimeUnit::D for TemporalMetadata::Timestamp")
             }
             TemporalMetadata::Timestamp(unit, None) => Ok(TemporalJiff::Timestamp(
@@ -216,7 +466,7 @@ mod tests {
     #[test]
     fn test_roundtrip_metadata() {
         let meta: ExtMetadata =
-            TemporalMetadata::Timestamp(TimeUnit::Ms, Some("UTC".to_string())).into();
+            TemporalMetadata::Timestamp(TimeUnit::Milli, Some("UTC".to_string())).into();
 
         assert_eq!(
             meta.as_ref(),
@@ -237,7 +487,7 @@ mod tests {
 
         assert_eq!(
             temporal_metadata,
-            TemporalMetadata::Timestamp(TimeUnit::Ms, Some("UTC".to_string()))
+            TemporalMetadata::Timestamp(TimeUnit::Milli, Some("UTC".to_string()))
         );
     }
 }

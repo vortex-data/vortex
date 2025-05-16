@@ -1,6 +1,8 @@
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
+use vortex_error::VortexResult;
+
 use crate::{DType, Nullability};
 
 /// A unique identifier for an extension type
@@ -57,7 +59,10 @@ impl From<&[u8]> for ExtMetadata {
     }
 }
 
-/// A type descriptor for an extension type
+/// A type descriptor for an extension type.
+///
+/// Stores the type ID, the logical type of the stored values, and an optional
+/// piece of metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExtDType {
@@ -144,6 +149,96 @@ impl ExtDType {
             && self
                 .storage_dtype()
                 .eq_ignore_nullability(other.storage_dtype())
+    }
+}
+
+/// A trait covering pluggable extension types.
+///
+/// Any user of this crate can create their own extension types and plug them into Vortex by defining
+/// an implementation of this trait for their type. The trait defines an interface for types to
+/// be in serialized/deserialized form, as well as some of the other metadata types here.
+pub trait ExtensionType {
+    /// Type of the metadata attached to this type.
+    ///
+    /// If the type has not metadata `()` can be used.
+    type Metadata;
+
+    /// Globally unique type identifier for the extension.
+    fn type_id() -> ExtID;
+
+    /// Get a reference to the metadata for an instance of the extension type.
+    fn metadata(&self) -> &Self::Metadata;
+
+    /// Serialize the owned metadata into an `ExtMetadata` serialized format.
+    fn serialize(&self) -> Option<ExtMetadata>;
+
+    /// Deserialize a piece of owned metadata from the serialized `ExtMetadata`, propagating
+    /// any errors in the deserialization process.
+    fn try_deserialize(serialized: &ExtMetadata) -> VortexResult<Self::Metadata>
+    where
+        Self: Sized;
+
+    /// Create a new extension type instance from the storage type and metadata.
+    fn try_new(storage_type: DType, metadata: Self::Metadata) -> VortexResult<Self>
+    where
+        Self: Sized;
+}
+
+impl ExtDType {
+    /// Downcast the ref.
+    pub fn downcast_ref<T: ExtensionType>(&self) -> Option<&T> {
+        if self.id() == &T::type_id() {
+            // Attempt to deserialize the metadata down.
+            // We could promote this with a `TryFrom` impl, but that would require
+            // `T` to be `Sized`.
+            let metadata = T::try_deserialize(self.metadata()?).ok();
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(feature = "arrow")]
+mod arrow_impl {
+    use arrow_schema::extension::ExtensionType as ArrowExtensionType;
+    use vortex_error::{VortexResult, vortex_err};
+
+    use crate::{DType, ExtID, ExtMetadata, ExtensionType};
+
+    // Arrow uses std HashMap which we disallow.
+    #[allow(clippy::disallowed_types)]
+    impl<T: ArrowExtensionType> ExtensionType for T {
+        type Metadata = <T as ArrowExtensionType>::Metadata;
+
+        fn type_id() -> ExtID {
+            ExtID::from(T::NAME)
+        }
+
+        fn metadata(&self) -> &Self::Metadata {
+            <T as ArrowExtensionType>::metadata(self)
+        }
+
+        fn serialize(&self) -> Option<ExtMetadata> {
+            Some(ExtMetadata::from(T::serialize_metadata(self)?.as_bytes()))
+        }
+
+        fn try_deserialize(metadata: &ExtMetadata) -> VortexResult<Self::Metadata> {
+            let bytes = metadata.as_ref();
+            let json = std::str::from_utf8(bytes)
+                .map_err(|e| vortex_err!("failed to parse metadata as UTF-8 string: {}", e))?;
+            // Figure out how to deserialize the metadata as-is here.
+            Ok(T::deserialize_metadata(Some(json))?)
+        }
+
+        fn try_new(storage_type: DType, metadata: Self::Metadata) -> VortexResult<Self>
+        where
+            Self: Sized,
+        {
+            Ok(<T as ArrowExtensionType>::try_new(
+                &storage_type.to_arrow()?,
+                metadata,
+            )?)
+        }
     }
 }
 

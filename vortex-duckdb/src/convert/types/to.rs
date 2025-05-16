@@ -64,13 +64,13 @@ pub fn ext_to_duckdb(ext_dtype: &ExtDType) -> LogicalTypeHandle {
         .vortex_expect("make_arrow_temporal_dtype must be called with a temporal ExtDType")
     {
         TemporalMetadata::Date(time_unit) => match time_unit {
-            TimeUnit::D => LogicalTypeHandle::from(LogicalTypeId::Date),
+            TimeUnit::Day => LogicalTypeHandle::from(LogicalTypeId::Date),
             _ => {
                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
             }
         },
         TemporalMetadata::Time(time_unit) => match time_unit {
-            TimeUnit::Us => LogicalTypeHandle::from(LogicalTypeId::Time),
+            TimeUnit::Micro => LogicalTypeHandle::from(LogicalTypeId::Time),
             _ => {
                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
             }
@@ -80,10 +80,10 @@ pub fn ext_to_duckdb(ext_dtype: &ExtDType) -> LogicalTypeHandle {
                 vortex_panic!(InvalidArgument: "Timestamp with timezone is not yet supported")
             }
             match time_unit {
-                TimeUnit::Ns => LogicalTypeHandle::from(LogicalTypeId::TimestampNs),
-                TimeUnit::Us => LogicalTypeHandle::from(LogicalTypeId::Timestamp),
-                TimeUnit::Ms => LogicalTypeHandle::from(LogicalTypeId::TimestampMs),
-                TimeUnit::S => LogicalTypeHandle::from(LogicalTypeId::TimestampS),
+                TimeUnit::Nano => LogicalTypeHandle::from(LogicalTypeId::TimestampNs),
+                TimeUnit::Micro => LogicalTypeHandle::from(LogicalTypeId::Timestamp),
+                TimeUnit::Milli => LogicalTypeHandle::from(LogicalTypeId::TimestampMs),
+                TimeUnit::Second => LogicalTypeHandle::from(LogicalTypeId::TimestampS),
                 _ => {
                     vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", time_unit, ext_dtype.id())
                 }

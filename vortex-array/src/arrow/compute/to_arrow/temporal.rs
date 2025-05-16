@@ -44,41 +44,42 @@ impl Kernel for ToArrowTemporal {
             .unwrap_or_else(|| array.dtype().to_arrow())?;
 
         let arrow_array: ArrowArrayRef = match (array.temporal_metadata(), &arrow_type) {
-            (TemporalMetadata::Date(TimeUnit::D), DataType::Date32) => {
+            (TemporalMetadata::Date(TimeUnit::Day), DataType::Date32) => {
                 to_arrow_temporal::<Date32Type>(&array)
             }
-            (TemporalMetadata::Date(TimeUnit::Ms), DataType::Date64) => {
+            (TemporalMetadata::Date(TimeUnit::Milli), DataType::Date64) => {
                 to_arrow_temporal::<Date64Type>(&array)
             }
-            (TemporalMetadata::Time(TimeUnit::S), DataType::Time32(ArrowTimeUnit::Second)) => {
+            (TemporalMetadata::Time(TimeUnit::Second), DataType::Time32(ArrowTimeUnit::Second)) => {
                 to_arrow_temporal::<Time32SecondType>(&array)
             }
             (
-                TemporalMetadata::Time(TimeUnit::Ms),
+                TemporalMetadata::Time(TimeUnit::Milli),
                 DataType::Time32(ArrowTimeUnit::Millisecond),
             ) => to_arrow_temporal::<Time32MillisecondType>(&array),
             (
-                TemporalMetadata::Time(TimeUnit::Us),
+                TemporalMetadata::Time(TimeUnit::Micro),
                 DataType::Time64(ArrowTimeUnit::Microsecond),
             ) => to_arrow_temporal::<Time64MicrosecondType>(&array),
 
-            (TemporalMetadata::Time(TimeUnit::Ns), DataType::Time64(ArrowTimeUnit::Nanosecond)) => {
-                to_arrow_temporal::<Time64NanosecondType>(&array)
-            }
             (
-                TemporalMetadata::Timestamp(TimeUnit::S, _),
+                TemporalMetadata::Time(TimeUnit::Nano),
+                DataType::Time64(ArrowTimeUnit::Nanosecond),
+            ) => to_arrow_temporal::<Time64NanosecondType>(&array),
+            (
+                TemporalMetadata::Timestamp(TimeUnit::Second, _),
                 DataType::Timestamp(ArrowTimeUnit::Second, None),
             ) => to_arrow_temporal::<TimestampSecondType>(&array),
             (
-                TemporalMetadata::Timestamp(TimeUnit::Ms, _),
+                TemporalMetadata::Timestamp(TimeUnit::Milli, _),
                 DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
             ) => to_arrow_temporal::<TimestampMillisecondType>(&array),
             (
-                TemporalMetadata::Timestamp(TimeUnit::Us, _),
+                TemporalMetadata::Timestamp(TimeUnit::Micro, _),
                 DataType::Timestamp(ArrowTimeUnit::Microsecond, None),
             ) => to_arrow_temporal::<TimestampMicrosecondType>(&array),
             (
-                TemporalMetadata::Timestamp(TimeUnit::Ns, _),
+                TemporalMetadata::Timestamp(TimeUnit::Nano, _),
                 DataType::Timestamp(ArrowTimeUnit::Nanosecond, None),
             ) => to_arrow_temporal::<TimestampNanosecondType>(&array),
             _ => vortex_bail!(

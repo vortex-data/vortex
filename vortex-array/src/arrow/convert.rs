@@ -166,8 +166,8 @@ where
         }
         DataType::Time32(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
         DataType::Time64(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
-        DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::D).into(),
-        DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Ms).into(),
+        DataType::Date32 => TemporalArray::new_date(arr, TimeUnit::Day).into(),
+        DataType::Date64 => TemporalArray::new_date(arr, TimeUnit::Milli).into(),
         DataType::Duration(_) => unimplemented!(),
         DataType::Interval(_) => unimplemented!(),
         _ => vortex_panic!("Invalid temporal type: {}", T::DATA_TYPE),

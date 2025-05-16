@@ -168,7 +168,7 @@ mod test {
     fn dtp_array_from_timestamp<T: NativePType>(value: T) -> DateTimePartsArray {
         DateTimePartsArray::try_from(TemporalArray::new_timestamp(
             PrimitiveArray::new(buffer![value], Validity::NonNullable).into_array(),
-            TimeUnit::S,
+            TimeUnit::Second,
             Some("UTC".to_string()),
         ))
         .expect("Failed to construct DateTimePartsArray from TemporalArray")
@@ -220,7 +220,7 @@ mod test {
     fn compare_date_time_parts_narrowing() {
         let temporal_array = TemporalArray::new_timestamp(
             PrimitiveArray::new(buffer![0i64], Validity::NonNullable).into_array(),
-            TimeUnit::S,
+            TimeUnit::Second,
             Some("UTC".to_string()),
         );
 

@@ -90,7 +90,7 @@ mod tests {
         )
         .into_array();
         let temporal_array =
-            TemporalArray::new_timestamp(milliseconds, TimeUnit::Ms, Some("UTC".to_string()));
+            TemporalArray::new_timestamp(milliseconds, TimeUnit::Milli, Some("UTC".to_string()));
         let TemporalParts {
             days,
             seconds,

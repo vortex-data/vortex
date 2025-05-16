@@ -39,12 +39,12 @@ impl FromDuckDBType<LogicalTypeHandle> for DType {
             LogicalTypeId::Date => Ok(DType::Extension(Arc::new(ExtDType::new(
                 DATE_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, nullable)),
-                Some(TemporalMetadata::Date(TimeUnit::D).into()),
+                Some(TemporalMetadata::Date(TimeUnit::Day).into()),
             )))),
             LogicalTypeId::Time => Ok(DType::Extension(Arc::new(ExtDType::new(
                 TIME_ID.clone(),
                 Arc::new(DType::Primitive(PType::I64, nullable)),
-                Some(TemporalMetadata::Time(TimeUnit::Us).into()),
+                Some(TemporalMetadata::Time(TimeUnit::Micro).into()),
             )))),
             LogicalTypeId::Timestamp
             | LogicalTypeId::TimestampS
@@ -72,10 +72,10 @@ impl FromDuckDBType<LogicalTypeHandle> for DType {
 
 fn timestamp_time_unit(type_id: LogicalTypeId) -> VortexResult<TimeUnit> {
     match type_id {
-        LogicalTypeId::TimestampS => Ok(TimeUnit::S),
-        LogicalTypeId::TimestampMs => Ok(TimeUnit::Ms),
-        LogicalTypeId::Timestamp => Ok(TimeUnit::Us),
-        LogicalTypeId::TimestampNs => Ok(TimeUnit::Ns),
+        LogicalTypeId::TimestampS => Ok(TimeUnit::Second),
+        LogicalTypeId::TimestampMs => Ok(TimeUnit::Milli),
+        LogicalTypeId::Timestamp => Ok(TimeUnit::Micro),
+        LogicalTypeId::TimestampNs => Ok(TimeUnit::Nano),
         _ => vortex_bail!("invalid type_id for function"),
     }
 }

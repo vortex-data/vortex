@@ -178,7 +178,7 @@ mod tests {
             DType::Extension(Arc::new(ExtDType::new(
                 TIME_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullable)),
-                Some(ExtMetadata::from(TemporalMetadata::Time(TimeUnit::S))),
+                Some(ExtMetadata::from(TemporalMetadata::Time(TimeUnit::Second))),
             )))
         }
 
@@ -202,7 +202,7 @@ mod tests {
             DType::Extension(Arc::new(ExtDType::new(
                 DATE_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullable)),
-                Some(ExtMetadata::from(TemporalMetadata::Date(TimeUnit::D))),
+                Some(ExtMetadata::from(TemporalMetadata::Date(TimeUnit::Day))),
             )))
         }
 
@@ -249,7 +249,7 @@ mod tests {
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I32, Nullable)),
                 Some(ExtMetadata::from(TemporalMetadata::Timestamp(
-                    TimeUnit::S,
+                    TimeUnit::Second,
                     None,
                 ))),
             )))
@@ -279,7 +279,7 @@ mod tests {
                 TIMESTAMP_ID.clone(),
                 Arc::new(DType::Primitive(PType::I64, Nullable)),
                 Some(ExtMetadata::from(TemporalMetadata::Timestamp(
-                    TimeUnit::S,
+                    TimeUnit::Second,
                     Some(String::from("Pacific/Guam")),
                 ))),
             )))

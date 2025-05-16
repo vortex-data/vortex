@@ -116,15 +116,15 @@ impl ToDuckDBScalar for ExtScalar<'_> {
         };
         match time {
             TemporalMetadata::Time(unit) => match unit {
-                TimeUnit::Us => Ok(Value::time_from_us(value()?)),
-                TimeUnit::Ms => Ok(Value::time_from_us(value()? * 1000)),
-                TimeUnit::S => Ok(Value::time_from_us(value()? * 1000 * 1000)),
-                TimeUnit::Ns | TimeUnit::D => {
+                TimeUnit::Micro => Ok(Value::time_from_us(value()?)),
+                TimeUnit::Milli => Ok(Value::time_from_us(value()? * 1000)),
+                TimeUnit::Second => Ok(Value::time_from_us(value()? * 1000 * 1000)),
+                TimeUnit::Nano | TimeUnit::Day => {
                     vortex_bail!("cannot convert timeunit {unit} to a duckdb MS time")
                 }
             },
             TemporalMetadata::Date(unit) => match unit {
-                TimeUnit::D => Ok(self
+                TimeUnit::Day => Ok(self
                     .storage()
                     .as_primitive_opt()
                     .ok_or_else(|| {
@@ -140,11 +140,11 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     todo!("timezones to duckdb scalar")
                 }
                 match unit {
-                    TimeUnit::Ns => Ok(Value::timestamp_ns(value()?)),
-                    TimeUnit::Us => Ok(Value::timestamp_us(value()?)),
-                    TimeUnit::Ms => Ok(Value::timestamp_ms(value()?)),
-                    TimeUnit::S => Ok(Value::timestamp_s(value()?)),
-                    TimeUnit::D => {
+                    TimeUnit::Nano => Ok(Value::timestamp_ns(value()?)),
+                    TimeUnit::Micro => Ok(Value::timestamp_us(value()?)),
+                    TimeUnit::Milli => Ok(Value::timestamp_ms(value()?)),
+                    TimeUnit::Second => Ok(Value::timestamp_s(value()?)),
+                    TimeUnit::Day => {
                         vortex_bail!("timestamp(d) is cannot be converted to duckdb scalar")
                     }
                 }

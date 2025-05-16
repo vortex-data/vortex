@@ -50,7 +50,7 @@ mod tests {
                 validity,
             )
             .into_array(),
-            TimeUnit::Ms,
+            TimeUnit::Milli,
             Some("UTC".to_string()),
         ))
         .unwrap()
