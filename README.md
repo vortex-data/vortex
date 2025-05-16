@@ -129,7 +129,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ### Reporting Vulnerabilities
 
-If you discovery a security vulnerability, please email <security@vortex.dev>.
+If you discovery a security vulnerability, please email <vuln-report@vortex.dev>.
 
 ### Trademarks
 
