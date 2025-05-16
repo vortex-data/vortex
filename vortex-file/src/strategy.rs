@@ -20,7 +20,7 @@ use vortex_layout::layouts::repartition::{
 use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
 use vortex_layout::segments::SegmentWriter;
-use vortex_layout::{LayoutData, LayoutStrategy, LayoutWriter, LayoutWriterExt};
+use vortex_layout::{LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 use vortex_scalar::Scalar;
 
 const ROW_BLOCK_SIZE: usize = 8192;
@@ -211,7 +211,7 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         self.child.flush(segment_writer)
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
         self.child.finish(segment_writer)
     }
 }
@@ -271,7 +271,7 @@ impl LayoutWriter for BufferedWriter {
         self.child.flush(segment_writer)
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
         self.child.finish(segment_writer)
     }
 }

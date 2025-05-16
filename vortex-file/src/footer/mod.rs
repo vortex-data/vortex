@@ -24,14 +24,14 @@ use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, footer as fb, layout as fbl};
-use vortex_layout::{LayoutContext, LayoutData, LayoutRegistry};
+use vortex_layout::{LayoutContext, LayoutRef, LayoutRegistry};
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct Footer {
     array_ctx: ArrayContext,
     layout_ctx: LayoutContext,
-    root_layout: LayoutData,
+    root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
 }
@@ -66,11 +66,11 @@ impl Footer {
         let array_ctx = array_registry.new_context(array_ids)?;
 
         let root_encoding = layout_ctx
-            .lookup_encoding(fb_layout.encoding())
+            .lookup_encoding(fb_layout.layout_id())
             .ok_or_else(|| {
                 vortex_err!(
                     "Footer root layout encoding {} not found",
-                    fb_layout.encoding()
+                    fb_layout.layout_id()
                 )
             })?
             .clone();
@@ -118,8 +118,8 @@ impl Footer {
         &self.layout_ctx
     }
 
-    /// Returns the root [`LayoutData`] of the file.
-    pub fn layout(&self) -> &LayoutData {
+    /// Returns the root [`LayoutRef`] of the file.
+    pub fn layout(&self) -> &LayoutRef {
         &self.root_layout
     }
 

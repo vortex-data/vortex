@@ -72,7 +72,8 @@ impl VortexFile {
         let segment_source = self.segment_source();
         self.footer
             .layout()
-            .reader(&segment_source, self.footer().ctx())
+            // TODO(ngates): we may want to allow the user pass in a name here?
+            .new_reader(&"".into(), &segment_source, self.footer().ctx())
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.

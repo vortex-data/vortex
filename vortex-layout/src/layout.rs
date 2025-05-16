@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::collections::BTreeSet;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use vortex_array::ArrayContext;
@@ -85,6 +86,17 @@ impl dyn Layout + '_ {
         // Now we can perform a cheeky transmute since we know the adapter is transparent.
         // SAFETY: The adapter is transparent and we know the underlying type is correct.
         unsafe { std::mem::transmute::<Arc<LayoutAdapter<V>>, Arc<V::Layout>>(layout_adapter) }
+    }
+}
+
+impl Debug for dyn Layout + '_ {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Layout")
+            .field("encoding", &self.encoding())
+            .field("row_count", &self.row_count())
+            .field("dtype", &self.dtype())
+            .field("nchildren", &self.nchildren())
+            .finish()
     }
 }
 
