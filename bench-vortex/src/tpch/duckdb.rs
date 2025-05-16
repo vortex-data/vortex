@@ -145,6 +145,9 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
         Format::OnDiskDuckDB | Format::Arrow => { /* Do nothing */ }
     };
 
+    println!("{:?}", command);
+
+    command.envs(std::env::vars_os());
     let output = command.output()?;
 
     if !output.status.success() || !output.stderr.is_empty() {
