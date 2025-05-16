@@ -96,9 +96,9 @@ jobs:
         shell: bash
         run: |
           # Generate data, running each query once to make sure they don't panic.
-          RUST_BACKTRACE=1 target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json
-          RUST_BACKTRACE=1 target/release_debug/${{ matrix.binary_name }} --targets datafusion:vortex -i1 -d gh-json
-          RUST_BACKTRACE=1 target/release_debug/${{ matrix.binary_name }} --targets duckdb:vortex -i1 -d gh-json
+          RUST_BACKTRACE=1 target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json --skip-rebuild
+          RUST_BACKTRACE=1 target/release_debug/${{ matrix.binary_name }} --targets datafusion:vortex -i1 -d gh-json --skip-rebuild
+          RUST_BACKTRACE=1 target/release_debug/${{ matrix.binary_name }} --targets duckdb:vortex -i1 -d gh-json --skip-rebuild
 
       - name: Upload data
         if: matrix.remote_storage != null
@@ -130,6 +130,7 @@ jobs:
             -d gh-json \
             --targets ${{ matrix.targets }} \
             --export-spans \
+            -- --skip-rebuild \
           | tee results.json
 
       - name: Run ${{ matrix.name }} benchmark (remote)
