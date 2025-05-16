@@ -179,7 +179,11 @@ impl LayoutReader for ChunkedReader {
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval = chunk_reader.projection_evaluation(&chunk_range, expr)?;
+            let chunk_eval = chunk_reader.projection_evaluation(
+                format!("{}.[{}]", name, chunk_idx),
+                &chunk_range,
+                expr,
+            )?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }

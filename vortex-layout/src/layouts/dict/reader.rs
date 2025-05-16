@@ -36,7 +36,7 @@ impl Deref for DictReader {
     type Target = dyn Layout;
 
     fn deref(&self) -> &Self::Target {
-        self.layout.deref().as_ref()
+        self.layout.deref()
     }
 }
 

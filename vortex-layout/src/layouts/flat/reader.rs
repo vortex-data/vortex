@@ -61,7 +61,7 @@ impl FlatReader {
     // TODO(ngates): caching this and ignoring SegmentReaders may be a terrible idea... we may
     //  instead want to store all segment futures and race them, so if a layout requests a
     //  projection future before a pruning future, the pruning isn't blocked.
-    fn array_future(&self) -> VortexResult<SharedArrayFuture> {
+    fn array_future(&self, name: &str) -> VortexResult<SharedArrayFuture> {
         let row_count = usize::try_from(self.layout.row_count()).vortex_unwrap();
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
@@ -69,7 +69,7 @@ impl FlatReader {
         // This is gross... see the function's TODO for a maybe better solution?
         let segment_fut = self
             .segment_source
-            .request(self.layout.segment_id(), self.layout.name());
+            .request(self.layout.segment_id(), name);
 
         Ok(self
             .array
@@ -92,9 +92,9 @@ impl FlatReader {
 impl LayoutReader for FlatReader {
     fn pruning_evaluation(
         &self,
-        name: String,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
+        _name: String,
+        _row_range: &Range<u64>,
+        _expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         Ok(Box::new(NoOpPruningEvaluation))
     }
@@ -111,7 +111,7 @@ impl LayoutReader for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
 
         Ok(Box::new(FlatEvaluation {
-            layout: self.layout().clone(),
+            name,
             array: self.array_future()?,
             row_range,
             expr: expr.clone(),
@@ -129,7 +129,7 @@ impl LayoutReader for FlatReader {
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
         Ok(Box::new(FlatEvaluation {
-            layout: self.layout().clone(),
+            name,
             array: self.array_future()?,
             row_range,
             expr: expr.clone(),
@@ -138,7 +138,7 @@ impl LayoutReader for FlatReader {
 }
 
 struct FlatEvaluation {
-    layout: LayoutData,
+    name: String,
     array: SharedArrayFuture,
     row_range: Range<usize>,
     expr: ExprRef,
@@ -178,7 +178,7 @@ impl MaskEvaluation for FlatEvaluation {
 
         log::debug!(
             "Flat mask evaluation {} - {} (mask = {}) => {}",
-            self.layout.name(),
+            self.name,
             self.expr,
             mask.density(),
             array_mask.density(),
@@ -193,7 +193,7 @@ impl ArrayEvaluation for FlatEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         log::debug!(
             "Flat array evaluation {} - {} (mask = {})",
-            self.layout.name(),
+            self.name,
             self.expr,
             mask.density(),
         );
