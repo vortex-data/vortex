@@ -20,6 +20,9 @@ jobs:
       - tag=${{ matrix.id }}
     steps:
       - uses: runs-on/action@v1
+      - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
       - uses: ./.github/actions/duckdb/build-duckdb-binary.yml
 
   bench:
