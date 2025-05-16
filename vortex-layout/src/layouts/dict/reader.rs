@@ -12,7 +12,7 @@ use super::DictLayout;
 use super::writer::DictLayoutMetadata;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
-use crate::{LayoutData, LayoutReader, LayoutVTable};
+use crate::{LayoutData, LayoutReader};
 
 pub struct DictReader {
     layout: LayoutData,

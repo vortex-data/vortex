@@ -7,7 +7,7 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::writer::LayoutWriter;
-use crate::{LayoutData, LayoutStrategy, LayoutVTableRef, LayoutWriterExt};
+use crate::{LayoutData, LayoutStrategy, LayoutWriterExt};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -126,7 +126,6 @@ mod tests {
     use vortex_expr::ident;
     use vortex_mask::Mask;
 
-    use crate::ExprEvaluator;
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;

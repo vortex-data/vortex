@@ -14,7 +14,7 @@ use vortex_mask::Mask;
 
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::reader::LayoutReader;
-use crate::{ArrayEvaluation, ExprEvaluator, LayoutData, MaskEvaluation, PruningEvaluation};
+use crate::{ArrayEvaluation, LayoutData, MaskEvaluation, PruningEvaluation};
 
 impl ExprEvaluator for ChunkedReader {
     fn pruning_evaluation(
@@ -215,10 +215,10 @@ mod test {
     use vortex_expr::Identity;
     use vortex_mask::Mask;
 
+    use crate::LayoutData;
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
-    use crate::{ExprEvaluator, LayoutData};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.

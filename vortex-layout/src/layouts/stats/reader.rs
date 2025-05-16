@@ -12,11 +12,11 @@ use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
+use crate::LayoutData;
 use crate::layouts::stats::StatsLayout;
 use crate::layouts::stats::stats_table::StatsTable;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
-use crate::{ExprEvaluator, LayoutData, LayoutVTable};
 
 pub(crate) type SharedStatsTable = Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>>;
 pub(crate) type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;

@@ -23,8 +23,8 @@ use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
 use vortex_metrics::VortexMetrics;
 
+use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
-use crate::{ExprEvaluator, LayoutReader};
 mod executor;
 pub mod row_mask;
 mod selection;

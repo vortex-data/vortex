@@ -11,7 +11,7 @@ use vortex_expr::transform::partition::{PartitionedExpr, partition};
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
-use crate::{LayoutData, LayoutReader, LayoutVTable};
+use crate::{LayoutData, LayoutReader};
 
 pub struct StructReader {
     layout: LayoutData,

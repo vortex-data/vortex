@@ -8,12 +8,12 @@ use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
+use crate::LayoutStrategy;
 use crate::data::LayoutData;
 use crate::layouts::stats::StatsLayout;
 use crate::layouts::stats::stats_table::StatsAccumulator;
 use crate::segments::SegmentWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
-use crate::{LayoutStrategy, LayoutVTableRef};
 
 pub struct StatsLayoutOptions {
     /// The size of a statistics block

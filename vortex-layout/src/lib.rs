@@ -10,13 +10,16 @@ use arcref::ArcRef;
 pub use layout::*;
 pub use reader::*;
 pub use strategy::*;
+pub use visitor::*;
 pub use vtable::*;
 pub use writer::*;
+pub mod aliases;
 mod layout;
 mod reader;
 pub mod scan;
 pub mod segments;
 mod strategy;
+mod visitor;
 pub mod vtable;
 mod writer;
 

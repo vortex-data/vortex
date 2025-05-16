@@ -11,14 +11,16 @@ use vortex_error::{SharedVortexResult, VortexError, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
-use crate::LayoutData;
+use crate::{LayoutData, VTable};
+
+pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
 /// A [`LayoutReader`] is an instance of a [`LayoutData`] that can cache state across multiple
 /// operations.
 ///
 /// Since different row ranges of the reader may be evaluated by different threads, it is required
 /// to be both `Send` and `Sync`.
-pub trait LayoutReader: 'static + ExprEvaluator {
+pub trait LayoutReader: 'static + Send + Sync {
     fn as_any(&self) -> &dyn Any;
 
     fn to_layout_reader(&self) -> LayoutReaderRef;
@@ -37,33 +39,7 @@ pub trait LayoutReader: 'static + ExprEvaluator {
     }
 
     fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>>;
-}
 
-pub type LayoutReaderRef = Arc<dyn LayoutReader>;
-
-pub trait LayoutReaderExt: LayoutReader {
-    /// Box the layout scan.
-    fn into_arc(self) -> Arc<dyn LayoutReader>
-    where
-        Self: Sized + 'static,
-    {
-        Arc::new(self) as _
-    }
-}
-
-impl<L: LayoutReader> LayoutReaderExt for L {}
-
-pub type MaskFuture = Shared<BoxFuture<'static, SharedVortexResult<Mask>>>;
-
-/// Create a resolved [`MaskFuture`] from a [`Mask`].
-pub fn mask_future_ready(mask: Mask) -> MaskFuture {
-    async move { Ok::<_, Arc<VortexError>>(mask) }
-        .boxed()
-        .shared()
-}
-
-/// A trait for evaluating expressions against a [`LayoutReader`].
-pub trait ExprEvaluator: Send + Sync {
     /// Performs an approximate evaluation of the expression against the layout reader.
     fn pruning_evaluation(
         &self,
@@ -86,13 +62,32 @@ pub trait ExprEvaluator: Send + Sync {
     ) -> VortexResult<Box<dyn ArrayEvaluation>>;
 }
 
-impl ExprEvaluator for Arc<dyn LayoutReader> {
+#[repr(transparent)]
+pub struct LayoutReaderAdapter<V: VTable>(V::Reader);
+
+impl<V: VTable> LayoutReader for LayoutReaderAdapter<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn to_layout_reader(&self) -> LayoutReaderRef {
+        todo!()
+    }
+
+    fn layout(&self) -> &LayoutData {
+        todo!()
+    }
+
+    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
+        todo!()
+    }
+
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
-        self.as_ref().pruning_evaluation(row_range, expr)
+        todo!()
     }
 
     fn filter_evaluation(
@@ -100,7 +95,7 @@ impl ExprEvaluator for Arc<dyn LayoutReader> {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        self.as_ref().filter_evaluation(row_range, expr)
+        todo!()
     }
 
     fn projection_evaluation(
@@ -108,8 +103,17 @@ impl ExprEvaluator for Arc<dyn LayoutReader> {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        self.as_ref().projection_evaluation(row_range, expr)
+        todo!()
     }
+}
+
+pub type MaskFuture = Shared<BoxFuture<'static, SharedVortexResult<Mask>>>;
+
+/// Create a resolved [`MaskFuture`] from a [`Mask`].
+pub fn mask_future_ready(mask: Mask) -> MaskFuture {
+    async move { Ok::<_, Arc<VortexError>>(mask) }
+        .boxed()
+        .shared()
 }
 
 #[async_trait]

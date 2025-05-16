@@ -1,19 +1,15 @@
-use std::collections::BTreeSet;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::VortexResult;
 
 use crate::layout::LayoutRef;
 use crate::segments::{SegmentId, SegmentSource};
+use crate::visitor::ReaderVisitor;
 use crate::{LayoutId, LayoutReader, ReaderChildren};
-
-/// A reference to a layout VTable, either static or arc'd.
-pub type LayoutVTableRef = ArcRef<dyn LayoutVTable>;
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Reader: 'static + Send + Sync + Deref<Target = dyn LayoutReader>;
@@ -26,6 +22,20 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Returns the layout for the layout reader.
     fn layout(reader: &Self::Reader) -> LayoutRef;
 
+    /// Returns the row count for the layout reader.
+    fn row_count(reader: &Self::Reader) -> u64;
+
+    /// Returns the dtype for the layout reader.
+    fn dtype(reader: &Self::Reader) -> DType;
+
+    /// Visitor the children of the layout reader.
+    fn visit_children(
+        reader: &Self::Reader,
+        field_mask: Option<&[FieldMask]>,
+        visitor: &mut dyn ReaderVisitor,
+    );
+
+    /// Construct a new [`LayoutReader`] from the provided parts.
     fn reader_from_parts(
         layout: &Self::Layout,
         dtype: &DType,
@@ -33,6 +43,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         children: &dyn ReaderChildren,
+        segment_source: &Arc<dyn SegmentSource>,
+        ctx: &ArrayContext,
     ) -> VortexResult<Self::Reader>;
 }
 
@@ -42,52 +54,45 @@ macro_rules! vtable {
         $crate::aliases::paste::paste! {
             #[derive(Debug)]
             pub struct [<$V VTable>];
+
+            impl AsRef<dyn $crate::Layout> for [<$V Layout>] {
+                fn as_ref(&self) -> &dyn $crate::Layout {
+                    // We can unsafe cast ourselves to a LayoutAdapter.
+                    unsafe { &*(self as *const [<$V Layout>] as *const $crate::LayoutAdapter<[<$V VTable>]>) }
+                }
+            }
+
+            impl std::ops::Deref for [<$V Layout>] {
+                type Target = dyn $crate::Layout;
+
+                fn deref(&self) -> &Self::Target {
+                    // We can unsafe cast ourselves to an LayoutAdapter.
+                    unsafe { &*(self as *const [<$V Layout>] as *const $crate::LayoutAdapter<[<$V VTable>]>) }
+                }
+            }
+
+            impl $crate::IntoLayout for [<$V Layout>] {
+                fn into_layout(self) -> $crate::LayoutRef {
+                    // We can unsafe transmute ourselves to an LayoutAdapter.
+                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Layout>], $crate::LayoutAdapter::<[<$V VTable>]>>(self) })
+                }
+            }
+
+            impl AsRef<dyn $crate::LayoutReader> for [<$V Reader>] {
+                fn as_ref(&self) -> &dyn $crate::LayoutReader {
+                    // We can unsafe cast ourselves to an LayoutReaderAdapter.
+                    unsafe { &*(self as *const [<$V Reader>] as *const $crate::LayoutReaderAdapter<[<$V VTable>]>) }
+                }
+            }
+
+            impl std::ops::Deref for [<$V Reader>] {
+                type Target = dyn $crate::LayoutReader;
+
+                fn deref(&self) -> &Self::Target {
+                    // We can unsafe cast ourselves to an LayoutReaderAdapter.
+                    unsafe { &*(self as *const [<$V Reader>] as *const $crate::LayoutReaderAdapter<[<$V VTable>]>) }
+                }
+            }
         }
     };
-}
-
-pub trait LayoutVTable: Debug + Send + Sync {
-    /// Returns the globally unique ID for this type of layout.
-    fn id(&self) -> LayoutId;
-
-    /// Construct a [`LayoutReader`] for the provided [`Layout`].
-    ///
-    /// May panic if the provided `Layout` is not the same encoding as this `LayoutEncoding`.
-    fn reader(
-        &self,
-        layout: Layout,
-        segment_source: &Arc<dyn SegmentSource>,
-        ctx: &ArrayContext,
-    ) -> VortexResult<Arc<dyn LayoutReader>>;
-
-    /// Register the row splits for this layout, these represent natural boundaries at which
-    /// a reader can split the layout for independent processing.
-    ///
-    /// For example, a ChunkedLayout would register a boundary at the end of every chunk.
-    ///
-    /// The layout is passed a `row_offset` that identifies the starting row of the layout within
-    /// the file.
-    // TODO(ngates): we should check whether this is actually performant enough since we visit
-    //  all nodes of the layout tree, often registering the same splits many times.
-    fn register_splits(
-        &self,
-        layout: &Layout,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()>;
-}
-
-impl PartialEq for dyn LayoutVTable + '_ {
-    fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id()
-    }
-}
-
-impl Eq for dyn LayoutVTable + '_ {}
-
-impl Display for dyn LayoutVTable + '_ {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.id(), f)
-    }
 }

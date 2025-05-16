@@ -10,8 +10,8 @@ use vortex_mask::Mask;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::reader::FlatReader;
 use crate::{
-    ArrayEvaluation, ExprEvaluator, LayoutData, LayoutReader, MaskEvaluation,
-    NoOpPruningEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutData, LayoutReader, MaskEvaluation, NoOpPruningEvaluation,
+    PruningEvaluation,
 };
 
 /// The threshold of mask density below which we will evaluate the expression only over the
@@ -162,7 +162,6 @@ mod test {
     use vortex_expr::{Identity, gt, ident, lit};
     use vortex_mask::Mask;
 
-    use crate::ExprEvaluator;
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;

@@ -9,14 +9,12 @@ use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
 
-use crate::LayoutId;
 use crate::context::LayoutContext;
 use crate::reader::LayoutReader;
 use crate::segments::{SegmentId, SegmentSource};
-use crate::vtable::LayoutVTableRef;
+use crate::{LayoutId, LayoutRef};
 
-/// [`LayoutData`] is the lazy equivalent to [`vortex_array::ArrayRef`], providing a hierarchical
-/// structure.
+/// [`LayoutData`] captures a tree of layouts, providing hierarchical structure.
 #[derive(Debug, Clone)]
 pub struct LayoutData(Inner);
 
@@ -30,11 +28,12 @@ enum Inner {
 #[derive(Debug, Clone)]
 pub struct OwnedLayoutData {
     name: Arc<str>,
-    vtable: LayoutVTableRef,
+    layout: LayoutRef,
     dtype: DType,
     row_count: u64,
     segments: Vec<SegmentId>,
     children: Vec<LayoutData>,
+    // FIXME(ngates): change to Vec<u8>, non-optional.
     metadata: Option<Bytes>,
 }
 
@@ -42,7 +41,7 @@ pub struct OwnedLayoutData {
 #[derive(Debug, Clone)]
 struct ViewedLayoutData {
     name: Arc<str>,
-    vtable: LayoutVTableRef,
+    layout: LayoutRef,
     dtype: DType,
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
@@ -60,7 +59,7 @@ impl LayoutData {
     /// Create a new owned layout.
     pub fn new_owned(
         name: Arc<str>,
-        vtable: LayoutVTableRef,
+        layout: LayoutRef,
         dtype: DType,
         row_count: u64,
         segments: Vec<SegmentId>,
@@ -69,7 +68,7 @@ impl LayoutData {
     ) -> Self {
         Self(Inner::Owned(OwnedLayoutData {
             name,
-            vtable,
+            layout,
             dtype,
             row_count,
             segments,
@@ -85,7 +84,7 @@ impl LayoutData {
     /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
     pub unsafe fn new_viewed_unchecked(
         name: Arc<str>,
-        encoding: LayoutVTableRef,
+        layout: LayoutRef,
         dtype: DType,
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
@@ -93,7 +92,8 @@ impl LayoutData {
     ) -> Self {
         Self(Inner::Viewed(ViewedLayoutData {
             name,
-            vtable: encoding,
+            layout,
+
             dtype,
             flatbuffer,
             flatbuffer_loc,
@@ -109,11 +109,11 @@ impl LayoutData {
         }
     }
 
-    /// Returns the [`crate::LayoutVTable`] for this layout.
-    pub fn vtable(&self) -> &LayoutVTableRef {
+    /// Returns the [`crate::Layout`] for this layout data.
+    pub fn layout(&self) -> &LayoutRef {
         match &self.0 {
-            Inner::Owned(owned) => &owned.vtable,
-            Inner::Viewed(viewed) => &viewed.vtable,
+            Inner::Owned(owned) => &owned.layout,
+            Inner::Viewed(viewed) => &viewed.layout,
         }
     }
 
@@ -176,17 +176,17 @@ impl LayoutData {
                     .children()
                     .vortex_expect("child bounds already checked")
                     .get(i);
-                let encoding = v
+                let layout = v
                     .ctx
-                    .lookup_encoding(fb.encoding())
+                    .lookup_encoding(fb.layout_id())
                     .ok_or_else(|| {
-                        vortex_err!("Child layout encoding {} not found", fb.encoding())
+                        vortex_err!("Child layout encoding {} not found", fb.layout_id())
                     })?
                     .clone();
 
                 Ok(Self(Inner::Viewed(ViewedLayoutData {
                     name: format!("{}.{}", v.name, name.as_ref()).into(),
-                    vtable: encoding,
+                    layout,
                     dtype,
                     flatbuffer: v.flatbuffer.clone(),
                     flatbuffer_loc: fb._tab.loc(),
@@ -300,11 +300,11 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
         match &self.layout.0 {
-            Inner::Owned(layout) => {
-                let metadata = layout.metadata.as_ref().map(|b| fbb.create_vector(b));
+            Inner::Owned(owned) => {
+                let metadata = owned.metadata.as_ref().map(|b| fbb.create_vector(b));
 
-                let children = (!layout.children.is_empty()).then(|| {
-                    layout
+                let children = (!owned.children.is_empty()).then(|| {
+                    owned
                         .children
                         .iter()
                         .map(|c| {
@@ -318,8 +318,8 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
                 });
 
                 let children = children.map(|c| fbb.create_vector(&c));
-                let segments = (!layout.segments.is_empty()).then(|| {
-                    layout
+                let segments = (!owned.segments.is_empty()).then(|| {
+                    owned
                         .segments
                         .iter()
                         .map(|s| s.deref())
@@ -328,13 +328,14 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
                 });
                 let segments = segments.map(|m| fbb.create_vector(&m));
 
-                let encoding_idx = self.ctx.encoding_idx(&layout.vtable);
+                // Dictionary-encode the layout ID
+                let layout_id = self.ctx.encoding_idx(&owned.layout);
 
                 layout::Layout::create(
                     fbb,
                     &layout::LayoutArgs {
-                        encoding: encoding_idx,
-                        row_count: layout.row_count,
+                        layout_id,
+                        row_count: owned.row_count,
                         metadata,
                         children,
                         segments,
@@ -370,7 +371,7 @@ impl WriteFlatBuffer for LayoutFlatBuffer<'_> {
         layout::Layout::create(
             fbb,
             &layout::LayoutArgs {
-                encoding: self.0.encoding(),
+                layout_id: self.0.layout_id(),
                 row_count: self.0.row_count(),
                 metadata,
                 children,

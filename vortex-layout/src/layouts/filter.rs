@@ -12,9 +12,7 @@ use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
-use crate::{
-    ArrayEvaluation, ExprEvaluator, LayoutData, LayoutReader, MaskEvaluation, PruningEvaluation,
-};
+use crate::{ArrayEvaluation, LayoutData, LayoutReader, MaskEvaluation, PruningEvaluation};
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;

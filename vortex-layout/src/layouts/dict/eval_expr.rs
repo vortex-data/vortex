@@ -12,9 +12,7 @@ use vortex_mask::Mask;
 
 use super::reader::DictReader;
 use crate::layouts::SharedArrayFuture;
-use crate::{
-    ArrayEvaluation, ExprEvaluator, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
-};
+use crate::{ArrayEvaluation, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation};
 
 impl ExprEvaluator for DictReader {
     fn pruning_evaluation(

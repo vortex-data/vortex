@@ -12,9 +12,8 @@ use vortex_error::VortexResult;
 
 use crate::data::LayoutData;
 use crate::layouts::stats::reader::StatsReader;
-use crate::reader::{LayoutReader, LayoutReaderExt};
+use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
-use crate::vtable::LayoutVTable;
 use crate::{LayoutId, STATS_LAYOUT_ID};
 
 #[derive(Default, Debug)]

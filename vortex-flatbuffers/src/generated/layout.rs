@@ -25,7 +25,7 @@ pub enum LayoutOffset {}
 /// The `metadata` field is fully opaque at this layer, and allows the Layout implementation corresponding to
 /// `encoding` to embed additional information that may be useful for the reader. For example, the `ChunkedLayout`
 /// uses the first byte of the `metadata` array as a boolean to indicate whether the first child Layout represents
-/// the statistics table for the other chunks. 
+/// the statistics table for the other chunks.
 pub struct Layout<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }
@@ -39,7 +39,7 @@ impl<'a> flatbuffers::Follow<'a> for Layout<'a> {
 }
 
 impl<'a> Layout<'a> {
-  pub const VT_ENCODING: flatbuffers::VOffsetT = 4;
+  pub const VT_LAYOUT_ID: flatbuffers::VOffsetT = 4;
   pub const VT_ROW_COUNT: flatbuffers::VOffsetT = 6;
   pub const VT_METADATA: flatbuffers::VOffsetT = 8;
   pub const VT_CHILDREN: flatbuffers::VOffsetT = 10;
@@ -59,18 +59,18 @@ impl<'a> Layout<'a> {
     if let Some(x) = args.segments { builder.add_segments(x); }
     if let Some(x) = args.children { builder.add_children(x); }
     if let Some(x) = args.metadata { builder.add_metadata(x); }
-    builder.add_encoding(args.encoding);
+    builder.add_layout_id(args.layout_id);
     builder.finish()
   }
 
 
-  /// The ID of the encoding used for this Layout.
+  /// The ID of this layout.
   #[inline]
-  pub fn encoding(&self) -> u16 {
+  pub fn layout_id(&self) -> u16 {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<u16>(Layout::VT_ENCODING, Some(0)).unwrap()}
+    unsafe { self._tab.get::<u16>(Layout::VT_LAYOUT_ID, Some(0)).unwrap()}
   }
   /// The number of rows of data represented by this Layout.
   #[inline]
@@ -114,7 +114,7 @@ impl flatbuffers::Verifiable for Layout<'_> {
   ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
-     .visit_field::<u16>("encoding", Self::VT_ENCODING, false)?
+     .visit_field::<u16>("layout_id", Self::VT_LAYOUT_ID, false)?
      .visit_field::<u64>("row_count", Self::VT_ROW_COUNT, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>("metadata", Self::VT_METADATA, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Layout>>>>("children", Self::VT_CHILDREN, false)?
@@ -124,7 +124,7 @@ impl flatbuffers::Verifiable for Layout<'_> {
   }
 }
 pub struct LayoutArgs<'a> {
-    pub encoding: u16,
+    pub layout_id: u16,
     pub row_count: u64,
     pub metadata: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
     pub children: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Layout<'a>>>>>,
@@ -134,7 +134,7 @@ impl<'a> Default for LayoutArgs<'a> {
   #[inline]
   fn default() -> Self {
     LayoutArgs {
-      encoding: 0,
+      layout_id: 0,
       row_count: 0,
       metadata: None,
       children: None,
@@ -149,8 +149,8 @@ pub struct LayoutBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> LayoutBuilder<'a, 'b, A> {
   #[inline]
-  pub fn add_encoding(&mut self, encoding: u16) {
-    self.fbb_.push_slot::<u16>(Layout::VT_ENCODING, encoding, 0);
+  pub fn add_layout_id(&mut self, layout_id: u16) {
+    self.fbb_.push_slot::<u16>(Layout::VT_LAYOUT_ID, layout_id, 0);
   }
   #[inline]
   pub fn add_row_count(&mut self, row_count: u64) {
@@ -186,7 +186,7 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> LayoutBuilder<'a, 'b, A> {
 impl core::fmt::Debug for Layout<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let mut ds = f.debug_struct("Layout");
-      ds.field("encoding", &self.encoding());
+      ds.field("layout_id", &self.layout_id());
       ds.field("row_count", &self.row_count());
       ds.field("metadata", &self.metadata());
       ds.field("children", &self.children());

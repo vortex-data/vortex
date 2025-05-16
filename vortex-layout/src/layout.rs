@@ -1,5 +1,6 @@
 use std::sync::{Arc, OnceLock};
 
+use arcref::ArcRef;
 use vortex_array::DeserializeMetadata;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -7,7 +8,9 @@ use vortex_error::VortexResult;
 use crate::segments::SegmentId;
 use crate::{LayoutReaderRef, VTable};
 
-pub trait Layout {
+pub type LayoutRef = ArcRef<dyn Layout>;
+
+pub trait Layout: 'static + Send + Sync {
     fn new_reader(
         &self,
         dtype: &DType,
@@ -18,7 +21,10 @@ pub trait Layout {
     ) -> VortexResult<LayoutReaderRef>;
 }
 
-pub type LayoutRef = Arc<dyn Layout>;
+pub trait IntoLayout {
+    /// Converts this type into a [`LayoutRef`].
+    fn into_layout(self) -> LayoutRef;
+}
 
 #[repr(transparent)]
 pub struct LayoutAdapter<V: VTable>(V::Layout);

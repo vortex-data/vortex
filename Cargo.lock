@@ -6524,6 +6524,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "parking_lot",
+ "paste",
  "prost",
  "roaring",
  "rstest",

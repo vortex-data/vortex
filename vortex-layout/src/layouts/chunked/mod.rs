@@ -5,18 +5,62 @@ pub mod writer;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use vortex_array::ArrayContext;
-use vortex_dtype::FieldMask;
+use arcref::ArcRef;
+use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::VortexResult;
 
 use crate::data::LayoutData;
 use crate::layouts::chunked::reader::ChunkedReader;
-use crate::reader::{LayoutReader, LayoutReaderExt};
-use crate::segments::SegmentSource;
-use crate::vtable::LayoutVTable;
-use crate::{CHUNKED_LAYOUT_ID, LayoutId};
+use crate::reader::LayoutReader;
+use crate::segments::{SegmentId, SegmentSource};
+use crate::visitor::ReaderVisitor;
+use crate::{CHUNKED_LAYOUT_ID, LayoutId, LayoutRef, ReaderChildren, VTable, vtable};
 
-#[derive(Default, Debug)]
+vtable!(Chunked);
+
+impl VTable for ChunkedVTable {
+    type Reader = ChunkedReader;
+    type Layout = ChunkedLayout;
+    type Metadata = EmptyMetadata;
+
+    fn id(_layout: &Self::Layout) -> LayoutId {
+        ArcRef::new_ref("vortex.chunked")
+    }
+
+    fn layout(reader: &Self::Reader) -> LayoutRef {}
+
+    fn row_count(reader: &Self::Reader) -> u64 {
+        todo!()
+    }
+
+    fn dtype(reader: &Self::Reader) -> DType {
+        todo!()
+    }
+
+    fn visit_children(
+        reader: &Self::Reader,
+        field_mask: Option<&[FieldMask]>,
+        visitor: &mut dyn ReaderVisitor,
+    ) {
+        todo!()
+    }
+
+    fn reader_from_parts(
+        layout: &Self::Layout,
+        dtype: &DType,
+        row_count: u64,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        segment_ids: Vec<SegmentId>,
+        children: &dyn ReaderChildren,
+        segment_source: &Arc<dyn SegmentSource>,
+        ctx: &ArrayContext,
+    ) -> VortexResult<Self::Reader> {
+        todo!()
+    }
+}
+
+#[derive(Debug)]
 pub struct ChunkedLayout;
 
 /// In-memory representation of Chunked layout.

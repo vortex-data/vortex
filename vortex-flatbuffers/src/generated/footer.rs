@@ -3,8 +3,8 @@
 
 // @generated
 
-use crate::array::*;
 use crate::layout::*;
+use crate::array::*;
 use core::mem;
 use core::cmp::Ordering;
 

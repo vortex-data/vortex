@@ -10,9 +10,8 @@ use vortex_dtype::FieldMask;
 use vortex_error::VortexResult;
 
 use crate::layouts::flat::reader::FlatReader;
-use crate::reader::{LayoutReader, LayoutReaderExt};
+use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
-use crate::vtable::LayoutVTable;
 use crate::{FLAT_LAYOUT_ID, LayoutData, LayoutId};
 
 #[derive(Debug)]

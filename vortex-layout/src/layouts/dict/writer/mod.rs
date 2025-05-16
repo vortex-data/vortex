@@ -10,7 +10,7 @@ use vortex_error::{VortexResult, vortex_bail};
 mod repeating;
 
 use crate::layouts::dict::DictLayout;
-use crate::{LayoutData, LayoutStrategy, LayoutVTableRef, LayoutWriter, LayoutWriterExt};
+use crate::{LayoutData, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
 #[derive(Clone)]
 pub struct DictLayoutOptions {

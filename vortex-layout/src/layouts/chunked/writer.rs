@@ -5,13 +5,13 @@ use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::LayoutWriterExt;
 use crate::data::LayoutData;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::SegmentWriter;
 use crate::strategy::LayoutStrategy;
 use crate::writer::LayoutWriter;
-use crate::{LayoutVTableRef, LayoutWriterExt};
 
 #[derive(Clone)]
 pub struct ChunkedLayoutStrategy {

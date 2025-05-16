@@ -16,8 +16,8 @@ use vortex_mask::Mask;
 
 use crate::layouts::struct_::reader::StructReader;
 use crate::{
-    ArrayEvaluation, ExprEvaluator, LayoutData, LayoutReader, MaskEvaluation,
-    NoOpPruningEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutData, LayoutReader, MaskEvaluation, NoOpPruningEvaluation,
+    PruningEvaluation,
 };
 
 impl ExprEvaluator for StructReader {

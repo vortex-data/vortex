@@ -4,7 +4,6 @@ use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
-use crate::LayoutVTableRef;
 use crate::data::LayoutData;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentWriter;

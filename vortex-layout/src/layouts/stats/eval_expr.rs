@@ -8,9 +8,7 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::stats::reader::{SharedPruningResult, StatsReader};
-use crate::{
-    ArrayEvaluation, ExprEvaluator, LayoutData, LayoutReader, MaskEvaluation, PruningEvaluation,
-};
+use crate::{ArrayEvaluation, LayoutData, LayoutReader, MaskEvaluation, PruningEvaluation};
 
 impl ExprEvaluator for StatsReader {
     fn pruning_evaluation(
@@ -143,12 +141,12 @@ mod test {
     use vortex_expr::{Identity, gt, lit};
     use vortex_mask::Mask;
 
+    use crate::LayoutData;
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
     use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
-    use crate::{ExprEvaluator, LayoutData};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.

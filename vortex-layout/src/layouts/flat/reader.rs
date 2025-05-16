@@ -5,11 +5,11 @@ use vortex_array::ArrayContext;
 use vortex_array::serde::ArrayParts;
 use vortex_error::{VortexResult, VortexUnwrap as _, vortex_err, vortex_panic};
 
+use crate::LayoutData;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
-use crate::{LayoutData, LayoutVTable};
 
 pub struct FlatReader {
     pub(crate) layout: LayoutData,

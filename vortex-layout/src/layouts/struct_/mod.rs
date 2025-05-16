@@ -11,9 +11,8 @@ use vortex_dtype::{DType, Field, FieldMask};
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::data::LayoutData;
-use crate::reader::{LayoutReader, LayoutReaderExt};
+use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
-use crate::vtable::LayoutVTable;
 use crate::{LayoutId, STRUCT_LAYOUT_ID};
 
 #[derive(Debug)]
