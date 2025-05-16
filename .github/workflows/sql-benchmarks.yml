@@ -90,7 +90,7 @@ jobs:
         with:
           submodules: "recursive"
 
-      - uses: ./.github/actions/duckdb/load-duckdb-binary.yml
+      #      - uses: ./.github/actions/duckdb/load-duckdb-binary.yml
 
       - name: Cache duckdb compiled binary
         uses: runs-on/cache@v4
