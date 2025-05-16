@@ -1,5 +1,8 @@
 name: "SQL-related benchmarks"
 
+env:
+  DUCKDB_VERSION: v1.2.2
+
 on:
   workflow_call:
     inputs:
@@ -55,6 +58,12 @@ jobs:
         with:
           submodules: "recursive"
 
+      - uses: actions/cache@v4
+        id: cache-duckdb-binary
+        with:
+          path: duckdb/build/release/duckdb
+          key: ${{ runner.os }}-ducdkb-linux_amd64-$DUCKDB_VERSION
+
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -72,12 +81,13 @@ jobs:
         run: sudo apt-get update && sudo apt-get install ninja-build cmake build-essential make ccache clang -y
 
       - name: Build plain duckdb
+        if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
         run: |
           export CC=clang
           export CXX=clang++
           git clone https://github.com/duckdb/duckdb
           cd duckdb
-          git checkout v1.2.2
+          git checkout $DUCKDB_VERSION
           GEN=ninja NATIVE_ARCH=1 DUCKDB_PLATFORM=linux_amd64 LTO=thin make
           export PATH="$PATH:`pwd`/build/release/"
           cd ..
