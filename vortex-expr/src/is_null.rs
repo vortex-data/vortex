@@ -91,8 +91,8 @@ impl VortexExpr for IsNull {
     }
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), 0);
-        self
+        assert_eq!(children.len(), 1);
+        Self::new_expr(children[0].clone())
     }
 
     fn return_dtype(&self, _scope_dtype: &DType) -> VortexResult<DType> {
