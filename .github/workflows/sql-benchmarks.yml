@@ -19,6 +19,7 @@ jobs:
       - spot=false
       - tag=${{ matrix.id }}
     steps:
+      - uses: runs-on/action@v1
       - uses: ./.github/actions/duckdb/build-duckdb-binary.yml
 
   bench:
