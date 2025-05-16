@@ -44,7 +44,7 @@ impl LayoutChildren for Arc<dyn LayoutChildren> {
 /// An implementation of [`LayoutChildren`] for in-memory owned children.
 /// See also [`ViewLayoutChildren`] for lazily deserialized children from flatbuffers.
 #[derive(Clone)]
-pub struct OwnedLayoutChildren(Vec<LayoutRef>);
+pub(crate) struct OwnedLayoutChildren(Vec<LayoutRef>);
 
 impl From<Vec<LayoutRef>> for OwnedLayoutChildren {
     fn from(value: Vec<LayoutRef>) -> Self {
@@ -79,7 +79,7 @@ impl LayoutChildren for OwnedLayoutChildren {
 }
 
 #[derive(Clone)]
-pub struct ViewedLayoutChildren {
+pub(crate) struct ViewedLayoutChildren {
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
     ctx: LayoutContext,
@@ -91,7 +91,7 @@ impl ViewedLayoutChildren {
     /// # Safety
     ///
     /// Assumes the flatbuffer is validated and that the `flatbuffer_loc` is the correct offset
-    unsafe fn new_unchecked(
+    pub(super) unsafe fn new_unchecked(
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
         ctx: LayoutContext,

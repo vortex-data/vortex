@@ -50,9 +50,10 @@ impl VTable for DictVTable {
         layout: &Self::Layout,
         _field_mask: Option<&[FieldMask]>,
         visitor: &mut dyn LayoutVisitor,
-    ) {
-        visitor.visit_child("values", 0, Some(&FieldPath::root()), &layout.values);
-        visitor.visit_child("codes", 0, None, &layout.codes);
+    ) -> VortexResult<()> {
+        visitor.visit_child("values", 0, Some(&FieldPath::root()), &layout.values)?;
+        visitor.visit_child("codes", 0, None, &layout.codes)?;
+        Ok(())
     }
 
     fn register_splits(
@@ -60,7 +61,7 @@ impl VTable for DictVTable {
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
-    ) {
+    ) -> VortexResult<()> {
         layout.codes.register_splits(field_mask, row_offset, splits)
     }
 
@@ -86,11 +87,11 @@ impl VTable for DictVTable {
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
     ) -> VortexResult<Self::Layout> {
-        let values = children.child(0, dtype);
+        let values = children.child(0, dtype)?;
         let codes = children.child(
             1,
             &DType::Primitive(metadata.codes_ptype(), dtype.nullability()),
-        );
+        )?;
         Ok(DictLayout { values, codes })
     }
 }

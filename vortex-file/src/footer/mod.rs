@@ -23,8 +23,8 @@ use vortex_array::stats::StatsSet;
 use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_flatbuffers::{FlatBuffer, footer as fb, layout as fbl};
-use vortex_layout::{LayoutContext, LayoutRef, LayoutRegistry};
+use vortex_flatbuffers::{FlatBuffer, footer as fb};
+use vortex_layout::{FlatBufferLayoutParser, LayoutContext, LayoutRef, LayoutRegistry};
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
@@ -47,7 +47,6 @@ impl Footer {
         layout_registry: &LayoutRegistry,
     ) -> VortexResult<Self> {
         let fb_footer = root::<fb::Footer>(&footer_bytes)?;
-        let fb_layout = root::<fbl::Layout>(&layout_bytes)?;
 
         // Create a LayoutContext from the registry.
         let layout_specs = fb_footer.layout_specs();
@@ -65,27 +64,7 @@ impl Footer {
             .map(|encoding| encoding.id());
         let array_ctx = array_registry.new_context(array_ids)?;
 
-        let root_encoding = layout_ctx
-            .lookup_encoding(fb_layout.layout_id())
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Footer root layout encoding {} not found",
-                    fb_layout.layout_id()
-                )
-            })?
-            .clone();
-
-        // SAFETY: We have validated the fb_root_layout at the beginning of this function
-        let root_layout = unsafe {
-            LayoutData::new_viewed_unchecked(
-                "".into(),
-                root_encoding,
-                dtype,
-                layout_bytes.clone(),
-                fb_layout._tab.loc(),
-                layout_ctx.clone(),
-            )
-        };
+        let root_layout = FlatBufferLayoutParser::try_parse(layout_bytes, &dtype, &layout_ctx)?;
 
         let segments: Arc<[SegmentSpec]> = fb_footer
             .segment_specs()

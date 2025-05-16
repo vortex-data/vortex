@@ -48,7 +48,8 @@ impl VTable for FlatVTable {
         _layout: &Self::Layout,
         _field_mask: Option<&[FieldMask]>,
         _visitor: &mut dyn LayoutVisitor,
-    ) {
+    ) -> VortexResult<()> {
+        Ok(())
     }
 
     fn register_splits(
@@ -56,13 +57,14 @@ impl VTable for FlatVTable {
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
-    ) {
+    ) -> VortexResult<()> {
         for path in field_mask {
             if path.matches_root() {
                 splits.insert(row_offset + layout.row_count());
                 break;
             }
         }
+        Ok(())
     }
 
     fn new_reader(

@@ -41,7 +41,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         layout: &Self::Layout,
         field_mask: Option<&[FieldMask]>,
         visitor: &mut dyn LayoutVisitor,
-    );
+    ) -> VortexResult<()>;
 
     /// Register row splits for the layout.
     // TODO(ngates): this should be implemented with a visitor, but we need to fix the FieldMask
@@ -51,7 +51,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
-    );
+    ) -> VortexResult<()>;
 
     /// Create a new reader for the layout.
     fn new_reader(

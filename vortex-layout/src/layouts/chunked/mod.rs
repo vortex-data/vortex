@@ -50,18 +50,19 @@ impl VTable for ChunkedVTable {
         layout: &Self::Layout,
         _field_mask: Option<&[FieldMask]>,
         visitor: &mut dyn LayoutVisitor,
-    ) {
+    ) -> VortexResult<()> {
         let mut row_offset = 0;
         for i in 0..layout.children.nchildren() {
-            let child = layout.children.child(i, &layout.dtype);
+            let child = layout.children.child(i, &layout.dtype)?;
             visitor.visit_child(
                 &format!("[{}]", i),
                 row_offset,
                 Some(&FieldPath::root()),
                 &child,
-            );
+            )?;
             row_offset += child.row_count();
         }
+        Ok(())
     }
 
     fn register_splits(
@@ -69,14 +70,15 @@ impl VTable for ChunkedVTable {
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
-    ) {
+    ) -> VortexResult<()> {
         let mut offset = row_offset;
         for i in 0..layout.nchildren() {
-            let child = layout.chunk(i);
-            child.register_splits(field_mask, offset, splits);
+            let child = layout.chunk(i)?;
+            child.register_splits(field_mask, offset, splits)?;
             offset += child.row_count();
             splits.insert(offset);
         }
+        Ok(())
     }
 
     fn new_reader(
@@ -129,7 +131,7 @@ impl ChunkedLayout {
     }
 
     /// Returns the layout for the given chunk index.
-    pub fn chunk(&self, idx: usize) -> LayoutRef {
+    pub fn chunk(&self, idx: usize) -> VortexResult<LayoutRef> {
         self.children.child(idx, &self.dtype)
     }
 }

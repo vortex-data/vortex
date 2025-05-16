@@ -7,7 +7,7 @@ use std::sync::Arc;
 use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath, StructDType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};
@@ -50,24 +50,17 @@ impl VTable for StructVTable {
         layout: &Self::Layout,
         field_mask: Option<&[FieldMask]>,
         visitor: &mut dyn LayoutVisitor,
-    ) {
-        layout
-            .matching_fields(
-                field_mask.unwrap_or_else(|| &[FieldMask::All]),
-                |_mask, idx| {
-                    let dtype = layout.struct_dtype().field_by_index(idx)?;
-                    let child = layout.children.child(idx, &dtype);
-                    let name = layout.struct_dtype().field_name(idx)?;
-                    visitor.visit_child(
-                        name.as_ref(),
-                        0,
-                        Some(&FieldPath::from_name(name)),
-                        &child,
-                    );
-                    Ok(())
-                },
-            )
-            .vortex_expect("unreachable");
+    ) -> VortexResult<()> {
+        layout.matching_fields(
+            field_mask.unwrap_or_else(|| &[FieldMask::All]),
+            |_mask, idx| {
+                let dtype = layout.struct_dtype().field_by_index(idx)?;
+                let child = layout.children.child(idx, &dtype)?;
+                let name = layout.struct_dtype().field_name(idx)?;
+                visitor.visit_child(name.as_ref(), 0, Some(&FieldPath::from_name(name)), &child)?;
+                Ok(())
+            },
+        )
     }
 
     fn register_splits(
@@ -75,15 +68,12 @@ impl VTable for StructVTable {
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
-    ) {
-        layout
-            .matching_fields(field_mask, |mask, idx| {
-                layout
-                    .field_by_idx(idx)
-                    .register_splits(&[mask], row_offset, splits);
-                Ok(())
-            })
-            .vortex_expect("unreachable");
+    ) -> VortexResult<()> {
+        layout.matching_fields(field_mask, |mask, idx| {
+            layout
+                .field_by_idx(idx)?
+                .register_splits(&[mask], row_offset, splits)
+        })
     }
 
     fn new_reader(
@@ -153,14 +143,9 @@ impl StructLayout {
     }
 
     /// Return the layout of the field.
-    pub fn field_by_idx(&self, idx: usize) -> LayoutRef {
-        self.children.child(
-            idx,
-            &self
-                .struct_dtype()
-                .field_by_index(idx)
-                .vortex_expect("Invalid field index"),
-        )
+    pub fn field_by_idx(&self, idx: usize) -> VortexResult<LayoutRef> {
+        self.children
+            .child(idx, &self.struct_dtype().field_by_index(idx)?)
     }
 
     pub fn matching_fields<F>(&self, field_mask: &[FieldMask], mut per_child: F) -> VortexResult<()>

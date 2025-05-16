@@ -115,7 +115,7 @@ impl LazyReaderChildren {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());
         }
         self.cache[idx].get_or_try_init(|| {
-            let child = self.children.child(idx, dtype);
+            let child = self.children.child(idx, dtype)?;
             child.new_reader(name, &self.segment_source, &self.ctx)
         })
     }

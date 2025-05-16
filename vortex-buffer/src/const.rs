@@ -31,6 +31,11 @@ impl<T, const A: usize> ConstBuffer<T, A> {
     }
 
     /// Unwrap the inner buffer.
+    pub fn inner(&self) -> &Buffer<T> {
+        &self.0
+    }
+
+    /// Unwrap the inner buffer.
     pub fn into_inner(self) -> Buffer<T> {
         self.0
     }

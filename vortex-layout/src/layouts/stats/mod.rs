@@ -53,9 +53,10 @@ impl VTable for ZoneMapVTable {
         layout: &Self::Layout,
         _field_mask: Option<&[FieldMask]>,
         visitor: &mut dyn LayoutVisitor,
-    ) {
-        visitor.visit_child("data", 0, Some(&FieldPath::root()), &layout.data);
-        visitor.visit_child("zones", 0, None, &layout.zones);
+    ) -> VortexResult<()> {
+        visitor.visit_child("data", 0, Some(&FieldPath::root()), &layout.data)?;
+        visitor.visit_child("zones", 0, None, &layout.zones)?;
+        Ok(())
     }
 
     fn register_splits(
@@ -63,7 +64,7 @@ impl VTable for ZoneMapVTable {
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
-    ) {
+    ) -> VortexResult<()> {
         layout.data.register_splits(field_mask, row_offset, splits)
     }
 
@@ -89,10 +90,10 @@ impl VTable for ZoneMapVTable {
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
     ) -> VortexResult<Self::Layout> {
-        let data = children.child(0, dtype);
+        let data = children.child(0, dtype)?;
 
         let zones_dtype = StatsTable::dtype_for_stats_table(data.dtype(), &metadata.present_stats);
-        let zones = children.child(1, &zones_dtype);
+        let zones = children.child(1, &zones_dtype)?;
 
         Ok(ZoneMapLayout::new(
             data,

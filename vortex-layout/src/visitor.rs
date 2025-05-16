@@ -1,4 +1,5 @@
 use vortex_dtype::FieldPath;
+use vortex_error::VortexResult;
 
 use crate::LayoutRef;
 
@@ -32,5 +33,5 @@ pub trait LayoutVisitor {
         // FIXME(ngates): this API is a little wrong, we should fix FieldMask.
         field_path: Option<&FieldPath>,
         child: &LayoutRef,
-    );
+    ) -> VortexResult<()>;
 }

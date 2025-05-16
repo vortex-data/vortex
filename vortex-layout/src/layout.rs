@@ -3,12 +3,17 @@ use std::collections::BTreeSet;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
+use flatbuffers::root;
 use vortex_array::ArrayContext;
 use vortex_dtype::{DType, FieldMask, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_flatbuffers::{FlatBuffer, layout as fbl};
 
+use crate::children::ViewedLayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
-use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, LayoutVisitor, VTable};
+use crate::{
+    LayoutContext, LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, LayoutVisitor, VTable,
+};
 
 pub type LayoutRef = Arc<dyn Layout>;
 
@@ -24,7 +29,11 @@ pub trait Layout: 'static + Send + Sync + private::Sealed {
 
     fn nchildren(&self) -> usize;
 
-    fn visit_children(&self, field_mask: Option<&[FieldMask]>, visitor: &mut dyn LayoutVisitor);
+    fn visit_children(
+        &self,
+        field_mask: Option<&[FieldMask]>,
+        visitor: &mut dyn LayoutVisitor,
+    ) -> VortexResult<()>;
 
     fn segment_ids(&self) -> Vec<SegmentId>;
 
@@ -33,7 +42,7 @@ pub trait Layout: 'static + Send + Sync + private::Sealed {
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
-    );
+    ) -> VortexResult<()>;
 
     fn new_reader(
         &self,
@@ -55,7 +64,7 @@ impl dyn Layout + '_ {
     }
 
     /// The children of this layout.
-    pub fn children(&self) -> Vec<LayoutRef> {
+    pub fn children(&self) -> VortexResult<Vec<LayoutRef>> {
         struct ChildrenCollector(Vec<LayoutRef>);
 
         impl LayoutVisitor for ChildrenCollector {
@@ -65,14 +74,15 @@ impl dyn Layout + '_ {
                 _row_offset: u64,
                 _field_path: Option<&FieldPath>,
                 child: &LayoutRef,
-            ) {
+            ) -> VortexResult<()> {
                 self.0.push(child.clone());
+                Ok(())
             }
         }
 
         let mut collector = ChildrenCollector(Vec::new());
-        self.visit_children(None, &mut collector);
-        collector.0
+        self.visit_children(None, &mut collector)?;
+        Ok(collector.0)
     }
 
     /// Downcast a layout to a specific type.
@@ -124,7 +134,11 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         V::nchildren(&self.0)
     }
 
-    fn visit_children(&self, field_mask: Option<&[FieldMask]>, visitor: &mut dyn LayoutVisitor) {
+    fn visit_children(
+        &self,
+        field_mask: Option<&[FieldMask]>,
+        visitor: &mut dyn LayoutVisitor,
+    ) -> VortexResult<()> {
         V::visit_children(&self.0, field_mask, visitor)
     }
 
@@ -137,7 +151,7 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         field_mask: &[FieldMask],
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
-    ) {
+    ) -> VortexResult<()> {
         V::register_splits(&self.0, field_mask, row_offset, splits)
     }
 
@@ -157,4 +171,46 @@ mod private {
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for LayoutAdapter<V> {}
+}
+
+pub struct FlatBufferLayoutParser;
+
+impl FlatBufferLayoutParser {
+    pub fn try_parse(
+        flatbuffer: FlatBuffer,
+        dtype: &DType,
+        ctx: &LayoutContext,
+    ) -> VortexResult<LayoutRef> {
+        let fb_layout = root::<fbl::Layout>(&flatbuffer)?;
+        let encoding = ctx
+            .lookup_encoding(fb_layout.layout_id())
+            .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.layout_id()))?;
+
+        // SAFETY: we validate the flatbuffer above in the `root` call, and extract a loc.
+        let viewed_children = unsafe {
+            ViewedLayoutChildren::new_unchecked(
+                flatbuffer.clone(),
+                fb_layout._tab.loc(),
+                ctx.clone(),
+            )
+        };
+
+        let layout = encoding.build(
+            dtype,
+            fb_layout.row_count(),
+            fb_layout
+                .metadata()
+                .map(|m| m.bytes())
+                .unwrap_or_else(|| &[]),
+            fb_layout
+                .segments()
+                .unwrap_or_default()
+                .iter()
+                .map(SegmentId::from)
+                .collect(),
+            &viewed_children,
+        )?;
+
+        Ok(layout)
+    }
 }
