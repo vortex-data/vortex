@@ -100,8 +100,8 @@ jobs:
 
       - name: Add duckdb to path
         run: |
-          echo ${{ github.workspace }}/duckdb/build/release/duckdb >> $GITHUB_PATH
-          ls ${{ github.workspace }}
+          echo "${{ github.workspace }}/duckdb/build/release/"
+          echo "${{ github.workspace }}/duckdb/build/release/" >> $GITHUB_PATH
           ${{ github.workspace }}/duckdb/build/release/duckdb --version
           echo $PATH
           echo $GITHUB_PATH
