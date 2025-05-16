@@ -49,11 +49,14 @@ impl VTable for ChunkedVTable {
     ) {
         let mut row_offset = 0;
         for i in 0..layout.children.len() {
-            let name = format!("[{}]", i);
-            let child = layout.children.child(i, &layout.dtype, &name);
-            visitor.visit_child(&name, row_offset, &FieldPath::root(), &child);
+            let child = layout.children.child(i, &layout.dtype);
+            visitor.visit_child(&format!("[{}]", i), row_offset, &FieldPath::root(), &child);
             row_offset += child.row_count();
         }
+    }
+
+    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
+        vec![]
     }
 
     fn new_reader(
