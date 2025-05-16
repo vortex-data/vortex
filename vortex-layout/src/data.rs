@@ -154,14 +154,19 @@ impl LayoutData {
     /// ## Panics
     ///
     /// Panics if the child index is out of bounds.
-    pub fn child(&self, i: usize, dtype: DType, name: impl AsRef<str>) -> VortexResult<LayoutData> {
+    pub fn child(
+        &self,
+        i: usize,
+        dtype: &DType,
+        name: impl AsRef<str>,
+    ) -> VortexResult<LayoutData> {
         if i >= self.nchildren() {
             vortex_panic!("child index out of bounds");
         }
         match &self.0 {
             Inner::Owned(o) => {
                 let child = o.children[i].clone();
-                if child.dtype() != &dtype {
+                if child.dtype() != dtype {
                     vortex_bail!(
                         "Child has dtype {}, but was requested with {}",
                         child.dtype(),
@@ -187,7 +192,7 @@ impl LayoutData {
                 Ok(Self(Inner::Viewed(ViewedLayoutData {
                     name: format!("{}.{}", v.name, name.as_ref()).into(),
                     layout,
-                    dtype,
+                    dtype: dtype.clone(),
                     flatbuffer: v.flatbuffer.clone(),
                     flatbuffer_loc: fb._tab.loc(),
                     ctx: v.ctx.clone(),

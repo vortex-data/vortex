@@ -1,10 +1,72 @@
-use vortex_dtype::FieldPath;
-use vortex_error::VortexResult;
+use std::sync::Arc;
 
-use crate::{LayoutReader, LayoutReaderRef};
+use vortex_dtype::{DType, FieldPath};
+use vortex_error::vortex_panic;
 
-pub trait ReaderVisitor {
-    /// Visit a child of the reader.
+use crate::LayoutRef;
+
+/// Abstract way of accessing the children of a layout.
+///
+/// This allows us to abstract over the lazy flatbuffer-based layouts, as well as the in-memory
+/// layout trees.
+pub trait LayoutChildren: 'static + Send + Sync {
+    fn to_arc(&self) -> Arc<dyn LayoutChildren>;
+
+    fn child(&self, idx: usize, dtype: &DType) -> LayoutRef;
+
+    fn child_row_count(&self, idx: usize) -> u64;
+
+    fn nchildren(&self) -> usize;
+}
+
+impl LayoutChildren for Arc<dyn LayoutChildren> {
+    fn to_arc(&self) -> Arc<dyn LayoutChildren> {
+        self.clone()
+    }
+
+    fn child(&self, idx: usize, dtype: &DType) -> LayoutRef {
+        self.as_ref().child(idx, dtype)
+    }
+
+    fn child_row_count(&self, idx: usize) -> u64 {
+        self.as_ref().child_row_count(idx)
+    }
+
+    fn nchildren(&self) -> usize {
+        self.as_ref().nchildren()
+    }
+}
+
+/// In-memory implementation of [`LayoutChildren`].
+impl LayoutChildren for [LayoutRef] {
+    fn to_arc(&self) -> Arc<dyn LayoutChildren> {
+        self.into()
+    }
+
+    fn child(&self, idx: usize, dtype: &DType) -> LayoutRef {
+        let child = &self[idx];
+        if child.dtype() != dtype {
+            vortex_panic!("Child dtype mismatch: {} != {}", child.dtype(), dtype);
+        }
+        child.clone()
+    }
+
+    fn child_row_count(&self, idx: usize) -> u64 {
+        self[idx].row_count()
+    }
+
+    fn nchildren(&self) -> usize {
+        self.len()
+    }
+}
+
+/// A [`LayoutVisitor`] is a trait that allows us to traverse layouts while maintaining an
+/// understanding of their position within the overall dataset.
+///
+/// Each visit to a child layout provides the relative row offset and field path occupied by
+/// that child, as well as a name for debugging and display information.
+pub trait LayoutVisitor {
+    /// Visit a child of the layout.
     ///
     /// The `name` provides
     ///
@@ -14,11 +76,5 @@ pub trait ReaderVisitor {
     /// The `row_offset` indicates the offset of the first row of the child relative to the
     /// current [`LayoutReader`]. This allows us to infer the positions of layout readers within
     /// a dataset, even when [`LayoutReader`]s are concatenated or otherwise combined.
-    fn visit_child(
-        &self,
-        name: &str,
-        row_offset: u64,
-        field_path: &FieldPath,
-        reader: &LayoutReaderRef,
-    ) -> VortexResult<()>;
+    fn visit_child(&self, name: &str, row_offset: u64, field_path: &FieldPath, child: &LayoutRef);
 }

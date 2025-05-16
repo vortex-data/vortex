@@ -2,10 +2,6 @@ use vortex_array::{VTableContext, VTableRegistry};
 
 use crate::LayoutRef;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::layouts::dict::DictLayout;
-use crate::layouts::flat::FlatLayout;
-use crate::layouts::stats::StatsLayout;
-use crate::layouts::struct_::StructLayout;
 
 pub type LayoutContext = VTableContext<LayoutRef>;
 pub type LayoutRegistry = VTableRegistry<LayoutRef>;

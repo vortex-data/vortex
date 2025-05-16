@@ -1,17 +1,17 @@
-use std::any::Any;
-use std::ops::Range;
-use std::sync::Arc;
+use std::ops::{Deref, Range};
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
-use vortex_array::ArrayRef;
+use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
-use vortex_error::{SharedVortexResult, VortexError, VortexResult};
+use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
-use crate::{LayoutData, VTable};
+use crate::segments::SegmentSource;
+use crate::{Layout, LayoutChildren, VTable};
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
@@ -20,26 +20,7 @@ pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 ///
 /// Since different row ranges of the reader may be evaluated by different threads, it is required
 /// to be both `Send` and `Sync`.
-pub trait LayoutReader: 'static + Send + Sync {
-    fn as_any(&self) -> &dyn Any;
-
-    fn to_layout_reader(&self) -> LayoutReaderRef;
-
-    /// Returns the [`LayoutData`] of this reader.
-    fn layout(&self) -> &LayoutData;
-
-    /// Returns the row count of the layout.
-    fn row_count(&self) -> u64 {
-        self.layout().row_count()
-    }
-
-    /// Returns the DType of the layout.
-    fn dtype(&self) -> &DType {
-        self.layout().dtype()
-    }
-
-    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>>;
-
+pub trait LayoutReader: 'static + Send + Sync + Deref<Target = dyn Layout> {
     /// Performs an approximate evaluation of the expression against the layout reader.
     fn pruning_evaluation(
         &self,
@@ -60,51 +41,6 @@ pub trait LayoutReader: 'static + Send + Sync {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>>;
-}
-
-#[repr(transparent)]
-pub struct LayoutReaderAdapter<V: VTable>(V::Reader);
-
-impl<V: VTable> LayoutReader for LayoutReaderAdapter<V> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn to_layout_reader(&self) -> LayoutReaderRef {
-        todo!()
-    }
-
-    fn layout(&self) -> &LayoutData {
-        todo!()
-    }
-
-    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
-        todo!()
-    }
-
-    fn pruning_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn PruningEvaluation>> {
-        todo!()
-    }
-
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        todo!()
-    }
-
-    fn projection_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        todo!()
-    }
 }
 
 pub type MaskFuture = Shared<BoxFuture<'static, SharedVortexResult<Mask>>>;
@@ -141,4 +77,42 @@ pub trait MaskEvaluation: 'static + Send + Sync {
 #[async_trait]
 pub trait ArrayEvaluation: 'static + Send + Sync {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef>;
+}
+
+pub struct LazyReaderChildren {
+    children: Arc<dyn LayoutChildren>,
+    segment_source: Arc<dyn SegmentSource>,
+    ctx: ArrayContext,
+
+    // TODO(ngates): we may want a hash map of some sort here?
+    cache: Vec<OnceLock<LayoutReaderRef>>,
+}
+
+impl LazyReaderChildren {
+    pub fn new(
+        children: Arc<dyn LayoutChildren>,
+        segment_source: Arc<dyn SegmentSource>,
+        ctx: ArrayContext,
+    ) -> Self {
+        let nchildren = children.len();
+        let cache = (0..nchildren).map(|_| OnceLock::new()).collect::<Vec<_>>();
+        Self {
+            children,
+            segment_source,
+            ctx,
+            cache,
+        }
+    }
+
+    pub fn get(&self, idx: usize, dtype: &DType, name: &str) -> VortexResult<LayoutReaderRef> {
+        if idx >= self.cache.len() {
+            vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());
+        }
+        self.cache[idx]
+            .get_or_try_init(|| {
+                let child = self.children.child(idx, dtype, name);
+                child.new_reader(&self.segment_source, &self.ctx)
+            })
+            .cloned()
+    }
 }

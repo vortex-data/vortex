@@ -208,11 +208,11 @@ mod tests {
     use vortex_expr::{get_item, gt, ident, pack};
     use vortex_mask::Mask;
 
+    use crate::LayoutData;
     use crate::layouts::flat::writer::FlatLayoutWriter;
     use crate::layouts::struct_::writer::StructLayoutWriter;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
-    use crate::{ExprEvaluator, LayoutData};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.

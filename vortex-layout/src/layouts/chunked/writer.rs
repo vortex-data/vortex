@@ -5,13 +5,13 @@ use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::LayoutWriterExt;
 use crate::data::LayoutData;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::SegmentWriter;
 use crate::strategy::LayoutStrategy;
 use crate::writer::LayoutWriter;
+use crate::{LayoutRef, LayoutWriterExt};
 
 #[derive(Clone)]
 pub struct ChunkedLayoutStrategy {
@@ -110,15 +110,7 @@ impl LayoutWriter for ChunkedLayoutWriter {
 pub(crate) fn chunked_layout(
     dtype: DType,
     row_count: u64,
-    children: Vec<LayoutData>,
-) -> LayoutData {
-    LayoutData::new_owned(
-        "chunked".into(),
-        LayoutVTableRef::new_ref(&ChunkedLayout),
-        dtype,
-        row_count,
-        vec![],
-        children,
-        None,
-    )
+    children: Arc<[LayoutRef]>,
+) -> LayoutRef {
+    ChunkedLayout::new(row_count, dtype.clone(), children.into())
 }
