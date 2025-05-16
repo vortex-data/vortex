@@ -72,16 +72,17 @@ jobs:
         run: sudo apt-get update && sudo apt-get install ninja-build cmake build-essential make ccache clang -y
 
       - name: Build plain duckdb
-        working-directory: /
         run: |
           export CC=clang
           export CXX=clang++
           git clone https://github.com/duckdb/duckdb
           cd duckdb
           git checkout v1.2.2
-          GEN=ninja NATIVE_ARCH=1 LTO=thin make
+          GEN=ninja NATIVE_ARCH=1 DUCKDB_PLATFORM=linux_amd64 LTO=thin make
           export PATH="$PATH:`pwd`/build/release/"
           cd ..
+          ls
+          pwd
 
       - name: DuckDB extension build
         env:
