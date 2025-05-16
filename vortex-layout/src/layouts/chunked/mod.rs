@@ -1,6 +1,7 @@
 mod reader;
 pub mod writer;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
@@ -37,6 +38,10 @@ impl VTable for ChunkedVTable {
         &layout.dtype
     }
 
+    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
+        vec![]
+    }
+
     fn nchildren(layout: &Self::Layout) -> usize {
         layout.children.nchildren()
     }
@@ -59,8 +64,19 @@ impl VTable for ChunkedVTable {
         }
     }
 
-    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
-        vec![]
+    fn register_splits(
+        layout: &Self::Layout,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) {
+        let mut offset = row_offset;
+        for i in 0..layout.nchildren() {
+            let child = layout.chunk(i);
+            child.register_splits(field_mask, offset, splits);
+            offset += child.row_count();
+            splits.insert(offset);
+        }
     }
 
     fn new_reader(
@@ -110,5 +126,10 @@ impl ChunkedLayout {
             dtype,
             children: children.to_arc(),
         }
+    }
+
+    /// Returns the layout for the given chunk index.
+    pub fn chunk(&self, idx: usize) -> LayoutRef {
+        self.children.child(idx, &self.dtype)
     }
 }

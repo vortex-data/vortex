@@ -1,6 +1,7 @@
 mod reader;
 pub mod writer;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
@@ -36,6 +37,10 @@ impl VTable for FlatVTable {
         &layout.dtype
     }
 
+    fn segment_ids(layout: &Self::Layout) -> Vec<SegmentId> {
+        vec![layout.segment_id]
+    }
+
     fn nchildren(_layout: &Self::Layout) -> usize {
         0
     }
@@ -47,8 +52,18 @@ impl VTable for FlatVTable {
     ) {
     }
 
-    fn segment_ids(layout: &Self::Layout) -> Vec<SegmentId> {
-        vec![layout.segment_id]
+    fn register_splits(
+        layout: &Self::Layout,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) {
+        for path in field_mask {
+            if path.matches_root() {
+                splits.insert(row_offset + layout.row_count());
+                break;
+            }
+        }
     }
 
     fn new_reader(

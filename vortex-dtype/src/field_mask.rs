@@ -1,4 +1,5 @@
 //! Field mask represents a field projection, which leads to a set of field paths under a given layout.
+// TODO(ngates): this API needs work. It could be made a lot easier to use.
 
 use vortex_error::{VortexResult, vortex_bail};
 

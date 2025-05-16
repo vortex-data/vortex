@@ -2,6 +2,7 @@ mod reader;
 pub mod stats_table;
 pub mod writer;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
@@ -40,21 +41,30 @@ impl VTable for ZoneMapVTable {
         layout.data.dtype()
     }
 
+    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
+        vec![]
+    }
+
     fn nchildren(_layout: &Self::Layout) -> usize {
         2
     }
 
     fn visit_children(
         layout: &Self::Layout,
-        field_mask: Option<&[FieldMask]>,
+        _field_mask: Option<&[FieldMask]>,
         visitor: &mut dyn LayoutVisitor,
     ) {
         visitor.visit_child("data", 0, Some(&FieldPath::root()), &layout.data);
         visitor.visit_child("zones", 0, None, &layout.zones);
     }
 
-    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
-        vec![]
+    fn register_splits(
+        layout: &Self::Layout,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) {
+        layout.data.register_splits(field_mask, row_offset, splits)
     }
 
     fn new_reader(

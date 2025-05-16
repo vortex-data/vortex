@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -29,6 +30,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Returns the dtype for the layout reader.
     fn dtype(layout: &Self::Layout) -> &DType;
 
+    /// Returns the segment IDs for the layout.
+    fn segment_ids(layout: &Self::Layout) -> Vec<SegmentId>;
+
     /// Returns the number of children for the layout.
     fn nchildren(layout: &Self::Layout) -> usize;
 
@@ -39,8 +43,15 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         visitor: &mut dyn LayoutVisitor,
     );
 
-    /// Returns the segment IDs for the layout.
-    fn segment_ids(layout: &Self::Layout) -> Vec<SegmentId>;
+    /// Register row splits for the layout.
+    // TODO(ngates): this should be implemented with a visitor, but we need to fix the FieldMask
+    //  API first.
+    fn register_splits(
+        layout: &Self::Layout,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    );
 
     /// Create a new reader for the layout.
     fn new_reader(

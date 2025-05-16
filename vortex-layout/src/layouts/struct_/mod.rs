@@ -1,6 +1,7 @@
 mod reader;
 pub mod writer;
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use reader::StructReader;
@@ -37,6 +38,10 @@ impl VTable for StructVTable {
         &layout.dtype
     }
 
+    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
+        vec![]
+    }
+
     fn nchildren(layout: &Self::Layout) -> usize {
         layout.struct_dtype().nfields()
     }
@@ -65,8 +70,20 @@ impl VTable for StructVTable {
             .vortex_expect("unreachable");
     }
 
-    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
-        vec![]
+    fn register_splits(
+        layout: &Self::Layout,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) {
+        layout
+            .matching_fields(field_mask, |mask, idx| {
+                layout
+                    .field_by_idx(idx)
+                    .register_splits(&[mask], row_offset, splits);
+                Ok(())
+            })
+            .vortex_expect("unreachable");
     }
 
     fn new_reader(
@@ -133,6 +150,17 @@ impl StructLayout {
             vortex_panic!("Mismatched dtype {} for struct layout", self.dtype());
         };
         dtype
+    }
+
+    /// Return the layout of the field.
+    pub fn field_by_idx(&self, idx: usize) -> LayoutRef {
+        self.children.child(
+            idx,
+            &self
+                .struct_dtype()
+                .field_by_index(idx)
+                .vortex_expect("Invalid field index"),
+        )
     }
 
     pub fn matching_fields<F>(&self, field_mask: &[FieldMask], mut per_child: F) -> VortexResult<()>

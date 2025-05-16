@@ -84,9 +84,10 @@ pub trait LayoutVisitor {
     /// current [`LayoutReader`]. This allows us to infer the positions of layout readers within
     /// a dataset, even when [`LayoutReader`]s are concatenated or otherwise combined.
     fn visit_child(
-        &self,
+        &mut self,
         name: &str,
         row_offset: u64,
+        // FIXME(ngates): this API is a little wrong, we should fix FieldMask.
         field_path: Option<&FieldPath>,
         child: &LayoutRef,
     );

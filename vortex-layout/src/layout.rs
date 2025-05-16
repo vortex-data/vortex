@@ -1,12 +1,13 @@
 use std::any::Any;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::ArrayContext;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, FieldMask, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::segments::{SegmentId, SegmentSource};
-use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, VTable};
+use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, LayoutVisitor, VTable};
 
 pub type LayoutRef = Arc<dyn Layout>;
 
@@ -22,7 +23,16 @@ pub trait Layout: 'static + Send + Sync {
 
     fn nchildren(&self) -> usize;
 
+    fn visit_children(&self, field_mask: Option<&[FieldMask]>, visitor: &mut dyn LayoutVisitor);
+
     fn segment_ids(&self) -> Vec<SegmentId>;
+
+    fn register_splits(
+        &self,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    );
 
     fn new_reader(
         &self,
@@ -38,8 +48,30 @@ pub trait IntoLayout {
 }
 
 impl dyn Layout + '_ {
-    fn encoding_id(&self) -> LayoutEncodingId {
+    /// The ID of the encoding for this layout.
+    pub fn encoding_id(&self) -> LayoutEncodingId {
         self.encoding().id()
+    }
+
+    /// The children of this layout.
+    pub fn children(&self) -> Vec<LayoutRef> {
+        struct ChildrenCollector(Vec<LayoutRef>);
+
+        impl LayoutVisitor for ChildrenCollector {
+            fn visit_child(
+                &mut self,
+                _name: &str,
+                _row_offset: u64,
+                _field_path: Option<&FieldPath>,
+                child: &LayoutRef,
+            ) {
+                self.0.push(child.clone());
+            }
+        }
+
+        let mut collector = ChildrenCollector(Vec::new());
+        self.visit_children(None, &mut collector);
+        collector.0
     }
 
     /// Downcast a layout to a specific type.
@@ -80,8 +112,21 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         V::nchildren(&self.0)
     }
 
+    fn visit_children(&self, field_mask: Option<&[FieldMask]>, visitor: &mut dyn LayoutVisitor) {
+        V::visit_children(&self.0, field_mask, visitor)
+    }
+
     fn segment_ids(&self) -> Vec<SegmentId> {
         V::segment_ids(&self.0)
+    }
+
+    fn register_splits(
+        &self,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) {
+        V::register_splits(&self.0, field_mask, row_offset, splits)
     }
 
     fn new_reader(
@@ -90,6 +135,6 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
-        V::new_reader(&self.0, segment_source, ctx)
+        V::new_reader(&self.0, name, segment_source, ctx)
     }
 }

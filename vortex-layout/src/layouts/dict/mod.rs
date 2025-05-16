@@ -1,5 +1,7 @@
 mod reader;
 pub mod writer;
+
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use reader::DictReader;
@@ -36,6 +38,10 @@ impl VTable for DictVTable {
         layout.values.dtype()
     }
 
+    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
+        vec![]
+    }
+
     fn nchildren(_layout: &Self::Layout) -> usize {
         2
     }
@@ -49,8 +55,13 @@ impl VTable for DictVTable {
         visitor.visit_child("codes", 0, None, &layout.codes);
     }
 
-    fn segment_ids(_layout: &Self::Layout) -> Vec<SegmentId> {
-        vec![]
+    fn register_splits(
+        layout: &Self::Layout,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) {
+        layout.codes.register_splits(field_mask, row_offset, splits)
     }
 
     fn new_reader(

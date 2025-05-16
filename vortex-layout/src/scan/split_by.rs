@@ -2,10 +2,10 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 
 use itertools::Itertools;
-use vortex_dtype::FieldMask;
-use vortex_error::VortexResult;
+use vortex_dtype::{FieldMask, FieldPath};
+use vortex_error::{VortexExpect, VortexResult};
 
-use crate::LayoutData;
+use crate::{Layout, LayoutRef, LayoutVisitor};
 
 /// Defines how the Vortex file is split into batches for reading.
 ///
@@ -24,12 +24,13 @@ impl SplitBy {
     /// Compute the splits for the given layout.
     pub(crate) fn splits(
         &self,
-        layout: &LayoutData,
+        layout: &dyn Layout,
         field_mask: &[FieldMask],
     ) -> VortexResult<Vec<Range<u64>>> {
         Ok(match *self {
             SplitBy::Layout => {
                 let mut row_splits = BTreeSet::<u64>::new();
+
                 // Make sure we always have the first and last row.
                 row_splits.insert(0);
                 row_splits.insert(layout.row_count());
@@ -58,7 +59,6 @@ impl SplitBy {
 
 #[cfg(test)]
 mod test {
-
     use vortex_array::{ArrayContext, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
@@ -96,7 +96,7 @@ mod test {
         .push_one(&mut segments, buffer![1_i32; 10].into_array())
         .unwrap();
         let splits = SplitBy::RowCount(3)
-            .splits(&layout, &[FieldMask::Exact(FieldPath::root())])
+            .splits(layout.as_ref(), &[FieldMask::Exact(FieldPath::root())])
             .unwrap();
         assert_eq!(splits, vec![0..3, 3..6, 6..9, 9..10]);
     }
