@@ -7,7 +7,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::segments::SegmentWriter;
-use crate::{LayoutData, LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt};
+use crate::{LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
 pub struct RepartitionStrategy {
     pub options: RepartitionWriterOptions,

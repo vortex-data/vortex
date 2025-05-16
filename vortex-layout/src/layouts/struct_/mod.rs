@@ -8,7 +8,6 @@ use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
-use crate::reader::LayoutReader;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
     LayoutChildren, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor, VTable,

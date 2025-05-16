@@ -12,7 +12,7 @@ use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
 use crate::context::LayoutContext;
 use crate::reader::LayoutReader;
 use crate::segments::{SegmentId, SegmentSource};
-use crate::{LayoutId, LayoutRef};
+use crate::{LayoutEncodingRef, LayoutId, LayoutRef};
 
 /// [`LayoutData`] captures a tree of layouts, providing hierarchical structure.
 #[derive(Debug, Clone)]
@@ -28,7 +28,7 @@ enum Inner {
 #[derive(Debug, Clone)]
 pub struct OwnedLayoutData {
     name: Arc<str>,
-    layout: LayoutRef,
+    encoding: LayoutEncodingRef,
     dtype: DType,
     row_count: u64,
     segments: Vec<SegmentId>,
@@ -41,7 +41,7 @@ pub struct OwnedLayoutData {
 #[derive(Debug, Clone)]
 struct ViewedLayoutData {
     name: Arc<str>,
-    layout: LayoutRef,
+    encoding: LayoutEncodingRef,
     dtype: DType,
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
@@ -59,7 +59,7 @@ impl LayoutData {
     /// Create a new owned layout.
     pub fn new_owned(
         name: Arc<str>,
-        layout: LayoutRef,
+        encoding: LayoutEncodingRef,
         dtype: DType,
         row_count: u64,
         segments: Vec<SegmentId>,
@@ -68,7 +68,7 @@ impl LayoutData {
     ) -> Self {
         Self(Inner::Owned(OwnedLayoutData {
             name,
-            layout,
+            encoding,
             dtype,
             row_count,
             segments,
@@ -84,7 +84,7 @@ impl LayoutData {
     /// Assumes that flatbuffer has been previously validated and has same encoding id as the passed encoding
     pub unsafe fn new_viewed_unchecked(
         name: Arc<str>,
-        layout: LayoutRef,
+        encoding: LayoutEncodingRef,
         dtype: DType,
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
@@ -92,7 +92,7 @@ impl LayoutData {
     ) -> Self {
         Self(Inner::Viewed(ViewedLayoutData {
             name,
-            layout,
+            encoding,
 
             dtype,
             flatbuffer,
@@ -112,8 +112,8 @@ impl LayoutData {
     /// Returns the [`crate::Layout`] for this layout data.
     pub fn layout(&self) -> &LayoutRef {
         match &self.0 {
-            Inner::Owned(owned) => &owned.layout,
-            Inner::Viewed(viewed) => &viewed.layout,
+            Inner::Owned(owned) => &owned.encoding,
+            Inner::Viewed(viewed) => &viewed.encoding,
         }
     }
 
@@ -191,7 +191,7 @@ impl LayoutData {
 
                 Ok(Self(Inner::Viewed(ViewedLayoutData {
                     name: format!("{}.{}", v.name, name.as_ref()).into(),
-                    layout,
+                    encoding: layout,
                     dtype: dtype.clone(),
                     flatbuffer: v.flatbuffer.clone(),
                     flatbuffer_loc: fb._tab.loc(),
@@ -334,7 +334,7 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
                 let segments = segments.map(|m| fbb.create_vector(&m));
 
                 // Dictionary-encode the layout ID
-                let layout_id = self.ctx.encoding_idx(&owned.layout);
+                let layout_id = self.ctx.encoding_idx(&owned.encoding);
 
                 layout::Layout::create(
                     fbb,

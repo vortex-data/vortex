@@ -1,5 +1,5 @@
 use std::iter;
-use std::ops::{BitAnd, Range};
+use std::ops::{BitAnd, Deref, Range};
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
@@ -12,7 +12,9 @@ use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
-use crate::{ArrayEvaluation, LayoutData, LayoutReader, MaskEvaluation, PruningEvaluation};
+use crate::{
+    ArrayEvaluation, Layout, LayoutReader, LayoutReaderRef, MaskEvaluation, PruningEvaluation,
+};
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -24,12 +26,12 @@ const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 /// This reader does not have a corresponding layout in the file, as it merely implements
 /// expression rewrite logic at read-time.
 pub struct FilterLayoutReader {
-    child: Arc<dyn LayoutReader>,
+    child: LayoutReaderRef,
     cache: RwLock<HashMap<ExprRef, Arc<FilterExpr>>>,
 }
 
 impl FilterLayoutReader {
-    pub fn new(child: Arc<dyn LayoutReader>) -> Self {
+    pub fn new(child: LayoutReaderRef) -> Self {
         Self {
             child,
             cache: Default::default(),
@@ -37,17 +39,15 @@ impl FilterLayoutReader {
     }
 }
 
-impl LayoutReader for FilterLayoutReader {
-    fn layout(&self) -> &LayoutData {
-        self.child.layout()
-    }
+impl Deref for FilterLayoutReader {
+    type Target = dyn Layout;
 
-    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
-        self.child.children()
+    fn deref(&self) -> &Self::Target {
+        self.child.deref()
     }
 }
 
-impl ExprEvaluator for FilterLayoutReader {
+impl LayoutReader for FilterLayoutReader {
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,

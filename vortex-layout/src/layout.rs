@@ -2,7 +2,6 @@ use std::any::Any;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use vortex_array::ArrayContext;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -10,7 +9,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, VTable};
 
-pub type LayoutRef = ArcRef<dyn Layout>;
+pub type LayoutRef = Arc<dyn Layout>;
 
 pub trait Layout: 'static + Send + Sync {
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;

@@ -40,7 +40,7 @@ impl LayoutChildren for Arc<dyn LayoutChildren> {
 /// In-memory implementation of [`LayoutChildren`].
 impl LayoutChildren for [LayoutRef] {
     fn to_arc(&self) -> Arc<dyn LayoutChildren> {
-        self.into()
+        Arc::<[LayoutRef]>::from(self)
     }
 
     fn child(&self, idx: usize, dtype: &DType) -> LayoutRef {
