@@ -22,16 +22,16 @@ jobs:
         # Regarding "include:":
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/running-variations-of-jobs-in-a-workflow#example-adding-configurations
         include:
-          #- id: tpch-nvme
-          #  binary_name: tpch
-          #  name: TPC-H on NVME
-          #  local_dir: bench-vortex/data/tpch/1
-          #  targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
-          #- id: clickbench-nvme
-          #  binary_name: clickbench
-          #  name: Clickbench on NVME
-          #  local_dir: bench-vortex/data/clickbench_partitioned
-          #  targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
+          - id: tpch-nvme
+            binary_name: tpch
+            name: TPC-H on NVME
+            local_dir: bench-vortex/data/tpch/1
+            targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
+          - id: clickbench-nvme
+            binary_name: clickbench
+            name: Clickbench on NVME
+            local_dir: bench-vortex/data/clickbench_partitioned
+            targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
           - id: tpch-s3
             binary_name: tpch
             name: TPC-H on S3
@@ -79,6 +79,7 @@ jobs:
           cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
 
       - name: Install duckdb compile requirements
+        if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
         run: sudo apt-get update && sudo apt-get install ninja-build cmake build-essential make ccache clang -y
 
       - name: Build duckdb binary
@@ -93,10 +94,8 @@ jobs:
 
       - name: Add duckdb to path
         run: |
-          ls .
-          ls duckdb
           export PATH="$PATH:`pwd`/duckdb/build/release/"
-          echo $PATH
+          duckdb --version
 
       - name: DuckDB extension build
         env:
