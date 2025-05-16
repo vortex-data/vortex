@@ -127,6 +127,12 @@ mod tests {
     }
 
     #[test]
+    fn replace_children() {
+        let expr = is_null(ident());
+        let _ = expr.replacing_children(vec![ident()]);
+    }
+
+    #[test]
     fn evaluate_mask() {
         let test_array =
             PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2), None, Some(3)])
