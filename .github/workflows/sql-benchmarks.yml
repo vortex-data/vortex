@@ -58,7 +58,8 @@ jobs:
         with:
           submodules: "recursive"
 
-      - uses: actions/cache@v4
+      - name: Cache duckdb compiled binary
+        uses: actions/cache@v4
         id: cache-duckdb-binary
         with:
           path: duckdb/build/release/duckdb
