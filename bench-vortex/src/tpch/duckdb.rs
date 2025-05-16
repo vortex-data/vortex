@@ -113,12 +113,8 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
     match opts.dataset {
         TpcDataset::TpcH => command
             .arg("-c")
-            .arg("load tpch;")
-            .arg("-c")
             .arg(format!("call dbgen(sf={scale_factor})")),
         TpcDataset::TpcDs => command
-            .arg("-c")
-            .arg("load tpcds;")
             .arg("-c")
             .arg(format!("call dsdgen(sf={scale_factor})")),
     };
