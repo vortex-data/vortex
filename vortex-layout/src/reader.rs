@@ -104,15 +104,13 @@ impl LazyReaderChildren {
         }
     }
 
-    pub fn get(&self, idx: usize, dtype: &DType, name: &str) -> VortexResult<LayoutReaderRef> {
+    pub fn get(&self, idx: usize, dtype: &DType) -> VortexResult<&LayoutReaderRef> {
         if idx >= self.cache.len() {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());
         }
-        self.cache[idx]
-            .get_or_try_init(|| {
-                let child = self.children.child(idx, dtype, name);
-                child.new_reader(&self.segment_source, &self.ctx)
-            })
-            .cloned()
+        self.cache[idx].get_or_try_init(|| {
+            let child = self.children.child(idx, dtype);
+            child.new_reader(&self.segment_source, &self.ctx)
+        })
     }
 }

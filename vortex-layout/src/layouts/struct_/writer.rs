@@ -4,11 +4,11 @@ use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
-use crate::data::LayoutData;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentWriter;
 use crate::strategy::LayoutStrategy;
 use crate::writer::LayoutWriter;
+use crate::{IntoLayout, LayoutRef};
 
 /// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
 pub struct StructLayoutWriter {
@@ -97,20 +97,15 @@ impl LayoutWriter for StructLayoutWriter {
         Ok(())
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
         let mut column_layouts = vec![];
         for writer in self.column_strategies.iter_mut() {
             column_layouts.push(writer.finish(segment_writer)?);
         }
-        Ok(LayoutData::new_owned(
-            "struct".into(),
-            LayoutVTableRef::new_ref(&StructLayout),
-            self.dtype.clone(),
-            self.row_count,
-            vec![],
-            column_layouts,
-            None,
-        ))
+        Ok(
+            StructLayout::new(self.row_count, self.dtype.clone(), column_layouts.into())
+                .into_layout(),
+        )
     }
 }
 
