@@ -76,7 +76,7 @@ jobs:
         # Latest macOS doesn't allow maturin to install stuff into the global Python interpreter
         if: "${{ matrix.target.runs-on == 'macos-latest' }}"
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Build wheel
         uses: PyO3/maturin-action@v1
@@ -89,7 +89,7 @@ jobs:
             --release
             --manifest-path pyvortex/Cargo.toml
             --out dist
-            --interpreter python3.10
+            --interpreter python3.11
         env:
           MATURIN_PEP517_USE_BASE_PYTHON: "true"
           # Keep this constant to avoid pyo3 invalidating itself

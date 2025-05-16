@@ -6,13 +6,13 @@ First, install if you haven't already:
 
 ````{tab} pip
 ```bash
-pip install vortex-array
+pip install vortex-data
 ```
 ````
 
 ````{tab} uv
 ```bash
-uv add vortex-array
+uv add vortex-data
 ```
 ````
 
