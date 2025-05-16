@@ -102,7 +102,7 @@ jobs:
 
       - name: Add duckdb to path
         run: |
-          export "`pwd`/duckdb/build/release/" >> $GITHUB_PATH
+          echo "`pwd`/duckdb/build/release/" >> $GITHUB_PATH
           echo $GITHUB_PATH
           duckdb --version
 
