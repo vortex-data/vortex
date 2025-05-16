@@ -7,7 +7,7 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentWriter;
 use crate::writer::LayoutWriter;
-use crate::{LayoutData, LayoutStrategy, LayoutWriterExt};
+use crate::{IntoLayout, LayoutRef, LayoutStrategy, LayoutWriterExt};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -37,7 +37,7 @@ pub struct FlatLayoutWriter {
     ctx: ArrayContext,
     dtype: DType,
     options: FlatLayoutStrategy,
-    layout: Option<LayoutData>,
+    layout: Option<LayoutRef>,
 }
 
 impl FlatLayoutWriter {
@@ -90,15 +90,9 @@ impl LayoutWriter for FlatLayoutWriter {
         )?;
         let segment_id = segment_writer.put(&buffers);
 
-        self.layout = Some(LayoutData::new_owned(
-            "flat".into(),
-            LayoutVTableRef::new_ref(&FlatLayout),
-            self.dtype.clone(),
-            row_count,
-            vec![segment_id],
-            vec![],
-            None,
-        ));
+        self.layout =
+            Some(FlatLayout::new(row_count, self.dtype.clone(), segment_id).into_layout());
+
         Ok(())
     }
 
@@ -106,7 +100,7 @@ impl LayoutWriter for FlatLayoutWriter {
         Ok(())
     }
 
-    fn finish(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
+    fn finish(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
         self.layout
             .take()
             .ok_or_else(|| vortex_err!("FlatLayoutStrategy::finish called without push_batch"))
@@ -146,7 +140,7 @@ mod tests {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .reader(&segments, &ctx)
+                .new_reader(&segments, &ctx)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &ident())
                 .unwrap()

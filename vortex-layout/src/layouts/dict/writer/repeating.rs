@@ -10,7 +10,7 @@ use super::{DictStrategy, EncodingState, encode_chunk, start_encoding};
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::segments::SegmentWriter;
-use crate::{LayoutRef, LayoutWriter};
+use crate::{IntoLayout, LayoutRef, LayoutWriter};
 
 pub struct DictLayoutWriter {
     ctx: ArrayContext,
@@ -144,10 +144,11 @@ impl LayoutWriter for DictLayoutWriter {
             .writers
             .iter_mut()
             .map(|(values, codes)| {
-                Ok(Arc::new(DictLayout::new(
+                Ok(DictLayout::new(
                     values.finish(segment_writer)?,
                     codes.finish(segment_writer)?,
-                )) as LayoutRef)
+                )
+                .into_layout())
             })
             .try_collect()?;
 

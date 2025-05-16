@@ -2,48 +2,96 @@ mod eval_expr;
 mod reader;
 pub mod writer;
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use vortex_array::ArrayContext;
-use vortex_dtype::FieldMask;
+use arcref::ArcRef;
+use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::VortexResult;
 
-use crate::layouts::flat::reader::FlatReader;
-use crate::reader::LayoutReader;
-use crate::segments::SegmentSource;
-use crate::{FLAT_LAYOUT_ID, LayoutData, LayoutId};
+use crate::segments::{SegmentId, SegmentSource};
+use crate::{
+    LayoutChildren, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutVisitor, VTable, vtable,
+};
 
-#[derive(Debug)]
-pub struct FlatLayout;
+vtable!(Flat);
 
-impl LayoutVTable for FlatLayout {
-    fn id(&self) -> LayoutId {
-        FLAT_LAYOUT_ID
+impl VTable for FlatVTable {
+    type Layout = FlatLayout;
+    type Encoding = FlatLayoutEncoding;
+    type Metadata = EmptyMetadata;
+
+    fn id(_encoding: &Self::Encoding) -> LayoutId {
+        ArcRef::new_ref("vortex.flat")
     }
 
-    fn reader(
-        &self,
-        layout: LayoutData,
+    fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
+        ArcRef::new_ref(FlatLayoutEncoding.as_ref())
+    }
+
+    fn row_count(layout: &Self::Layout) -> u64 {
+        layout.row_count
+    }
+
+    fn dtype(layout: &Self::Layout) -> &DType {
+        &layout.dtype
+    }
+
+    fn nchildren(_layout: &Self::Layout) -> usize {
+        0
+    }
+
+    fn visit_children(
+        _layout: &Self::Layout,
+        _field_mask: Option<&[FieldMask]>,
+        _visitor: &mut dyn LayoutVisitor,
+    ) {
+    }
+
+    fn segment_ids(layout: &Self::Layout) -> Vec<SegmentId> {
+        vec![layout.segment_id]
+    }
+
+    fn new_reader(
+        layout: &Arc<Self::Layout>,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
-    ) -> VortexResult<Arc<dyn LayoutReader>> {
-        Ok(FlatReader::try_new(layout, segment_source.clone(), ctx.clone())?.into_arc())
+    ) -> VortexResult<LayoutReaderRef> {
+        todo!()
     }
 
-    fn register_splits(
-        &self,
-        layout: &LayoutData,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        for path in field_mask {
-            if path.matches_root() {
-                splits.insert(row_offset + layout.row_count());
-                break;
-            }
+    fn build(
+        encoding: &Self::Encoding,
+        dtype: &DType,
+        row_count: u64,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        segment_ids: Vec<SegmentId>,
+        children: &dyn LayoutChildren,
+    ) -> VortexResult<Self::Layout> {
+        todo!()
+    }
+}
+
+#[derive(Debug)]
+pub struct FlatLayoutEncoding;
+
+#[derive(Debug)]
+pub struct FlatLayout {
+    row_count: u64,
+    dtype: DType,
+    segment_id: SegmentId,
+}
+
+impl FlatLayout {
+    pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId) -> Self {
+        Self {
+            row_count,
+            dtype,
+            segment_id,
         }
-        Ok(())
+    }
+
+    pub(super) fn segment_id(&self) -> SegmentId {
+        self.segment_id
     }
 }

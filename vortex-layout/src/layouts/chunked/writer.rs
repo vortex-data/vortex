@@ -10,7 +10,7 @@ use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::SegmentWriter;
 use crate::strategy::LayoutStrategy;
 use crate::writer::LayoutWriter;
-use crate::{LayoutRef, LayoutWriterExt};
+use crate::{IntoLayout, LayoutRef, LayoutWriterExt};
 
 #[derive(Clone)]
 pub struct ChunkedLayoutStrategy {
@@ -103,10 +103,6 @@ impl LayoutWriter for ChunkedLayoutWriter {
             return Ok(children.pop().vortex_expect("child layout"));
         }
 
-        Ok(Arc::new(ChunkedLayout::new(
-            self.row_count,
-            self.dtype.clone(),
-            children.into(),
-        )) as LayoutRef)
+        Ok(ChunkedLayout::new(self.row_count, self.dtype.clone(), children.into()).into_layout())
     }
 }

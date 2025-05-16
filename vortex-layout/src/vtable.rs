@@ -83,6 +83,13 @@ macro_rules! vtable {
                 }
             }
 
+            impl $crate::IntoLayout for [<$V Layout>] {
+                fn into_layout(self) -> $crate::LayoutRef {
+                    // We can unsafe transmute ourselves to an LayoutAdapter.
+                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Layout>], $crate::LayoutAdapter::<[<$V VTable>]>>(self) }) as _
+                }
+            }
+
             impl AsRef<dyn $crate::LayoutEncoding> for [<$V LayoutEncoding>] {
                 fn as_ref(&self) -> &dyn $crate::LayoutEncoding {
                     // We can unsafe cast ourselves to an LayoutEncodingAdapter.
