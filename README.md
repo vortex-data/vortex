@@ -2,10 +2,10 @@
 
 [![Build Status](https://github.com/vortex-data/vortex/actions/workflows/ci.yml/badge.svg)](https://github.com/vortex-data/vortex/actions)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/10567/badge)](https://www.bestpractices.dev/projects/10567)
-[![Documentation](https://docs.rs/vortex-array/badge.svg)](https://docs.vortex.dev)
+[![Documentation](https://docs.rs/vortex/badge.svg)](https://docs.vortex.dev)
 [![CodSpeed Badge](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/vortex-data/vortex)
-[![Crates.io](https://img.shields.io/crates/v/vortex-array.svg)](https://crates.io/crates/vortex-array)
-[![PyPI - Version](https://img.shields.io/pypi/v/vortex-array)](https://pypi.org/project/vortex-array/)
+[![Crates.io](https://img.shields.io/crates/v/vortex.svg)](https://crates.io/crates/vortex)
+[![PyPI - Version](https://img.shields.io/pypi/v/vortex-data)](https://pypi.org/project/vortex-data/)
 [![Maven - Version](https://img.shields.io/maven-central/v/dev.vortex/vortex-spark)](https://central.sonatype.com/artifact/dev.vortex/vortex-spark)
 
 📚 [Documentation](https://docs.vortex.dev/) | 📊 [Performance Benchmarks](https://bench.vortex.dev)
@@ -15,14 +15,14 @@
 Vortex is a next-generation columnar file format and toolkit designed for high-performance data analytics. It provides:
 
 - **⚡️ Blazing Fast Performance**
-  - 100-200x faster random access reads than Apache Parquet
-  - 2-10x faster scans with similar compression ratios and write throughput
-  - Efficient support for wide tables with zero-copy/zero-parse metadata
+    - 100-200x faster random access reads than Apache Parquet
+    - 2-10x faster scans with similar compression ratios and write throughput
+    - Efficient support for wide tables with zero-copy/zero-parse metadata
 
 - **🔧 Extensible Architecture**
-  - Modeled after Apache DataFusion's extensible approach
-  - Pluggable encoding system
-  - Zero-copy compatibility with Apache Arrow
+    - Modeled after Apache DataFusion's extensible approach
+    - Pluggable encoding system
+    - Zero-copy compatibility with Apache Arrow
 
 > 🚧 **Development Status**: This project is under active development. APIs and file formats may change, and some
 > features are still being implemented.
@@ -120,8 +120,10 @@ Licensed under the Apache License, Version 2.0.
 
 ### Governance
 
-Vortex is an independent open-source project and not controlled by any single company. The Vortex Project is a sub-project of the Linux Foundation Projects. The governance model is documented in
-[CONTRIBUTING.md](CONTRIBUTING.md) and is subject to the terms of the [Technical Charter](https://vortex.dev/charter.pdf).
+Vortex is an independent open-source project and not controlled by any single company. The Vortex Project is a
+sub-project of the Linux Foundation Projects. The governance model is documented in
+[CONTRIBUTING.md](CONTRIBUTING.md) and is subject to the terms of
+the [Technical Charter](https://vortex.dev/charter.pdf).
 
 ### Contributing
 

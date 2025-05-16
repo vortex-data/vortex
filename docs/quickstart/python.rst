@@ -8,7 +8,7 @@ Install
 
 ::
 
-   pip install vortex-array
+   pip install vortex-data
 
 Convert
 -------
