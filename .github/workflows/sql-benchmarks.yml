@@ -98,7 +98,7 @@ jobs:
         with:
           fail-on-cache-miss: true
           key: "${{ runner.os }}-ducdkb-linux_amd64-${{ env.DUCKDB_VERSION }}"
-          path: "`pwd`duckdb/build/release/duckdb"
+          path: `pwd`duckdb/build/release/duckdb
 
       - name: Add duckdb to path
         run: |
