@@ -8,7 +8,7 @@ use std::sync::Arc;
 use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::{DType, FieldMask, FieldPath, TryFromBytes};
-use vortex_error::{VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
 use crate::layouts::stats::reader::ZoneMapReader;
@@ -54,6 +54,22 @@ impl VTable for ZoneMapVTable {
 
     fn nchildren(_layout: &Self::Layout) -> usize {
         2
+    }
+
+    fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
+        match idx {
+            0 => Ok(layout.data.clone()),
+            1 => Ok(layout.zones.clone()),
+            _ => vortex_bail!("Invalid child index: {}", idx),
+        }
+    }
+
+    fn child_name(_layout: &Self::Layout, idx: usize) -> Arc<str> {
+        match idx {
+            0 => "data".into(),
+            1 => "zones".into(),
+            _ => vortex_panic!("Invalid child index: {}", idx),
+        }
     }
 
     fn visit_children(
@@ -141,8 +157,12 @@ impl ZoneMapLayout {
         }
     }
 
-    pub(super) fn nzones(&self) -> usize {
+    pub fn nzones(&self) -> usize {
         usize::try_from(self.zones.row_count()).vortex_expect("Invalid number of zones")
+    }
+
+    pub fn present_stats(&self) -> &Arc<[Stat]> {
+        &self.present_stats
     }
 }
 

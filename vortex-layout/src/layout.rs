@@ -3,8 +3,9 @@ use std::collections::BTreeSet;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_array::{ArrayContext, SerializeMetadata};
-use vortex_dtype::{DType, FieldMask, FieldPath};
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::segments::{SegmentId, SegmentSource};
@@ -13,26 +14,42 @@ use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, LayoutVisitor,
 pub type LayoutRef = Arc<dyn Layout>;
 
 pub trait Layout: 'static + Send + Sync + private::Sealed {
+    fn as_any(&self) -> &dyn Any;
+
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
+
+    fn to_layout(&self) -> LayoutRef;
 
     /// Returns the [`crate::LayoutEncoding`] for this layout.
     fn encoding(&self) -> LayoutEncodingRef;
 
+    /// The number of rows in this layout.
     fn row_count(&self) -> u64;
 
+    /// The dtype of this layout.
     fn dtype(&self) -> &DType;
 
+    /// The number of children in this layout.
     fn nchildren(&self) -> usize;
 
+    /// Get the child at the given index.
+    fn child(&self, idx: usize) -> VortexResult<LayoutRef>;
+
+    /// Get the name of the child at the given index.
+    fn child_name(&self, idx: usize) -> Arc<str>;
+
+    /// Get the metadata for this layout.
+    fn metadata(&self) -> Vec<u8>;
+
+    /// Get the segment IDs for this layout.
+    fn segment_ids(&self) -> Vec<SegmentId>;
+
+    /// Visit all children of this layout matching the given field mask.
     fn visit_children(
         &self,
         field_mask: Option<&[FieldMask]>,
         visitor: &mut dyn LayoutVisitor,
     ) -> VortexResult<()>;
-
-    fn metadata(&self) -> Vec<u8>;
-
-    fn segment_ids(&self) -> Vec<SegmentId>;
 
     fn register_splits(
         &self,
@@ -62,24 +79,28 @@ impl dyn Layout + '_ {
 
     /// The children of this layout.
     pub fn children(&self) -> VortexResult<Vec<LayoutRef>> {
-        struct ChildrenCollector(Vec<LayoutRef>);
+        (0..self.nchildren()).map(|i| self.child(i)).try_collect()
+    }
 
-        impl LayoutVisitor for ChildrenCollector {
-            fn visit_child(
-                &mut self,
-                _name: &str,
-                _row_offset: u64,
-                _field_path: Option<&FieldPath>,
-                child: &LayoutRef,
-            ) -> VortexResult<()> {
-                self.0.push(child.clone());
-                Ok(())
-            }
-        }
+    /// The names of the children of this layout.
+    pub fn child_names(&self) -> Vec<Arc<str>> {
+        (0..self.nchildren()).map(|i| self.child_name(i)).collect()
+    }
 
-        let mut collector = ChildrenCollector(Vec::new());
-        self.visit_children(None, &mut collector)?;
-        Ok(collector.0)
+    pub fn is<V: VTable>(&self) -> bool {
+        self.as_opt::<V>().is_some()
+    }
+
+    /// Downcast a layout to a specific type.
+    pub fn as_<V: VTable>(&self) -> &V::Layout {
+        self.as_opt::<V>().vortex_expect("Failed to downcast")
+    }
+
+    /// Downcast a layout to a specific type.
+    pub fn as_opt<V: VTable>(&self) -> Option<&V::Layout> {
+        self.as_any()
+            .downcast_ref::<LayoutAdapter<V>>()
+            .map(|adapter| &adapter.0)
     }
 
     /// Downcast a layout to a specific type.
@@ -93,6 +114,33 @@ impl dyn Layout + '_ {
         // Now we can perform a cheeky transmute since we know the adapter is transparent.
         // SAFETY: The adapter is transparent and we know the underlying type is correct.
         unsafe { std::mem::transmute::<Arc<LayoutAdapter<V>>, Arc<V::Layout>>(layout_adapter) }
+    }
+
+    /// Depth-first traversal of the layout and its children.
+    pub fn depth_first_traversal(&self) -> impl Iterator<Item = VortexResult<LayoutRef>> {
+        /// A depth-first pre-order iterator over a layout.
+        struct ChildrenIterator {
+            stack: Vec<LayoutRef>,
+        }
+
+        impl Iterator for ChildrenIterator {
+            type Item = VortexResult<LayoutRef>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                let next = self.stack.pop()?;
+                let Ok(children) = next.children() else {
+                    return Some(Ok(next));
+                };
+                for child in children.into_iter().rev() {
+                    self.stack.push(child);
+                }
+                Some(Ok(next))
+            }
+        }
+
+        ChildrenIterator {
+            stack: vec![self.to_layout()],
+        }
     }
 }
 
@@ -111,8 +159,16 @@ impl Debug for dyn Layout + '_ {
 pub struct LayoutAdapter<V: VTable>(V::Layout);
 
 impl<V: VTable> Layout for LayoutAdapter<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
         self
+    }
+
+    fn to_layout(&self) -> LayoutRef {
+        Arc::new(LayoutAdapter::<V>(self.0.clone()))
     }
 
     fn encoding(&self) -> LayoutEncodingRef {
@@ -131,12 +187,12 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         V::nchildren(&self.0)
     }
 
-    fn visit_children(
-        &self,
-        field_mask: Option<&[FieldMask]>,
-        visitor: &mut dyn LayoutVisitor,
-    ) -> VortexResult<()> {
-        V::visit_children(&self.0, field_mask, visitor)
+    fn child(&self, idx: usize) -> VortexResult<LayoutRef> {
+        V::child(&self.0, idx)
+    }
+
+    fn child_name(&self, idx: usize) -> Arc<str> {
+        V::child_name(&self.0, idx)
     }
 
     fn metadata(&self) -> Vec<u8> {
@@ -145,6 +201,14 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
 
     fn segment_ids(&self) -> Vec<SegmentId> {
         V::segment_ids(&self.0)
+    }
+
+    fn visit_children(
+        &self,
+        field_mask: Option<&[FieldMask]>,
+        visitor: &mut dyn LayoutVisitor,
+    ) -> VortexResult<()> {
+        V::visit_children(&self.0, field_mask, visitor)
     }
 
     fn register_splits(

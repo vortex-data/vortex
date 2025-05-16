@@ -7,7 +7,7 @@ use std::sync::Arc;
 use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Field, FieldMask, FieldPath, StructDType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};
@@ -50,6 +50,20 @@ impl VTable for StructVTable {
         layout.struct_dtype().nfields()
     }
 
+    fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
+        layout
+            .children
+            .child(idx, &layout.struct_dtype().field_by_index(idx)?)
+    }
+
+    fn child_name(layout: &Self::Layout, idx: usize) -> Arc<str> {
+        layout
+            .struct_dtype()
+            .field_name(idx)
+            .vortex_expect("Index out of bounds")
+            .clone()
+    }
+
     fn visit_children(
         layout: &Self::Layout,
         field_mask: Option<&[FieldMask]>,
@@ -75,7 +89,7 @@ impl VTable for StructVTable {
     ) -> VortexResult<()> {
         layout.matching_fields(field_mask, |mask, idx| {
             layout
-                .field_by_idx(idx)?
+                .child(idx)?
                 .register_splits(&[mask], row_offset, splits)
         })
     }
@@ -144,12 +158,6 @@ impl StructLayout {
             vortex_panic!("Mismatched dtype {} for struct layout", self.dtype());
         };
         dtype
-    }
-
-    /// Return the layout of the field.
-    pub fn field_by_idx(&self, idx: usize) -> VortexResult<LayoutRef> {
-        self.children
-            .child(idx, &self.struct_dtype().field_by_index(idx)?)
     }
 
     pub fn matching_fields<F>(&self, field_mask: &[FieldMask], mut per_child: F) -> VortexResult<()>

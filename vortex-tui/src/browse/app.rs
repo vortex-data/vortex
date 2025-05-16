@@ -4,22 +4,11 @@ use std::sync::Arc;
 use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
 use vortex::dtype::DType;
-use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_panic};
+use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
-use vortex::stats::stats_from_bitset_bytes;
-use vortex::{DeserializeMetadata, ProstMetadata};
-use vortex_layout::layouts::chunked::ChunkedLayout;
-use vortex_layout::layouts::dict::DictLayout;
-use vortex_layout::layouts::dict::writer::DictLayoutMetadata;
-use vortex_layout::layouts::flat::FlatLayout;
-use vortex_layout::layouts::stats::ZoneMapLayout;
-use vortex_layout::layouts::stats::stats_table::StatsTable;
-use vortex_layout::layouts::struct_::StructLayout;
+use vortex_layout::layouts::flat::FlatVTable;
 use vortex_layout::segments::SegmentId;
-use vortex_layout::{
-    CHUNKED_LAYOUT_ID, DICT_LAYOUT_ID, FLAT_LAYOUT_ID, LayoutData, LayoutVTable, LayoutVTableRef,
-    STATS_LAYOUT_ID, STRUCT_LAYOUT_ID,
-};
+use vortex_layout::{LayoutEncodingRef, LayoutRef, STATS_LAYOUT_ID};
 
 use crate::browse::ui::SegmentGridState;
 
@@ -41,7 +30,7 @@ pub enum Tab {
 pub struct LayoutCursor {
     path: Vec<usize>,
     footer: Footer,
-    layout: LayoutData,
+    layout: LayoutRef,
     segment_map: Arc<[SegmentSpec]>,
 }
 
@@ -57,67 +46,12 @@ impl LayoutCursor {
 
     pub fn new_with_path(footer: Footer, path: Vec<usize>) -> Self {
         let mut layout = footer.layout().clone();
-        let mut dtype = footer.dtype().clone();
+
         // Traverse the layout tree at each element of the path.
         for component in path.iter().copied() {
-            // Find the DType of the child based on the DType of the current node.
-            // TODO(ngates): add visitor pattern to layout
-            dtype = if layout.id() == CHUNKED_LAYOUT_ID {
-                // If metadata is present, last child is stats table
-                if layout.metadata().is_some() && component == (layout.nchildren() - 1) {
-                    let metadata_bytes = layout.metadata().expect("extracting stats");
-                    let present_stats = stats_from_bitset_bytes(&metadata_bytes[4..]);
-
-                    StatsTable::dtype_for_stats_table(&dtype, &present_stats)
-                } else {
-                    // If there is no metadata, all children
-                    dtype.clone()
-                }
-            } else if layout.id() == STRUCT_LAYOUT_ID {
-                dtype
-                    .as_struct()
-                    .expect("struct dtype")
-                    .field_by_index(component)
-                    .expect("struct dtype component access")
-            } else if layout.id() == FLAT_LAYOUT_ID {
-                // Flat layouts have no children
-                unreachable!("flat layouts have no children")
-            } else if layout.id() == STATS_LAYOUT_ID {
-                if component == 0 {
-                    // This is the child data
-                    dtype.clone()
-                } else {
-                    // Otherwise, it's the stats table
-                    let present_stats = stats_from_bitset_bytes(
-                        &layout.metadata().expect("extracting stats").as_ref()[4..],
-                    );
-                    StatsTable::dtype_for_stats_table(&dtype, &present_stats)
-                }
-            } else if layout.id() == DICT_LAYOUT_ID {
-                match component {
-                    // values
-                    0 => dtype.clone(),
-                    // codes
-                    1 => {
-                        let metadata = ProstMetadata::<DictLayoutMetadata>::deserialize(
-                            layout
-                                .metadata()
-                                .as_ref()
-                                .map(|b| b.as_ref())
-                                .vortex_expect("Missing metadata for DictLayout"),
-                        )
-                        .expect("dict metadata");
-                        DType::from(metadata.codes_ptype()).with_nullability(dtype.nullability())
-                    }
-                    _ => vortex_panic!("can't have more than 2 children for dict layout"),
-                }
-            } else {
-                todo!("unknown DType")
-            };
-
             layout = layout
-                .child(component, dtype.clone(), "?")
-                .expect("children");
+                .child(component)
+                .vortex_expect("Failed to get child layout");
         }
 
         Self {
@@ -148,17 +82,8 @@ impl LayoutCursor {
     ///
     /// NOTE: this is only safe to run against a FLAT layout.
     pub fn flatbuffer_size(&self) -> usize {
-        assert_eq!(
-            self.layout.id(),
-            FLAT_LAYOUT_ID,
-            "flatbuffer size can only be checked for FLAT layout"
-        );
-
-        self.layout
-            .segments()
-            .last()
-            .map(|id| self.segment_spec(id).length as usize)
-            .unwrap_or_default()
+        let segment_id = self.layout.as_::<FlatVTable>().segment_id();
+        self.segment_spec(segment_id).length as usize
     }
 
     pub fn total_size(&self) -> usize {
@@ -169,8 +94,12 @@ impl LayoutCursor {
     }
 
     fn layout_segments(&self) -> Vec<SegmentId> {
-        let segments = collect_segment_ids(&self.layout);
-        [segments.0, segments.1].concat()
+        self.layout
+            .depth_first_traversal()
+            .into_iter()
+            .map(|layout| layout.vortex_expect("Failed to load layout"))
+            .flat_map(|layout| layout.segment_ids().into_iter())
+            .collect()
     }
 
     /// Predicate true when the cursor is currently activated over a stats table
@@ -185,11 +114,11 @@ impl LayoutCursor {
         self.layout.dtype()
     }
 
-    pub fn encoding(&self) -> &LayoutVTableRef {
-        self.layout.vtable()
+    pub fn encoding(&self) -> LayoutEncodingRef {
+        self.layout.encoding()
     }
 
-    pub fn layout(&self) -> &LayoutData {
+    pub fn layout(&self) -> &LayoutRef {
         &self.layout
     }
 
@@ -254,57 +183,4 @@ pub async fn create_file_app<'a>(path: impl AsRef<Path>) -> VortexResult<AppStat
         segment_grid_state: SegmentGridState::default(),
         frame_size: Size::new(0, 0),
     })
-}
-
-pub fn collect_segment_ids(root_layout: &LayoutData) -> (Vec<SegmentId>, Vec<SegmentId>) {
-    let mut data_segment_ids = Vec::default();
-    let mut stats_segment_ids = Vec::default();
-
-    collect_segment_ids_impl(root_layout, &mut data_segment_ids, &mut stats_segment_ids)
-        .vortex_unwrap();
-
-    (data_segment_ids, stats_segment_ids)
-}
-
-fn collect_segment_ids_impl(
-    root: &LayoutData,
-    data_segments: &mut Vec<SegmentId>,
-    stats_segments: &mut Vec<SegmentId>,
-) -> VortexResult<()> {
-    let layout_id = root.id();
-
-    if layout_id == StructLayout.id() {
-        let dtype = root.dtype().as_struct().vortex_expect("");
-        for child_idx in 0..dtype.fields().len() {
-            let name = dtype.field_name(child_idx)?;
-            let child_dtype = dtype.field_by_index(child_idx)?;
-            let child_layout = root.child(child_idx, child_dtype, name)?;
-            collect_segment_ids_impl(&child_layout, data_segments, stats_segments)?;
-        }
-    } else if layout_id == ChunkedLayout.id() {
-        for child_idx in 0..root.nchildren() {
-            let child_layout =
-                root.child(child_idx, root.dtype().clone(), format!("[{child_idx}]"))?;
-            collect_segment_ids_impl(&child_layout, data_segments, stats_segments)?;
-        }
-    } else if layout_id == ZoneMapLayout.id() {
-        let data_layout = root.child(0, root.dtype().clone(), "data")?;
-        collect_segment_ids_impl(&data_layout, data_segments, stats_segments)?;
-
-        // For the stats layout, we use the stats segment accumulator
-        let stats_layout = root.child(1, root.dtype().clone(), "stats")?;
-        collect_segment_ids_impl(&stats_layout, stats_segments, &mut vec![])?;
-    } else if layout_id == FlatLayout.id() {
-        data_segments.extend(root.segments());
-    } else if layout_id == DictLayout.id() {
-        let values_layout = root.child(0, root.dtype().clone(), "values")?;
-        collect_segment_ids_impl(&values_layout, data_segments, stats_segments)?;
-
-        let codes_layout = root.child(1, root.dtype().clone(), "codes")?;
-        collect_segment_ids_impl(&codes_layout, data_segments, stats_segments)?;
-    } else {
-        unreachable!()
-    };
-
-    Ok(())
 }

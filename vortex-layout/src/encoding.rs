@@ -89,11 +89,19 @@ impl PartialEq for dyn LayoutEncoding + '_ {
 impl Eq for dyn LayoutEncoding + '_ {}
 
 impl dyn LayoutEncoding + '_ {
+    pub fn is<V: VTable>(&self) -> bool {
+        self.as_opt::<V>().is_some()
+    }
+
     pub fn as_<V: VTable>(&self) -> &V::Encoding {
+        self.as_opt::<V>()
+            .vortex_expect("LayoutEncoding is not of the expected type")
+    }
+
+    pub fn as_opt<V: VTable>(&self) -> Option<&V::Encoding> {
         self.as_any()
             .downcast_ref::<LayoutEncodingAdapter<V>>()
             .map(|e| &e.0)
-            .vortex_expect("LayoutEncoding is not of the expected type")
     }
 }
 

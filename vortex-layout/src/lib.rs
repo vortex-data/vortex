@@ -31,6 +31,8 @@ mod writer;
 
 pub type LayoutId = ArcRef<str>;
 
+// FIXME(ngates): remove these
+
 /// The layout ID for a flat layout
 pub const FLAT_LAYOUT_ID: LayoutId = ArcRef::new_ref("vortex.flat");
 /// The layout ID for a chunked layout

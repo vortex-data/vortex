@@ -7,7 +7,7 @@ use std::sync::Arc;
 use reader::DictReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, FieldMask, FieldPath, PType};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
@@ -50,6 +50,22 @@ impl VTable for DictVTable {
 
     fn nchildren(_layout: &Self::Layout) -> usize {
         2
+    }
+
+    fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
+        match idx {
+            0 => Ok(layout.values.clone()),
+            1 => Ok(layout.codes.clone()),
+            _ => vortex_bail!("Unreachable child index: {}", idx),
+        }
+    }
+
+    fn child_name(_layout: &Self::Layout, idx: usize) -> Arc<str> {
+        match idx {
+            0 => "values".into(),
+            1 => "codes".into(),
+            _ => vortex_panic!("Unreachable child index: {}", idx),
+        }
     }
 
     fn visit_children(

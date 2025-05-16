@@ -12,9 +12,11 @@ pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
 
     let mut segment_names: Vec<Option<Arc<str>>> = vec![None; segment_map.len()];
 
-    let mut queue = VecDeque::from_iter([vxf.layout_reader()?]);
+    // FIXME(ngates): implement this with a visitor so we can build up child names.
+
+    let mut queue = VecDeque::from_iter([vxf.footer().layout().clone()]);
     while !queue.is_empty() {
-        let reader = queue.pop_front().vortex_expect("queue is not empty");
+        let layout = queue.pop_front().vortex_expect("queue is not empty");
         for segment in reader.layout().segments() {
             segment_names[*segment as usize] = Some(reader.layout().name().clone());
         }

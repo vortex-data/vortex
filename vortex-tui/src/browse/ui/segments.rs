@@ -13,12 +13,12 @@ use taffy::{
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
 use vortex::file::SegmentSpec;
+use vortex_layout::LayoutRef;
 use vortex_layout::layouts::chunked::ChunkedLayout;
 use vortex_layout::layouts::dict::DictLayout;
 use vortex_layout::layouts::flat::FlatLayout;
 use vortex_layout::layouts::stats::ZoneMapLayout;
 use vortex_layout::layouts::struct_::StructLayout;
-use vortex_layout::{LayoutData, LayoutVTable};
 
 use crate::browse::app::AppState;
 
@@ -365,7 +365,7 @@ struct SegmentTree {
 }
 
 fn segments_by_name_impl(
-    root: &LayoutData,
+    root: &LayoutRef,
     group_name: Option<Arc<str>>,
     name: Option<Arc<str>>,
     segments: &Arc<[SegmentSpec]>,

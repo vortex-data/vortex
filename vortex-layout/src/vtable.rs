@@ -10,11 +10,12 @@ use vortex_error::VortexResult;
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    IntoLayout, Layout, LayoutEncoding, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutVisitor,
+    IntoLayout, Layout, LayoutEncoding, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef,
+    LayoutVisitor,
 };
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
-    type Layout: 'static + Send + Sync + Deref<Target = dyn Layout> + IntoLayout;
+    type Layout: 'static + Send + Sync + Clone + Deref<Target = dyn Layout> + IntoLayout;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn LayoutEncoding>;
     type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
 
@@ -38,6 +39,12 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
     /// Returns the number of children for the layout.
     fn nchildren(layout: &Self::Layout) -> usize;
+
+    /// Return the child at the given index.
+    fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef>;
+
+    /// Return the name of the child at the given index.
+    fn child_name(layout: &Self::Layout, idx: usize) -> Arc<str>;
 
     /// Visitor the children of the layout.
     fn visit_children(

@@ -50,6 +50,14 @@ impl VTable for ChunkedVTable {
         layout.children.nchildren()
     }
 
+    fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
+        layout.children.child(idx, &layout.dtype)
+    }
+
+    fn child_name(_layout: &Self::Layout, idx: usize) -> Arc<str> {
+        format!("[{}]", idx).into()
+    }
+
     fn visit_children(
         layout: &Self::Layout,
         _field_mask: Option<&[FieldMask]>,
@@ -77,7 +85,7 @@ impl VTable for ChunkedVTable {
     ) -> VortexResult<()> {
         let mut offset = row_offset;
         for i in 0..layout.nchildren() {
-            let child = layout.chunk(i)?;
+            let child = layout.child(i)?;
             child.register_splits(field_mask, offset, splits)?;
             offset += child.row_count();
             splits.insert(offset);
@@ -132,10 +140,5 @@ impl ChunkedLayout {
             dtype,
             children: OwnedLayoutChildren::from(children).to_arc(),
         }
-    }
-
-    /// Returns the layout for the given chunk index.
-    pub fn chunk(&self, idx: usize) -> VortexResult<LayoutRef> {
-        self.children.child(idx, &self.dtype)
     }
 }

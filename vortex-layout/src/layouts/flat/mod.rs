@@ -6,12 +6,14 @@ use std::sync::Arc;
 
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
 use crate::segments::{SegmentId, SegmentSource};
-use crate::{LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutVisitor, VTable, vtable};
+use crate::{
+    LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor, VTable, vtable,
+};
 
 vtable!(Flat);
 
@@ -46,6 +48,14 @@ impl VTable for FlatVTable {
 
     fn nchildren(_layout: &Self::Layout) -> usize {
         0
+    }
+
+    fn child(_layout: &Self::Layout, _idx: usize) -> VortexResult<LayoutRef> {
+        vortex_bail!("Flat layout has no children");
+    }
+
+    fn child_name(_layout: &Self::Layout, _idx: usize) -> Arc<str> {
+        vortex_panic!("Flat layout has no children");
     }
 
     fn visit_children(
@@ -123,7 +133,7 @@ impl FlatLayout {
         }
     }
 
-    pub(super) fn segment_id(&self) -> SegmentId {
+    pub fn segment_id(&self) -> SegmentId {
         self.segment_id
     }
 }
