@@ -4,7 +4,6 @@ pub mod writer;
 
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::VortexResult;
@@ -22,11 +21,11 @@ impl VTable for FlatVTable {
     type Metadata = EmptyMetadata;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        ArcRef::new_ref("vortex.flat")
+        LayoutId::new_ref("vortex.flat")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        ArcRef::new_ref(FlatLayoutEncoding.as_ref())
+        LayoutEncodingRef::new_ref(FlatLayoutEncoding.as_ref())
     }
 
     fn row_count(layout: &Self::Layout) -> u64 {

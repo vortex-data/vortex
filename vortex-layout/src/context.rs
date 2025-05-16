@@ -4,7 +4,7 @@ use crate::LayoutRef;
 use crate::layouts::chunked::ChunkedLayoutEncoding;
 use crate::layouts::dict::DictLayout;
 use crate::layouts::flat::FlatLayout;
-use crate::layouts::stats::StatsLayout;
+use crate::layouts::stats::ZoneMapLayout;
 use crate::layouts::struct_::StructLayout;
 
 pub type LayoutContext = VTableContext<LayoutRef>;
@@ -21,7 +21,7 @@ impl LayoutRegistryExt for LayoutRegistry {
             LayoutRef::new_ref(ChunkedLayoutEncoding.as_ref()),
             LayoutRef::new_ref(FlatLayout.as_ref()),
             LayoutRef::new_ref(StructLayout.as_ref()),
-            LayoutRef::new_ref(StatsLayout.as_ref()),
+            LayoutRef::new_ref(ZoneMapLayout.as_ref()),
             LayoutRef::new_ref(DictLayout.as_ref()),
         ]);
         this

@@ -17,7 +17,7 @@
 //!    offsets. Finding the chunks containing row range is an `Nlog(N)` operation of searching the
 //!    offsets.
 //!
-//! 4. The [`StatsLayout`](vortex_layout::layouts::stats::StatsLayout).
+//! 4. The [`StatsLayout`](vortex_layout::layouts::stats::ZoneMapLayout).
 //!
 //! A layout, alone, is _not_ a standalone Vortex file because layouts are not self-describing. They
 //! neither contain a description of the kind of layout (e.g. flat, column of flat, chunked of

@@ -7,7 +7,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::segments::SegmentWriter;
-use crate::{LayoutData, LayoutStrategy, LayoutWriter, LayoutWriterExt};
+use crate::{LayoutData, LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt};
 
 pub struct RepartitionStrategy {
     pub options: RepartitionWriterOptions,
@@ -150,7 +150,7 @@ impl LayoutWriter for RepartitionWriter {
         self.writer.flush(segment_writer)
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
         self.writer.finish(segment_writer)
     }
 }

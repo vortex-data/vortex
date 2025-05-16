@@ -23,10 +23,10 @@ use crate::{
 
 /// A [`LayoutReader`] for chunked layouts.
 pub struct ChunkedReader {
-    pub(super) layout: Arc<ChunkedLayout>,
-    pub(super) lazy_children: LazyReaderChildren,
+    layout: Arc<ChunkedLayout>,
+    lazy_children: LazyReaderChildren,
     /// Row offset for each chunk
-    pub(super) chunk_offsets: Vec<u64>,
+    chunk_offsets: Vec<u64>,
 }
 
 impl ChunkedReader {

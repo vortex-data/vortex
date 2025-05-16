@@ -14,7 +14,7 @@ use vortex::layout::{
 use vortex::mask::Mask;
 use vortex::stats::stats_from_bitset_bytes;
 use vortex::{Array, ArrayRef, ToCanonical};
-use vortex_layout::layouts::stats::StatsLayout;
+use vortex_layout::layouts::stats::ZoneMapLayout;
 use vortex_layout::{ExprEvaluator, LayoutVTable};
 
 use crate::TOKIO_RUNTIME;
@@ -64,7 +64,7 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
         )));
     }
 
-    if cursor.encoding().id() == StatsLayout.id() {
+    if cursor.encoding().id() == ZoneMapLayout.id() {
         // Push any columnar stats.
         if let Some(available_stats) = cursor
             .layout()

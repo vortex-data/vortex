@@ -61,7 +61,7 @@ impl StatsTable {
     }
 
     /// The statistics that are included in the table.
-    pub fn present_stats(&self) -> &[Stat] {
+    pub fn present_stats(&self) -> &Arc<[Stat]> {
         &self.stats
     }
 

@@ -16,7 +16,7 @@ use vortex::file::SegmentSpec;
 use vortex_layout::layouts::chunked::ChunkedLayout;
 use vortex_layout::layouts::dict::DictLayout;
 use vortex_layout::layouts::flat::FlatLayout;
-use vortex_layout::layouts::stats::StatsLayout;
+use vortex_layout::layouts::stats::ZoneMapLayout;
 use vortex_layout::layouts::struct_::StructLayout;
 use vortex_layout::{LayoutData, LayoutVTable};
 
@@ -404,7 +404,7 @@ fn segments_by_name_impl(
                 segment_tree,
             )?;
         }
-    } else if layout_id == StatsLayout.id() {
+    } else if layout_id == ZoneMapLayout.id() {
         let data_layout = root.child(0, root.dtype().clone(), "data")?;
         segments_by_name_impl(
             &data_layout,

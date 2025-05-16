@@ -2,18 +2,16 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use itertools::Itertools;
-use vortex_array::stats::{PRUNING_STATS, Stat, as_stat_bitset_bytes};
+use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::{Array, ArrayContext, ArrayRef};
-use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::LayoutStrategy;
-use crate::data::LayoutData;
-use crate::layouts::stats::StatsLayout;
+use crate::layouts::stats::ZoneMapLayout;
 use crate::layouts::stats::stats_table::StatsAccumulator;
 use crate::segments::SegmentWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
+use crate::{IntoLayout, LayoutRef, LayoutStrategy};
 
 pub struct StatsLayoutOptions {
     /// The size of a statistics block
@@ -34,7 +32,7 @@ impl Default for StatsLayoutOptions {
 pub struct StatsLayoutWriter {
     ctx: ArrayContext,
     options: StatsLayoutOptions,
-    child_writer: Box<dyn LayoutWriter>,
+    data_writer: Box<dyn LayoutWriter>,
     stats_strategy: ArcRef<dyn LayoutStrategy>,
     stats_accumulator: StatsAccumulator,
     dtype: DType,
@@ -61,7 +59,7 @@ impl StatsLayoutWriter {
         Self {
             ctx,
             options,
-            child_writer,
+            data_writer: child_writer,
             stats_strategy,
             stats_accumulator,
             dtype: dtype.clone(),
@@ -100,21 +98,21 @@ impl LayoutWriter for StatsLayoutWriter {
 
         self.nblocks += 1;
         self.stats_accumulator.push_chunk(&chunk)?;
-        self.child_writer.push_chunk(segment_writer, chunk)
+        self.data_writer.push_chunk(segment_writer, chunk)
     }
 
     fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
-        self.child_writer.flush(segment_writer)
+        self.data_writer.flush(segment_writer)
     }
 
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutData> {
-        let child = self.child_writer.finish(segment_writer)?;
+    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
+        let data = self.data_writer.finish(segment_writer)?;
 
         // Collect together the statistics
         let Some(stats_table) = self.stats_accumulator.as_stats_table() else {
             // If we have no stats (e.g. the DType doesn't support them), then we just return the
             // child layout.
-            return Ok(child);
+            return Ok(data);
         };
 
         // We must defer creating the stats table LayoutWriter until now, because the DType of
@@ -123,26 +121,14 @@ impl LayoutWriter for StatsLayoutWriter {
         let mut stats_writer = self
             .stats_strategy
             .new_writer(&self.ctx, stats_array.dtype())?;
-        let stats_layout = stats_writer.push_one(segment_writer, stats_table.array().to_array())?;
+        let zones_layout = stats_writer.push_one(segment_writer, stats_table.array().to_array())?;
 
-        let mut metadata = ByteBufferMut::empty();
-
-        // First, write the block size to the metadata.
-        let block_size = u32::try_from(self.options.block_size)?;
-        metadata.extend_from_slice(&block_size.to_le_bytes());
-
-        // Then write the bit-set of statistics.
-        metadata.extend_from_slice(&as_stat_bitset_bytes(stats_table.present_stats()));
-
-        Ok(LayoutData::new_owned(
-            "stats".into(),
-            LayoutVTableRef::new_ref(&StatsLayout),
-            self.dtype.clone(),
-            // We report our child data's row count, not the stats table.
-            child.row_count(),
-            vec![],
-            vec![child, stats_layout],
-            Some(metadata.freeze().into_inner()),
-        ))
+        Ok(ZoneMapLayout::new(
+            data,
+            zones_layout,
+            self.options.block_size,
+            stats_table.present_stats().clone(),
+        )
+        .into_layout())
     }
 }

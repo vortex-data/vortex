@@ -2,7 +2,6 @@ mod reader;
 pub mod writer;
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use reader::DictReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, FieldMask, FieldPath, PType};
@@ -22,11 +21,11 @@ impl VTable for DictVTable {
     type Metadata = ProstMetadata<DictLayoutMetadata>;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        ArcRef::new_ref("vortex.dict")
+        LayoutId::new_ref("vortex.dict")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        ArcRef::new_ref(DictLayoutEncoding.as_ref())
+        LayoutEncodingRef::new_ref(DictLayoutEncoding.as_ref())
     }
 
     fn row_count(layout: &Self::Layout) -> u64 {

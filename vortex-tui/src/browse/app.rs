@@ -12,7 +12,7 @@ use vortex_layout::layouts::chunked::ChunkedLayout;
 use vortex_layout::layouts::dict::DictLayout;
 use vortex_layout::layouts::dict::writer::DictLayoutMetadata;
 use vortex_layout::layouts::flat::FlatLayout;
-use vortex_layout::layouts::stats::StatsLayout;
+use vortex_layout::layouts::stats::ZoneMapLayout;
 use vortex_layout::layouts::stats::stats_table::StatsTable;
 use vortex_layout::layouts::struct_::StructLayout;
 use vortex_layout::segments::SegmentId;
@@ -287,7 +287,7 @@ fn collect_segment_ids_impl(
                 root.child(child_idx, root.dtype().clone(), format!("[{child_idx}]"))?;
             collect_segment_ids_impl(&child_layout, data_segments, stats_segments)?;
         }
-    } else if layout_id == StatsLayout.id() {
+    } else if layout_id == ZoneMapLayout.id() {
         let data_layout = root.child(0, root.dtype().clone(), "data")?;
         collect_segment_ids_impl(&data_layout, data_segments, stats_segments)?;
 

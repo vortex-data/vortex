@@ -1,41 +1,34 @@
-use std::ops::Range;
+use std::ops::{BitAnd, Deref, Range, Sub};
 use std::sync::{Arc, OnceLock, RwLock};
 
+use arrow_buffer::BooleanBufferBuilder;
+use async_trait::async_trait;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
+use itertools::Itertools;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
-use vortex_array::stats::{Stat, stats_from_bitset_bytes};
 use vortex_array::{ArrayContext, ToCanonical};
-use vortex_dtype::TryFromBytes;
-use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
-use crate::LayoutData;
-use crate::layouts::stats::StatsLayout;
+use crate::layouts::stats::ZoneMapLayout;
 use crate::layouts::stats::stats_table::StatsTable;
-use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
+use crate::{ArrayEvaluation, Layout, LayoutData, LayoutReader, MaskEvaluation, PruningEvaluation};
 
 pub(crate) type SharedStatsTable = Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>>;
 pub(crate) type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
 pub(crate) type PredicateCache = Arc<OnceLock<Option<PruningPredicate>>>;
 
-pub struct StatsReader {
-    layout: LayoutData,
+pub struct ZoneMapReader {
+    layout: Arc<ZoneMapLayout>,
 
     /// Data layout reader
-    pub(crate) data_child: Arc<dyn LayoutReader>,
-    /// Stats table layout reader.
-    pub(crate) stats_child: Arc<dyn LayoutReader>,
-
-    /// The number of zones
-    pub(crate) nzones: usize,
-    /// The number of rows in each zone (except possibly the last)
-    pub(crate) zone_len: usize,
-    /// The stats that are present in the table
-    pub(crate) present_stats: Arc<[Stat]>,
+    data_child: Arc<dyn LayoutReader>,
+    /// Zone map layout reader.
+    zones_child: Arc<dyn LayoutReader>,
 
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
     pruning_result: RwLock<HashMap<ExprRef, Option<SharedPruningResult>>>,
@@ -44,43 +37,30 @@ pub struct StatsReader {
     stats_table: OnceLock<SharedStatsTable>,
 
     /// A cache of expr -> optional pruning predicate.
-    pub(crate) pruning_predicates: Arc<RwLock<HashMap<ExprRef, PredicateCache>>>,
+    pruning_predicates: Arc<RwLock<HashMap<ExprRef, PredicateCache>>>,
 }
 
-impl StatsReader {
+impl Deref for ZoneMapReader {
+    type Target = dyn Layout;
+
+    fn deref(&self) -> &Self::Target {
+        self.layout.as_ref()
+    }
+}
+
+impl ZoneMapReader {
     pub(super) fn try_new(
-        layout: LayoutData,
+        layout: Arc<ZoneMapLayout>,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<Self> {
-        if layout.vtable().id() != StatsLayout.id() {
-            vortex_panic!("Mismatched layout ID")
-        }
-
-        let metadata = layout
-            .metadata()
-            .vortex_expect("Stats layout must have metadata");
-
-        let zone_len = u32::try_from_le_bytes(&metadata[0..4])? as usize;
-        let present_stats: Arc<[Stat]> = stats_from_bitset_bytes(&metadata[4..]).into();
-        let nzones = usize::try_from(layout.row_count().div_ceil(zone_len as u64))?;
-
-        let data_child = layout
-            .child(0, layout.dtype().clone(), "data")?
-            .reader(segment_source, ctx)?;
-
-        let stats_dtype = StatsTable::dtype_for_stats_table(layout.dtype(), &present_stats);
-        let stats_child = layout
-            .child(1, stats_dtype, "stats_table")?
-            .reader(segment_source, ctx)?;
+        let data_child = layout.data.new_reader(segment_source, ctx)?;
+        let zones_child = layout.zones.new_reader(segment_source, ctx)?;
 
         Ok(Self {
             layout,
             data_child,
-            stats_child,
-            nzones,
-            zone_len,
-            present_stats,
+            zones_child,
             pruning_result: Default::default(),
             stats_table: Default::default(),
             pruning_predicates: Default::default(),
@@ -88,7 +68,7 @@ impl StatsReader {
     }
 
     /// Get or create the pruning predicate for a given expression.
-    pub(crate) fn pruning_predicate(&self, expr: ExprRef) -> Option<PruningPredicate> {
+    fn pruning_predicate(&self, expr: ExprRef) -> Option<PruningPredicate> {
         self.pruning_predicates
             .write()
             .vortex_expect("poisoned lock")
@@ -102,24 +82,24 @@ impl StatsReader {
     ///
     /// Only the first successful caller will initialize the stats table, all other callers will
     /// resolve to the same result.
-    pub(crate) fn stats_table(&self) -> SharedStatsTable {
+    fn stats_table(&self) -> SharedStatsTable {
         self.stats_table
             .get_or_init(move || {
-                let nzones = self.nzones;
-                let present_stats = self.present_stats.clone();
+                let nzones = self.layout.nzones();
+                let present_stats = self.layout.present_stats.clone();
 
-                let stats_eval = self
-                    .stats_child
+                let zones_eval = self
+                    .zones_child
                     .projection_evaluation(&(0..nzones as u64), &Identity::new_expr())
                     .vortex_expect("Failed construct stats table evaluation");
 
                 async move {
-                    let stats_array = stats_eval
+                    let zones_array = zones_eval
                         .invoke(Mask::new_true(nzones))
                         .await?
                         .to_struct()?;
                     // SAFETY: This is only fine to call because we perform validation above
-                    Ok(StatsTable::unchecked_new(stats_array, present_stats))
+                    Ok(StatsTable::unchecked_new(zones_array, present_stats))
                 }
                 .map_err(Arc::new)
                 .boxed()
@@ -129,7 +109,7 @@ impl StatsReader {
     }
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
-    pub(crate) fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
+    fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
         match self
             .pruning_result
             .write()
@@ -166,25 +146,243 @@ impl StatsReader {
 
     /// Return the zone range covered by a row range.
     pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<usize> {
-        let zone_start = usize::try_from(row_range.start / self.zone_len as u64)
+        let zone_start = usize::try_from(row_range.start / self.zones_child.row_count())
             .vortex_expect("Invalid zone start");
-        let zone_end = usize::try_from(row_range.end.div_ceil(self.zone_len as u64))
+        let zone_end = usize::try_from(row_range.end.div_ceil(self.zones_child.row_count()))
             .vortex_expect("Invalid zone end");
         zone_start..zone_end
     }
 
     /// Return the row offset of a given zone.
     pub(crate) fn zone_offset(&self, zone_idx: usize) -> u64 {
-        ((zone_idx * self.zone_len) as u64).min(self.layout.child_row_count(0))
+        (zone_idx as u64 * self.layout.zone_len as u64).min(self.data_child.row_count())
     }
 }
 
-impl LayoutReader for StatsReader {
-    fn layout(&self) -> &LayoutData {
-        &self.layout
+impl LayoutReader for ZoneMapReader {
+    fn pruning_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn PruningEvaluation>> {
+        log::debug!(
+            "Stats pruning evaluation: {} - {}",
+            self.layout().name(),
+            expr
+        );
+        let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
+
+        let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
+            log::debug!("Stats pruning evaluation: not prune-able {}", expr);
+            return Ok(data_eval);
+        };
+
+        let zone_range = self.zone_range(row_range);
+        let zone_lengths = zone_range
+            .clone()
+            .map(|zone_idx| {
+                // Figure out the range in the mask that corresponds to the zone
+                let start =
+                    usize::try_from(self.zone_offset(zone_idx).saturating_sub(row_range.start))?;
+                let end = usize::try_from(
+                    self.zone_offset(zone_idx + 1)
+                        .sub(row_range.start)
+                        .min(row_range.end - row_range.start),
+                )?;
+                Ok::<_, VortexError>(end - start)
+            })
+            .try_collect()?;
+
+        Ok(Box::new(StatsPruningEvaluation {
+            layout: self.layout().clone(),
+            expr: expr.clone(),
+            pruning_mask_future,
+            zone_range,
+            zone_lengths,
+            data_eval,
+        }))
     }
 
-    fn children(&self) -> VortexResult<Vec<Arc<dyn LayoutReader>>> {
-        Ok(vec![self.data_child.clone(), self.stats_child.clone()])
+    fn filter_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn MaskEvaluation>> {
+        self.data_child.filter_evaluation(row_range, expr)
+    }
+
+    fn projection_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &ExprRef,
+    ) -> VortexResult<Box<dyn ArrayEvaluation>> {
+        // TODO(ngates): there are some projection expressions that we may also be able to
+        //  short-circuit with statistics.
+        self.data_child.projection_evaluation(row_range, expr)
+    }
+}
+
+struct StatsPruningEvaluation {
+    layout: LayoutData,
+    expr: ExprRef,
+    pruning_mask_future: SharedPruningResult,
+    // The range of zones that cover the evaluation's row range.
+    zone_range: Range<usize>,
+    // The lengths of each zone in the zone_range.
+    zone_lengths: Vec<usize>,
+    // The evaluation of the data child.
+    data_eval: Box<dyn PruningEvaluation>,
+}
+
+#[async_trait]
+impl PruningEvaluation for StatsPruningEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        log::debug!(
+            "Invoking stats pruning evaluation {}: {}",
+            self.layout.name(),
+            self.expr,
+        );
+        let Some(pruning_mask) = self.pruning_mask_future.clone().await? else {
+            // If the expression is not prune-able, we just return the input mask.
+            return Ok(mask);
+        };
+
+        let mut builder = BooleanBufferBuilder::new(mask.len());
+        for (zone_idx, zone_length) in self.zone_range.clone().zip_eq(&self.zone_lengths) {
+            builder.append_n(*zone_length, !pruning_mask.value(zone_idx));
+        }
+
+        let stats_mask = Mask::from(builder.finish());
+        assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
+
+        // Intersect the masks.
+        let mut stats_mask = mask.bitand(&stats_mask);
+
+        // Forward to data child for further pruning.
+        if !stats_mask.all_false() {
+            let data_mask = self.data_eval.invoke(stats_mask.clone()).await?;
+            stats_mask = stats_mask.bitand(&data_mask);
+        }
+
+        log::debug!(
+            "Stats evaluation approx {} - {} (mask = {}) => {}",
+            self.layout.name(),
+            self.expr,
+            mask.density(),
+            stats_mask.density(),
+        );
+
+        Ok(stats_mask)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+
+    use arcref::ArcRef;
+    use futures::executor::block_on;
+    use rstest::{fixture, rstest};
+    use vortex_array::{ArrayContext, IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::{DType, PType};
+    use vortex_expr::{Identity, gt, lit};
+    use vortex_mask::Mask;
+
+    use crate::LayoutRef;
+    use crate::layouts::chunked::writer::ChunkedLayoutWriter;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
+    use crate::segments::{SegmentSource, TestSegments};
+    use crate::writer::LayoutWriterExt;
+
+    #[fixture]
+    /// Create a stats layout with three chunks of primitive arrays.
+    fn stats_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
+        let ctx = ArrayContext::empty();
+        let mut segments = TestSegments::default();
+        let layout = StatsLayoutWriter::new(
+            ctx.clone(),
+            &DType::Primitive(PType::I32, NonNullable),
+            ChunkedLayoutWriter::new(
+                ctx.clone(),
+                DType::Primitive(PType::I32, NonNullable),
+                Default::default(),
+            )
+            .boxed(),
+            ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
+            StatsLayoutOptions {
+                block_size: 3,
+                ..Default::default()
+            },
+        )
+        .push_all(
+            &mut segments,
+            [
+                Ok(buffer![1, 2, 3].into_array()),
+                Ok(buffer![4, 5, 6].into_array()),
+                Ok(buffer![7, 8, 9].into_array()),
+            ],
+        )
+        .unwrap();
+        (ctx, Arc::new(segments), layout)
+    }
+
+    #[rstest]
+    fn test_stats_evaluator(
+        #[from(stats_layout)] (ctx, segments, layout): (
+            ArrayContext,
+            Arc<dyn SegmentSource>,
+            LayoutRef,
+        ),
+    ) {
+        block_on(async {
+            let result = layout
+                .new_reader(&segments, &ctx)
+                .unwrap()
+                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
+                .unwrap()
+                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                .await
+                .unwrap()
+                .to_primitive()
+                .unwrap();
+
+            assert_eq!(result.len(), 9);
+            assert_eq!(result.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        })
+    }
+
+    #[rstest]
+    fn test_stats_pruning_mask(
+        #[from(stats_layout)] (ctx, segments, layout): (
+            ArrayContext,
+            Arc<dyn SegmentSource>,
+            LayoutRef,
+        ),
+    ) {
+        block_on(async {
+            let row_count = layout.row_count();
+            let reader = layout.new_reader(&segments, &ctx).unwrap();
+
+            // Choose a prune-able expression
+            let expr = gt(Identity::new_expr(), lit(7));
+
+            let result = reader
+                .pruning_evaluation(&(0..row_count), &expr)
+                .unwrap()
+                .invoke(Mask::new_true(row_count.try_into().unwrap()))
+                .await
+                .unwrap()
+                .to_boolean_buffer()
+                .iter()
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                result.as_slice(),
+                &[false, false, false, false, false, false, true, true, true]
+            );
+        })
     }
 }
