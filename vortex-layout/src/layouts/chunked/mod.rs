@@ -65,13 +65,15 @@ impl VTable for ChunkedVTable {
 
     fn new_reader(
         layout: &Self::Layout,
+        name: &Arc<str>,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ChunkedReader::new(
             layout.clone(),
-            segment_source,
-            ctx,
+            name.clone(),
+            segment_source.clone(),
+            ctx.clone(),
         )))
     }
 

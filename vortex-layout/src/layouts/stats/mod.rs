@@ -58,14 +58,16 @@ impl VTable for ZoneMapVTable {
     }
 
     fn new_reader(
-        layout: &Arc<Self::Layout>,
+        layout: &Self::Layout,
+        name: &Arc<str>,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ZoneMapReader::try_new(
             layout.clone(),
-            segment_source,
-            ctx,
+            name.clone(),
+            segment_source.clone(),
+            ctx.clone(),
         )?))
     }
 

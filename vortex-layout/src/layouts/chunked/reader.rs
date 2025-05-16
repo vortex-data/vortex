@@ -23,6 +23,7 @@ use crate::{
 /// A [`LayoutReader`] for chunked layouts.
 pub struct ChunkedReader {
     layout: ChunkedLayout,
+    name: Arc<str>,
     lazy_children: LazyReaderChildren,
     /// Row offset for each chunk
     chunk_offsets: Vec<u64>,
@@ -31,8 +32,9 @@ pub struct ChunkedReader {
 impl ChunkedReader {
     pub fn new(
         layout: ChunkedLayout,
-        segment_source: &Arc<dyn SegmentSource>,
-        ctx: &ArrayContext,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+        ctx: ArrayContext,
     ) -> Self {
         let nchildren = layout.nchildren();
 
@@ -41,11 +43,11 @@ impl ChunkedReader {
             chunk_offsets[i] = chunk_offsets[i - 1] + layout.children.child_row_count(i - 1);
         }
 
-        let lazy_children =
-            LazyReaderChildren::new(layout.children.clone(), segment_source.clone(), ctx.clone());
+        let lazy_children = LazyReaderChildren::new(layout.children.clone(), segment_source, ctx);
 
         Self {
             layout,
+            name,
             lazy_children,
             chunk_offsets,
         }
@@ -115,7 +117,6 @@ impl Deref for ChunkedReader {
 impl LayoutReader for ChunkedReader {
     fn pruning_evaluation(
         &self,
-        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
@@ -124,17 +125,13 @@ impl LayoutReader for ChunkedReader {
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval = chunk_reader.pruning_evaluation(
-                format!("{}.[{}]", name, chunk_idx),
-                &chunk_range,
-                expr,
-            )?;
+            let chunk_eval = chunk_reader.pruning_evaluation(&chunk_range, expr)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
 
         Ok(Box::new(ChunkedPruningEvaluation {
-            name,
+            name: self.name.clone(),
             chunk_evals,
             mask_ranges,
         }))
@@ -142,7 +139,7 @@ impl LayoutReader for ChunkedReader {
 
     fn filter_evaluation(
         &self,
-        name: String,
+
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
@@ -151,17 +148,13 @@ impl LayoutReader for ChunkedReader {
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval = chunk_reader.filter_evaluation(
-                format!("{}.[{}]", name, chunk_idx),
-                &chunk_range,
-                expr,
-            )?;
+            let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
 
         Ok(Box::new(ChunkedMaskEvaluation {
-            name,
+            name: self.name.clone(),
             chunk_evals,
             mask_ranges,
         }))
@@ -169,7 +162,6 @@ impl LayoutReader for ChunkedReader {
 
     fn projection_evaluation(
         &self,
-        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
@@ -179,11 +171,7 @@ impl LayoutReader for ChunkedReader {
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval = chunk_reader.projection_evaluation(
-                format!("{}.[{}]", name, chunk_idx),
-                &chunk_range,
-                expr,
-            )?;
+            let chunk_eval = chunk_reader.projection_evaluation(&chunk_range, expr)?;
             chunk_evals.push(chunk_eval);
             mask_ranges.push(mask_range);
         }
@@ -197,7 +185,7 @@ impl LayoutReader for ChunkedReader {
 }
 
 struct ChunkedPruningEvaluation {
-    name: String,
+    name: Arc<str>,
     chunk_evals: Vec<Box<dyn PruningEvaluation>>,
     mask_ranges: Vec<Range<usize>>,
 }
@@ -240,7 +228,7 @@ impl PruningEvaluation for ChunkedPruningEvaluation {
 }
 
 struct ChunkedMaskEvaluation {
-    name: String,
+    name: Arc<str>,
     chunk_evals: Vec<Box<dyn MaskEvaluation>>,
     mask_ranges: Vec<Range<usize>>,
 }

@@ -50,7 +50,6 @@ impl Deref for FilterLayoutReader {
 impl LayoutReader for FilterLayoutReader {
     fn pruning_evaluation(
         &self,
-        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
@@ -66,7 +65,7 @@ impl LayoutReader for FilterLayoutReader {
         let conjunct_evals: Vec<_> = filter_expr
             .conjuncts
             .iter()
-            .map(|expr| self.child.pruning_evaluation(, row_range, expr))
+            .map(|expr| self.child.pruning_evaluation(row_range, expr))
             .try_collect()?;
 
         Ok(Box::new(FilterPruningEvaluation { conjunct_evals }))
@@ -74,7 +73,6 @@ impl LayoutReader for FilterLayoutReader {
 
     fn filter_evaluation(
         &self,
-        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
@@ -90,7 +88,7 @@ impl LayoutReader for FilterLayoutReader {
         let conjunct_evals: Vec<_> = filter_expr
             .conjuncts
             .iter()
-            .map(|expr| self.child.filter_evaluation(, row_range, expr))
+            .map(|expr| self.child.filter_evaluation(row_range, expr))
             .try_collect()?;
 
         Ok(Box::new(FilterEvaluation {
@@ -101,12 +99,11 @@ impl LayoutReader for FilterLayoutReader {
 
     fn projection_evaluation(
         &self,
-        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // Pass-through all projection expressions to the child layout reader.
-        self.child.projection_evaluation(, row_range, expr)
+        self.child.projection_evaluation(row_range, expr)
     }
 }
 

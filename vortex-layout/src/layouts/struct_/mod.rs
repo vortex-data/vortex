@@ -70,12 +70,14 @@ impl VTable for StructVTable {
     }
 
     fn new_reader(
-        layout: &Arc<Self::Layout>,
+        layout: &Self::Layout,
+        name: &Arc<str>,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(StructReader::try_new(
             layout.clone(),
+            name.clone(),
             segment_source.clone(),
             ctx.clone(),
         )?))

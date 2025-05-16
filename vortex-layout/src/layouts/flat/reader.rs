@@ -14,8 +14,7 @@ use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, Layout, LayoutData, LayoutReader, MaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
+    ArrayEvaluation, Layout, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
 };
 
 /// The threshold of mask density below which we will evaluate the expression only over the
@@ -26,7 +25,8 @@ use crate::{
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
 pub struct FlatReader {
-    layout: Arc<FlatLayout>,
+    layout: FlatLayout,
+    name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
     ctx: ArrayContext,
     array: OnceLock<SharedArrayFuture>,
@@ -36,20 +36,22 @@ impl Deref for FlatReader {
     type Target = dyn Layout;
 
     fn deref(&self) -> &Self::Target {
-        self.layout.as_ref()
+        self.layout.deref()
     }
 }
 
 impl FlatReader {
     pub(crate) fn new(
-        layout: Arc<FlatLayout>,
-        segment_source: &Arc<dyn SegmentSource>,
-        ctx: &ArrayContext,
+        layout: FlatLayout,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+        ctx: ArrayContext,
     ) -> Self {
         Self {
             layout,
-            segment_source: segment_source.clone(),
-            ctx: ctx.clone(),
+            name,
+            segment_source,
+            ctx,
             array: Default::default(),
         }
     }
@@ -61,7 +63,7 @@ impl FlatReader {
     // TODO(ngates): caching this and ignoring SegmentReaders may be a terrible idea... we may
     //  instead want to store all segment futures and race them, so if a layout requests a
     //  projection future before a pruning future, the pruning isn't blocked.
-    fn array_future(&self, name: &str) -> VortexResult<SharedArrayFuture> {
+    fn array_future(&self) -> VortexResult<SharedArrayFuture> {
         let row_count = usize::try_from(self.layout.row_count()).vortex_unwrap();
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
@@ -69,7 +71,7 @@ impl FlatReader {
         // This is gross... see the function's TODO for a maybe better solution?
         let segment_fut = self
             .segment_source
-            .request(self.layout.segment_id(), name);
+            .request(self.layout.segment_id(), &self.name);
 
         Ok(self
             .array
@@ -92,7 +94,6 @@ impl FlatReader {
 impl LayoutReader for FlatReader {
     fn pruning_evaluation(
         &self,
-        _name: String,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
@@ -101,7 +102,6 @@ impl LayoutReader for FlatReader {
 
     fn filter_evaluation(
         &self,
-        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
@@ -111,7 +111,7 @@ impl LayoutReader for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
 
         Ok(Box::new(FlatEvaluation {
-            name,
+            name: self.name.clone(),
             array: self.array_future()?,
             row_range,
             expr: expr.clone(),
@@ -120,7 +120,6 @@ impl LayoutReader for FlatReader {
 
     fn projection_evaluation(
         &self,
-        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
@@ -129,7 +128,7 @@ impl LayoutReader for FlatReader {
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
         Ok(Box::new(FlatEvaluation {
-            name,
+            name: self.name.clone(),
             array: self.array_future()?,
             row_range,
             expr: expr.clone(),
@@ -138,7 +137,7 @@ impl LayoutReader for FlatReader {
 }
 
 struct FlatEvaluation {
-    name: String,
+    name: Arc<str>,
     array: SharedArrayFuture,
     row_range: Range<usize>,
     expr: ExprRef,
@@ -251,9 +250,9 @@ mod test {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader(&segments, &ctx)
+                .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
-                .projection_evaluation(, &(0..layout.row_count()), &Identity::new_expr())
+                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -280,9 +279,9 @@ mod test {
 
             let expr = gt(Identity::new_expr(), lit(3i32));
             let result = layout
-                .new_reader(&segments, &ctx)
+                .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
-                .projection_evaluation(, &(0..layout.row_count()), &expr)
+                .projection_evaluation(&(0..layout.row_count()), &expr)
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -311,9 +310,9 @@ mod test {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader(&segments, &ctx)
+                .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
-                .projection_evaluation(, &(2..4), &ident())
+                .projection_evaluation(&(2..4), &ident())
                 .unwrap()
                 .invoke(Mask::new_true(2))
                 .await

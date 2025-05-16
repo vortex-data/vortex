@@ -20,11 +20,10 @@ pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 ///
 /// Since different row ranges of the reader may be evaluated by different threads, it is required
 /// to be both `Send` and `Sync`.
-pub trait LayoutReader: 'static + Send + Sync + Deref<Target=dyn Layout> {
+pub trait LayoutReader: 'static + Send + Sync + Deref<Target = dyn Layout> {
     /// Performs an approximate evaluation of the expression against the layout reader.
     fn pruning_evaluation(
         &self,
-        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>>;
@@ -32,7 +31,6 @@ pub trait LayoutReader: 'static + Send + Sync + Deref<Target=dyn Layout> {
     /// Performs an exact evaluation of the expression against the layout reader.
     fn filter_evaluation(
         &self,
-        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>>;
@@ -40,7 +38,6 @@ pub trait LayoutReader: 'static + Send + Sync + Deref<Target=dyn Layout> {
     /// Evaluates the expression against the layout.
     fn projection_evaluation(
         &self,
-        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>>;

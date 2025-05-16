@@ -140,9 +140,9 @@ mod tests {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader(&segments, &ctx)
+                .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
-                .projection_evaluation(, &(0..layout.row_count()), &ident())
+                .projection_evaluation(&(0..layout.row_count()), &ident())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await

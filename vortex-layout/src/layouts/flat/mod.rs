@@ -1,4 +1,3 @@
-mod eval_expr;
 mod reader;
 pub mod writer;
 
@@ -6,8 +5,9 @@ use std::sync::Arc;
 
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_bail};
 
+use crate::layouts::flat::reader::FlatReader;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
     LayoutChildren, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutVisitor, VTable, vtable,
@@ -52,22 +52,35 @@ impl VTable for FlatVTable {
     }
 
     fn new_reader(
-        layout: &Arc<Self::Layout>,
+        layout: &Self::Layout,
+        name: &Arc<str>,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
-        todo!()
+        Ok(Arc::new(FlatReader::new(
+            layout.clone(),
+            name.clone(),
+            segment_source.clone(),
+            ctx.clone(),
+        )))
     }
 
     fn build(
-        encoding: &Self::Encoding,
+        _encoding: &Self::Encoding,
         dtype: &DType,
         row_count: u64,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
-        children: &dyn LayoutChildren,
+        _children: &dyn LayoutChildren,
     ) -> VortexResult<Self::Layout> {
-        todo!()
+        if segment_ids.len() != 1 {
+            vortex_bail!("Flat layout must have exactly one segment ID");
+        }
+        Ok(FlatLayout {
+            row_count,
+            dtype: dtype.clone(),
+            segment_id: segment_ids[0],
+        })
     }
 }
 

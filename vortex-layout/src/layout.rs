@@ -26,6 +26,7 @@ pub trait Layout: 'static + Send + Sync {
 
     fn new_reader(
         &self,
+        name: &Arc<str>,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<LayoutReaderRef>;
@@ -84,7 +85,8 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
     }
 
     fn new_reader(
-        self: Arc<Self>,
+        &self,
+        name: &Arc<str>,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {

@@ -22,6 +22,7 @@ use crate::{
 
 pub struct DictReader {
     layout: DictLayout,
+    name: Arc<str>,
 
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
@@ -43,14 +44,22 @@ impl Deref for DictReader {
 impl DictReader {
     pub(super) fn try_new(
         layout: DictLayout,
+        name: Arc<str>,
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<Self> {
-        let values = layout.values.new_reader(segment_source, ctx)?;
-        let codes = layout.codes.new_reader(segment_source, ctx)?;
+        let values =
+            layout
+                .values
+                .new_reader(&format!("{}.values", name).into(), segment_source, ctx)?;
+        let codes =
+            layout
+                .codes
+                .new_reader(&format!("{}.codes", name).into(), segment_source, ctx)?;
 
         Ok(Self {
             layout,
+            name,
             values_array: Default::default(),
             values_evals: Default::default(),
             values,
@@ -58,7 +67,7 @@ impl DictReader {
         })
     }
 
-    fn values_array(&self, name: &str) -> SharedArrayFuture {
+    fn values_array(&self) -> SharedArrayFuture {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
         // different parent readers. But that's rare...
         self.values_array
@@ -66,11 +75,7 @@ impl DictReader {
                 let values_len = self.values.row_count();
                 let eval = self
                     .values
-                    .projection_evaluation(
-                        format!("{}.values", name),
-                        &(0..values_len),
-                        &Identity::new_expr(),
-                    )
+                    .projection_evaluation(&(0..values_len), &Identity::new_expr())
                     .vortex_expect("must construct dict values array evaluation");
 
                 async move {
@@ -87,13 +92,13 @@ impl DictReader {
             .clone()
     }
 
-    fn values_eval(&self, name: &str, expr: ExprRef) -> SharedArrayFuture {
+    fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture {
         self.values_evals
             .write()
             .vortex_expect("poisoned lock")
             .entry(expr.clone())
             .or_insert_with(|| {
-                self.values_array(name)
+                self.values_array()
                     .map(move |array| expr.evaluate(&array?).map_err(Arc::new))
                     .boxed()
                     .shared()
@@ -105,7 +110,6 @@ impl DictReader {
 impl LayoutReader for DictReader {
     fn pruning_evaluation(
         &self,
-        _name: String,
         _row_range: &Range<u64>,
         _expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
@@ -118,20 +122,17 @@ impl LayoutReader for DictReader {
 
     fn filter_evaluation(
         &self,
-        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let values_eval = self.values_eval(&name, expr.clone());
+        let values_eval = self.values_eval(expr.clone());
 
         // We register interest on the entire codes row_range for now, there
         // is no straightforward shift into the codes domain we can do to the expression
         // without reading values.
-        let codes_eval = self.codes.projection_evaluation(
-            format!("{}.codes", name),
-            row_range,
-            &Identity::new_expr(),
-        )?;
+        let codes_eval = self
+            .codes
+            .projection_evaluation(row_range, &Identity::new_expr())?;
 
         Ok(Box::new(DictMaskEvaluation {
             values_eval,
@@ -141,16 +142,13 @@ impl LayoutReader for DictReader {
 
     fn projection_evaluation(
         &self,
-        name: String,
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        let values_eval = self.values_eval(&name, expr.clone());
-        let codes_eval = self.codes.projection_evaluation(
-            format!("{}.codes", name),
-            row_range,
-            &Identity::new_expr(),
-        )?;
+        let values_eval = self.values_eval(expr.clone());
+        let codes_eval = self
+            .codes
+            .projection_evaluation(row_range, &Identity::new_expr())?;
         Ok(Box::new(DictArrayEvaluation {
             values_eval,
             codes_eval,
