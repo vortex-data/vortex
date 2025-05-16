@@ -1,7 +1,7 @@
-🌪️ Vortex
-=========
+# 🌪️ Vortex
 
 [![Build Status](https://github.com/vortex-data/vortex/actions/workflows/ci.yml/badge.svg)](https://github.com/vortex-data/vortex/actions)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/10567/badge)](https://www.bestpractices.dev/projects/10567)
 [![Documentation](https://docs.rs/vortex-array/badge.svg)](https://docs.vortex.dev)
 [![CodSpeed Badge](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/vortex-data/vortex)
 [![Crates.io](https://img.shields.io/crates/v/vortex-array.svg)](https://crates.io/crates/vortex-array)
@@ -15,14 +15,14 @@
 Vortex is a next-generation columnar file format and toolkit designed for high-performance data analytics. It provides:
 
 - **⚡️ Blazing Fast Performance**
-    - 100-200x faster random access reads than Apache Parquet
-    - 2-10x faster scans with similar compression ratios and write throughput
-    - Efficient support for wide tables with zero-copy/zero-parse metadata
+  - 100-200x faster random access reads than Apache Parquet
+  - 2-10x faster scans with similar compression ratios and write throughput
+  - Efficient support for wide tables with zero-copy/zero-parse metadata
 
 - **🔧 Extensible Architecture**
-    - Modeled after Apache DataFusion's extensible approach
-    - Pluggable encoding system
-    - Zero-copy compatibility with Apache Arrow
+  - Modeled after Apache DataFusion's extensible approach
+  - Pluggable encoding system
+  - Zero-copy compatibility with Apache Arrow
 
 > 🚧 **Development Status**: This project is under active development. APIs and file formats may change, and some
 > features are still being implemented.
@@ -105,7 +105,7 @@ uv sync --all-packages
 
 ### Performance Optimization
 
-For optimal performance, use [MiMalloc](https://github.com/microsoft/mimalloc):
+For optimal performance, we suggest using [MiMalloc](https://github.com/microsoft/mimalloc):
 
 ```rust,ignore
 #[global_allocator]
@@ -116,16 +116,21 @@ static GLOBAL_ALLOC: MiMalloc = MiMalloc;
 
 ### License
 
-Licensed under the Apache License, Version 2.0
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE)
 
 ### Governance
 
-Vortex is committed to remaining open-source, following governance models inspired by
-the [Substrait project](https://substrait.io/governance/) and Apache Software Foundation.
+Vortex is an independent open-source project and not controlled by any single company. The Vortex Project is a sub-project of the Linux Foundation Projects. The governance model is documented in
+[CONTRIBUTING.md](CONTRIBUTING.md) and is subject to the terms of the [Technical Charter](https://vortex.dev/charter.pdf).
 
 ### Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Trademarks
+
+Copyright © Vortex a Series of LF Projects, LLC.
+For terms of use, trademark policy, and other project policies please see <https://lfprojects.org>
 
 ## Acknowledgments 🏆
 
@@ -149,5 +154,4 @@ This project builds upon groundbreaking work from the academic and open-source c
 - [DuckDB](https://github.com/duckdb/duckdb)
 - [Velox](https://github.com/facebookincubator/velox) & [Nimble](https://github.com/facebookincubator/nimble)
 
----
-*Thanks to all contributors who have shared their knowledge and code with the community! 🚀*
+#### Thanks to all contributors who have shared their knowledge and code with the community! 🚀
