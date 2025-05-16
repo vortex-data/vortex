@@ -104,6 +104,12 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
         .arg("-c")
         .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
 
+    command
+        .arg("-c")
+        .arg("SET autoinstall_known_extensions=1;")
+        .arg("-c")
+        .arg("SET autoload_known_extensions=1;");
+
     match opts.dataset {
         TpcDataset::TpcH => command
             .arg("-c")
@@ -144,8 +150,6 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
         }
         Format::OnDiskDuckDB | Format::Arrow => { /* Do nothing */ }
     };
-
-    println!("{:?}", command);
 
     command.envs(std::env::vars_os());
     let output = command.output()?;
