@@ -22,6 +22,7 @@ jobs:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           submodules: "recursive"
       - uses: ./.github/actions/duckdb/build-duckdb-binary.yml
 
