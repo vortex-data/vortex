@@ -130,21 +130,6 @@ jobs:
         run: CFLAGS="-ftls-model=global-dynamic" GEN=ninja make release
         working-directory: ${{ github.workspace }}/duckdb-vortex
 
-      - name: sleep
-        run: |
-          echo sleep
-          sleep 18000
-          echo sleep
-          sleep 18000
-          echo sleep
-          sleep 18000
-          echo sleep
-          sleep 18000
-          echo sleep
-          sleep 18000
-          echo sleep
-          sleep 18000
-
       - name: Generate data
         shell: bash
         run: |
