@@ -25,7 +25,7 @@ jobs:
         id: cache-duckdb-binary
         with:
           key: "${{ runner.os }}-ducdkb-linux_amd64-${{ env.DUCKDB_VERSION }}"
-          path: "`pwd`duckdb/build/release/duckdb"
+          path: ${{ github.workspace }}/duckdb/build/release/duckdb
 
       - name: Install duckdb compile requirements
         if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
@@ -98,7 +98,7 @@ jobs:
         with:
           fail-on-cache-miss: true
           key: "${{ runner.os }}-ducdkb-linux_amd64-${{ env.DUCKDB_VERSION }}"
-          path: `pwd`duckdb/build/release/duckdb
+          path: ${{ github.workspace }}/duckdb/build/release/duckdb
 
       - name: Add duckdb to path
         run: |
