@@ -9,10 +9,10 @@ use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, FieldMask, FieldPath, PType};
 use vortex_error::VortexResult;
 
+use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutChildren, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor, VTable,
-    vtable,
+    LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor, VTable, vtable,
 };
 
 vtable!(Dict);

@@ -10,8 +10,9 @@ use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
+use crate::Layout;
+use crate::children::LayoutChildren;
 use crate::segments::SegmentSource;
-use crate::{Layout, LayoutChildren};
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 

@@ -12,7 +12,7 @@ use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, LayoutVisitor,
 
 pub type LayoutRef = Arc<dyn Layout>;
 
-pub trait Layout: 'static + Send + Sync {
+pub trait Layout: 'static + Send + Sync + private::Sealed {
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 
     /// Returns the [`crate::LayoutEncoding`] for this layout.
@@ -149,4 +149,12 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
     ) -> VortexResult<LayoutReaderRef> {
         V::new_reader(&self.0, name, segment_source, ctx)
     }
+}
+
+mod private {
+    use super::*;
+
+    pub trait Sealed {}
+
+    impl<V: VTable> Sealed for LayoutAdapter<V> {}
 }

@@ -7,6 +7,7 @@ pub use context::*;
 pub mod layouts;
 
 use arcref::ArcRef;
+pub use children::*;
 pub use encoding::*;
 pub use layout::*;
 pub use reader::*;
@@ -15,6 +16,7 @@ pub use visitor::*;
 pub use vtable::*;
 pub use writer::*;
 pub mod aliases;
+mod children;
 mod encoding;
 mod layout;
 mod reader;

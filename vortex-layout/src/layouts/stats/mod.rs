@@ -10,12 +10,12 @@ use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::{DType, FieldMask, FieldPath, TryFromBytes};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
+use crate::children::LayoutChildren;
 use crate::layouts::stats::reader::ZoneMapReader;
 use crate::layouts::stats::stats_table::StatsTable;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutChildren, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor, VTable,
-    vtable,
+    LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor, VTable, vtable,
 };
 
 vtable!(ZoneMap);

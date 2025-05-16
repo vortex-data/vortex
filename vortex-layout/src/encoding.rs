@@ -2,9 +2,12 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 
 use arcref::ArcRef;
-use vortex_error::VortexExpect;
+use vortex_array::DeserializeMetadata;
+use vortex_dtype::DType;
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
-use crate::VTable;
+use crate::segments::SegmentId;
+use crate::{IntoLayout, LayoutChildren, LayoutRef, VTable};
 
 pub type LayoutEncodingId = ArcRef<str>;
 pub type LayoutEncodingRef = ArcRef<dyn LayoutEncoding>;
@@ -13,6 +16,15 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
     fn as_any(&self) -> &dyn Any;
 
     fn id(&self) -> LayoutEncodingId;
+
+    fn build(
+        &self,
+        dtype: &DType,
+        row_count: u64,
+        metadata: &[u8],
+        segment_ids: Vec<SegmentId>,
+        children: &dyn LayoutChildren,
+    ) -> VortexResult<LayoutRef>;
 }
 
 #[repr(transparent)]
@@ -25,6 +37,32 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
 
     fn id(&self) -> LayoutEncodingId {
         V::id(&self.0)
+    }
+
+    fn build(
+        &self,
+        dtype: &DType,
+        row_count: u64,
+        metadata: &[u8],
+        segment_ids: Vec<SegmentId>,
+        children: &dyn LayoutChildren,
+    ) -> VortexResult<LayoutRef> {
+        let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
+        let layout = V::build(&self.0, dtype, row_count, &metadata, segment_ids, children)?;
+
+        // Validate that the builder function returned the expected values.
+        if layout.row_count() != row_count {
+            vortex_panic!(
+                "Layout row count mismatch: {} != {}",
+                layout.row_count(),
+                row_count
+            );
+        }
+        if layout.dtype() != dtype {
+            vortex_panic!("Layout dtype mismatch: {} != {}", layout.dtype(), dtype);
+        }
+
+        Ok(layout.into_layout())
     }
 }
 

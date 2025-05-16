@@ -7,14 +7,14 @@ use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::VortexResult;
 
+use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    Layout, LayoutChildren, LayoutEncoding, LayoutEncodingRef, LayoutId, LayoutReaderRef,
-    LayoutVisitor,
+    IntoLayout, Layout, LayoutEncoding, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutVisitor,
 };
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
-    type Layout: 'static + Send + Sync + Deref<Target = dyn Layout>;
+    type Layout: 'static + Send + Sync + Deref<Target = dyn Layout> + IntoLayout;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn LayoutEncoding>;
     type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
 
