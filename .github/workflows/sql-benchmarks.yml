@@ -105,7 +105,6 @@ jobs:
           echo ${{ github.workspace }}/duckdb/build/release/duckdb >> $GITHUB_PATH
           ls ${{ github.workspace }}
           ${{ github.workspace }}/duckdb/build/release/duckdb --version
-          cat ${{ github.workspace }}/duckdb/build/release/duckdb
           duckdb --version
 
       - name: Setup AWS CLI
