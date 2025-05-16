@@ -20,6 +20,8 @@ jobs:
       - tag=${{ matrix.id }}
     steps:
       - uses: runs-on/action@v1
+      - uses: actions/checkout@v4
+
       - run: |
           pwd 
           ls ./.github/actions/duckdb/build-duckdb-binary.yml
