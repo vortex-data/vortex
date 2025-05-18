@@ -1,8 +1,9 @@
 use std::ops::{BitAnd, Deref, Range};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures::{FutureExt, join};
+use parking_lot::RwLock;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::{MinMaxResult, filter, min_max};
@@ -96,7 +97,6 @@ impl DictReader {
     fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture {
         self.values_evals
             .write()
-            .vortex_expect("poisoned lock")
             .entry(expr.clone())
             .or_insert_with(|| {
                 self.values_array()

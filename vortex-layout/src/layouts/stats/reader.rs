@@ -1,11 +1,12 @@
 use std::ops::{BitAnd, Deref, Range, Sub};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
+use parking_lot::RwLock;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::{ArrayContext, ToCanonical};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
@@ -77,7 +78,6 @@ impl ZoneMapReader {
     fn pruning_predicate(&self, expr: ExprRef) -> Option<PruningPredicate> {
         self.pruning_predicates
             .write()
-            .vortex_expect("poisoned lock")
             .entry(expr.clone())
             .or_default()
             .get_or_init(move || PruningPredicate::try_new(&expr))
@@ -116,12 +116,7 @@ impl ZoneMapReader {
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
     fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
-        match self
-            .pruning_result
-            .write()
-            .vortex_expect("poisoned lock")
-            .entry(expr.clone())
-        {
+        match self.pruning_result.write().entry(expr.clone()) {
             Entry::Occupied(e) => e.get().clone(),
             Entry::Vacant(e) => e
                 .insert(match self.pruning_predicate(expr.clone()) {

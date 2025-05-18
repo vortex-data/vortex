@@ -8,7 +8,6 @@
 
 use std::any::{Any, type_name};
 use std::fmt::{Debug, Formatter};
-use std::sync::RwLock;
 
 use arcref::ArcRef;
 pub use between::*;
@@ -27,10 +26,11 @@ pub use mask::*;
 pub use min_max::*;
 pub use nan_count::*;
 pub use numeric::*;
+use parking_lot::RwLock;
 pub use sum::*;
 pub use take::*;
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -84,10 +84,7 @@ impl ComputeFn {
 
     /// Register a kernel for the compute function.
     pub fn register_kernel(&self, kernel: ArcRef<dyn Kernel>) {
-        self.kernels
-            .write()
-            .vortex_expect("poisoned lock")
-            .push(kernel);
+        self.kernels.write().push(kernel);
     }
 
     /// Invokes the compute function with the given arguments.
@@ -112,9 +109,7 @@ impl ComputeFn {
         let expected_dtype = self.vtable.return_dtype(args)?;
         let expected_len = self.vtable.return_len(args)?;
 
-        let output = self
-            .vtable
-            .invoke(args, &self.kernels.read().vortex_expect("poisoned lock"))?;
+        let output = self.vtable.invoke(args, &self.kernels.read())?;
 
         if output.dtype() != &expected_dtype {
             vortex_bail!(
@@ -154,7 +149,7 @@ impl ComputeFn {
 
     /// Returns the compute function's kernels.
     pub fn kernels(&self) -> Vec<ArcRef<dyn Kernel>> {
-        self.kernels.read().vortex_expect("poisoned lock").to_vec()
+        self.kernels.read().to_vec()
     }
 }
 

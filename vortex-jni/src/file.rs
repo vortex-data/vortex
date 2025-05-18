@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use jni::JNIEnv;
@@ -10,6 +10,7 @@ use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::local::LocalFileSystem;
 use object_store::{ClientOptions, ObjectStore, ObjectStoreScheme};
+use parking_lot::Mutex;
 use prost::Message;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
@@ -182,7 +183,7 @@ fn make_object_store(
     let cache_key = url_cache_key(url);
 
     {
-        if let Some(cached) = OBJECT_STORES.lock().vortex_expect("poison").get(&cache_key) {
+        if let Some(cached) = OBJECT_STORES.lock().get(&cache_key) {
             return Ok((cached.clone(), scheme));
         }
         // guard dropped at close of scope
@@ -247,10 +248,7 @@ fn make_object_store(
     };
 
     {
-        OBJECT_STORES
-            .lock()
-            .vortex_expect("poison")
-            .insert(cache_key, store.clone());
+        OBJECT_STORES.lock().insert(cache_key, store.clone());
         // Guard dropped at close of scope.
     }
 

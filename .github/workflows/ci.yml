@@ -419,7 +419,7 @@ jobs:
           targets: "wasm32-wasip1"
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v3.1
-      - run: cargo build --target wasm32-wasip1
+      - run: cargo -Zbuild-std=panic_abort,std build --target wasm32-wasip1
         working-directory: ./wasm-test
       - run: wasmer run ./target/wasm32-wasip1/debug/wasm-test.wasm
         working-directory: ./wasm-test

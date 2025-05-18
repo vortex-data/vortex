@@ -22,6 +22,7 @@ futures = { workspace = true }
 jni = "0.21.1"
 log = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
+parking_lot = { workspace = true }
 prost = { workspace = true }
 simplelog = { workspace = true }
 thiserror = { workspace = true }

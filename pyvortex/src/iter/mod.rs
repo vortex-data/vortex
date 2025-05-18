@@ -2,16 +2,15 @@ mod python;
 pub(crate) mod stream;
 
 use std::iter;
-use std::sync::Mutex;
 
 use arrow::array::RecordBatchReader;
 use arrow::pyarrow::IntoPyArrow;
+use parking_lot::Mutex;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use pyo3::{Bound, PyResult, Python};
 pub(crate) use stream::*;
 use vortex::dtype::DType;
-use vortex::error::VortexExpect;
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{Canonical, IntoArray};
 
@@ -51,7 +50,7 @@ impl PyArrayIterator {
     }
 
     pub fn take(&self) -> Option<Box<dyn ArrayIterator + Send>> {
-        self.iter.lock().vortex_expect("poisoned lock").take()
+        self.iter.lock().take()
     }
 }
 
@@ -75,7 +74,6 @@ impl PyArrayIterator {
             Ok(self
                 .iter
                 .lock()
-                .vortex_expect("poisoned lock")
                 .as_mut()
                 .and_then(|iter| iter.next())
                 .transpose()?
@@ -87,7 +85,7 @@ impl PyArrayIterator {
     /// this will be a :class:`vortex.ChunkedArray`, otherwise it will be a single array.
     fn read_all(&self, py: Python) -> PyResult<PyArrayRef> {
         let array = py.allow_threads(|| {
-            if let Some(iter) = self.iter.lock().vortex_expect("poisoned lock").take() {
+            if let Some(iter) = self.iter.lock().take() {
                 iter.read_all()
             } else {
                 // Otherwise, we continue to return an empty array.

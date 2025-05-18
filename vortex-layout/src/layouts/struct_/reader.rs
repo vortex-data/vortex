@@ -1,11 +1,12 @@
 use std::hash::Hash;
 use std::ops::{BitAnd, Deref, Range};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::TryStreamExt;
 use futures::stream::FuturesOrdered;
 use itertools::Itertools;
+use parking_lot::RwLock;
 use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
@@ -97,7 +98,6 @@ impl StructReader {
         match self
             .partitioned_expr_cache
             .write()
-            .vortex_expect("poisoned lock")
             .entry(ExactExpr(expr.clone()))
         {
             Entry::Occupied(entry) => entry.get().clone(),

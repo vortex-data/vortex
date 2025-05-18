@@ -1,9 +1,10 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::FutureExt;
 use moka::future::{Cache, CacheBuilder};
 use moka::policy::EvictionPolicy;
+use parking_lot::RwLock;
 use rustc_hash::FxBuildHasher;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::ByteBuffer;
@@ -73,7 +74,7 @@ pub(crate) struct InitialReadSegmentCache {
 #[async_trait]
 impl SegmentCache for InitialReadSegmentCache {
     async fn get(&self, id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
-        if let Some(buffer) = self.initial.read().vortex_expect("poisoned lock").get(&id) {
+        if let Some(buffer) = self.initial.read().get(&id) {
             return Ok(Some(buffer.clone()));
         }
         self.fallback.get(id).await
