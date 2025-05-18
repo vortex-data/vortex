@@ -15,8 +15,8 @@ pub fn layout_from_flatbuffer(
 ) -> VortexResult<LayoutRef> {
     let fb_layout = root::<layout::Layout>(&flatbuffer)?;
     let encoding = ctx
-        .lookup_encoding(fb_layout.layout_id())
-        .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.layout_id()))?;
+        .lookup_encoding(fb_layout.encoding())
+        .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
 
     // SAFETY: we validate the flatbuffer above in the `root` call, and extract a loc.
     let viewed_children = unsafe {
@@ -97,12 +97,12 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
         let segments = (!segments.is_empty()).then(|| fbb.create_vector(&segments));
 
         // Dictionary-encode the layout ID
-        let layout_id = self.ctx.encoding_idx(&self.layout.encoding());
+        let encoding = self.ctx.encoding_idx(&self.layout.encoding());
 
         layout::Layout::create(
             fbb,
             &layout::LayoutArgs {
-                layout_id,
+                encoding,
                 row_count: self.layout.row_count(),
                 metadata,
                 children,

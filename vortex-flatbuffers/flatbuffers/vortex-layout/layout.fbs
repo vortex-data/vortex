@@ -11,10 +11,10 @@
 /// The `metadata` field is fully opaque at this layer, and allows the Layout implementation corresponding to
 /// `encoding` to embed additional information that may be useful for the reader. For example, the `ChunkedLayout`
 /// uses the first byte of the `metadata` array as a boolean to indicate whether the first child Layout represents
-/// the statistics table for the other chunks.
+/// the statistics table for the other chunks. 
 table Layout {
-    /// The ID of this layout.
-    layout_id: uint16;
+    /// The ID of the encoding used for this Layout.
+    encoding: uint16;
     /// The number of rows of data represented by this Layout.
     row_count: uint64;
     /// Any additional metadata this layout needs to interpret its children.
