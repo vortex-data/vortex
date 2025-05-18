@@ -120,6 +120,10 @@ impl Deref for ChunkedReader {
 }
 
 impl LayoutReader for ChunkedReader {
+    fn name(&self) -> &Arc<str> {
+        &self.name
+    }
+
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,

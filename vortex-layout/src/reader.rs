@@ -22,6 +22,9 @@ pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 /// Since different row ranges of the reader may be evaluated by different threads, it is required
 /// to be both `Send` and `Sync`.
 pub trait LayoutReader: 'static + Send + Sync + Deref<Target = dyn Layout> {
+    /// Returns the name of the layout reader for debugging.
+    fn name(&self) -> &Arc<str>;
+
     /// Performs an approximate evaluation of the expression against the layout reader.
     fn pruning_evaluation(
         &self,

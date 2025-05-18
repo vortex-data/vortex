@@ -130,6 +130,10 @@ impl Hash for ExactExpr {
 }
 
 impl LayoutReader for StructReader {
+    fn name(&self) -> &Arc<str> {
+        &self.name
+    }
+
     fn pruning_evaluation(
         &self,
 

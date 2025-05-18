@@ -162,8 +162,8 @@ fn estimate_layout_size(footer: &Footer) -> usize {
 
     let root_layout = footer.layout();
     let layout_size = size_of::<DType>()
-        + root_layout.metadata().map(|b| b.len()).unwrap_or_default()
-        + root_layout.nsegments() * size_of::<SegmentId>();
+        + root_layout.metadata().len()
+        + root_layout.segment_ids().len() * size_of::<SegmentId>();
 
     segments_size + stats_size + layout_size
 }

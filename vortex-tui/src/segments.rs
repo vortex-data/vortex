@@ -9,18 +9,29 @@ pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
     let vxf = VortexOpenOptions::file().open(file).await?;
 
     let segment_map = vxf.footer().segment_map();
+    let segment_source = vxf.segment_source();
 
     let mut segment_names: Vec<Option<Arc<str>>> = vec![None; segment_map.len()];
 
-    // FIXME(ngates): implement this with a visitor so we can build up child names.
+    let root_reader =
+        vxf.footer()
+            .layout()
+            .new_reader(&"".into(), &segment_source, &vxf.footer().ctx())?;
 
-    let mut queue = VecDeque::from_iter([vxf.footer().layout().clone()]);
+    let mut queue = VecDeque::from_iter([root_reader]);
     while !queue.is_empty() {
-        let layout = queue.pop_front().vortex_expect("queue is not empty");
-        for segment in reader.layout().segments() {
-            segment_names[*segment as usize] = Some(reader.layout().name().clone());
+        let reader = queue.pop_front().vortex_expect("queue is not empty");
+        for segment in reader.segment_ids() {
+            segment_names[*segment as usize] = Some(reader.name().clone());
         }
-        queue.extend(reader.children()?);
+
+        for (child_layout, child_name) in reader.children()?.iter().zip(reader.child_names()) {
+            queue.push_back(child_layout.new_reader(
+                &child_name,
+                &segment_source,
+                &vxf.footer().ctx(),
+            )?);
+        }
     }
 
     for (i, name) in segment_names.iter().enumerate() {

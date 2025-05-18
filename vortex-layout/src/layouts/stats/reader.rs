@@ -161,6 +161,10 @@ impl ZoneMapReader {
 }
 
 impl LayoutReader for ZoneMapReader {
+    fn name(&self) -> &Arc<str> {
+        &self.name
+    }
+
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,

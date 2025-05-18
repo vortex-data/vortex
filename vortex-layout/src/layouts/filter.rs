@@ -49,6 +49,10 @@ impl Deref for FilterLayoutReader {
 }
 
 impl LayoutReader for FilterLayoutReader {
+    fn name(&self) -> &Arc<str> {
+        self.child.name()
+    }
+
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,

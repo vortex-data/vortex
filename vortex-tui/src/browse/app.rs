@@ -6,9 +6,10 @@ use ratatui::widgets::ListState;
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
+use vortex_layout::LayoutRef;
 use vortex_layout::layouts::flat::FlatVTable;
+use vortex_layout::layouts::stats::ZoneMapVTable;
 use vortex_layout::segments::SegmentId;
-use vortex_layout::{LayoutEncodingRef, LayoutRef, STATS_LAYOUT_ID};
 
 use crate::browse::ui::SegmentGridState;
 
@@ -105,17 +106,11 @@ impl LayoutCursor {
     /// Predicate true when the cursor is currently activated over a stats table
     pub fn is_stats_table(&self) -> bool {
         let parent = self.parent();
-        parent.encoding().id() == STATS_LAYOUT_ID
-            && parent.layout().metadata().is_some()
-            && self.path.last().copied().unwrap_or_default() == (parent.layout().nchildren() - 1)
+        parent.layout().is::<ZoneMapVTable>() && self.path.last().copied().unwrap_or_default() == 1
     }
 
     pub fn dtype(&self) -> &DType {
         self.layout.dtype()
-    }
-
-    pub fn encoding(&self) -> LayoutEncodingRef {
-        self.layout.encoding()
     }
 
     pub fn layout(&self) -> &LayoutRef {
