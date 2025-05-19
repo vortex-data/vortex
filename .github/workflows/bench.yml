@@ -53,13 +53,18 @@ jobs:
 
       - name: Build duckdb binary
         if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
+        env:
+          CC: clang
+          CXX: clang++
+          GEN: ninja
+          NATIVE_ARCH: 1
+          DUCKDB_PLATFORM: linux_amd64
+          LTO: thin
         run: |
-          export CC=clang
-          export CXX=clang++
           git clone https://github.com/duckdb/duckdb
           cd duckdb
           git checkout "$DUCKDB_VERSION"
-          GEN=ninja NATIVE_ARCH=1 DUCKDB_PLATFORM=linux_amd64 LTO=thin make
+          make release
 
   bench:
     needs: build-duckdb
