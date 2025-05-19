@@ -30,11 +30,11 @@ impl FilterKernel for ListVTable {
             }
             Mask::AllFalse(_) => {
                 // If all array offsets are null, then the array is simply null?
-                return Ok(ConstantArray::new(
+                Ok(ConstantArray::new(
                     Scalar::null(array.dtype().clone()),
                     mask.true_count(),
                 )
-                .into_array());
+                .into_array())
             }
             Mask::Values(_) => {
                 // TODO(ngates): implemented null filtering
