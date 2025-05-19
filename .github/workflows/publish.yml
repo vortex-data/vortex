@@ -185,7 +185,7 @@ jobs:
       - name: Build Java
         run: ./gradlew shadowJar
       - name: Publish to Maven Central
-        run: ./gradlew -i publishAndReleaseToMavenCentral --no-configuration-cache -v
+        run: ./gradlew -i publishAndReleaseToMavenCentral --no-configuration-cache
         env:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEYPASSWORD }}
