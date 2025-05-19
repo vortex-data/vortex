@@ -16,7 +16,7 @@ CREATE TABLE generated_data_table (
 --    hugeint_col HUGEINT, all commented values are not supported yet.
     float_col FLOAT,
     double_col DOUBLE,
---    decimal_col DECIMAL(10, 2),
+    decimal_col DECIMAL(10, 2),
     varchar_col VARCHAR,
     date_col DATE,
     timmestamp_s_col TIMESTAMP_S,
@@ -39,7 +39,7 @@ SELECT
 --    CAST(seq * 1000 AS HUGEINT) AS hugeint_col,
     CAST(seq AS FLOAT) / 100.0 AS float_col,
     CAST(seq AS DOUBLE) / 1000.0 AS double_col,
---    CAST(seq AS DECIMAL(10, 2)) / 10.0 AS decimal_col,
+    CAST(seq AS DECIMAL(10, 2)) / 10.0 AS decimal_col,
     'Value ' || seq AS varchar_col,
     DATE '1992-03-22' + to_days(cast(seq AS INTEGER)) AS date_col,
     TIMESTAMP_S '2025-01-01 00:00:00' + to_seconds(cast(seq AS INTEGER)) as timmestamp_s_col,
