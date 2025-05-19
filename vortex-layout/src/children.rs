@@ -46,9 +46,9 @@ impl LayoutChildren for Arc<dyn LayoutChildren> {
 #[derive(Clone)]
 pub(crate) struct OwnedLayoutChildren(Vec<LayoutRef>);
 
-impl From<Vec<LayoutRef>> for OwnedLayoutChildren {
-    fn from(value: Vec<LayoutRef>) -> Self {
-        OwnedLayoutChildren(value)
+impl OwnedLayoutChildren {
+    pub fn layout_children(children: Vec<LayoutRef>) -> Arc<dyn LayoutChildren> {
+        Arc::new(Self(children))
     }
 }
 

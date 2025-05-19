@@ -349,7 +349,8 @@ fn collect_segment_tree(root_layout: &dyn Layout, segments: &Arc<[SegmentSpec]>)
         segments: HashMap::new(),
         segment_ordering: Vec::new(),
     };
-    segments_by_name_impl(root_layout, None, None, segments, &mut tree).vortex_unwrap();
+    segments_by_name_impl(root_layout, None, "".into(), Some(0), segments, &mut tree)
+        .vortex_unwrap();
 
     tree
 }
@@ -362,26 +363,57 @@ struct SegmentTree {
 fn segments_by_name_impl(
     root: &dyn Layout,
     group_name: Option<Arc<str>>,
-    name: Option<Arc<str>>,
+    name: Arc<str>,
+    row_offset: Option<u64>,
     segments: &Arc<[SegmentSpec]>,
     segment_tree: &mut SegmentTree,
 ) -> VortexResult<()> {
-    for (child, child_name) in root
+    // Recurse into children
+    for ((child, child_name), child_row_offset) in root
         .children()?
         .into_iter()
-        .zip(root.child_names().into_iter())
+        .zip(root.child_names())
+        .zip(root.child_row_offsets())
     {
         let group_name = group_name.as_ref().map_or(child_name.clone(), |n| {
             Arc::from(format!("{n}.{child_name}"))
         });
         segment_tree.segment_ordering.push(group_name.clone());
+
+        // Compute absolute row offset.
+        let offset = match (row_offset, child_row_offset) {
+            (Some(a), Some(b)) => Some(a + b),
+            _ => None,
+        };
+
         segments_by_name_impl(
             child.as_ref(),
             Some(group_name),
             name.clone(),
+            offset,
             segments,
             segment_tree,
         )?;
+    }
+
+    let current_segments = segment_tree
+        .segments
+        .entry(group_name.unwrap_or_else(|| Arc::from("root")))
+        .or_default();
+
+    for segment_id in root.segment_ids() {
+        let segment_spec = segments[*segment_id as usize].clone();
+        let byte_gap = current_segments
+            .last()
+            .map(|s| segment_spec.offset - s.spec.offset - s.spec.length as u64)
+            .unwrap_or(0);
+        current_segments.push(SegmentDisplay {
+            name: name.clone(),
+            spec: segment_spec,
+            row_count: root.row_count(),
+            row_offset: row_offset.unwrap_or(0),
+            byte_gap,
+        })
     }
 
     Ok(())

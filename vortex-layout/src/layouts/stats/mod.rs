@@ -72,6 +72,14 @@ impl VTable for ZoneMapVTable {
         }
     }
 
+    fn child_row_offset(_layout: &Self::Layout, idx: usize) -> Option<u64> {
+        match idx {
+            0 => Some(0),
+            1 => None,
+            _ => vortex_panic!("Invalid child index: {}", idx),
+        }
+    }
+
     fn visit_children(
         layout: &Self::Layout,
         _field_mask: Option<&[FieldMask]>,

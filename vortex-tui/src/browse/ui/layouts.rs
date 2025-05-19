@@ -211,9 +211,8 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let layout = app.cursor.layout();
 
     if layout.nchildren() > 0 {
-        let names = layout.child_names();
-        let filter: Vec<bool> = names
-            .iter()
+        let filter: Vec<bool> = layout
+            .child_names()
             .map(|name| {
                 if search_filter.is_empty() {
                     true
@@ -223,8 +222,8 @@ fn render_children_list(app: &mut AppState, area: Rect, buf: &mut Buffer) {
             })
             .collect();
 
-        let list_items: Vec<String> = names
-            .iter()
+        let list_items: Vec<String> = layout
+            .child_names()
             .zip(filter.iter())
             .filter_map(|(name, keep)| keep.then_some(name.to_string()))
             .collect();

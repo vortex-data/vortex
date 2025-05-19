@@ -46,6 +46,12 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Return the name of the child at the given index.
     fn child_name(layout: &Self::Layout, idx: usize) -> Arc<str>;
 
+    /// Return the relative row offset of the child at the given index.
+    ///
+    /// If the child is auxiliary and cannot be positioned within the overall structure of the
+    /// data (e.g. dictionary values, zone maps, etc.), then `None` is returned.
+    fn child_row_offset(layout: &Self::Layout, idx: usize) -> Option<u64>;
+
     /// Visitor the children of the layout.
     fn visit_children(
         layout: &Self::Layout,

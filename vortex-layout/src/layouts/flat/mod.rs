@@ -58,6 +58,10 @@ impl VTable for FlatVTable {
         vortex_panic!("Flat layout has no children");
     }
 
+    fn child_row_offset(_layout: &Self::Layout, _idx: usize) -> Option<u64> {
+        Some(0)
+    }
+
     fn visit_children(
         _layout: &Self::Layout,
         _field_mask: Option<&[FieldMask]>,

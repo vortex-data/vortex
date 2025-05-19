@@ -8,7 +8,7 @@ use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, FieldMask, FieldPath};
 use vortex_error::VortexResult;
 
-use crate::children::{LayoutChildren, OwnedLayoutChildren};
+use crate::children::LayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
@@ -56,6 +56,10 @@ impl VTable for ChunkedVTable {
 
     fn child_name(_layout: &Self::Layout, idx: usize) -> Arc<str> {
         format!("[{}]", idx).into()
+    }
+
+    fn child_row_offset(layout: &Self::Layout, idx: usize) -> Option<u64> {
+        Some(layout.chunk_offsets[idx])
     }
 
     fn visit_children(
@@ -115,11 +119,11 @@ impl VTable for ChunkedVTable {
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
     ) -> VortexResult<Self::Layout> {
-        Ok(ChunkedLayout {
+        Ok(ChunkedLayout::new(
             row_count,
-            dtype: dtype.clone(),
-            children: children.to_arc(),
-        })
+            dtype.clone(),
+            children.to_arc(),
+        ))
     }
 }
 
@@ -131,14 +135,27 @@ pub struct ChunkedLayout {
     row_count: u64,
     dtype: DType,
     children: Arc<dyn LayoutChildren>,
+    chunk_offsets: Vec<u64>,
 }
 
 impl ChunkedLayout {
-    pub fn new(row_count: u64, dtype: DType, children: Vec<LayoutRef>) -> Self {
+    pub fn new(row_count: u64, dtype: DType, children: Arc<dyn LayoutChildren>) -> Self {
+        let mut chunk_offsets = Vec::with_capacity(children.nchildren() + 1);
+
+        chunk_offsets.push(0);
+        for i in 0..children.nchildren() {
+            chunk_offsets.push(chunk_offsets[i] + children.child_row_count(i));
+        }
+        assert_eq!(
+            chunk_offsets[children.nchildren()],
+            row_count,
+            "Row count mismatch"
+        );
         Self {
             row_count,
             dtype,
-            children: OwnedLayoutChildren::from(children).to_arc(),
+            children,
+            chunk_offsets,
         }
     }
 }

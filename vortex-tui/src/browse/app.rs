@@ -97,7 +97,6 @@ impl LayoutCursor {
     fn layout_segments(&self) -> Vec<SegmentId> {
         self.layout
             .depth_first_traversal()
-            .into_iter()
             .map(|layout| layout.vortex_expect("Failed to load layout"))
             .flat_map(|layout| layout.segment_ids().into_iter())
             .collect()

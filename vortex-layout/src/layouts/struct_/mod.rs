@@ -64,21 +64,22 @@ impl VTable for StructVTable {
             .clone()
     }
 
+    fn child_row_offset(_layout: &Self::Layout, _idx: usize) -> Option<u64> {
+        Some(0)
+    }
+
     fn visit_children(
         layout: &Self::Layout,
         field_mask: Option<&[FieldMask]>,
         visitor: &mut dyn LayoutVisitor,
     ) -> VortexResult<()> {
-        layout.matching_fields(
-            field_mask.unwrap_or_else(|| &[FieldMask::All]),
-            |_mask, idx| {
-                let dtype = layout.struct_dtype().field_by_index(idx)?;
-                let child = layout.children.child(idx, &dtype)?;
-                let name = layout.struct_dtype().field_name(idx)?;
-                visitor.visit_child(name.as_ref(), 0, Some(&FieldPath::from_name(name)), &child)?;
-                Ok(())
-            },
-        )
+        layout.matching_fields(field_mask.unwrap_or(&[FieldMask::All]), |_mask, idx| {
+            let dtype = layout.struct_dtype().field_by_index(idx)?;
+            let child = layout.children.child(idx, &dtype)?;
+            let name = layout.struct_dtype().field_name(idx)?;
+            visitor.visit_child(name.as_ref(), 0, Some(&FieldPath::from_name(name)), &child)?;
+            Ok(())
+        })
     }
 
     fn register_splits(
@@ -149,7 +150,7 @@ impl StructLayout {
         Self {
             row_count,
             dtype,
-            children: OwnedLayoutChildren::from(children).to_arc(),
+            children: OwnedLayoutChildren::layout_children(children),
         }
     }
 

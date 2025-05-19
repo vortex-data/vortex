@@ -5,6 +5,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail};
 
 use super::{DictStrategy, EncodingState, encode_chunk, start_encoding};
+use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::dict::DictLayout;
 use crate::segments::SegmentWriter;
@@ -157,6 +158,11 @@ impl LayoutWriter for DictLayoutWriter {
         }
 
         let row_count = children.iter().map(|child| child.row_count()).sum();
-        Ok(ChunkedLayout::new(row_count, self.dtype.clone(), children).into_layout())
+        Ok(ChunkedLayout::new(
+            row_count,
+            self.dtype.clone(),
+            OwnedLayoutChildren::layout_children(children),
+        )
+        .into_layout())
     }
 }

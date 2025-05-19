@@ -16,7 +16,7 @@ pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
     let root_reader =
         vxf.footer()
             .layout()
-            .new_reader(&"".into(), &segment_source, &vxf.footer().ctx())?;
+            .new_reader(&"".into(), &segment_source, vxf.footer().ctx())?;
 
     let mut queue = VecDeque::from_iter([root_reader]);
     while !queue.is_empty() {
@@ -29,7 +29,7 @@ pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
             queue.push_back(child_layout.new_reader(
                 &child_name,
                 &segment_source,
-                &vxf.footer().ctx(),
+                vxf.footer().ctx(),
             )?);
         }
     }

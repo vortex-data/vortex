@@ -103,7 +103,7 @@ impl LayoutWriter for StructLayoutWriter {
             column_layouts.push(writer.finish(segment_writer)?);
         }
         Ok(
-            StructLayout::new(self.row_count, self.dtype.clone(), column_layouts.into())
+            StructLayout::new(self.row_count, self.dtype.clone(), column_layouts)
                 .into_layout(),
         )
     }

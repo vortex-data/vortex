@@ -8,6 +8,8 @@ use crate::LayoutRef;
 ///
 /// Each visit to a child layout provides the relative row offset and field path occupied by
 /// that child, as well as a name for debugging and display information.
+///
+/// FIXME(ngates): remove this, or implement it automatically using the index-based API.
 pub trait LayoutVisitor {
     /// Visit a child of the layout.
     ///

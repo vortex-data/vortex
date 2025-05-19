@@ -38,6 +38,10 @@ pub trait Layout: 'static + Send + Sync + private::Sealed {
     /// Get the name of the child at the given index.
     fn child_name(&self, idx: usize) -> Arc<str>;
 
+    /// Get the relative row offset of the child at the given index, returning `None` for
+    /// any auxilliary children, e.g. dictionary values, zone maps, etc.
+    fn child_row_offset(&self, idx: usize) -> Option<u64>;
+
     /// Get the metadata for this layout.
     fn metadata(&self) -> Vec<u8>;
 
@@ -83,8 +87,13 @@ impl dyn Layout + '_ {
     }
 
     /// The names of the children of this layout.
-    pub fn child_names(&self) -> Vec<Arc<str>> {
-        (0..self.nchildren()).map(|i| self.child_name(i)).collect()
+    pub fn child_names(&self) -> impl Iterator<Item = Arc<str>> {
+        (0..self.nchildren()).map(|i| self.child_name(i))
+    }
+
+    /// The row offsets of the children of this layout, where `None` indicates an auxilliary child.
+    pub fn child_row_offsets(&self) -> impl Iterator<Item = Option<u64>> {
+        (0..self.nchildren()).map(|i| self.child_row_offset(i))
     }
 
     pub fn is<V: VTable>(&self) -> bool {
@@ -193,6 +202,10 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
 
     fn child_name(&self, idx: usize) -> Arc<str> {
         V::child_name(&self.0, idx)
+    }
+
+    fn child_row_offset(&self, idx: usize) -> Option<u64> {
+        V::child_row_offset(&self.0, idx)
     }
 
     fn metadata(&self) -> Vec<u8> {

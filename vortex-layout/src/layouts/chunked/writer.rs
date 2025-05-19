@@ -5,6 +5,7 @@ use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::SegmentWriter;
@@ -103,6 +104,11 @@ impl LayoutWriter for ChunkedLayoutWriter {
             return Ok(children.pop().vortex_expect("child layout"));
         }
 
-        Ok(ChunkedLayout::new(self.row_count, self.dtype.clone(), children.into()).into_layout())
+        Ok(ChunkedLayout::new(
+            self.row_count,
+            self.dtype.clone(),
+            OwnedLayoutChildren::layout_children(children),
+        )
+        .into_layout())
     }
 }
