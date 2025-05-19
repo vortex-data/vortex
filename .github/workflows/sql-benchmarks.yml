@@ -131,7 +131,6 @@ jobs:
           # The `NATIVE_ARCH` environment variable is picked up by `duckdb/Makefile`.
           NATIVE_ARCH: 1
           DUCKDB_PLATFORM: linux_amd64
-          CFLAGS: -ftls-model=global-dynamic
         run: GEN=ninja make release
         working-directory: ${{ github.workspace }}/duckdb-vortex
 

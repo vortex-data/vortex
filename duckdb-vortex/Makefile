@@ -20,4 +20,9 @@ export VCPKG_TOOLCHAIN_PATH := ${PROJ_DIR}vcpkg/scripts/buildsystems/vcpkg.cmake
 export BUILD_MAIN_DUCKDB_LIBRARY=0
 export DISABLE_BUILTIN_EXTENSIONS=1
 
+# TODO(joe): fix me on windows
+ifeq ($(shell uname), Linux)
+    export CFLAGS=-ftls-model=global-dynamic
+endif
+
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
