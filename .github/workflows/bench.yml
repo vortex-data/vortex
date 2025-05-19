@@ -31,7 +31,38 @@ jobs:
           bash scripts/commit-json.sh > new-commit.json
           bash scripts/cat-s3.sh vortex-benchmark-results-database commits.json new-commit.json
 
+  build-duckdb:
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=c6id.8xlarge
+      - image=ubuntu24-full-x64
+      - spot=false
+      - tag=${{ matrix.id }}
+    steps:
+      - uses: runs-on/action@v1
+      - name: Cache duckdb compiled binary
+        uses: runs-on/cache@v4
+        id: cache-duckdb-binary
+        with:
+          key: "${{ runner.os }}-ducdkb-linux_amd64-${{ env.DUCKDB_VERSION }}"
+          path: ${{ github.workspace }}/duckdb/build/release/duckdb
+
+      - name: Install duckdb compile requirements
+        if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install ninja-build cmake build-essential make ccache clang -y
+
+      - name: Build duckdb binary
+        if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
+        run: |
+          export CC=clang
+          export CXX=clang++
+          git clone https://github.com/duckdb/duckdb
+          cd duckdb
+          git checkout "$DUCKDB_VERSION"
+          GEN=ninja NATIVE_ARCH=1 DUCKDB_PLATFORM=linux_amd64 LTO=thin make
+
   bench:
+    needs: build-duckdb
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
@@ -50,19 +81,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      # rustup is pre-installed on the ubuntu24-full-x64 image.
 
-      # The compression benchmarks rely on DuckDB being installed to convert CSV to Parquet
-      - name: Install DuckDB
-        uses: opt-nc/setup-duckdb-action@v1.0.12
+      - name: Cache duckdb compiled binary
+        uses: runs-on/cache@v4
+        id: cache-duckdb-binary
         with:
-          version: v1.2.1
+          fail-on-cache-miss: true
+          key: "${{ runner.os }}-ducdkb-linux_amd64-${{ env.DUCKDB_VERSION }}"
+          path: ${{ github.workspace }}/duckdb/build/release/duckdb
+
+      - name: Add duckdb to path
+        run: |
+          echo "${{ github.workspace }}/duckdb/build/release/" >> $GITHUB_PATH
 
       # cat-s3 script uses gzip to append to compressed benchmark results
       # TODO(joe): remove ninja once duckdb is not built by the benchmark
       - name: Install gzip
         run: sudo apt-get update && sudo apt-get install -y gzip ninja-build
 
+      # rustup is pre-installed on the ubuntu24-full-x64 image.
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
         env:

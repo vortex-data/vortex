@@ -104,15 +104,17 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
         .arg("-c")
         .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
 
+    command
+        .arg("-c")
+        .arg("SET autoinstall_known_extensions=1;")
+        .arg("-c")
+        .arg("SET autoload_known_extensions=1;");
+
     match opts.dataset {
         TpcDataset::TpcH => command
             .arg("-c")
-            .arg("load tpch;")
-            .arg("-c")
             .arg(format!("call dbgen(sf={scale_factor})")),
         TpcDataset::TpcDs => command
-            .arg("-c")
-            .arg("load tpcds;")
             .arg("-c")
             .arg(format!("call dsdgen(sf={scale_factor})")),
     };
@@ -145,6 +147,7 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
         Format::OnDiskDuckDB | Format::Arrow => { /* Do nothing */ }
     };
 
+    command.envs(std::env::vars_os());
     let output = command.output()?;
 
     if !output.status.success() || !output.stderr.is_empty() {

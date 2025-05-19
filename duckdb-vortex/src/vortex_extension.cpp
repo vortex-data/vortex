@@ -40,11 +40,13 @@ std::string VortexExtension::Version() const {
 }
 
 extern "C" {
+__attribute__((__visibility__("default")))
 DUCKDB_EXTENSION_API void vortex_init(duckdb::DatabaseInstance &db) {
 	duckdb::DuckDB db_wrapper(db);
 	db_wrapper.LoadExtension<VortexExtension>();
 }
 
+__attribute__((__visibility__("default")))
 DUCKDB_EXTENSION_API const char *vortex_version() {
 	return duckdb::DuckDB::LibraryVersion();
 }

@@ -42,14 +42,11 @@ set(PROTO_GEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/gen)
 file(MAKE_DIRECTORY ${PROTO_GEN_DIR})
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES} PROTOC_OUT_DIR ${PROTO_GEN_DIR})
 
-if (LINUX)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftls-model=global-dynamic")
-endif ()
-
 include_directories(src/include ${PROTO_GEN_DIR} ../vortex-ffi/cinclude)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES} ${PROTO_SRCS})
-build_loadable_extension(${TARGET_NAME} ${EXTENSION_SOURCES} ${PROTO_SRCS})
+set(PARAMETERS "-warnings")
+build_loadable_extension(${TARGET_NAME} ${PARAMETERS} ${EXTENSION_SOURCES} ${PROTO_SRCS})
 
 target_link_libraries(${EXTENSION_NAME}
         vortex_ffi-static

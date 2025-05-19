@@ -245,6 +245,12 @@ pub fn register_tables(
         .arg("-c")
         .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
 
+    command
+        .arg("-c")
+        .arg("SET autoinstall_known_extensions=1;")
+        .arg("-c")
+        .arg("SET autoload_known_extensions=1;");
+
     command.arg("-c").arg(
         "CREATE OR REPLACE SECRET secret (
             TYPE s3,
@@ -291,6 +297,12 @@ pub fn execute_query(
     command
         .arg("-c")
         .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
+
+    command
+        .arg("-c")
+        .arg("SET autoinstall_known_extensions=1;")
+        .arg("-c")
+        .arg("SET autoload_known_extensions=1;");
 
     let query = queries.join(";") + ";";
     command
