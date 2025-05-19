@@ -5,11 +5,11 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::{ArrayContext, SerializeMetadata};
-use vortex_dtype::{DType, FieldMask};
+use vortex_dtype::{DType, FieldMask, FieldName};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::segments::{SegmentId, SegmentSource};
-use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, LayoutVisitor, VTable};
+use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, VTable};
 
 pub type LayoutRef = Arc<dyn Layout>;
 
@@ -35,25 +35,15 @@ pub trait Layout: 'static + Send + Sync + private::Sealed {
     /// Get the child at the given index.
     fn child(&self, idx: usize) -> VortexResult<LayoutRef>;
 
-    /// Get the name of the child at the given index.
-    fn child_name(&self, idx: usize) -> Arc<str>;
-
     /// Get the relative row offset of the child at the given index, returning `None` for
     /// any auxilliary children, e.g. dictionary values, zone maps, etc.
-    fn child_row_offset(&self, idx: usize) -> Option<u64>;
+    fn child_type(&self, idx: usize) -> LayoutChildType;
 
     /// Get the metadata for this layout.
     fn metadata(&self) -> Vec<u8>;
 
     /// Get the segment IDs for this layout.
     fn segment_ids(&self) -> Vec<SegmentId>;
-
-    /// Visit all children of this layout matching the given field mask.
-    fn visit_children(
-        &self,
-        field_mask: Option<&[FieldMask]>,
-        visitor: &mut dyn LayoutVisitor,
-    ) -> VortexResult<()>;
 
     fn register_splits(
         &self,
@@ -75,6 +65,50 @@ pub trait IntoLayout {
     fn into_layout(self) -> LayoutRef;
 }
 
+/// A type that allows us to identify how a layout child relates to its parent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LayoutChildType {
+    /// A layout child that retains the same schema and row offset position in the dataset.
+    Transparent(Arc<str>),
+    /// A layout child that provides auxiliary data, e.g. dictionary values, zone maps, etc.
+    /// Contains a human-readable name of the child.
+    Auxiliary(Arc<str>),
+    /// A layout child that represents a row-based chunk of data.
+    /// Contains the chunk index and relative row offset of the child.
+    Chunk((usize, u64)),
+    /// A layout child that represents a single field of data.
+    /// Contains the field name of the child.
+    Field(FieldName),
+    // A layout child that contains a subset of the fields of the parent layout.
+    // Contains a mask over the fields of the parent layout.
+    // TODO(ngates): FieldMask API needs fixing before we enable this. We also don't yet have a
+    //  use-case for this.
+    // Mask(Vec<FieldMask>),
+}
+
+impl LayoutChildType {
+    /// Returns the name of this child.
+    pub fn name(&self) -> Arc<str> {
+        match self {
+            LayoutChildType::Chunk((idx, _offset)) => format!("[{}]", idx).into(),
+            LayoutChildType::Auxiliary(name) => name.clone(),
+            LayoutChildType::Transparent(name) => name.clone(),
+            LayoutChildType::Field(name) => name.clone(),
+        }
+    }
+
+    /// Returns the relative row offset of this child.
+    /// For auxiliary children, this is `None`.
+    pub fn row_offset(&self) -> Option<u64> {
+        match self {
+            LayoutChildType::Chunk((_idx, offset)) => Some(*offset),
+            LayoutChildType::Auxiliary(_) => None,
+            LayoutChildType::Transparent(_) => Some(0),
+            LayoutChildType::Field(_) => Some(0),
+        }
+    }
+}
+
 impl dyn Layout + '_ {
     /// The ID of the encoding for this layout.
     pub fn encoding_id(&self) -> LayoutEncodingId {
@@ -86,14 +120,19 @@ impl dyn Layout + '_ {
         (0..self.nchildren()).map(|i| self.child(i)).try_collect()
     }
 
+    /// The child types of this layout.
+    pub fn child_types(&self) -> impl Iterator<Item = LayoutChildType> {
+        (0..self.nchildren()).map(|i| self.child_type(i))
+    }
+
     /// The names of the children of this layout.
     pub fn child_names(&self) -> impl Iterator<Item = Arc<str>> {
-        (0..self.nchildren()).map(|i| self.child_name(i))
+        self.child_types().map(|child| child.name())
     }
 
     /// The row offsets of the children of this layout, where `None` indicates an auxilliary child.
     pub fn child_row_offsets(&self) -> impl Iterator<Item = Option<u64>> {
-        (0..self.nchildren()).map(|i| self.child_row_offset(i))
+        self.child_types().map(|child| child.row_offset())
     }
 
     pub fn is<V: VTable>(&self) -> bool {
@@ -200,12 +239,8 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         V::child(&self.0, idx)
     }
 
-    fn child_name(&self, idx: usize) -> Arc<str> {
-        V::child_name(&self.0, idx)
-    }
-
-    fn child_row_offset(&self, idx: usize) -> Option<u64> {
-        V::child_row_offset(&self.0, idx)
+    fn child_type(&self, idx: usize) -> LayoutChildType {
+        V::child_type(&self.0, idx)
     }
 
     fn metadata(&self) -> Vec<u8> {
@@ -214,14 +249,6 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
 
     fn segment_ids(&self) -> Vec<SegmentId> {
         V::segment_ids(&self.0)
-    }
-
-    fn visit_children(
-        &self,
-        field_mask: Option<&[FieldMask]>,
-        visitor: &mut dyn LayoutVisitor,
-    ) -> VortexResult<()> {
-        V::visit_children(&self.0, field_mask, visitor)
     }
 
     fn register_splits(

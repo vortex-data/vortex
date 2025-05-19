@@ -10,8 +10,8 @@ use vortex_error::VortexResult;
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    IntoLayout, Layout, LayoutEncoding, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef,
-    LayoutVisitor,
+    IntoLayout, Layout, LayoutChildType, LayoutEncoding, LayoutEncodingRef, LayoutId,
+    LayoutReaderRef, LayoutRef,
 };
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
@@ -43,21 +43,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Return the child at the given index.
     fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef>;
 
-    /// Return the name of the child at the given index.
-    fn child_name(layout: &Self::Layout, idx: usize) -> Arc<str>;
-
-    /// Return the relative row offset of the child at the given index.
-    ///
-    /// If the child is auxiliary and cannot be positioned within the overall structure of the
-    /// data (e.g. dictionary values, zone maps, etc.), then `None` is returned.
-    fn child_row_offset(layout: &Self::Layout, idx: usize) -> Option<u64>;
-
-    /// Visitor the children of the layout.
-    fn visit_children(
-        layout: &Self::Layout,
-        field_mask: Option<&[FieldMask]>,
-        visitor: &mut dyn LayoutVisitor,
-    ) -> VortexResult<()>;
+    /// Return the type of the child at the given index.
+    fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType;
 
     /// Register row splits for the layout.
     // TODO(ngates): this should be implemented with a visitor, but we need to fix the FieldMask

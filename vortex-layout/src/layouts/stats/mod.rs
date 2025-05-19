@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
-use vortex_dtype::{DType, FieldMask, FieldPath, TryFromBytes};
+use vortex_dtype::{DType, FieldMask, TryFromBytes};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
@@ -15,7 +15,7 @@ use crate::layouts::stats::reader::ZoneMapReader;
 use crate::layouts::stats::stats_table::StatsTable;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor, VTable, vtable,
+    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
 
 vtable!(ZoneMap);
@@ -64,30 +64,12 @@ impl VTable for ZoneMapVTable {
         }
     }
 
-    fn child_name(_layout: &Self::Layout, idx: usize) -> Arc<str> {
+    fn child_type(_layout: &Self::Layout, idx: usize) -> LayoutChildType {
         match idx {
-            0 => "data".into(),
-            1 => "zones".into(),
+            0 => LayoutChildType::Transparent("data".into()),
+            1 => LayoutChildType::Auxiliary("zones".into()),
             _ => vortex_panic!("Invalid child index: {}", idx),
         }
-    }
-
-    fn child_row_offset(_layout: &Self::Layout, idx: usize) -> Option<u64> {
-        match idx {
-            0 => Some(0),
-            1 => None,
-            _ => vortex_panic!("Invalid child index: {}", idx),
-        }
-    }
-
-    fn visit_children(
-        layout: &Self::Layout,
-        _field_mask: Option<&[FieldMask]>,
-        visitor: &mut dyn LayoutVisitor,
-    ) -> VortexResult<()> {
-        visitor.visit_child("data", 0, Some(&FieldPath::root()), &layout.data)?;
-        visitor.visit_child("zones", 0, None, &layout.zones)?;
-        Ok(())
     }
 
     fn register_splits(

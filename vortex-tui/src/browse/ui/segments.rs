@@ -13,7 +13,7 @@ use taffy::{
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
 use vortex::file::SegmentSpec;
-use vortex_layout::Layout;
+use vortex_layout::{Layout, LayoutChildType};
 
 use crate::browse::app::AppState;
 
@@ -349,8 +349,7 @@ fn collect_segment_tree(root_layout: &dyn Layout, segments: &Arc<[SegmentSpec]>)
         segments: HashMap::new(),
         segment_ordering: Vec::new(),
     };
-    segments_by_name_impl(root_layout, None, "".into(), Some(0), segments, &mut tree)
-        .vortex_unwrap();
+    segments_by_name_impl(root_layout, None, None, Some(0), segments, &mut tree).vortex_unwrap();
 
     tree
 }
@@ -363,37 +362,58 @@ struct SegmentTree {
 fn segments_by_name_impl(
     root: &dyn Layout,
     group_name: Option<Arc<str>>,
-    name: Arc<str>,
+    name: Option<Arc<str>>,
     row_offset: Option<u64>,
     segments: &Arc<[SegmentSpec]>,
     segment_tree: &mut SegmentTree,
 ) -> VortexResult<()> {
     // Recurse into children
-    for ((child, child_name), child_row_offset) in root
-        .children()?
-        .into_iter()
-        .zip(root.child_names())
-        .zip(root.child_row_offsets())
-    {
-        let group_name = group_name.as_ref().map_or(child_name.clone(), |n| {
-            Arc::from(format!("{n}.{child_name}"))
-        });
-        segment_tree.segment_ordering.push(group_name.clone());
+    for (child, child_type) in root.children()?.into_iter().zip(root.child_types()) {
+        match child_type {
+            LayoutChildType::Transparent(_) => segments_by_name_impl(
+                child.as_ref(),
+                group_name.clone(),
+                name.clone(),
+                row_offset,
+                segments,
+                segment_tree,
+            )?,
+            LayoutChildType::Auxiliary(_) => {
+                // Don't recurse into auxiliary children.
+            }
+            LayoutChildType::Chunk((idx, chunk_row_offset)) => {
+                segments_by_name_impl(
+                    child.as_ref(),
+                    group_name.clone(),
+                    Some(
+                        name.as_ref()
+                            .map(|n| format!("{n}.[{idx}]"))
+                            .unwrap_or(format!("[{idx}]"))
+                            .into(),
+                    ),
+                    // Compute absolute row offset.
+                    Some(chunk_row_offset + row_offset.unwrap_or(0)),
+                    segments,
+                    segment_tree,
+                )?
+            }
+            LayoutChildType::Field(field_name) => {
+                // Step into a new group name
+                let group_name = group_name.as_ref().map_or(field_name.clone(), |n| {
+                    Arc::from(format!("{n}.{field_name}"))
+                });
+                segment_tree.segment_ordering.push(group_name.clone());
 
-        // Compute absolute row offset.
-        let offset = match (row_offset, child_row_offset) {
-            (Some(a), Some(b)) => Some(a + b),
-            _ => None,
-        };
-
-        segments_by_name_impl(
-            child.as_ref(),
-            Some(group_name),
-            name.clone(),
-            offset,
-            segments,
-            segment_tree,
-        )?;
+                segments_by_name_impl(
+                    child.as_ref(),
+                    Some(group_name),
+                    None,
+                    row_offset,
+                    segments,
+                    segment_tree,
+                )?
+            }
+        }
     }
 
     let current_segments = segment_tree
@@ -408,7 +428,7 @@ fn segments_by_name_impl(
             .map(|s| segment_spec.offset - s.spec.offset - s.spec.length as u64)
             .unwrap_or(0);
         current_segments.push(SegmentDisplay {
-            name: name.clone(),
+            name: name.clone().unwrap_or("<unnamed>".into()),
             spec: segment_spec,
             row_count: root.row_count(),
             row_offset: row_offset.unwrap_or(0),

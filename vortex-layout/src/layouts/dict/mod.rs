@@ -6,13 +6,13 @@ use std::sync::Arc;
 
 use reader::DictReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
-use vortex_dtype::{DType, FieldMask, FieldPath, PType};
+use vortex_dtype::{DType, FieldMask, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor, VTable, vtable,
+    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
 
 vtable!(Dict);
@@ -60,30 +60,12 @@ impl VTable for DictVTable {
         }
     }
 
-    fn child_name(_layout: &Self::Layout, idx: usize) -> Arc<str> {
+    fn child_type(_layout: &Self::Layout, idx: usize) -> LayoutChildType {
         match idx {
-            0 => "values".into(),
-            1 => "codes".into(),
+            0 => LayoutChildType::Auxiliary("values".into()),
+            1 => LayoutChildType::Transparent("codes".into()),
             _ => vortex_panic!("Unreachable child index: {}", idx),
         }
-    }
-
-    fn child_row_offset(_layout: &Self::Layout, idx: usize) -> Option<u64> {
-        match idx {
-            0 => None,
-            1 => Some(0),
-            _ => vortex_panic!("Unreachable child index: {}", idx),
-        }
-    }
-
-    fn visit_children(
-        layout: &Self::Layout,
-        _field_mask: Option<&[FieldMask]>,
-        visitor: &mut dyn LayoutVisitor,
-    ) -> VortexResult<()> {
-        visitor.visit_child("values", 0, Some(&FieldPath::root()), &layout.values)?;
-        visitor.visit_child("codes", 0, None, &layout.codes)?;
-        Ok(())
     }
 
     fn register_splits(

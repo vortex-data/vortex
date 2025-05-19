@@ -5,14 +5,14 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::{DType, FieldMask, FieldPath};
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::VortexResult;
 
 use crate::children::LayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor, VTable, vtable,
+    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
 
 vtable!(Chunked);
@@ -54,31 +54,8 @@ impl VTable for ChunkedVTable {
         layout.children.child(idx, &layout.dtype)
     }
 
-    fn child_name(_layout: &Self::Layout, idx: usize) -> Arc<str> {
-        format!("[{}]", idx).into()
-    }
-
-    fn child_row_offset(layout: &Self::Layout, idx: usize) -> Option<u64> {
-        Some(layout.chunk_offsets[idx])
-    }
-
-    fn visit_children(
-        layout: &Self::Layout,
-        _field_mask: Option<&[FieldMask]>,
-        visitor: &mut dyn LayoutVisitor,
-    ) -> VortexResult<()> {
-        let mut row_offset = 0;
-        for i in 0..layout.children.nchildren() {
-            let child = layout.children.child(i, &layout.dtype)?;
-            visitor.visit_child(
-                &format!("[{}]", i),
-                row_offset,
-                Some(&FieldPath::root()),
-                &child,
-            )?;
-            row_offset += child.row_count();
-        }
-        Ok(())
+    fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType {
+        LayoutChildType::Chunk((idx, layout.chunk_offsets[idx]))
     }
 
     fn register_splits(

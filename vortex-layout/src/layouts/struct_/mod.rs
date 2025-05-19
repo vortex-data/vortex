@@ -6,13 +6,13 @@ use std::sync::Arc;
 
 use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::{DType, Field, FieldMask, FieldPath, StructDType};
+use vortex_dtype::{DType, Field, FieldMask, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, LayoutVisitor, VTable, vtable,
+    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
 
 vtable!(Struct);
@@ -56,30 +56,14 @@ impl VTable for StructVTable {
             .child(idx, &layout.struct_dtype().field_by_index(idx)?)
     }
 
-    fn child_name(layout: &Self::Layout, idx: usize) -> Arc<str> {
-        layout
-            .struct_dtype()
-            .field_name(idx)
-            .vortex_expect("Index out of bounds")
-            .clone()
-    }
-
-    fn child_row_offset(_layout: &Self::Layout, _idx: usize) -> Option<u64> {
-        Some(0)
-    }
-
-    fn visit_children(
-        layout: &Self::Layout,
-        field_mask: Option<&[FieldMask]>,
-        visitor: &mut dyn LayoutVisitor,
-    ) -> VortexResult<()> {
-        layout.matching_fields(field_mask.unwrap_or(&[FieldMask::All]), |_mask, idx| {
-            let dtype = layout.struct_dtype().field_by_index(idx)?;
-            let child = layout.children.child(idx, &dtype)?;
-            let name = layout.struct_dtype().field_name(idx)?;
-            visitor.visit_child(name.as_ref(), 0, Some(&FieldPath::from_name(name)), &child)?;
-            Ok(())
-        })
+    fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType {
+        LayoutChildType::Field(
+            layout
+                .struct_dtype()
+                .field_name(idx)
+                .vortex_expect("Field index out of bounds")
+                .clone(),
+        )
     }
 
     fn register_splits(
