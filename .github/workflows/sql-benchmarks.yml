@@ -24,7 +24,7 @@ jobs:
         uses: runs-on/cache@v4
         id: cache-duckdb-binary
         with:
-          key: "${{ runner.os }}-ducdkb-linux_amd64-${{ env.DUCKDB_VERSION }}"
+          key: "${{ runner.os }}-duckdb-linux_amd64-${{ env.DUCKDB_VERSION }}"
           path: ${{ github.workspace }}/duckdb/build/release/duckdb
 
       - name: Install duckdb compile requirements
@@ -94,7 +94,7 @@ jobs:
         id: cache-duckdb-binary
         with:
           fail-on-cache-miss: true
-          key: "${{ runner.os }}-ducdkb-linux_amd64-${{ env.DUCKDB_VERSION }}"
+          key: "${{ runner.os }}-duckdb-linux_amd64-${{ env.DUCKDB_VERSION }}"
           path: ${{ github.workspace }}/duckdb/build/release/duckdb
 
       - name: Add duckdb to path
