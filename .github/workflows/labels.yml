@@ -1,9 +1,5 @@
 name: PR Labels
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
-
 on:
   pull_request:
     types: [ opened, reopened, synchronize, labeled, unlabeled ]
