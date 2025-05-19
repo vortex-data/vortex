@@ -14,7 +14,7 @@ categories:
   - title: '🐛 Bug Fixes'
     collapse-after: 8
     labels:
-      - 'bug'
+      - 'fix'
   - title: '🧰 Maintenance'
     labels:
       - 'chore'
@@ -40,7 +40,7 @@ autolabeler:
   - label: 'chore'
     title:
       - '/chore/i'
-  - label: 'bug'
+  - label: 'fix'
     title:
       - '/fix/i'
   - label: 'feature'
