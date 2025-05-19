@@ -20,7 +20,7 @@ export VCPKG_TOOLCHAIN_PATH := ${PROJ_DIR}vcpkg/scripts/buildsystems/vcpkg.cmake
 export BUILD_MAIN_DUCKDB_LIBRARY=0
 export DISABLE_BUILTIN_EXTENSIONS=1
 
-# TODO(joe): fix me on windows
+# This is not needed on macOS, we don't see a tls there.
 ifeq ($(shell uname), Linux)
     export CFLAGS=-ftls-model=global-dynamic
 endif
