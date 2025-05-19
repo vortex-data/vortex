@@ -16,11 +16,10 @@ use crate::segments::SegmentSource;
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
-/// A [`LayoutReader`] is an instance of a [`LayoutData`] that can cache state across multiple
-/// operations.
+/// A [`LayoutReader`] is used to read a [`Layout`] in a way that can cache state across multiple
+/// evaluation operations.
 ///
-/// Since different row ranges of the reader may be evaluated by different threads, it is required
-/// to be both `Send` and `Sync`.
+/// It dereferences into the underlying layout being read.
 pub trait LayoutReader: 'static + Send + Sync + Deref<Target = dyn Layout> {
     /// Returns the name of the layout reader for debugging.
     fn name(&self) -> &Arc<str>;

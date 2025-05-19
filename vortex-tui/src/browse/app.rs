@@ -8,7 +8,7 @@ use vortex::error::{VortexExpect, VortexResult};
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 use vortex_layout::LayoutRef;
 use vortex_layout::layouts::flat::FlatVTable;
-use vortex_layout::layouts::stats::ZoneMapVTable;
+use vortex_layout::layouts::stats::ZonedVTable;
 use vortex_layout::segments::SegmentId;
 
 use crate::browse::ui::SegmentGridState;
@@ -105,7 +105,7 @@ impl LayoutCursor {
     /// Predicate true when the cursor is currently activated over a stats table
     pub fn is_stats_table(&self) -> bool {
         let parent = self.parent();
-        parent.layout().is::<ZoneMapVTable>() && self.path.last().copied().unwrap_or_default() == 1
+        parent.layout().is::<ZonedVTable>() && self.path.last().copied().unwrap_or_default() == 1
     }
 
     pub fn dtype(&self) -> &DType {

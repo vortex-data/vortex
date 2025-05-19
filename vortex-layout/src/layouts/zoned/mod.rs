@@ -11,26 +11,26 @@ use vortex_dtype::{DType, FieldMask, TryFromBytes};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
-use crate::layouts::stats::reader::ZoneMapReader;
-use crate::layouts::stats::stats_table::StatsTable;
+use crate::layouts::zoned::reader::ZonedReader;
+use crate::layouts::zoned::stats_table::ZoneMap;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
     LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
 
-vtable!(ZoneMap);
+vtable!(Zoned);
 
-impl VTable for ZoneMapVTable {
-    type Layout = ZoneMapLayout;
-    type Encoding = ZoneMapLayoutEncoding;
-    type Metadata = ZoneMapMetadata;
+impl VTable for ZonedVTable {
+    type Layout = ZonedLayout;
+    type Encoding = ZonedLayoutEncoding;
+    type Metadata = ZonedMetadata;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
         LayoutId::new_ref("vortex.stats") // For legacy reasons, this is called stats
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
-        LayoutEncodingRef::new_ref(ZoneMapLayoutEncoding.as_ref())
+        LayoutEncodingRef::new_ref(ZonedLayoutEncoding.as_ref())
     }
 
     fn row_count(layout: &Self::Layout) -> u64 {
@@ -42,7 +42,7 @@ impl VTable for ZoneMapVTable {
     }
 
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
-        ZoneMapMetadata {
+        ZonedMetadata {
             zone_len: u32::try_from(layout.zone_len).vortex_expect("Invalid zone length"),
             present_stats: layout.present_stats.clone(),
         }
@@ -87,7 +87,7 @@ impl VTable for ZoneMapVTable {
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
-        Ok(Arc::new(ZoneMapReader::try_new(
+        Ok(Arc::new(ZonedReader::try_new(
             layout.clone(),
             name.clone(),
             segment_source.clone(),
@@ -105,10 +105,10 @@ impl VTable for ZoneMapVTable {
     ) -> VortexResult<Self::Layout> {
         let data = children.child(0, dtype)?;
 
-        let zones_dtype = StatsTable::dtype_for_stats_table(data.dtype(), &metadata.present_stats);
+        let zones_dtype = ZoneMap::dtype_for_stats_table(data.dtype(), &metadata.present_stats);
         let zones = children.child(1, &zones_dtype)?;
 
-        Ok(ZoneMapLayout::new(
+        Ok(ZonedLayout::new(
             data,
             zones,
             metadata.zone_len as usize,
@@ -118,24 +118,24 @@ impl VTable for ZoneMapVTable {
 }
 
 #[derive(Debug)]
-pub struct ZoneMapLayoutEncoding;
+pub struct ZonedLayoutEncoding;
 
 #[derive(Clone)]
-pub struct ZoneMapLayout {
+pub struct ZonedLayout {
     data: LayoutRef,
     zones: LayoutRef,
     zone_len: usize,
     present_stats: Arc<[Stat]>,
 }
 
-impl ZoneMapLayout {
+impl ZonedLayout {
     pub fn new(
         data: LayoutRef,
         zones: LayoutRef,
         zone_len: usize,
         present_stats: Arc<[Stat]>,
     ) -> Self {
-        let expected_dtype = StatsTable::dtype_for_stats_table(data.dtype(), &present_stats);
+        let expected_dtype = ZoneMap::dtype_for_stats_table(data.dtype(), &present_stats);
         if zones.dtype() != &expected_dtype {
             vortex_panic!("Invalid zone map layout: zones dtype does not match expected dtype");
         }
@@ -157,12 +157,12 @@ impl ZoneMapLayout {
 }
 
 #[derive(Debug)]
-pub struct ZoneMapMetadata {
+pub struct ZonedMetadata {
     pub(super) zone_len: u32,
     pub(super) present_stats: Arc<[Stat]>,
 }
 
-impl DeserializeMetadata for ZoneMapMetadata {
+impl DeserializeMetadata for ZonedMetadata {
     type Output = Self;
 
     fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
@@ -175,7 +175,7 @@ impl DeserializeMetadata for ZoneMapMetadata {
     }
 }
 
-impl SerializeMetadata for ZoneMapMetadata {
+impl SerializeMetadata for ZonedMetadata {
     fn serialize(self) -> Vec<u8> {
         let mut metadata = vec![];
         // First, write the block size to the metadata.

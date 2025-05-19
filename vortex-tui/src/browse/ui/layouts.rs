@@ -11,7 +11,7 @@ use vortex::expr::Identity;
 use vortex::mask::Mask;
 use vortex::{Array, ArrayRef, ToCanonical};
 use vortex_layout::layouts::flat::FlatVTable;
-use vortex_layout::layouts::stats::ZoneMapVTable;
+use vortex_layout::layouts::stats::ZonedVTable;
 
 use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
@@ -60,7 +60,7 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
         )));
     }
 
-    if let Some(layout) = cursor.layout().as_opt::<ZoneMapVTable>() {
+    if let Some(layout) = cursor.layout().as_opt::<ZonedVTable>() {
         // Push any zone stats.
         let mut line = String::new();
         line.push_str("Statistics: ");

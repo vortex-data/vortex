@@ -10,19 +10,19 @@ use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, Nullability, PType, StructDType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-/// A table of statistics for a column.
-/// Each row of the stats table corresponds to a chunk of the column.
+/// A zone map containing statistics for a column.
+/// Each row of the zone map corresponds to a chunk of the column.
 ///
-/// Note that it's possible for the stats table to have no statistics.
+/// Note that it's possible for the zone map to have no statistics.
 #[derive(Clone)]
-pub struct StatsTable {
-    // The struct array backing the stats table
+pub struct ZoneMap {
+    // The struct array backing the zone map
     array: StructArray,
     // The statistics that are included in the table.
     stats: Arc<[Stat]>,
 }
 
-impl StatsTable {
+impl ZoneMap {
     /// Create StatsTable of given column_dtype from given array. Validates that the array matches expected
     /// structure for given list of stats
     pub fn try_new(
@@ -31,7 +31,7 @@ impl StatsTable {
         stats: Arc<[Stat]>,
     ) -> VortexResult<Self> {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
-            vortex_bail!("Array dtype does not match expected stats table dtype");
+            vortex_bail!("Array dtype does not match expected zone map dtype");
         }
         Ok(Self::unchecked_new(array, stats))
     }
@@ -55,7 +55,7 @@ impl StatsTable {
         )
     }
 
-    /// The struct array backing the stats table
+    /// The struct array backing the zone map
     pub fn array(&self) -> &StructArray {
         &self.array
     }
@@ -103,7 +103,7 @@ impl StatsTable {
 
 /// Accumulates statistics for a column.
 ///
-/// TODO(ngates): we should make it such that the stats table stores a mirror of the DType
+/// TODO(ngates): we should make it such that the zone map stores a mirror of the DType
 ///  underneath each stats column. For example, `min: i32` for an `i32` array.
 ///  Or `min: {a: i32, b: i32}` for a struct array of type `{a: i32, b: i32}`.
 ///  See: <https://github.com/vortex-data/vortex/issues/1835>
@@ -146,11 +146,11 @@ impl StatsAccumulator {
         Ok(())
     }
 
-    /// Finishes the accumulator into a [`StatsTable`].
+    /// Finishes the accumulator into a [`ZoneMap`].
     ///
     /// Returns `None` if none of the requested statistics can be computed, for example they are
     /// not applicable to the column's data type.
-    pub fn as_stats_table(&mut self) -> Option<StatsTable> {
+    pub fn as_stats_table(&mut self) -> Option<ZoneMap> {
         let mut names = Vec::new();
         let mut fields = Vec::new();
         let mut stats = Vec::new();
@@ -182,9 +182,9 @@ impl StatsAccumulator {
             return None;
         }
 
-        Some(StatsTable {
+        Some(ZoneMap {
             array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)
-                .vortex_expect("Failed to create stats table"),
+                .vortex_expect("Failed to create zone map"),
             stats: stats.into(),
         })
     }

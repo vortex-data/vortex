@@ -31,7 +31,7 @@ pub trait LayoutWriterExt: LayoutWriter {
         Box::new(self)
     }
 
-    /// Push a single chunk into the layout writer and return the finished [`LayoutData`].
+    /// Push a single chunk into the layout writer and return the finished [`LayoutRef`].
     fn push_one(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
@@ -43,7 +43,7 @@ pub trait LayoutWriterExt: LayoutWriter {
     }
 
     /// Push all chunks of the iterator into the layout writer and return the finished
-    /// [`LayoutData`].
+    /// [`LayoutRef`].
     fn push_all<I: IntoIterator<Item = VortexResult<ArrayRef>>>(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,

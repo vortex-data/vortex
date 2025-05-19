@@ -14,7 +14,7 @@ use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
-use crate::layouts::stats::ZoneMapLayout;
+use crate::layouts::stats::ZonedLayout;
 use crate::layouts::stats::stats_table::StatsTable;
 use crate::segments::SegmentSource;
 use crate::{ArrayEvaluation, Layout, LayoutReader, MaskEvaluation, PruningEvaluation};
@@ -23,8 +23,8 @@ pub(crate) type SharedStatsTable = Shared<BoxFuture<'static, SharedVortexResult<
 pub(crate) type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
 pub(crate) type PredicateCache = Arc<OnceLock<Option<PruningPredicate>>>;
 
-pub struct ZoneMapReader {
-    layout: ZoneMapLayout,
+pub struct ZonedReader {
+    layout: ZonedLayout,
     name: Arc<str>,
 
     /// Data layout reader
@@ -42,7 +42,7 @@ pub struct ZoneMapReader {
     pruning_predicates: Arc<RwLock<HashMap<ExprRef, PredicateCache>>>,
 }
 
-impl Deref for ZoneMapReader {
+impl Deref for ZonedReader {
     type Target = dyn Layout;
 
     fn deref(&self) -> &Self::Target {
@@ -50,9 +50,9 @@ impl Deref for ZoneMapReader {
     }
 }
 
-impl ZoneMapReader {
+impl ZonedReader {
     pub(super) fn try_new(
-        layout: ZoneMapLayout,
+        layout: ZonedLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         ctx: ArrayContext,
@@ -147,9 +147,9 @@ impl ZoneMapReader {
 
     /// Return the zone range covered by a row range.
     pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<usize> {
-        let zone_start = usize::try_from(row_range.start / self.zones_child.row_count())
+        let zone_start = usize::try_from(row_range.start / self.layout.zone_len as u64)
             .vortex_expect("Invalid zone start");
-        let zone_end = usize::try_from(row_range.end.div_ceil(self.zones_child.row_count()))
+        let zone_end = usize::try_from(row_range.end.div_ceil(self.layout.zone_len as u64))
             .vortex_expect("Invalid zone end");
         zone_start..zone_end
     }
@@ -160,7 +160,7 @@ impl ZoneMapReader {
     }
 }
 
-impl LayoutReader for ZoneMapReader {
+impl LayoutReader for ZonedReader {
     fn name(&self) -> &Arc<str> {
         &self.name
     }

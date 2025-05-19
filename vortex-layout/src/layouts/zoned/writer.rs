@@ -7,7 +7,7 @@ use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::layouts::stats::ZoneMapLayout;
+use crate::layouts::stats::ZonedLayout;
 use crate::layouts::stats::stats_table::StatsAccumulator;
 use crate::segments::SegmentWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
@@ -123,7 +123,7 @@ impl LayoutWriter for StatsLayoutWriter {
             .new_writer(&self.ctx, stats_array.dtype())?;
         let zones_layout = stats_writer.push_one(segment_writer, stats_table.array().to_array())?;
 
-        Ok(ZoneMapLayout::new(
+        Ok(ZonedLayout::new(
             data,
             zones_layout,
             self.options.block_size,
