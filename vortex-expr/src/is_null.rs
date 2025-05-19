@@ -79,7 +79,8 @@ impl VortexExpr for IsNull {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        match batch.validity_mask()? {
+        let array = self.child.evaluate(batch)?;
+        match array.validity_mask()? {
             Mask::AllTrue(len) => Ok(ConstantArray::new(false, len).into_array()),
             Mask::AllFalse(len) => Ok(ConstantArray::new(true, len).into_array()),
             Mask::Values(mask) => Ok(BoolArray::from(mask.boolean_buffer().not()).into_array()),
@@ -110,12 +111,12 @@ pub fn is_null(child: ExprRef) -> ExprRef {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
     use crate::is_null::is_null;
-    use crate::{ident, test_harness};
+    use crate::{get_item, ident, test_harness};
 
     #[test]
     fn dtype() {
@@ -178,5 +179,31 @@ mod tests {
             result.as_constant().unwrap(),
             Scalar::bool(true, Nullability::NonNullable)
         );
+    }
+
+    #[test]
+    fn evaluate_struct() {
+        let test_array = StructArray::from_fields(&[(
+            "a",
+            PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2), None, Some(3)])
+                .into_array(),
+        )])
+        .unwrap()
+        .into_array();
+        let expected = [false, true, false, true, false];
+
+        let result = is_null(get_item("a", ident()))
+            .unchecked_evaluate(&test_array)
+            .unwrap();
+
+        assert_eq!(result.len(), test_array.len());
+        assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
+
+        for (i, expected_value) in expected.iter().enumerate() {
+            assert_eq!(
+                result.scalar_at(i).unwrap(),
+                Scalar::bool(*expected_value, Nullability::NonNullable)
+            );
+        }
     }
 }
