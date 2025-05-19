@@ -52,14 +52,14 @@ std::vector<idx_t> TableNullability(ClientContext &context, const string &catalo
 	auto entry = catalog.GetEntry(context, CatalogType::TABLE_ENTRY, schema_name, table, OnEntryNotFound::RETURN_NULL,
 	                              error_context);
 	auto vec = std::vector<idx_t>();
-	if (!entry) {
+	if (!entry || entry->type != CatalogType::TABLE_ENTRY) {
 		// If there is no entry, it is okay to return all nullable columns.
 		return vec;
 	}
 
 	auto &table_entry = entry->Cast<TableCatalogEntry>();
 	for (auto &constraint : table_entry.GetConstraints()) {
-		if (constraint->type == ConstraintType::NOT_NULL) {
+		if (constraint && constraint->type == ConstraintType::NOT_NULL) {
 			auto &null_constraint = constraint->Cast<NotNullConstraint>();
 			vec.push_back(null_constraint.index.index);
 		}
