@@ -1,19 +1,20 @@
 //! List-related compute operations.
 
-use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_iterator::BitIndexIterator;
-use num_traits::AsPrimitive;
+use arrow_buffer::{BooleanBuffer, MutableBuffer};
+use num_traits::{AsPrimitive, FromPrimitive};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, ConstantArray, ListArray};
 use crate::compute::{Operator, compare, invert};
+use crate::search_sorted::{SearchSorted, SearchSortedSide};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical};
+use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
 /// Compute a `Bool`-typed array the same length as `array` where elements are `true` if the list
 /// item contains the `value`, or `false` otherwise.
@@ -53,6 +54,11 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
         vortex_bail!("Element type of ListArray does not match search value");
     }
 
+    // If the array is empty, return an empty array.
+    if array.is_empty() {
+        return Ok(Canonical::empty(&DType::Bool(array.dtype().nullability())).into_array());
+    }
+
     // If the list array is constant, we perform a single comparison.
     if array.is_constant() && array.len() > 1 {
         let contains = list_contains(&array.slice(0, 1)?, value)?;
@@ -72,18 +78,18 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
 
     let rhs = ConstantArray::new(value, elems.len());
     let matching_elements = compare(elems, rhs.as_ref(), Operator::Eq)?;
-    let matches = matching_elements.to_bool()?;
 
     // Fast path: no elements match.
-    if let Some(pred) = matches.as_constant() {
+    if let Some(pred) = matching_elements.as_constant() {
         if matches!(pred.as_bool().value(), None | Some(false)) {
             // TODO(aduffy): how do we handle null?
             return Ok(ConstantArray::new::<bool>(false, list_array.len()).into_array());
         }
     }
 
+    let matching_elements = matching_elements.to_bool()?;
     match_each_integer_ptype!(ends.ptype(), |$T| {
-        Ok(reduce_with_ends(ends.as_slice::<$T>(), &matches.boolean_buffer(), list_array.validity().clone()))
+        Ok(reduce_with_ends(ends.as_slice::<$T>(), &matching_elements.boolean_buffer(), list_array.validity().clone()))
     })
 }
 
@@ -133,20 +139,37 @@ fn list_contains_null(list_array: &ListArray) -> VortexResult<ArrayRef> {
 
 // Reduce each boolean values into a Mask that indicates which elements in the
 // ListArray contain the matching value.
-fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
+fn reduce_with_ends<T: NativePType + AsPrimitive<usize> + FromPrimitive + Ord>(
     ends: &[T],
     matches: &BooleanBuffer,
     validity: Validity,
 ) -> ArrayRef {
-    let mask: BooleanBuffer = ends
-        .windows(2)
-        .map(|window| {
-            let len = window[1].as_() - window[0].as_();
-            let mut set_bits = BitIndexIterator::new(matches.values(), window[0].as_(), len);
-            set_bits.next().is_some()
-        })
-        .collect();
+    // TODO(ngates): what threshold is reasonable here?
+    let num_matches = matches.count_set_bits();
+    if num_matches < 20 || (num_matches as f64 / matches.len() as f64) < 0.025 {
+        let mut result = MutableBuffer::from_len_zeroed(ends.len().div_ceil(8));
+        for idx in matches.set_indices() {
+            let end = ends
+                .search_sorted(
+                    &T::from_usize(idx).vortex_expect("invalid index"),
+                    SearchSortedSide::Left,
+                )
+                .to_ends_index(ends.len());
+            arrow_buffer::bit_util::set_bit(&mut result, end);
+        }
+        return BoolArray::new(
+            BooleanBuffer::new(result.into(), 0, ends.len() - 1),
+            validity,
+        )
+        .into_array();
+    }
 
+    let mask = BooleanBuffer::collect_bool(ends.len() - 1, |idx| {
+        let start = ends[idx].as_();
+        let end = ends[idx + 1].as_();
+        let mut set_bits = BitIndexIterator::new(matches.values(), start, end - start);
+        set_bits.next().is_some()
+    });
     BoolArray::new(mask, validity).into_array()
 }
 

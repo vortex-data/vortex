@@ -274,11 +274,13 @@ impl IndexOrd<Scalar> for dyn Array + '_ {
 }
 
 impl<T: PartialOrd> IndexOrd<T> for [T] {
+    #[inline]
     fn index_cmp(&self, idx: usize, elem: &T) -> Option<Ordering> {
         // SAFETY: Used in search_sorted_by same as the standard library. The search_sorted ensures idx is in bounds
         unsafe { self.get_unchecked(idx) }.partial_cmp(elem)
     }
 
+    #[inline]
     fn index_len(&self) -> usize {
         self.len()
     }
