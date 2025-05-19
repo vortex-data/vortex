@@ -5,8 +5,9 @@ use std::hash::Hash;
 
 use itertools::Itertools;
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray, TemporalArray};
+use vortex_array::compress::downscale_integer_array;
 use vortex_array::vtable::{VTable, ValidityHelper};
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, VortexUnwrap};
@@ -307,7 +308,12 @@ impl BtrBlocksCompressor {
             Canonical::List(list_array) => {
                 // Compress the inner
                 let compressed_elems = self.compress(list_array.elements())?;
-                let compressed_offsets = self.compress(list_array.offsets())?;
+                let compressed_offsets = IntCompressor::compress_no_dict(
+                    &downscale_integer_array(list_array.offsets().clone())?.to_primitive()?,
+                    false,
+                    MAX_CASCADE,
+                    &[],
+                )?;
 
                 Ok(ListArray::try_new(
                     compressed_elems,
