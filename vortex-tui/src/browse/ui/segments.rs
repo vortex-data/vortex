@@ -388,7 +388,7 @@ fn segments_by_name_impl(
                     Some(
                         name.as_ref()
                             .map(|n| format!("{n}.[{idx}]"))
-                            .unwrap_or(format!("[{idx}]"))
+                            .unwrap_or_else(|| format!("[{idx}]"))
                             .into(),
                     ),
                     // Compute absolute row offset.
@@ -399,9 +399,9 @@ fn segments_by_name_impl(
             }
             LayoutChildType::Field(field_name) => {
                 // Step into a new group name
-                let group_name = group_name.as_ref().map_or(field_name.clone(), |n| {
-                    Arc::from(format!("{n}.{field_name}"))
-                });
+                let group_name = group_name
+                    .as_ref()
+                    .map_or(field_name.clone(), |n| format!("{n}.{field_name}").into());
                 segment_tree.segment_ordering.push(group_name.clone());
 
                 segments_by_name_impl(
@@ -428,7 +428,7 @@ fn segments_by_name_impl(
             .map(|s| segment_spec.offset - s.spec.offset - s.spec.length as u64)
             .unwrap_or(0);
         current_segments.push(SegmentDisplay {
-            name: name.clone().unwrap_or("<unnamed>".into()),
+            name: name.clone().unwrap_or_else(|| "<unnamed>".into()),
             spec: segment_spec,
             row_count: root.row_count(),
             row_offset: row_offset.unwrap_or(0),
