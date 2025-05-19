@@ -14,12 +14,12 @@ use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 
-use crate::layouts::stats::ZonedLayout;
-use crate::layouts::stats::stats_table::StatsTable;
+use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::SegmentSource;
 use crate::{ArrayEvaluation, Layout, LayoutReader, MaskEvaluation, PruningEvaluation};
 
-pub(crate) type SharedStatsTable = Shared<BoxFuture<'static, SharedVortexResult<StatsTable>>>;
+pub(crate) type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 pub(crate) type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
 pub(crate) type PredicateCache = Arc<OnceLock<Option<PruningPredicate>>>;
 
@@ -35,8 +35,8 @@ pub struct ZonedReader {
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
     pruning_result: RwLock<HashMap<ExprRef, Option<SharedPruningResult>>>,
 
-    /// Shared stats table
-    stats_table: OnceLock<SharedStatsTable>,
+    /// Shared zone map
+    zone_map: OnceLock<SharedZoneMap>,
 
     /// A cache of expr -> optional pruning predicate.
     pruning_predicates: Arc<RwLock<HashMap<ExprRef, PredicateCache>>>,
@@ -69,7 +69,7 @@ impl ZonedReader {
             data_child,
             zones_child,
             pruning_result: Default::default(),
-            stats_table: Default::default(),
+            zone_map: Default::default(),
             pruning_predicates: Default::default(),
         })
     }
@@ -88,8 +88,8 @@ impl ZonedReader {
     ///
     /// Only the first successful caller will initialize the stats table, all other callers will
     /// resolve to the same result.
-    fn stats_table(&self) -> SharedStatsTable {
-        self.stats_table
+    fn stats_table(&self) -> SharedZoneMap {
+        self.zone_map
             .get_or_init(move || {
                 let nzones = self.layout.nzones();
                 let present_stats = self.layout.present_stats.clone();
@@ -105,7 +105,7 @@ impl ZonedReader {
                         .await?
                         .to_struct()?;
                     // SAFETY: This is only fine to call because we perform validation above
-                    Ok(StatsTable::unchecked_new(zones_array, present_stats))
+                    Ok(ZoneMap::unchecked_new(zones_array, present_stats))
                 }
                 .map_err(Arc::new)
                 .boxed()
@@ -294,7 +294,7 @@ mod test {
     use crate::LayoutRef;
     use crate::layouts::chunked::writer::ChunkedLayoutWriter;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::stats::writer::{StatsLayoutOptions, StatsLayoutWriter};
+    use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedLayoutWriter};
     use crate::segments::{SegmentSource, TestSegments};
     use crate::writer::LayoutWriterExt;
 
@@ -303,7 +303,7 @@ mod test {
     fn stats_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let mut segments = TestSegments::default();
-        let layout = StatsLayoutWriter::new(
+        let layout = ZonedLayoutWriter::new(
             ctx.clone(),
             &DType::Primitive(PType::I32, NonNullable),
             ChunkedLayoutWriter::new(
@@ -313,7 +313,7 @@ mod test {
             )
             .boxed(),
             ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
-            StatsLayoutOptions {
+            ZonedLayoutOptions {
                 block_size: 3,
                 ..Default::default()
             },

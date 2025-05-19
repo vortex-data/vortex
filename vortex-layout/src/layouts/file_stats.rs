@@ -6,7 +6,7 @@ use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::layouts::stats::stats_table::StatsAccumulator;
+use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SegmentWriter;
 use crate::{LayoutRef, LayoutWriter};
 

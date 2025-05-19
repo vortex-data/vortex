@@ -7,20 +7,20 @@ use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::layouts::stats::ZonedLayout;
-use crate::layouts::stats::stats_table::StatsAccumulator;
+use crate::layouts::zoned::ZonedLayout;
+use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SegmentWriter;
 use crate::writer::{LayoutWriter, LayoutWriterExt};
 use crate::{IntoLayout, LayoutRef, LayoutStrategy};
 
-pub struct StatsLayoutOptions {
+pub struct ZonedLayoutOptions {
     /// The size of a statistics block
     pub block_size: usize,
     /// The statistics to collect for each block.
     pub stats: Arc<[Stat]>,
 }
 
-impl Default for StatsLayoutOptions {
+impl Default for ZonedLayoutOptions {
     fn default() -> Self {
         Self {
             block_size: 8192,
@@ -29,11 +29,11 @@ impl Default for StatsLayoutOptions {
     }
 }
 
-pub struct StatsLayoutWriter {
+pub struct ZonedLayoutWriter {
     ctx: ArrayContext,
-    options: StatsLayoutOptions,
+    options: ZonedLayoutOptions,
     data_writer: Box<dyn LayoutWriter>,
-    stats_strategy: ArcRef<dyn LayoutStrategy>,
+    zone_map_strategy: ArcRef<dyn LayoutStrategy>,
     stats_accumulator: StatsAccumulator,
     dtype: DType,
 
@@ -42,7 +42,7 @@ pub struct StatsLayoutWriter {
     final_block: bool,
 }
 
-impl StatsLayoutWriter {
+impl ZonedLayoutWriter {
     pub fn new(
         ctx: ArrayContext,
         dtype: &DType,
@@ -51,7 +51,7 @@ impl StatsLayoutWriter {
         //  other layout strategies?
         child_writer: Box<dyn LayoutWriter>,
         stats_strategy: ArcRef<dyn LayoutStrategy>,
-        options: StatsLayoutOptions,
+        options: ZonedLayoutOptions,
     ) -> Self {
         let present_stats: Arc<[Stat]> = options.stats.iter().sorted().copied().collect();
         let stats_accumulator = StatsAccumulator::new(dtype.clone(), &present_stats);
@@ -60,7 +60,7 @@ impl StatsLayoutWriter {
             ctx,
             options,
             data_writer: child_writer,
-            stats_strategy,
+            zone_map_strategy: stats_strategy,
             stats_accumulator,
             dtype: dtype.clone(),
             nblocks: 0,
@@ -69,7 +69,7 @@ impl StatsLayoutWriter {
     }
 }
 
-impl LayoutWriter for StatsLayoutWriter {
+impl LayoutWriter for ZonedLayoutWriter {
     fn push_chunk(
         &mut self,
         segment_writer: &mut dyn SegmentWriter,
@@ -119,7 +119,7 @@ impl LayoutWriter for StatsLayoutWriter {
         // the table depends on which stats were successfully computed.
         let stats_array = stats_table.array();
         let mut stats_writer = self
-            .stats_strategy
+            .zone_map_strategy
             .new_writer(&self.ctx, stats_array.dtype())?;
         let zones_layout = stats_writer.push_one(segment_writer, stats_table.array().to_array())?;
 

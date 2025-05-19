@@ -11,7 +11,7 @@ use vortex::expr::Identity;
 use vortex::mask::Mask;
 use vortex::{Array, ArrayRef, ToCanonical};
 use vortex_layout::layouts::flat::FlatVTable;
-use vortex_layout::layouts::stats::ZonedVTable;
+use vortex_layout::layouts::zoned::ZonedVTable;
 
 use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};

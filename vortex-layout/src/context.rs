@@ -4,8 +4,8 @@ use crate::LayoutEncodingRef;
 use crate::layouts::chunked::ChunkedLayoutEncoding;
 use crate::layouts::dict::DictLayoutEncoding;
 use crate::layouts::flat::FlatLayoutEncoding;
-use crate::layouts::stats::ZonedLayoutEncoding;
 use crate::layouts::struct_::StructLayoutEncoding;
+use crate::layouts::zoned::ZonedLayoutEncoding;
 
 pub type LayoutContext = VTableContext<LayoutEncodingRef>;
 pub type LayoutRegistry = VTableRegistry<LayoutEncodingRef>;

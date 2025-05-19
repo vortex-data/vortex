@@ -1,6 +1,6 @@
 mod reader;
-pub mod stats_table;
 pub mod writer;
+pub mod zone_map;
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
-use crate::layouts::zoned::stats_table::ZoneMap;
+use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
     LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
