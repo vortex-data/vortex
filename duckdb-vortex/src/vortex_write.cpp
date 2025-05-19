@@ -52,6 +52,7 @@ std::vector<idx_t> TableNullability(ClientContext &context, const string &catalo
 	auto entry = catalog.GetEntry(context, CatalogType::TABLE_ENTRY, schema_name, table, OnEntryNotFound::RETURN_NULL,
 	                              error_context);
 	auto vec = std::vector<idx_t>();
+	// entry can non-null and not a table entry
 	if (!entry || entry->type != CatalogType::TABLE_ENTRY) {
 		// If there is no entry, it is okay to return all nullable columns.
 		return vec;
