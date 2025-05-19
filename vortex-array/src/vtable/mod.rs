@@ -39,7 +39,7 @@ use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
-    type Array: 'static + Send + Sync + Clone + Deref<Target = dyn Array> + IntoArray;
+    type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Array> + IntoArray;
     type Encoding: 'static + Send + Sync + Clone + Deref<Target = dyn Encoding>;
 
     type ArrayVTable: ArrayVTable<Self>;

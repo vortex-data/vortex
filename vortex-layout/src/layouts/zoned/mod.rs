@@ -120,7 +120,7 @@ impl VTable for ZonedVTable {
 #[derive(Debug)]
 pub struct ZonedLayoutEncoding;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ZonedLayout {
     data: LayoutRef,
     zones: LayoutRef,

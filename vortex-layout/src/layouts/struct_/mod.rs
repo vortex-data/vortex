@@ -122,7 +122,7 @@ impl VTable for StructVTable {
 #[derive(Debug)]
 pub struct StructLayoutEncoding;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StructLayout {
     row_count: u64,
     dtype: DType,

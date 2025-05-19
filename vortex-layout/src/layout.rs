@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use itertools::Itertools;
 use vortex_array::{ArrayContext, SerializeMetadata};
 use vortex_dtype::{DType, FieldMask, FieldName};
@@ -11,9 +12,11 @@ use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, VTable};
 
+pub type LayoutId = ArcRef<str>;
+
 pub type LayoutRef = Arc<dyn Layout>;
 
-pub trait Layout: 'static + Send + Sync + private::Sealed {
+pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     fn as_any(&self) -> &dyn Any;
 
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
@@ -192,19 +195,14 @@ impl dyn Layout + '_ {
     }
 }
 
-impl Debug for dyn Layout + '_ {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Layout")
-            .field("encoding", &self.encoding())
-            .field("row_count", &self.row_count())
-            .field("dtype", &self.dtype())
-            .field("nchildren", &self.nchildren())
-            .finish()
-    }
-}
-
 #[repr(transparent)]
 pub struct LayoutAdapter<V: VTable>(V::Layout);
+
+impl<V: VTable> Debug for LayoutAdapter<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 impl<V: VTable> Layout for LayoutAdapter<V> {
     fn as_any(&self) -> &dyn Any {

@@ -107,7 +107,7 @@ impl VTable for ChunkedVTable {
 #[derive(Debug)]
 pub struct ChunkedLayoutEncoding;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChunkedLayout {
     row_count: u64,
     dtype: DType,

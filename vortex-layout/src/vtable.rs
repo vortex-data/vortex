@@ -15,7 +15,7 @@ use crate::{
 };
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
-    type Layout: 'static + Send + Sync + Clone + Deref<Target = dyn Layout> + IntoLayout;
+    type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Layout> + IntoLayout;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn LayoutEncoding>;
     type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
 

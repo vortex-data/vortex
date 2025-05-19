@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use flatbuffers::Follow;
@@ -21,6 +22,14 @@ pub trait LayoutChildren: 'static + Send + Sync {
     fn child_row_count(&self, idx: usize) -> u64;
 
     fn nchildren(&self) -> usize;
+}
+
+impl Debug for dyn LayoutChildren {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LayoutChildren")
+            .field("nchildren", &self.nchildren())
+            .finish()
+    }
 }
 
 impl LayoutChildren for Arc<dyn LayoutChildren> {

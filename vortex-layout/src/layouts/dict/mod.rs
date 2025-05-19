@@ -111,7 +111,7 @@ impl VTable for DictVTable {
 #[derive(Debug)]
 pub struct DictLayoutEncoding;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DictLayout {
     values: LayoutRef,
     codes: LayoutRef,
