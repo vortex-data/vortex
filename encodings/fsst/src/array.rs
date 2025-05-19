@@ -1,4 +1,7 @@
-use fsst::{Decompressor, Symbol};
+use std::fmt::{Debug, Formatter};
+use std::sync::{Arc, LazyLock};
+
+use fsst::{Compressor, Decompressor, Symbol};
 use vortex_array::arrays::VarBinArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
@@ -33,7 +36,7 @@ impl VTable for FSSTVTable {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct FSSTArray {
     dtype: DType,
     symbols: Buffer<Symbol>,
@@ -42,6 +45,21 @@ pub struct FSSTArray {
     /// Lengths of the original values before compression, can be compressed.
     uncompressed_lengths: ArrayRef,
     stats_set: ArrayStats,
+
+    /// Memoized compressor used for push-down of compute by compressing the RHS.
+    compressor: Arc<LazyLock<Compressor, Box<dyn Fn() -> Compressor + Send>>>,
+}
+
+impl Debug for FSSTArray {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FSSTArray")
+            .field("dtype", &self.dtype)
+            .field("symbols", &self.symbols)
+            .field("symbol_lengths", &self.symbol_lengths)
+            .field("codes", &self.codes)
+            .field("uncompressed_lengths", &self.uncompressed_lengths)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -84,6 +102,13 @@ impl FSSTArray {
             vortex_bail!(InvalidArgument: "codes array must be DType::Binary type");
         }
 
+        let symbols2 = symbols.clone();
+        let symbol_lengths2 = symbol_lengths.clone();
+        let compressor = Arc::new(LazyLock::new(Box::new(move || {
+            Compressor::rebuild_from(symbols2.as_slice(), symbol_lengths2.as_slice())
+        })
+            as Box<dyn Fn() -> Compressor + Send>));
+
         Ok(Self {
             dtype,
             symbols,
@@ -91,6 +116,7 @@ impl FSSTArray {
             codes,
             uncompressed_lengths,
             stats_set: Default::default(),
+            compressor,
         })
     }
 
@@ -132,6 +158,10 @@ impl FSSTArray {
     /// This is private to the crate to avoid leaking `fsst-rs` types as part of the public API.
     pub(crate) fn decompressor(&self) -> Decompressor {
         Decompressor::new(self.symbols().as_slice(), self.symbol_lengths().as_slice())
+    }
+
+    pub(crate) fn compressor(&self) -> &Compressor {
+        self.compressor.as_ref()
     }
 }
 

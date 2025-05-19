@@ -19,9 +19,7 @@ impl CompareKernel for FSSTVTable {
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
         match rhs.as_constant() {
-            Some(constant) => {
-                compare_fsst_constant(lhs, &ConstantArray::new(constant, lhs.len()), operator)
-            }
+            Some(constant) => compare_fsst_constant(lhs, &constant, operator),
             // Otherwise, fall back to the default comparison behavior.
             _ => Ok(None),
         }
@@ -33,16 +31,15 @@ register_kernel!(CompareKernelAdapter(FSSTVTable).lift());
 /// Specialized compare function implementation used when performing against a constant
 fn compare_fsst_constant(
     left: &FSSTArray,
-    right: &ConstantArray,
+    right: &Scalar,
     operator: Operator,
 ) -> VortexResult<Option<ArrayRef>> {
-    let rhs_scalar = right.scalar();
-    let is_rhs_empty = match rhs_scalar.dtype() {
-        DType::Binary(_) => rhs_scalar
+    let is_rhs_empty = match right.dtype() {
+        DType::Binary(_) => right
             .as_binary()
             .is_empty()
             .vortex_expect("RHS should not be null"),
-        DType::Utf8(_) => rhs_scalar
+        DType::Utf8(_) => right
             .as_utf8()
             .is_empty()
             .vortex_expect("RHS should not be null"),
@@ -77,12 +74,10 @@ fn compare_fsst_constant(
         return Ok(None);
     }
 
-    let compressor = fsst::Compressor::rebuild_from(left.symbols(), left.symbol_lengths());
-
+    let compressor = left.compressor();
     let encoded_buffer = match left.dtype() {
         DType::Utf8(_) => {
             let value = right
-                .scalar()
                 .as_utf8()
                 .value()
                 .vortex_expect("Expected non-null scalar");
@@ -90,7 +85,6 @@ fn compare_fsst_constant(
         }
         DType::Binary(_) => {
             let value = right
-                .scalar()
                 .as_binary()
                 .value()
                 .vortex_expect("Expected non-null scalar");
