@@ -73,7 +73,6 @@ struct Args {
     export_spans: bool,
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
-    // Don't try to rebuild duckdb
     #[arg(long)]
     skip_duckdb_build: bool,
 }
