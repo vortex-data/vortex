@@ -96,7 +96,7 @@ fn main() -> anyhow::Result<()> {
         .unique()
         .collect_vec();
 
-    let duckdb_resolved_path = ddb::get_executable_path(&args.duckdb_path);
+    let duckdb_resolved_path = ddb::duckdb_executable_path(&args.duckdb_path);
     if args.duckdb_path.is_none() && !args.skip_rebuild {
         ddb::build_vortex_duckdb();
     }

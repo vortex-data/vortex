@@ -115,7 +115,7 @@ jobs:
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} -d gh-json --skip-rebuild | tee ${{ matrix.benchmark.id }}.json
+          target/release_debug/${{ matrix.benchmark.id }} -d gh-json --skip-duckdb-build | tee ${{ matrix.benchmark.id }}.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4

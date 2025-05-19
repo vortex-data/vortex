@@ -72,7 +72,7 @@ pub fn vortex_duckdb_extension_path() -> PathBuf {
     vortex_duckdb_folder().join("build/release/extension/vortex/vortex.duckdb_extension")
 }
 
-pub fn get_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
+pub fn duckdb_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
     // User supplied path takes priority.
     if let Some(duckdb_path) = user_supplied_path_flag {
         validate_path(duckdb_path);
@@ -269,6 +269,7 @@ pub fn register_tables(
 
     trace!("register duckdb tables with command: {:?}", command);
 
+    // Pass along OS env vars (for aws creds)
     // Don't trace env vars.
     command.envs(std::env::vars_os());
     let output = command.output()?;

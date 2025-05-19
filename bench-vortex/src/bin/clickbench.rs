@@ -212,7 +212,7 @@ fn main() -> anyhow::Result<()> {
         .iter()
         .any(|t| t.engine() == Engine::DuckDB)
         .then(|| {
-            let path = ddb::get_executable_path(&args.duckdb_path);
+            let path = ddb::duckdb_executable_path(&args.duckdb_path);
             // If the path is to the duckdb-vortex extension, try to rebuild
             if args.duckdb_path.is_none() && !args.skip_rebuild {
                 ddb::build_vortex_duckdb();
