@@ -1,6 +1,9 @@
+use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::stream::once;
 use arcref::ArcRef;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
@@ -8,11 +11,63 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::layouts::flat::writer::FlatLayoutStrategy;
-use crate::segments::ConcurrentSegmentWriter;
+use crate::layouts::flat::writer::{FlatLayoutStrategy, NewFlatLayoutStrategy};
+use crate::segments::{ConcurrentSegmentWriter, NewSegmentWriter};
 use crate::strategy::LayoutStrategy;
 use crate::writer::LayoutWriter;
-use crate::{IntoLayout, LayoutRef, LayoutWriterExt};
+use crate::{
+    IntoLayout, LayoutRef, LayoutWriterExt, NewLayoutStrategy, NewLayoutWriter, SequentialArrayStream,
+};
+
+pub struct NewChunkedLayoutStrategy {
+    /// The layout strategy for each chunk.
+    pub chunk_strategy: ArcRef<dyn NewLayoutStrategy>,
+}
+
+impl Default for NewChunkedLayoutStrategy {
+    fn default() -> Self {
+        Self {
+            chunk_strategy: ArcRef::new_arc(Arc::new(NewFlatLayoutStrategy::default())),
+        }
+    }
+}
+
+impl NewLayoutStrategy for NewChunkedLayoutStrategy {
+    fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        dtype: &DType,
+        segment_writer: Arc<dyn NewSegmentWriter>,
+        mut stream: SequentialArrayStream,
+    ) -> Pin<Box<dyn NewLayoutWriter>> {
+        let chunk_strategy = self.chunk_strategy.clone();
+        let ctx = ctx.clone();
+        let dtype = dtype.clone();
+        Box::pin(async move {
+            let mut child_layouts = Vec::new();
+            let mut row_count = 0;
+            while let Some(chunk) = stream.next().await {
+                let (sequence_id, chunk) = chunk?;
+                row_count += chunk.len() as u64;
+                let layout = chunk_strategy
+                    .write_stream(
+                        &ctx,
+                        &dtype,
+                        segment_writer.clone(),
+                        Box::pin(once(async { Ok((sequence_id, chunk)) })),
+                    )
+                    .await?;
+                child_layouts.push(layout);
+            }
+
+            if child_layouts.len() == 1 {
+                Ok(child_layouts.pop().vortex_expect("must have one child"))
+            } else {
+                Ok(chunked_layout(dtype, row_count, child_layouts))
+            }
+        })
+    }
+}
 
 #[derive(Clone)]
 pub struct ChunkedLayoutStrategy {

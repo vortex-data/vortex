@@ -74,6 +74,7 @@ impl InOrderSegmentWriter {
             },
         )
     }
+
     async fn next_segment_id_once_active(&self) -> VortexResult<SegmentId> {
         WaitRegionFuture {
             buffers: self.buffers.clone(),
@@ -89,7 +90,9 @@ impl Drop for InOrderSegmentWriter {
             return;
         };
         for buffer in completed.into_values() {
-            self.buffers_tx.unbounded_send(buffer).expect("no");
+            self.buffers_tx
+                .unbounded_send(buffer)
+                .expect("out of memory");
         }
     }
 }

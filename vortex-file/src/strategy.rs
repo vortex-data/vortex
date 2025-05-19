@@ -1,10 +1,13 @@
 //! This module defines the default layout strategy for a Vortex file.
 
 use std::collections::VecDeque;
+use std::pin::Pin;
 use std::sync::Arc;
 
+use async_stream::try_stream;
 use arcref::ArcRef;
 use async_trait::async_trait;
+use futures::{FutureExt, StreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::stats::{PRUNING_STATS, Stat};
@@ -19,10 +22,13 @@ use vortex_layout::layouts::repartition::{
     RepartitionStrategy, RepartitionWriter, RepartitionWriterOptions,
 };
 use vortex_layout::layouts::struct_::writer::StructLayoutWriter;
-use vortex_layout::scan::TaskExecutor;
+use vortex_layout::scan::{TaskExecutor, TaskExecutorExt};
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedLayoutWriter};
-use vortex_layout::segments::ConcurrentSegmentWriter;
-use vortex_layout::{LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt};
+use vortex_layout::segments::{ConcurrentSegmentWriter, NewSegmentWriter};
+use vortex_layout::{
+    LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt, NewLayoutStrategy, NewLayoutWriter,
+    SequentialArrayStream,
+};
 
 const ROW_BLOCK_SIZE: usize = 8192;
 
@@ -114,6 +120,38 @@ impl LayoutStrategy for VortexLayoutStrategy {
         .boxed();
 
         Ok(writer)
+    }
+}
+
+struct NewBtrBlocksCompressedStrategy {
+    child: ArcRef<dyn NewLayoutStrategy>,
+    executor: Arc<dyn TaskExecutor>,
+    parallelism: usize,
+}
+
+impl NewLayoutStrategy for NewBtrBlocksCompressedStrategy {
+    fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        dtype: &DType,
+        segment_writer: Arc<dyn NewSegmentWriter>,
+        stream: SequentialArrayStream,
+    ) -> Pin<Box<dyn NewLayoutWriter>> {
+        let executor = self.executor.clone();
+
+        let stream = stream
+            .map(|chunk| {
+                async {
+                    let (sequence_id, chunk) = chunk?;
+                    Ok((sequence_id, BtrBlocksCompressor.compress(&chunk)?))
+                }
+                .boxed()
+            })
+            .map(move |compress_future| executor.spawn(compress_future))
+            .buffered(self.parallelism);
+
+        self.child
+            .write_stream(ctx, dtype, segment_writer, Box::pin(stream))
     }
 }
 
@@ -230,6 +268,61 @@ impl LayoutWriter for BtrBlocksCompressedWriter {
         segment_writer: &mut dyn ConcurrentSegmentWriter,
     ) -> VortexResult<LayoutRef> {
         self.child.finish(segment_writer).await
+    }
+}
+
+struct NewBufferedStrategy {
+    child: ArcRef<dyn NewLayoutStrategy>,
+    buffer_size: u64,
+}
+
+impl NewLayoutStrategy for NewBufferedStrategy {
+    fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        dtype: &DType,
+        segment_writer: Arc<dyn NewSegmentWriter>,
+        stream: SequentialArrayStream,
+    ) -> Pin<Box<dyn NewLayoutWriter>> {
+        let buffer_size = self.buffer_size;
+        let buffered_stream = try_stream! {
+            let stream = stream.peekable();
+            pin_mut!(stream);
+
+            let mut nbytes = 0u64;
+            let mut chunks = VecDeque::new();
+
+            while let Some(chunk) = stream.as_mut().next().await {
+                let (sequence_id, chunk) = chunk?;
+                nbytes += chunk.nbytes() as u64;
+                chunks.push_back(chunk);
+
+                // if this is the last element, flush everything
+                if let None = stream.as_mut().peek().await {
+                    let (_, mut sequence_pointer) = sequence_id.descend();
+                    while let Some(chunk) = chunks.pop_front() {
+                        yield (sequence_pointer.advance(), chunk)
+                    }
+                    break;
+                }
+
+                if nbytes < 2 * buffer_size {
+                    continue;
+                };
+                // Wait until we're at 2x the buffer size before flushing 1x the buffer size
+                // This avoids small tail stragglers being flushed at the end of the file.
+                let (_, mut sequence_pointer) = sequence_id.descend();
+                while nbytes >= 2 * buffer_size {
+                    let Some(chunk) = chunks.pop_front() else {
+                        break;
+                    };
+                    nbytes -= chunk.nbytes() as u64;
+                    yield (sequence_pointer.advance(), chunk)
+                }
+            }
+        };
+        self.child
+            .write_stream(&ctx, &dtype, segment_writer, Box::pin(buffered_stream))
     }
 }
 

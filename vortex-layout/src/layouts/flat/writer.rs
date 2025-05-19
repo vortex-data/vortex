@@ -1,4 +1,8 @@
+use std::pin::Pin;
+use std::sync::Arc;
+
 use async_trait::async_trait;
+use futures::StreamExt;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
 use vortex_array::{Array, ArrayContext, ArrayRef};
@@ -8,9 +12,78 @@ use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
-use crate::segments::ConcurrentSegmentWriter;
+use crate::segments::{ConcurrentSegmentWriter, NewSegmentWriter};
 use crate::writer::LayoutWriter;
-use crate::{IntoLayout, LayoutRef, LayoutStrategy, LayoutWriterExt};
+use crate::{
+    IntoLayout, LayoutRef, LayoutStrategy, LayoutWriterExt, NewLayoutStrategy, NewLayoutWriter,
+    SequentialArrayStream,
+};
+
+#[derive(Clone)]
+pub struct NewFlatLayoutStrategy {
+    /// Stats to preserve when writing arrays
+    pub array_stats: Vec<Stat>,
+    /// Whether to include padding for memory-mapped reads.
+    pub include_padding: bool,
+}
+
+impl Default for NewFlatLayoutStrategy {
+    fn default() -> Self {
+        Self {
+            array_stats: STATS_TO_WRITE.to_vec(),
+            include_padding: true,
+        }
+    }
+}
+
+impl NewLayoutStrategy for NewFlatLayoutStrategy {
+    fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        dtype: &DType,
+        segment_writer: Arc<dyn NewSegmentWriter>,
+        mut stream: SequentialArrayStream,
+    ) -> Pin<Box<dyn NewLayoutWriter>> {
+        let ctx = ctx.clone();
+        let dtype = dtype.clone();
+        let options = self.clone();
+        Box::pin(async move {
+            let Some(chunk) = stream.next().await else {
+                vortex_bail!("flat layout needs a single chunk");
+            };
+            let (sequence_id, chunk) = chunk?;
+
+            let row_count = chunk.len() as u64;
+            update_stats(&chunk, &options.array_stats)?;
+
+            // TODO(os): spawn serialization
+            let buffers = chunk.serialize(
+                &ctx,
+                &SerializeOptions {
+                    offset: 0,
+                    include_padding: options.include_padding,
+                },
+            );
+
+            let segment_id = sequence_id.collapse().await;
+            segment_writer.put(segment_id, buffers)?;
+
+            let None = stream.next().await else {
+                vortex_bail!("flat layout received stream with more than a single chunk");
+            };
+
+            Ok(Layout::new_owned(
+                "flat".into(),
+                LayoutVTableRef::new_ref(&FlatLayout),
+                dtype,
+                row_count,
+                vec![segment_id],
+                vec![],
+                None,
+            ))
+        })
+    }
+}
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {

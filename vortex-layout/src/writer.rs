@@ -5,6 +5,12 @@ use vortex_error::VortexResult;
 use crate::LayoutRef;
 use crate::segments::ConcurrentSegmentWriter;
 
+pub trait NewLayoutWriter: Future<Output = VortexResult<Layout>> {}
+
+// Allow async blocks to impl LayoutWriter, this would change if more methods
+// are added to LayoutWriter.
+impl<F: Future<Output = VortexResult<Layout>> + ?Sized> NewLayoutWriter for F {}
+
 /// A strategy for writing chunks of an array into a layout.
 // [layout writer]
 #[async_trait]

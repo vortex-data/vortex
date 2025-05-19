@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::segments::SegmentId;
 
@@ -25,4 +25,14 @@ pub trait ConcurrentSegmentWriter: SegmentWriter {
     /// written to writers with lower indices will be processed before segments written to
     /// writers with higher indices, with the original writer processing its segments last.
     fn split_off(&mut self, splits: usize) -> VortexResult<Vec<Box<dyn ConcurrentSegmentWriter>>>;
+
+    // TODO(os): this probably shouldn't have a default impl, this can be done smarter from the impl
+    fn split(&mut self) -> VortexResult<Box<dyn ConcurrentSegmentWriter>> {
+        let mut splits = self.split_off(1)?;
+        Ok(splits.pop().vortex_expect("split_off must produce a split"))
+    }
+}
+
+pub trait NewSegmentWriter {
+    fn put(&self, segment_id: SegmentId, buffer: Vec<ByteBuffer>) -> VortexResult<()>;
 }

@@ -1,25 +1,189 @@
+use std::collections::VecDeque;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll, ready};
 
 use async_trait::async_trait;
-use futures::FutureExt as _;
 use futures::future::try_join_all;
+use futures::{FutureExt as _, Stream, StreamExt as _};
 use itertools::Itertools;
-use tokio::sync::Mutex;
+use parking_lot::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 use vortex_array::aliases::hash_set::HashSet;
+use vortex_array::arcref::ArcRef;
 use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::layouts::struct_::StructLayout;
 use crate::scan::{TaskExecutor, TaskExecutorExt};
-use crate::segments::ConcurrentSegmentWriter;
+use crate::segments::{ConcurrentSegmentWriter, NewSegmentWriter};
 use crate::strategy::LayoutStrategy;
 use crate::writer::LayoutWriter;
+use crate::{LayoutVTableRef, NewLayoutStrategy, NewLayoutWriter, SequentialArrayStream};
+
+pub struct NewStructStrategy {
+    child: ArcRef<dyn NewLayoutStrategy>,
+}
+
+impl NewLayoutStrategy for NewStructStrategy {
+    fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        dtype: &DType,
+        segment_writer: Arc<dyn NewSegmentWriter>,
+        stream: SequentialArrayStream,
+    ) -> Pin<Box<dyn NewLayoutWriter>> {
+        let Some(struct_dtype) = dtype.as_struct().cloned() else {
+            return Box::pin(async { Err(vortex_err!("expected StructDType")) });
+        };
+        if HashSet::from_iter(struct_dtype.names().iter()).len() != struct_dtype.names().len() {
+            return Box::pin(async {
+                Err(vortex_err!("StructLayout must have unique field names"))
+            });
+        }
+
+        // stream<struct_chunk> -> stream<vec<column_chunk>>
+        let columns_vec_stream = stream.map(|chunk| {
+            let (sequence_id, chunk) = chunk?;
+            let (_, mut sequence_pointer) = sequence_id.descend();
+            let struct_chunk = chunk
+                .as_struct_typed()
+                .ok_or_else(|| vortex_err!("chunk is not struct typed"))?;
+            let columns: Vec<_> = (0..struct_chunk.nfields())
+                .map(|idx| {
+                    (
+                        sequence_pointer.advance(),
+                        struct_chunk
+                            .maybe_null_field_by_idx(idx)
+                            .vortex_expect("bounds already checked"),
+                    )
+                })
+                .collect();
+            Ok(columns)
+        });
+
+        // stream<vec<column_chunk>> -> vec<stream<column_chunk>>
+        let column_streams = transpose_stream(columns_vec_stream, struct_dtype.nfields());
+
+        let column_dtypes = (0..struct_dtype.nfields()).map(move |idx| {
+            struct_dtype
+                .field_by_index(idx)
+                .vortex_expect("bound checked")
+        });
+        let child = self.child.clone();
+        let ctx = ctx.clone();
+        let layout_futures =
+            column_dtypes
+                .zip_eq(column_streams.into_iter())
+                .map(move |(dtype, stream)| {
+                    child.write_stream(&ctx, &dtype, segment_writer.clone(), Box::pin(stream))
+                });
+
+        let dtype = dtype.clone();
+        Box::pin(async move {
+            let column_layouts = try_join_all(layout_futures).await?;
+            // TODO(os): transposed stream could count row counts as well,
+            // This must hold though, all columns must have the same row count of the struct layout
+            let row_count = column_layouts.get(0).map(|l| l.row_count()).unwrap_or(0);
+            Ok(Layout::new_owned(
+                "struct".into(),
+                LayoutVTableRef::new_ref(&StructLayout),
+                dtype,
+                row_count,
+                vec![],
+                column_layouts,
+                None,
+            ))
+        })
+    }
+}
+
+fn transpose_stream<T, S>(stream: S, elements: usize) -> Vec<impl Stream<Item = VortexResult<T>>>
+where
+    S: Stream<Item = VortexResult<Vec<T>>> + Unpin,
+    T: Unpin + 'static,
+{
+    let state = Arc::new(Mutex::new(TransposeState {
+        upstream: stream,
+        buffers: (0..elements).map(|_| VecDeque::new()).collect(),
+        exhausted: false,
+    }));
+    (0..elements)
+        .map(|index| TransposedStream {
+            index,
+            state: state.clone(),
+        })
+        .collect()
+}
+
+struct TransposeState<T, S>
+where
+    S: Stream<Item = VortexResult<Vec<T>>> + Unpin,
+    T: Unpin,
+{
+    upstream: S,
+    // TODO(os): make these buffers bounded so transposed streams can not run ahead unbounded
+    buffers: Vec<VecDeque<VortexResult<T>>>,
+    exhausted: bool,
+}
+
+struct TransposedStream<T, S>
+where
+    S: Stream<Item = VortexResult<Vec<T>>> + Unpin,
+    T: Unpin,
+{
+    index: usize,
+    state: Arc<Mutex<TransposeState<T, S>>>,
+}
+
+impl<T, S> Stream for TransposedStream<T, S>
+where
+    S: Stream<Item = VortexResult<Vec<T>>> + Unpin,
+    T: Unpin,
+{
+    type Item = VortexResult<T>;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut guard = self.state.lock();
+        if let Some(item) = guard.buffers[self.index].pop_front() {
+            return Poll::Ready(Some(item));
+        }
+
+        // support non fused streams
+        if guard.exhausted {
+            return Poll::Ready(None);
+        }
+
+        match ready!(Pin::new(&mut guard.upstream).poll_next(cx)) {
+            None => {
+                guard.exhausted = true;
+                Poll::Ready(None)
+            }
+            Some(Ok(vec_t)) => {
+                for (t, buffer) in vec_t.into_iter().zip_eq(guard.buffers.iter_mut()) {
+                    buffer.push_back(Ok(t));
+                }
+                Poll::Ready(Some(
+                    guard.buffers[self.index]
+                        .pop_front()
+                        .vortex_expect("just pushed"),
+                ))
+            }
+            Some(Err(err)) => {
+                let shared_err = Arc::new(err);
+                for buffer in guard.buffers.iter_mut() {
+                    buffer.push_back(Err(shared_err.clone().into()));
+                }
+                Poll::Ready(Some(Err(shared_err.clone().into())))
+            }
+        }
+    }
+}
 use crate::{IntoLayout, LayoutRef};
 
 /// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
 pub struct StructLayoutWriter {
-    column_strategies: Vec<Arc<Mutex<Box<dyn LayoutWriter>>>>,
+    column_strategies: Vec<Arc<TokioMutex<Box<dyn LayoutWriter>>>>,
     dtype: DType,
     executor: Option<Arc<dyn TaskExecutor>>,
     row_count: u64,
@@ -45,7 +209,7 @@ impl StructLayoutWriter {
         Ok(Self {
             column_strategies: column_layout_writers
                 .into_iter()
-                .map(|w| Arc::new(Mutex::new(w)))
+                .map(|w| Arc::new(TokioMutex::new(w)))
                 .collect(),
             dtype,
             executor,
