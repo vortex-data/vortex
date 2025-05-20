@@ -1,7 +1,5 @@
 //! FFI interface for Vortex File I/O.
 
-#![allow(non_camel_case_types)]
-
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -25,36 +23,20 @@ use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 
 use crate::array::{vx_array, vx_array_iterator};
-use crate::cache::{FileKey, VortexSession};
 use crate::error::{try_or, vx_error};
+use crate::session::{FileKey, vx_session};
 use crate::{RUNTIME, to_string, to_string_vec};
 
 /// A file reader that can be used to read from a file.
+#[allow(non_camel_case_types)]
 pub struct vx_file_reader {
     pub inner: VortexFile,
 }
 
 /// A Vortex layout reader.
+#[allow(non_camel_case_types)]
 pub struct vx_layout_reader {
     pub inner: Arc<dyn LayoutReader>,
-}
-
-pub struct vx_session {
-    pub inner: Arc<VortexSession>,
-}
-
-/// Open a file at the given path on the file system.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_session_create() -> *mut vx_session {
-    Box::into_raw(Box::new(vx_session {
-        inner: Arc::new(VortexSession::new()),
-    }))
-}
-
-/// Open a file at the given path on the file system.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_session_free(session: *mut vx_session) {
-    drop(unsafe { Box::from_raw(session) })
 }
 
 /// Options supplied for opening a file.

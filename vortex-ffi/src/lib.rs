@@ -3,13 +3,13 @@
 //! Native interface to Vortex arrays, types, files and streams.
 
 mod array;
-mod cache;
 mod dtype;
 #[cfg(feature = "duckdb")]
 mod duckdb;
 mod error;
 mod file;
 mod log;
+mod session;
 mod sink;
 
 use std::ffi::{CStr, c_char, c_int};

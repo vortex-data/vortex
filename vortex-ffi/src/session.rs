@@ -8,6 +8,27 @@ use vortex::layout::segments::SegmentId;
 use vortex::scalar::ScalarValue;
 use vortex::stats::{Precision, Stat};
 
+/// An object that stores registries and caches.
+/// This should if possible be reused between queries in ann interactive session.
+#[allow(non_camel_case_types)]
+pub struct vx_session {
+    pub inner: Arc<VortexSession>,
+}
+
+/// Open a file at the given path on the file system.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_session_create() -> *mut vx_session {
+    Box::into_raw(Box::new(vx_session {
+        inner: Arc::new(VortexSession::new()),
+    }))
+}
+
+/// Open a file at the given path on the file system.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_session_free(session: *mut vx_session) {
+    drop(unsafe { Box::from_raw(session) })
+}
+
 pub struct VortexSession {
     file_cache: Cache<FileKey, Footer, DefaultHashBuilder>,
 }
