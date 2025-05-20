@@ -344,14 +344,14 @@ mod tests {
             .to_bool()
             .unwrap();
 
-        assert_eq!(to_int_indices(matches), [1u64, 2, 3, 4]);
+        assert_eq!(to_int_indices(matches).unwrap(), [1u64, 2, 3, 4]);
 
         let matches = compare(arr.as_ref(), arr.as_ref(), Operator::NotEq)
             .unwrap()
             .to_bool()
             .unwrap();
         let empty: [u64; 0] = [];
-        assert_eq!(to_int_indices(matches), empty);
+        assert_eq!(to_int_indices(matches).unwrap(), empty);
 
         let other = BoolArray::new(
             BooleanBuffer::from_iter([false, false, false, true, true]),
@@ -362,25 +362,25 @@ mod tests {
             .unwrap()
             .to_bool()
             .unwrap();
-        assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
+        assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
         let matches = compare(arr.as_ref(), other.as_ref(), Operator::Lt)
             .unwrap()
             .to_bool()
             .unwrap();
-        assert_eq!(to_int_indices(matches), [4u64]);
+        assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
 
         let matches = compare(other.as_ref(), arr.as_ref(), Operator::Gte)
             .unwrap()
             .to_bool()
             .unwrap();
-        assert_eq!(to_int_indices(matches), [2u64, 3, 4]);
+        assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
         let matches = compare(other.as_ref(), arr.as_ref(), Operator::Gt)
             .unwrap()
             .to_bool()
             .unwrap();
-        assert_eq!(to_int_indices(matches), [4u64]);
+        assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
     }
 
     #[test]
