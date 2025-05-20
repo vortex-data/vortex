@@ -124,6 +124,10 @@ typedef struct vx_file_reader vx_file_reader;
  */
 typedef struct vx_layout_reader vx_layout_reader;
 
+/**
+ * An object that stores registries and caches.
+ * This should if possible be reused between queries in ann interactive session.
+ */
 typedef struct vx_session vx_session;
 
 /**
@@ -382,16 +386,6 @@ void vx_error_free(struct vx_error *error);
 /**
  * Open a file at the given path on the file system.
  */
-struct vx_session *vx_session_create(void);
-
-/**
- * Open a file at the given path on the file system.
- */
-void vx_session_free(struct vx_session *session);
-
-/**
- * Open a file at the given path on the file system.
- */
 struct vx_file_reader *vx_file_open_reader(const struct vx_file_open_options *options,
                                            struct vx_session *session,
                                            struct vx_error **error);
@@ -442,6 +436,16 @@ void vx_file_reader_free(struct vx_file_reader *file);
  * logger will be installed.
  */
 void vx_init_logging(enum vx_log_level level);
+
+/**
+ * Create a session to be used for the lifetime of an interactive session.
+ */
+struct vx_session *vx_session_create(void);
+
+/**
+ * Free a session
+ */
+void vx_session_free(struct vx_session *session);
 
 /**
  * Opens a writable array stream, where sink is used to push values into the stream.

@@ -15,7 +15,7 @@ pub struct vx_session {
     pub inner: Arc<VortexSession>,
 }
 
-/// Open a file at the given path on the file system.
+/// Create a session to be used for the lifetime of an interactive session.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_session_create() -> *mut vx_session {
     Box::into_raw(Box::new(vx_session {
@@ -23,7 +23,7 @@ pub unsafe extern "C-unwind" fn vx_session_create() -> *mut vx_session {
     }))
 }
 
-/// Open a file at the given path on the file system.
+/// Free a session
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_session_free(session: *mut vx_session) {
     drop(unsafe { Box::from_raw(session) })
