@@ -16,13 +16,13 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
+    BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
 use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
 use crate::serde::ArrayChildren;
-use crate::stats::{Precision, Stat, StatsSet, StatsSetRef};
+use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
     ValidityVTable, VisitorVTable,
@@ -377,19 +377,6 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        // Propagate some stats from the original array to the sliced array.
-        let mut stats = StatsSet::default();
-        self.statistics().with_iter(|iter| {
-            for (stat, value) in iter {
-                match stat {
-                    Stat::IsSorted | Stat::IsStrictSorted | Stat::IsConstant => {
-                        stats.set(*stat, value.clone());
-                    }
-                    _ => {}
-                }
-            }
-        });
-
         let sliced = <V::OperationsVTable as OperationsVTable<V>>::slice(&self.0, start, stop)?;
 
         assert_eq!(
@@ -407,7 +394,26 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             self.encoding_id()
         );
 
-        sliced.statistics().replace(stats);
+        // Propagate some stats from the original array to the sliced array.
+        if !sliced.is::<ConstantVTable>() {
+            self.statistics().with_iter(|iter| {
+                sliced.statistics().inherit(iter.filter(|stat| {
+                    match stat {
+                        (
+                            Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted,
+                            Precision::Exact(value),
+                        ) if value
+                            .as_bool()
+                            .vortex_expect("must be a bool")
+                            .unwrap_or_default() =>
+                        {
+                            true
+                        }
+                        _ => false,
+                    }
+                }));
+            });
+        }
 
         Ok(sliced)
     }

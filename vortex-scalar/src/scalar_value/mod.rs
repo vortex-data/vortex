@@ -133,34 +133,34 @@ impl ScalarValue {
         self.0.is_instance_of(dtype)
     }
 
-    pub(crate) fn as_null(&self) -> VortexResult<()> {
+    pub fn as_null(&self) -> VortexResult<()> {
         self.0.as_null()
     }
 
-    pub(crate) fn as_bool(&self) -> VortexResult<Option<bool>> {
+    pub fn as_bool(&self) -> VortexResult<Option<bool>> {
         self.0.as_bool()
     }
 
     /// FIXME(ngates): PValues are such a footgun... we should probably remove this.
     ///  But the other accessors can sometimes be useful? e.g. as_buffer. But maybe we just force
     ///  the user to switch over Utf8 and Binary and use the correct Scalar wrapper?
-    pub(crate) fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
+    pub fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
         self.0.as_pvalue()
     }
 
-    pub(crate) fn as_decimal(&self) -> VortexResult<Option<DecimalValue>> {
+    pub fn as_decimal(&self) -> VortexResult<Option<DecimalValue>> {
         self.0.as_decimal()
     }
 
-    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
+    pub fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
         self.0.as_buffer()
     }
 
-    pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
+    pub fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
         self.0.as_buffer_string()
     }
 
-    pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
+    pub fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
         self.0.as_list()
     }
 }
