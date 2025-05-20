@@ -324,23 +324,13 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
 #[cfg(test)]
 mod tests {
     use arrow_buffer::BooleanBuffer;
-    use itertools::Itertools;
     use rstest::rstest;
 
     use super::*;
     use crate::ToCanonical;
     use crate::arrays::{BoolArray, ConstantArray, VarBinArray, VarBinViewArray};
+    use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
-
-    fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
-        let buffer = indices_bits.boolean_buffer();
-        let mask = indices_bits.validity_mask().unwrap();
-        buffer
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, v)| (v && mask.value(idx)).then_some(idx as u64))
-            .collect_vec()
-    }
 
     #[test]
     fn test_bool_basic_comparisons() {

@@ -134,7 +134,9 @@ impl ComputeFnVTable for Between {
         if lower.as_constant().is_some_and(|v| v.is_null())
             || upper.as_constant().is_some_and(|v| v.is_null())
         {
-            return Ok(Canonical::empty(&return_dtype).into_array().into());
+            return Ok(ConstantArray::new(Scalar::null(return_dtype), array.len())
+                .into_array()
+                .into());
         }
 
         // Try each kernel
@@ -270,5 +272,110 @@ impl StrictComparison {
             StrictComparison::Strict => Operator::Lt,
             StrictComparison::NonStrict => Operator::Lte,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::{Nullability, PType};
+
+    use super::*;
+    use crate::ToCanonical;
+    use crate::arrays::PrimitiveArray;
+    use crate::compute::conformance::search_sorted::rstest;
+    use crate::test_harness::to_int_indices;
+
+    #[rstest]
+    #[case(StrictComparison::NonStrict, StrictComparison::NonStrict, vec![0, 1, 2, 3])]
+    #[case(StrictComparison::NonStrict, StrictComparison::Strict, vec![0, 1])]
+    #[case(StrictComparison::Strict, StrictComparison::NonStrict, vec![0, 2])]
+    #[case(StrictComparison::Strict, StrictComparison::Strict, vec![0])]
+    fn test_bounds(
+        #[case] lower_strict: StrictComparison,
+        #[case] upper_strict: StrictComparison,
+        #[case] expected: Vec<u64>,
+    ) {
+        let lower = PrimitiveArray::from_iter([0, 0, 0, 0, 2]);
+        let array = PrimitiveArray::from_iter([1, 0, 1, 0, 1]);
+        let upper = PrimitiveArray::from_iter([2, 1, 1, 0, 0]);
+
+        let matches = between(
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+            &BetweenOptions {
+                lower_strict,
+                upper_strict,
+            },
+        )
+        .unwrap()
+        .to_bool()
+        .unwrap();
+
+        let indices = to_int_indices(matches);
+        assert_eq!(indices, expected);
+    }
+
+    #[test]
+    fn test_constants() {
+        let lower = PrimitiveArray::from_iter([0, 0, 2, 0, 2]);
+        let array = PrimitiveArray::from_iter([1, 0, 1, 0, 1]);
+
+        // upper is null
+        let upper = ConstantArray::new(
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            5,
+        );
+
+        let matches = between(
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+            &BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+        )
+        .unwrap()
+        .to_bool()
+        .unwrap();
+
+        let indices = to_int_indices(matches);
+        assert_eq!(indices, vec![]);
+
+        // upper is a fixed constant
+        let upper = ConstantArray::new(Scalar::from(2), 5);
+        let matches = between(
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+            &BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+        )
+        .unwrap()
+        .to_bool()
+        .unwrap();
+        let indices = to_int_indices(matches);
+        assert_eq!(indices, vec![0, 1, 3]);
+
+        // lower is also a constant
+        let lower = ConstantArray::new(Scalar::from(0), 5);
+
+        let matches = between(
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+            &BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+        )
+        .unwrap()
+        .to_bool()
+        .unwrap();
+        let indices = to_int_indices(matches);
+        assert_eq!(indices, vec![0, 1, 2, 3, 4]);
     }
 }

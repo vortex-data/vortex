@@ -2,7 +2,9 @@ use std::io::Write;
 
 use goldenfile::Mint;
 use goldenfile::differs::binary_diff;
+use itertools::Itertools;
 
+use crate::arrays::BoolArray;
 use crate::{DeserializeMetadata, SerializeMetadata};
 
 /// Check that a named metadata matches its previous versioning.
@@ -20,4 +22,15 @@ where
         .new_goldenfile_with_differ(name, Box::new(binary_diff))
         .unwrap();
     f.write_all(&meta).unwrap();
+}
+
+/// Outputs the indices of the true values in a BoolArray
+pub fn to_int_indices(indices_bits: BoolArray) -> Vec<u64> {
+    let buffer = indices_bits.boolean_buffer();
+    let mask = indices_bits.validity_mask().unwrap();
+    buffer
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, v)| (v && mask.value(idx)).then_some(idx as u64))
+        .collect_vec()
 }
