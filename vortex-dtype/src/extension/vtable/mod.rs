@@ -1,6 +1,6 @@
 mod temporal;
 
-use std::any::Any;
+use std::any::{Any, type_name};
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -8,6 +8,7 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::datetime::TIME_ID;
 use crate::{ExtID, ExtMetadata};
 
 /// Convert a typed value into a type-erased handle to an extension type.
@@ -38,8 +39,10 @@ pub trait ExtensionVTable: Send + Sync + Debug + 'static {
     /// Attempt to decode a concrete extension type instance from the ID and metadata.
     ///
     /// If this VTable doesn't support the pair, an inner `None` value is returned.
-    fn try_decode(id: &ExtID, metadata: Option<ExtMetadata>)
-    -> VortexResult<Option<Self::ExtType>>;
+    fn try_decode(
+        id: &ExtID,
+        metadata: Option<&ExtMetadata>,
+    ) -> VortexResult<Option<Self::ExtType>>;
 }
 
 /// A dyn-compatible trait that all extension types conform to.
@@ -59,6 +62,28 @@ pub trait ExtensionType: Send + Sync + Debug + private::Sealed + 'static {
 
 /// A cheaply cloneable type-erased handle for extension types.
 pub type ExtensionTypeRef = Arc<dyn ExtensionType>;
+
+impl dyn ExtensionType + '_ {
+    /// Predicate if the inner extension type is the one associated with the provided `VTable`.
+    pub fn is<V: ExtensionVTable>(&self) -> bool {
+        self.as_opt::<V>().is_some()
+    }
+
+    /// Force downcast, panicking on failure.
+    ///
+    /// See also: [`Self::as_opt`]
+    pub fn as_<V: ExtensionVTable>(&self) -> &V::ExtType {
+        self.as_opt::<V>()
+            .vortex_expect("ExtensionType not of expected type")
+    }
+
+    /// Downcast to the extension type encoded in the VTable, or `None` if downcast fails.
+    pub fn as_opt<V: ExtensionVTable>(&self) -> Option<&V::ExtType> {
+        self.as_any()
+            .downcast_ref::<ExtensionTypeAdapter<V>>()
+            .map(|adapter| &adapter.0)
+    }
+}
 
 mod private {
     use super::{ExtensionTypeAdapter, ExtensionVTable};
@@ -93,12 +118,12 @@ pub trait ExtensionTypeEncoding: 'static + Send + Sync + Debug {
     /// Entrypoint for downcasting to a concrete subtype.
     fn as_any(&self) -> &dyn Any;
 
-    /// ID for the encoding type.
-    ///
-    /// This defaults to the Rust type name.
-    fn id(&self) -> &str {
-        std::any::type_name::<Self>()
-    }
+    /// ID for the encoder. This is NOT the same thing as the ID of the extension type. This
+    /// is just meant to be a unique ID for the extension loader.
+    fn id(&self) -> &str;
+
+    /// Predicate indicating if the encoding supports the given type ID.
+    fn supports_type(&self, id: &ExtID) -> bool;
 
     /// See if this deserializes into one of the builtin extension types that are supported
     /// by this registry, propagating any deserialization errors.
@@ -107,7 +132,7 @@ pub trait ExtensionTypeEncoding: 'static + Send + Sync + Debug {
     fn try_decode(
         &self,
         ext_id: &ExtID,
-        metadata: Option<ExtMetadata>,
+        metadata: Option<&ExtMetadata>,
     ) -> VortexResult<Option<ExtensionTypeRef>>;
 }
 
@@ -120,10 +145,18 @@ impl<V: ExtensionVTable> ExtensionTypeEncoding for ExtensionTypeEncodingAdapter<
         self
     }
 
+    fn id(&self) -> &str {
+        type_name::<V>()
+    }
+
+    fn supports_type(&self, id: &ExtID) -> bool {
+        id.as_ref() == TIME_ID.as_ref()
+    }
+
     fn try_decode(
         &self,
         ext_id: &ExtID,
-        metadata: Option<ExtMetadata>,
+        metadata: Option<&ExtMetadata>,
     ) -> VortexResult<Option<ExtensionTypeRef>> {
         if let Some(ext_type) = V::try_decode(ext_id, metadata)? {
             Ok(Some(ext_type.into_extension_type_ref()))

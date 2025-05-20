@@ -5,9 +5,10 @@
 use std::sync::Arc;
 
 use hashbrown::HashMap;
+use itertools::Itertools;
 use parking_lot::RwLock;
 
-use crate::ExtensionTypeEncodingRef;
+use crate::{ExtID, ExtensionTypeEncodingRef, ExtensionVTable};
 
 /// Registry shared by dynamic and static extension types.
 #[allow(clippy::disallowed_types)]
@@ -36,5 +37,23 @@ impl ExtensionTypeRegistry {
             .write()
             .insert(encoding.id().to_string(), encoding);
         self
+    }
+
+    /// Returns `true` if the provided extension VTable has its encoding registered.
+    pub fn contains<V: ExtensionVTable>(&self) -> bool {
+        self.registry
+            .read()
+            .values()
+            .find_or_first(|encoding| encoding.is::<V>())
+            .is_some()
+    }
+
+    /// Lookup the encoding that supports serde for the given extension type.
+    pub fn find_encoding(&self, id: &ExtID) -> Option<ExtensionTypeEncodingRef> {
+        self.registry
+            .read()
+            .values()
+            .find(|decoder| decoder.supports_type(id))
+            .cloned()
     }
 }

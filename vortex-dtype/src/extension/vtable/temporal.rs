@@ -1,3 +1,5 @@
+//! VTable implementations for the temporal extension types provided by Vortex out of the box.
+
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::datetime::{TIME_ID, TimeUnit};
@@ -10,13 +12,7 @@ pub struct TimeExtensionType {
     pub time_unit: TimeUnit,
 }
 
-/// Encoding that captures all of the different temporal types.
-///
-/// This works with all of the following
-///
-/// * Time
-/// * Date
-/// * Timestamp
+/// Encoding for serde of Time extension type.
 #[derive(Debug, Copy, Clone)]
 pub struct TimeExtensionTypeEncoding;
 
@@ -36,7 +32,7 @@ impl ExtensionVTable for TimeVTable {
 
     fn try_decode(
         id: &ExtID,
-        metadata: Option<ExtMetadata>,
+        metadata: Option<&ExtMetadata>,
     ) -> VortexResult<Option<Self::ExtType>> {
         // bail early if some other extension type
         if id.as_ref() != TIME_ID.as_ref() {
@@ -61,8 +57,13 @@ impl ExtensionVTable for TimeVTable {
 #[cfg(test)]
 mod tests {
     use crate::datetime::{TIME_ID, TimeUnit};
-    use crate::extension::vtable::temporal::{TimeExtensionType, TimeVTable};
-    use crate::{ExtMetadata, ExtensionVTable, IntoExtensionTypeRef};
+    use crate::extension::vtable::temporal::{
+        TimeExtensionType, TimeExtensionTypeEncoding, TimeVTable,
+    };
+    use crate::{
+        ExtMetadata, ExtensionTypeEncodingRef, ExtensionTypeRegistry, ExtensionVTable,
+        IntoExtensionTypeRef,
+    };
 
     #[test]
     fn test_time_vtable() {
@@ -78,7 +79,7 @@ mod tests {
 
         let decoded = TimeVTable::try_decode(
             &TIME_ID,
-            Some(ExtMetadata::new(vec![TimeUnit::S as u8].into())),
+            Some(&ExtMetadata::new(vec![TimeUnit::S as u8].into())),
         )
         .unwrap();
 
@@ -88,5 +89,30 @@ mod tests {
                 time_unit: TimeUnit::S
             })
         );
+    }
+
+    #[test]
+    fn test_registry() {
+        let registry = ExtensionTypeRegistry::new();
+
+        // Register the value type
+        registry.register(ExtensionTypeEncodingRef::new_ref(
+            TimeExtensionTypeEncoding.as_ref(),
+        ));
+
+        // Create a test encoding.
+        let metadata = TimeExtensionType {
+            time_unit: TimeUnit::Ns,
+        }
+        .serialize_metadata();
+
+        let ext_type = registry
+            .find_encoding(&TIME_ID)
+            .unwrap()
+            .try_decode(&TIME_ID, metadata.as_ref())
+            .unwrap()
+            .unwrap();
+
+        assert!(ext_type.is::<TimeVTable>());
     }
 }

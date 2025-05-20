@@ -5,6 +5,7 @@ mod vtable;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
+use arcref::ArcRef;
 pub use registry::*;
 pub use vtable::*;
 
@@ -12,13 +13,13 @@ use crate::{DType, Nullability};
 
 /// A unique identifier for an extension type
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
-pub struct ExtID(Arc<str>);
+// #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct ExtID(ArcRef<str>);
 
 impl ExtID {
     /// Constructs a new `ExtID` from a string
-    pub fn new(value: Arc<str>) -> Self {
-        Self(value)
+    pub fn new(value: impl Into<Arc<str>>) -> Self {
+        Self(value.into().into())
     }
 }
 
@@ -36,7 +37,7 @@ impl AsRef<str> for ExtID {
 
 impl From<&str> for ExtID {
     fn from(value: &str) -> Self {
-        Self(value.into())
+        Self::new(Arc::from(value))
     }
 }
 
@@ -71,7 +72,7 @@ impl From<&[u8]> for ExtMetadata {
 
 /// A type descriptor for an extension type
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+// #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExtDType {
     id: ExtID,
     storage_dtype: Arc<DType>,
