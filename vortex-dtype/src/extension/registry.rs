@@ -7,13 +7,13 @@ use std::sync::Arc;
 use hashbrown::HashMap;
 use parking_lot::RwLock;
 
-use crate::{ExtID, ExtensionTypeEncodingRef};
+use crate::ExtensionTypeEncodingRef;
 
 /// Registry shared by dynamic and static extension types.
 #[allow(clippy::disallowed_types)]
 #[derive(Clone)]
 pub struct ExtensionTypeRegistry {
-    registry: Arc<RwLock<HashMap<ExtID, ExtensionTypeEncodingRef>>>,
+    registry: Arc<RwLock<HashMap<String, ExtensionTypeEncodingRef>>>,
 }
 
 impl Default for ExtensionTypeRegistry {
@@ -32,9 +32,9 @@ impl ExtensionTypeRegistry {
 
     /// Register an encoding.
     pub fn register(&self, encoding: ExtensionTypeEncodingRef) -> &Self {
-        self.registry.write().insert(encoding.id(), encoding);
+        self.registry
+            .write()
+            .insert(encoding.id().to_string(), encoding);
         self
     }
-    
-    pub fn 
 }

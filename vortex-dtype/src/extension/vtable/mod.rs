@@ -6,7 +6,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 
 use crate::{ExtID, ExtMetadata};
 
@@ -89,13 +89,15 @@ impl<V: ExtensionVTable> ExtensionType for ExtensionTypeAdapter<V> {
 }
 
 /// Dyn-compatible trait for extension type serialization.
-pub trait ExtensionTypeEncoding {
+pub trait ExtensionTypeEncoding: 'static + Send + Sync + Debug {
     /// Entrypoint for downcasting to a concrete subtype.
     fn as_any(&self) -> &dyn Any;
 
     /// ID for the encoding type.
-    fn id(&self) -> ExtID {
-        ExtID::new(std::any::type_name::<Self>().into())
+    ///
+    /// This defaults to the Rust type name.
+    fn id(&self) -> &str {
+        std::any::type_name::<Self>()
     }
 
     /// See if this deserializes into one of the builtin extension types that are supported
@@ -110,6 +112,7 @@ pub trait ExtensionTypeEncoding {
 }
 
 /// Implement an extension type encoding using a VTable.
+#[derive(Debug)]
 pub struct ExtensionTypeEncodingAdapter<V: ExtensionVTable>(V::ExtEncoding);
 
 impl<V: ExtensionVTable> ExtensionTypeEncoding for ExtensionTypeEncodingAdapter<V> {
@@ -132,3 +135,26 @@ impl<V: ExtensionVTable> ExtensionTypeEncoding for ExtensionTypeEncodingAdapter<
 
 /// A cheaply cloneable type-erased handle for extension type encodings.
 pub type ExtensionTypeEncodingRef = ArcRef<dyn ExtensionTypeEncoding>;
+
+impl dyn ExtensionTypeEncoding + '_ {
+    /// Predicate to check if the inner encoding type is the one specified by
+    /// the provided VTable.
+    pub fn is<V: ExtensionVTable>(&self) -> bool {
+        self.as_opt::<V>().is_some()
+    }
+
+    /// Force downcast, panicking on failure.
+    ///
+    /// See also: [`Self::as_opt`]
+    pub fn as_<V: ExtensionVTable>(&self) -> &V::ExtEncoding {
+        self.as_opt::<V>()
+            .vortex_expect("ExtensionTypeEncoding not of expected type")
+    }
+
+    /// Try and downcast to a specific encoding variant.
+    pub fn as_opt<V: ExtensionVTable>(&self) -> Option<&V::ExtEncoding> {
+        self.as_any()
+            .downcast_ref::<ExtensionTypeEncodingAdapter<V>>()
+            .map(|adapter| &adapter.0)
+    }
+}
