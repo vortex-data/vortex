@@ -51,6 +51,7 @@ regex = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+similar = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 tempfile = { workspace = true }

@@ -181,7 +181,7 @@ async fn bench_main(
                     .path()
                     .join(format!("duckdb-file-{}.db", format.name()));
 
-                let executor = DuckDBExecutor::new(duckdb_resolved_path.to_owned(), duckdb_file);
+                let executor = DuckDBExecutor::new(duckdb_resolved_path, duckdb_file);
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcDS)?;
 
                 for (query_idx, sql_query) in tpch_queries.clone() {
