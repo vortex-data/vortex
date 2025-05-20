@@ -398,19 +398,13 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         if !sliced.is::<ConstantVTable>() {
             self.statistics().with_iter(|iter| {
                 sliced.statistics().inherit(iter.filter(|stat| {
-                    match stat {
-                        (
-                            Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted,
-                            Precision::Exact(value),
-                        ) if value
+                    matches!(stat, (
+                               Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted,
+                               Precision::Exact(value),
+                           ) if value
                             .as_bool()
                             .vortex_expect("must be a bool")
-                            .unwrap_or_default() =>
-                        {
-                            true
-                        }
-                        _ => false,
-                    }
+                            .unwrap_or_default())
                 }));
             });
         }
