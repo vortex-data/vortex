@@ -108,6 +108,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub fn with_executor(mut self, executor: Arc<dyn TaskExecutor>) -> Self {
+        self.executor = Some(executor);
+        self
+    }
+
     pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
         self.metrics = metrics;
         self
@@ -236,7 +241,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             row_masks
         };
 
-        // Finally, map the row masks through the projection evaluation
+        // Finally, map the row masks through the projection evaluation and spawn.
         row_masks
             .into_iter()
             .map(|(row_range, mask_fut)| {

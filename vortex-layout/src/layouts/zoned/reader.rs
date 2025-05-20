@@ -3,11 +3,10 @@ use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
+use dashmap::DashMap;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
-use parking_lot::RwLock;
-use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::{ArrayContext, ToCanonical};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
@@ -33,13 +32,13 @@ pub struct ZonedReader {
     zones_child: Arc<dyn LayoutReader>,
 
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
-    pruning_result: RwLock<HashMap<ExprRef, Option<SharedPruningResult>>>,
+    pruning_result: DashMap<ExprRef, Option<SharedPruningResult>>,
 
     /// Shared zone map
     zone_map: OnceLock<SharedZoneMap>,
 
     /// A cache of expr -> optional pruning predicate.
-    pruning_predicates: Arc<RwLock<HashMap<ExprRef, PredicateCache>>>,
+    pruning_predicates: Arc<DashMap<ExprRef, PredicateCache>>,
 }
 
 impl Deref for ZonedReader {
@@ -77,7 +76,6 @@ impl ZonedReader {
     /// Get or create the pruning predicate for a given expression.
     fn pruning_predicate(&self, expr: ExprRef) -> Option<PruningPredicate> {
         self.pruning_predicates
-            .write()
             .entry(expr.clone())
             .or_default()
             .get_or_init(move || PruningPredicate::try_new(&expr))
@@ -116,33 +114,31 @@ impl ZonedReader {
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
     fn pruning_mask_future(&self, expr: ExprRef) -> Option<SharedPruningResult> {
-        match self.pruning_result.write().entry(expr.clone()) {
-            Entry::Occupied(e) => e.get().clone(),
-            Entry::Vacant(e) => e
-                .insert(match self.pruning_predicate(expr.clone()) {
-                    None => {
-                        log::debug!("No pruning predicate for expr: {}", expr);
-                        None
-                    }
-                    Some(pred) => {
-                        log::debug!("Constructed pruning predicate for expr: {}: {}", expr, pred);
-                        Some(
-                            self.stats_table()
-                                .map(move |stats_table| {
-                                    stats_table.and_then(move |stats_table| {
-                                        pred.evaluate(stats_table.array().as_ref())?
-                                            .map(|a| Mask::try_from(a.as_ref()))
-                                            .transpose()
-                                            .map_err(Arc::new)
-                                    })
+        self.pruning_result
+            .entry(expr.clone())
+            .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
+                None => {
+                    log::debug!("No pruning predicate for expr: {}", expr);
+                    None
+                }
+                Some(pred) => {
+                    log::debug!("Constructed pruning predicate for expr: {}: {}", expr, pred);
+                    Some(
+                        self.stats_table()
+                            .map(move |stats_table| {
+                                stats_table.and_then(move |stats_table| {
+                                    pred.evaluate(stats_table.array().as_ref())?
+                                        .map(|a| Mask::try_from(a.as_ref()))
+                                        .transpose()
+                                        .map_err(Arc::new)
                                 })
-                                .boxed()
-                                .shared(),
-                        )
-                    }
-                })
-                .clone(),
-        }
+                            })
+                            .boxed()
+                            .shared(),
+                    )
+                }
+            })
+            .clone()
     }
 
     /// Return the zone range covered by a row range.

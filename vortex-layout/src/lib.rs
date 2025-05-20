@@ -1,5 +1,7 @@
 #![feature(once_cell_try)]
 #![feature(trait_alias)]
+#![feature(mpmc_channel)]
+
 mod context;
 pub use context::*;
 pub mod layouts;

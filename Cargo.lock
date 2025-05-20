@@ -6368,6 +6368,7 @@ dependencies = [
  "arcref",
  "async-trait",
  "bytes",
+ "dashmap",
  "flatbuffers",
  "futures",
  "getrandom 0.3.2",

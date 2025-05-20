@@ -1,9 +1,8 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use dashmap::DashMap;
 use futures::{StreamExt, pin_mut};
-use parking_lot::RwLock;
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
@@ -249,8 +248,6 @@ impl VortexOpenOptions<GenericVortexFile> {
             .segment_map()
             .partition_point(|segment| segment.offset < initial_offset);
 
-        let mut initial_segments = self.options.initial_read_segments.write();
-
         for idx in first_idx..footer.segment_map().len() {
             let segment = &footer.segment_map()[idx];
             let segment_id =
@@ -260,7 +257,9 @@ impl VortexOpenOptions<GenericVortexFile> {
             let buffer = initial_read
                 .slice(offset..offset + (segment.length as usize))
                 .aligned(segment.alignment);
-            initial_segments.insert(segment_id, buffer);
+            self.options
+                .initial_read_segments
+                .insert(segment_id, buffer);
         }
     }
 }
@@ -350,7 +349,7 @@ impl VortexOpenOptions<GenericVortexFile> {
 pub struct GenericFileOptions {
     segment_cache: Arc<dyn SegmentCache>,
     initial_read_size: u64,
-    initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
+    initial_read_segments: DashMap<SegmentId, ByteBuffer>,
     /// The number of concurrent I/O requests to spawn.
     /// This should be smaller than execution concurrency for coalescing to occur.
     io_concurrency: usize,

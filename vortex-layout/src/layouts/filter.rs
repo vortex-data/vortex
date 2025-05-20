@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bit_vec::BitVec;
+use dashmap::DashMap;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
@@ -28,7 +28,7 @@ const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 /// expression rewrite logic at read-time.
 pub struct FilterLayoutReader {
     child: LayoutReaderRef,
-    cache: RwLock<HashMap<ExprRef, Arc<FilterExpr>>>,
+    cache: DashMap<ExprRef, Arc<FilterExpr>>,
 }
 
 impl FilterLayoutReader {
@@ -60,7 +60,6 @@ impl LayoutReader for FilterLayoutReader {
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         let filter_expr = self
             .cache
-            .write()
             .entry(expr.clone())
             .or_insert_with(|| Arc::new(FilterExpr::new(expr.clone())))
             .clone();
@@ -83,7 +82,6 @@ impl LayoutReader for FilterLayoutReader {
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         let filter_expr = self
             .cache
-            .write()
             .entry(expr.clone())
             .or_insert_with(|| Arc::new(FilterExpr::new(expr.clone())))
             .clone();

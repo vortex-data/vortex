@@ -3,11 +3,11 @@ use std::ops::{BitAnd, Deref, Range};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dashmap::DashMap;
 use futures::TryStreamExt;
 use futures::stream::FuturesOrdered;
 use itertools::Itertools;
-use parking_lot::RwLock;
-use vortex_array::aliases::hash_map::{Entry, HashMap};
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayContext, ArrayRef, IntoArray};
@@ -30,7 +30,7 @@ pub struct StructReader {
     lazy_children: LazyReaderChildren,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: RwLock<HashMap<ExactExpr, Arc<PartitionedExpr>>>,
+    partitioned_expr_cache: DashMap<ExactExpr, Arc<PartitionedExpr>>,
 }
 
 impl Deref for StructReader {
@@ -95,18 +95,17 @@ impl StructReader {
 
     /// Utility for partitioning an expression over the fields of a struct.
     fn partition_expr(&self, expr: ExprRef) -> Arc<PartitionedExpr> {
-        match self
-            .partitioned_expr_cache
-            .write()
+        self.partitioned_expr_cache
             .entry(ExactExpr(expr.clone()))
-        {
-            Entry::Occupied(entry) => entry.get().clone(),
-            Entry::Vacant(entry) => entry
-                .insert(Arc::new(partition(expr, self.dtype()).vortex_expect(
-                    "We should not fail to partition expression over struct fields",
-                )))
-                .clone(),
-        }
+            .or_insert_with(|| {
+                // Partition the expression into expressions that can be evaluated over individual fields
+                Arc::new(
+                    partition(expr, self.dtype()).vortex_expect(
+                        "We should not fail to partition expression over struct fields",
+                    ),
+                )
+            })
+            .clone()
     }
 }
 

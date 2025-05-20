@@ -2,9 +2,8 @@ use std::ops::{BitAnd, Deref, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
+use dashmap::DashMap;
 use futures::{FutureExt, join};
-use parking_lot::RwLock;
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::{MinMaxResult, filter, min_max};
 use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
@@ -29,7 +28,7 @@ pub struct DictReader {
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
-    values_evals: RwLock<HashMap<ExprRef, SharedArrayFuture>>,
+    values_evals: DashMap<ExprRef, SharedArrayFuture>,
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
@@ -96,7 +95,6 @@ impl DictReader {
 
     fn values_eval(&self, expr: ExprRef) -> SharedArrayFuture {
         self.values_evals
-            .write()
             .entry(expr.clone())
             .or_insert_with(|| {
                 self.values_array()
