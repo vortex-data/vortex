@@ -89,6 +89,10 @@ pub fn build_vortex_duckdb() {
     let mut command = Command::new("make");
     command
         .current_dir(&duckdb_vortex_path)
+        // The version of DuckDB and its Vortex extension is either implicitly set by Git tag, e.g.
+        // v1.2.2, or commit SHA if the current commit does not have a tag. The implicitly set
+        // version can be overridden by defining the `OVERRIDE_GIT_DESCRIBE` environment variable.
+        .env("OVERRIDE_GIT_DESCRIBE", "v1.2.2")
         .env("GEN", "ninja")
         .arg("release");
 
