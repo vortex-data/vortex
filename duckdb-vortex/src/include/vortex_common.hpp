@@ -6,6 +6,7 @@
 
 #include "vortex.hpp"
 #include "vortex_error.hpp"
+#include "vortex_session.hpp"
 
 namespace vortex {
 
@@ -55,8 +56,8 @@ struct FileReader {
 		vx_file_reader_free(file);
 	}
 
-	static duckdb::unique_ptr<FileReader> Open(const vx_file_open_options *options) {
-		auto file = Try([&](auto err) { return vx_file_open_reader(options, err); });
+	static duckdb::unique_ptr<FileReader> Open(const vx_file_open_options *options, VortexSession &session) {
+		auto file = Try([&](auto err) { return vx_file_open_reader(options, session.session, err); });
 		return duckdb::make_uniq<FileReader>(file);
 	}
 
