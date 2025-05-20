@@ -1,3 +1,14 @@
 {
-  "dependencies": [{ "name": "catch2" }, { "name": "protobuf" }]
+  "dependencies": [{ "name": "catch2" }, { "name": "protobuf" } ],
+  "vcpkg-configuration": {
+    "registries": [
+      {
+        "kind": "git",
+        "repository": "https://github.com/duckdb/vcpkg-duckdb-ports",
+        "baseline": "c8f9d504986e76dbcd4585a34028ff00e251f40f",
+        "packages": [ "vcpkg-cmake" ]
+      }
+    ]
+  },
+  "builtin-baseline" : "5e5d0e1cd7785623065e77eff011afdeec1a3574"
 }
