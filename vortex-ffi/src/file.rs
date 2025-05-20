@@ -25,6 +25,7 @@ use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 
 use crate::array::{vx_array, vx_array_iterator};
+use crate::cache::{FileKey, VortexSession};
 use crate::error::{try_or, vx_error};
 use crate::{RUNTIME, to_string, to_string_vec};
 
@@ -36,6 +37,24 @@ pub struct vx_file_reader {
 /// A Vortex layout reader.
 pub struct vx_layout_reader {
     pub inner: Arc<dyn LayoutReader>,
+}
+
+pub struct vx_session {
+    pub inner: Arc<VortexSession>,
+}
+
+/// Open a file at the given path on the file system.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_session_create() -> *mut vx_session {
+    Box::into_raw(Box::new(vx_session {
+        inner: Arc::new(VortexSession::new()),
+    }))
+}
+
+/// Open a file at the given path on the file system.
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_session_free(session: *mut vx_session) {
+    drop(unsafe { Box::from_raw(session) })
 }
 
 /// Options supplied for opening a file.
@@ -121,6 +140,7 @@ impl vx_file_scan_options {
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_open_reader(
     options: *const vx_file_open_options,
+    session: *mut vx_session,
     error: *mut *mut vx_error,
 ) -> *mut vx_file_reader {
     try_or(error, ptr::null_mut(), || {
@@ -133,19 +153,39 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
         if options.uri.is_null() {
             vortex_bail!("null uri")
         }
-        let uri = unsafe { CStr::from_ptr(options.uri) }.to_string_lossy();
-        let uri: Url = uri.parse().vortex_expect("File_open: parse uri");
+        let uri_str = unsafe { CStr::from_ptr(options.uri) }.to_string_lossy();
+        let uri: Url = uri_str.parse().vortex_expect("File_open: parse uri");
 
         let prop_keys = unsafe { to_string_vec(options.property_keys, options.property_len) };
         let prop_vals = unsafe { to_string_vec(options.property_vals, options.property_len) };
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
-        let inner = RUNTIME.block_on(async move {
-            VortexOpenOptions::file()
-                .open_object_store(&object_store, uri.path())
-                .await
-        })?;
+        let file = VortexOpenOptions::file();
+        let (file, cache_hit) = if let Some(footer) = unsafe { session.as_ref() }.and_then(|s| {
+            s.inner.get_footer(&FileKey {
+                location: uri_str.to_string(),
+            })
+        }) {
+            (file.with_footer(footer), true)
+        } else {
+            (file, false)
+        };
+
+        let inner = RUNTIME
+            .block_on(async move { file.open_object_store(&object_store, uri.path()).await })?;
+
+        if !cache_hit {
+            let _ = unsafe { session.as_ref() }.is_some_and(|s| {
+                s.inner.put_footer(
+                    FileKey {
+                        location: uri_str.to_string(),
+                    },
+                    inner.footer().clone(),
+                );
+                true
+            });
+        }
 
         Ok(Box::into_raw(Box::new(vx_file_reader { inner })))
     })

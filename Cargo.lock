@@ -6350,6 +6350,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "mimalloc",
+ "moka",
  "object_store",
  "paste",
  "prost",

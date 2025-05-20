@@ -124,6 +124,8 @@ typedef struct vx_file_reader vx_file_reader;
  */
 typedef struct vx_layout_reader vx_layout_reader;
 
+typedef struct vx_session vx_session;
+
 /**
  * Options supplied for opening a file.
  */
@@ -380,7 +382,18 @@ void vx_error_free(struct vx_error *error);
 /**
  * Open a file at the given path on the file system.
  */
+struct vx_session *vx_session_create(void);
+
+/**
+ * Open a file at the given path on the file system.
+ */
+void vx_session_free(struct vx_session *session);
+
+/**
+ * Open a file at the given path on the file system.
+ */
 struct vx_file_reader *vx_file_open_reader(const struct vx_file_open_options *options,
+                                           struct vx_session *session,
                                            struct vx_error **error);
 
 void vx_file_write_array(const char *path, struct vx_array *ffi_array, struct vx_error **error);

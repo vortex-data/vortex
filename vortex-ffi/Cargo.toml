@@ -18,6 +18,7 @@ categories = { workspace = true }
 
 [dependencies]
 duckdb = { workspace = true, optional = true }
+moka = { workspace = true, features = ["sync"] }
 futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
