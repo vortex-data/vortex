@@ -76,7 +76,11 @@ struct ScanLocalState : public LocalTableFunctionState {
 	unique_ptr<ArrayIterator> array_iterator;
 	unique_ptr<ConversionCache> conversion_cache;
 
+	// Thread local partitions to scan.
 	std::queue<ScanPartition> scan_partitions;
+
+	// Signals that all partitions from the local queue were moved to the global queue.
+	bool is_local_queue_drained;
 
 	// Thread local file.
 	std::optional<idx_t> thread_local_file_idx;
@@ -90,6 +94,12 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	//
 	// Determined by how many times `ScanLocalState` gets created.
 	std::atomic_uint64_t thread_count;
+
+	// Signals that thread local queues should move their partitions to the global queue.
+	std::atomic_bool enable_global_work_stealing;
+
+	// Number of local queues that moved their partitions to the global queue.
+	std::atomic_uint16_t local_queue_drain_count;
 
 	vector<string> expanded_files;
 
@@ -247,7 +257,7 @@ static unique_ptr<FileReader> OpenFileAndVerify(FileSystem &fs, VortexSession &s
 
 static bool PinFileToThread(ScanGlobalState &global_state) {
 	const auto file_count = global_state.expanded_files.size();
-	return (file_count - global_state.files_partitioned) > global_state.thread_count;
+	return (file_count - global_state.files_partitioned) >= global_state.thread_count;
 }
 
 static void CreateScanPartitions(ClientContext &context, const BindData &bind, ScanGlobalState &global_state,
@@ -325,9 +335,8 @@ static bool GetNextArray(ClientContext &context, const BindData &bind_data, Scan
 		ScanPartition partition;
 
 		if (bool success = (try_dequeue(partition) || global_state.scan_partitions.try_dequeue(partition)); !success) {
-
-			// Check whether all partitions have been processed.
-			if (global_state.files_partitioned == global_state.expanded_files.size()) {
+			if (global_state.files_partitioned == global_state.expanded_files.size() &&
+			    global_state.thread_count == global_state.local_queue_drain_count) {
 
 				// A new partition might have been created after the first pop. Therefore,
 				// one more pop is necessary to ensure no more partitions are left to process.
@@ -366,6 +375,22 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 	auto &global_state = data.global_state->Cast<ScanGlobalState>();
 	auto &local_state = data.local_state->Cast<ScanLocalState>();
 
+	// Check if partitions from the local queue should be move to the global queue.
+	if (global_state.enable_global_work_stealing && !local_state.is_local_queue_drained) {
+
+		// The file idx is no longer thread local.
+		local_state.thread_local_file_idx.reset();
+
+		while (!local_state.scan_partitions.empty()) {
+			auto partition = local_state.scan_partitions.front();
+			local_state.scan_partitions.pop();
+			global_state.scan_partitions.enqueue(partition);
+		}
+
+		local_state.is_local_queue_drained = true;
+		global_state.local_queue_drain_count += 1;
+	}
+
 	if (local_state.currently_scanned_array == nullptr) {
 		while (!GetNextArray(context, bind_data, global_state, local_state, output)) {
 			if (global_state.finished) {
@@ -393,6 +418,15 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 
 				CreateScanPartitions(context, bind_data, global_state, local_state, file_idx,
 				                     *global_state.file_readers[file_idx]);
+			}
+
+			// If the thread local queue is empty at this point, enable sharing partitions globally.
+			if (local_state.scan_partitions.empty() && !local_state.is_local_queue_drained) {
+				global_state.enable_global_work_stealing = true;
+
+				// No elements to move to the global queue, just increase the counter.
+				local_state.is_local_queue_drained = true;
+				global_state.local_queue_drain_count += 1;
 			}
 		}
 	}
