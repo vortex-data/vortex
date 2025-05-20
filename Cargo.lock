@@ -6238,13 +6238,17 @@ name = "vortex-dtype"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "arcref",
  "arrow-schema",
  "flatbuffers",
  "half",
+ "hashbrown 0.15.3",
  "itertools 0.14.0",
  "jiff",
  "num-traits",
  "num_enum 0.7.3",
+ "parking_lot",
+ "paste",
  "prost",
  "serde",
  "serde_json",

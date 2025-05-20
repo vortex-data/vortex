@@ -1,5 +1,12 @@
+mod macros;
+mod registry;
+mod vtable;
+
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
+
+pub use registry::*;
+pub use vtable::*;
 
 use crate::{DType, Nullability};
 
@@ -42,6 +49,11 @@ impl ExtMetadata {
     /// Constructs a new `ExtMetadata` from a byte slice
     pub fn new(value: Arc<[u8]>) -> Self {
         Self(value)
+    }
+
+    /// Construct a new `ExtMetadata` with no data in it.
+    pub fn empty() -> Self {
+        Self(Arc::default())
     }
 }
 

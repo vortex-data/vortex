@@ -16,6 +16,7 @@ pub use nullability::*;
 pub use ptype::*;
 pub use struct_::*;
 
+pub mod aliases;
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
 #[cfg(feature = "arrow")]
