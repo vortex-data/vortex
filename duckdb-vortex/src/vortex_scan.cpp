@@ -263,7 +263,11 @@ static void CreateScanPartitions(ClientContext &context, const BindData &bind, S
 
 	const auto partition_count = std::max(static_cast<uint64_t>(1), row_count / partition_size);
 	global_state.partitons_total += partition_count;
-	local_state.thread_local_file_idx = file_idx;
+	const bool pin_file_to_thread = PinFileToThread(global_state);
+
+	if (pin_file_to_thread) {
+		local_state.thread_local_file_idx = file_idx;
+	}
 
 	for (size_t partition_idx = 0; partition_idx < partition_count; ++partition_idx) {
 		const auto scan_partition = ScanPartition {
@@ -272,7 +276,7 @@ static void CreateScanPartitions(ClientContext &context, const BindData &bind, S
 		    .end_row = (partition_idx + 1) == partition_count ? row_count : (partition_idx + 1) * partition_size,
 		};
 
-		if (PinFileToThread(global_state)) {
+		if (pin_file_to_thread) {
 			local_state.scan_partitions.push(scan_partition);
 		} else {
 			global_state.scan_partitions.enqueue(scan_partition);
