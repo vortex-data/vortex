@@ -86,6 +86,11 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	std::atomic_bool finished;
 	std::atomic_uint64_t cache_id;
 
+	// Number of DuckDB worker threads.
+	//
+	// Determined by how many times `ScanLocalState` gets created.
+	std::atomic_uint64_t thread_count;
+
 	vector<string> expanded_files;
 
 	optional_ptr<TableFilterSet> filter;
@@ -241,20 +246,14 @@ static unique_ptr<FileReader> OpenFileAndVerify(FileSystem &fs, VortexSession &s
 }
 
 static bool PinFileToThread(ScanGlobalState &global_state) {
-	// This is an approximation to determine whether we should switch to
-	// distributing partitions of the same file across threads and does
-	// not need to be exact in terms of how many threads DuckDB actually uses.
-	const auto thread_count = std::thread::hardware_concurrency();
 	const auto file_count = global_state.expanded_files.size();
-	return (file_count - global_state.files_partitioned) > thread_count;
+	return (file_count - global_state.files_partitioned) > global_state.thread_count;
 }
 
 static void CreateScanPartitions(ClientContext &context, const BindData &bind, ScanGlobalState &global_state,
                                  ScanLocalState &local_state, uint64_t file_idx, FileReader &file_reader) {
 	const auto file_name = global_state.expanded_files[file_idx];
-	const auto row_count = Try([&](auto err) { return vx_file_row_count(file_reader.file, err); });
-
-	const auto thread_count = std::thread::hardware_concurrency();
+	const auto row_count = Try([&](auto err) { return vx_file_row_count(file_reader->file, err); });
 	const auto file_count = global_state.expanded_files.size();
 
 	// This is a multiple of the 2048 DuckDB vector size:
@@ -262,7 +261,7 @@ static void CreateScanPartitions(ClientContext &context, const BindData &bind, S
 	// Factors to consider:
 	//  1. A smaller value means more work for the Vortex file reader.
 	//  2. A larger value reduces the parallelism available to the scanner
-	const uint64_t partition_size = 2048 * (thread_count > file_count ? 32 : 64);
+	const uint64_t partition_size = 2048 * (global_state.thread_count > file_count ? 32 : 64);
 
 	const auto partition_count = std::max(static_cast<uint64_t>(1), row_count / partition_size);
 	global_state.partitons_total += partition_count;
@@ -501,6 +500,7 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 
 	vortex_scan.init_local = [](ExecutionContext &context, TableFunctionInitInput &input,
 	                            GlobalTableFunctionState *global_state) -> unique_ptr<LocalTableFunctionState> {
+		global_state->Cast<ScanGlobalState>().thread_count += 1;
 		return make_uniq<ScanLocalState>();
 	};
 
