@@ -153,7 +153,7 @@ fn create_table_registration(
             for table_name in &tables {
                 let table_path = format!("{base_dir}{table_name}.{extension}");
                 commands.push_str(&format!(
-                    "CREATE {} {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
+                    "CREATE {} IF NOT EXISTS {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
                     duckdb_object.to_str(),
                 ));
             }
@@ -167,7 +167,7 @@ fn create_table_registration(
             };
 
             format!(
-                "CREATE {} hits AS SELECT * FROM read_{extension}('{file_glob}');",
+                "CREATE {} IF NOT EXISTS hits AS SELECT * FROM read_{extension}('{file_glob}');",
                 duckdb_object.to_str()
             )
         }
@@ -178,7 +178,7 @@ fn create_table_registration(
             for table_name in tables {
                 let table_path = format!("{base_dir}{table_name}.{extension}");
                 commands.push_str(&format!(
-                    "CREATE {} {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
+                    "CREATE {} IF NOT EXISTS {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
                     duckdb_object.to_str(),
                 ));
             }

@@ -20,7 +20,6 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::warn;
 use prelude::SessionContext;
-use tempfile::{TempDir, tempdir};
 use tokio::runtime::Runtime;
 use tracing::{debug, info_span};
 use tracing_futures::Instrument;
@@ -89,15 +88,13 @@ struct DataFusionCtx {
 
 struct DuckDBCtx {
     duckdb_path: PathBuf,
-    tmp_dir: TempDir,
 }
 
 impl DuckDBCtx {
     pub fn duckdb_file(&self, format: Format) -> PathBuf {
-        self.tmp_dir
-            .path()
-            .to_path_buf()
-            .join(format!("hits-{format}.db"))
+        let dir = Path::new("bench-vortex/data/duckdb");
+        std::fs::create_dir_all(dir).vortex_expect("failed to create duckdb data dir");
+        dir.join(format!("{format}.db"))
     }
 }
 
@@ -119,7 +116,6 @@ impl EngineCtx {
     fn new_with_duckdb(duckdb_path: &Path) -> Self {
         EngineCtx::DuckDB(DuckDBCtx {
             duckdb_path: duckdb_path.to_path_buf(),
-            tmp_dir: tempdir().vortex_expect("cannot open temp directory"),
         })
     }
 
