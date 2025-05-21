@@ -1,16 +1,15 @@
-#![allow(unused_variables)]
-
-use std::marker::PhantomData;
+mod primitive;
+mod run_end;
 
 use duckdb::core::{DataChunkHandle, FlatVector};
 use duckdb::ffi::duckdb_data_chunk_get_vector;
 use duckdb::vtab::arrow::WritableVector;
 use itertools::Itertools;
-use vortex_array::arrays::{PrimitiveArray, StructArray};
+use vortex_array::arrays::StructArray;
 use vortex_array::{Array, Canonical};
-use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_runend::RunEndVTable;
 
 use crate::{ConversionCache, DUCKDB_STANDARD_VECTOR_SIZE};
 
@@ -68,7 +67,7 @@ impl DuckDBExporter {
 pub trait ArrayExporter {
     /// Export the given range of data from the Vortex array to the DuckDB vector.
     fn export(
-        &mut self,
+        &self,
         offset: usize,
         len: usize,
         vector: &mut dyn WritableVector,
@@ -85,20 +84,22 @@ fn create_exporter(array: &dyn Array) -> VortexResult<Box<dyn ArrayExporter>> {
     // Dict
     // RunEnd
 
+    // println!("ENCODING: {}", array.encoding());
+
+    if let Some(array) = array.as_opt::<RunEndVTable>() {
+        return run_end::new_exporter(array);
+    }
+
     // Otherwise, we fall back to canonical
     let array = array.to_canonical()?;
-    Ok(match array {
+    match array {
         Canonical::Null(_) => {
             todo!()
         }
         Canonical::Bool(_) => {
             todo!()
         }
-        Canonical::Primitive(array) => {
-            match_each_native_ptype!(array.ptype(), |$P| {
-                Box::new(PrimitiveExporter::<$P>::try_new(array)?)
-            })
-        }
+        Canonical::Primitive(array) => primitive::new_exporter(array),
         Canonical::Decimal(_) => {
             todo!()
         }
@@ -114,53 +115,10 @@ fn create_exporter(array: &dyn Array) -> VortexResult<Box<dyn ArrayExporter>> {
         Canonical::Extension(_) => {
             todo!()
         }
-    })
-}
-
-#[allow(dead_code)]
-struct PrimitiveExporter<T: NativePType> {
-    array: PrimitiveArray,
-    validity: Mask,
-    phantom: PhantomData<T>,
-}
-
-impl<T: NativePType> PrimitiveExporter<T> {
-    fn try_new(array: PrimitiveArray) -> VortexResult<Self> {
-        let validity = array.validity_mask()?;
-        Ok(Self {
-            array,
-            validity,
-            phantom: PhantomData,
-        })
     }
 }
 
-impl<T: NativePType> ArrayExporter for PrimitiveExporter<T> {
-    fn export(
-        &mut self,
-        offset: usize,
-        len: usize,
-        vector: &mut dyn WritableVector,
-        cache: &mut ConversionCache,
-    ) -> VortexResult<()> {
-        let mut vector = vector.flat_vector();
-
-        // Set validity if necessary.
-        if vector.set_validity(&self.validity, offset, len) {
-            // All values are null, so no point copying the data.
-            return Ok(());
-        }
-
-        // Copy the values from the Vortex array to the DuckDB vector.
-        vector
-            .as_mut_slice_with_len(len)
-            .copy_from_slice(&self.array.as_slice::<T>()[offset..offset + len]);
-
-        Ok(())
-    }
-}
-
-trait FlatVectorExt {
+pub(crate) trait FlatVectorExt {
     /// Returns true if *all* values are null.
     fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool;
 }
@@ -168,13 +126,13 @@ trait FlatVectorExt {
 impl FlatVectorExt for FlatVector {
     fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
         match mask {
-            Mask::AllTrue(len) => {
+            Mask::AllTrue(_) => {
                 if let Some(validity) = self.validity_slice() {
                     validity[..].fill(u64::MAX)
                 }
                 false
             }
-            Mask::AllFalse(len) => {
+            Mask::AllFalse(_) => {
                 self.init_get_validity_slice()[..].fill(u64::MIN);
                 true
             }
