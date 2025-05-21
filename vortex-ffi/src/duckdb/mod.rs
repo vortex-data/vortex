@@ -1,4 +1,5 @@
 mod cache;
+mod exporter;
 
 use std::cmp::min;
 use std::ffi::{c_char, c_int, c_uchar, c_uint};
@@ -75,7 +76,7 @@ pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
 /// 0 is returned when the stream is finished.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_to_duckdb_chunk(
-    stream: *mut vx_array,
+    array: *mut vx_array,
     offset: c_uint,
     data_chunk_ptr: duckdb_data_chunk,
     cache: *mut vx_conversion_cache,
@@ -84,9 +85,7 @@ pub unsafe extern "C-unwind" fn vx_array_to_duckdb_chunk(
     try_or(error, 0, || {
         let offset = offset as usize;
 
-        let array = &unsafe { stream.as_ref() }
-            .vortex_expect("null stream")
-            .inner;
+        let array = &unsafe { array.as_ref() }.vortex_expect("null stream").inner;
 
         assert!(array.len() > offset, "offset out of bounds");
 

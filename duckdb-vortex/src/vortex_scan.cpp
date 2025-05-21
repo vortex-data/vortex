@@ -69,7 +69,7 @@ struct ScanPartition {
 /// parallelized by dividing it into ranges, each handled by a different scan.
 struct ScanLocalState : public LocalTableFunctionState {
 	idx_t array_row_offset;
-	unique_ptr<Array> currently_scanned_array;
+	unique_ptr<ArrayExporter> currently_scanned_array;
 	unique_ptr<ArrayIterator> array_iterator;
 	unique_ptr<ConversionCache> conversion_cache;
 
@@ -347,7 +347,7 @@ static bool GetNextArray(ClientContext &context, const BindData &bind_data, Scan
 		local_state.array_iterator = OpenArrayIter(global_state, layout_reader, partition);
 	}
 
-	local_state.currently_scanned_array = local_state.array_iterator->NextArray();
+	local_state.currently_scanned_array = local_state.array_iterator->NextArray()->CreateExporter();
 	local_state.array_row_offset = 0;
 
 	if (local_state.currently_scanned_array == nullptr) {
@@ -394,10 +394,10 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		local_state.conversion_cache = make_uniq<ConversionCache>(global_state.cache_id++);
 	}
 
-	local_state.array_row_offset = local_state.currently_scanned_array->ToDuckDBVector(
-	    local_state.array_row_offset, reinterpret_cast<duckdb_data_chunk>(&output), local_state.conversion_cache.get());
-
-	if (local_state.array_row_offset == 0) {
+	if (!local_state.currently_scanned_array->ExportDuckDBVector(
+	    reinterpret_cast<duckdb_data_chunk>(&output),
+	    local_state.conversion_cache.get())) {
+		// The array is finished, so we drop the exporter.
 		local_state.currently_scanned_array = nullptr;
 		local_state.conversion_cache = nullptr;
 	}
