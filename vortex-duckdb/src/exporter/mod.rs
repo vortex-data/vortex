@@ -46,6 +46,7 @@ impl ArrayIteratorExporter {
                     self.array_exporter = Some(ArrayExporter::try_new(&array, &mut self.cache)?);
                 } else {
                     // No more arrays to export.
+                    println!("No more arrays to export");
                     return Ok(false);
                 }
             }
