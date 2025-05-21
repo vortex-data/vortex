@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::{CheckedMul, ToPrimitive};
-use vortex_dtype::{NativePType, PType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_scalar::{FromPrimitiveOrF16, PrimitiveScalar, Scalar};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_scalar::{FromPrimitiveOrF16, PrimitiveScalar, Scalar, ScalarValue};
 
 use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
@@ -13,21 +13,28 @@ use crate::stats::Stat;
 
 impl SumKernel for ConstantVTable {
     fn sum(&self, array: &ConstantArray) -> VortexResult<Scalar> {
+        // Compute the expected dtype of the sum.
         let sum_dtype = Stat::Sum
             .dtype(array.dtype())
             .ok_or_else(|| vortex_err!("Sum not supported for dtype {}", array.dtype()))?;
-        let sum_ptype = PType::try_from(&sum_dtype).vortex_expect("sum dtype must be primitive");
 
         let scalar = array.scalar();
+        let sum_value = match scalar.dtype() {
+            DType::Bool(_) => ScalarValue::from(match scalar.as_bool().value() {
+                None | Some(false) => 0u64,
+                Some(true) => array.len() as u64,
+            }),
+            DType::Primitive(ptype, _) => {
+                match_each_native_ptype!(
+                    ptype,
+                    integral: |T| { sum_integral::<u64>(scalar.as_primitive(), array.len())?.into() },
+                    floating_point: |T| { sum_float(scalar.as_primitive(), array.len())?.into() }
+                )
+            }
+            _ => vortex_bail!("Unsupported dtype for sum: {}", scalar.dtype()),
+        };
 
-        let scalar_value = match_each_native_ptype!(
-            sum_ptype,
-            unsigned: |T| { sum_integral::<u64>(scalar.as_primitive(), array.len())?.into() },
-            signed: |T| { sum_integral::<i64>(scalar.as_primitive(), array.len())?.into() },
-            floating: |T| { sum_float(scalar.as_primitive(), array.len())?.into() }
-        );
-
-        Ok(Scalar::new(sum_dtype, scalar_value))
+        Ok(Scalar::new(sum_dtype, sum_value))
     }
 }
 

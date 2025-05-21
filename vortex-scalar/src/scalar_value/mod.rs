@@ -133,33 +133,37 @@ impl ScalarValue {
         self.0.is_instance_of(dtype)
     }
 
+    /// Returns scalar as a null value
     pub fn as_null(&self) -> VortexResult<()> {
         self.0.as_null()
     }
 
+    /// Returns scalar as a boolean value
     pub fn as_bool(&self) -> VortexResult<Option<bool>> {
         self.0.as_bool()
     }
 
-    /// FIXME(ngates): PValues are such a footgun... we should probably remove this.
-    ///  But the other accessors can sometimes be useful? e.g. as_buffer. But maybe we just force
-    ///  the user to switch over Utf8 and Binary and use the correct Scalar wrapper?
+    /// Return scalar as a primitive value. PValues don't match dtypes but will be castable to the scalars dtype
     pub fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
         self.0.as_pvalue()
     }
 
+    /// Returns scalar as a decimal value
     pub fn as_decimal(&self) -> VortexResult<Option<DecimalValue>> {
         self.0.as_decimal()
     }
 
+    /// Returns scalar as a binary buffer
     pub fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
         self.0.as_buffer()
     }
 
+    /// Returns scalar as a string buffer
     pub fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
         self.0.as_buffer_string()
     }
 
+    /// Returns scalar as a list value
     pub fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
         self.0.as_list()
     }
@@ -282,7 +286,6 @@ where
 
 #[cfg(test)]
 mod test {
-
     use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
 
     use crate::{InnerScalarValue, PValue, ScalarValue};
