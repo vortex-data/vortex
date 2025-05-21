@@ -378,15 +378,14 @@ void vx_conversion_cache_free(struct vx_conversion_cache *buffer);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-struct vx_duckdb_exporter *vx_duckdb_exporter_create(const struct vx_array *array,
+struct vx_duckdb_exporter *vx_duckdb_exporter_create(struct vx_array_iterator *iter,
                                                      struct vx_error **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
-bool vx_duckdb_exporter_export(struct vx_duckdb_exporter *exporter,
-                               duckdb_data_chunk data_chunk_ptr,
-                               struct vx_conversion_cache *cache,
-                               struct vx_error **error);
+bool vx_duckdb_exporter_next(struct vx_duckdb_exporter *exporter,
+                             duckdb_data_chunk data_chunk_ptr,
+                             struct vx_error **error);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)

@@ -73,23 +73,6 @@ struct FileReader {
 };
 
 
-struct ArrayExporter {
-	explicit ArrayExporter(vx_duckdb_exporter *exporter) : exporter(exporter) {
-	}
-
-	~ArrayExporter() {
-		if (exporter != nullptr) {
-			vx_duckdb_exporter_free(exporter);
-		}
-	}
-
-	bool ExportDuckDBVector(duckdb_data_chunk output, const ConversionCache *cache) const {
-		return Try([&](auto err) { return vx_duckdb_exporter_export(exporter, output, cache->cache, err); });
-	}
-
-	vx_duckdb_exporter *exporter;
-};
-
 struct Array {
 	explicit Array(vx_array *array) : array(array) {
 	}
@@ -106,11 +89,6 @@ struct Array {
 		});
 
 		return duckdb::make_uniq<Array>(array);
-	}
-
-	duckdb::unique_ptr<ArrayExporter> CreateExporter() {
-		auto exporter = Try([&](auto err) { return vx_duckdb_exporter_create(array, err); });
-		return duckdb::make_uniq<ArrayExporter>(exporter);
 	}
 
 	idx_t ToDuckDBVector(idx_t current_row, duckdb_data_chunk output, const ConversionCache *cache) const {
@@ -141,6 +119,32 @@ struct ArrayIterator {
 
 	vx_array_iterator *array_iter;
 };
+
+
+struct ArrayExporter {
+	explicit ArrayExporter(vx_duckdb_exporter *exporter) : exporter(exporter) {
+	}
+
+	~ArrayExporter() {
+		if (exporter != nullptr) {
+			vx_duckdb_exporter_free(exporter);
+		}
+	}
+
+	static duckdb::unique_ptr<ArrayExporter> FromArrayIterator(duckdb::unique_ptr<ArrayIterator> array_iter) {
+		auto exporter = Try([&](auto err) {
+			return vx_duckdb_exporter_create(array_iter.release()->array_iter, err);
+		});
+		return duckdb::make_uniq<ArrayExporter>(exporter);
+	}
+
+	bool ExportNext(duckdb_data_chunk output) const {
+		return Try([&](auto err) { return vx_duckdb_exporter_next(exporter, output, err); });
+	}
+
+	vx_duckdb_exporter *exporter;
+};
+
 
 struct ArrayStreamSink {
 	explicit ArrayStreamSink(vx_array_sink *sink, duckdb::unique_ptr<DType> dtype)

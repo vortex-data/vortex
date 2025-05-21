@@ -10,7 +10,8 @@ use duckdb::vtab::arrow::{WritableVector, write_arrow_array_to_vector};
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrow::compute::to_arrow_preferred;
-use vortex_array::{Array, Canonical};
+use vortex_array::iter::ArrayIterator;
+use vortex_array::{Array, Canonical, ToCanonical};
 use vortex_dict::DictVTable;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_mask::Mask;
@@ -18,15 +19,60 @@ use vortex_runend::RunEndVTable;
 
 use crate::{ConversionCache, DUCKDB_STANDARD_VECTOR_SIZE};
 
-pub struct DuckDBExporter {
-    fields: Vec<Box<dyn ArrayExporter>>,
+/// DuckDB exporter for an [`ArrayIterator`], sharing state and caches.
+pub struct ArrayIteratorExporter {
+    iter: Box<dyn ArrayIterator>,
+    cache: ConversionCache,
+
+    array_exporter: Option<ArrayExporter>,
+}
+
+impl ArrayIteratorExporter {
+    pub fn new(iter: Box<dyn ArrayIterator>) -> Self {
+        Self {
+            iter,
+            cache: ConversionCache::default(),
+            array_exporter: None,
+        }
+    }
+
+    /// Returns `true` if a chunk was exported, `false` if all data has been exported.
+    pub fn export(&mut self, chunk: &mut DataChunkHandle) -> VortexResult<bool> {
+        loop {
+            if self.array_exporter.is_none() {
+                if let Some(array) = self.iter.next() {
+                    // Create a new array exporter for the current array.
+                    let array = array?.to_struct()?;
+                    self.array_exporter = Some(ArrayExporter::try_new(&array, &mut self.cache)?);
+                } else {
+                    // No more arrays to export.
+                    return Ok(false);
+                }
+            }
+
+            if self
+                .array_exporter
+                .as_mut()
+                .expect("must be present")
+                .export(chunk)?
+            {
+                return Ok(true);
+            } else {
+                // This exporter is done, so we throw it away and loop.
+                self.array_exporter = None;
+            }
+        }
+    }
+}
+
+pub struct ArrayExporter {
+    fields: Vec<Box<dyn ColumnExporter>>,
     array_len: usize,
     remaining: usize,
 }
 
-impl DuckDBExporter {
-    pub fn try_new(array: &StructArray) -> VortexResult<Self> {
-        let cache = &mut ConversionCache::default();
+impl ArrayExporter {
+    pub fn try_new(array: &StructArray, cache: &mut ConversionCache) -> VortexResult<Self> {
         let fields = array
             .fields()
             .iter()
@@ -41,12 +87,12 @@ impl DuckDBExporter {
 
     /// Export the data into the next chunk.
     ///
-    /// Returns `true` if there are more rows to export, `false` if all rows have been exported.
-    pub fn export(
-        &mut self,
-        chunk: &mut DataChunkHandle,
-        cache: &mut ConversionCache,
-    ) -> VortexResult<bool> {
+    /// Returns `true` if a chunk was exported, `false` if all rows have been exported.
+    pub fn export(&mut self, chunk: &mut DataChunkHandle) -> VortexResult<bool> {
+        if self.remaining == 0 {
+            return Ok(false);
+        }
+
         let chunk_len = DUCKDB_STANDARD_VECTOR_SIZE.min(self.remaining);
         let position = self.array_len - self.remaining;
         self.remaining = self.remaining - chunk_len;
@@ -55,21 +101,20 @@ impl DuckDBExporter {
 
         if self.fields.is_empty() {
             // No fields can occur in e.g. select(*) queries. In these cases, we just need to
-            // set the length of the chunk.
-            return Ok(self.remaining > 0);
+            // set the length of the chunk and return.
+            return Ok(true);
         }
 
         for (i, field) in self.fields.iter_mut().enumerate() {
             let mut vector = unsafe { duckdb_data_chunk_get_vector(chunk.get_ptr(), i as u64) };
-            field.export(position, chunk_len, &mut vector, cache)?;
+            field.export(position, chunk_len, &mut vector)?;
         }
-
-        Ok(self.remaining > 0)
+        Ok(true)
     }
 }
 
 /// Exporter for a single column of a DuckDB data chunk.
-pub trait ArrayExporter {
+pub trait ColumnExporter {
     /// Export the given range of data from the Vortex array to the DuckDB vector.
     fn export(
         &self,
@@ -83,7 +128,7 @@ pub trait ArrayExporter {
 fn create_exporter(
     array: &dyn Array,
     cache: &mut ConversionCache,
-) -> VortexResult<Box<dyn ArrayExporter>> {
+) -> VortexResult<Box<dyn ColumnExporter>> {
     // Constant
     // Chunked
     // VarBinView
@@ -123,7 +168,7 @@ struct ArrowArrayExporter {
     array: ArrowArrayRef,
 }
 
-impl ArrayExporter for ArrowArrayExporter {
+impl ColumnExporter for ArrowArrayExporter {
     fn export(
         &self,
         offset: usize,

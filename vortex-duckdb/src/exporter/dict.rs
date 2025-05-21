@@ -11,7 +11,7 @@ use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::VortexResult;
 
 use crate::exporter::create_exporter;
-use crate::{ArrayExporter, ConversionCache, ToDuckDBType};
+use crate::{ColumnExporter, ConversionCache, ToDuckDBType};
 
 struct DictExporter<I: NativePType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
@@ -24,7 +24,7 @@ struct DictExporter<I: NativePType> {
 pub(crate) fn new_exporter(
     array: &DictArray,
     cache: &mut ConversionCache,
-) -> VortexResult<Box<dyn ArrayExporter>> {
+) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
     let values = array.values();
     let values_key = Arc::as_ptr(values).addr();
@@ -42,7 +42,10 @@ pub(crate) fn new_exporter(
                 .insert(values_key, (values.clone(), vector));
             unowned
         }
-        Some((_array, vector)) => vector.clone(),
+        Some((_array, vector)) => {
+            println!("Using cached values vector");
+            vector.clone()
+        }
     };
 
     let codes = array.codes().to_primitive()?;
@@ -56,7 +59,7 @@ pub(crate) fn new_exporter(
     })
 }
 
-impl<I: NativePType + AsPrimitive<u32>> ArrayExporter for DictExporter<I> {
+impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
     fn export(
         &self,
         offset: usize,

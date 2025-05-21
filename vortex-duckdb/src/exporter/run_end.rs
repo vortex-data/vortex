@@ -12,7 +12,7 @@ use vortex_mask::Mask;
 use vortex_runend::RunEndArray;
 
 use crate::exporter::create_exporter;
-use crate::{ArrayExporter, ConversionCache, ToDuckDBScalar};
+use crate::{ColumnExporter, ConversionCache, ToDuckDBScalar};
 
 /// We export run-end arrays to a DuckDB dictionary vector, using a selection vector to
 /// repeat the values in the run-end array.
@@ -21,7 +21,7 @@ pub(crate) struct RunEndExporter<E: NativePType> {
     ends: PrimitiveArray,
     ends_type: PhantomData<E>,
     values: ArrayRef,
-    values_exporter: Box<dyn ArrayExporter>,
+    values_exporter: Box<dyn ColumnExporter>,
     validity: Mask,
     run_end_offset: usize,
 }
@@ -29,7 +29,7 @@ pub(crate) struct RunEndExporter<E: NativePType> {
 pub(crate) fn new_exporter(
     array: &RunEndArray,
     cache: &mut ConversionCache,
-) -> VortexResult<Box<dyn ArrayExporter>> {
+) -> VortexResult<Box<dyn ColumnExporter>> {
     let ends = array.ends().to_primitive()?;
     let values = array.values().clone();
     let values_exporter = create_exporter(array.values(), cache)?;
@@ -47,7 +47,7 @@ pub(crate) fn new_exporter(
     })
 }
 
-impl<E: NativePType + Ord + FromPrimitive + ToPrimitive> ArrayExporter for RunEndExporter<E> {
+impl<E: NativePType + Ord + FromPrimitive + ToPrimitive> ColumnExporter for RunEndExporter<E> {
     fn export(
         &self,
         offset: usize,

@@ -6,7 +6,7 @@ use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::ArrayExporter;
+use crate::ColumnExporter;
 use crate::exporter::FlatVectorExt;
 
 #[allow(dead_code)]
@@ -16,7 +16,7 @@ pub(crate) struct PrimitiveExporter<T: NativePType> {
     validity: Mask,
 }
 
-pub(crate) fn new_exporter(array: PrimitiveArray) -> VortexResult<Box<dyn ArrayExporter>> {
+pub(crate) fn new_exporter(array: PrimitiveArray) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(match_each_native_ptype!(array.ptype(), |$T| {
         Box::new(PrimitiveExporter {
             array: array.clone(),
@@ -26,7 +26,7 @@ pub(crate) fn new_exporter(array: PrimitiveArray) -> VortexResult<Box<dyn ArrayE
     }))
 }
 
-impl<T: NativePType> ArrayExporter for PrimitiveExporter<T> {
+impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
     fn export(
         &self,
         offset: usize,
