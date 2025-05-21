@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use duckdb::core::{FlatVector, SelectionVector};
 use duckdb::vtab::arrow::WritableVector;
@@ -20,17 +21,29 @@ struct DictExporter<I: NativePType> {
     codes_type: PhantomData<I>,
 }
 
-pub(crate) fn new_exporter(array: &DictArray) -> VortexResult<Box<dyn ArrayExporter>> {
-    let mut values_vector = FlatVector::allocate_new_vector_with_capacity(
-        array.values().dtype().to_duckdb_type()?,
-        array.values().len(),
-    );
-    create_exporter(array.values())?.export(
-        0,
-        array.values().len(),
-        &mut values_vector,
-        &mut ConversionCache::default(),
-    )?;
+pub(crate) fn new_exporter(
+    array: &DictArray,
+    cache: &mut ConversionCache,
+) -> VortexResult<Box<dyn ArrayExporter>> {
+    // Grab the cache dictionary values.
+    let values = array.values();
+    let values_key = Arc::as_ptr(values).addr();
+    let values_vector = match cache.values_cache.get(&values_key) {
+        None => {
+            // Create a new DuckDB vector for the values.
+            let mut vector = FlatVector::allocate_new_vector_with_capacity(
+                values.dtype().to_duckdb_type()?,
+                values.len(),
+            );
+            create_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
+            let unowned = vector.clone();
+            cache
+                .values_cache
+                .insert(values_key, (values.clone(), vector));
+            unowned
+        }
+        Some((_array, vector)) => vector.clone(),
+    };
 
     let codes = array.codes().to_primitive()?;
     match_each_integer_ptype!(codes.ptype(), |$I| {
@@ -49,7 +62,6 @@ impl<I: NativePType + AsPrimitive<u32>> ArrayExporter for DictExporter<I> {
         offset: usize,
         len: usize,
         vector: &mut dyn WritableVector,
-        _cache: &mut ConversionCache,
     ) -> VortexResult<()> {
         let mut vector = vector.flat_vector();
         // Copy across the dictionary values.

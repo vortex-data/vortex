@@ -26,10 +26,11 @@ pub struct DuckDBExporter {
 
 impl DuckDBExporter {
     pub fn try_new(array: &StructArray) -> VortexResult<Self> {
+        let cache = &mut ConversionCache::default();
         let fields = array
             .fields()
             .iter()
-            .map(|field| create_exporter(field.as_ref()))
+            .map(|field| create_exporter(field.as_ref(), cache))
             .try_collect()?;
         Ok(Self {
             fields,
@@ -75,12 +76,14 @@ pub trait ArrayExporter {
         offset: usize,
         len: usize,
         vector: &mut dyn WritableVector,
-        cache: &mut ConversionCache,
     ) -> VortexResult<()>;
 }
 
 /// Create a DuckDB exporter for the given Vortex array.
-fn create_exporter(array: &dyn Array) -> VortexResult<Box<dyn ArrayExporter>> {
+fn create_exporter(
+    array: &dyn Array,
+    cache: &mut ConversionCache,
+) -> VortexResult<Box<dyn ArrayExporter>> {
     // Constant
     // Chunked
     // VarBinView
@@ -89,14 +92,14 @@ fn create_exporter(array: &dyn Array) -> VortexResult<Box<dyn ArrayExporter>> {
     // RunEnd
 
     if let Some(array) = array.as_opt::<RunEndVTable>() {
-        return run_end::new_exporter(array);
+        return run_end::new_exporter(array, cache);
     }
 
     if let Some(array) = array.as_opt::<DictVTable>() {
-        return dict::new_exporter(array);
+        return dict::new_exporter(array, cache);
     }
 
-    // println!("ENCODING: {}", array.encoding());
+    //println!("ENCODING: {}", array.encoding());
 
     // Otherwise, we fall back to canonical
     let array = array.to_canonical()?;
@@ -126,7 +129,6 @@ impl ArrayExporter for ArrowArrayExporter {
         offset: usize,
         len: usize,
         vector: &mut dyn WritableVector,
-        _cache: &mut ConversionCache,
     ) -> VortexResult<()> {
         write_arrow_array_to_vector(&self.array.slice(offset, len), vector)
             .map_err(|e| vortex_err!("Failed to convert Arrow array to DuckDB vector {e}"))

@@ -6,8 +6,8 @@ use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ArrayExporter;
 use crate::exporter::FlatVectorExt;
-use crate::{ArrayExporter, ConversionCache};
 
 #[allow(dead_code)]
 pub(crate) struct PrimitiveExporter<T: NativePType> {
@@ -32,7 +32,6 @@ impl<T: NativePType> ArrayExporter for PrimitiveExporter<T> {
         offset: usize,
         len: usize,
         vector: &mut dyn WritableVector,
-        _cache: &mut ConversionCache,
     ) -> VortexResult<()> {
         let mut vector = vector.flat_vector();
 

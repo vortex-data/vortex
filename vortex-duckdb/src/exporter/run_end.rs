@@ -26,10 +26,13 @@ pub(crate) struct RunEndExporter<E: NativePType> {
     run_end_offset: usize,
 }
 
-pub(crate) fn new_exporter(array: &RunEndArray) -> VortexResult<Box<dyn ArrayExporter>> {
+pub(crate) fn new_exporter(
+    array: &RunEndArray,
+    cache: &mut ConversionCache,
+) -> VortexResult<Box<dyn ArrayExporter>> {
     let ends = array.ends().to_primitive()?;
     let values = array.values().clone();
-    let values_exporter = create_exporter(array.values())?;
+    let values_exporter = create_exporter(array.values(), cache)?;
     let validity = array.validity_mask()?;
 
     match_each_integer_ptype!(ends.ptype(), |$E| {
@@ -50,7 +53,6 @@ impl<E: NativePType + Ord + FromPrimitive + ToPrimitive> ArrayExporter for RunEn
         offset: usize,
         len: usize,
         vector: &mut dyn WritableVector,
-        cache: &mut ConversionCache,
     ) -> VortexResult<()> {
         let ends_slice = self.ends.as_slice::<E>();
 
@@ -109,7 +111,7 @@ impl<E: NativePType + Ord + FromPrimitive + ToPrimitive> ArrayExporter for RunEn
 
         // Export the run-end values into the vector, and then turn it into a dictionary vector.
         self.values_exporter
-            .export(start_run_idx, values_len as usize, vector, cache)?;
+            .export(start_run_idx, values_len as usize, vector)?;
         vector.flat_vector().slice(values_len as u64, sel_vec);
 
         Ok(())
