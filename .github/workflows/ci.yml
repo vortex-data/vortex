@@ -23,12 +23,14 @@ env:
 jobs:
   lint-toml:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: spiraldb/actions/.github/actions/lint-toml@0.10.0
 
   validate-workflow-yaml:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,6 +46,7 @@ jobs:
   python-lint:
     name: "Python (lint)"
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,6 +63,7 @@ jobs:
   python-test:
     name: "Python (test)"
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     env:
       RUST_LOG: "info,uv=debug"
     steps:
@@ -120,6 +124,7 @@ jobs:
 
   rust-docs:
     name: "Rust (docs)"
+    timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -139,6 +144,7 @@ jobs:
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
+    timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -191,6 +197,7 @@ jobs:
 
   build-duckdb:
     name: "DuckDB extension build"
+    timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -220,6 +227,7 @@ jobs:
 
   check-min-deps:
     name: "Check build with minimal dependencies"
+    timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -239,6 +247,7 @@ jobs:
 
   rust-lint:
     name: "Rust (lint)"
+    timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -262,6 +271,7 @@ jobs:
 
   rust-lint-no-default:
     name: "Rust (lint, no default)"
+    timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -284,6 +294,7 @@ jobs:
 
   rust-test:
     name: "Rust (tests)"
+    timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -338,6 +349,7 @@ jobs:
   build-java:
     name: "Java"
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -352,6 +364,7 @@ jobs:
 
   bench-codspeed:
     name: Benchmark with Codspeed
+    timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
@@ -393,6 +406,7 @@ jobs:
   license-check-and-audit-check:
     name: License Check and Audit Check
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     strategy:
       matrix:
         checks:
@@ -411,6 +425,7 @@ jobs:
   wasm-integration:
     name: "wasm-integration"
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
@@ -427,6 +442,7 @@ jobs:
   miri:
     name: "miri"
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     env:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-backtrace=full -Zmiri-disable-isolation
       RUSTFLAGS: "-A warnings"
@@ -449,6 +465,7 @@ jobs:
   generated-files:
     name: "Check generated proto/fbs files are up to date"
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:

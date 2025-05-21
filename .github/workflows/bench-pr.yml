@@ -18,6 +18,7 @@ permissions:
 jobs:
   label_trigger:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
     steps:
       # We remove the benchmark label first so that the workflow can be re-triggered.
@@ -27,6 +28,7 @@ jobs:
 
   build-duckdb:
     needs: label_trigger
+    timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
@@ -63,6 +65,7 @@ jobs:
 
   bench:
     needs: build-duckdb
+    timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
