@@ -207,7 +207,7 @@ macro_rules! decimal_scalar_unpack {
                 Ok(match value.value {
                     None => None,
                     Some(DecimalValue::$arm(v)) => Some(v),
-                    _ => vortex_bail!("Cannot extract decimal as "),
+                    _ => vortex_bail!("Cannot extract decimal as {}", stringify!($ty)),
                 })
             }
         }
@@ -219,7 +219,7 @@ macro_rules! decimal_scalar_unpack {
                 match value.value {
                     None => vortex_bail!("Cannot extract value from null decimal"),
                     Some(DecimalValue::$arm(v)) => Ok(v),
-                    _ => vortex_bail!("Cannot extract decimal as "),
+                    _ => vortex_bail!("Cannot extract decimal as {}", stringify!($ty)),
                 }
             }
         }
