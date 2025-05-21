@@ -49,8 +49,8 @@ use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{
-    BinaryScalar, BoolScalar, ExtScalar, ListScalar, PrimitiveScalar, Scalar, ScalarValue,
-    StructScalar, Utf8Scalar, match_each_decimal_value_type,
+    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, PrimitiveScalar, Scalar,
+    ScalarValue, StructScalar, Utf8Scalar, i256, match_each_decimal_value_type,
 };
 
 use crate::arrays::precision_to_storage_size;
@@ -207,15 +207,34 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                     .append_option(PrimitiveScalar::try_from(scalar)?.typed_value::<$P>())
                 })
             }
-            DType::Decimal(decimal_type, _) => {
-                match_each_decimal_value_type!(precision_to_storage_size(decimal_type), |$D| {
-                    self.as_any_mut()
-                        .downcast_mut::<DecimalBuilder<$D>>()
-                        .ok_or_else(|| {
-                            vortex_err!("Cannot append decimal scalar to non-decimal builder")
-                        })?
-                        .append_option(Option::<$D>::try_from(scalar.as_decimal()).unwrap())
-                })
+            DType::Decimal(..) => {
+                macro_rules! append_decimal {
+                    ($self:expr, $ty:ty, $value:expr) => {{
+                        $self
+                            .as_any_mut()
+                            .downcast_mut::<DecimalBuilder<$ty>>()
+                            .ok_or_else(|| {
+                                ::vortex_error::vortex_err!(
+                                    "Cannot append decimal scalar of type {} to builder of another type",
+                                    stringify!($ty),
+                                )
+                            })?
+                            .append_value($value)
+                    }};
+                }
+
+                // TODO(aduffy): coerce to builder's type?
+                match scalar.as_decimal().decimal_value() {
+                    None => self.append_null(),
+                    Some(v) => match v {
+                        DecimalValue::I8(v) => append_decimal!(self, i8, *v),
+                        DecimalValue::I16(v) => append_decimal!(self, i16, *v),
+                        DecimalValue::I32(v) => append_decimal!(self, i32, *v),
+                        DecimalValue::I64(v) => append_decimal!(self, i64, *v),
+                        DecimalValue::I128(v) => append_decimal!(self, i128, *v),
+                        DecimalValue::I256(v) => append_decimal!(self, i256, *v),
+                    },
+                }
             }
             DType::Utf8(_) => self
                 .as_any_mut()
