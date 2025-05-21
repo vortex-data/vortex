@@ -3,6 +3,8 @@
 #include "vortex.hpp"
 #include "duckdb/storage/object_cache.hpp"
 
+namespace vortex {
+
 class VortexSession : public duckdb::ObjectCacheEntry {
 public:
 	VortexSession() : session(vx_session_create()) {
@@ -22,3 +24,5 @@ public:
 		return ObjectType();
 	}
 };
+
+} // namespace vortex
