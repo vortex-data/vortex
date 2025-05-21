@@ -243,12 +243,7 @@ static unique_ptr<FileReader> OpenFileAndVerify(FileSystem &fs, VortexSession &s
 }
 
 static bool PinFileToThread(ScanGlobalState &global_state) {
-	// This is an approximation to determine whether we should switch to
-	// distributing partitions of the same file across threads and does
-	// not need to be exact in terms of how many threads DuckDB actually uses.
-	const auto thread_count = std::thread::hardware_concurrency();
-	const auto file_count = global_state.expanded_files.size();
-	return (file_count - global_state.files_partitioned) > thread_count;
+	return false;
 }
 
 static void CreateScanPartitions(ClientContext &context, const BindData &bind, ScanGlobalState &global_state,
