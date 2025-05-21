@@ -18,7 +18,6 @@ use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex
 use vortex::expr::{ExprRef, Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
-use vortex::layout::LayoutReader;
 use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 
@@ -31,12 +30,6 @@ use crate::{RUNTIME, to_string, to_string_vec};
 #[allow(non_camel_case_types)]
 pub struct vx_file_reader {
     pub inner: VortexFile,
-}
-
-/// A Vortex layout reader.
-#[allow(non_camel_case_types)]
-pub struct vx_layout_reader {
-    pub inner: Arc<dyn LayoutReader>,
 }
 
 /// Options supplied for opening a file.
@@ -243,13 +236,14 @@ pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *m
 /// Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
-    layout_reader: *const vx_layout_reader,
+    file_reader: *const vx_file_reader,
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_iterator {
     try_or(error, ptr::null_mut(), || {
-        let layout_reader = unsafe { layout_reader.as_ref().vortex_expect("null layout reader") };
-        let mut scan_builder = ScanBuilder::new(layout_reader.inner.clone());
+        let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file reader") };
+        let layout_reader = file_reader.inner.layout_reader()?;
+        let mut scan_builder = ScanBuilder::new(layout_reader.clone());
 
         let scan_options = unsafe { opts.as_ref() }.map_or_else(
             || Ok(ScanOptions::default()),
@@ -274,6 +268,10 @@ pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
             scan_builder = scan_builder.with_split_by(split_by_value);
         }
 
+        if let Some(stats) = file_reader.inner.file_stats() {
+            scan_builder = scan_builder.with_prune_file_on_open(stats.clone())
+        }
+
         vx_array_iterator(scan_builder.into_array_iter()?)
     })
 }
@@ -288,27 +286,6 @@ pub extern "C-unwind" fn vx_file_row_count(
         let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file_reader") };
         Ok(file_reader.inner.row_count())
     })
-}
-
-/// Creates a layout reader for a given file.
-#[unsafe(no_mangle)]
-pub extern "C-unwind" fn vx_layout_reader_create(
-    file_reader: *mut vx_file_reader,
-    error: *mut *mut vx_error,
-) -> *mut vx_layout_reader {
-    try_or(error, ptr::null_mut(), || {
-        let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file_reader") };
-        let inner = file_reader.inner.layout_reader()?;
-
-        Ok(Box::into_raw(Box::new(vx_layout_reader { inner })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C-unwind" fn vx_layout_reader_free(layout_reader: *mut vx_layout_reader) {
-    if !layout_reader.is_null() {
-        drop(unsafe { Box::from_raw(layout_reader) });
-    }
 }
 
 /// Free the file and all associated resources.

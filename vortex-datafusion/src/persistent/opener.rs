@@ -101,6 +101,7 @@ impl FileOpener for VortexFileOpener {
                 .with_metrics(metrics)
                 .with_projection(projection)
                 .with_some_filter(filter)
+                .with_prune_file_on_open(vxf.file_stats().unwrap().clone())
                 .map_to_record_batch(projected_arrow_schema.clone())
                 .into_stream()?
                 .map_ok(move |rb| {
