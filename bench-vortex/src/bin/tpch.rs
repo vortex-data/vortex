@@ -469,7 +469,11 @@ async fn bench_main(
 
 fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow::Result<()> {
     let query_dir = PathBuf::from("duckdb-vortex/duckdb/extension/tpch/dbgen/queries");
-    let tmp_dir = format!("{}/spiral-tpch", env::var("TMPDIR")?);
+    let tmp_dir = format!(
+        "{}/spiral-tpch",
+        // $RUNNER_TEMP is defined by GitHub Actions.
+        env::var("TMPDIR").unwrap_or(env::var("RUNNER_TEMP")?)
+    );
     if PathBuf::from(&tmp_dir).exists() {
         fs::remove_dir_all(&tmp_dir)?;
     }
