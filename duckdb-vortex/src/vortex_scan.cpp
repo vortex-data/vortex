@@ -290,7 +290,7 @@ static void CreateScanPartitions(ClientContext &context, const BindData &bind, S
 	D_ASSERT(global_state.files_partitioned <= global_state.expanded_files.size());
 }
 
-static unique_ptr<ArrayIterator> OpenArrayIter(ScanGlobalState &global_state, shared_ptr<FileReader> &layout_reader,
+static unique_ptr<ArrayIterator> OpenArrayIter(ScanGlobalState &global_state, shared_ptr<FileReader> &file_reader,
                                                ScanPartition row_range_partition) {
 	const auto options = vx_file_scan_options {
 	    .projection = global_state.projected_column_names.data(),
@@ -302,7 +302,7 @@ static unique_ptr<ArrayIterator> OpenArrayIter(ScanGlobalState &global_state, sh
 	    .row_range_end = row_range_partition.end_row,
 	};
 
-	return make_uniq<ArrayIterator>(layout_reader->Scan(&options));
+	return make_uniq<ArrayIterator>(file_reader->Scan(&options));
 }
 
 // Assigns the next array from the array stream.
@@ -345,8 +345,8 @@ static bool GetNextArray(ClientContext &context, const BindData &bind_data, Scan
 
 		// Layout readers are safe to share across threads for reading. Further, they
 		// are created before pushing partitions of the corresponing files into a queue.
-		auto layout_reader = global_state.file_readers[partition.file_idx];
-		local_state.array_iterator = OpenArrayIter(global_state, layout_reader, partition);
+		auto file_reader = global_state.file_readers[partition.file_idx];
+		local_state.array_iterator = OpenArrayIter(global_state, file_reader, partition);
 	}
 
 	local_state.currently_scanned_array = local_state.array_iterator->NextArray();
@@ -375,7 +375,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 				return;
 			}
 
-			// Free layout readers as long as we pin files to threads.
+			// Free file readers when owned by the thread.
 			if (local_state.scan_partitions.empty() && local_state.thread_local_file_idx.has_value()) {
 				global_state.file_readers[local_state.thread_local_file_idx.value()] = nullptr;
 				local_state.thread_local_file_idx.reset();
@@ -388,9 +388,8 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 					global_state.file_readers[0] = bind_data.initial_file;
 				} else {
 					auto file_name = global_state.expanded_files[file_idx];
-					auto vortex_file =
+					global_state.file_readers[file_idx] =
 					    OpenFileAndVerify(FileSystem::GetFileSystem(context), *bind_data.session, file_name, bind_data);
-					global_state.file_readers[file_idx] = std::move(vortex_file);
 				}
 
 				CreateScanPartitions(context, bind_data, global_state, local_state, file_idx,

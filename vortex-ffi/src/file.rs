@@ -236,7 +236,7 @@ pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *m
 
 /// Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
+pub unsafe extern "C-unwind" fn vx_file_reader_scan(
     file_reader: *const vx_file_reader,
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
@@ -251,11 +251,11 @@ pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
 
         if let Some(expr) = &scan_options.filter_expr {
             if file_reader.inner.can_prune(expr)? {
+                let dtype = file_reader.inner.dtype().clone();
+                let empty_iter = ArrayIteratorAdapter::new(dtype, iter::empty());
+
                 return Ok(Box::into_raw(Box::new(vx_array_iterator {
-                    inner: Some(Box::new(ArrayIteratorAdapter::new(
-                        file_reader.inner.dtype().clone(),
-                        iter::empty(),
-                    )) as _),
+                    inner: Some(Box::new(empty_iter)),
                 })));
             }
         };
@@ -282,7 +282,7 @@ pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
         }
 
         Ok(Box::into_raw(Box::new(vx_array_iterator {
-            inner: Some(Box::new(scan_builder.into_array_iter()?) as _),
+            inner: Some(Box::new(scan_builder.into_array_iter()?)),
         })))
     })
 }

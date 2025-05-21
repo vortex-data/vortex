@@ -62,7 +62,7 @@ struct FileReader {
 	}
 
 	vx_array_iterator *Scan(const vx_file_scan_options *options) {
-		return Try([&](auto err) { return vx_layout_reader_scan(this->file, options, err); });
+		return Try([&](auto err) { return vx_file_reader_scan(this->file, options, err); });
 	}
 
 	uint64_t FileRowCount() {

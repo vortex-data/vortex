@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_array::arrays::{ConstantArray, StructArray};
-use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_dtype::StructDType;
 use vortex_error::VortexResult;
@@ -30,7 +30,7 @@ pub fn extract_relevant_stat_as_struct_row(
             .iter()
             .filter(|(stat, _)| stats.contains(stat))
             .map(|(stat, value)| {
-                if let Precision::Exact(value) = value {
+                value.as_ref().as_exact().and_then(|value| {
                     (stat == &Stat::Max || stat == &Stat::Min).then(|| {
                         (
                             stat_field_name(field, *stat),
@@ -38,9 +38,7 @@ pub fn extract_relevant_stat_as_struct_row(
                                 .to_array(),
                         )
                     })
-                } else {
-                    None
-                }
+                })
             })
             .collect::<Option<Vec<_>>>()
         else {

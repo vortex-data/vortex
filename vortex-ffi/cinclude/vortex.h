@@ -399,9 +399,9 @@ struct vx_dtype *vx_file_dtype(const struct vx_file_reader *file);
 /**
  * Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
  */
-struct vx_array_iterator *vx_layout_reader_scan(const struct vx_file_reader *file_reader,
-                                                const struct vx_file_scan_options *opts,
-                                                struct vx_error **error);
+struct vx_array_iterator *vx_file_reader_scan(const struct vx_file_reader *file_reader,
+                                              const struct vx_file_scan_options *opts,
+                                              struct vx_error **error);
 
 /**
  * Returns the row count for a given file reader.
