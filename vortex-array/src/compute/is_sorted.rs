@@ -49,12 +49,6 @@ impl ComputeFnVTable for IsSorted {
             return Ok(Scalar::from(false).into());
         }
 
-        // Constant arrays can be handled now
-        if array.is::<ConstantVTable>() {
-            let is_sorted = if strict { array.len() <= 1 } else { true };
-            return Ok(Scalar::from(is_sorted).into());
-        }
-
         let is_sorted = if strict {
             if let Some(Precision::Exact(value)) =
                 array.statistics().get_as::<bool>(Stat::IsStrictSorted)
