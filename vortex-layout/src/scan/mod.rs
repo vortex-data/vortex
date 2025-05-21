@@ -16,6 +16,7 @@ use vortex_array::arrays::{ConstantArray, StructArray};
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
+use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath, StructDType};
@@ -311,6 +312,10 @@ fn extract_struct_row(
     stats_set: &Arc<[StatsSet]>,
     struct_dtype: &Arc<StructDType>,
 ) -> VortexResult<Option<ArrayRef>> {
+    if predicate.required_stats().len() == 0 {
+        return StructArray::try_new([].into(), vec![], 1, Validity::NonNullable)
+            .map(|s| Some(s.to_array()));
+    }
     let mut columns = vec![];
     for (field_name, stats) in predicate.required_stats() {
         let FieldOrIdentity::Field(field) = field_name else {
