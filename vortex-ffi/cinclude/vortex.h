@@ -120,11 +120,6 @@ typedef struct vx_error vx_error;
 typedef struct vx_file_reader vx_file_reader;
 
 /**
- * A Vortex layout reader.
- */
-typedef struct vx_layout_reader vx_layout_reader;
-
-/**
  * An object that stores registries and caches.
  * This should if possible be reused between queries in ann interactive session.
  */
@@ -404,7 +399,7 @@ struct vx_dtype *vx_file_dtype(const struct vx_file_reader *file);
 /**
  * Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
  */
-struct vx_array_iterator *vx_layout_reader_scan(const struct vx_layout_reader *layout_reader,
+struct vx_array_iterator *vx_layout_reader_scan(const struct vx_file_reader *file_reader,
                                                 const struct vx_file_scan_options *opts,
                                                 struct vx_error **error);
 
@@ -412,14 +407,6 @@ struct vx_array_iterator *vx_layout_reader_scan(const struct vx_layout_reader *l
  * Returns the row count for a given file reader.
  */
 uint64_t vx_file_row_count(struct vx_file_reader *file_reader, struct vx_error **error);
-
-/**
- * Creates a layout reader for a given file.
- */
-struct vx_layout_reader *vx_layout_reader_create(struct vx_file_reader *file_reader,
-                                                 struct vx_error **error);
-
-void vx_layout_reader_free(struct vx_layout_reader *layout_reader);
 
 /**
  * Free the file and all associated resources.

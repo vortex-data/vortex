@@ -186,23 +186,12 @@ impl<A: 'static + Send> ScanBuilder<A> {
                         .and_then(|p| p.as_constant())
                     {
                         if result.as_bool().value() == Some(true) {
-                            println!("prune");
                             return Ok(vec![]);
                         }
                     }
                 }
             };
         }
-
-        println!("not prune");
-
-        // if let Some(filter) = &filter {
-        //     layout_reader.pruning_evaluation(&row_range, filter)?
-        // }
-
-        // let Some(_file_stats) = file.inner.file_stats() else {
-        //     return Ok(false);
-        // };
 
         // Construct field masks and compute the row splits of the scan.
         let (filter_mask, projection_mask) =

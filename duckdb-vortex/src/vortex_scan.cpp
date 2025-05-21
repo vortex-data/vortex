@@ -40,7 +40,7 @@ struct BindData : public TableFunctionData {
 
 	// Used to read the schema during the bind phase and cached here to
 	// avoid having to open the same file again during the scan phase.
-	unique_ptr<FileReader> initial_file;
+	shared_ptr<FileReader> initial_file;
 
 	// Used to create an arena for protobuf exprs, need a ptr since the bind arg is const.
 	unique_ptr<google::protobuf::Arena> arena;
@@ -105,7 +105,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	// Multi producer, multi consumer lockfree queue.
 	duckdb_moodycamel::ConcurrentQueue<ScanPartition> scan_partitions {8192};
 
-	std::vector<std::shared_ptr<FileReader>> file_readers;
+	std::vector<shared_ptr<FileReader>> file_readers;
 
 	// The column idx that must be returned by the scan.
 	vector<idx_t> column_ids;
@@ -250,9 +250,9 @@ static bool PinFileToThread(ScanGlobalState &global_state) {
 }
 
 static void CreateScanPartitions(ClientContext &context, const BindData &bind, ScanGlobalState &global_state,
-                                 ScanLocalState &local_state, uint64_t file_idx, unique_ptr<FileReader> &file_reader) {
+                                 ScanLocalState &local_state, uint64_t file_idx, FileReader &file_reader) {
 	const auto file_name = global_state.expanded_files[file_idx];
-	const auto row_count = Try([&](auto err) { return vx_file_row_count(file_reader->file, err); });
+	const auto row_count = Try([&](auto err) { return vx_file_row_count(file_reader.file, err); });
 
 	const auto thread_count = std::thread::hardware_concurrency();
 	const auto file_count = global_state.expanded_files.size();
@@ -290,8 +290,7 @@ static void CreateScanPartitions(ClientContext &context, const BindData &bind, S
 	D_ASSERT(global_state.files_partitioned <= global_state.expanded_files.size());
 }
 
-static unique_ptr<ArrayIterator> OpenArrayIter(ScanGlobalState &global_state,
-                                               std::shared_ptr<FileReader> &layout_reader,
+static unique_ptr<ArrayIterator> OpenArrayIter(ScanGlobalState &global_state, shared_ptr<FileReader> &layout_reader,
                                                ScanPartition row_range_partition) {
 	const auto options = vx_file_scan_options {
 	    .projection = global_state.projected_column_names.data(),
@@ -385,10 +384,17 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			// Create new scan partitions in case the queue is empty.
 			if (auto file_idx = global_state.next_file_idx.fetch_add(1);
 			    file_idx < global_state.expanded_files.size()) {
-				auto file_name = global_state.expanded_files[file_idx];
-				auto vortex_file = OpenFileAndVerify(FileSystem::GetFileSystem(context), *bind_data.session, file_name, bind_data);
-				global_state.file_readers[file_idx] = std::move(vortex_file);
-				CreateScanPartitions(context, bind_data, global_state, local_state, file_idx, vortex_file);
+				if (file_idx == 0) {
+					global_state.file_readers[0] = bind_data.initial_file;
+				} else {
+					auto file_name = global_state.expanded_files[file_idx];
+					auto vortex_file =
+					    OpenFileAndVerify(FileSystem::GetFileSystem(context), *bind_data.session, file_name, bind_data);
+					global_state.file_readers[file_idx] = std::move(vortex_file);
+				}
+
+				CreateScanPartitions(context, bind_data, global_state, local_state, file_idx,
+				                     *global_state.file_readers[file_idx]);
 			}
 		}
 	}
