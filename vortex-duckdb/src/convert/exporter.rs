@@ -46,10 +46,12 @@ impl DuckDBExporter {
         let position = self.array_len - self.remaining;
         self.remaining = self.remaining - chunk_len;
 
+        // Set the length of the chunk to the number of rows we are exporting.
+        chunk.set_len(chunk_len);
+
         if self.fields.is_empty() {
             // No fields can occur in e.g. select(*) queries. In these cases, we just need to
             // set the length of the chunk.
-            chunk.set_len(chunk_len);
             return Ok(self.remaining > 0);
         }
 

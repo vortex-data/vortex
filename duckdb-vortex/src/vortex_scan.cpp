@@ -352,15 +352,16 @@ static bool GetNextArray(ClientContext &context, const BindData &bind_data, Scan
 		local_state.array_iterator = OpenArrayIter(global_state, layout_reader, partition);
 	}
 
-	local_state.currently_scanned_array = local_state.array_iterator->NextArray()->CreateExporter();
-	local_state.array_row_offset = 0;
-
-	if (local_state.currently_scanned_array == nullptr) {
+	auto next_array = local_state.array_iterator->NextArray();
+	if (next_array == nullptr) {
 		local_state.array_iterator = nullptr;
 		global_state.partitions_processed += 1;
 
 		return false;
 	}
+
+	local_state.currently_scanned_array = next_array->CreateExporter();
+	local_state.array_row_offset = 0;
 
 	return true;
 }
