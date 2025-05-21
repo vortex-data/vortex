@@ -141,10 +141,10 @@ impl<T: Display> Display for Precision<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Exact(v) => {
-                write!(f, "{}", v)
+                write!(f, "{v}")
             }
             Inexact(v) => {
-                write!(f, "~{}", v)
+                write!(f, "~{v}")
             }
         }
     }

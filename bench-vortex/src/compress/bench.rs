@@ -91,7 +91,7 @@ pub fn benchmark_compress(
         });
         vortex_compress_time = Some(time);
         timings.push(CompressionTimingMeasurement {
-            name: format!("compress time/{}", bench_name),
+            name: format!("compress time/{bench_name}"),
             time,
             format: Format::OnDiskVortex,
         });
@@ -99,7 +99,7 @@ pub fn benchmark_compress(
 
         let compressed_size_f64 = compressed_size.load(Ordering::SeqCst) as f64;
         ratios.push(CustomUnitMeasurement {
-            name: format!("vortex size/{}", bench_name),
+            name: format!("vortex size/{bench_name}"),
             format: Format::OnDiskVortex,
             unit: Cow::from("bytes"),
             value: compressed_size_f64,
@@ -123,7 +123,7 @@ pub fn benchmark_compress(
         });
         parquet_compress_time = Some(time);
         timings.push(CompressionTimingMeasurement {
-            name: format!("compress time/{}", bench_name),
+            name: format!("compress time/{bench_name}"),
             time,
             format: Format::Parquet,
         });
@@ -131,14 +131,14 @@ pub fn benchmark_compress(
         progress.inc(1);
         let parquet_compressed_size = parquet_compressed_size.into_inner();
         ratios.push(CustomUnitMeasurement {
-            name: format!("parquet-zstd size/{}", bench_name),
+            name: format!("parquet-zstd size/{bench_name}"),
             // unlike timings, ratios have a single column vortex
             format: Format::OnDiskVortex,
             unit: Cow::from("bytes"),
             value: parquet_compressed_size as f64,
         });
         ratios.push(CustomUnitMeasurement {
-            name: format!("vortex:parquet-zstd size/{}", bench_name),
+            name: format!("vortex:parquet-zstd size/{bench_name}"),
             format: Format::OnDiskVortex,
             unit: Cow::from("ratio"),
             value: compressed_size.load(Ordering::SeqCst) as f64 / parquet_compressed_size as f64,
@@ -161,7 +161,7 @@ pub fn benchmark_compress(
         });
         vortex_decompress_time = Some(time);
         timings.push(CompressionTimingMeasurement {
-            name: format!("decompress time/{}", bench_name),
+            name: format!("decompress time/{bench_name}"),
             time,
             format: Format::OnDiskVortex,
         });
@@ -188,7 +188,7 @@ pub fn benchmark_compress(
         });
         parquet_decompress_time = Some(time);
         timings.push(CompressionTimingMeasurement {
-            name: format!("decompress time/{}", bench_name),
+            name: format!("decompress time/{bench_name}"),
             time,
             format: Format::Parquet,
         });
@@ -197,7 +197,7 @@ pub fn benchmark_compress(
 
     if let Some((vortex, parquet)) = vortex_compress_time.zip(parquet_compress_time) {
         ratios.push(CustomUnitMeasurement {
-            name: format!("vortex:parquet-zstd ratio compress time/{}", bench_name),
+            name: format!("vortex:parquet-zstd ratio compress time/{bench_name}"),
             format: Format::OnDiskVortex,
             unit: Cow::from("ratio"),
             value: vortex.as_nanos() as f64 / parquet.as_nanos() as f64,
@@ -206,7 +206,7 @@ pub fn benchmark_compress(
 
     if let Some((vortex, parquet)) = vortex_decompress_time.zip(parquet_decompress_time) {
         ratios.push(CustomUnitMeasurement {
-            name: format!("vortex:parquet-zstd ratio decompress time/{}", bench_name),
+            name: format!("vortex:parquet-zstd ratio decompress time/{bench_name}"),
             format: Format::OnDiskVortex,
             unit: Cow::from("ratio"),
             value: vortex.as_nanos() as f64 / parquet.as_nanos() as f64,

@@ -166,7 +166,7 @@ mod tests {
     #[tokio::test]
     async fn test_does_not_leak_permits() {
         let bad_fut: BoxFuture<'static, io::Result<Bytes>> =
-            future::ready(Err(io::Error::new(io::ErrorKind::Other, "badness"))).boxed();
+            future::ready(Err(io::Error::other("badness"))).boxed();
 
         let good_fut: BoxFuture<'static, io::Result<Bytes>> =
             future::ready(Ok(Bytes::from("aaaaa"))).boxed();

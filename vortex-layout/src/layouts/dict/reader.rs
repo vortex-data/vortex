@@ -52,11 +52,11 @@ impl DictReader {
         let values =
             layout
                 .values
-                .new_reader(&format!("{}.values", name).into(), segment_source, ctx)?;
+                .new_reader(&format!("{name}.values").into(), segment_source, ctx)?;
         let codes =
             layout
                 .codes
-                .new_reader(&format!("{}.codes", name).into(), segment_source, ctx)?;
+                .new_reader(&format!("{name}.codes").into(), segment_source, ctx)?;
 
         Ok(Self {
             layout,

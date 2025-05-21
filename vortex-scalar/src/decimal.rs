@@ -63,12 +63,12 @@ impl NativeDecimalType for i256 {
 impl Display for DecimalValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            DecimalValue::I8(v8) => write!(f, "decimal8({})", v8),
-            DecimalValue::I16(v16) => write!(f, "decimal16({})", v16),
-            DecimalValue::I32(v32) => write!(f, "decimal32({})", v32),
-            DecimalValue::I64(v32) => write!(f, "decimal64({})", v32),
-            DecimalValue::I128(v128) => write!(f, "decimal128({})", v128),
-            DecimalValue::I256(v256) => write!(f, "decimal256({})", v256),
+            DecimalValue::I8(v8) => write!(f, "decimal8({v8})"),
+            DecimalValue::I16(v16) => write!(f, "decimal16({v16})"),
+            DecimalValue::I32(v32) => write!(f, "decimal32({v32})"),
+            DecimalValue::I64(v32) => write!(f, "decimal64({v32})"),
+            DecimalValue::I128(v128) => write!(f, "decimal128({v128})"),
+            DecimalValue::I256(v256) => write!(f, "decimal256({v256})"),
         }
     }
 }

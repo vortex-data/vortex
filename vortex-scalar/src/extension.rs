@@ -31,7 +31,7 @@ impl Display for ExtScalar<'_> {
 
             match maybe_timestamp {
                 None => write!(f, "null"),
-                Some(v) => write!(f, "{}", v),
+                Some(v) => write!(f, "{v}"),
             }
         } else {
             write!(f, "{}({})", self.ext_dtype().id(), self.storage())

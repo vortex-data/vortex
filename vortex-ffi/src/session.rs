@@ -45,7 +45,7 @@ impl VortexSession {
         let file_cache = Cache::builder()
             .max_capacity(64u64 * (1 << 20))
             .eviction_listener(|k: Arc<FileKey>, _v: Footer, cause| {
-                log::trace!("Removed {:?} due to {:?}", k, cause);
+                log::trace!("Removed {k:?} due to {cause:?}");
             })
             .weigher(|_k, footer| u32::try_from(estimate_layout_size(footer)).unwrap_or(u32::MAX))
             .build_with_hasher(DefaultHashBuilder::default());

@@ -434,7 +434,7 @@ async fn bench_main(
                 }
             }
             _ => {
-                warn!("Engine {:?} not supported for TPC-H benchmarks", engine);
+                warn!("Engine {engine:?} not supported for TPC-H benchmarks");
             }
         }
     }
@@ -447,7 +447,7 @@ async fn bench_main(
                 metrics = metrics.aggregate();
             }
             for m in metrics.timestamps_removed().sorted_for_display().iter() {
-                println!("{}", m);
+                println!("{m}");
             }
             render_table(measurements, &targets)?;
         }

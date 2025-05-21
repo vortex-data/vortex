@@ -44,7 +44,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
             .filter_target("my_module::verbose_submodule".to_owned(), LevelFilter::Warn)
             .install()
             .map(|_| ())
-            .map_err(|err| PyRuntimeError::new_err(format!("could not initialize logger {}", err)))
+            .map_err(|err| PyRuntimeError::new_err(format!("could not initialize logger {err}")))
     })?;
 
     // Initialize our submodules, living under vortex._lib

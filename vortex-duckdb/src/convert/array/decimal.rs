@@ -205,7 +205,7 @@ mod tests {
         to_duckdb_chunk(&str, &mut chunk, &mut ConversionCache::default()).unwrap();
 
         assert_eq!(
-            format!("{:?}", chunk),
+            format!("{chunk:?}"),
             r#"Chunk - [1 Columns]
 - FLAT DECIMAL(3,2): 3 = [ 1.00, 2.00, 2.55]
 "#
@@ -223,7 +223,7 @@ mod tests {
         let mut chunk = DataChunkHandle::new(&[array.dtype().to_duckdb_type().unwrap()]);
         to_duckdb_chunk(&str, &mut chunk, &mut ConversionCache::default()).unwrap();
         assert_eq!(
-            format!("{:?}", chunk),
+            format!("{chunk:?}"),
             r#"Chunk - [1 Columns]
 - FLAT DECIMAL(5,2): 3 = [ 1.00, 2.00, 3.00]
 "#
@@ -241,7 +241,7 @@ mod tests {
         let mut chunk = DataChunkHandle::new(&[array.dtype().to_duckdb_type().unwrap()]);
         to_duckdb_chunk(&str, &mut chunk, &mut ConversionCache::default()).unwrap();
         assert_eq!(
-            format!("{:?}", chunk),
+            format!("{chunk:?}"),
             r#"Chunk - [1 Columns]
 - FLAT DECIMAL(5,2): 3 = [ 1.00, 1.02, 1.09]
 "#
@@ -259,7 +259,7 @@ mod tests {
         let mut chunk = DataChunkHandle::new(&[array.dtype().to_duckdb_type().unwrap()]);
         to_duckdb_chunk(&str, &mut chunk, &mut ConversionCache::default()).unwrap();
         assert_eq!(
-            format!("{:?}", chunk),
+            format!("{chunk:?}"),
             r#"Chunk - [1 Columns]
 - FLAT DECIMAL(20,2): 3 = [ 1.00, 2.00, 3.00]
 "#

@@ -256,14 +256,14 @@ mod tests {
                 inner: primitive.to_array(),
             });
 
-            assert_eq!(vx_array_len(&*vx_array), 3);
+            assert_eq!(vx_array_len(&raw const *vx_array), 3);
 
-            let array_dtype = vx_array_dtype(&*vx_array);
+            let array_dtype = vx_array_dtype(&raw const *vx_array);
             assert_eq!(vx_dtype_get(array_dtype), DTYPE_PRIMITIVE_I32);
 
-            assert_eq!(vx_array_get_i32(&*vx_array, 0), 1);
-            assert_eq!(vx_array_get_i32(&*vx_array, 1), 2);
-            assert_eq!(vx_array_get_i32(&*vx_array, 2), 3);
+            assert_eq!(vx_array_get_i32(&raw const *vx_array, 0), 1);
+            assert_eq!(vx_array_get_i32(&raw const *vx_array, 1), 2);
+            assert_eq!(vx_array_get_i32(&raw const *vx_array, 2), 3);
 
             vx_array_free(Box::into_raw(vx_array));
         }

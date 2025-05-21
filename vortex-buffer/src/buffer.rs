@@ -377,9 +377,7 @@ impl<T> Buffer<T> {
             {
                 let bt = std::backtrace::Backtrace::capture();
                 log::warn!(
-                    "Buffer is not aligned to requested alignment {}, copying: {}",
-                    alignment,
-                    bt
+                    "Buffer is not aligned to requested alignment {alignment}, copying: {bt}"
                 )
             }
             Self::copy_from_aligned(self, alignment)

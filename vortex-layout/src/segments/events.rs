@@ -56,9 +56,9 @@ impl Debug for SegmentEvent {
                 "SegmentEvent::Registered({:?}, {})",
                 req.id, req.for_whom
             ),
-            SegmentEvent::Polled(id) => write!(f, "SegmentEvent::Polled({:?})", id),
-            SegmentEvent::Dropped(id) => write!(f, "SegmentEvent::Dropped({:?})", id),
-            SegmentEvent::Resolved(id) => write!(f, "SegmentEvent::Resolved({:?})", id),
+            SegmentEvent::Polled(id) => write!(f, "SegmentEvent::Polled({id:?})"),
+            SegmentEvent::Dropped(id) => write!(f, "SegmentEvent::Dropped({id:?})"),
+            SegmentEvent::Resolved(id) => write!(f, "SegmentEvent::Resolved({id:?})"),
         }
     }
 }
@@ -105,7 +105,7 @@ impl SegmentEvents {
                     if let Some(fut) = e.get().future() {
                         return fut;
                     } else {
-                        log::debug!("Re-requesting dropped segment from segment reader {}", id);
+                        log::debug!("Re-requesting dropped segment from segment reader {id}");
                         e.remove();
                     }
                 }

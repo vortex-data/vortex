@@ -421,7 +421,7 @@ impl FieldOrIdentity {
 impl Display for FieldOrIdentity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FieldOrIdentity::Field(field) => write!(f, "{}", field),
+            FieldOrIdentity::Field(field) => write!(f, "{field}"),
             FieldOrIdentity::Identity => write!(f, "$[]"),
         }
     }

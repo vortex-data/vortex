@@ -176,7 +176,7 @@ fn main() -> anyhow::Result<()> {
                             .sorted_for_display()
                             .iter()
                         {
-                            println!("{}", m);
+                            println!("{m}");
                         }
                     }
                 }

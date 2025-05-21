@@ -50,7 +50,7 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
             .bold()
             .green(),
         Text::from(format!("Children: {}", cursor.layout().nchildren())).bold(),
-        Text::from(format!("Segment data size: {}", size)).bold(),
+        Text::from(format!("Segment data size: {size}")).bold(),
     ];
 
     if cursor.layout().is::<FlatVTable>() {

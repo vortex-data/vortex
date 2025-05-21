@@ -24,7 +24,7 @@ impl Display for PrimitiveScalar<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.pvalue {
             None => write!(f, "null"),
-            Some(pv) => write!(f, "{}", pv),
+            Some(pv) => write!(f, "{pv}"),
         }
     }
 }

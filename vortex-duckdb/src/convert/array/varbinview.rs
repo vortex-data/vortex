@@ -152,7 +152,7 @@ mod tests {
         chunk.set_len(len);
         chunk.verify();
         assert_eq!(
-            format!("{:?}", chunk),
+            format!("{chunk:?}"),
             r#"Chunk - [1 Columns]
 - CONSTANT VARCHAR: 100 = [ ]
 "#
@@ -177,7 +177,7 @@ mod tests {
         chunk.set_len(len);
         chunk.verify();
         assert_eq!(
-            format!("{:?}", chunk),
+            format!("{chunk:?}"),
             r#"Chunk - [1 Columns]
 - CONSTANT VARCHAR: 100 = [ long string 100000000000000000000000000000000000000000000000000000000000]
 "#
@@ -202,7 +202,7 @@ mod tests {
 
             chunk.verify();
             assert_eq!(
-                format!("{:?}", chunk),
+                format!("{chunk:?}"),
                 r#"Chunk - [1 Columns]
 - FLAT VARCHAR: 2 = [ a, ab]
 "#
@@ -225,7 +225,7 @@ mod tests {
 
             chunk.verify();
             assert_eq!(
-                format!("{:?}", chunk),
+                format!("{chunk:?}"),
                 r#"Chunk - [1 Columns]
 - FLAT VARCHAR: 3 = [ abc, abcd, abcde]
 "#

@@ -55,10 +55,7 @@ where
                     .vortex_expect("numeric operator overflow"))
                 .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
                 .collect::<Vec<Scalar>>(),
-            "({:?}) {} (Constant array of {}) did not produce expected results",
-            array,
-            operator,
-            scalar_one,
+            "({array:?}) {operator} (Constant array of {scalar_one}) did not produce expected results",
         );
 
         assert_eq!(
@@ -78,10 +75,7 @@ where
                     .vortex_expect("numeric operator overflow"))
                 .map(<Scalar as From<PrimitiveScalar<'_>>>::from)
                 .collect::<Vec<_>>(),
-            "(Constant array of {}) {} ({:?}) did not produce expected results",
-            scalar_one,
-            operator,
-            array,
+            "(Constant array of {scalar_one}) {operator} ({array:?}) did not produce expected results",
         );
     }
 }

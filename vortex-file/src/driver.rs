@@ -256,7 +256,7 @@ impl CoalescedDriver {
             self.mark_as_prefetched(request.id());
         }
 
-        log::debug!("Coalesced request: {:?}", coalesced);
+        log::debug!("Coalesced request: {coalesced:?}");
         self.coalesced_counter.inc();
         self.coalesced_bytes_counter
             .add(coalesced.size_bytes().try_into().vortex_expect("isize"));
@@ -278,7 +278,7 @@ impl Stream for CoalescedDriver {
             };
 
             // Process the event.
-            log::debug!("Processing: {:?}", event);
+            log::debug!("Processing: {event:?}");
             match event {
                 SegmentEvent::Requested(req) => this.on_requested(req),
                 SegmentEvent::Polled(id) => this.on_polled(id),
@@ -322,7 +322,7 @@ impl Stream for CoalescedDriver {
                 {
                     let coalesced =
                         this.coalesce_request(request, Some(this.inflight_prefetch_lease.clone()));
-                    log::debug!("Prefetching: {:?}", coalesced);
+                    log::debug!("Prefetching: {coalesced:?}");
                     return Poll::Ready(Some(coalesced));
                 }
             }

@@ -329,7 +329,7 @@ fn print_results(
 fn data_source_base_url(remote_data_dir: &Option<String>, flavor: Flavor) -> anyhow::Result<Url> {
     match remote_data_dir {
         None => {
-            let basepath = format!("clickbench_{}", flavor).to_data_path();
+            let basepath = format!("clickbench_{flavor}").to_data_path();
             let client = reqwest::blocking::Client::default();
 
             flavor.download(&client, basepath.as_path())?;

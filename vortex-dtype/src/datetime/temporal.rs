@@ -48,10 +48,10 @@ pub enum TemporalJiff {
 impl Display for TemporalJiff {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TemporalJiff::Time(t) => write!(f, "{}", t),
-            TemporalJiff::Date(d) => write!(f, "{}", d),
-            TemporalJiff::Timestamp(ts) => write!(f, "{}", ts),
-            TemporalJiff::Zoned(z) => write!(f, "{}", z),
+            TemporalJiff::Time(t) => write!(f, "{t}"),
+            TemporalJiff::Date(d) => write!(f, "{d}"),
+            TemporalJiff::Timestamp(ts) => write!(f, "{ts}"),
+            TemporalJiff::Zoned(z) => write!(f, "{z}"),
         }
     }
 }

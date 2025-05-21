@@ -169,9 +169,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         // Read more bytes if necessary.
         if read_more_offset < initial_offset {
             log::info!(
-                "Initial read from {} did not cover all footer segments, reading from {}",
-                initial_offset,
-                read_more_offset
+                "Initial read from {initial_offset} did not cover all footer segments, reading from {read_more_offset}"
             );
 
             let mut new_initial_read =

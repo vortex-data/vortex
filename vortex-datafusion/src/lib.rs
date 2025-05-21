@@ -48,7 +48,7 @@ fn supported_data_types(dt: DataType) -> bool {
         );
 
     if !is_supported {
-        log::debug!("DataFusion data type {:?} is not supported", dt);
+        log::debug!("DataFusion data type {dt:?} is not supported");
     }
 
     is_supported
@@ -110,7 +110,7 @@ fn can_be_pushed_down(expr: &Expr, schema: &Schema) -> bool {
         }
         Expr::Literal(lit) => supported_data_types(lit.data_type()),
         _ => {
-            log::debug!("DataFusion expression can't be pushed down: {:?}", expr);
+            log::debug!("DataFusion expression can't be pushed down: {expr:?}");
             false
         }
     }

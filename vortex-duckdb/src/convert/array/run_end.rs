@@ -120,7 +120,7 @@ mod tests {
 
         chunk.verify();
         assert_eq!(
-            format!("{:?}", chunk),
+            format!("{chunk:?}"),
             r#"Chunk - [1 Columns]
 - DICTIONARY INTEGER: 4 = [ 1, 2, 2, 2]
 "#
@@ -144,7 +144,7 @@ mod tests {
 
         chunk.verify();
         assert_eq!(
-            format!("{:?}", chunk),
+            format!("{chunk:?}"),
             format!(
                 r#"Chunk - [1 Columns]
 - DICTIONARY INTEGER: 2048 = [ {}, {}, {}]

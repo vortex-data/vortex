@@ -78,7 +78,7 @@ mod tests {
         to_duckdb_chunk(&struct_, &mut data_chunk, &mut cache).unwrap();
 
         assert_eq!(
-            format!("{:?}", data_chunk),
+            format!("{data_chunk:?}"),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 5 = [ 2, 2, 0, 1, 2]
 "#

@@ -732,7 +732,7 @@ mod test {
 
         let stats = array.statistics().to_owned();
         for stat in &all_stats {
-            assert!(stats.get(*stat).is_some(), "Stat {} is missing", stat);
+            assert!(stats.get(*stat).is_some(), "Stat {stat} is missing");
         }
 
         let merged = stats.clone().merge_unordered(
@@ -743,8 +743,7 @@ mod test {
             assert_eq!(
                 merged.get(*stat).is_some(),
                 stat.is_commutative(),
-                "Stat {} remains after merge_unordered despite not being commutative, or was removed despite being commutative",
-                stat
+                "Stat {stat} remains after merge_unordered despite not being commutative, or was removed despite being commutative"
             )
         }
 

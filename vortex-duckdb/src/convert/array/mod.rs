@@ -116,7 +116,7 @@ mod tests {
         to_duckdb_chunk(&st, &mut output_chunk, &mut ConversionCache::default()).unwrap();
 
         assert_eq!(
-            format!("{:?}", output_chunk),
+            format!("{output_chunk:?}"),
             "Chunk - [2 Columns]\n- CONSTANT BIGINT: 100 = [ 23444233]\n- CONSTANT INTEGER: 100 = [ 234]\n"
         )
     }
@@ -161,7 +161,7 @@ mod tests {
 
         chunk.verify();
         assert_eq!(
-            format!("{:?}", chunk),
+            format!("{chunk:?}"),
             r#"Chunk - [5 Columns]
 - FLAT INTEGER: 5 = [ 0, 1, 2, 3, 4]
 - FLAT VARCHAR: 5 = [ a, ab, abc, abcd, abcde]
@@ -192,7 +192,7 @@ mod tests {
 
         chunk.verify();
         assert_eq!(
-            format!("{:?}", chunk),
+            format!("{chunk:?}"),
             r#"Chunk - [1 Columns]
 - DICTIONARY INTEGER: 5 = [ 0, 3, 4, 2, 1]
 "#

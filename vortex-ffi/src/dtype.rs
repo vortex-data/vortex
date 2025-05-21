@@ -250,9 +250,8 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_unit(dtype: *const DType) -> u8 {
     };
 
     let metadata = ext_dtype.metadata().vortex_expect("time unit metadata");
-    let time_unit = metadata.as_ref()[0];
 
-    time_unit
+    metadata.as_ref()[0]
 }
 
 #[unsafe(no_mangle)]
@@ -279,7 +278,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
                 unsafe { *len = 0 };
             }
         }
-        _ => panic!("DType_time_zone: not a timestamp metadata: {:?}", ext_dtype),
+        _ => panic!("DType_time_zone: not a timestamp metadata: {ext_dtype:?}"),
     }
 }
 
@@ -353,7 +352,7 @@ mod tests {
                 person,
                 0,
                 name_bytes.as_mut_ptr() as *mut c_void,
-                &mut name_len,
+                &raw mut name_len,
             );
             // Check name_bytes
             let field_name = std::str::from_utf8_unchecked(&name_bytes[..name_len as usize]);
@@ -363,7 +362,7 @@ mod tests {
                 person,
                 1,
                 name_bytes.as_mut_ptr() as *mut c_void,
-                &mut name_len,
+                &raw mut name_len,
             );
             // Check name_bytes
             let field_name = std::str::from_utf8_unchecked(&name_bytes[..name_len as usize]);

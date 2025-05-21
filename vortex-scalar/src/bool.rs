@@ -17,7 +17,7 @@ impl Display for BoolScalar<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.value {
             None => write!(f, "null"),
-            Some(v) => write!(f, "{}", v),
+            Some(v) => write!(f, "{v}"),
         }
     }
 }

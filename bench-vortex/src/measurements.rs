@@ -27,10 +27,10 @@ pub enum MeasurementValue {
 impl Display for MeasurementValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            MeasurementValue::Int(i) => write!(f, "{}", i),
+            MeasurementValue::Int(i) => write!(f, "{i}"),
             MeasurementValue::Float(fl) => match f.precision() {
-                None => write!(f, "{}", fl),
-                Some(p) => write!(f, "{1:.*}", p, fl),
+                None => write!(f, "{fl}"),
+                Some(p) => write!(f, "{fl:.p$}"),
             },
         }
     }

@@ -68,7 +68,7 @@ impl VisitorVTable<ChunkedVTable> for ChunkedVTable {
         visitor.visit_child("chunk_offsets", chunk_offsets.as_ref());
 
         for (idx, chunk) in array.chunks().iter().enumerate() {
-            visitor.visit_child(format!("chunks[{}]", idx).as_str(), chunk);
+            visitor.visit_child(format!("chunks[{idx}]").as_str(), chunk);
         }
     }
 }

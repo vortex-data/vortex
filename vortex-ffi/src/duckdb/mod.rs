@@ -166,14 +166,15 @@ mod tests {
         let mut error: *mut vx_error = null_mut();
 
         let handle = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
-        let offset =
-            unsafe { vx_array_to_duckdb_chunk(ffi_array, 0, handle.get_ptr(), cache, &mut error) };
+        let offset = unsafe {
+            vx_array_to_duckdb_chunk(ffi_array, 0, handle.get_ptr(), cache, &raw mut error)
+        };
         assert!(error.is_null());
         assert_eq!(offset, 2048);
         assert_eq!(handle.len(), 2048);
 
         let offset = unsafe {
-            vx_array_to_duckdb_chunk(ffi_array, offset, handle.get_ptr(), cache, &mut error)
+            vx_array_to_duckdb_chunk(ffi_array, offset, handle.get_ptr(), cache, &raw mut error)
         };
         assert!(error.is_null());
         assert_eq!(offset, 0);
