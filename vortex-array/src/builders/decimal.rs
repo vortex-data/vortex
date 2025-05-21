@@ -1,5 +1,6 @@
 use std::any::Any;
 
+use num_traits::AsPrimitive;
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
@@ -46,8 +47,8 @@ impl<T: NativeDecimalType> DecimalBuilder<T> {
         self.nulls.append_validity_mask(validity_mask);
     }
 
-    pub fn append_value(&mut self, value: T) {
-        self.values.push(value);
+    pub fn append_value<V: AsPrimitive<T>>(&mut self, value: V) {
+        self.values.push(value.as_());
         self.nulls.append(true);
     }
 

@@ -1,7 +1,8 @@
 use std::fmt::Display;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
-use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, ToPrimitive, Zero};
+use num_traits::{AsPrimitive, CheckedAdd, CheckedSub, ConstZero, One, ToPrimitive, Zero};
+use vortex_error::VortexExpect;
 
 /// Signed 256-bit integer type.
 ///
@@ -166,5 +167,23 @@ impl ToPrimitive for i256 {
 
     fn to_u128(&self) -> Option<u128> {
         self.maybe_i128().and_then(|v| v.to_u128())
+    }
+}
+
+impl<T> AsPrimitive<T> for i256
+where
+    T: 'static + Copy,
+    i128: AsPrimitive<T>,
+{
+    fn as_(self) -> T {
+        self.maybe_i128()
+            .vortex_expect("i256 is not representable as T")
+            .as_()
+    }
+}
+
+impl AsPrimitive<i256> for i128 {
+    fn as_(self) -> i256 {
+        i256::from_i128(self)
     }
 }
