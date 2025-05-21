@@ -13,6 +13,7 @@
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/common/file_system.hpp"
+#include "duckdb/storage/object_cache.hpp"
 
 #include "concurrentqueue.h"
 
@@ -22,6 +23,7 @@
 #include "vortex_scan.hpp"
 #include "vortex_common.hpp"
 #include "vortex_expr.hpp"
+#include "vortex_session.hpp"
 
 using namespace duckdb;
 
@@ -31,6 +33,9 @@ namespace vortex {
 /// file and its schema. This data is populated during the bind phase, which
 /// happens during the query planning phase.
 struct BindData : public TableFunctionData {
+	// Session used to caching
+	shared_ptr<VortexSession> session;
+
 	shared_ptr<MultiFileList> file_list;
 	vector<LogicalType> columns_types;
 	vector<string> column_names;
@@ -182,12 +187,12 @@ std::string EnsureFileProtocol(FileSystem &fs, const std::string &path) {
 	return prefix + absolute_path;
 }
 
-static unique_ptr<FileReader> OpenFile(const std::string &filename, vector<LogicalType> &column_types,
-                                       vector<string> &column_names) {
+static unique_ptr<FileReader> OpenFile(const std::string &filename, VortexSession &session,
+                                       vector<LogicalType> &column_types, vector<string> &column_names) {
 	vx_file_open_options options {
 	    .uri = filename.c_str(), .property_keys = nullptr, .property_vals = nullptr, .property_len = 0};
 
-	auto file = FileReader::Open(&options);
+	auto file = FileReader::Open(&options, session);
 	if (!file) {
 		throw IOException("Failed to open Vortex file: " + filename);
 	}
@@ -224,7 +229,7 @@ static void VerifyNewFile(const BindData &bind_data, vector<LogicalType> &column
 	}
 }
 
-static unique_ptr<FileReader> OpenFileAndVerify(FileSystem &fs, const std::string &filename,
+static unique_ptr<FileReader> OpenFileAndVerify(FileSystem &fs, VortexSession &session, const std::string &filename,
                                                 const BindData &bind_data) {
 	auto new_column_names = vector<string>();
 	new_column_names.reserve(bind_data.column_names.size());
@@ -232,7 +237,7 @@ static unique_ptr<FileReader> OpenFileAndVerify(FileSystem &fs, const std::strin
 	auto new_column_types = vector<LogicalType>();
 	new_column_types.reserve(bind_data.columns_types.size());
 
-	auto file = OpenFile(EnsureFileProtocol(fs, filename), new_column_types, new_column_names);
+	auto file = OpenFile(EnsureFileProtocol(fs, filename), session, new_column_types, new_column_names);
 	VerifyNewFile(bind_data, new_column_types, new_column_names);
 	return file;
 }
@@ -383,7 +388,8 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			if (auto file_idx = global_state.next_file_idx.fetch_add(1);
 			    file_idx < global_state.expanded_files.size()) {
 				auto file_name = global_state.expanded_files[file_idx];
-				auto vortex_file = OpenFileAndVerify(FileSystem::GetFileSystem(context), file_name, bind_data);
+				auto vortex_file =
+				    OpenFileAndVerify(FileSystem::GetFileSystem(context), *bind_data.session, file_name, bind_data);
 				global_state.layout_readers[file_idx] = LayoutReader::CreateFromFile(vortex_file.get());
 				CreateScanPartitions(context, bind_data, global_state, local_state, file_idx, vortex_file);
 			}
@@ -412,12 +418,21 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
 	auto result = make_uniq<BindData>();
 	result->arena = make_uniq<google::protobuf::Arena>();
 
+	const static string VortexExtensionKey = std::string("vortex_extension:vortex_session");
+	auto session = ObjectCache::GetObjectCache(context).Get<VortexSession>(VortexExtensionKey);
+	if (session == nullptr) {
+		ObjectCache::GetObjectCache(context).Put(VortexExtensionKey, make_shared_ptr<VortexSession>());
+		session = ObjectCache::GetObjectCache(context).Get<VortexSession>(VortexExtensionKey);
+	}
+
+	result->session = session;
+
 	auto file_glob = duckdb::vector<string> {input.inputs[0].GetValue<string>()};
 	result->file_list = make_shared_ptr<GlobMultiFileList>(context, file_glob, FileGlobOptions::DISALLOW_EMPTY);
 
 	// Open the first file to extract the schema.
 	auto filename = EnsureFileProtocol(FileSystem::GetFileSystem(context), result->file_list->GetFirstFile());
-	result->initial_file = OpenFile(filename, column_types, column_names);
+	result->initial_file = OpenFile(filename, *result->session, column_types, column_names);
 
 	result->column_names = column_names;
 	result->columns_types = column_types;
