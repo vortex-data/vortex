@@ -1,29 +1,71 @@
+#![allow(unused_variables)]
 use std::marker::PhantomData;
 
 use duckdb::core::DataChunkHandle;
-use vortex_array::arrays::PrimitiveArray;
+use duckdb::ffi::duckdb_data_chunk_get_vector;
+use duckdb::vtab::arrow::WritableVector;
+use itertools::Itertools;
+use vortex_array::arrays::{PrimitiveArray, StructArray};
 use vortex_array::{Array, Canonical};
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 
 use crate::ConversionCache;
 
-/// A trait for exporting Vortex arrays to DuckDB vectors. Since DuckDB passes us mutable vectors
-/// of 2k in size, this trait sort of acts like an iterator over the array in a way that allows
-/// us to cheaply slice off 2k elements at a time.
-pub trait DuckDBExporter {
-    /// Export the next chunk of data from the Vortex array to the DuckDB vector.
+pub struct DuckDBExporter {
+    fields: Vec<Box<dyn ArrayExporter>>,
+    len: usize,
+    pos: usize,
+}
+
+impl DuckDBExporter {
+    pub fn try_new(array: &StructArray) -> VortexResult<Self> {
+        let fields = array
+            .fields()
+            .iter()
+            .map(|field| create_exporter(field.as_ref()))
+            .try_collect()?;
+        Ok(Self {
+            fields,
+            len: array.len(),
+            pos: 0,
+        })
+    }
+
+    /// Export the data into the next chunk.
     ///
-    /// Returns `true` if there is more data to export, `false` if the array is exhausted.
-    fn export(
+    /// Returns `true` if there are more rows to export, `false` if all rows have been exported.
+    pub fn export(
         &mut self,
         chunk: &mut DataChunkHandle,
         cache: &mut ConversionCache,
-    ) -> VortexResult<bool>;
+    ) -> VortexResult<bool> {
+        println!("CHUNK LEN {}", chunk.len());
+
+        for (i, field) in self.fields.iter_mut().enumerate() {
+            let mut vector = unsafe { duckdb_data_chunk_get_vector(chunk.get_ptr(), i as u64) };
+            field.export(self.pos, chunk.len(), &mut vector, cache)?;
+        }
+
+        self.pos += chunk.len();
+        Ok(self.pos < self.len)
+    }
+}
+
+/// Exporter for a single column of a DuckDB data chunk.
+pub trait ArrayExporter {
+    /// Export the given range of data from the Vortex array to the DuckDB vector.
+    fn export(
+        &mut self,
+        offset: usize,
+        len: usize,
+        vector: &mut dyn WritableVector,
+        cache: &mut ConversionCache,
+    ) -> VortexResult<()>;
 }
 
 /// Create a DuckDB exporter for the given Vortex array.
-pub fn create_exporter(array: &dyn Array) -> VortexResult<Box<dyn DuckDBExporter>> {
+fn create_exporter(array: &dyn Array) -> VortexResult<Box<dyn ArrayExporter>> {
     // Constant
     // Chunked
     // VarBinView
@@ -46,7 +88,6 @@ pub fn create_exporter(array: &dyn Array) -> VortexResult<Box<dyn DuckDBExporter
                     PrimitiveExporter::<$P> {
                         array: array.clone(),
                         phantom: PhantomData::<$P>,
-                        index: 0,
                     }
                 )
             })
@@ -73,15 +114,16 @@ pub fn create_exporter(array: &dyn Array) -> VortexResult<Box<dyn DuckDBExporter
 struct PrimitiveExporter<T: NativePType> {
     array: PrimitiveArray,
     phantom: PhantomData<T>,
-    index: usize,
 }
 
-impl<T: NativePType> DuckDBExporter for PrimitiveExporter<T> {
+impl<T: NativePType> ArrayExporter for PrimitiveExporter<T> {
     fn export(
         &mut self,
-        _chunk: &mut DataChunkHandle,
-        _cache: &mut ConversionCache,
-    ) -> VortexResult<bool> {
+        offset: usize,
+        len: usize,
+        vector: &mut dyn WritableVector,
+        cache: &mut ConversionCache,
+    ) -> VortexResult<()> {
         todo!()
     }
 }
