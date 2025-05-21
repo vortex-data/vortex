@@ -263,7 +263,7 @@ static bool PinFileToThread(ScanGlobalState &global_state) {
 static void CreateScanPartitions(ClientContext &context, const BindData &bind, ScanGlobalState &global_state,
                                  ScanLocalState &local_state, uint64_t file_idx, FileReader &file_reader) {
 	const auto file_name = global_state.expanded_files[file_idx];
-	const auto row_count = Try([&](auto err) { return vx_file_row_count(file_reader->file, err); });
+	const auto row_count = Try([&](auto err) { return vx_file_row_count(file_reader.file, err); });
 	const auto file_count = global_state.expanded_files.size();
 
 	// This is a multiple of the 2048 DuckDB vector size:
@@ -381,7 +381,10 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		// The file idx is no longer thread local.
 		local_state.thread_local_file_idx.reset();
 
-		while (!local_state.scan_partitions.empty()) {
+		auto partitions_to_keep = (local_state.scan_partitions.size() / global_state.thread_count);
+		auto partitions_to_drain = local_state.scan_partitions.size() - partitions_to_keep;
+
+		for (idx_t count = 0; count < partitions_to_drain; ++count) {
 			auto partition = local_state.scan_partitions.front();
 			local_state.scan_partitions.pop();
 			global_state.scan_partitions.enqueue(partition);
