@@ -1,6 +1,13 @@
+use std::pin::Pin;
+use std::sync::Arc;
+
 use async_trait::async_trait;
+use bytes::Bytes;
+use futures::StreamExt;
+use futures::stream::once;
+use vortex_array::vtable::EncodingVTable as _;
+use vortex_array::{Array, ArrayContext, ArrayRef, ProstMetadata, SerializeMetadata};
 use arcref::ArcRef;
-use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
@@ -9,7 +16,11 @@ use vortex_error::{VortexResult, vortex_bail};
 
 mod repeating;
 
-use crate::{LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt};
+use crate::segments::NewSegmentWriter;
+use crate::{
+    LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt, NewLayoutStrategy,
+    NewLayoutWriter, SequentialArrayStream,
+};
 
 #[derive(Clone)]
 pub struct DictLayoutOptions {
@@ -24,6 +35,47 @@ impl Default for DictLayoutOptions {
                 max_len: u16::MAX as usize,
             },
         }
+    }
+}
+
+pub struct NewDictStrategy {
+    options: DictLayoutOptions,
+    codes: ArcRef<dyn NewLayoutStrategy>,
+    values: ArcRef<dyn NewLayoutStrategy>,
+    fallback: ArcRef<dyn NewLayoutStrategy>,
+}
+
+impl NewLayoutStrategy for NewDictStrategy {
+    fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        dtype: &DType,
+        segment_writer: Arc<dyn NewSegmentWriter>,
+        stream: SequentialArrayStream,
+    ) -> Pin<Box<dyn NewLayoutWriter>> {
+        if !dict_layout_supported(dtype) {
+            return self
+                .fallback
+                .write_stream(ctx, dtype, segment_writer, stream);
+        }
+        let fallback = self.fallback.clone();
+        let ctx = ctx.clone();
+        let dtype = dtype.clone();
+        Box::pin(async move {
+            let first = stream.next().await?;
+            let (sequence_id, first_chunk) = first?;
+            let compressed = BtrBlocksCompressor.compress(&first_chunk)?;
+            if !compressed.is_encoding(DictEncoding.id()) {
+                // first chunk did not compress to dict, skip dict layout
+                let original_stream =
+                    Box::pin(once(async { Ok((sequence_id, first_chunk)) }).chain(stream));
+                return fallback
+                    .write_stream(&ctx, &dtype, segment_writer, original_stream)
+                    .await;
+            }
+
+            Ok(dict_layout(todo!(), todo!()))
+        })
     }
 }
 
