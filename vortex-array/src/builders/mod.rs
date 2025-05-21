@@ -208,6 +208,7 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 })
             }
             DType::Decimal(..) => {
+                let self_dtype = self.dtype().clone();
                 macro_rules! append_decimal {
                     ($self:expr, $ty:ty, $value:expr) => {{
                         $self
@@ -215,8 +216,9 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                             .downcast_mut::<DecimalBuilder<$ty>>()
                             .ok_or_else(|| {
                                 ::vortex_error::vortex_err!(
-                                    "Cannot append decimal scalar of type {} to builder of another type",
+                                    "Cannot append decimal scalar of type {} to builder of type {}",
                                     stringify!($ty),
+                                    self_dtype,
                                 )
                             })?
                             .append_value($value)
