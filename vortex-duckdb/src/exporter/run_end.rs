@@ -57,6 +57,8 @@ impl<E: NativePType + Ord + FromPrimitive + ToPrimitive> ArrayExporter for RunEn
         // Adjust offset to account for the run-end offset.
         let mut offset = E::from_usize(self.run_end_offset + offset)
             .vortex_expect("RunEndExporter::export: offset is not a valid value");
+        // Compute the final end offset.
+        let end_offset = offset + E::from_usize(len).vortex_expect("len is not end type");
 
         // Find the run that contains the start offset.
         let start_run_idx = ends_slice
@@ -72,7 +74,7 @@ impl<E: NativePType + Ord + FromPrimitive + ToPrimitive> ArrayExporter for RunEn
             .to_ends_index(ends_slice.len());
 
         if start_run_idx == end_run_idx {
-            // TODO(ngates): would be great if we could just export and set type == CONSTANT
+            // NOTE(ngates): would be great if we could just export and set type == CONSTANT
             // self.values_exporter.export(start_run_idx, 1, vector, cache);
             let constant = self.values.scalar_at(start_run_idx)?;
             let value = constant.try_to_duckdb_scalar()?;
@@ -82,35 +84,32 @@ impl<E: NativePType + Ord + FromPrimitive + ToPrimitive> ArrayExporter for RunEn
 
         // Build up a selection vector
         let mut sel_vec = SelectionVector::new(len as _);
-        let sel_vec_slice = sel_vec.as_data_slice();
+        let mut sel_vec_slice = sel_vec.as_data_slice();
 
-        // The current run to index.
-        let mut run_idx = start_run_idx;
-        // The start idx in the values array.
-        let values_start = run_idx;
-        // The number of values we have selected thus far.
-        let mut selected = 0;
-        while selected < len {
-            let next_offset = ends_slice[run_idx];
-            let run_len = (next_offset - offset)
+        for (run_idx, &next_end) in ends_slice[start_run_idx..=end_run_idx].iter().enumerate() {
+            let next_end = next_end.min(end_offset);
+            let run_len = (next_end - offset)
                 .to_usize()
-                .vortex_expect("run_len is usize")
-                .min(len - selected);
+                .vortex_expect("run_len is usize");
 
             // Push the runs into the selection vector.
-            sel_vec_slice[selected..selected + run_len]
-                .fill(u32::try_from(run_idx - values_start).vortex_expect("sel_idx is u32"));
+            sel_vec_slice[..run_len].fill(u32::try_from(run_idx).vortex_expect("sel_idx is u32"));
+            sel_vec_slice = &mut sel_vec_slice[run_len..];
 
-            run_idx += 1;
-            selected += run_len;
-            offset = next_offset;
+            offset = next_end;
         }
-        let values_stop = run_idx;
-        let values_len = values_stop - values_start;
+        assert!(
+            sel_vec_slice.is_empty(),
+            "Selection vector not completely filled"
+        );
+
+        // The values in the selection vector are the run indices, so we can find the number of
+        // values we referenced by looking at the last index of the selection vector.
+        let values_len = *sel_vec.as_data_slice().last().vortex_expect("non-empty") + 1;
 
         // Export the run-end values into the vector, and then turn it into a dictionary vector.
         self.values_exporter
-            .export(values_start, values_len, vector, cache)?;
+            .export(start_run_idx, values_len as usize, vector, cache)?;
         vector.flat_vector().slice(values_len as u64, sel_vec);
 
         Ok(())
