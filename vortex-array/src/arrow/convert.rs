@@ -281,7 +281,11 @@ fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
             })
             .unwrap_or_else(|| Validity::AllValid)
     } else {
-        assert!(nulls.map(|x| x.null_count() == 0).unwrap_or(true));
+        assert!(
+            nulls.map(|x| x.null_count() == 0).unwrap_or(true),
+            "null count was {}",
+            nulls.unwrap().null_count()
+        );
         Validity::NonNullable
     }
 }
