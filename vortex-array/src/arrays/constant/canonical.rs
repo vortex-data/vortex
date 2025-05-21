@@ -258,14 +258,11 @@ mod tests {
     #[test]
     fn test_canonicalize_propagates_stats() {
         let scalar = Scalar::bool(true, Nullability::NonNullable);
-        let const_array = ConstantArray::new(scalar.clone(), 4).into_array();
+        let const_array = ConstantArray::new(scalar, 4).into_array();
         let stats = const_array
             .statistics()
             .compute_all(&all::<Stat>().collect_vec())
             .unwrap();
-        println!("stats: {:?}", stats);
-        println!("stats: {:?}", const_array.statistics().to_owned());
-
         let canonical = const_array.to_canonical().unwrap();
         let canonical_stats = canonical.as_ref().statistics().to_owned();
 
