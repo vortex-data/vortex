@@ -29,15 +29,6 @@ pub struct vx_array_iterator {
     pub inner: Option<Box<dyn ArrayIterator>>,
 }
 
-/// Creates a new ArrayIterator wrapper for FFI use.
-pub fn vx_array_iterator<I>(iter: I) -> vortex::error::VortexResult<*mut vx_array_iterator>
-where
-    I: ArrayIterator + 'static,
-{
-    let inner = Some(Box::new(iter) as Box<dyn ArrayIterator>);
-    Ok(Box::into_raw(Box::new(vx_array_iterator { inner })))
-}
-
 /// Attempt to advance the `current` pointer of the iterator.
 ///
 /// A return value of `true` indicates that another element was pulled from the iterator, and a return

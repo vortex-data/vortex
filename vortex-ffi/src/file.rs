@@ -3,7 +3,7 @@
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{ptr, slice};
+use std::{iter, ptr, slice};
 
 use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
@@ -18,6 +18,7 @@ use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex
 use vortex::expr::{ExprRef, Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::iter::ArrayIteratorAdapter;
 use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 
@@ -242,13 +243,25 @@ pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
 ) -> *mut vx_array_iterator {
     try_or(error, ptr::null_mut(), || {
         let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file reader") };
-        let layout_reader = file_reader.inner.layout_reader()?;
-        let mut scan_builder = ScanBuilder::new(layout_reader.clone());
 
         let scan_options = unsafe { opts.as_ref() }.map_or_else(
             || Ok(ScanOptions::default()),
             |options| options.process_scan_options(),
         )?;
+
+        if let Some(expr) = &scan_options.filter_expr {
+            if file_reader.inner.can_prune(expr)? {
+                return Ok(Box::into_raw(Box::new(vx_array_iterator {
+                    inner: Some(Box::new(ArrayIteratorAdapter::new(
+                        file_reader.inner.dtype().clone(),
+                        iter::empty(),
+                    )) as _),
+                })));
+            }
+        };
+
+        let layout_reader = file_reader.inner.layout_reader()?;
+        let mut scan_builder = ScanBuilder::new(layout_reader.clone());
 
         // Apply options if provided.
         if let Some(field_names) = scan_options.field_names {
@@ -268,11 +281,9 @@ pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
             scan_builder = scan_builder.with_split_by(split_by_value);
         }
 
-        if let Some(stats) = file_reader.inner.file_stats() {
-            scan_builder = scan_builder.with_prune_file_on_open(stats.clone())
-        }
-
-        vx_array_iterator(scan_builder.into_array_iter()?)
+        Ok(Box::into_raw(Box::new(vx_array_iterator {
+            inner: Some(Box::new(scan_builder.into_array_iter()?) as _),
+        })))
     })
 }
 

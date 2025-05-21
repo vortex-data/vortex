@@ -12,21 +12,17 @@ use futures::{FutureExt, Stream, StreamExt, stream};
 use itertools::Itertools;
 pub use selection::*;
 pub use split_by::*;
-use vortex_array::arrays::{ConstantArray, StructArray};
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
-use vortex_array::stats::{Precision, Stat, StatsSet};
+use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath, StructDType};
+use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
-use vortex_expr::pruning::{FieldOrIdentity, PruningPredicate};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
 use vortex_metrics::VortexMetrics;
-use vortex_scalar::Scalar;
 
 use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
@@ -174,26 +170,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .map(|f| simplify_typed(f, layout_reader.dtype()))
             .transpose()?;
 
-        if let Some(((file_stats, filter), struct_dtype)) = self
-            .file_stats
-            .zip(self.filter.as_ref())
-            .zip(layout_reader.dtype().as_struct())
-        {
-            if let Some(predicate) = PruningPredicate::try_new(filter) {
-                if let Some(struct_row) = extract_struct_row(&predicate, &file_stats, struct_dtype)?
-                {
-                    if let Some(result) = predicate
-                        .evaluate(&struct_row)?
-                        .and_then(|p| p.as_constant())
-                    {
-                        if result.as_bool().value() == Some(true) {
-                            return Ok(vec![]);
-                        }
-                    }
-                }
-            };
-        }
-
         // Construct field masks and compute the row splits of the scan.
         let (filter_mask, projection_mask) =
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
@@ -305,52 +281,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .buffered(concurrency)
             .filter_map(|r| async move { r.transpose() }))
     }
-}
-
-fn extract_struct_row(
-    predicate: &PruningPredicate,
-    stats_set: &Arc<[StatsSet]>,
-    struct_dtype: &Arc<StructDType>,
-) -> VortexResult<Option<ArrayRef>> {
-    if predicate.required_stats().len() == 0 {
-        return StructArray::try_new([].into(), vec![], 1, Validity::NonNullable)
-            .map(|s| Some(s.to_array()));
-    }
-    let mut columns = vec![];
-    for (field_name, stats) in predicate.required_stats() {
-        let FieldOrIdentity::Field(field) = field_name else {
-            return Ok(None);
-        };
-
-        let field_idx = struct_dtype.find(field)?;
-        let field_dtype = struct_dtype.field_by_index(field_idx)?;
-        let Some(cols) = stats_set[field_idx]
-            .iter()
-            .filter(|(stat, _)| stats.contains(stat))
-            .map(|(stat, value)| {
-                if let Precision::Exact(value) = value {
-                    if stat == &Stat::Max || stat == &Stat::Min {
-                        Some((
-                            format!("{field}_{stat}"),
-                            ConstantArray::new(Scalar::new(field_dtype.clone(), value.clone()), 1)
-                                .to_array(),
-                        ))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect::<Option<Vec<_>>>()
-        else {
-            return Ok(None);
-        };
-
-        columns.extend(cols)
-    }
-
-    StructArray::from_fields(&columns).map(|s| Some(s.to_array()))
 }
 
 impl ScanBuilder<ArrayRef> {

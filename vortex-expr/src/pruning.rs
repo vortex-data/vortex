@@ -397,7 +397,7 @@ pub enum FieldOrIdentity {
     Identity,
 }
 
-pub(crate) fn stat_field_name(field: &FieldName, stat: Stat) -> FieldName {
+pub fn stat_field_name(field: &FieldName, stat: Stat) -> FieldName {
     FieldName::from(stat_field_name_string(field, stat))
 }
 

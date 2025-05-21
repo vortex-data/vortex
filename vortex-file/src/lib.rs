@@ -96,6 +96,7 @@ mod footer;
 mod generic;
 mod memory;
 mod open;
+mod pruning;
 pub mod segments;
 mod strategy;
 #[cfg(test)]
