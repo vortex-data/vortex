@@ -209,12 +209,12 @@ pub trait ArrayBuilderExt: ArrayBuilder {
             }
             DType::Decimal(decimal_type, _) => {
                 match_each_decimal_value_type!(precision_to_storage_size(decimal_type), |$D| {
-                self.as_any_mut()
-                    .downcast_mut::<DecimalBuilder<$D>>()
-                    .ok_or_else(|| {
-                        vortex_err!("Cannot append decimal scalar to non-decimal builder")
-                    })?
-                    .append_option(Option::<$D>::try_from(scalar.as_decimal()).unwrap())
+                    self.as_any_mut()
+                        .downcast_mut::<DecimalBuilder<$D>>()
+                        .ok_or_else(|| {
+                            vortex_err!("Cannot append decimal scalar to non-decimal builder")
+                        })?
+                        .append_option(Option::<$D>::try_from(scalar.as_decimal()).unwrap())
                 })
             }
             DType::Utf8(_) => self
