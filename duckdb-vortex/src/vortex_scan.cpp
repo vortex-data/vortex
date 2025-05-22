@@ -95,11 +95,14 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	// Determined by how many times `ScanLocalState` gets created.
 	std::atomic_uint64_t thread_count;
 
-	// Signals that thread local queues should move their partitions to the global queue.
-	std::atomic_bool enable_global_work_stealing;
+	// Number of drains requested.
+	std::atomic_uint16_t local_queue_drain_requests;
 
-	// Number of local queues that moved their partitions to the global queue.
-	std::atomic_uint16_t local_queue_drain_count;
+	// Number of drains performed.
+	std::atomic_uint16_t local_queue_drain_responses;
+
+	// Number of empty local queues.
+	std::atomic_uint16_t local_queue_empty_count;
 
 	vector<string> expanded_files;
 
@@ -336,7 +339,7 @@ static bool GetNextArray(ClientContext &context, const BindData &bind_data, Scan
 
 		if (bool success = (try_dequeue(partition) || global_state.scan_partitions.try_dequeue(partition)); !success) {
 			if (global_state.files_partitioned == global_state.expanded_files.size() &&
-			    global_state.thread_count == global_state.local_queue_drain_count) {
+			    global_state.thread_count == global_state.local_queue_empty_count) {
 
 				// A new partition might have been created after the first pop. Therefore,
 				// one more pop is necessary to ensure no more partitions are left to process.
@@ -375,8 +378,10 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 	auto &global_state = data.global_state->Cast<ScanGlobalState>();
 	auto &local_state = data.local_state->Cast<ScanLocalState>();
 
-	// Check if partitions from the local queue should be move to the global queue.
-	if (global_state.enable_global_work_stealing && !local_state.is_local_queue_drained) {
+	// Check if partitions from the local queue should be moved to the global queue.
+	if (!local_state.is_local_queue_drained &&
+	    global_state.local_queue_drain_responses < global_state.local_queue_drain_requests) {
+		global_state.local_queue_drain_responses += 1;
 
 		// The file idx is no longer thread local.
 		local_state.thread_local_file_idx.reset();
@@ -391,7 +396,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 		}
 
 		local_state.is_local_queue_drained = true;
-		global_state.local_queue_drain_count += 1;
+		global_state.local_queue_empty_count += 1;
 	}
 
 	if (local_state.currently_scanned_array == nullptr) {
@@ -425,11 +430,10 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 
 			// If the thread local queue is empty at this point, enable sharing partitions globally.
 			if (local_state.scan_partitions.empty() && !local_state.is_local_queue_drained) {
-				global_state.enable_global_work_stealing = true;
-
 				// No elements to move to the global queue, just increase the counter.
 				local_state.is_local_queue_drained = true;
-				global_state.local_queue_drain_count += 1;
+				global_state.local_queue_empty_count += 1;
+				global_state.local_queue_drain_requests += 1;
 			}
 		}
 	}
