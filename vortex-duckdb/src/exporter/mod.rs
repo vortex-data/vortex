@@ -1,7 +1,6 @@
 mod constant;
 mod dict;
 mod frame_of_reference;
-mod fsst;
 mod primitive;
 mod run_end;
 mod varbinview;
@@ -154,6 +153,7 @@ fn create_exporter(
     if let Some(array) = array.as_opt::<DictVTable>() {
         return dict::new_exporter(array, cache);
     }
+
     //
     // println!(
     //     "ENCODING: {} {} {}",

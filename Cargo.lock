@@ -6267,6 +6267,7 @@ dependencies = [
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-fsst",
  "vortex-mask",
  "vortex-runend",

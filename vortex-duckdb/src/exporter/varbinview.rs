@@ -3,19 +3,23 @@ use duckdb::vtab::arrow::WritableVector;
 use vortex_array::arrays::{BinaryView, VarBinViewArray};
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::buffer::new_buffer;
+use crate::exporter::FlatVectorExt;
 use crate::{ColumnExporter, PtrBinaryView, to_ptr_binary_view};
 
 struct VarBinViewExporter {
     views: Buffer<BinaryView>,
     buffers: Vec<ByteBuffer>,
+    validity: Mask,
 }
 
 pub(crate) fn new_exporter(array: VarBinViewArray) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(Box::new(VarBinViewExporter {
         views: array.views().clone(),
         buffers: array.buffers().to_vec(),
+        validity: array.validity_mask()?,
     }))
 }
 
@@ -40,9 +44,9 @@ impl ColumnExporter for VarBinViewExporter {
             *mut_view = view;
         }
 
-        // TODO(ngates): set the validity
+        // Update the validity mask.
+        vector.set_validity(&self.validity, offset, len);
 
-        // TODO(ngates): set the buffers.
         // We register our buffers zero-copy with DuckDB and re-use them in each vector.
         for buffer in &self.buffers {
             let duckdb_buffer = new_buffer(buffer.clone());
