@@ -200,7 +200,7 @@ impl NewLayoutStrategy for NewRepartitionStrategy {
             let mut chunks = ChunksBuffer::new(options.clone());
             while let Some(chunk) = canonical_stream.next().await {
                 let (sequence_id, chunk) = chunk?;
-                let (_, mut sequence_pointer) = sequence_id.descend();
+                let mut sequence_pointer = sequence_id.descend();
                 let mut offset = 0;
                 while offset < chunk.len() {
                     let end = (offset + options.block_len_multiple).min(chunk.len());

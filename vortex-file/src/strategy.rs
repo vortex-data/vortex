@@ -299,7 +299,7 @@ impl NewLayoutStrategy for NewBufferedStrategy {
 
                 // if this is the last element, flush everything
                 if let None = stream.as_mut().peek().await {
-                    let (_, mut sequence_pointer) = sequence_id.descend();
+                    let mut sequence_pointer = sequence_id.descend();
                     while let Some(chunk) = chunks.pop_front() {
                         yield (sequence_pointer.advance(), chunk)
                     }
@@ -311,7 +311,7 @@ impl NewLayoutStrategy for NewBufferedStrategy {
                 };
                 // Wait until we're at 2x the buffer size before flushing 1x the buffer size
                 // This avoids small tail stragglers being flushed at the end of the file.
-                let (_, mut sequence_pointer) = sequence_id.descend();
+                let mut sequence_pointer = sequence_id.descend();
                 while nbytes >= 2 * buffer_size {
                     let Some(chunk) = chunks.pop_front() else {
                         break;

@@ -208,7 +208,7 @@ struct DictChunks {
 
 impl DictChunks {
     fn new(starting_id: SequenceId) -> Self {
-        let (_, sequence_pointer) = starting_id.descend();
+        let sequence_pointer = starting_id.descend();
         Self { sequence_pointer }
     }
 

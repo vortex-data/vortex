@@ -46,7 +46,7 @@ impl NewLayoutStrategy for NewStructStrategy {
         // stream<struct_chunk> -> stream<vec<column_chunk>>
         let columns_vec_stream = stream.map(|chunk| {
             let (sequence_id, chunk) = chunk?;
-            let (_, mut sequence_pointer) = sequence_id.descend();
+            let mut sequence_pointer = sequence_id.descend();
             let struct_chunk = chunk
                 .as_struct_typed()
                 .ok_or_else(|| vortex_err!("chunk is not struct typed"))?;

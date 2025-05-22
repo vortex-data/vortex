@@ -28,28 +28,16 @@ impl SequenceId {
     /// Create a new Sequence from root. No ordering guarantees exists for separate instances created
     /// using this method.
     pub fn root() -> SequencePointer {
-        SequencePointer {
-            pointer: vec![0],
-            universe: Default::default(),
-        }
+        SequencePointer(SequenceId::new(vec![0], Default::default()))
     }
 
     /// Create a sub sequence starting from this [SequenceId]. If Self has an id of [1, 2],
     /// This method would return its first child [1, 2, 0] as well as the [SequencePointer]
     /// to create siblings [1, 2, [1, ..)]
-    pub fn descend(self) -> (Self, SequencePointer) {
-        // TODO(os): maybe only return the pointer, first_child can be dropped immediately,
-        //           consumers of this only use the pointer because it is more convenient.
+    pub fn descend(self) -> SequencePointer {
         let mut id = self.id.clone();
         id.push(0);
-
-        let mut pointer = SequencePointer {
-            pointer: id,
-            universe: self.universe.clone(),
-        };
-
-        let first_child = pointer.advance();
-        (first_child, pointer)
+        SequencePointer(SequenceId::new(id, self.universe.clone()))
     }
 
     /// Await until all id's in this universe that are strictly less than self are dropped.
@@ -79,21 +67,22 @@ impl Drop for SequenceId {
     }
 }
 
-pub struct SequencePointer {
-    pointer: Vec<usize>,
-    universe: Arc<Mutex<SequenceUniverse>>,
-}
+pub struct SequencePointer(SequenceId);
 
 impl SequencePointer {
     pub fn advance(&mut self) -> SequenceId {
-        let id = self.pointer.clone();
+        let mut next_id = self.0.id.clone();
 
         // increment x.y.z -> x.y.(z + 1)
-        let last = self.pointer.last_mut();
+        let last = next_id.last_mut();
         let last = last.vortex_expect("must have at least one element");
         *last += 1;
+        let next_sibling = SequenceId::new(next_id, self.0.universe.clone());
+        std::mem::replace(&mut self.0, next_sibling)
+    }
 
-        SequenceId::new(id, self.universe.clone())
+    pub fn downgrade(self) -> SequenceId {
+        self.0
     }
 }
 
