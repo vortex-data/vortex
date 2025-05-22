@@ -72,7 +72,7 @@ mod tests {
         let array = date_time_array(validity);
         let new_dtype = array.dtype().with_nullability(cast_to_nullability);
         let result = cast(&array, &new_dtype);
-        assert!(result.is_ok(), "{:?}", result);
+        assert!(result.is_ok(), "{result:?}");
         assert_eq!(result.unwrap().dtype(), &new_dtype);
     }
 
@@ -86,8 +86,7 @@ mod tests {
             result
                 .as_ref()
                 .is_err_and(|err| err.to_string().contains("cannot cast from")),
-            "{:?}",
-            result
+            "{result:?}"
         );
 
         let result = cast(
@@ -98,8 +97,7 @@ mod tests {
             result.as_ref().is_err_and(|err| err
                 .to_string()
                 .contains("invalid cast from nullable to non-nullable")),
-            "{:?}",
-            result
+            "{result:?}"
         );
     }
 }

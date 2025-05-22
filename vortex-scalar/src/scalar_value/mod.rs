@@ -63,7 +63,7 @@ impl ScalarValue {
 fn to_hex(slice: &[u8]) -> String {
     slice
         .iter()
-        .format_with("", |f, b| b(&format_args!("{:02x}", f)))
+        .format_with("", |f, b| b(&format_args!("{f:02x}")))
         .to_string()
 }
 
@@ -76,9 +76,9 @@ impl Display for ScalarValue {
 impl Display for InnerScalarValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Bool(b) => write!(f, "{}", b),
-            Self::Primitive(pvalue) => write!(f, "{}", pvalue),
-            Self::Decimal(value) => write!(f, "{}", value),
+            Self::Bool(b) => write!(f, "{b}"),
+            Self::Primitive(pvalue) => write!(f, "{pvalue}"),
+            Self::Decimal(value) => write!(f, "{value}"),
             Self::Buffer(buf) => {
                 if buf.len() > 10 {
                     write!(
@@ -101,7 +101,7 @@ impl Display for InnerScalarValue {
 
                     write!(f, "\"{prefix}..{suffix}\"")
                 } else {
-                    write!(f, "\"{}\"", bufstr)
+                    write!(f, "\"{bufstr}\"")
                 }
             }
             Self::List(elems) => {

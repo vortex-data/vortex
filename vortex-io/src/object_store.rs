@@ -73,7 +73,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                         Ok::<_, io::Error>(buffer)
                     })
                     .await
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))??
+                    .map_err(io::Error::other)??
                 }
                 #[cfg(not(feature = "tokio"))]
                 {
@@ -81,7 +81,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                         file.read_exact_at(&mut buffer, range.start)?;
                         Ok::<_, io::Error>(buffer)
                     }
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+                    .map_err(io::Error::other)?
                 }
             }
             GetResultPayload::Stream(mut byte_stream) => {

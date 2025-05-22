@@ -289,7 +289,7 @@ pub fn tpch_queries() -> impl Iterator<Item = (usize, Vec<String>)> {
 fn tpch_query(query_idx: usize) -> Vec<String> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tpch")
-        .join(format!("q{}", query_idx))
+        .join(format!("q{query_idx}"))
         .with_extension("sql");
     fs::read_to_string(manifest_dir)
         .unwrap()

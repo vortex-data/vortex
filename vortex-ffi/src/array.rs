@@ -29,15 +29,6 @@ pub struct vx_array_iterator {
     pub inner: Option<Box<dyn ArrayIterator>>,
 }
 
-/// Creates a new ArrayIterator wrapper for FFI use.
-pub fn vx_array_iterator<I>(iter: I) -> vortex::error::VortexResult<*mut vx_array_iterator>
-where
-    I: ArrayIterator + 'static,
-{
-    let inner = Some(Box::new(iter) as Box<dyn ArrayIterator>);
-    Ok(Box::into_raw(Box::new(vx_array_iterator { inner })))
-}
-
 /// Attempt to advance the `current` pointer of the iterator.
 ///
 /// A return value of `true` indicates that another element was pulled from the iterator, and a return
@@ -270,14 +261,14 @@ mod tests {
                 inner: primitive.to_array(),
             });
 
-            assert_eq!(vx_array_len(&*vx_array), 3);
+            assert_eq!(vx_array_len(&raw const *vx_array), 3);
 
-            let array_dtype = vx_array_dtype(&*vx_array);
+            let array_dtype = vx_array_dtype(&raw const *vx_array);
             assert_eq!(vx_dtype_get(array_dtype), DTYPE_PRIMITIVE_I32);
 
-            assert_eq!(vx_array_get_i32(&*vx_array, 0), 1);
-            assert_eq!(vx_array_get_i32(&*vx_array, 1), 2);
-            assert_eq!(vx_array_get_i32(&*vx_array, 2), 3);
+            assert_eq!(vx_array_get_i32(&raw const *vx_array, 0), 1);
+            assert_eq!(vx_array_get_i32(&raw const *vx_array, 1), 2);
+            assert_eq!(vx_array_get_i32(&raw const *vx_array, 2), 3);
 
             vx_array_free(Box::into_raw(vx_array));
         }

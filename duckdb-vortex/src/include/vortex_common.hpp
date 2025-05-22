@@ -61,6 +61,10 @@ struct FileReader {
 		return duckdb::make_uniq<FileReader>(file);
 	}
 
+	vx_array_iterator *Scan(const vx_file_scan_options *options) {
+		return Try([&](auto err) { return vx_file_reader_scan(this->file, options, err); });
+	}
+
 	uint64_t FileRowCount() {
 		return Try([&](auto err) { return vx_file_row_count(file, err); });
 	}

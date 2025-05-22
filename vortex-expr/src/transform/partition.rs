@@ -59,7 +59,7 @@ impl Display for PartitionedExpr {
             self.partition_names
                 .iter()
                 .zip(self.partitions.iter())
-                .map(|(name, partition)| format!("{}: {}", name, partition))
+                .map(|(name, partition)| format!("{name}: {partition}"))
                 .join(", ")
         )
     }

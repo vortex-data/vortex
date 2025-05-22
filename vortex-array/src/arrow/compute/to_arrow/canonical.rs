@@ -240,7 +240,7 @@ fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<Arro
 
             arr.clone()
                 .into_arrow(field.data_type())
-                .map_err(|err| err.with_context(format!("Failed to canonicalize field {}", field)))
+                .map_err(|err| err.with_context(format!("Failed to canonicalize field {field}")))
         })
         .collect::<VortexResult<Vec<_>>>()?;
 
@@ -282,7 +282,7 @@ fn to_arrow_list<O: NativePType + OffsetSizeTrait>(
     // First we cast the offsets into the correct width.
     let offsets_dtype = DType::Primitive(O::PTYPE, array.dtype().nullability());
     let arrow_offsets = cast(array.offsets(), &offsets_dtype)
-        .map_err(|err| err.with_context(format!("Failed to cast offsets to {}", offsets_dtype)))?
+        .map_err(|err| err.with_context(format!("Failed to cast offsets to {offsets_dtype}")))?
         .to_primitive()?;
 
     let values = array.elements().clone().into_arrow(element.data_type())?;

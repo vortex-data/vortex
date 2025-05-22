@@ -143,9 +143,7 @@ impl ArrayBuilder for StructBuilder {
                 assert_eq!(
                     field.len(),
                     expected_length,
-                    "Field {} does not have expected length {}",
-                    index,
-                    expected_length
+                    "Field {index} does not have expected length {expected_length}"
                 );
             }
         }

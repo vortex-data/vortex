@@ -186,7 +186,7 @@ impl StatsSetRef<'_> {
         stat: Stat,
     ) -> Option<U> {
         self.compute_stat(stat)
-            .inspect_err(|e| log::warn!("Failed to compute stat {}: {}", stat, e))
+            .inspect_err(|e| log::warn!("Failed to compute stat {stat}: {e}"))
             .ok()
             .flatten()
             .map(|s| U::try_from(&s))

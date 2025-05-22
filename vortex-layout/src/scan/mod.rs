@@ -13,6 +13,7 @@ use itertools::Itertools;
 pub use selection::*;
 pub use split_by::*;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
+use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
@@ -48,6 +49,8 @@ pub struct ScanBuilder<A> {
     /// The executor used to spawn each split task.
     executor: Option<Arc<dyn TaskExecutor>>,
     metrics: VortexMetrics,
+    /// Should we try to prune the file (using stats) on open.
+    file_stats: Option<Arc<[StatsSet]>>,
 }
 
 impl<A: 'static + Send> ScanBuilder<A> {
@@ -118,6 +121,11 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub fn with_prune_file_on_open(mut self, stats_set: Arc<[StatsSet]>) -> Self {
+        self.file_stats = Some(stats_set);
+        self
+    }
+
     /// Map each split of the scan. The function will be run on the spawned task.
     pub fn map<B: 'static>(
         self,
@@ -135,6 +143,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             map_fn: Arc::new(move |a| map_fn(old_map_fn(a)?)),
             executor: self.executor,
             metrics: self.metrics,
+            file_stats: self.file_stats,
         }
     }
 
@@ -289,6 +298,7 @@ impl ScanBuilder<ArrayRef> {
             map_fn: Arc::new(Ok),
             executor: None,
             metrics: Default::default(),
+            file_stats: None,
         }
     }
 

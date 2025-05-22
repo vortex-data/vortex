@@ -15,6 +15,7 @@ permissions:
 jobs:
   label_trigger:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     if: ${{ contains(github.event.head_commit.message, '[benchmark-sql]') || github.event.label.name == 'benchmark-sql' && github.event_name == 'pull_request' }}
     steps:
       # We remove the benchmark label first so that the workflow can be re-triggered.

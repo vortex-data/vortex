@@ -32,7 +32,7 @@ impl Display for StructScalar<'_> {
                         format!("{name}: {val}")
                     })
                     .format(", ");
-                write!(f, "{}", formatted_fields)?;
+                write!(f, "{formatted_fields}")?;
                 write!(f, "}}")
             }
         }

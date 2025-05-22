@@ -24,7 +24,7 @@ pub fn tpcds_queries() -> impl Iterator<Item = (usize, String)> {
 fn tpch_query(query_idx: usize) -> String {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tpcds")
-        .join(format!("{:02}", query_idx))
+        .join(format!("{query_idx:02}"))
         .with_extension("sql");
     fs::read_to_string(manifest_dir).unwrap()
 }

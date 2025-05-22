@@ -12,6 +12,7 @@ on:
 
 jobs:
   build-duckdb:
+    timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
@@ -48,6 +49,7 @@ jobs:
 
   bench:
     needs: build-duckdb
+    timeout-minutes: 120
     # S3 is shared state here, and we want to make sure only one of each job runs at a time
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref_name }}-${{matrix.id}}

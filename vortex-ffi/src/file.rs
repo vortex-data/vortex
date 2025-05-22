@@ -3,7 +3,7 @@
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{ptr, slice};
+use std::{iter, ptr, slice};
 
 use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
@@ -18,7 +18,7 @@ use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex
 use vortex::expr::{ExprRef, Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
-use vortex::layout::LayoutReader;
+use vortex::iter::ArrayIteratorAdapter;
 use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 
@@ -31,12 +31,6 @@ use crate::{RUNTIME, to_string, to_string_vec};
 #[allow(non_camel_case_types)]
 pub struct vx_file_reader {
     pub inner: VortexFile,
-}
-
-/// A Vortex layout reader.
-#[allow(non_camel_case_types)]
-pub struct vx_layout_reader {
-    pub inner: Arc<dyn LayoutReader>,
 }
 
 /// Options supplied for opening a file.
@@ -242,19 +236,32 @@ pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *m
 
 /// Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
-    layout_reader: *const vx_layout_reader,
+pub unsafe extern "C-unwind" fn vx_file_reader_scan(
+    file_reader: *const vx_file_reader,
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_iterator {
     try_or(error, ptr::null_mut(), || {
-        let layout_reader = unsafe { layout_reader.as_ref().vortex_expect("null layout reader") };
-        let mut scan_builder = ScanBuilder::new(layout_reader.inner.clone());
+        let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file reader") };
 
         let scan_options = unsafe { opts.as_ref() }.map_or_else(
             || Ok(ScanOptions::default()),
             |options| options.process_scan_options(),
         )?;
+
+        if let Some(expr) = &scan_options.filter_expr {
+            if file_reader.inner.can_prune(expr)? {
+                let dtype = file_reader.inner.dtype().clone();
+                let empty_iter = ArrayIteratorAdapter::new(dtype, iter::empty());
+
+                return Ok(Box::into_raw(Box::new(vx_array_iterator {
+                    inner: Some(Box::new(empty_iter)),
+                })));
+            }
+        };
+
+        let layout_reader = file_reader.inner.layout_reader()?;
+        let mut scan_builder = ScanBuilder::new(layout_reader.clone());
 
         // Apply options if provided.
         if let Some(field_names) = scan_options.field_names {
@@ -274,7 +281,9 @@ pub unsafe extern "C-unwind" fn vx_layout_reader_scan(
             scan_builder = scan_builder.with_split_by(split_by_value);
         }
 
-        vx_array_iterator(scan_builder.into_array_iter()?)
+        Ok(Box::into_raw(Box::new(vx_array_iterator {
+            inner: Some(Box::new(scan_builder.into_array_iter()?)),
+        })))
     })
 }
 
@@ -288,27 +297,6 @@ pub extern "C-unwind" fn vx_file_row_count(
         let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file_reader") };
         Ok(file_reader.inner.row_count())
     })
-}
-
-/// Creates a layout reader for a given file.
-#[unsafe(no_mangle)]
-pub extern "C-unwind" fn vx_layout_reader_create(
-    file_reader: *mut vx_file_reader,
-    error: *mut *mut vx_error,
-) -> *mut vx_layout_reader {
-    try_or(error, ptr::null_mut(), || {
-        let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file_reader") };
-        let inner = file_reader.inner.layout_reader()?;
-
-        Ok(Box::into_raw(Box::new(vx_layout_reader { inner })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C-unwind" fn vx_layout_reader_free(layout_reader: *mut vx_layout_reader) {
-    if !layout_reader.is_null() {
-        drop(unsafe { Box::from_raw(layout_reader) });
-    }
 }
 
 /// Free the file and all associated resources.
@@ -349,7 +337,7 @@ fn make_object_store(
                 if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {
-                    log::warn!("Skipping unknown Amazon S3 config key: {}", key);
+                    log::warn!("Skipping unknown Amazon S3 config key: {key}");
                 }
             }
 
@@ -371,7 +359,7 @@ fn make_object_store(
                 if let Ok(config_key) = AzureConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {
-                    log::warn!("Skipping unknown Azure config key: {}", key);
+                    log::warn!("Skipping unknown Azure config key: {key}");
                 }
             }
 
@@ -386,7 +374,7 @@ fn make_object_store(
                 if let Ok(config_key) = GoogleConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {
-                    log::warn!("Skipping unknown Google Cloud Storage config key: {}", key);
+                    log::warn!("Skipping unknown Google Cloud Storage config key: {key}");
                 }
             }
 

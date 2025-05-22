@@ -96,10 +96,7 @@ impl Patches {
         .vortex_expect("indices must be a number");
         assert!(
             max - offset < array_len,
-            "Patch indices {:?}, offset {} are longer than the array length {}",
-            max,
-            offset,
-            array_len
+            "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
         );
         Self::new_unchecked(array_len, offset, indices, values)
     }

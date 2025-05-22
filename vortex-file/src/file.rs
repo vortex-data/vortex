@@ -8,12 +8,15 @@ use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_expr::ExprRef;
+use vortex_expr::pruning::PruningPredicate;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
 
 use crate::footer::Footer;
+use crate::pruning::extract_relevant_stat_as_struct_row;
 
 /// Represents a Vortex file, providing access to its metadata and content.
 ///
@@ -79,6 +82,32 @@ impl VortexFile {
     /// Initiate a scan of the file, returning a builder for configuring the scan.
     pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
         Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
+    }
+
+    // Returns true if the expression will never match any rows in the file.
+    pub fn can_prune(&self, filter: &ExprRef) -> VortexResult<bool> {
+        let Some((file_stats, struct_dtype)) = self
+            .footer
+            .statistics()
+            .zip(self.footer.dtype().as_struct())
+        else {
+            return Ok(false);
+        };
+
+        let Some(predicate) = PruningPredicate::try_new(filter) else {
+            return Ok(false);
+        };
+
+        let Some(struct_row) =
+            extract_relevant_stat_as_struct_row(&predicate, file_stats, struct_dtype)?
+        else {
+            return Ok(false);
+        };
+
+        Ok(predicate
+            .evaluate(&struct_row)?
+            .and_then(|p| p.as_constant())
+            .is_some_and(|result| result.as_bool().value() == Some(true)))
     }
 }
 

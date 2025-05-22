@@ -672,7 +672,7 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
 
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match <V::SerdeVTable as SerdeVTable<V>>::metadata(&self.0) {
-            Err(e) => write!(f, "<serde error: {}>", e),
+            Err(e) => write!(f, "<serde error: {e}>"),
             Ok(None) => write!(f, "<serde not supported>"),
             Ok(Some(metadata)) => Debug::fmt(&metadata, f),
         }

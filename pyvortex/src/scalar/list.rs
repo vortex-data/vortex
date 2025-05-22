@@ -20,7 +20,7 @@ impl PyListScalar {
         let scalar = self_.as_scalar_ref();
         let child = scalar
             .element(idx)
-            .ok_or_else(|| PyIndexError::new_err(format!("Index out of bounds {}", idx)))?;
+            .ok_or_else(|| PyIndexError::new_err(format!("Index out of bounds {idx}")))?;
         PyVortex(&child).into_pyobject(self_.py()).map(|v| v.into())
     }
 }

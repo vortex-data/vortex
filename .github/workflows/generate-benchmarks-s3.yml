@@ -16,6 +16,7 @@ permissions:
 jobs:
   generate_files:
     name: Generate S3 TPCH and clickbench files
+    timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i.2xlarge

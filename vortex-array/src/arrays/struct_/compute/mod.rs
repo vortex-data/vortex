@@ -194,8 +194,7 @@ mod tests {
                 err.to_string()
                     .contains("cannot cast {xs=u8, ys=u8, zs=u8} to {ys=u8, xs=u8, zs=u8}")
             }),
-            "{:?}",
-            result
+            "{result:?}"
         );
     }
 

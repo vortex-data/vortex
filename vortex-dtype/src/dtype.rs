@@ -234,22 +234,22 @@ impl Display for DType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Null => write!(f, "null"),
-            Bool(n) => write!(f, "bool{}", n),
-            Primitive(pt, n) => write!(f, "{}{}", pt, n),
-            Decimal(dt, n) => write!(f, "{}{}", dt, n),
-            Utf8(n) => write!(f, "utf8{}", n),
-            Binary(n) => write!(f, "binary{}", n),
+            Bool(n) => write!(f, "bool{n}"),
+            Primitive(pt, n) => write!(f, "{pt}{n}"),
+            Decimal(dt, n) => write!(f, "{dt}{n}"),
+            Utf8(n) => write!(f, "utf8{n}"),
+            Binary(n) => write!(f, "binary{n}"),
             Struct(sdt, n) => write!(
                 f,
                 "{{{}}}{}",
                 sdt.names()
                     .iter()
                     .zip(sdt.fields())
-                    .map(|(n, dt)| format!("{}={}", n, dt))
+                    .map(|(n, dt)| format!("{n}={dt}"))
                     .join(", "),
                 n
             ),
-            List(edt, n) => write!(f, "list({}){}", edt, n),
+            List(edt, n) => write!(f, "list({edt}){n}"),
             Extension(ext) => write!(
                 f,
                 "ext({}, {}{}){}",
@@ -257,7 +257,7 @@ impl Display for DType {
                 ext.storage_dtype()
                     .with_nullability(Nullability::NonNullable),
                 ext.metadata()
-                    .map(|m| format!(", {:?}", m))
+                    .map(|m| format!(", {m:?}"))
                     .unwrap_or_else(|| "".to_string()),
                 ext.storage_dtype().nullability(),
             ),

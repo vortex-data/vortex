@@ -77,8 +77,7 @@ impl ComputeFnVTable for IsConstant {
             // When we run linear canonicalize, there we must always return an exact answer.
             assert!(
                 value.is_some(),
-                "is constant in array {} canonicalize returned None",
-                array
+                "is constant in array {array} canonicalize returned None"
             );
         }
 

@@ -87,8 +87,7 @@ fn coerce_expr<'py>(value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyExpr>> {
         scalar(DType::Binary(nonnull), value)
     } else {
         Err(PyValueError::new_err(format!(
-            "expected None, int, float, str, or bytes but found: {}",
-            value
+            "expected None, int, float, str, or bytes but found: {value}"
         )))
     }
 }

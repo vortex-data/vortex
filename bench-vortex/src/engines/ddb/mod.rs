@@ -30,10 +30,10 @@ impl DuckDBExecutor {
         command
     }
 
-    pub fn new(duckdb_path: PathBuf, duckdb_file: PathBuf) -> Self {
+    pub fn new(duckdb_path: impl AsRef<Path>, duckdb_file: impl AsRef<Path>) -> Self {
         Self {
-            duckdb_path,
-            duckdb_file,
+            duckdb_path: duckdb_path.as_ref().to_path_buf(),
+            duckdb_file: duckdb_file.as_ref().to_path_buf(),
         }
     }
 }
@@ -271,7 +271,7 @@ pub fn register_tables(
         object,
     ));
 
-    trace!("register duckdb tables with command: {:?}", command);
+    trace!("register duckdb tables with command: {command:?}");
 
     // Pass along OS env vars (for aws creds)
     // Don't trace env vars.
@@ -318,7 +318,7 @@ pub fn execute_query(
         .arg("-c")
         .arg(query);
 
-    trace!("execute duckdb query with command: {:?}", command);
+    trace!("execute duckdb query with command: {command:?}");
 
     let time_instant = Instant::now();
     let output = command.output()?;

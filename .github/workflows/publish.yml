@@ -10,6 +10,7 @@ on:
 jobs:
   publish-rust:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     needs: [ prepare-python, prepare-java ]
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +42,7 @@ jobs:
 
   prepare-python:
     runs-on: ${{ matrix.target.runs-on }}
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -104,6 +106,7 @@ jobs:
   publish-python:
     needs: [ prepare-python, publish-rust ]
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
       id-token: write  # IMPORTANT: mandatory for trusted publishing
     environment:
@@ -128,6 +131,7 @@ jobs:
 
   prepare-java:
     runs-on: ${{ matrix.target.runs-on }}
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -155,6 +159,7 @@ jobs:
   publish-java:
     needs: [ prepare-java, publish-rust ]
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     env:
       # Picked up by gradle-git-version
       GIT_VERSION: ${{ github.event.release.tag_name || github.event.inputs.version }}

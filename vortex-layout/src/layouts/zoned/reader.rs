@@ -60,7 +60,7 @@ impl ZonedReader {
         let zones_child =
             layout
                 .zones
-                .new_reader(&format!("{}.zones", name).into(), &segment_source, &ctx)?;
+                .new_reader(&format!("{name}.zones").into(), &segment_source, &ctx)?;
 
         Ok(Self {
             layout,
@@ -118,11 +118,11 @@ impl ZonedReader {
             .entry(expr.clone())
             .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
                 None => {
-                    log::debug!("No pruning predicate for expr: {}", expr);
+                    log::debug!("No pruning predicate for expr: {expr}");
                     None
                 }
                 Some(pred) => {
-                    log::debug!("Constructed pruning predicate for expr: {}: {}", expr, pred);
+                    log::debug!("Constructed pruning predicate for expr: {expr}: {pred}");
                     Some(
                         self.stats_table()
                             .map(move |stats_table| {
@@ -170,7 +170,7 @@ impl LayoutReader for ZonedReader {
         let data_eval = self.data_child.pruning_evaluation(row_range, expr)?;
 
         let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
-            log::debug!("Stats pruning evaluation: not prune-able {}", expr);
+            log::debug!("Stats pruning evaluation: not prune-able {expr}");
             return Ok(data_eval);
         };
 

@@ -313,15 +313,11 @@ impl Mask {
         for (first, second) in vec.iter().tuple_windows() {
             assert!(
                 first.0 < second.0,
-                "Slices must be sorted, got {:?} and {:?}",
-                first,
-                second
+                "Slices must be sorted, got {first:?} and {second:?}"
             );
             assert!(
                 first.1 <= second.0,
-                "Slices must be non-overlapping, got {:?} and {:?}",
-                first,
-                second
+                "Slices must be non-overlapping, got {first:?} and {second:?}"
             );
         }
     }

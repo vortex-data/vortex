@@ -93,7 +93,7 @@ impl LayoutChildType {
     /// Returns the name of this child.
     pub fn name(&self) -> Arc<str> {
         match self {
-            LayoutChildType::Chunk((idx, _offset)) => format!("[{}]", idx).into(),
+            LayoutChildType::Chunk((idx, _offset)) => format!("[{idx}]").into(),
             LayoutChildType::Auxiliary(name) => name.clone(),
             LayoutChildType::Transparent(name) => name.clone(),
             LayoutChildType::Field(name) => name.clone(),

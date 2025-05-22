@@ -202,7 +202,7 @@ fn make_object_store(
                 if let Ok(config_key) = AmazonS3ConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {
-                    log::warn!("Skipping unknown Amazon S3 config key: {}", key);
+                    log::warn!("Skipping unknown Amazon S3 config key: {key}");
                 }
             }
 
@@ -222,7 +222,7 @@ fn make_object_store(
                     log::warn!("setting azure config {key:?} = {val}");
                     builder = builder.with_config(config_key, val);
                 } else {
-                    log::warn!("Skipping unknown Azure config key: {}", key);
+                    log::warn!("Skipping unknown Azure config key: {key}");
                 }
             }
 
@@ -236,7 +236,7 @@ fn make_object_store(
                 if let Ok(config_key) = GoogleConfigKey::from_str(key.as_str()) {
                     builder = builder.with_config(config_key, val);
                 } else {
-                    log::warn!("Skipping unknown Google Cloud Storage config key: {}", key);
+                    log::warn!("Skipping unknown Google Cloud Storage config key: {key}");
                 }
             }
 

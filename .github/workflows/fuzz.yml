@@ -8,6 +8,7 @@ on:
 jobs:
   io_fuzz:
     name: 'IO Fuzz'
+    timeout-minutes: 180
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c7i.4xlarge
@@ -20,9 +21,7 @@ jobs:
         with:
           submodules: "recursive"
       - name: Install cargo fuzz
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-fuzz
+        run: cargo install --locked cargo-fuzz
       - name: Restore corpus
         shell: bash
         run: |
@@ -54,6 +53,7 @@ jobs:
 
   ops_fuzz:
     name: 'Array Operations Fuzz'
+    timeout-minutes: 180
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c7i.4xlarge
@@ -66,9 +66,7 @@ jobs:
         with:
           submodules: "recursive"
       - name: Install cargo fuzz
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-fuzz
+        run: cargo install --locked cargo-fuzz
       - name: Restore corpus
         shell: bash
         run: |

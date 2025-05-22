@@ -59,8 +59,7 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRe
             Ok(FieldName::from(field.downcast::<PyString>()?.to_str()?))
         } else {
             Err(PyTypeError::new_err(format!(
-                "projection: expected list of strings or None, but found: {}.",
-                field,
+                "projection: expected list of strings or None, but found: {field}.",
             )))
         }
     }

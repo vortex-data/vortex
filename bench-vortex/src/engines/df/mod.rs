@@ -84,7 +84,7 @@ pub fn make_object_store(
                     .build()
                     .unwrap(),
             );
-            df.register_object_store(&Url::parse(&format!("s3://{}/", bucket_name))?, s3.clone());
+            df.register_object_store(&Url::parse(&format!("s3://{bucket_name}/"))?, s3.clone());
             Ok(s3)
         }
         "gs" => {
@@ -95,7 +95,7 @@ pub fn make_object_store(
                     .build()
                     .unwrap(),
             );
-            df.register_object_store(&Url::parse(&format!("gs://{}/", bucket_name))?, gcs.clone());
+            df.register_object_store(&Url::parse(&format!("gs://{bucket_name}/"))?, gcs.clone());
             Ok(gcs)
         }
         _ => {
@@ -130,7 +130,7 @@ pub fn write_execution_plan(
 ) {
     fs::write(
         format!("{dataset_name}_{format}_q{query_idx:02}.plan"),
-        format!("{:#?}", execution_plan),
+        format!("{execution_plan:#?}"),
     )
     .expect("Unable to write file");
 

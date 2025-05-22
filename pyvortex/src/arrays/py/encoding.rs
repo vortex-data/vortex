@@ -23,8 +23,7 @@ impl<'py> FromPyObject<'py> for PythonEncoding {
             cls.getattr("id")
                 .map_err(|_| {
                     PyValueError::new_err(format!(
-                        "PyEncoding subclass {} must have an 'id' attribute",
-                        ob
+                        "PyEncoding subclass {ob} must have an 'id' attribute"
                     ))
                 })?
                 .extract::<String>()

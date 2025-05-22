@@ -153,7 +153,7 @@ impl Display for Platform {
             Platform::MacOS => "macos",
             Platform::Linux => "linux",
         };
-        write!(f, "{}", str)
+        write!(f, "{str}")
     }
 }
 

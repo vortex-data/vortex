@@ -39,14 +39,12 @@ impl DecimalDType {
     pub fn new(precision: u8, scale: i8) -> Self {
         assert!(
             precision <= MAX_PRECISION,
-            "decimal precision {} exceeds MAX_PRECISION",
-            precision
+            "decimal precision {precision} exceeds MAX_PRECISION"
         );
 
         assert!(
             scale <= MAX_SCALE,
-            "decimal scale {} exceeds MAX_SCALE",
-            scale
+            "decimal scale {scale} exceeds MAX_SCALE"
         );
 
         Self { precision, scale }

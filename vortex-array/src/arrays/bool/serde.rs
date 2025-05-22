@@ -22,7 +22,7 @@ impl SerdeVTable<BoolVTable> for BoolVTable {
 
     fn metadata(array: &BoolArray) -> VortexResult<Option<Self::Metadata>> {
         let bit_offset = array.boolean_buffer().offset();
-        assert!(bit_offset < 8, "Offset must be <8, got {}", bit_offset);
+        assert!(bit_offset < 8, "Offset must be <8, got {bit_offset}");
         Ok(Some(ProstMetadata(BoolMetadata {
             offset: u32::try_from(bit_offset).vortex_expect("checked"),
         })))

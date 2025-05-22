@@ -118,10 +118,7 @@ impl CanonicalVTable<DictVTable> for DictVTable {
 impl ValidityVTable<DictVTable> for DictVTable {
     fn is_valid(array: &DictArray, index: usize) -> VortexResult<bool> {
         let scalar = array.codes().scalar_at(index).map_err(|err| {
-            err.with_context(format!(
-                "Failed to get index {} from DictArray codes",
-                index
-            ))
+            err.with_context(format!("Failed to get index {index} from DictArray codes"))
         })?;
 
         if scalar.is_null() {

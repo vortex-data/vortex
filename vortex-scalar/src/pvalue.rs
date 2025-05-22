@@ -1,7 +1,6 @@
 use core::fmt::Display;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
-use std::mem;
 
 use num_traits::NumCast;
 use paste::paste;
@@ -155,7 +154,6 @@ impl PValue {
         T::try_from(*self)
     }
 
-    #[allow(clippy::transmute_int_to_float, clippy::transmute_float_to_int)]
     pub fn reinterpret_cast(&self, ptype: PType) -> Self {
         if ptype == self.ptype() {
             return *self;
@@ -168,51 +166,51 @@ impl PValue {
         );
 
         match self {
-            PValue::U8(v) => unsafe { mem::transmute::<u8, i8>(*v) }.into(),
+            PValue::U8(v) => u8::cast_signed(*v).into(),
             PValue::U16(v) => match ptype {
-                PType::I16 => unsafe { mem::transmute::<u16, i16>(*v) }.into(),
-                PType::F16 => unsafe { mem::transmute::<u16, f16>(*v) }.into(),
+                PType::I16 => u16::cast_signed(*v).into(),
+                PType::F16 => f16::from_bits(*v).into(),
                 _ => unreachable!("Only same width type are allowed to be reinterpreted"),
             },
             PValue::U32(v) => match ptype {
-                PType::I32 => unsafe { mem::transmute::<u32, i32>(*v) }.into(),
-                PType::F32 => unsafe { mem::transmute::<u32, f32>(*v) }.into(),
+                PType::I32 => u32::cast_signed(*v).into(),
+                PType::F32 => f32::from_bits(*v).into(),
                 _ => unreachable!("Only same width type are allowed to be reinterpreted"),
             },
             PValue::U64(v) => match ptype {
-                PType::I64 => unsafe { mem::transmute::<u64, i64>(*v) }.into(),
-                PType::F64 => unsafe { mem::transmute::<u64, f64>(*v) }.into(),
+                PType::I64 => u64::cast_signed(*v).into(),
+                PType::F64 => f64::from_bits(*v).into(),
                 _ => unreachable!("Only same width type are allowed to be reinterpreted"),
             },
-            PValue::I8(v) => unsafe { mem::transmute::<i8, u8>(*v) }.into(),
+            PValue::I8(v) => i8::cast_unsigned(*v).into(),
             PValue::I16(v) => match ptype {
-                PType::U16 => unsafe { mem::transmute::<i16, u16>(*v) }.into(),
-                PType::F16 => unsafe { mem::transmute::<i16, f16>(*v) }.into(),
+                PType::U16 => i16::cast_unsigned(*v).into(),
+                PType::F16 => f16::from_bits(v.cast_unsigned()).into(),
                 _ => unreachable!("Only same width type are allowed to be reinterpreted"),
             },
             PValue::I32(v) => match ptype {
-                PType::U32 => unsafe { mem::transmute::<i32, u32>(*v) }.into(),
-                PType::F32 => unsafe { mem::transmute::<i32, f32>(*v) }.into(),
+                PType::U32 => i32::cast_unsigned(*v).into(),
+                PType::F32 => f32::from_bits(i32::cast_unsigned(*v)).into(),
                 _ => unreachable!("Only same width type are allowed to be reinterpreted"),
             },
             PValue::I64(v) => match ptype {
-                PType::U64 => unsafe { mem::transmute::<i64, u64>(*v) }.into(),
-                PType::F64 => unsafe { mem::transmute::<i64, f64>(*v) }.into(),
+                PType::U64 => i64::cast_unsigned(*v).into(),
+                PType::F64 => f64::from_bits(i64::cast_unsigned(*v)).into(),
                 _ => unreachable!("Only same width type are allowed to be reinterpreted"),
             },
             PValue::F16(v) => match ptype {
-                PType::U16 => unsafe { mem::transmute::<f16, u16>(*v) }.into(),
-                PType::I16 => unsafe { mem::transmute::<f16, i16>(*v) }.into(),
+                PType::U16 => v.to_bits().into(),
+                PType::I16 => v.to_bits().cast_signed().into(),
                 _ => unreachable!("Only same width type are allowed to be reinterpreted"),
             },
             PValue::F32(v) => match ptype {
-                PType::U32 => unsafe { mem::transmute::<f32, u32>(*v) }.into(),
-                PType::I32 => unsafe { mem::transmute::<f32, i32>(*v) }.into(),
+                PType::U32 => f32::to_bits(*v).into(),
+                PType::I32 => f32::to_bits(*v).cast_signed().into(),
                 _ => unreachable!("Only same width type are allowed to be reinterpreted"),
             },
             PValue::F64(v) => match ptype {
-                PType::U64 => unsafe { mem::transmute::<f64, u64>(*v) }.into(),
-                PType::I64 => unsafe { mem::transmute::<f64, i64>(*v) }.into(),
+                PType::U64 => f64::to_bits(*v).into(),
+                PType::I64 => f64::to_bits(*v).cast_signed().into(),
                 _ => unreachable!("Only same width type are allowed to be reinterpreted"),
             },
         }
@@ -359,17 +357,17 @@ impl From<usize> for PValue {
 impl Display for PValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::U8(v) => write!(f, "{}u8", v),
-            Self::U16(v) => write!(f, "{}u16", v),
-            Self::U32(v) => write!(f, "{}u32", v),
-            Self::U64(v) => write!(f, "{}u64", v),
-            Self::I8(v) => write!(f, "{}i8", v),
-            Self::I16(v) => write!(f, "{}i16", v),
-            Self::I32(v) => write!(f, "{}i32", v),
-            Self::I64(v) => write!(f, "{}i64", v),
-            Self::F16(v) => write!(f, "{}f16", v),
-            Self::F32(v) => write!(f, "{}f32", v),
-            Self::F64(v) => write!(f, "{}f64", v),
+            Self::U8(v) => write!(f, "{v}u8"),
+            Self::U16(v) => write!(f, "{v}u16"),
+            Self::U32(v) => write!(f, "{v}u32"),
+            Self::U64(v) => write!(f, "{v}u64"),
+            Self::I8(v) => write!(f, "{v}i8"),
+            Self::I16(v) => write!(f, "{v}i16"),
+            Self::I32(v) => write!(f, "{v}i32"),
+            Self::I64(v) => write!(f, "{v}i64"),
+            Self::F16(v) => write!(f, "{v}f16"),
+            Self::F32(v) => write!(f, "{v}f32"),
+            Self::F64(v) => write!(f, "{v}f64"),
         }
     }
 }

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{env, fs};
 
 use anyhow::anyhow;
 use bench_vortex::ddb::{DuckDBExecutor, register_tables};
@@ -25,6 +26,7 @@ use datafusion::physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
+use similar::{ChangeTag, TextDiff};
 use tempfile::tempdir;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
@@ -432,7 +434,7 @@ async fn bench_main(
                 }
             }
             _ => {
-                warn!("Engine {:?} not supported for TPC-H benchmarks", engine);
+                warn!("Engine {engine:?} not supported for TPC-H benchmarks");
             }
         }
     }
@@ -445,7 +447,7 @@ async fn bench_main(
                 metrics = metrics.aggregate();
             }
             for m in metrics.timestamps_removed().sorted_for_display().iter() {
-                println!("{}", m);
+                println!("{m}");
             }
             render_table(measurements, &targets)?;
         }
@@ -455,10 +457,78 @@ async fn bench_main(
     }
 
     if verify_row_counts(&row_counts, expected_row_counts, &queries, &exclude_queries) {
-        Err(anyhow!("Mismatched row counts. See logs for details."))
-    } else {
-        anyhow::Ok(())
+        return Err(anyhow!("Mismatched row counts. See logs for details."));
     }
+
+    if targets.iter().any(|t| t.engine() == Engine::DuckDB) {
+        verify_duckdb_tpch_results(scale_factor, duckdb_resolved_path)?;
+    }
+
+    anyhow::Ok(())
+}
+
+fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow::Result<()> {
+    let query_dir = PathBuf::from("duckdb-vortex/duckdb/extension/tpch/dbgen/queries");
+    let tmp_dir = format!(
+        "{}/spiral-tpch",
+        // $RUNNER_TEMP is defined by GitHub Actions.
+        env::var("TMPDIR").unwrap_or(env::var("RUNNER_TEMP")?)
+    );
+    if PathBuf::from(&tmp_dir).exists() {
+        fs::remove_dir_all(&tmp_dir)?;
+    }
+    fs::create_dir(&tmp_dir)?;
+    let db_path = format!("{tmp_dir}/tpch_results_sf.db");
+
+    let executor = DuckDBExecutor::new(duckdb_path, &db_path);
+    ddb::execute_tpch_query(&[format!("CALL dbgen(sf={})", scale_factor)], &executor)?;
+
+    let query_files = fs::read_dir(query_dir)?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "sql"))
+        .collect::<Vec<_>>();
+
+    for query_file in &query_files {
+        let query_file_path = query_file.path();
+        let query_name = query_file_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .ok_or_else(|| anyhow!("Invalid query filename"))?;
+
+        let create_table = format!(
+            "CREATE OR REPLACE TABLE {query_name}_result AS {};",
+            fs::read_to_string(&query_file_path)?
+        );
+
+        let csv_actual = format!("{tmp_dir}/{query_name}.csv");
+        let write_csv =
+            format!("COPY {query_name}_result TO '{csv_actual}' (HEADER, DELIMITER '|');",);
+
+        ddb::execute_tpch_query(&[create_table, write_csv], &executor)?;
+
+        let csv_expected = format!("bench-vortex/tpch_results/duckdb/{query_name}.csv");
+        let expected = fs::read_to_string(csv_expected)?;
+        let actual = fs::read_to_string(csv_actual)?;
+
+        if expected != actual {
+            let diff = TextDiff::from_lines(&expected, &actual);
+
+            for change in diff.iter_all_changes() {
+                let sign = match change.tag() {
+                    ChangeTag::Delete => "-",
+                    ChangeTag::Insert => "+",
+                    ChangeTag::Equal => " ",
+                };
+                print!("{}{}", sign, change);
+            }
+
+            return Err(anyhow!(format!(
+                "query output does not match the reference for {query_name}"
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_args(engines: &[Engine], args: &Args) {
