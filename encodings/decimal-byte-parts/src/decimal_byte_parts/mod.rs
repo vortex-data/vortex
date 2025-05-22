@@ -1,8 +1,6 @@
 mod compute;
 mod serde;
 
-use std::iter;
-
 use itertools::Itertools;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -82,26 +80,26 @@ impl DecimalBytePartsArray {
             vortex_bail!("decimal bytes parts 2nd to 4th must be non-nullable u64 primitive typed")
         }
 
-        let primitive_bit_width = iter::once(&msp)
-            .chain(&lower_parts)
-            .map(|a| {
-                PType::try_from(a.dtype())
-                    .vortex_expect("already checked")
-                    .bit_width()
-            })
-            .sum();
+        // let primitive_bit_width = iter::once(&msp)
+        //     .chain(&lower_parts)
+        //     .map(|a| {
+        //         PType::try_from(a.dtype())
+        //             .vortex_expect("already checked")
+        //             .bit_width()
+        //     })
+        //     .sum();
 
-        if decimal_dtype.required_bit_width() > primitive_bit_width {
-            vortex_bail!(
-                "cannot represent a decimal {decimal_dtype} as primitive parts {:?}, decimal bit width {}, primitive bit width {}",
-                iter::once(&msp)
-                    .chain(&lower_parts)
-                    .map(|a| a.dtype())
-                    .collect_vec(),
-                decimal_dtype.required_bit_width(),
-                primitive_bit_width
-            )
-        }
+        // if decimal_dtype.required_bit_width() > primitive_bit_width {
+        //     vortex_bail!(
+        //         "cannot represent a decimal {decimal_dtype} as primitive parts {:?}, decimal bit width {}, primitive bit width {}",
+        //         iter::once(&msp)
+        //             .chain(&lower_parts)
+        //             .map(|a| a.dtype())
+        //             .collect_vec(),
+        //         decimal_dtype.required_bit_width(),
+        //         primitive_bit_width
+        //     )
+        // }
 
         let nullable = msp.dtype().nullability();
         Ok(Self {
