@@ -1,14 +1,15 @@
 use std::future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, ready};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::future::BoxFuture;
-use futures::stream::{self, once};
+use futures::channel::oneshot;
+use futures::stream::{iter, once};
 use futures::{Stream, StreamExt};
-use pin_project_lite::pin_project;
+use parking_lot::Mutex;
 use vortex_array::vtable::EncodingVTable as _;
 use vortex_array::{Array, ArrayContext, ArrayRef, ProstMetadata, SerializeMetadata};
 use arcref::ArcRef;
@@ -16,7 +17,7 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 mod repeating;
 
@@ -56,49 +57,96 @@ impl NewLayoutStrategy for NewDictStrategy {
         ctx: &ArrayContext,
         dtype: &DType,
         segment_writer: Arc<dyn NewSegmentWriter>,
-        mut stream: SequentialArrayStream,
+        stream: SequentialArrayStream,
     ) -> Pin<Box<dyn NewLayoutWriter>> {
         if !dict_layout_supported(dtype) {
             return self
                 .fallback
                 .write_stream(ctx, dtype, segment_writer, stream);
         }
+        let codes = self.codes.clone();
+        let values = self.values.clone();
         let fallback = self.fallback.clone();
         let ctx = ctx.clone();
         let dtype = dtype.clone();
         let constraints = self.options.constraints.clone();
         Box::pin(async move {
-            let Some(Ok((sequence_id, first_chunk))) = stream.next().await else {
-                vortex_bail!("need at least one chunk")
-            };
-            let compressed = BtrBlocksCompressor.compress(&first_chunk)?;
-            // reconstruct the stream
-            let stream = Box::pin(once(async { Ok((sequence_id, first_chunk)) }).chain(stream));
-
-            if !compressed.is_encoding(DictEncoding.id()) {
+            // 0. decide if chunks are eligible for dict encoding
+            let (stream, is_dict_encoding) = call_for_first_item(stream, |chunk| {
+                let compressed = BtrBlocksCompressor.compress(chunk)?;
+                Ok(compressed.is_encoding(DictEncoding.id()))
+            })
+            .await;
+            if !is_dict_encoding? {
                 // first chunk did not compress to dict, skip dict layout
                 return fallback
-                    .write_stream(&ctx, &dtype, segment_writer, stream)
+                    .write_stream(&ctx, &dtype, segment_writer.clone(), stream)
                     .await;
             }
+
+            // 1. from a chunk stream, create a stream that yields codes
+            // followed by a single value chunk when dict constraints are hit.
+            // (a1, a2) -> (code(c1), code(c2), values(v1), code(c3), ...)
             let dict_stream = dict_encode_stream(stream, constraints);
-            // TODO(os): split dict_stream into runs
+
+            // 2. get contiguous runs of codes from the dict stream and
+            // create child dict layouts from them.
+            let mut children = Vec::new();
+            let mut runs = DictEncodedRuns {
+                input: Arc::new(Mutex::new(dict_stream)),
+                exhausted: Default::default(),
+            };
+            while let Some((codes_stream, values_future)) = runs.next_run() {
+                let (codes_stream, codes_dtype) =
+                    call_for_first_item(codes_stream, |chunk| Ok(chunk.dtype().clone())).await;
+                let Ok(codes_dtype) = codes_dtype else {
+                    // codes_stream is empty
+                    break;
+                };
+                // TODO: codes_dtype
+                let codes_layout = codes
+                    .write_stream(&ctx, &codes_dtype, segment_writer.clone(), codes_stream)
+                    .await?;
+                let values_layout = values
+                    .write_stream(
+                        &ctx,
+                        &dtype,
+                        segment_writer.clone(),
+                        Box::pin(once(values_future)),
+                    )
+                    .await?;
+                children.push(dict_layout(values_layout, codes_layout)?);
+            }
+            if children.len() == 1 {
+                return Ok(children.remove(0));
+            }
+
+            let row_count = children.iter().map(|child| child.row_count()).sum();
+            Ok(chunked_layout(dtype.clone(), row_count, children))
         })
     }
+}
+
+type DictionaryStream = Pin<Box<dyn Stream<Item = VortexResult<DictionaryChunk>> + Send>>;
+
+enum DictionaryChunk {
+    Codes((SequenceId, ArrayRef)),
+    Values((SequenceId, ArrayRef)),
 }
 
 fn dict_encode_stream(
     input: SequentialArrayStream,
     constraints: DictConstraints,
-) -> impl Stream<Item = VortexResult<DictionaryChunk>> {
+) -> DictionaryStream {
     let state = DictStreamState {
         encoder: None,
         constraints,
     };
-    input
-        .scan(state, |state, item| future::ready(Some(state.encode(item))))
-        .flat_map(|chunks| stream::iter(chunks.into_iter()))
-    // TODO(os): flat map input or use try_stream!{}
+    Box::pin(
+        input
+            .scan(state, |state, item| future::ready(Some(state.encode(item))))
+            .flat_map(|chunks| iter(chunks.into_iter())),
+    )
 }
 
 struct DictStreamState {
@@ -155,11 +203,6 @@ impl DictStreamState {
     }
 }
 
-enum DictionaryChunk {
-    Codes((SequenceId, ArrayRef)),
-    Values((SequenceId, ArrayRef)),
-}
-
 struct DictChunks {
     sequence_pointer: SequencePointer,
 }
@@ -177,6 +220,83 @@ impl DictChunks {
     fn values(&mut self, chunk: ArrayRef) -> DictionaryChunk {
         DictionaryChunk::Values((self.sequence_pointer.advance(), chunk))
     }
+}
+
+struct DictEncodedRuns {
+    input: Arc<Mutex<DictionaryStream>>,
+    exhausted: Arc<AtomicBool>,
+}
+
+impl DictEncodedRuns {
+    fn next_run(
+        &mut self,
+    ) -> Option<(
+        SequentialArrayStream,
+        impl Future<Output = VortexResult<(SequenceId, ArrayRef)>> + use<>,
+    )> {
+        if self.exhausted.load(Ordering::SeqCst) {
+            return None;
+        }
+
+        let (values_tx, values_rx) = oneshot::channel();
+        let values_future = async {
+            match values_rx.await {
+                Ok(values) => values,
+                Err(_) => Err(vortex_err!("sender dropped")),
+            }
+        };
+        let codes_stream = Box::pin(DictEncodedRunStream {
+            input: self.input.clone(),
+            values_tx: Some(values_tx),
+            exhausted: self.exhausted.clone(),
+        });
+
+        Some((codes_stream, values_future))
+    }
+}
+
+struct DictEncodedRunStream {
+    input: Arc<Mutex<DictionaryStream>>,
+    values_tx: Option<oneshot::Sender<VortexResult<(SequenceId, ArrayRef)>>>,
+    exhausted: Arc<AtomicBool>,
+}
+
+impl Stream for DictEncodedRunStream {
+    type Item = VortexResult<(SequenceId, ArrayRef)>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let poll_result = ready!(self.input.lock().as_mut().poll_next(cx));
+        match poll_result {
+            Some(Ok(DictionaryChunk::Codes(item))) => Poll::Ready(Some(Ok(item))),
+            Some(Ok(DictionaryChunk::Values(item))) => {
+                // ignore receiver drops
+                let _ = self
+                    .values_tx
+                    .take()
+                    .vortex_expect("must not be polled after returning None")
+                    .send(Ok(item));
+                Poll::Ready(None)
+            }
+            Some(Err(e)) => Poll::Ready(Some(Err(e))),
+            None => {
+                self.exhausted.store(true, Ordering::SeqCst);
+                Poll::Ready(None)
+            }
+        }
+    }
+}
+
+async fn call_for_first_item<T>(
+    mut stream: SequentialArrayStream,
+    func: impl Fn(&ArrayRef) -> VortexResult<T>,
+) -> (SequentialArrayStream, VortexResult<T>) {
+    let Some(Ok((sequence_id, first_chunk))) = stream.next().await else {
+        return (stream, Err(vortex_err!("empty stream")));
+    };
+    let res = func(&first_chunk);
+    // reconstruct the stream
+    let stream = Box::pin(once(async { Ok((sequence_id, first_chunk)) }).chain(stream));
+    (stream, res)
 }
 
 /// A layout strategy that encodes chunk into values and codes, if found
