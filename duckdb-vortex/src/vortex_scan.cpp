@@ -259,8 +259,7 @@ static void CreateScanPartitions(ClientContext &context, const BindData &bind, S
 	// Factors to consider:
 	//  1. A smaller value means more work for the Vortex file reader.
 	//  2. A larger value reduces the parallelism available to the scanner
-	//const uint64_t partition_size = 2048 * (thread_count > file_count ? 32 : 64);
-	const uint64_t partition_size = 2048 * 1024; // (thread_count > file_count ? 32 : 64);
+	const uint64_t partition_size = 2048 * (thread_count > file_count ? 32 : 64);
 
 	const auto partition_count = std::max(static_cast<uint64_t>(1), row_count / partition_size);
 	global_state.partitons_total += partition_count;
