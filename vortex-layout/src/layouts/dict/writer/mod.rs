@@ -1,10 +1,14 @@
+use std::future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll, ready};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::StreamExt;
-use futures::stream::once;
+use futures::future::BoxFuture;
+use futures::stream::{self, once};
+use futures::{Stream, StreamExt};
+use pin_project_lite::pin_project;
 use vortex_array::vtable::EncodingVTable as _;
 use vortex_array::{Array, ArrayContext, ArrayRef, ProstMetadata, SerializeMetadata};
 use arcref::ArcRef;
@@ -17,6 +21,7 @@ use vortex_error::{VortexResult, vortex_bail};
 mod repeating;
 
 use crate::segments::NewSegmentWriter;
+use crate::sequence::{SequenceId, SequencePointer};
 use crate::{
     LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt, NewLayoutStrategy,
     NewLayoutWriter, SequentialArrayStream,
@@ -51,7 +56,7 @@ impl NewLayoutStrategy for NewDictStrategy {
         ctx: &ArrayContext,
         dtype: &DType,
         segment_writer: Arc<dyn NewSegmentWriter>,
-        stream: SequentialArrayStream,
+        mut stream: SequentialArrayStream,
     ) -> Pin<Box<dyn NewLayoutWriter>> {
         if !dict_layout_supported(dtype) {
             return self
@@ -61,21 +66,116 @@ impl NewLayoutStrategy for NewDictStrategy {
         let fallback = self.fallback.clone();
         let ctx = ctx.clone();
         let dtype = dtype.clone();
+        let constraints = self.options.constraints.clone();
         Box::pin(async move {
-            let first = stream.next().await?;
-            let (sequence_id, first_chunk) = first?;
+            let Some(Ok((sequence_id, first_chunk))) = stream.next().await else {
+                vortex_bail!("need at least one chunk")
+            };
             let compressed = BtrBlocksCompressor.compress(&first_chunk)?;
+            // reconstruct the stream
+            let stream = Box::pin(once(async { Ok((sequence_id, first_chunk)) }).chain(stream));
+
             if !compressed.is_encoding(DictEncoding.id()) {
                 // first chunk did not compress to dict, skip dict layout
-                let original_stream =
-                    Box::pin(once(async { Ok((sequence_id, first_chunk)) }).chain(stream));
                 return fallback
-                    .write_stream(&ctx, &dtype, segment_writer, original_stream)
+                    .write_stream(&ctx, &dtype, segment_writer, stream)
                     .await;
             }
-
-            Ok(dict_layout(todo!(), todo!()))
+            let dict_stream = dict_encode_stream(stream, constraints);
+            // TODO(os): split dict_stream into runs
         })
+    }
+}
+
+fn dict_encode_stream(
+    input: SequentialArrayStream,
+    constraints: DictConstraints,
+) -> impl Stream<Item = VortexResult<DictionaryChunk>> {
+    let state = DictStreamState {
+        encoder: None,
+        constraints,
+    };
+    input
+        .scan(state, |state, item| future::ready(Some(state.encode(item))))
+        .flat_map(|chunks| stream::iter(chunks.into_iter()))
+    // TODO(os): flat map input or use try_stream!{}
+}
+
+struct DictStreamState {
+    encoder: Option<Box<dyn DictEncoder>>,
+    constraints: DictConstraints,
+}
+
+impl DictStreamState {
+    fn encode(
+        &mut self,
+        item: VortexResult<(SequenceId, ArrayRef)>,
+    ) -> Vec<VortexResult<DictionaryChunk>> {
+        match self.try_encode(item) {
+            Ok(chunks) => chunks,
+            Err(e) => vec![Err(e)],
+        }
+    }
+
+    fn try_encode(
+        &mut self,
+        item: VortexResult<(SequenceId, ArrayRef)>,
+    ) -> VortexResult<Vec<VortexResult<DictionaryChunk>>> {
+        let (sequence_id, chunk) = item?;
+        let mut labeler = DictChunks::new(sequence_id);
+        let mut res = Vec::new();
+        let mut to_be_encoded = Some(chunk);
+        while let Some(remaining) = to_be_encoded.take() {
+            match self.encoder.take() {
+                None => match start_encoding(&self.constraints, &remaining)? {
+                    EncodingState::Continue((encoder, encoded)) => {
+                        res.push(Ok(labeler.codes(encoded)));
+                        self.encoder = Some(encoder);
+                    }
+                    EncodingState::Done((values, encoded, unencoded)) => {
+                        res.push(Ok(labeler.codes(encoded)));
+                        res.push(Ok(labeler.values(values)));
+                        to_be_encoded = Some(unencoded);
+                    }
+                },
+                Some(encoder) => match encode_chunk(encoder, &remaining)? {
+                    EncodingState::Continue((encoder, encoded)) => {
+                        res.push(Ok(labeler.codes(encoded)));
+                        self.encoder = Some(encoder);
+                    }
+                    EncodingState::Done((values, encoded, unencoded)) => {
+                        res.push(Ok(labeler.codes(encoded)));
+                        res.push(Ok(labeler.values(values)));
+                        to_be_encoded = Some(unencoded);
+                    }
+                },
+            }
+        }
+        Ok(res)
+    }
+}
+
+enum DictionaryChunk {
+    Codes((SequenceId, ArrayRef)),
+    Values((SequenceId, ArrayRef)),
+}
+
+struct DictChunks {
+    sequence_pointer: SequencePointer,
+}
+
+impl DictChunks {
+    fn new(starting_id: SequenceId) -> Self {
+        let (_, sequence_pointer) = starting_id.descend();
+        Self { sequence_pointer }
+    }
+
+    fn codes(&mut self, chunk: ArrayRef) -> DictionaryChunk {
+        DictionaryChunk::Codes((self.sequence_pointer.advance(), chunk))
+    }
+
+    fn values(&mut self, chunk: ArrayRef) -> DictionaryChunk {
+        DictionaryChunk::Values((self.sequence_pointer.advance(), chunk))
     }
 }
 

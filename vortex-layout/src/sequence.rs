@@ -38,6 +38,8 @@ impl SequenceId {
     /// This method would return its first child [1, 2, 0] as well as the [SequencePointer]
     /// to create siblings [1, 2, [1, ..)]
     pub fn descend(self) -> (Self, SequencePointer) {
+        // TODO(os): maybe only return the pointer, first_child can be dropped immediately,
+        //           consumers of this only use the pointer because it is more convenient.
         let mut id = self.id.clone();
         id.push(0);
 

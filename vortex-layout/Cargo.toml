@@ -30,6 +30,7 @@ getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }
+pin-project-lite = { workspace = true }
 paste = { workspace = true }
 prost = { workspace = true }
 roaring = { workspace = true, optional = true }
