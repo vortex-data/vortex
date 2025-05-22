@@ -50,7 +50,7 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, PrimitiveScalar, Scalar,
-    ScalarValue, StructScalar, Utf8Scalar, i256, match_each_decimal_value_type,
+    ScalarValue, StructScalar, Utf8Scalar, match_each_decimal_value_type,
 };
 
 use crate::arrays::smallest_storage_type;
@@ -100,7 +100,7 @@ pub trait ArrayBuilder: Send {
     ///
     /// This function may panic if the builder's methods are called with invalid arguments. If only
     /// the methods on this interface are used, the builder should not panic. However, specific
-    /// builders have interfaces that may be misued. For example, if the number of values in a
+    /// builders have interfaces that may be misused. For example, if the number of values in a
     /// [PrimitiveBuilder]'s [vortex_buffer::BufferMut] does not match the number of validity bits,
     /// the PrimitiveBuilder's [Self::finish] will panic.
     fn finish(&mut self) -> ArrayRef;
@@ -141,7 +141,7 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
         }
         DType::Decimal(decimal_type, n) => {
             match_each_decimal_value_type!(smallest_storage_type(decimal_type), |$D| {
-                Box::new(DecimalBuilder::<$D>::with_capacity(capacity, decimal_type.clone(), *n))
+                Box::new(DecimalBuilder::with_capacity::<$D>(capacity, decimal_type.clone(), *n))
             })
         }
         DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(DType::Utf8(*n), capacity)),
@@ -208,22 +208,22 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                 })
             }
             DType::Decimal(..) => {
-                let self_dtype = self.dtype().clone();
                 macro_rules! append_decimal {
                     ($self:expr, $ty:ty, $value:expr) => {{
                         $self
                             .as_any_mut()
-                            .downcast_mut::<DecimalBuilder<$ty>>()
+                            .downcast_mut::<DecimalBuilder>()
                             .ok_or_else(|| {
                                 ::vortex_error::vortex_err!(
-                                    "Cannot append decimal scalar of type {} to builder of type {}",
+                                    "Cannot append decimal scalar of type {} to builder of type",
                                     stringify!($ty),
-                                    self_dtype,
                                 )
                             })?
                             .append_value($value)
                     }};
                 }
+
+                // How to find the current builder's type?
 
                 // TODO(aduffy): coerce to builder's type?
                 match scalar.as_decimal().decimal_value() {

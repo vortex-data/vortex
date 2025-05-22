@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
+use num_traits::AsPrimitive;
 use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexError, VortexResult, vortex_bail};
 
@@ -32,7 +33,21 @@ pub enum DecimalValue {
 }
 
 /// Type of decimal scalar values.
-pub trait NativeDecimalType: Copy + Eq + Ord + Default + Send + Sync + 'static {
+pub trait NativeDecimalType:
+    Copy
+    + Eq
+    + Ord
+    + Default
+    + Send
+    + Sync
+    + AsPrimitive<i8>
+    + AsPrimitive<i16>
+    + AsPrimitive<i32>
+    + AsPrimitive<i64>
+    + AsPrimitive<i128>
+    + AsPrimitive<i256>
+    + 'static
+{
     const VALUES_TYPE: DecimalValueType;
 }
 

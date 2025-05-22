@@ -182,8 +182,19 @@ where
     }
 }
 
-impl AsPrimitive<i256> for i128 {
-    fn as_(self) -> i256 {
-        i256::from_i128(self)
-    }
+// All signed types convert up to i256
+macro_rules! impl_as_i256 {
+    ($typ:ty) => {
+        impl AsPrimitive<i256> for $typ {
+            fn as_(self) -> i256 {
+                i256::from_i128(self.as_())
+            }
+        }
+    };
 }
+
+impl_as_i256!(i8);
+impl_as_i256!(i16);
+impl_as_i256!(i32);
+impl_as_i256!(i64);
+impl_as_i256!(i128);
