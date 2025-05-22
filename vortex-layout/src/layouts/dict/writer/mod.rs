@@ -100,10 +100,9 @@ impl NewLayoutStrategy for NewDictStrategy {
                 let (codes_stream, codes_dtype) =
                     call_for_first_item(codes_stream, |chunk| Ok(chunk.dtype().clone())).await;
                 let Ok(codes_dtype) = codes_dtype else {
-                    // codes_stream is empty
+                    // codes_stream is empty, this would happen if the parent stream end coincided with a dict run end
                     break;
                 };
-                // TODO: codes_dtype
                 let codes_layout = codes
                     .write_stream(&ctx, &codes_dtype, segment_writer.clone(), codes_stream)
                     .await?;
