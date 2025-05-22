@@ -1,3 +1,4 @@
+use std::env::temp_dir;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -27,7 +28,6 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
-use tempfile::tempdir;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
@@ -406,12 +406,11 @@ async fn bench_main(
                     }
                 }
             }
+
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
-                let temp_dir = tempdir()?;
-                let duckdb_file = temp_dir
-                    .path()
-                    .join(format!("duckdb-file-{}.db", format.name()));
+                let duckdb_file =
+                    format!("tpch/{scale_factor}/{}/duckdb.db", format.name()).to_data_path();
 
                 let executor = DuckDBExecutor::new(duckdb_resolved_path.clone(), duckdb_file);
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcH)?;
@@ -469,11 +468,12 @@ async fn bench_main(
 
 fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow::Result<()> {
     let query_dir = PathBuf::from("duckdb-vortex/duckdb/extension/tpch/dbgen/queries");
-    let tmp_dir = format!(
-        "{}/spiral-tpch",
+    let tempdir = temp_dir();
+    let dir = env::var("TMPDIR")
         // $RUNNER_TEMP is defined by GitHub Actions.
-        env::var("TMPDIR").unwrap_or(env::var("RUNNER_TEMP")?)
-    );
+        .and(env::var("RUNNER_TEMP"))
+        .unwrap_or(tempdir.to_string_lossy().to_string());
+    let tmp_dir = format!("{dir}/spiral-tpch",);
     if PathBuf::from(&tmp_dir).exists() {
         fs::remove_dir_all(&tmp_dir)?;
     }
