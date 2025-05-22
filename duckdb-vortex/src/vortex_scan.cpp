@@ -387,6 +387,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 	if (!local_state.array_exporter->ExportNext(reinterpret_cast<duckdb_data_chunk>(&output))) {
 		// The array is finished, so we drop the exporter.
 		local_state.array_exporter = nullptr;
+		global_state.partitions_processed += 1;
 	}
 }
 
