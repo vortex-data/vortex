@@ -5,7 +5,7 @@ use vortex_array::arrays::{DecimalArray, PrimitiveArray};
 use vortex_array::vtable::ValidityHelper;
 use vortex_decimal_byte_parts::DecimalBytePartsArray;
 use vortex_error::VortexResult;
-use vortex_scalar::DecimalValueType;
+use vortex_scalar::{DecimalValueType, i256};
 
 use crate::{Compressor, IntCompressor, MAX_CASCADE};
 
@@ -89,7 +89,7 @@ fn narrowed_decimal(decimal_array: DecimalArray) -> DecimalArray {
             )
         }
         DecimalValueType::I128 => {
-            try_downcast!(decimal_array, from: i32, to:
+            try_downcast!(decimal_array, from: i128, to:
                 (i8, ToPrimitive::to_i8),
                 (i16, ToPrimitive::to_i16),
                 (i32, ToPrimitive::to_i32),
@@ -97,7 +97,7 @@ fn narrowed_decimal(decimal_array: DecimalArray) -> DecimalArray {
             )
         }
         DecimalValueType::I256 => {
-            try_downcast!(decimal_array, from: i32, to:
+            try_downcast!(decimal_array, from: i256, to:
                 (i8, ToPrimitive::to_i8),
                 (i16, ToPrimitive::to_i16),
                 (i32, ToPrimitive::to_i32),
