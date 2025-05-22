@@ -8,7 +8,6 @@ use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_mask::Mask;
 use vortex_runend::RunEndArray;
 
 use crate::exporter::create_exporter;
@@ -16,13 +15,11 @@ use crate::{ColumnExporter, ConversionCache, ToDuckDBScalar};
 
 /// We export run-end arrays to a DuckDB dictionary vector, using a selection vector to
 /// repeat the values in the run-end array.
-#[allow(dead_code)]
-pub(crate) struct RunEndExporter<E: NativePType> {
+struct RunEndExporter<E: NativePType> {
     ends: PrimitiveArray,
     ends_type: PhantomData<E>,
     values: ArrayRef,
     values_exporter: Box<dyn ColumnExporter>,
-    validity: Mask,
     run_end_offset: usize,
 }
 
@@ -33,7 +30,6 @@ pub(crate) fn new_exporter(
     let ends = array.ends().to_primitive()?;
     let values = array.values().clone();
     let values_exporter = create_exporter(array.values(), cache)?;
-    let validity = array.validity_mask()?;
 
     match_each_integer_ptype!(ends.ptype(), |$E| {
         Ok(Box::new(RunEndExporter {
@@ -41,7 +37,6 @@ pub(crate) fn new_exporter(
             ends_type: PhantomData::<$E>,
             values,
             values_exporter,
-            validity,
             run_end_offset: array.offset(),
         }))
     })

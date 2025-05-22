@@ -9,8 +9,7 @@ use vortex_mask::Mask;
 use crate::ColumnExporter;
 use crate::exporter::FlatVectorExt;
 
-#[allow(dead_code)]
-pub(crate) struct PrimitiveExporter<T: NativePType> {
+struct PrimitiveExporter<T: NativePType> {
     array: PrimitiveArray,
     array_type: PhantomData<T>,
     validity: Mask,

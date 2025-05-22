@@ -51,11 +51,39 @@ pub struct PtrRef {
     ptr: *const c_char,
 }
 
-fn binary_view_to_ptr_binary_view<'a>(
+pub fn to_ptr_binary_view<'a>(
+    view: impl Iterator<Item = &'a BinaryView>,
+    buffers: &[ByteBuffer],
+) -> impl Iterator<Item = PtrBinaryView> {
+    view.map(|v| {
+        if v.is_inlined() {
+            PtrBinaryView {
+                inlined: *v.as_inlined(),
+            }
+        } else {
+            let view = v.as_view();
+            PtrBinaryView {
+                _ref: PtrRef {
+                    size: v.len(),
+                    prefix: *view.prefix(),
+                    // TODO(joe) verify this.
+                    ptr: unsafe {
+                        buffers[view.buffer_index() as usize]
+                            .as_ptr()
+                            .add(view.offset() as usize)
+                            .cast()
+                    },
+                },
+            }
+        }
+    })
+}
+
+pub fn binary_view_to_ptr_binary_view<'a>(
     view: impl Iterator<Item = &'a BinaryView>,
     buffers: &[ByteBuffer],
     used_buffers: &mut [bool],
-) -> Vec<PtrBinaryView> {
+) -> impl Iterator<Item = PtrBinaryView> {
     view.map(|v| {
         if v.is_inlined() {
             PtrBinaryView {
@@ -79,7 +107,6 @@ fn binary_view_to_ptr_binary_view<'a>(
             }
         }
     })
-    .collect_vec()
 }
 
 impl ToDuckDB for VarBinViewArray {
@@ -95,7 +122,8 @@ impl ToDuckDB for VarBinViewArray {
             self.views().iter(),
             buffers,
             buffer_used.as_mut_slice(),
-        );
+        )
+        .collect_vec();
 
         let vec = chunk.flat_vector();
         buffers

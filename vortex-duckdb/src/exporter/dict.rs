@@ -42,10 +42,7 @@ pub(crate) fn new_exporter(
                 .insert(values_key, (values.clone(), vector));
             unowned
         }
-        Some((_array, vector)) => {
-            println!("Using cached values vector");
-            vector.clone()
-        }
+        Some((_array, vector)) => vector.clone(),
     };
 
     let codes = array.codes().to_primitive()?;

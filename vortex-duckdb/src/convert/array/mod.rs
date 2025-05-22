@@ -13,6 +13,7 @@ pub use cache::ConversionCache;
 pub use data_chunk_adaptor::NamedDataChunk;
 use duckdb::vtab::arrow::WritableVector;
 pub use table::to_duckdb_chunk;
+pub use varbinview::{PtrBinaryView, to_ptr_binary_view};
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 

@@ -261,7 +261,8 @@ static void CreateScanPartitions(ClientContext &context, const BindData &bind, S
 	// Factors to consider:
 	//  1. A smaller value means more work for the Vortex file reader.
 	//  2. A larger value reduces the parallelism available to the scanner
-	const uint64_t partition_size = 2048 * (thread_count > file_count ? 32 : 64);
+	//const uint64_t partition_size = 2048 * (thread_count > file_count ? 32 : 64);
+	const uint64_t partition_size = 2048 * 1024; // (thread_count > file_count ? 32 : 64);
 
 	const auto partition_count = std::max(static_cast<uint64_t>(1), row_count / partition_size);
 	global_state.partitons_total += partition_count;
@@ -308,8 +309,7 @@ static unique_ptr<ArrayIterator> OpenArrayIter(ScanGlobalState &global_state,
 // Assigns the next array exporter.
 //
 // Returns true if a new exporter was assigned, false otherwise.
-static bool GetNextExporter(ClientContext &context, const BindData &bind_data, ScanGlobalState &global_state,
-                         ScanLocalState &local_state, DataChunk &output) {
+static bool GetNextExporter(ClientContext &context, const BindData &bind_data, ScanGlobalState &global_state, ScanLocalState &local_state) {
 
 	// Try to deque a partition off the thread local queue.
 	auto try_dequeue = [&](ScanPartition &scan_partition) {
@@ -358,37 +358,45 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 	auto &global_state = data.global_state->Cast<ScanGlobalState>();
 	auto &local_state = data.local_state->Cast<ScanLocalState>();
 
-	if (local_state.array_exporter == nullptr) {
-		while (!GetNextExporter(context, bind_data, global_state, local_state, output)) {
-			if (global_state.finished) {
-				output.Reset();
-				output.SetCardinality(0);
-				return;
+	// Loop until the global state is finished.
+	while (!global_state.finished) {
+		if (local_state.array_exporter == nullptr) {
+			// Try to get the next exporter, if we fail, make progress on partitions and then loop.
+			if (!GetNextExporter(context, bind_data, global_state, local_state)) {
+				// Free layout readers as long as we pin files to threads.
+				if (local_state.scan_partitions.empty() && local_state.thread_local_file_idx.has_value()) {
+					global_state.layout_readers[local_state.thread_local_file_idx.value()] = nullptr;
+					local_state.thread_local_file_idx.reset();
+				}
+
+				// Create new scan partitions in case the queue is empty.
+				if (auto file_idx = global_state.next_file_idx.fetch_add(1);
+					file_idx < global_state.expanded_files.size()) {
+					auto file_name = global_state.expanded_files[file_idx];
+					auto vortex_file =
+						OpenFileAndVerify(FileSystem::GetFileSystem(context), *bind_data.session, file_name, bind_data);
+					global_state.layout_readers[file_idx] = LayoutReader::CreateFromFile(vortex_file.get());
+					CreateScanPartitions(context, bind_data, global_state, local_state, file_idx, vortex_file);
+				}
 			}
 
-			// Free layout readers as long as we pin files to threads.
-			if (local_state.scan_partitions.empty() && local_state.thread_local_file_idx.has_value()) {
-				global_state.layout_readers[local_state.thread_local_file_idx.value()] = nullptr;
-				local_state.thread_local_file_idx.reset();
-			}
+			// Restart the loop to scan the next partition.
+			continue;
+		}
 
-			// Create new scan partitions in case the queue is empty.
-			if (auto file_idx = global_state.next_file_idx.fetch_add(1);
-			    file_idx < global_state.expanded_files.size()) {
-				auto file_name = global_state.expanded_files[file_idx];
-				auto vortex_file =
-				    OpenFileAndVerify(FileSystem::GetFileSystem(context), *bind_data.session, file_name, bind_data);
-				global_state.layout_readers[file_idx] = LayoutReader::CreateFromFile(vortex_file.get());
-				CreateScanPartitions(context, bind_data, global_state, local_state, file_idx, vortex_file);
-			}
+		if (local_state.array_exporter->ExportNext(reinterpret_cast<duckdb_data_chunk>(&output))) {
+			// Successfully exported a chunk
+			return;
+		} else {
+			// Otherwise, reset the exporter and try the next one.
+			global_state.partitions_processed += 1;
+			local_state.array_exporter = nullptr;
 		}
 	}
 
-	if (!local_state.array_exporter->ExportNext(reinterpret_cast<duckdb_data_chunk>(&output))) {
-		// The array is finished, so we drop the exporter.
-		local_state.array_exporter = nullptr;
-		global_state.partitions_processed += 1;
-	}
+	// To finish the scan, we ensure the output chunk has zero rows.
+	output.Reset();
+	output.SetCardinality(0);
 }
 
 /// The bind function (for the Vortex table function) is called during query

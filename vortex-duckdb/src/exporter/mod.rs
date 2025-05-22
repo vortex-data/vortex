@@ -1,14 +1,17 @@
+mod constant;
 mod dict;
 mod frame_of_reference;
+mod fsst;
 mod primitive;
 mod run_end;
+mod varbinview;
 
 use duckdb::arrow::array::ArrayRef as ArrowArrayRef;
 use duckdb::core::{DataChunkHandle, FlatVector};
 use duckdb::ffi::duckdb_data_chunk_get_vector;
 use duckdb::vtab::arrow::{WritableVector, write_arrow_array_to_vector};
 use itertools::Itertools;
-use vortex_array::arrays::StructArray;
+use vortex_array::arrays::{ConstantVTable, StructArray};
 use vortex_array::arrow::compute::to_arrow_preferred;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::{Array, Canonical, ToCanonical};
@@ -140,6 +143,10 @@ fn create_exporter(
     // Dict
     // RunEnd
 
+    if let Some(array) = array.as_opt::<ConstantVTable>() {
+        return constant::new_exporter(array);
+    }
+
     if let Some(array) = array.as_opt::<RunEndVTable>() {
         return run_end::new_exporter(array, cache);
     }
@@ -147,8 +154,13 @@ fn create_exporter(
     if let Some(array) = array.as_opt::<DictVTable>() {
         return dict::new_exporter(array, cache);
     }
-
-    //println!("ENCODING: {}", array.encoding());
+    //
+    // println!(
+    //     "ENCODING: {} {} {}",
+    //     array.encoding(),
+    //     array.dtype(),
+    //     array.len()
+    // );
 
     // Otherwise, we fall back to canonical
     let array = array.to_canonical()?;
@@ -159,7 +171,7 @@ fn create_exporter(
         Canonical::Decimal(_) => {}
         Canonical::Struct(_) => {}
         Canonical::List(_) => {}
-        Canonical::VarBinView(_) => {}
+        Canonical::VarBinView(array) => return varbinview::new_exporter(array),
         Canonical::Extension(_) => {}
     }
 
