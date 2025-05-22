@@ -157,12 +157,12 @@ impl ToPrimitive for i256 {
         self.maybe_i128().and_then(|v| v.to_i64())
     }
 
-    fn to_u64(&self) -> Option<u64> {
-        self.maybe_i128().and_then(|v| v.to_u64())
-    }
-
     fn to_i128(&self) -> Option<i128> {
         self.maybe_i128()
+    }
+
+    fn to_u64(&self) -> Option<u64> {
+        self.maybe_i128().and_then(|v| v.to_u64())
     }
 
     fn to_u128(&self) -> Option<u128> {

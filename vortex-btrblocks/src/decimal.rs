@@ -1,3 +1,5 @@
+use itertools::{Itertools, MinMaxResult};
+use num_traits::{AsPrimitive, ToPrimitive};
 use vortex_array::ArrayRef;
 use vortex_array::arrays::{DecimalArray, PrimitiveArray};
 use vortex_array::vtable::ValidityHelper;
@@ -11,6 +13,7 @@ use crate::{Compressor, IntCompressor, MAX_CASCADE};
 // TODO(joe): add support splitting i128/256 buffers into chunks primitive values for compression.
 // 2 for i128 and 4 for i256
 pub fn compress_decimal(decimal: &DecimalArray) -> VortexResult<ArrayRef> {
+    let decimal = narrowed_decimal(decimal.clone());
     let validity = decimal.validity();
     let prim = match decimal.values_type() {
         DecimalValueType::I8 => PrimitiveArray::new(decimal.buffer::<i8>(), validity.clone()),
@@ -24,4 +27,74 @@ pub fn compress_decimal(decimal: &DecimalArray) -> VortexResult<ArrayRef> {
 
     DecimalBytePartsArray::try_new(compressed, vec![], decimal.decimal_dtype())
         .map(|d| d.to_array())
+}
+
+macro_rules! try_downcast {
+    ($array:expr, from: $srctyp:ty, to: $(($dsttyp:ty, $convert:path)),*) => {{
+        // Collect the min/max of the values
+        let minmax = $array.buffer::<$srctyp>().iter().copied().minmax();
+        match minmax {
+            MinMaxResult::NoElements => return $array,
+            MinMaxResult::OneElement(_) => return $array,
+            MinMaxResult::MinMax(min, max) => {
+                $(
+                    if $convert(&min).is_some() && $convert(&max).is_some() {
+                        return DecimalArray::new::<$dsttyp>(
+                            $array
+                                .buffer::<$srctyp>()
+                                .into_iter()
+                                .map(|v| v.as_())
+                                .collect(),
+                            $array.decimal_dtype(),
+                            $array.validity().clone(),
+                        )
+                    }
+                )*
+
+                return $array
+            }
+        }
+    }};
+}
+
+/// Attempt to narrow the decimal array to any smaller supported type.
+fn narrowed_decimal(decimal_array: DecimalArray) -> DecimalArray {
+    match decimal_array.values_type() {
+        // Cannot narrow any more
+        DecimalValueType::I8 => decimal_array,
+        DecimalValueType::I16 => {
+            try_downcast!(decimal_array, from: i16, to: (i8, ToPrimitive::to_i8))
+        }
+        DecimalValueType::I32 => {
+            try_downcast!(decimal_array, from: i32, to:
+                (i8, ToPrimitive::to_i8),
+                (i16, ToPrimitive::to_i16)
+            )
+        }
+        DecimalValueType::I64 => {
+            try_downcast!(decimal_array, from: i64, to:
+                (i8, ToPrimitive::to_i8),
+                (i16, ToPrimitive::to_i16),
+                (i32, ToPrimitive::to_i32)
+            )
+        }
+        DecimalValueType::I128 => {
+            try_downcast!(decimal_array, from: i32, to:
+                (i8, ToPrimitive::to_i8),
+                (i16, ToPrimitive::to_i16),
+                (i32, ToPrimitive::to_i32),
+                (i64, ToPrimitive::to_i64)
+            )
+        }
+        DecimalValueType::I256 => {
+            try_downcast!(decimal_array, from: i32, to:
+                (i8, ToPrimitive::to_i8),
+                (i16, ToPrimitive::to_i16),
+                (i32, ToPrimitive::to_i32),
+                (i64, ToPrimitive::to_i64),
+                (i128, ToPrimitive::to_i128)
+            )
+        }
+        _ => decimal_array,
+    }
 }
