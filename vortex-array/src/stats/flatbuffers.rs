@@ -114,7 +114,7 @@ impl ReadFlatBuffer for StatsSet {
                             match fb.max_precision() {
                                 fba::Precision::Exact => Precision::Exact(value),
                                 fba::Precision::Inexact => Precision::Inexact(value),
-                                _ => vortex_bail!("Corrupted max_precision field"),
+                                other => vortex_bail!("Corrupted max_precision field: {other:?}"),
                             },
                         );
                     }
@@ -127,7 +127,7 @@ impl ReadFlatBuffer for StatsSet {
                             match fb.min_precision() {
                                 fba::Precision::Exact => Precision::Exact(value),
                                 fba::Precision::Inexact => Precision::Inexact(value),
-                                _ => vortex_bail!("Corrupted min_precision field"),
+                                other => vortex_bail!("Corrupted min_precision field: {other:?}"),
                             },
                         );
                     }
