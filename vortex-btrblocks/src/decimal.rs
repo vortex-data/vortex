@@ -9,11 +9,21 @@ use vortex_scalar::DecimalValueType;
 
 use crate::{Compressor, IntCompressor, MAX_CASCADE};
 
-// TODO(joe): add decimal value type narrowing
 // TODO(joe): add support splitting i128/256 buffers into chunks primitive values for compression.
 // 2 for i128 and 4 for i256
 pub fn compress_decimal(decimal: &DecimalArray) -> VortexResult<ArrayRef> {
+    log::info!(
+        "compressing decimal with dtype={:?} values_type={:?}",
+        decimal.decimal_dtype(),
+        decimal.values_type()
+    );
+    let original_bw = decimal.values_type();
     let decimal = narrowed_decimal(decimal.clone());
+    log::info!(
+        "narrowed decimal {:?} => {:?}",
+        original_bw,
+        decimal.values_type()
+    );
     let validity = decimal.validity();
     let prim = match decimal.values_type() {
         DecimalValueType::I8 => PrimitiveArray::new(decimal.buffer::<i8>(), validity.clone()),
