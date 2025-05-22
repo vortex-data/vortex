@@ -1,6 +1,5 @@
 mod constant;
 mod dict;
-mod frame_of_reference;
 mod primitive;
 mod run_end;
 mod varbinview;

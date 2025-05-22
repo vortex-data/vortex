@@ -342,8 +342,8 @@ static bool GetNextExporter(ClientContext &context, const BindData &bind_data, S
 
 		// Layout readers are safe to share across threads for reading. Further, they
 		// are created before pushing partitions of the corresponing files into a queue.
-		auto layout_reader = global_state.layout_readers[partition.file_idx];
-		auto array_iter = OpenArrayIter(global_state, layout_reader, partition);
+		auto file_reader = global_state.file_readers[partition.file_idx];
+		auto array_iter = OpenArrayIter(global_state, file_reader, partition);
 		local_state.array_exporter = ArrayExporter::FromArrayIterator(std::move(array_iter));
 	}
 
