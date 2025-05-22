@@ -14,7 +14,7 @@ use vortex_array::arrow::compute::to_arrow_preferred;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::{Array, Canonical, ToCanonical};
 use vortex_dict::DictVTable;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_mask::Mask;
 use vortex_runend::RunEndVTable;
 
@@ -54,7 +54,7 @@ impl ArrayIteratorExporter {
             if self
                 .array_exporter
                 .as_mut()
-                .expect("must be present")
+                .vortex_expect("must be present")
                 .export(chunk)?
             {
                 return Ok(true);
@@ -96,8 +96,7 @@ impl ArrayExporter {
 
         let chunk_len = DUCKDB_STANDARD_VECTOR_SIZE.min(self.remaining);
         let position = self.array_len - self.remaining;
-        self.remaining = self.remaining - chunk_len;
-
+        self.remaining -= chunk_len;
         chunk.set_len(chunk_len);
 
         if self.fields.is_empty() {
@@ -153,7 +152,6 @@ fn create_exporter(
         return dict::new_exporter(array, cache);
     }
 
-    //
     // println!(
     //     "ENCODING: {} {} {}",
     //     array.encoding(),

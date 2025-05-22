@@ -355,9 +355,19 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 	auto &global_state = data.global_state->Cast<ScanGlobalState>();
 	auto &local_state = data.local_state->Cast<ScanLocalState>();
 
-	// Loop until the global state is finished.
-	while (!global_state.finished) {
-		if (local_state.array_exporter == nullptr) {
+	while (true) {
+		if (local_state.array_exporter != nullptr) {
+			if (local_state.array_exporter->ExportNext(reinterpret_cast<duckdb_data_chunk>(&output))) {
+				// Successfully exported a chunk
+				return;
+			} else {
+				// Otherwise, reset the exporter and try the next one.
+				global_state.partitions_processed += 1;
+				local_state.array_exporter = nullptr;
+			}
+		}
+
+		if (!global_state.finished) {
 			// Try to get the next exporter, if we fail, make progress on partitions and then loop.
 			if (!GetNextExporter(context, bind_data, global_state, local_state)) {
 				// Free file readers when owned by the thread.
@@ -381,24 +391,14 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 										 *global_state.file_readers[file_idx]);
 				}
 			}
-
-			// Restart the loop to scan the next partition.
 			continue;
 		}
 
-		if (local_state.array_exporter->ExportNext(reinterpret_cast<duckdb_data_chunk>(&output))) {
-			// Successfully exported a chunk
-			return;
-		} else {
-			// Otherwise, reset the exporter and try the next one.
-			global_state.partitions_processed += 1;
-			local_state.array_exporter = nullptr;
-		}
+		// Otherwise, we're truly done.
+		output.Reset();
+		output.SetCardinality(0);
+		return;
 	}
-
-	// To finish the scan, we ensure the output chunk has zero rows.
-	output.Reset();
-	output.SetCardinality(0);
 }
 
 /// The bind function (for the Vortex table function) is called during query
