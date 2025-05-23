@@ -8,11 +8,12 @@ use vortex::Array;
 use vortex::arrow::IntoArrowArray;
 use vortex::error::VortexResult;
 use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
+use vortex::stream::ArrayStreamArrayExt;
 
 #[inline(never)]
 pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> VortexResult<u64> {
     Ok(VortexWriteOptions::default()
-        .with_strategy(VortexLayoutStrategy::default().with_tokio_executor(Handle::current()))
+        .with_tokio_executor(Handle::current())
         .write(Cursor::new(buf), array.to_array_stream())
         .await?
         .position())

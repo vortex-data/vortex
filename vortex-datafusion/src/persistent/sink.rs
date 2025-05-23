@@ -97,7 +97,8 @@ impl FileSink for VortexSink {
         while let Some((path, rx)) = file_stream_rx.recv().await {
             let writer = ObjectStoreWriter::new(object_store.clone(), path).await?;
 
-            let stream = ReceiverStream::new(rx).map(|rb| {
+            let row_counter = row_counter.clone();
+            let stream = ReceiverStream::new(rx).map(move |rb| {
                 row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
                 rb.try_into_array()
             });

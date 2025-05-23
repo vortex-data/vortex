@@ -3,7 +3,7 @@ use vortex_error::VortexResult;
 
 use crate::segments::SegmentId;
 
-pub trait SegmentWriter {
+pub trait SegmentWriter: Send + Sync {
     /// Write the given data into a segment and return its identifier.
     /// The provided buffers are concatenated together to form the segment.
     ///
