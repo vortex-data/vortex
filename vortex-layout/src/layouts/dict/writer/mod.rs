@@ -152,19 +152,24 @@ fn dict_encode_stream(
     input: SequentialArrayStream,
     constraints: DictConstraints,
 ) -> DictionaryStream {
-    let state = DictStreamState {
+    let state = Arc::new(Mutex::new(DictStreamState {
         encoder: None,
+        labeler: None,
         constraints,
-    };
+    }));
     Box::pin(
         input
-            .scan(state, |state, item| future::ready(Some(state.encode(item))))
+            .scan(state.clone(), |state, item| {
+                future::ready(Some(state.lock().encode(item)))
+            })
+            .chain(once(async move { state.lock().drain_values() }))
             .flat_map(|chunks| iter(chunks.into_iter())),
     )
 }
 
 struct DictStreamState {
     encoder: Option<Box<dyn DictEncoder>>,
+    labeler: Option<DictChunkLabeler>,
     constraints: DictConstraints,
 }
 
@@ -184,7 +189,7 @@ impl DictStreamState {
         item: VortexResult<(SequenceId, ArrayRef)>,
     ) -> VortexResult<Vec<VortexResult<DictionaryChunk>>> {
         let (sequence_id, chunk) = item?;
-        let mut labeler = DictChunks::new(sequence_id);
+        let mut labeler = DictChunkLabeler::new(sequence_id);
         let mut res = Vec::new();
         let mut to_be_encoded = Some(chunk);
         while let Some(remaining) = to_be_encoded.take() {
@@ -213,15 +218,26 @@ impl DictStreamState {
                 },
             }
         }
+        self.labeler = Some(labeler);
         Ok(res)
+    }
+
+    fn drain_values(&mut self) -> Vec<VortexResult<DictionaryChunk>> {
+        match (self.encoder.as_mut(), self.labeler.as_mut()) {
+            (None, _) => Vec::new(),
+            (Some(_), None) => vec![Err(vortex_err!(
+                "invalid state, if encoded we must have a labeler"
+            ))],
+            (Some(encoder), Some(labeler)) => vec![encoder.values().map(|val| labeler.values(val))],
+        }
     }
 }
 
-struct DictChunks {
+struct DictChunkLabeler {
     sequence_pointer: SequencePointer,
 }
 
-impl DictChunks {
+impl DictChunkLabeler {
     fn new(starting_id: SequenceId) -> Self {
         let sequence_pointer = starting_id.descend();
         Self { sequence_pointer }
