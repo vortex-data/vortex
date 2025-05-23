@@ -186,7 +186,7 @@ requires-dist = [
     { name = "sphinx-inline-tabs", specifier = ">=2023.4.21" },
     { name = "sphinxcontrib-bibtex", specifier = ">=2.6.3" },
     { name = "sphinxext-opengraph", specifier = ">=0.9.1" },
-    { name = "vortex-data", editable = "pyvortex" },
+    { name = "vortex-data", editable = "vortex-python" },
 ]
 
 [[package]]
@@ -1364,7 +1364,7 @@ wheels = [
 
 [[package]]
 name = "vortex-data"
-source = { editable = "pyvortex" }
+source = { editable = "vortex-python" }
 dependencies = [
     { name = "pyarrow" },
     { name = "substrait" },
@@ -1539,7 +1539,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "docs", virtual = "docs" },
-    { name = "vortex-data", editable = "pyvortex" },
+    { name = "vortex-data", editable = "vortex-python" },
 ]
 
 [package.metadata.requires-dev]
