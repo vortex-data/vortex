@@ -1,33 +1,28 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
-use vortex_array::{Array, ArrayContext, ArrayRef};
+use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
-use crate::segments::{ConcurrentSegmentWriter, NewSegmentWriter};
-use crate::writer::LayoutWriter;
-use crate::{
-    IntoLayout, LayoutRef, LayoutStrategy, LayoutWriterExt, NewLayoutStrategy, NewLayoutWriter,
-    SequentialArrayStream,
-};
+use crate::segments::SegmentWriter;
+use crate::{IntoLayout, LayoutRef, LayoutStrategy, LayoutWriter, SequentialArrayStream};
 
 #[derive(Clone)]
-pub struct NewFlatLayoutStrategy {
+pub struct FlatLayoutStrategy {
     /// Stats to preserve when writing arrays
     pub array_stats: Vec<Stat>,
     /// Whether to include padding for memory-mapped reads.
     pub include_padding: bool,
 }
 
-impl Default for NewFlatLayoutStrategy {
+impl Default for FlatLayoutStrategy {
     fn default() -> Self {
         Self {
             array_stats: STATS_TO_WRITE.to_vec(),
@@ -36,14 +31,14 @@ impl Default for NewFlatLayoutStrategy {
     }
 }
 
-impl NewLayoutStrategy for NewFlatLayoutStrategy {
+impl LayoutStrategy for FlatLayoutStrategy {
     fn write_stream(
         &self,
         ctx: &ArrayContext,
         dtype: &DType,
-        segment_writer: Arc<dyn NewSegmentWriter>,
+        segment_writer: Arc<dyn SegmentWriter>,
         mut stream: SequentialArrayStream,
-    ) -> Pin<Box<dyn NewLayoutWriter>> {
+    ) -> Pin<Box<dyn LayoutWriter>> {
         let ctx = ctx.clone();
         let dtype = dtype.clone();
         let options = self.clone();

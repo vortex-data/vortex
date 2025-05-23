@@ -3,7 +3,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use async_stream::try_stream;
-use async_trait::async_trait;
 use futures::StreamExt as _;
 use arcref::ArcRef;
 use vortex_array::arrays::ChunkedArray;
@@ -11,27 +10,8 @@ use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::segments::{ConcurrentSegmentWriter, NewSegmentWriter};
-use crate::{
-    LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt, NewLayoutStrategy, NewLayoutWriter,
-    SequentialArrayStream,
-};
-
-pub struct RepartitionStrategy {
-    pub options: RepartitionWriterOptions,
-    pub child: ArcRef<dyn LayoutStrategy>,
-}
-
-impl LayoutStrategy for RepartitionStrategy {
-    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        Ok(RepartitionWriter::new(
-            dtype.clone(),
-            self.child.new_writer(ctx, dtype)?,
-            self.options.clone(),
-        )
-        .boxed())
-    }
-}
+use crate::segments::SegmentWriter;
+use crate::{LayoutStrategy, LayoutWriter, SequentialArrayStream};
 
 #[derive(Clone)]
 pub struct RepartitionWriterOptions {
@@ -45,147 +25,25 @@ pub struct RepartitionWriterOptions {
 ///
 /// Each emitted block (except the last) is at least `block_size_minimum` bytes and contains a
 /// multiple of `block_len_multiple` rows.
-pub struct RepartitionWriter {
-    dtype: DType,
-    chunks: VecDeque<ArrayRef>,
-    row_count: usize,
-    nbytes: usize,
-    writer: Box<dyn LayoutWriter>,
+pub struct RepartitionStrategy {
     options: RepartitionWriterOptions,
+    child: ArcRef<dyn LayoutStrategy>,
 }
 
-impl RepartitionWriter {
-    pub fn new(
-        dtype: DType,
-        writer: Box<dyn LayoutWriter>,
-        options: RepartitionWriterOptions,
-    ) -> Self {
-        Self {
-            dtype,
-            chunks: VecDeque::new(),
-            row_count: 0,
-            nbytes: 0,
-            writer,
-            options,
-        }
-    }
-
-    async fn maybe_flush_chunk(
-        &mut self,
-        segments: &mut dyn ConcurrentSegmentWriter,
-    ) -> VortexResult<()> {
-        if self.nbytes >= self.options.block_size_minimum {
-            let nblocks = self.row_count / self.options.block_len_multiple;
-
-            // If we don't have a full block, then wait for more
-            if nblocks == 0 {
-                return Ok(());
-            }
-
-            let mut chunks = Vec::with_capacity(self.chunks.len());
-            let mut remaining = nblocks * self.options.block_len_multiple;
-
-            while remaining > 0 {
-                let chunk = self.chunks.pop_front().vortex_expect("chunk is missing");
-                self.row_count -= chunk.len();
-                self.nbytes -= chunk.nbytes();
-
-                let len = chunk.len();
-
-                if len > remaining {
-                    let left = chunk.slice(0, remaining)?;
-                    let right = chunk.slice(remaining, len)?;
-                    self.row_count += right.len();
-                    self.nbytes += right.nbytes();
-                    self.chunks.push_front(right);
-
-                    chunks.push(left);
-                    remaining = 0;
-                } else {
-                    chunks.push(chunk);
-                    remaining -= len;
-                }
-            }
-
-            // Combine the chunks to and flush them to the layout.
-            assert!(!chunks.is_empty());
-            let chunk = ChunkedArray::new_unchecked(chunks, self.dtype.clone())
-                .to_canonical()?
-                .into_array();
-
-            self.writer.push_chunk(segments, chunk).await?;
-        }
-
-        Ok(())
+impl RepartitionStrategy {
+    pub fn new(child: ArcRef<dyn LayoutStrategy>, options: RepartitionWriterOptions) -> Self {
+        Self { options, child }
     }
 }
 
-#[async_trait]
-impl LayoutWriter for RepartitionWriter {
-    async fn push_chunk(
-        &mut self,
-        segment_writer: &mut dyn ConcurrentSegmentWriter,
-        chunk: ArrayRef,
-    ) -> VortexResult<()> {
-        assert_eq!(
-            chunk.dtype(),
-            &self.dtype,
-            "Can't push chunks of the wrong dtype into a LayoutWriter. Pushed {} but expected {}.",
-            chunk.dtype(),
-            self.dtype
-        );
-        // We make sure the chunks are canonical so our nbytes measurement is accurate.
-        let chunk = chunk.to_canonical()?.into_array();
-
-        // Split chunks into 8192 blocks to make sure we don't over-size them.
-        let mut offset = 0;
-        while offset < chunk.len() {
-            let end = (offset + self.options.block_len_multiple).min(chunk.len());
-            let c = chunk.slice(offset, end)?;
-            self.row_count += c.len();
-            self.nbytes += c.nbytes();
-            self.chunks.push_back(c);
-            offset = end;
-
-            self.maybe_flush_chunk(segment_writer).await?;
-        }
-
-        Ok(())
-    }
-
-    async fn flush(
-        &mut self,
-        segment_writer: &mut dyn ConcurrentSegmentWriter,
-    ) -> VortexResult<()> {
-        let chunk =
-            ChunkedArray::new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
-                .to_canonical()?
-                .into_array();
-        self.writer.push_chunk(segment_writer, chunk).await?;
-        self.writer.flush(segment_writer).await
-    }
-
-    async fn finish(
-        &mut self,
-        segment_writer: &mut dyn ConcurrentSegmentWriter,
-    ) -> VortexResult<LayoutRef> {
-        self.writer.finish(segment_writer).await
-    }
-}
-
-struct NewRepartitionStrategy {
-    options: RepartitionWriterOptions,
-    child: ArcRef<dyn NewLayoutStrategy>,
-}
-
-impl NewLayoutStrategy for NewRepartitionStrategy {
+impl LayoutStrategy for RepartitionStrategy {
     fn write_stream(
         &self,
         ctx: &ArrayContext,
         dtype: &DType,
-        segment_writer: Arc<dyn NewSegmentWriter>,
+        segment_writer: Arc<dyn SegmentWriter>,
         stream: SequentialArrayStream,
-    ) -> Pin<Box<dyn NewLayoutWriter>> {
+    ) -> Pin<Box<dyn LayoutWriter>> {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
         let mut canonical_stream = stream.map(|chunk| {

@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+use std::future;
+use std::sync::Arc;
+
 use futures::StreamExt;
 use futures::future::try_join;
 use vortex_array::ArrayContext;
@@ -8,33 +11,36 @@ use vortex_array::stream::ArrayStream;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::{IoDispatcher, VortexWrite};
-use vortex_layout::layouts::file_stats::FileStatsLayoutWriter;
-use vortex_layout::{LayoutContext, LayoutStrategy, LayoutWriter};
+use vortex_layout::layouts::file_stats::accumulate_stats;
+use vortex_layout::scan::TaskExecutor;
+use vortex_layout::sequence::SequenceId;
+use vortex_layout::{LayoutContext, LayoutStrategy};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
-use crate::segments::writer::InOrderSegmentWriter;
-use crate::strategy::VortexLayoutStrategy;
-use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION};
+use crate::segments::writer::SerialSegmentWriter;
+use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexLayoutStrategy};
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
 ///
 /// By default, the [`LayoutStrategy`] will be the [`VortexLayoutStrategy`], which includes re-chunking and will also
 /// uncompress all data back to its canonical form before compressing it using the [`BtrBlocksCompressor`](vortex_btrblocks::BtrBlocksCompressor).
 pub struct VortexWriteOptions {
-    strategy: Box<dyn LayoutStrategy>,
+    // strategy: Box<dyn LayoutStrategy>,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
     io_dispatcher: IoDispatcher,
+    executor: Option<Arc<dyn TaskExecutor>>,
 }
 
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: Box::new(VortexLayoutStrategy::default()),
+            // strategy: Box::new(VortexLayoutStrategy::default()),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             io_dispatcher: IoDispatcher::shared(),
+            executor: None,
             max_variable_length_statistics_size: 64,
         }
     }
@@ -42,8 +48,13 @@ impl Default for VortexWriteOptions {
 
 impl VortexWriteOptions {
     /// Replace the default layout strategy with the provided one.
-    pub fn with_strategy<S: LayoutStrategy>(mut self, strategy: S) -> Self {
-        self.strategy = Box::new(strategy);
+    pub fn with_strategy<S: LayoutStrategy>(self, _strategy: S) -> Self {
+        todo!("make strategy configurable again");
+    }
+
+    #[cfg(feature = "tokio")]
+    pub fn with_tokio_executor(mut self, handle: tokio::runtime::Handle) -> Self {
+        self.executor = Some(Arc::new(handle));
         self
     }
 
@@ -64,47 +75,44 @@ impl VortexWriteOptions {
 
 impl VortexWriteOptions {
     /// Perform an async write of the provided stream of `Array`.
-    pub async fn write<W: VortexWrite, S: ArrayStream + Unpin>(
+    pub async fn write<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
         self,
         write: W,
-        mut stream: S,
+        stream: S,
     ) -> VortexResult<W> {
+        let Some(executor) = self.executor.as_ref() else {
+            // TODO(os): support no executor
+            vortex_bail!("no task executor");
+        };
         // Set up a Context to capture the encodings used in the file.
         let ctx = ArrayContext::empty();
 
-        // Set up the root layout
-        let mut layout_writer = FileStatsLayoutWriter::new(
-            self.strategy.new_writer(&ctx, stream.dtype())?,
-            stream.dtype(),
-            self.file_statistics.clone().into(),
-            self.max_variable_length_statistics_size,
-        )?;
+        let root = SequenceId::root();
+        let mut end_of_file = root.downgrade().descend();
+        let file_pointer = end_of_file.advance().descend();
+
+        let dtype = stream.dtype().clone();
+
+        let stream = Box::pin(stream.scan(file_pointer, |pointer, item| match item {
+            Ok(chunk) => {
+                let sequence_id = pointer.advance();
+                future::ready(Some(Ok((sequence_id, chunk))))
+            }
+            Err(e) => future::ready(Some(Err(e))),
+        }));
+        let (file_stats, stream) =
+            accumulate_stats(&dtype, stream, self.file_statistics.clone().into());
+
+        let strategy = VortexLayoutStrategy::multi_threaded(executor.clone(), end_of_file);
 
         // First we write the magic number
         let mut write = futures::io::Cursor::new(write);
         write.write_all(MAGIC_BYTES).await?;
 
-        // Our buffered message writer accumulates messages for each batch so we can flush them
-        // into the file.
-        let (mut segment_writer, flusher) = InOrderSegmentWriter::create();
+        let (segment_writer, flusher) = SerialSegmentWriter::create();
 
         let io_fut = async { flusher.flush(write).await };
-        let compute_fut = async {
-            // Then write the stream via the root layout
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk?;
-                layout_writer.push_chunk(&mut segment_writer, chunk).await?;
-                // NOTE(ngates): we could spawn this task and continue to compress the next chunk.
-            }
-
-            // Flush the final layout messages into the file
-            layout_writer.flush(&mut segment_writer).await?;
-
-            // Finish the layouts and flush the finishing messages into the file
-            let layout = layout_writer.finish(&mut segment_writer).await?;
-            drop(segment_writer);
-            Ok(layout)
-        };
+        let compute_fut = strategy.write_stream(&ctx, &dtype, Arc::new(segment_writer), stream);
         let (layout, (mut write, segment_specs)) = try_join(compute_fut, io_fut).await?;
 
         // We write our footer components in order of least likely to be needed to most likely.
@@ -113,7 +121,7 @@ impl VortexWriteOptions {
         let dtype_segment = if self.exclude_dtype {
             None
         } else {
-            Some(self.write_flatbuffer(&mut write, stream.dtype()).await?)
+            Some(self.write_flatbuffer(&mut write, &dtype).await?)
         };
 
         let layout_ctx = LayoutContext::empty();
@@ -124,7 +132,7 @@ impl VortexWriteOptions {
         let statistics_segment = if self.file_statistics.is_empty() {
             None
         } else {
-            let file_statistics = FileStatistics(layout_writer.into_stats_sets().into());
+            let file_statistics = FileStatistics(file_stats.stats_sets().into());
             Some(self.write_flatbuffer(&mut write, &file_statistics).await?)
         };
 

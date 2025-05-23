@@ -3,37 +3,40 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 
-use async_trait::async_trait;
 use futures::future::try_join_all;
-use futures::{FutureExt as _, Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _};
 use itertools::Itertools;
 use parking_lot::Mutex;
-use tokio::sync::Mutex as TokioMutex;
+use vortex_array::ArrayContext;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arcref::ArcRef;
 use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_err};
 
 use crate::layouts::struct_::StructLayout;
-use crate::scan::{TaskExecutor, TaskExecutorExt};
-use crate::segments::{ConcurrentSegmentWriter, NewSegmentWriter};
-use crate::strategy::LayoutStrategy;
-use crate::writer::LayoutWriter;
-use crate::{LayoutVTableRef, NewLayoutStrategy, NewLayoutWriter, SequentialArrayStream};
+use crate::segments::SegmentWriter;
+use crate::{LayoutStrategy, LayoutVTableRef, LayoutWriter, SequentialArrayStream};
 
-pub struct NewStructStrategy {
-    child: ArcRef<dyn NewLayoutStrategy>,
+pub struct StructStrategy {
+    child: ArcRef<dyn LayoutStrategy>,
 }
 
-impl NewLayoutStrategy for NewStructStrategy {
+/// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
+impl StructStrategy {
+    pub fn new(child: ArcRef<dyn LayoutStrategy>) -> Self {
+        Self { child }
+    }
+}
+
+impl LayoutStrategy for StructStrategy {
     fn write_stream(
         &self,
         ctx: &ArrayContext,
         dtype: &DType,
-        segment_writer: Arc<dyn NewSegmentWriter>,
+        segment_writer: Arc<dyn SegmentWriter>,
         stream: SequentialArrayStream,
-    ) -> Pin<Box<dyn NewLayoutWriter>> {
+    ) -> Pin<Box<dyn LayoutWriter>> {
         let Some(struct_dtype) = dtype.as_struct().cloned() else {
             return Box::pin(async { Err(vortex_err!("expected StructDType")) });
         };
@@ -179,7 +182,6 @@ where
         }
     }
 }
-use crate::{IntoLayout, LayoutRef};
 
 /// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
 pub struct StructLayoutWriter {
@@ -221,7 +223,7 @@ impl StructLayoutWriter {
         ctx: &ArrayContext,
         dtype: &DType,
         executor: Option<Arc<dyn TaskExecutor>>,
-        factory: &S,
+        factory: S,
     ) -> VortexResult<Self> {
         let struct_dtype = dtype
             .as_struct()
@@ -231,7 +233,7 @@ impl StructLayoutWriter {
             executor,
             struct_dtype
                 .fields()
-                .map(|field_dtype| factory.new_writer(ctx, &field_dtype))
+                .map(|dtype| factory.new_writer(ctx, &dtype))
                 .try_collect()?,
         )
     }
@@ -244,15 +246,11 @@ impl LayoutWriter for StructLayoutWriter {
         segment_writer: &mut dyn ConcurrentSegmentWriter,
         chunk: ArrayRef,
     ) -> VortexResult<()> {
-        assert_eq!(
-            chunk.dtype(),
-            &self.dtype,
-            "Can't push chunks of the wrong dtype into a LayoutWriter. Pushed {} but expected {}.",
-            chunk.dtype(),
-            self.dtype
-        );
-        let struct_array = chunk.to_struct()?;
-        if struct_array.struct_dtype().nfields() != self.column_strategies.len() {
+        let struct_array = chunk
+            .as_struct_typed()
+            .ok_or_else(|| vortex_err!("batch is not a struct array"))?;
+
+        if struct_array.nfields() != self.column_strategies.len() {
             vortex_bail!(
                 "number of fields in struct array does not match number of column layout writers"
             );
@@ -305,7 +303,7 @@ impl LayoutWriter for StructLayoutWriter {
     async fn finish(
         &mut self,
         segment_writer: &mut dyn ConcurrentSegmentWriter,
-    ) -> VortexResult<LayoutRef> {
+    ) -> VortexResult<Layout> {
         let mut column_layouts = vec![];
         for writer in self.column_strategies.iter_mut() {
             column_layouts.push(writer.lock().await.finish(segment_writer).await?);

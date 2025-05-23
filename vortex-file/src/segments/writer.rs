@@ -1,121 +1,60 @@
-#![allow(dead_code)]
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
-
-use async_trait::async_trait;
 use futures::StreamExt;
-use futures::channel::mpsc;
+use futures::channel::mpsc::{self, UnboundedSender};
 use futures::io::Cursor;
 use parking_lot::Mutex;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_io::VortexWrite;
-use vortex_layout::segments::{ConcurrentSegmentWriter, SegmentId, SegmentWriter};
+use vortex_layout::segments::{SegmentId, SegmentWriter};
 
-use super::ordered::{OrderedBuffers, Section};
 use crate::footer::SegmentSpec;
 
-/// A segment writer that holds buffers in memory until they are flushed by a writer.
-pub struct InOrderSegmentWriter {
-    buffers: Arc<Mutex<OrderedBuffers>>,
-    section: Section,
-    subsection_idx: usize,
-    buffers_tx: mpsc::UnboundedSender<Vec<ByteBuffer>>,
+pub struct SerialSegmentWriter {
+    state: Mutex<State>,
 }
 
-#[async_trait]
-impl SegmentWriter for InOrderSegmentWriter {
-    async fn put(&mut self, data: Vec<ByteBuffer>) -> VortexResult<SegmentId> {
-        self.buffers
-            .lock()
-            .insert_buffer(self.section.subsection(self.subsection_idx), data);
-        self.subsection_idx += 1;
-        self.next_segment_id_once_active().await
+struct State {
+    flush_tx: UnboundedSender<Vec<ByteBuffer>>,
+    next_expected: SegmentId,
+}
+
+impl SegmentWriter for SerialSegmentWriter {
+    fn put(&self, segment_id: SegmentId, buffer: Vec<ByteBuffer>) -> VortexResult<()> {
+        let mut guard = self.state.lock();
+        if segment_id != guard.next_expected {
+            vortex_bail!(
+                "out of order segment id, expected {:?}, got {:?}",
+                guard.next_expected,
+                segment_id
+            );
+        }
+        guard.next_expected = SegmentId::from(*segment_id + 1);
+        guard
+            .flush_tx
+            .unbounded_send(buffer)
+            .expect("out of memory");
+        Ok(())
     }
 }
 
-impl ConcurrentSegmentWriter for InOrderSegmentWriter {
-    fn split_off(&mut self, splits: usize) -> VortexResult<Vec<Box<dyn ConcurrentSegmentWriter>>> {
-        let mut guard = self.buffers.lock();
-        let splits = guard
-            .split_section(&self.section, splits, self.subsection_idx)?
-            .map(|section| {
-                Box::new(Self {
-                    buffers: self.buffers.clone(),
-                    buffers_tx: self.buffers_tx.clone(),
-                    section,
-                    subsection_idx: 0,
-                }) as Box<dyn ConcurrentSegmentWriter>
-            })
-            .collect();
-        self.section.increment();
-        guard.add_section(&self.section);
-        Ok(splits)
-    }
-}
-
-impl InOrderSegmentWriter {
+impl SerialSegmentWriter {
     pub fn create() -> (Self, SegmentFlusher) {
         // TODO(os): make this bounded, slow I/O means we will buffer
         // in memory unbounded. Currently tx is used in an impl Drop so
         // we can't do a bounded async send.
-        let (buffers_tx, rx) = mpsc::unbounded();
+        let (flush_tx, rx) = mpsc::unbounded();
         (
-            InOrderSegmentWriter {
-                buffers: Default::default(),
-                section: Section::default(),
-                subsection_idx: 0,
-                buffers_tx,
+            SerialSegmentWriter {
+                state: Mutex::new(State {
+                    flush_tx,
+                    next_expected: SegmentId::from(0),
+                }),
             },
             SegmentFlusher {
                 rx,
                 segment_specs: Vec::new(),
             },
         )
-    }
-
-    async fn next_segment_id_once_active(&self) -> VortexResult<SegmentId> {
-        WaitRegionFuture {
-            buffers: self.buffers.clone(),
-            section: self.section.clone(),
-        }
-        .await
-    }
-}
-
-impl Drop for InOrderSegmentWriter {
-    fn drop(&mut self) {
-        let Some(completed) = self.buffers.lock().finish_section(&self.section) else {
-            return;
-        };
-        for buffer in completed.into_values() {
-            self.buffers_tx
-                .unbounded_send(buffer)
-                .expect("out of memory");
-        }
-    }
-}
-
-struct WaitRegionFuture {
-    buffers: Arc<Mutex<OrderedBuffers>>,
-    section: Section,
-}
-
-impl Future for WaitRegionFuture {
-    type Output = VortexResult<SegmentId>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut guard = self.buffers.lock();
-        let current_first = match guard.first_section() {
-            Ok(first) => first,
-            Err(e) => return Poll::Ready(Err(e)),
-        };
-        if self.section == current_first {
-            return Poll::Ready(Ok(guard.next_segment_id()));
-        }
-        guard.register_waker(self.section.clone(), cx.waker().clone());
-        Poll::Pending
     }
 }
 
