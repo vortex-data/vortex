@@ -1,7 +1,7 @@
 use arrow_array::array::{
-    Array as ArrowArray, ArrayRef as ArrowArrayRef, ArrowPrimitiveType,
-    BooleanArray as ArrowBooleanArray, GenericByteArray, NullArray as ArrowNullArray,
-    OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
+    Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray, GenericByteArray,
+    NullArray as ArrowNullArray, OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray,
+    StructArray as ArrowStructArray,
 };
 use arrow_array::cast::{AsArray, as_null_array};
 use arrow_array::types::{
@@ -286,8 +286,8 @@ fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
     }
 }
 
-impl FromArrowArray<ArrowArrayRef> for ArrayRef {
-    fn from_arrow(array: ArrowArrayRef, nullable: bool) -> Self {
+impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
+    fn from_arrow(array: &dyn ArrowArray, nullable: bool) -> Self {
         match array.data_type() {
             DataType::Boolean => Self::from_arrow(array.as_boolean(), nullable),
             DataType::UInt8 => Self::from_arrow(array.as_primitive::<UInt8Type>(), nullable),
@@ -322,7 +322,7 @@ impl FromArrowArray<ArrowArrayRef> for ArrayRef {
             DataType::Struct(_) => Self::from_arrow(array.as_struct(), nullable),
             DataType::List(_) => Self::from_arrow(array.as_list::<i32>(), nullable),
             DataType::LargeList(_) => Self::from_arrow(array.as_list::<i64>(), nullable),
-            DataType::Null => Self::from_arrow(as_null_array(&array), nullable),
+            DataType::Null => Self::from_arrow(as_null_array(array), nullable),
             DataType::Timestamp(u, _) => match u {
                 ArrowTimeUnit::Second => {
                     Self::from_arrow(array.as_primitive::<TimestampSecondType>(), nullable)
