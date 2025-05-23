@@ -32,7 +32,7 @@ dev-dependencies = [
 ]
 
 [tool.uv.workspace]
-members = ["vortex-python", "docs"]
+members = ["pyvortex", "docs"]
 
 [tool.uv.sources]
 vortex-data = { workspace = true }

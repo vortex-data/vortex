@@ -4311,7 +4311,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-python"
+name = "pyvortex"
 version = "0.1.0"
 dependencies = [
  "arrow",
