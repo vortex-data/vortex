@@ -233,7 +233,7 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
                 .columns()
                 .iter()
                 .zip(value.fields())
-                .map(|(c, field)| Self::from_arrow(c.clone(), field.is_nullable()))
+                .map(|(c, field)| Self::from_arrow(c.as_ref(), field.is_nullable()))
                 .collect(),
             value.len(),
             nulls(value.nulls(), nullable),
@@ -252,7 +252,7 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for 
             dt => vortex_panic!("Invalid data type for ListArray: {dt}"),
         };
         ListArray::try_new(
-            Self::from_arrow(value.values().clone(), elem_nullable),
+            Self::from_arrow(value.values().as_ref(), elem_nullable),
             // offsets are always non-nullable
             value.offsets().clone().into_array(),
             nulls(value.nulls(), nullable),

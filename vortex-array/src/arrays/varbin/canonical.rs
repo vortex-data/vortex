@@ -21,7 +21,7 @@ impl CanonicalVTable<VarBinVTable> for VarBinVTable {
             _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
         };
         Ok(Canonical::VarBinView(
-            ArrayRef::from_arrow(array, nullable).to_varbinview()?,
+            ArrayRef::from_arrow(array.as_ref(), nullable).to_varbinview()?,
         ))
     }
 }

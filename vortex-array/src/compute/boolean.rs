@@ -1,8 +1,7 @@
 use std::any::Any;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use vortex_dtype::DType;
@@ -253,10 +252,7 @@ pub(crate) fn arrow_boolean(
         BooleanOperator::OrKleene => arrow_arith::boolean::or_kleene(&lhs, &rhs)?,
     };
 
-    Ok(ArrayRef::from_arrow(
-        Arc::new(array) as ArrowArrayRef,
-        nullable,
-    ))
+    Ok(ArrayRef::from_arrow(&array, nullable))
 }
 
 #[cfg(test)]
