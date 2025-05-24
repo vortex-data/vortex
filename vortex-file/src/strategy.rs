@@ -201,7 +201,7 @@ impl LayoutStrategy for BufferedStrategy {
                 // Wait until we're at 2x the buffer size before flushing 1x the buffer size
                 // This avoids small tail stragglers being flushed at the end of the file.
                 let mut sequence_pointer = sequence_id.descend();
-                while nbytes >= 2 * buffer_size {
+                while nbytes > buffer_size {
                     let Some(chunk) = chunks.pop_front() else {
                         break;
                     };

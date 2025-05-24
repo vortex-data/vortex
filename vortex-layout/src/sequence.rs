@@ -63,6 +63,7 @@ impl Drop for SequenceId {
     }
 }
 
+// TODO(os): make this !Send to prevent holding this over await points
 pub struct SequencePointer(SequenceId);
 
 impl SequencePointer {
