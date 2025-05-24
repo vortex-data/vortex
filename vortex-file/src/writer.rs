@@ -87,9 +87,9 @@ impl VortexWriteOptions {
         // Set up a Context to capture the encodings used in the file.
         let ctx = ArrayContext::empty();
 
-        let root = SequenceId::root();
-        let mut end_of_file = root.downgrade().descend();
-        let file_pointer = end_of_file.advance().descend();
+        let mut end_of_file = SequenceId::root();
+        let file_pointer = end_of_file.advance();
+        let file_pointer = file_pointer.descend();
 
         let dtype = stream.dtype().clone();
 

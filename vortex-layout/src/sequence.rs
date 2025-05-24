@@ -43,11 +43,7 @@ impl SequenceId {
     /// Await until all id's in this universe that are strictly less than self are dropped.
     /// Returns a monotonically increasing [SegmentId]
     pub async fn collapse(self) -> SegmentId {
-        WaitSequenceFuture {
-            id: self.id.clone(),
-            universe: self.universe.clone(),
-        }
-        .await
+        WaitSequenceFuture(self).await
     }
 
     /// This is intentionally not pub. [SequencePointer::advance] is the only allowed way to create
@@ -117,25 +113,22 @@ impl SequenceUniverse {
     }
 }
 
-struct WaitSequenceFuture {
-    id: Vec<usize>,
-    universe: Arc<Mutex<SequenceUniverse>>,
-}
+struct WaitSequenceFuture(SequenceId);
 
 impl Future for WaitSequenceFuture {
     type Output = SegmentId;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut guard = self.universe.lock();
+        let mut guard = self.0.universe.lock();
         let current_first = guard
             .active
             .first()
             .cloned()
             .vortex_expect("if we have a future, we must have at least one active sequence");
-        if self.id == current_first {
+        if self.0.id == current_first {
             return Poll::Ready(guard.next_segment_id());
         }
-        guard.wakers.insert(self.id.clone(), cx.waker().clone());
+        guard.wakers.insert(self.0.id.clone(), cx.waker().clone());
         Poll::Pending
     }
 }
