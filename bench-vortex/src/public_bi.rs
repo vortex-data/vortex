@@ -22,6 +22,7 @@ use humansize::{DECIMAL, format_size};
 use regex::Regex;
 use tokio::fs::File;
 use tokio::process::Command as TokioCommand;
+use tokio::runtime::Handle;
 use tracing::{debug, info};
 use url::Url;
 use vortex::ArrayRef;
@@ -334,6 +335,7 @@ impl PBIData {
             async move {
                 let vortex_file = idempotent_async(&vortex, async |output_path| {
                     VortexWriteOptions::default()
+                        .with_tokio_executor(Handle::current())
                         .write(
                             File::create(output_path).await.unwrap(),
                             parquet_to_vortex(parquet).unwrap(),

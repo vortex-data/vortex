@@ -1,13 +1,13 @@
-use std::future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, ready};
 
+use async_stream::try_stream;
 use bytes::Bytes;
 use futures::channel::oneshot;
-use futures::stream::{iter, once};
-use futures::{Stream, StreamExt};
+use futures::stream::once;
+use futures::{Stream, StreamExt, pin_mut};
 use parking_lot::Mutex;
 use vortex_array::vtable::EncodingVTable as _;
 use vortex_array::{Array, ArrayContext, ArrayRef, ProstMetadata, SerializeMetadata};
@@ -152,33 +152,51 @@ fn dict_encode_stream(
     input: SequentialArrayStream,
     constraints: DictConstraints,
 ) -> DictionaryStream {
-    let state = Arc::new(Mutex::new(DictStreamState {
-        encoder: None,
-        labeler: None,
-        constraints,
-    }));
-    Box::pin(
-        input
-            .scan(state.clone(), |state, item| {
-                future::ready(Some(state.lock().encode(item)))
-            })
-            .chain(once(async move { state.lock().drain_values() }))
-            .flat_map(|chunks| iter(chunks.into_iter())),
-    )
+    Box::pin(try_stream! {
+        let mut state = DictStreamState {
+            encoder: None,
+            constraints,
+        };
+        let input = input.peekable();
+        pin_mut!(input);
+        while let Some(item) = input.as_mut().next().await {
+            let (sequence_id, chunk) = item?;
+            // labeler potentially creates sub sequences, we must
+            // create it on both arms to avoid having a SequencePointer
+            // between await points
+            match input.as_mut().peek().await {
+                Some(_) => {
+                    let mut labeler = DictChunkLabeler::new(sequence_id);
+                    for dict_chunk in state.encode(&mut labeler, chunk) {
+                        yield dict_chunk?;
+                    }
+                }
+                None => {
+                    // this is the last element, encode and drain chunks
+                    let mut labeler = DictChunkLabeler::new(sequence_id);
+                    let encoded = state.encode(&mut labeler, chunk);
+                    let drained = state.drain_values(&mut labeler);
+                    for dict_chunk in encoded.into_iter().chain(drained.into_iter()) {
+                        yield dict_chunk?;
+                    }
+                }
+            }
+        }
+    })
 }
 
 struct DictStreamState {
     encoder: Option<Box<dyn DictEncoder>>,
-    labeler: Option<DictChunkLabeler>,
     constraints: DictConstraints,
 }
 
 impl DictStreamState {
     fn encode(
         &mut self,
-        item: VortexResult<(SequenceId, ArrayRef)>,
+        labeler: &mut DictChunkLabeler,
+        chunk: ArrayRef,
     ) -> Vec<VortexResult<DictionaryChunk>> {
-        match self.try_encode(item) {
+        match self.try_encode(labeler, chunk) {
             Ok(chunks) => chunks,
             Err(e) => vec![Err(e)],
         }
@@ -186,10 +204,9 @@ impl DictStreamState {
 
     fn try_encode(
         &mut self,
-        item: VortexResult<(SequenceId, ArrayRef)>,
+        labeler: &mut DictChunkLabeler,
+        chunk: ArrayRef,
     ) -> VortexResult<Vec<VortexResult<DictionaryChunk>>> {
-        let (sequence_id, chunk) = item?;
-        let mut labeler = DictChunkLabeler::new(sequence_id);
         let mut res = Vec::new();
         let mut to_be_encoded = Some(chunk);
         while let Some(remaining) = to_be_encoded.take() {
@@ -218,17 +235,16 @@ impl DictStreamState {
                 },
             }
         }
-        self.labeler = Some(labeler);
         Ok(res)
     }
 
-    fn drain_values(&mut self) -> Vec<VortexResult<DictionaryChunk>> {
-        match (self.encoder.as_mut(), self.labeler.as_mut()) {
-            (None, _) => Vec::new(),
-            (Some(_), None) => vec![Err(vortex_err!(
-                "invalid state, if encoded we must have a labeler"
-            ))],
-            (Some(encoder), Some(labeler)) => vec![encoder.values().map(|val| labeler.values(val))],
+    fn drain_values(
+        &mut self,
+        labeler: &mut DictChunkLabeler,
+    ) -> Vec<VortexResult<DictionaryChunk>> {
+        match self.encoder.as_mut() {
+            None => Vec::new(),
+            Some(encoder) => vec![encoder.values().map(|val| labeler.values(val))],
         }
     }
 }

@@ -113,8 +113,8 @@ impl ChunksBuffer {
     }
 
     fn have_enough(&self) -> bool {
-        self.nbytes > self.options.block_size_minimum
-            && self.row_count > self.options.block_len_multiple
+        self.nbytes >= self.options.block_size_minimum
+            && self.row_count >= self.options.block_len_multiple
     }
 
     fn collect_exact_blocks(&mut self) -> VortexResult<Vec<ArrayRef>> {
@@ -143,13 +143,13 @@ impl ChunksBuffer {
 
     fn push_back(&mut self, chunk: ArrayRef) {
         self.row_count += chunk.len();
-        self.nbytes = chunk.nbytes();
+        self.nbytes += chunk.nbytes();
         self.data.push_back(chunk);
     }
 
     fn push_front(&mut self, chunk: ArrayRef) {
         self.row_count += chunk.len();
-        self.nbytes = chunk.nbytes();
+        self.nbytes += chunk.nbytes();
         self.data.push_front(chunk);
     }
 

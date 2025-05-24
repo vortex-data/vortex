@@ -9,7 +9,7 @@ use arcref::ArcRef;
 use futures::{FutureExt, StreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::stats::{PRUNING_STATS, Stat};
+use vortex_array::stats::{{PRUNING_STATS, STATS_TO_WRITE}, Stat};
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
@@ -141,6 +141,7 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
             .map(|chunk| {
                 async {
                     let (sequence_id, chunk) = chunk?;
+                    chunk.statistics().compute_all(STATS_TO_WRITE)?;
                     Ok((sequence_id, BtrBlocksCompressor.compress(&chunk)?))
                 }
                 .boxed()
