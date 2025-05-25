@@ -1,6 +1,5 @@
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, ready};
 
 use async_stream::try_stream;
@@ -8,7 +7,6 @@ use bytes::Bytes;
 use futures::channel::oneshot;
 use futures::stream::once;
 use futures::{Stream, StreamExt, pin_mut};
-use parking_lot::Mutex;
 use vortex_array::vtable::EncodingVTable as _;
 use vortex_array::{Array, ArrayContext, ArrayRef, ProstMetadata, SerializeMetadata};
 use arcref::ArcRef;
@@ -107,11 +105,8 @@ impl LayoutStrategy for DictStrategy {
             // 2. get contiguous runs of codes from the dict stream and
             // create child dict layouts from them.
             let mut children = Vec::new();
-            let mut runs = DictEncodedRuns {
-                input: Arc::new(Mutex::new(dict_stream)),
-                exhausted: Default::default(),
-            };
-            while let Some((codes_stream, values_future)) = runs.next_run() {
+            let mut runs = DictEncodedRuns::new(dict_stream);
+            while let Some((codes_stream, values_future)) = runs.next_run().await {
                 let (codes_stream, codes_dtype) =
                     call_for_first_item(codes_stream, |chunk| Ok(chunk.dtype().clone())).await;
                 let Ok(codes_dtype) = codes_dtype else {
@@ -269,20 +264,31 @@ impl DictChunkLabeler {
 }
 
 struct DictEncodedRuns {
-    input: Arc<Mutex<DictionaryStream>>,
-    exhausted: Arc<AtomicBool>,
+    input: Option<oneshot::Receiver<Option<DictionaryStream>>>,
 }
 
 impl DictEncodedRuns {
-    fn next_run(
+    fn new(input: DictionaryStream) -> Self {
+        let (tx, rx) = oneshot::channel();
+        tx.send(Some(input))
+            .map_err(|_input| {}) // required for the Debug bound in expect
+            .expect("just created rx");
+        Self { input: Some(rx) }
+    }
+
+    async fn next_run(
         &mut self,
     ) -> Option<(
         SequentialArrayStream,
         impl Future<Output = VortexResult<(SequenceId, ArrayRef)>> + use<>,
     )> {
-        if self.exhausted.load(Ordering::SeqCst) {
+        // get input to send to the run stream.
+        let Ok(Some(input)) = self.input.take()?.await else {
+            // input exhausted
             return None;
-        }
+        };
+        let (input_tx, input_rx) = oneshot::channel();
+        self.input = Some(input_rx);
 
         let (values_tx, values_rx) = oneshot::channel();
         let values_future = async {
@@ -291,10 +297,11 @@ impl DictEncodedRuns {
                 Err(_) => Err(vortex_err!("sender dropped")),
             }
         };
+
         let codes_stream = Box::pin(DictEncodedRunStream {
-            input: self.input.clone(),
+            input: Some(input),
+            input_tx: Some(input_tx),
             values_tx: Some(values_tx),
-            exhausted: self.exhausted.clone(),
         });
 
         Some((codes_stream, values_future))
@@ -302,32 +309,62 @@ impl DictEncodedRuns {
 }
 
 struct DictEncodedRunStream {
-    input: Arc<Mutex<DictionaryStream>>,
+    input: Option<DictionaryStream>,
+    input_tx: Option<oneshot::Sender<Option<DictionaryStream>>>,
     values_tx: Option<oneshot::Sender<VortexResult<(SequenceId, ArrayRef)>>>,
-    exhausted: Arc<AtomicBool>,
 }
 
 impl Stream for DictEncodedRunStream {
     type Item = VortexResult<(SequenceId, ArrayRef)>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let poll_result = ready!(self.input.lock().as_mut().poll_next(cx));
+        let poll_result = {
+            let Some(stream) = self.input.as_mut() else {
+                return Poll::Ready(None);
+            };
+            ready!(stream.poll_next_unpin(cx))
+        };
+
         match poll_result {
             Some(Ok(DictionaryChunk::Codes(item))) => Poll::Ready(Some(Ok(item))),
             Some(Ok(DictionaryChunk::Values(item))) => {
-                // ignore receiver drops
-                let _ = self
-                    .values_tx
-                    .take()
-                    .vortex_expect("must not be polled after returning None")
-                    .send(Ok(item));
+                self.send_values(item);
+                self.send_back_input_stream();
                 Poll::Ready(None)
             }
             Some(Err(e)) => Poll::Ready(Some(Err(e))),
             None => {
-                self.exhausted.store(true, Ordering::SeqCst);
+                self.send_back_input_stream();
                 Poll::Ready(None)
             }
+        }
+    }
+}
+
+impl DictEncodedRunStream {
+    fn send_values(&mut self, item: (SequenceId, ArrayRef)) {
+        // ignore receiver drops
+        let _ = self
+            .values_tx
+            .take()
+            .vortex_expect("must not be polled after returning None")
+            .send(Ok(item));
+    }
+
+    fn send_back_input_stream(&mut self) {
+        // ignore receiver drops
+        let _ = self
+            .input_tx
+            .take()
+            .vortex_expect("input already sent")
+            .send(self.input.take());
+    }
+}
+
+impl Drop for DictEncodedRunStream {
+    fn drop(&mut self) {
+        if let Some(tx) = self.input_tx.take() {
+            let _ = tx.send(self.input.take());
         }
     }
 }
