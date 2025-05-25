@@ -59,7 +59,10 @@ impl SequenceId {
 
 impl Drop for SequenceId {
     fn drop(&mut self) {
-        self.universe.lock().remove(self);
+        let waker = self.universe.lock().remove(self);
+        if let Some(w) = waker {
+            w.wake();
+        }
     }
 }
 
@@ -95,16 +98,14 @@ impl SequenceUniverse {
         self.active.insert(sequence_id.id.clone());
     }
 
-    fn remove(&mut self, sequence_id: &SequenceId) {
+    fn remove(&mut self, sequence_id: &SequenceId) -> Option<Waker> {
         self.active.remove(&sequence_id.id);
         let Some(first) = self.active.first() else {
             // last sequence finished, we must have no pending futures
             assert!(self.wakers.is_empty(), "all wakers must have been removed");
-            return;
+            return None;
         };
-        if let Some(waker) = self.wakers.remove(first) {
-            waker.wake_by_ref();
-        }
+        self.wakers.remove(first)
     }
 
     pub fn next_segment_id(&mut self) -> SegmentId {
