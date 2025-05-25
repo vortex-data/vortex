@@ -162,7 +162,9 @@ fn dict_encode_stream(
             match input.as_mut().peek().await {
                 Some(_) => {
                     let mut labeler = DictChunkLabeler::new(sequence_id);
-                    for dict_chunk in state.encode(&mut labeler, chunk) {
+                    let chunks = state.encode(&mut labeler, chunk);
+                    drop(labeler);
+                    for dict_chunk in chunks {
                         yield dict_chunk?;
                     }
                 }
@@ -171,6 +173,7 @@ fn dict_encode_stream(
                     let mut labeler = DictChunkLabeler::new(sequence_id);
                     let encoded = state.encode(&mut labeler, chunk);
                     let drained = state.drain_values(&mut labeler);
+                    drop(labeler);
                     for dict_chunk in encoded.into_iter().chain(drained.into_iter()) {
                         yield dict_chunk?;
                     }

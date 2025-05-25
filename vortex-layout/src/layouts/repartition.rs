@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use async_stream::try_stream;
-use futures::StreamExt as _;
+use futures::{StreamExt as _, pin_mut};
 use arcref::ArcRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
@@ -46,17 +46,18 @@ impl LayoutStrategy for RepartitionStrategy {
     ) -> Pin<Box<dyn LayoutWriter>> {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
-        let mut canonical_stream = stream.map(|chunk| {
+        let canonical_stream: SequentialArrayStream = Box::pin(stream.map(|chunk| {
             let (sequence_id, chunk) = chunk?;
             VortexResult::Ok((sequence_id, chunk.to_canonical()?.into_array()))
-        });
+        }));
 
         let dtype_clone = dtype.clone();
         let options = self.options.clone();
         let repartitioned_stream = try_stream! {
-            let mut last_sequence_pointer = None;
+            let canonical_stream = canonical_stream.peekable();
+            pin_mut!(canonical_stream);
             let mut chunks = ChunksBuffer::new(options.clone());
-            while let Some(chunk) = canonical_stream.next().await {
+            while let Some(chunk) = canonical_stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;
                 let mut sequence_pointer = sequence_id.descend();
                 let mut offset = 0;
@@ -73,15 +74,12 @@ impl LayoutStrategy for RepartitionStrategy {
                         yield (sequence_pointer.advance(), chunked_array)
                     }
                 }
-                last_sequence_pointer = Some(sequence_pointer);
+                if let None = canonical_stream.as_mut().peek().await {
+                    let to_flush = to_canonical_chunked(chunks.data.drain(..).collect(), &dtype_clone)?;
+                    yield (sequence_pointer.advance(), to_flush)
+
+                }
             }
-            // stream is consumed, flush remaining chunks if any
-            let Some(mut sequence_pointer) = last_sequence_pointer else {
-                assert!(chunks.data.is_empty());
-                return;
-            };
-            let to_flush = to_canonical_chunked(chunks.data.drain(..).collect(), &dtype_clone)?;
-            yield (sequence_pointer.advance(), to_flush)
         };
 
         self.child
