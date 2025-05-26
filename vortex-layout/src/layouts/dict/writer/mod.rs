@@ -2,23 +2,23 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 
+use arcref::ArcRef;
 use async_stream::try_stream;
-use bytes::Bytes;
 use futures::channel::oneshot;
 use futures::stream::once;
 use futures::{Stream, StreamExt, pin_mut};
-use vortex_array::vtable::EncodingVTable as _;
-use vortex_array::{Array, ArrayContext, ArrayRef, ProstMetadata, SerializeMetadata};
-use arcref::ArcRef;
+use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
+use super::DictLayout;
+use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SegmentWriter;
 use crate::sequence::{SequenceId, SequencePointer};
-use crate::{LayoutRef, LayoutStrategy, LayoutWriter, SequentialArrayStream};
+use crate::{IntoLayout, LayoutStrategy, LayoutWriter, OwnedLayoutChildren, SequentialArrayStream};
 
 #[derive(Clone)]
 pub struct DictLayoutOptions {
@@ -124,14 +124,19 @@ impl LayoutStrategy for DictStrategy {
                         Box::pin(once(values_future)),
                     )
                     .await?;
-                children.push(dict_layout(values_layout, codes_layout)?);
+                children.push(DictLayout::new(values_layout, codes_layout).into_layout());
             }
             if children.len() == 1 {
                 return Ok(children.remove(0));
             }
 
             let row_count = children.iter().map(|child| child.row_count()).sum();
-            Ok(chunked_layout(dtype.clone(), row_count, children))
+            Ok(ChunkedLayout::new(
+                row_count,
+                dtype,
+                OwnedLayoutChildren::layout_children(children),
+            )
+            .into_layout())
         })
     }
 }
@@ -405,23 +410,6 @@ impl DictLayoutMetadata {
         metadata.set_codes_ptype(codes_ptype);
         metadata
     }
-}
-
-fn dict_layout(values: Layout, codes: Layout) -> VortexResult<Layout> {
-    let metadata = Bytes::from(
-        ProstMetadata(DictLayoutMetadata::new(codes.dtype().try_into()?))
-            .serialize()
-            .ok_or_else(|| vortex_err!("could not serialize dict layout metadata"))?,
-    );
-    Ok(Layout::new_owned(
-        "dict".into(),
-        LayoutVTableRef::new_ref(&DictLayout),
-        values.dtype().clone(),
-        codes.row_count(),
-        vec![],
-        vec![values, codes],
-        Some(metadata),
-    ))
 }
 
 enum EncodingState {

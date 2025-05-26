@@ -1,10 +1,10 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use futures::StreamExt;
 use futures::stream::once;
 use vortex_array::ArrayContext;
-use arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 
@@ -12,7 +12,7 @@ use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::SegmentWriter;
-use crate::{LayoutStrategy, IntoLayout, LayoutRef, LayoutWriter, SequentialArrayStream};
+use crate::{IntoLayout, LayoutStrategy, LayoutWriter, SequentialArrayStream};
 
 pub struct ChunkedLayoutStrategy {
     /// The layout strategy for each chunk.
@@ -59,13 +59,12 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
                 Ok(child_layouts.pop().vortex_expect("must have one child"))
             } else {
                 Ok(ChunkedLayout::new(
-                    self.row_count,
-                    self.dtype.clone(),
-                    OwnedLayoutChildren::layout_children(children),
+                    row_count,
+                    dtype,
+                    OwnedLayoutChildren::layout_children(child_layouts),
                 )
                 .into_layout())
             }
         })
     }
 }
-

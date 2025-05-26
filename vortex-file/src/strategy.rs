@@ -4,28 +4,20 @@ use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use async_stream::try_stream;
 use arcref::ArcRef;
+use async_stream::try_stream;
 use futures::{FutureExt, StreamExt, pin_mut};
-use itertools::Itertools;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::stats::{{PRUNING_STATS, STATS_TO_WRITE}, Stat};
-use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
+use vortex_array::stats::{PRUNING_STATS, Stat};
+use vortex_array::{Array, ArrayContext};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
-use vortex_layout::layouts::stats::writer::{StatsLayoutOptions, StatsStrategy};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
+use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
 use vortex_layout::scan::{TaskExecutor, TaskExecutorExt};
-use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedLayoutWriter};
-use vortex_layout::segments::{ConcurrentSegmentWriter, NewSegmentWriter};
-use vortex_layout::{
-    LayoutRef, LayoutStrategy, LayoutWriter, LayoutWriterExt, NewLayoutStrategy, NewLayoutWriter,
-    SequentialArrayStream,
-};
 use vortex_layout::segments::SegmentWriter;
 use vortex_layout::sequence::SequencePointer;
 use vortex_layout::{LayoutStrategy, LayoutWriter, SequentialArrayStream};
@@ -75,10 +67,10 @@ impl VortexLayoutStrategy {
         ));
 
         // 2. calculate stats for each row group
-        let stats = arcref(StatsStrategy::new(
+        let stats = arcref(ZonedStrategy::new(
             dict,
             compress_then_flat.clone(),
-            StatsLayoutOptions {
+            ZonedLayoutOptions {
                 block_size: ROW_BLOCK_SIZE,
                 stats: PRUNING_STATS.into(),
                 max_variable_length_statistics_size: 64,
@@ -141,7 +133,10 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
             .map(|chunk| {
                 async {
                     let (sequence_id, chunk) = chunk?;
-                    chunk.statistics().compute_all(STATS_TO_WRITE)?;
+                    // Compute the stats for the chunk prior to compression
+                    chunk
+                        .statistics()
+                        .compute_all(&Stat::all().collect::<Vec<_>>())?;
                     Ok((sequence_id, BtrBlocksCompressor.compress(&chunk)?))
                 }
                 .boxed()
@@ -214,4 +209,3 @@ impl LayoutStrategy for BufferedStrategy {
             .write_stream(&ctx, &dtype, segment_writer, Box::pin(buffered_stream))
     }
 }
-

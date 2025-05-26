@@ -3,20 +3,19 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 
+use arcref::ArcRef;
 use futures::future::try_join_all;
 use futures::{Stream, StreamExt as _};
 use itertools::Itertools;
 use parking_lot::Mutex;
-use vortex_array::ArrayContext;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::arcref::ArcRef;
-use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
+use vortex_array::{ArrayContext, ToCanonical};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, vortex_err};
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentWriter;
-use crate::{LayoutStrategy, LayoutVTableRef, LayoutWriter, SequentialArrayStream};
+use crate::{IntoLayout as _, LayoutStrategy, LayoutWriter, SequentialArrayStream};
 
 pub struct StructStrategy {
     child: ArcRef<dyn LayoutStrategy>,
@@ -50,16 +49,12 @@ impl LayoutStrategy for StructStrategy {
         let columns_vec_stream = stream.map(|chunk| {
             let (sequence_id, chunk) = chunk?;
             let mut sequence_pointer = sequence_id.descend();
-            let struct_chunk = chunk
-                .as_struct_typed()
-                .ok_or_else(|| vortex_err!("chunk is not struct typed"))?;
-            let columns: Vec<_> = (0..struct_chunk.nfields())
+            let struct_chunk = chunk.to_struct()?;
+            let columns: Vec<_> = (0..struct_chunk.struct_dtype().nfields())
                 .map(|idx| {
                     (
                         sequence_pointer.advance(),
-                        struct_chunk
-                            .maybe_null_field_by_idx(idx)
-                            .vortex_expect("bounds already checked"),
+                        struct_chunk.fields()[idx].to_array(),
                     )
                 })
                 .collect();
@@ -89,15 +84,7 @@ impl LayoutStrategy for StructStrategy {
             // TODO(os): transposed stream could count row counts as well,
             // This must hold though, all columns must have the same row count of the struct layout
             let row_count = column_layouts.get(0).map(|l| l.row_count()).unwrap_or(0);
-            Ok(Layout::new_owned(
-                "struct".into(),
-                LayoutVTableRef::new_ref(&StructLayout),
-                dtype,
-                row_count,
-                vec![],
-                column_layouts,
-                None,
-            ))
+            Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
         })
     }
 }
@@ -180,135 +167,6 @@ where
                 Poll::Ready(Some(Err(shared_err.clone().into())))
             }
         }
-    }
-}
-
-/// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
-pub struct StructLayoutWriter {
-    column_strategies: Vec<Arc<TokioMutex<Box<dyn LayoutWriter>>>>,
-    dtype: DType,
-    executor: Option<Arc<dyn TaskExecutor>>,
-    row_count: u64,
-}
-
-impl StructLayoutWriter {
-    pub fn try_new(
-        dtype: DType,
-        executor: Option<Arc<dyn TaskExecutor>>,
-        column_layout_writers: Vec<Box<dyn LayoutWriter>>,
-    ) -> VortexResult<Self> {
-        let struct_dtype = dtype
-            .as_struct()
-            .ok_or_else(|| vortex_err!("expected StructDType"))?;
-        if HashSet::from_iter(struct_dtype.names().iter()).len() != struct_dtype.names().len() {
-            vortex_bail!("StructLayout must have unique field names")
-        }
-        if struct_dtype.fields().len() != column_layout_writers.len() {
-            vortex_bail!(
-                "number of fields in struct dtype does not match number of column layout writers"
-            );
-        }
-        Ok(Self {
-            column_strategies: column_layout_writers
-                .into_iter()
-                .map(|w| Arc::new(TokioMutex::new(w)))
-                .collect(),
-            dtype,
-            executor,
-            row_count: 0,
-        })
-    }
-
-    pub fn try_new_with_strategy<S: LayoutStrategy>(
-        ctx: &ArrayContext,
-        dtype: &DType,
-        executor: Option<Arc<dyn TaskExecutor>>,
-        factory: S,
-    ) -> VortexResult<Self> {
-        let struct_dtype = dtype
-            .as_struct()
-            .ok_or_else(|| vortex_err!("expected StructDType"))?;
-        Self::try_new(
-            dtype.clone(),
-            executor,
-            struct_dtype
-                .fields()
-                .map(|dtype| factory.new_writer(ctx, &dtype))
-                .try_collect()?,
-        )
-    }
-}
-
-#[async_trait]
-impl LayoutWriter for StructLayoutWriter {
-    async fn push_chunk(
-        &mut self,
-        segment_writer: &mut dyn ConcurrentSegmentWriter,
-        chunk: ArrayRef,
-    ) -> VortexResult<()> {
-        let struct_array = chunk
-            .as_struct_typed()
-            .ok_or_else(|| vortex_err!("batch is not a struct array"))?;
-
-        if struct_array.nfields() != self.column_strategies.len() {
-            vortex_bail!(
-                "number of fields in struct array does not match number of column layout writers"
-            );
-        }
-        self.row_count += struct_array.len() as u64;
-
-        let column_futures = segment_writer
-            .split_off(struct_array.nfields())?
-            .into_iter()
-            .enumerate()
-            .map(|(i, mut writer)| {
-                // TODO(joe): handle struct validity
-                let column = chunk
-                    .as_struct_typed()
-                    .vortex_expect("batch is a struct array")
-                    .maybe_null_field_by_idx(i)
-                    .vortex_expect("bounds already checked");
-                let col_strategy = self.column_strategies[i].clone();
-                let column_fut = async move {
-                    for column_chunk in column.to_array_iterator() {
-                        col_strategy
-                            .lock()
-                            .await
-                            .push_chunk(&mut *writer, column_chunk?)
-                            .await?;
-                    }
-                    Ok(())
-                }
-                .boxed();
-                match &self.executor {
-                    Some(exec) => exec.spawn(column_fut),
-                    None => column_fut,
-                }
-            })
-            .collect_vec();
-        try_join_all(column_futures).await?;
-        Ok(())
-    }
-
-    async fn flush(
-        &mut self,
-        segment_writer: &mut dyn ConcurrentSegmentWriter,
-    ) -> VortexResult<()> {
-        for writer in self.column_strategies.iter_mut() {
-            writer.lock().await.flush(segment_writer).await?;
-        }
-        Ok(())
-    }
-
-    async fn finish(
-        &mut self,
-        segment_writer: &mut dyn ConcurrentSegmentWriter,
-    ) -> VortexResult<Layout> {
-        let mut column_layouts = vec![];
-        for writer in self.column_strategies.iter_mut() {
-            column_layouts.push(writer.lock().await.finish(segment_writer).await?);
-        }
-        Ok(StructLayout::new(self.row_count, self.dtype.clone(), column_layouts).into_layout())
     }
 }
 

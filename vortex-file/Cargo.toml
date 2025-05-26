@@ -26,7 +26,6 @@ getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 linked_hash_set = { workspace = true }
 log = { workspace = true }
-parking_lot = { workspace = true }
 moka = { workspace = true, features = ["future"] }
 object_store = { workspace = true, optional = true }
 parking_lot = { workspace = true }

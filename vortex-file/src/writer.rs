@@ -100,8 +100,12 @@ impl VortexWriteOptions {
             }
             Err(e) => future::ready(Some(Err(e))),
         }));
-        let (file_stats, stream) =
-            accumulate_stats(&dtype, stream, self.file_statistics.clone().into());
+        let (file_stats, stream) = accumulate_stats(
+            &dtype,
+            stream,
+            self.file_statistics.clone().into(),
+            self.max_variable_length_statistics_size,
+        );
 
         let strategy = VortexLayoutStrategy::multi_threaded(executor.clone(), end_of_file);
 
