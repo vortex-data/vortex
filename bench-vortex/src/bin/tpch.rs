@@ -1,5 +1,4 @@
-use std::env::temp_dir;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, fs};
@@ -467,13 +466,15 @@ async fn bench_main(
 }
 
 fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow::Result<()> {
-    let query_dir = PathBuf::from("duckdb-vortex/duckdb/extension/tpch/dbgen/queries");
-    let tempdir = temp_dir();
-    let dir = env::var("TMPDIR")
+    let query_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../duckdb-vortex/duckdb/extension/tpch/dbgen/queries");
+
+    let tmp_dir = format!(
+        "{}/spiral-tpch",
         // $RUNNER_TEMP is defined by GitHub Actions.
-        .and(env::var("RUNNER_TEMP"))
-        .unwrap_or_else(|_| tempdir.to_string_lossy().to_string());
-    let tmp_dir = format!("{dir}/spiral-tpch",);
+        env::var("TMPDIR").or_else(|_| env::var("RUNNER_TEMP"))?
+    );
+
     if PathBuf::from(&tmp_dir).exists() {
         fs::remove_dir_all(&tmp_dir)?;
     }
@@ -506,7 +507,8 @@ fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow:
 
         ddb::execute_tpch_query(&[create_table, write_csv], &executor)?;
 
-        let csv_expected = format!("bench-vortex/tpch_results/duckdb/{query_name}.csv");
+        let csv_expected = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("tpch_results/duckdb/{query_name}.csv"));
         let expected = fs::read_to_string(csv_expected)?;
         let actual = fs::read_to_string(csv_actual)?;
 
