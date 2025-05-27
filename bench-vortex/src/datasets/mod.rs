@@ -84,19 +84,11 @@ impl BenchmarkDataset {
     }
 
     pub fn parquet_path(&self, base_url: &Url) -> Result<Url> {
-        Ok(base_url.join("parquet/")?)
+        Ok(base_url.join(&format!("{}/", Format::Parquet))?)
     }
 
     pub fn vortex_path(&self, base_url: &Url) -> Result<Url> {
-        match self {
-            BenchmarkDataset::TpcH | BenchmarkDataset::TpcDS => {
-                Ok(base_url.join(&format!("{}/", Format::OnDiskVortex))?)
-            }
-            BenchmarkDataset::ClickBench { .. } => {
-                // ClickBench vortex files are stored in "vortex/" subdirectory
-                Ok(base_url.join("vortex/")?)
-            }
-        }
+        Ok(base_url.join(&format!("{}/", Format::OnDiskVortex))?)
     }
 
     pub async fn register_tables(
