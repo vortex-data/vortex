@@ -147,7 +147,7 @@ jobs:
         shell: bash
         run: |
           set -Eeu -o pipefail -x
-          
+
           base_commit_sha=$(\
             curl -L \
               -H "Accept: application/vnd.github+json" \
