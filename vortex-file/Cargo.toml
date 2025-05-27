@@ -14,8 +14,8 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
-async-stream = { workspace = true }
 arcref = { workspace = true }
+async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
