@@ -79,15 +79,15 @@ jobs:
           sync: false
 
       # Ensure the stub files are up-to-date with the public API of the native module.
-      - name: Stubtest - PyVortex
+      - name: Stubtest - Vortex
         run: |
           uv run --isolated --all-packages stubtest vortex._lib --allowlist python/vortex/_lib/mypy.allowlist
-        working-directory: pyvortex/
+        working-directory: vortex-python/
 
-      - name: Pytest - PyVortex
+      - name: Pytest - Vortex
         run: |
           uv run --isolated --all-packages pytest --benchmark-disable test/
-        working-directory: pyvortex/
+        working-directory: vortex-python/
 
       - name: Doctest - PyVortex
         run: |
@@ -120,7 +120,7 @@ jobs:
           else
             echo "Generated two files"
           fi
-        working-directory: pyvortex/
+        working-directory: vortex-python/
 
   rust-docs:
     name: "Rust (docs)"
@@ -140,7 +140,7 @@ jobs:
         run: |
           cargo doc --no-deps
           # nextest doesn't support doc tests, so we run it here
-          cargo test --doc --workspace --all-features --exclude pyvortex --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
+          cargo test --doc --workspace --all-features --exclude vortex-python --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
@@ -391,7 +391,7 @@ jobs:
             --exclude vortex-datafusion \
             --exclude vortex-tui \
             --exclude vortex-fuzz \
-            --exclude pyvortex \
+            --exclude vortex-python \
             --exclude xtask \
             --workspace \
             --profile bench

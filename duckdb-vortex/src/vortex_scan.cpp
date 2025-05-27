@@ -251,7 +251,13 @@ static bool PinFileToThread(ScanGlobalState &global_state) {
 
 static void CreateScanPartitions(ClientContext &context, const BindData &bind, ScanGlobalState &global_state,
                                  ScanLocalState &local_state, uint64_t file_idx, FileReader &file_reader) {
-	const auto file_name = global_state.expanded_files[file_idx];
+
+	if (global_state.file_readers[file_idx]->CanPrune(global_state.filter_str.data(),
+	                                                  static_cast<unsigned>(global_state.filter_str.length()))) {
+		global_state.files_partitioned += 1;
+		return;
+	}
+
 	const auto row_count = Try([&](auto err) { return vx_file_row_count(file_reader.file, err); });
 
 	const auto thread_count = std::thread::hardware_concurrency();

@@ -239,7 +239,10 @@ pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef>
     let mask_array = BooleanArray::new(values.boolean_buffer().clone(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
-    Ok(ArrayRef::from_arrow(filtered, array.dtype().is_nullable()))
+    Ok(ArrayRef::from_arrow(
+        filtered.as_ref(),
+        array.dtype().is_nullable(),
+    ))
 }
 
 #[cfg(test)]
