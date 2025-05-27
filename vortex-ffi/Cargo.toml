@@ -17,6 +17,7 @@ rust-version = { workspace = true }
 categories = { workspace = true }
 
 [dependencies]
+async-channel = { workspace = true }
 duckdb = { workspace = true, optional = true }
 futures = { workspace = true }
 itertools = { workspace = true }
