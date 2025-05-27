@@ -10,9 +10,6 @@ on:
         required: true
         type: string
 
-permissions:
-  actions: read
-
 jobs:
   build-duckdb:
     timeout-minutes: 120
