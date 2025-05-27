@@ -4,8 +4,7 @@ env:
   DUCKDB_VERSION: v1.2.2
 
 on:
-  push:
-    branches: [ develop ]
+  workflow_dispatch: {}
 
 permissions:
   id-token: write  # enables AWS-GitHub OIDC
