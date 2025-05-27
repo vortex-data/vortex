@@ -1,4 +1,5 @@
 mod constant;
+mod decimal;
 mod dict;
 mod primitive;
 mod run_end;
@@ -165,7 +166,7 @@ fn create_exporter(
         Canonical::Null(_) => {}
         Canonical::Bool(_) => {}
         Canonical::Primitive(array) => return primitive::new_exporter(array),
-        Canonical::Decimal(_) => {}
+        Canonical::Decimal(array) => return decimal::new_exporter(array),
         Canonical::Struct(_) => {}
         Canonical::List(_) => {}
         Canonical::VarBinView(array) => return varbinview::new_exporter(array),

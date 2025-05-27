@@ -11,6 +11,7 @@ mod varbinview;
 
 pub use cache::ConversionCache;
 pub use data_chunk_adaptor::NamedDataChunk;
+pub use decimal::precision_to_duckdb_storage_size;
 use duckdb::vtab::arrow::WritableVector;
 pub use table::to_duckdb_chunk;
 pub use varbinview::{PtrBinaryView, to_ptr_binary_view};
