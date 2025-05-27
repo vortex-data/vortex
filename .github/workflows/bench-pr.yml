@@ -151,9 +151,9 @@ jobs:
           base_commit_sha=$(\
             curl -L \
               -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
               https://api.github.com/repos/vortex-data/vortex/actions/workflows/bench.yml/runs\?branch\=develop\&status\=success\&per_page\=1 \
-            | jq . '.workflow_runs[].head_sha' \
+            | jq -r '.workflow_runs[].head_sha' \
           )
 
           aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - \
