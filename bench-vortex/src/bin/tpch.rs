@@ -472,7 +472,7 @@ fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow:
     let dir = env::var("TMPDIR")
         // $RUNNER_TEMP is defined by GitHub Actions.
         .and(env::var("RUNNER_TEMP"))
-        .unwrap_or(tempdir.to_string_lossy().to_string());
+        .unwrap_or_else(|_| tempdir.to_string_lossy().to_string());
     let tmp_dir = format!("{dir}/spiral-tpch",);
     if PathBuf::from(&tmp_dir).exists() {
         fs::remove_dir_all(&tmp_dir)?;

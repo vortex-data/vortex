@@ -94,7 +94,7 @@ impl DuckDBCtx {
     pub fn duckdb_file(&self, format: Format) -> PathBuf {
         let dir = format!("clickbench_partitioned/{}", format.name()).to_data_path();
         std::fs::create_dir_all(&dir).vortex_expect("failed to create duckdb data dir");
-        dir.join(format!("hits.db"))
+        dir.join("hits.db")
     }
 }
 
