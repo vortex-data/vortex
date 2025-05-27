@@ -131,7 +131,6 @@ fn indices_range(range: &Range<u64>, row_indices: &[u64]) -> Option<Range<usize>
     (start_idx != end_idx).then_some(start_idx..end_idx)
 }
 
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::Buffer;
@@ -142,10 +141,7 @@ mod tests {
         let range = 1..8;
         let row_mask = selection.row_mask(&range);
 
-        assert_eq!(
-            row_mask.mask().values().unwrap().indices(),
-            &[0, 2, 4, 6]
-        );
+        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2, 4, 6]);
     }
 
     #[test]
@@ -154,10 +150,7 @@ mod tests {
         let range = 3..6;
         let row_mask = selection.row_mask(&range);
 
-        assert_eq!(
-            row_mask.mask().values().unwrap().indices(),
-            &[0, 2]
-        );
+        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2]);
     }
 
     #[test]
@@ -166,10 +159,7 @@ mod tests {
         let range = 3..5;
         let row_mask = selection.row_mask(&range);
 
-        assert_eq!(
-            row_mask.mask().values().unwrap().indices(),
-            &[0]
-        );
+        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0]);
     }
 
     #[test]
