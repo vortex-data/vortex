@@ -137,7 +137,7 @@ struct ArrayExporter {
 
 	static duckdb::unique_ptr<ArrayExporter> FromArrayIterator(duckdb::unique_ptr<ArrayIterator> array_iter) {
 		auto exporter = Try([&](auto err) {
-			return vx_duckdb_exporter_create(array_iter.release()->array_iter, err);
+			return vx_duckdb_exporter_create(std::move(array_iter->array_iter), err);
 		});
 		return duckdb::make_uniq<ArrayExporter>(exporter);
 	}
