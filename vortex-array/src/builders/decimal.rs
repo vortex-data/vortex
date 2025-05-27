@@ -4,7 +4,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
-use vortex_scalar::{NativeDecimalType, i256};
+use vortex_scalar::{DecimalValueType, NativeDecimalType, i256};
 
 use crate::arrays::{BoolArray, DecimalArray};
 use crate::builders::ArrayBuilder;
@@ -15,7 +15,7 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 /// Inner type holding the values
 #[derive(Debug)]
 // TODO(aduffy): make private
-pub enum InnerDecimalBuilder {
+enum InnerDecimalBuilder {
     I8(BufferMut<i8>),
     I16(BufferMut<i16>),
     I32(BufferMut<i32>),
@@ -137,11 +137,8 @@ pub struct DecimalBuilder {
 const DEFAULT_BUILDER_CAPACITY: usize = 1024;
 
 impl DecimalBuilder {
-    pub fn new<T: NativeDecimalType>(precision: u8, scale: i8, nullability: Nullability) -> Self
-    where
-        BufferMut<T>: Into<InnerDecimalBuilder>,
-    {
-        Self::with_capacity(
+    pub fn new<T: NativeDecimalType>(precision: u8, scale: i8, nullability: Nullability) -> Self {
+        Self::with_capacity::<T>(
             DEFAULT_BUILDER_CAPACITY,
             DecimalDType::new(precision, scale),
             nullability,
@@ -152,12 +149,19 @@ impl DecimalBuilder {
         capacity: usize,
         decimal: DecimalDType,
         nullability: Nullability,
-    ) -> Self
-    where
-        BufferMut<T>: Into<InnerDecimalBuilder>,
-    {
+    ) -> Self {
+        let values: InnerDecimalBuilder = match T::VALUES_TYPE {
+            DecimalValueType::I8 => BufferMut::<i8>::with_capacity(capacity).into(),
+            DecimalValueType::I16 => BufferMut::<i16>::with_capacity(capacity).into(),
+            DecimalValueType::I32 => BufferMut::<i32>::with_capacity(capacity).into(),
+            DecimalValueType::I64 => BufferMut::<i64>::with_capacity(capacity).into(),
+            DecimalValueType::I128 => BufferMut::<i128>::with_capacity(capacity).into(),
+            DecimalValueType::I256 => BufferMut::<i256>::with_capacity(capacity).into(),
+            v => unreachable!("invalid values type {v:?}"),
+        };
+
         Self {
-            values: BufferMut::<T>::with_capacity(capacity).into(),
+            values,
             nulls: LazyNullBufferBuilder::new(capacity),
             dtype: DType::Decimal(decimal, nullability),
         }
@@ -189,13 +193,6 @@ impl DecimalBuilder {
             }
             None => self.append_null(),
         }
-    }
-
-    pub fn values<T>(&self) -> &[T]
-    where
-        InnerDecimalBuilder: AsRef<[T]>,
-    {
-        self.values.as_ref()
     }
 
     pub fn finish_into_decimal(&mut self) -> DecimalArray {

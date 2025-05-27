@@ -36,11 +36,6 @@ impl i256 {
         Self(arrow_buffer::i256::from_le_bytes(bytes))
     }
 
-    /// Return the memory representation of this integer as a byte array in little-endian byte order.
-    pub fn to_le_bytes(&self) -> [u8; 32] {
-        self.0.to_le_bytes()
-    }
-
     /// Split the 256-bit signed integer value into an unsigned lower bits and a signed upper bits.
     ///
     /// This versions gives us ownership of the value.
@@ -59,6 +54,18 @@ impl i256 {
 
     pub fn wrapping_add(&self, other: Self) -> Self {
         Self(self.0.wrapping_add(other.0))
+    }
+
+    /// Return the memory representation of this integer as a byte array in little-endian byte order.
+    #[inline]
+    pub fn to_le_bytes(&self) -> [u8; 32] {
+        self.0.to_le_bytes()
+    }
+
+    /// Return the memory representation of this integer as a byte array in big-endian byte order.
+    #[inline]
+    pub fn to_be_bytes(&self) -> [u8; 32] {
+        self.0.to_be_bytes()
     }
 }
 

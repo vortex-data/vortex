@@ -131,6 +131,11 @@ public final class JNIArray implements Array {
     }
 
     @Override
+    public double getBigDecimal(int index) {
+        return NativeArrayMethods.getBigDecimal(pointer.getAsLong(), index);
+    }
+
+    @Override
     public String getUTF8(int index) {
         return NativeArrayMethods.getUTF8(pointer.getAsLong(), index);
     }
