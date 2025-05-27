@@ -9,10 +9,10 @@
 
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/helper.hpp"
-#include "duckdb/common/multi_file_reader.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/common/file_system.hpp"
+#include "duckdb/common/multi_file/multi_file_list.hpp"
 #include "duckdb/storage/object_cache.hpp"
 
 #include "concurrentqueue.h"
@@ -54,10 +54,12 @@ struct BindData : public TableFunctionData {
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto result = make_uniq<BindData>();
+		result->session = session;
 		result->file_list = file_list;
 		result->columns_types = columns_types;
 		result->column_names = column_names;
-		return std::move(result);
+		result->initial_file = initial_file;
+ 		return std::move(result);
 	}
 };
 
@@ -435,11 +437,12 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
 
 	result->session = session;
 
-	auto file_glob = duckdb::vector<string> {input.inputs[0].GetValue<string>()};
+	auto file_glob_strings = duckdb::vector<string> {input.inputs[0].GetValue<string>()};
+	auto file_glob = duckdb::vector<OpenFileInfo>(file_glob_strings.begin(), file_glob_strings.end());
 	result->file_list = make_shared_ptr<GlobMultiFileList>(context, file_glob, FileGlobOptions::DISALLOW_EMPTY);
 
 	// Open the first file to extract the schema.
-	auto filename = EnsureFileProtocol(FileSystem::GetFileSystem(context), result->file_list->GetFirstFile());
+	auto filename = EnsureFileProtocol(FileSystem::GetFileSystem(context), result->file_list->GetFirstFile().path);
 	result->initial_file = OpenFile(filename, *result->session, column_types, column_names);
 
 	result->column_names = column_names;
@@ -486,7 +489,11 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 		auto global_state = make_uniq<ScanGlobalState>();
 
 		// TODO(joe): do this expansion gradually in the scan to avoid a slower start.
-		global_state->expanded_files = bind.file_list->GetAllFiles();
+		auto file_infos = bind.file_list->GetAllFiles();
+		global_state->expanded_files.reserve(file_infos.size());
+		for (const auto &file_info : file_infos) {
+			global_state->expanded_files.push_back(file_info.path);
+		}
 		global_state->filter = input.filters;
 		global_state->column_ids = input.column_ids;
 
