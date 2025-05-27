@@ -4,7 +4,7 @@ use duckdb::vtab::arrow::WritableVector;
 use num_traits::{NumCast, ToPrimitive};
 use vortex_array::arrays::DecimalArray;
 use vortex_buffer::Buffer;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
 
@@ -57,7 +57,8 @@ where
             .iter()
             .zip(vector.as_mut_slice_with_len(len))
         {
-            *dst = <N as NumCast>::from(*src);
+            *dst = <N as NumCast>::from(*src)
+                .vortex_expect("Decimal value must fit into target precision, we checked");
         }
 
         Ok(())

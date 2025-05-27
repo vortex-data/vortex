@@ -107,8 +107,16 @@ struct ArrayIterator {
 	explicit ArrayIterator(vx_array_iterator *array_iter) : array_iter(array_iter) {
 	}
 
+	vx_array_iterator* release() {
+        auto* ptr = array_iter;
+        array_iter = nullptr;  // Give up ownership
+        return ptr;
+    }
+
 	~ArrayIterator() {
-		vx_array_iter_free(array_iter);
+		if (array_iter) {
+			vx_array_iter_free(array_iter);
+		}
 	}
 
 	duckdb::unique_ptr<Array> NextArray() const {
@@ -136,9 +144,8 @@ struct ArrayExporter {
 	}
 
 	static duckdb::unique_ptr<ArrayExporter> FromArrayIterator(duckdb::unique_ptr<ArrayIterator> array_iter) {
-		auto iter = std::move(array_iter); // Move the unique_ptr
 		auto exporter = Try([&](auto err) {
-			return vx_duckdb_exporter_create(std::move(raw_iter->array_iter), err);
+			return vx_duckdb_exporter_create(array_iter->release(), err);
 		});
 		return duckdb::make_uniq<ArrayExporter>(exporter);
 	}
