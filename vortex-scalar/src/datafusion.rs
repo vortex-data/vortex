@@ -10,7 +10,7 @@ use vortex_dtype::half::f16;
 use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, DecimalDType, Nullability, PType};
 use vortex_error::{VortexError, vortex_bail};
 
-use crate::{DecimalValue, InnerScalarValue, PValue, Scalar, i256};
+use crate::{DecimalValue, InnerScalarValue, PValue, Scalar};
 
 impl TryFrom<Scalar> for ScalarValue {
     type Error = VortexError;
@@ -54,9 +54,11 @@ impl TryFrom<Scalar> for ScalarValue {
                 } else {
                     match dscalar.decimal_value() {
                         None => ScalarValue::Decimal256(None, precision, scale),
-                        Some(DecimalValue::I256(v256)) => {
-                            ScalarValue::Decimal256(Some((*v256).into()), precision, scale)
-                        }
+                        Some(DecimalValue::I256(v256)) => ScalarValue::Decimal256(
+                            Some(arrow_buffer::i256::from_le_bytes(v256.to_le_bytes())),
+                            precision,
+                            scale,
+                        ),
                         _ => vortex_bail!(
                             "invalid ScalarValue for decimal with precision {}",
                             precision
@@ -228,7 +230,7 @@ impl From<ScalarValue> for Scalar {
                 let nullable = Nullability::Nullable;
                 if let Some(value) = decimal {
                     Scalar::decimal(
-                        DecimalValue::I256(i256::from(value)),
+                        DecimalValue::I256(crate::i256::from_le_bytes(value.to_le_bytes())),
                         decimal_dtype,
                         Nullability::Nullable,
                     )
