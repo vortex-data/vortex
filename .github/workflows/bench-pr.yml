@@ -152,7 +152,6 @@ jobs:
 
           aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - \
             | gzip -d \
-            | grep $base_commit_sha \
             > base.json
 
           echo '# Benchmarks: ${{ matrix.benchmark.id }}' > comment.md
