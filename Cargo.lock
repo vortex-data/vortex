@@ -2735,6 +2735,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "i256"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d33e2469f814f46f104fc4641cba20f3ba3b2b902e7d3c12db5bab37b33f6ac9"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "iana-time-zone"
 version = "0.1.63"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6606,6 +6615,7 @@ dependencies = [
  "bytes",
  "datafusion-common",
  "getrandom 0.2.16",
+ "i256",
  "itertools 0.14.0",
  "num-traits",
  "paste",

@@ -1,4 +1,5 @@
 use arbitrary::{Result, Unstructured};
+use num_traits::One;
 use vortex_dtype::{DECIMAL128_MAX_PRECISION, DecimalDType};
 use vortex_error::VortexUnwrap;
 
@@ -18,7 +19,7 @@ pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Resu
         // Generate a random i256 value in between the min/max range, inclusive
         let min = MIN_DECIMAL256_FOR_EACH_PRECISION[precision as usize];
         let max = MAX_DECIMAL256_FOR_EACH_PRECISION[precision as usize];
-        let delta = (max - min) + i256::ONE;
+        let delta = (max - min) + i256::one();
 
         let rand_bytes = i256::from_le_bytes(u.bytes(32)?.try_into().vortex_unwrap());
         let value = (rand_bytes % delta) + min;
@@ -113,7 +114,7 @@ const MIN_DECIMAL128_FOR_EACH_PRECISION: [i128; 39] = [
 ];
 
 const MAX_DECIMAL256_FOR_EACH_PRECISION: [i256; 77] = [
-    i256::ZERO, // unused first element
+    i256::from_i64(0), // unused first element
     i256::from_le_bytes([
         9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0,
@@ -421,7 +422,7 @@ const MAX_DECIMAL256_FOR_EACH_PRECISION: [i256; 77] = [
 ];
 
 const MIN_DECIMAL256_FOR_EACH_PRECISION: [i256; 77] = [
-    i256::ZERO, // unused first element
+    i256::from_i64(0), // unused first element
     i256::from_le_bytes([
         247, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
