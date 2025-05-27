@@ -1,9 +1,9 @@
 use futures::StreamExt;
-use futures::channel::mpsc::{self, UnboundedSender};
+use futures::channel::mpsc;
 use futures::io::Cursor;
 use parking_lot::Mutex;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 use vortex_io::VortexWrite;
 use vortex_layout::segments::{SegmentId, SegmentWriter};
 
@@ -14,7 +14,7 @@ pub struct SerialSegmentWriter {
 }
 
 struct State {
-    flush_tx: UnboundedSender<Vec<ByteBuffer>>,
+    flush_tx: mpsc::UnboundedSender<Vec<ByteBuffer>>,
     next_expected: SegmentId,
 }
 
@@ -32,7 +32,8 @@ impl SegmentWriter for SerialSegmentWriter {
         guard
             .flush_tx
             .unbounded_send(buffer)
-            .expect("out of memory");
+            .map_err(|_| vortex_err!("out of memory"))
+            .vortex_unwrap();
         Ok(())
     }
 }

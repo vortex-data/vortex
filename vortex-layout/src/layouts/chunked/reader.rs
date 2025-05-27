@@ -315,6 +315,7 @@ mod test {
     use std::sync::Arc;
 
     use futures::executor::block_on;
+    use futures::{StreamExt, stream};
     use rstest::{fixture, rstest};
     use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
@@ -323,31 +324,34 @@ mod test {
     use vortex_expr::Identity;
     use vortex_mask::Mask;
 
-    use crate::LayoutRef;
-    use crate::layouts::chunked::writer::ChunkedLayoutWriter;
+    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::segments::{SegmentSource, TestSegments};
-    use crate::writer::LayoutWriterExt;
+    use crate::sequence::SequenceId;
+    use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn chunked_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
-        let mut segments = TestSegments::default();
-        let layout = ChunkedLayoutWriter::new(
-            ctx.clone(),
-            DType::Primitive(PType::I32, NonNullable),
-            Default::default(),
-        )
-        .push_all(
-            &mut segments,
-            [
-                Ok(buffer![1, 2, 3].into_array()),
-                Ok(buffer![4, 5, 6].into_array()),
-                Ok(buffer![7, 8, 9].into_array()),
-            ],
+        let segments = Arc::new(TestSegments::default());
+        let strategy = ChunkedLayoutStrategy::default();
+        let mut sequence_id = SequenceId::root();
+        let layout = block_on(
+            strategy.write_stream(
+                &ctx,
+                &DType::Primitive(PType::I32, NonNullable),
+                segments.clone(),
+                stream::iter([
+                    Ok((sequence_id.advance(), buffer![1, 2, 3].into_array())),
+                    Ok((sequence_id.advance(), buffer![4, 5, 6].into_array())),
+                    Ok((sequence_id.advance(), buffer![7, 8, 9].into_array())),
+                ])
+                .boxed(),
+            ),
         )
         .unwrap();
-        (ctx, Arc::new(segments), layout)
+
+        (ctx, segments, layout)
     }
 
     #[rstest]

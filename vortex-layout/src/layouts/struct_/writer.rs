@@ -37,7 +37,8 @@ impl LayoutStrategy for StructStrategy {
         stream: SequentialArrayStream,
     ) -> Pin<Box<dyn LayoutWriter>> {
         let Some(struct_dtype) = dtype.as_struct().cloned() else {
-            return Box::pin(async { Err(vortex_err!("expected StructDType")) });
+            // nothing we can do if dtype is not struct
+            return self.child.write_stream(ctx, dtype, segment_writer, stream);
         };
         if HashSet::from_iter(struct_dtype.names().iter()).len() != struct_dtype.names().len() {
             return Box::pin(async {
@@ -71,19 +72,18 @@ impl LayoutStrategy for StructStrategy {
         });
         let child = self.child.clone();
         let ctx = ctx.clone();
-        let layout_futures =
-            column_dtypes
-                .zip_eq(column_streams.into_iter())
-                .map(move |(dtype, stream)| {
-                    child.write_stream(&ctx, &dtype, segment_writer.clone(), Box::pin(stream))
-                });
+        let layout_futures = column_dtypes
+            .zip_eq(column_streams)
+            .map(move |(dtype, stream)| {
+                child.write_stream(&ctx, &dtype, segment_writer.clone(), Box::pin(stream))
+            });
 
         let dtype = dtype.clone();
         Box::pin(async move {
             let column_layouts = try_join_all(layout_futures).await?;
             // TODO(os): transposed stream could count row counts as well,
             // This must hold though, all columns must have the same row count of the struct layout
-            let row_count = column_layouts.get(0).map(|l| l.row_count()).unwrap_or(0);
+            let row_count = column_layouts.first().map(|l| l.row_count()).unwrap_or(0);
             Ok(StructLayout::new(row_count, dtype, column_layouts).into_layout())
         })
     }
@@ -164,7 +164,7 @@ where
                 for buffer in guard.buffers.iter_mut() {
                     buffer.push_back(Err(shared_err.clone().into()));
                 }
-                Poll::Ready(Some(Err(shared_err.clone().into())))
+                Poll::Ready(Some(Err(shared_err.into())))
             }
         }
     }
@@ -174,42 +174,39 @@ where
 mod tests {
     use std::sync::Arc;
 
+    use arcref::ArcRef;
+    use futures::executor::block_on;
+    use futures::{StreamExt, stream};
     use vortex_array::ArrayContext;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::LayoutWriterExt;
-    use crate::layouts::flat::writer::{FlatLayoutStrategy, FlatLayoutWriter};
-    use crate::layouts::struct_::writer::StructLayoutWriter;
+    use crate::LayoutStrategy;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::struct_::writer::StructStrategy;
+    use crate::segments::TestSegments;
 
     #[test]
     #[should_panic]
     fn fails_on_duplicate_field() {
-        StructLayoutWriter::try_new(
-            DType::Struct(
-                Arc::new(
-                    [
-                        ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                        ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                    ]
-                    .into_iter()
-                    .collect(),
+        let strategy =
+            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        block_on(
+            strategy.write_stream(
+                &ArrayContext::empty(),
+                &DType::Struct(
+                    Arc::new(
+                        [
+                            ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                            ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    ),
+                    Nullability::NonNullable,
                 ),
-                Nullability::NonNullable,
+                Arc::new(TestSegments::default()),
+                stream::empty().boxed(),
             ),
-            vec![
-                FlatLayoutWriter::new(
-                    ArrayContext::empty(),
-                    DType::Primitive(PType::I32, Nullability::NonNullable),
-                    FlatLayoutStrategy::default(),
-                )
-                .boxed(),
-                FlatLayoutWriter::new(
-                    ArrayContext::empty(),
-                    DType::Primitive(PType::I32, Nullability::NonNullable),
-                    FlatLayoutStrategy::default(),
-                )
-                .boxed(),
-            ],
         )
         .unwrap();
     }

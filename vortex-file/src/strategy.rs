@@ -182,7 +182,7 @@ impl LayoutStrategy for BufferedStrategy {
                 chunks.push_back(chunk);
 
                 // if this is the last element, flush everything
-                if let None = stream.as_mut().peek().await {
+                if stream.as_mut().peek().await.is_none() {
                     let mut sequence_pointer = sequence_id.descend();
                     while let Some(chunk) = chunks.pop_front() {
                         yield (sequence_pointer.advance(), chunk)
@@ -206,6 +206,6 @@ impl LayoutStrategy for BufferedStrategy {
             }
         };
         self.child
-            .write_stream(&ctx, &dtype, segment_writer, Box::pin(buffered_stream))
+            .write_stream(ctx, dtype, segment_writer, Box::pin(buffered_stream))
     }
 }

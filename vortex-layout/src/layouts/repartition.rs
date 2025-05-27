@@ -2,9 +2,9 @@ use std::collections::VecDeque;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use async_stream::try_stream;
 use futures::{StreamExt as _, pin_mut};
-use arcref::ArcRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::DType;
@@ -74,7 +74,7 @@ impl LayoutStrategy for RepartitionStrategy {
                         yield (sequence_pointer.advance(), chunked_array)
                     }
                 }
-                if let None = canonical_stream.as_mut().peek().await {
+                if canonical_stream.as_mut().peek().await.is_none() {
                     let to_flush = to_canonical_chunked(chunks.data.drain(..).collect(), &dtype_clone)?;
                     yield (sequence_pointer.advance(), to_flush)
 
@@ -83,7 +83,7 @@ impl LayoutStrategy for RepartitionStrategy {
         };
 
         self.child
-            .write_stream(&ctx, &dtype, segment_writer, Box::pin(repartitioned_stream))
+            .write_stream(ctx, dtype, segment_writer, Box::pin(repartitioned_stream))
     }
 }
 

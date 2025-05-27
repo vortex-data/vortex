@@ -12,7 +12,7 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
 
 use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;
@@ -42,10 +42,10 @@ impl Default for DictLayoutOptions {
 /// encodes chunks into dictionaries. When the dict constraints are hit, a
 /// new dictionary is created.
 pub struct DictStrategy {
-    options: DictLayoutOptions,
     codes: ArcRef<dyn LayoutStrategy>,
     values: ArcRef<dyn LayoutStrategy>,
     fallback: ArcRef<dyn LayoutStrategy>,
+    options: DictLayoutOptions,
 }
 
 impl DictStrategy {
@@ -279,8 +279,8 @@ impl DictEncodedRuns {
     fn new(input: DictionaryStream) -> Self {
         let (tx, rx) = oneshot::channel();
         tx.send(Some(input))
-            .map_err(|_input| {}) // required for the Debug bound in expect
-            .expect("just created rx");
+            .map_err(|_input| vortex_err!("just created rx"))
+            .vortex_unwrap();
         Self { input: Some(rx) }
     }
 

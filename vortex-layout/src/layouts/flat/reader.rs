@@ -229,29 +229,37 @@ mod test {
 
     use arrow_buffer::BooleanBuffer;
     use futures::executor::block_on;
+    use futures::{StreamExt, stream};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayContext, IntoArray, ToCanonical};
+    use vortex_array::{ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_expr::{Identity, gt, ident, lit};
     use vortex_mask::Mask;
 
-    use crate::layouts::flat::writer::FlatLayoutWriter;
+    use crate::LayoutStrategy as _;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, TestSegments};
-    use crate::writer::LayoutWriterExt;
+    use crate::sequence::SequenceId;
 
     #[test]
     fn flat_identity() {
         block_on(async {
             let ctx = ArrayContext::empty();
-            let mut segments = TestSegments::default();
-            let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout =
-                FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
-                    .push_one(&mut segments, array.to_array())
-                    .unwrap();
-
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let segments = Arc::new(TestSegments::default());
+            let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
+            let array_clone = array.clone();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    &ctx,
+                    &array.dtype().clone(),
+                    segments.clone(),
+                    stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) })
+                        .boxed(),
+                )
+                .await
+                .unwrap();
+            let segments: Arc<dyn SegmentSource> = segments;
 
             let result = layout
                 .new_reader(&"".into(), &segments, &ctx)
@@ -264,7 +272,10 @@ mod test {
                 .to_primitive()
                 .unwrap();
 
-            assert_eq!(array.as_slice::<i32>(), result.as_slice::<i32>());
+            assert_eq!(
+                array.to_primitive().unwrap().as_slice::<i32>(),
+                result.as_slice::<i32>()
+            );
         })
     }
 
@@ -272,14 +283,21 @@ mod test {
     fn flat_expr() {
         block_on(async {
             let ctx = ArrayContext::empty();
-            let mut segments = TestSegments::default();
+            let segments = Arc::new(TestSegments::default());
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout =
-                FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
-                    .push_one(&mut segments, array.into_array())
-                    .unwrap();
-
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    &ctx,
+                    &array.dtype().clone(),
+                    segments.clone(),
+                    stream::once(
+                        async move { Ok((SequenceId::root().downgrade(), array.to_array())) },
+                    )
+                    .boxed(),
+                )
+                .await
+                .unwrap();
+            let segments: Arc<dyn SegmentSource> = segments;
 
             let expr = gt(Identity::new_expr(), lit(3i32));
             let result = layout
@@ -304,14 +322,21 @@ mod test {
     fn flat_unaligned_row_mask() {
         block_on(async {
             let ctx = ArrayContext::empty();
-            let mut segments = TestSegments::default();
+            let segments = Arc::new(TestSegments::default());
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout =
-                FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
-                    .push_one(&mut segments, array.to_array())
-                    .unwrap();
-
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    &ctx,
+                    &array.dtype().clone(),
+                    segments.clone(),
+                    stream::once(
+                        async move { Ok((SequenceId::root().downgrade(), array.to_array())) },
+                    )
+                    .boxed(),
+                )
+                .await
+                .unwrap();
+            let segments: Arc<dyn SegmentSource> = segments;
 
             let result = layout
                 .new_reader(&"".into(), &segments, &ctx)

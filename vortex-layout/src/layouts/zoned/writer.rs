@@ -101,7 +101,7 @@ impl LayoutStrategy for ZonedStrategy {
 
             // if end of file is at x.y, get x.y.0 and advance eof to x.(y + 1)
             let stats_sequence = end_of_file.lock().advance().descend().downgrade();
-            let zoned_layout = stats_strategy
+            let zones_layout = stats_strategy
                 .write_stream(
                     &ctx,
                     &stats_array.dtype().clone(),
@@ -112,7 +112,7 @@ impl LayoutStrategy for ZonedStrategy {
 
             Ok(ZonedLayout::new(
                 data_layout,
-                zoned_layout,
+                zones_layout,
                 block_size,
                 stats_table.present_stats().clone(),
             )

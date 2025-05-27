@@ -137,6 +137,7 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
+    use futures::{StreamExt, stream};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_array::stats::{Precision, Stat};
@@ -148,9 +149,10 @@ mod tests {
     use vortex_expr::ident;
     use vortex_mask::Mask;
 
-    use crate::layouts::flat::writer::FlatLayoutWriter;
+    use crate::LayoutStrategy;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, TestSegments};
-    use crate::writer::LayoutWriterExt;
+    use crate::sequence::SequenceId;
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.
@@ -159,14 +161,21 @@ mod tests {
     fn flat_stats() {
         block_on(async {
             let ctx = ArrayContext::empty();
-            let mut segments = TestSegments::default();
+            let segments = Arc::new(TestSegments::default());
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout =
-                FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
-                    .push_one(&mut segments, array.to_array())
-                    .await
-                    .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    &ctx,
+                    &array.dtype().clone(),
+                    segments.clone(),
+                    stream::once(
+                        async move { Ok((SequenceId::root().downgrade(), array.to_array())) },
+                    )
+                    .boxed(),
+                )
+                .await
+                .unwrap();
+            let segments: Arc<dyn SegmentSource> = segments;
 
             let result = layout
                 .new_reader(&"".into(), &segments, &ctx)
@@ -188,7 +197,7 @@ mod tests {
     fn truncates_variable_size_stats() {
         block_on(async {
             let ctx = ArrayContext::empty();
-            let mut segments = TestSegments::default();
+            let segments = Arc::new(TestSegments::default());
             let mut builder =
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 2);
             builder.append_value("Long value to test that the statistics are actually truncated, it needs a bit of extra padding though");
@@ -202,11 +211,19 @@ mod tests {
                     .into_iter(),
             );
 
-            let layout =
-                FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
-                    .push_one(&mut segments, array.to_array())
-                    .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    &ctx,
+                    &array.dtype().clone(),
+                    segments.clone(),
+                    stream::once(
+                        async move { Ok((SequenceId::root().downgrade(), array.to_array())) },
+                    )
+                    .boxed(),
+                )
+                .await
+                .unwrap();
+            let segments: Arc<dyn SegmentSource> = segments;
 
             let result = layout
                 .new_reader(&"".into(), &segments, &ctx)
