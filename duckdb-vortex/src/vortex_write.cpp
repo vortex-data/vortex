@@ -1,6 +1,5 @@
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/common/exception.hpp"
-#include "duckdb/common/multi_file_reader.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/function/copy_function.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
@@ -49,8 +48,7 @@ std::vector<idx_t> TableNullability(ClientContext &context, const string &catalo
 	// Main is the default schema
 	auto schema_name = schema != "" ? schema : "main";
 
-	auto entry = catalog.GetEntry(context, CatalogType::TABLE_ENTRY, schema_name, table, OnEntryNotFound::RETURN_NULL,
-	                              error_context);
+	auto entry = catalog.GetEntry<TableCatalogEntry>(context, schema_name, table, OnEntryNotFound::RETURN_NULL);
 	auto vec = std::vector<idx_t>();
 	// entry can non-null and not a table entry
 	if (!entry || entry->type != CatalogType::TABLE_ENTRY) {
