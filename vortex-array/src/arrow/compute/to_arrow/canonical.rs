@@ -120,8 +120,6 @@ impl Kernel for ToArrowCanonical {
             {
                 to_arrow_primitive::<Float64Type>(array)
             }
-            (Canonical::Decimal(array), DataType::Decimal128(..)) => to_arrow_decimal128(array),
-            (Canonical::Decimal(array), DataType::Decimal256(..)) => to_arrow_decimal256(array),
             (Canonical::Struct(array), DataType::Struct(fields)) => {
                 to_arrow_struct(array, fields.as_ref())
             }
