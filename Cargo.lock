@@ -4311,24 +4311,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pyvortex"
-version = "0.1.0"
-dependencies = [
- "arrow",
- "futures",
- "itertools 0.14.0",
- "log",
- "mimalloc",
- "object_store",
- "parking_lot",
- "pyo3",
- "pyo3-log",
- "tokio",
- "url",
- "vortex",
-]
-
-[[package]]
 name = "quanta"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6576,6 +6558,24 @@ version = "0.1.0"
 dependencies = [
  "prost",
  "prost-types",
+]
+
+[[package]]
+name = "vortex-python"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "futures",
+ "itertools 0.14.0",
+ "log",
+ "mimalloc",
+ "object_store",
+ "parking_lot",
+ "pyo3",
+ "pyo3-log",
+ "tokio",
+ "url",
+ "vortex",
 ]
 
 [[package]]

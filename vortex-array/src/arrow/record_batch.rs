@@ -20,7 +20,7 @@ impl TryIntoArray for RecordBatch {
             self.columns()
                 .iter()
                 .zip(self.schema().fields())
-                .map(|(array, field)| ArrayRef::from_arrow(array.clone(), field.is_nullable()))
+                .map(|(array, field)| ArrayRef::from_arrow(array.as_ref(), field.is_nullable()))
                 .collect(),
             self.num_rows(),
             Validity::NonNullable, // Must match FromArrowType<SchemaRef> for DType

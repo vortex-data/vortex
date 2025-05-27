@@ -2,11 +2,11 @@
 
 ## Building
 
-First, you must compile the pyvortex Rust code into a native library because the Python package
+First, you must compile the vortex-python Rust code into a native library because the Python package
 inherits some of its doc strings from Rust docstrings:
 
 ```
-cd ../pyvortex && uv run maturin develop
+cd ../vortex-python && uv run maturin develop
 ```
 
 Build the Vortex docs:

@@ -128,7 +128,7 @@ impl ComputeFnVTable for MaskFn {
 
         let masked = arrow_select::nullif::nullif(array_ref.as_ref(), &mask)?;
 
-        Ok(ArrayRef::from_arrow(masked, true).into())
+        Ok(ArrayRef::from_arrow(masked.as_ref(), true).into())
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {

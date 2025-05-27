@@ -1,5 +1,5 @@
 [package]
-name = "pyvortex"
+name = "vortex-python"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "Python bindings for Vortex, an Apache Arrow-compatible toolkit for working with compressed array data."
@@ -20,7 +20,6 @@ workspace = true
 [lib]
 crate-type = ["rlib", "cdylib"]
 doctest = false                 # TODO(ngates): why?
-name = "pyvortex"
 
 [dependencies]
 arrow = { workspace = true, features = ["pyarrow"] }
