@@ -44,11 +44,6 @@ pub enum PType {
     F64 = 10,
 }
 
-// /// The checked version of `num_traits::NumOps`.
-// pub trait CheckedNumOps: CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + CheckedRem {}
-//
-// impl<T> CheckedNumOps for T where T: CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + CheckedRem {}
-
 /// A trait for native Rust types that correspond 1:1 to a PType
 pub trait NativePType:
     Send
@@ -62,7 +57,6 @@ pub trait NativePType:
     + Num
     + NumCast
     + Bounded
-    // + CheckedNumOps
     + FromPrimitive
     + ToBytes
     + TryFromBytes
