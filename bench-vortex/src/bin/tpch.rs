@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{env, fs};
@@ -27,7 +27,6 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
-use tempfile::tempdir;
 use url::Url;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::VortexExpect;
@@ -406,12 +405,11 @@ async fn bench_main(
                     }
                 }
             }
+
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
-                let temp_dir = tempdir()?;
-                let duckdb_file = temp_dir
-                    .path()
-                    .join(format!("duckdb-file-{}.db", format.name()));
+                let duckdb_file =
+                    format!("tpch/{scale_factor}/{}/duckdb.db", format.name()).to_data_path();
 
                 let executor = DuckDBExecutor::new(duckdb_resolved_path.clone(), duckdb_file);
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcH)?;
@@ -468,12 +466,15 @@ async fn bench_main(
 }
 
 fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow::Result<()> {
-    let query_dir = PathBuf::from("duckdb-vortex/duckdb/extension/tpch/dbgen/queries");
+    let query_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../duckdb-vortex/duckdb/extension/tpch/dbgen/queries");
+
     let tmp_dir = format!(
         "{}/spiral-tpch",
         // $RUNNER_TEMP is defined by GitHub Actions.
-        env::var("TMPDIR").unwrap_or(env::var("RUNNER_TEMP")?)
+        env::var("TMPDIR").or_else(|_| env::var("RUNNER_TEMP"))?
     );
+
     if PathBuf::from(&tmp_dir).exists() {
         fs::remove_dir_all(&tmp_dir)?;
     }
@@ -506,7 +507,8 @@ fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow:
 
         ddb::execute_tpch_query(&[create_table, write_csv], &executor)?;
 
-        let csv_expected = format!("bench-vortex/tpch_results/duckdb/{query_name}.csv");
+        let csv_expected = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("tpch/results/duckdb/{query_name}.csv"));
         let expected = fs::read_to_string(csv_expected)?;
         let actual = fs::read_to_string(csv_actual)?;
 

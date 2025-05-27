@@ -23,6 +23,7 @@ use vortex::error::VortexExpect;
 use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex_datafusion::persistent::VortexFormat;
 
+use crate::Format;
 use crate::conversions::parquet_to_vortex;
 use crate::utils::file_utils::{idempotent, idempotent_async};
 
@@ -146,8 +147,8 @@ pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
 });
 
 pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> {
-    let vortex_dir = input_path.join("vortex");
-    let parquet_path = input_path.join("parquet");
+    let vortex_dir = input_path.join(Format::OnDiskVortex.name());
+    let parquet_path = input_path.join(Format::Parquet.name());
     create_dir_all(&vortex_dir).await?;
 
     let parquet_inputs = fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
@@ -204,7 +205,7 @@ pub async fn register_vortex_files(
     schema: Option<Schema>,
     single_file: bool,
 ) -> anyhow::Result<()> {
-    let mut vortex_path = input_path.join("vortex/")?;
+    let mut vortex_path = input_path.join(&format!("{}/", Format::OnDiskVortex.name()))?;
     if single_file {
         vortex_path = vortex_path.join("hits_0.vortex")?;
     }
@@ -241,7 +242,7 @@ pub fn register_parquet_files(
     single_file: bool,
 ) -> anyhow::Result<()> {
     let format = Arc::new(ParquetFormat::new());
-    let mut table_path = input_path.join("parquet/")?;
+    let mut table_path = input_path.join(&format!("{}/", Format::Parquet))?;
     if single_file {
         table_path = table_path.join("hits_0.parquet")?;
     }
@@ -299,7 +300,7 @@ impl Flavor {
         let basepath = basepath.as_ref();
         match self {
             Flavor::Single => {
-                let output_path = basepath.join("parquet").join("hits.parquet");
+                let output_path = basepath.join(Format::Parquet.name()).join("hits.parquet");
                 idempotent(&output_path, |output_path| {
                     info!("Downloading single clickbench file");
                     let url = "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_single/hits.parquet";
@@ -314,7 +315,7 @@ impl Flavor {
                 // The clickbench-provided file is missing some higher-level type info, so we reprocess it
                 // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
                 let _ = (0_u32..100).into_par_iter().map(|idx| {
-                    let output_path = basepath.join("parquet").join(format!("hits_{idx}.parquet"));
+                    let output_path = basepath.join(Format::Parquet.name()).join(format!("hits_{idx}.parquet"));
                     idempotent(&output_path, |output_path| {
                         info!("Downloading file {idx}");
                         let url = format!("https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_many/hits_{idx}.parquet");
