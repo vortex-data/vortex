@@ -508,7 +508,7 @@ fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow:
         ddb::execute_tpch_query(&[create_table, write_csv], &executor)?;
 
         let csv_expected = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("tpch_results/duckdb/{query_name}.csv"));
+            .join(format!("tpch/results/duckdb/{query_name}.csv"));
         let expected = fs::read_to_string(csv_expected)?;
         let actual = fs::read_to_string(csv_actual)?;
 
