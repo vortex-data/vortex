@@ -104,7 +104,7 @@ impl LayoutStrategy for ZonedStrategy {
             let zoned_layout = stats_strategy
                 .write_stream(
                     &ctx,
-                    &dtype,
+                    &stats_array.dtype().clone(),
                     segment_writer,
                     Box::pin(once(async { Ok((stats_sequence, stats_array)) })),
                 )
