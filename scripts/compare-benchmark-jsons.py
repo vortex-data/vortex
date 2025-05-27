@@ -24,8 +24,9 @@ PARSER.add_argument(
 PARSER.add_argument(
     "--base-commit",
     default=None,
-    help="The base git commit to compare against. If not given, will find common ancestor to develop branch"
+    help="The base git commit to compare against. If not given, will find common ancestor to develop branch",
 )
+
 
 def _merge_results(base: pd.DataFrame, pr: pd.DataFrame, commit_id) -> pd.DataFrame | None:
     """Merges the base and PR results DataFrames on the 'name' and 'storage' columns.
@@ -85,14 +86,21 @@ def main(args):
             return
 
     # Find the common ancestor commit ID with the develop branch
-    base_commit_id = subprocess.check_output(["git", "merge-base", f"{pr_commit_id}^", "develop"]).decode("utf-8").strip()
+    base_commit_id = (
+        subprocess.check_output(["git", "merge-base", f"{pr_commit_id}^", "develop"]).decode("utf-8").strip()
+    )
     df = _merge_results(base, pr, base_commit_id)
     if df is not None:
         _print_results(base_commit_id, pr_commit_id, df)
         return
 
     # Walk the git log until we find a completed benchmark result.
-    git_log = subprocess.check_output(["git", "log", "--format=%H", "-n", "30", "--skip=1", base_commit_id]).decode("utf-8").strip().split("\n")
+    git_log = (
+        subprocess.check_output(["git", "log", "--format=%H", "-n", "30", "--skip=1", base_commit_id])
+        .decode("utf-8")
+        .strip()
+        .split("\n")
+    )
     for commit_id in git_log:
         df = _merge_results(base, pr, commit_id)
         if df is not None:
