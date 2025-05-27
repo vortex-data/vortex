@@ -116,7 +116,7 @@ impl PrimitiveArray {
     }
 
     pub fn ptype(&self) -> PType {
-        self.dtype().to_ptype()
+        self.dtype().as_ptype()
     }
 
     pub fn byte_buffer(&self) -> &ByteBuffer {

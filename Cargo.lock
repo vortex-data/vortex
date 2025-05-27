@@ -6618,6 +6618,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-sequence"
+version = "0.1.0"
+dependencies = [
+ "itertools 0.14.0",
+ "num-traits",
+ "prost",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-proto",
+ "vortex-scalar",
+]
+
+[[package]]
 name = "vortex-sparse"
 version = "0.1.0"
 dependencies = [

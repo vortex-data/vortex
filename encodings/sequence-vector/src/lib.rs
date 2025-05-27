@@ -1,0 +1,7 @@
+mod array;
+mod compute;
+mod serde;
+
+/// Represents the equation A[i] = a * i b.
+/// This can be used for compress, fast comparisons and also for row ids.
+pub use array::{SequenceArray, SequenceEncoding};

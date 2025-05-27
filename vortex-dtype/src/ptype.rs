@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::panic::RefUnwindSafe;
 
 use num_traits::bounds::UpperBounded;
-use num_traits::{FromPrimitive, Num, NumCast, ToPrimitive};
+use num_traits::{Bounded, FromPrimitive, Num, NumCast, ToPrimitive};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
 use crate::DType;
@@ -44,6 +44,11 @@ pub enum PType {
     F64 = 10,
 }
 
+// /// The checked version of `num_traits::NumOps`.
+// pub trait CheckedNumOps: CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + CheckedRem {}
+//
+// impl<T> CheckedNumOps for T where T: CheckedAdd + CheckedSub + CheckedMul + CheckedDiv + CheckedRem {}
+
 /// A trait for native Rust types that correspond 1:1 to a PType
 pub trait NativePType:
     Send
@@ -56,6 +61,8 @@ pub trait NativePType:
     + RefUnwindSafe
     + Num
     + NumCast
+    + Bounded
+    // + CheckedNumOps
     + FromPrimitive
     + ToBytes
     + TryFromBytes
