@@ -12,9 +12,7 @@ use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-/// Inner type holding the values
 #[derive(Debug)]
-// TODO(aduffy): make private
 enum InnerDecimalBuilder {
     I8(BufferMut<i8>),
     I16(BufferMut<i16>),
