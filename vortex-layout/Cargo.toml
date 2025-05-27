@@ -23,7 +23,7 @@ async-trait = { workspace = true }
 bit-vec = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }
-derivative = { workspace = true }
+educe = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 getrandom_v03 = { workspace = true }

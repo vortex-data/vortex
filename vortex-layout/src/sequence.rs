@@ -3,24 +3,18 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
-use derivative::Derivative;
+use educe::Educe;
 use parking_lot::Mutex;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_error::VortexExpect;
 
 use crate::segments::SegmentId;
 
-#[derive(Derivative)]
-#[derivative(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Educe)]
+#[educe(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct SequenceId {
     id: Vec<usize>,
-    #[derivative(
-        PartialEq = "ignore",
-        PartialOrd = "ignore",
-        Ord = "ignore",
-        Hash = "ignore",
-        Debug = "ignore"
-    )]
+    #[educe(PartialEq(ignore), PartialOrd(ignore), Hash(ignore), Debug(ignore))]
     universe: Arc<Mutex<SequenceUniverse>>,
 }
 
