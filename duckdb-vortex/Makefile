@@ -12,7 +12,7 @@ export MACOSX_DEPLOYMENT_TARGET=12.0
 # rely on the Git tag, as DuckDB's CI performs a checkout by Git tag. Therefore, the version can't be explicitly
 # set via environment variable for the community extension build.
 
-# export OVERRIDE_GIT_DESCRIBE=v1.2.2
+export OVERRIDE_GIT_DESCRIBE=v1.2.2
 export VCPKG_FEATURE_FLAGS=-binarycaching
 export VCPKG_OSX_DEPLOYMENT_TARGET=12.0
 export VCPKG_TOOLCHAIN_PATH := ${PROJ_DIR}vcpkg/scripts/buildsystems/vcpkg.cmake
