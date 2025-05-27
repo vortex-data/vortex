@@ -24,9 +24,12 @@ pub struct vx_array {
 }
 
 /// The FFI interface for an [`ArrayIterator`].
+///
+/// Each iterator is thread-safe and can be polled from multiple threads. Each thread will perform
+/// CPU work before returning the next available element.
 #[allow(non_camel_case_types)]
 pub struct vx_array_iterator {
-    pub inner: Option<Box<dyn ArrayIterator>>,
+    pub inner: Option<Box<dyn ArrayIterator + Send + Sync>>,
 }
 
 /// Attempt to advance the `current` pointer of the iterator.

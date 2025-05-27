@@ -34,6 +34,9 @@ impl<I> ArrayIteratorAdapter<I> {
     }
 }
 
+unsafe impl<I> Send for ArrayIteratorAdapter<I> where I: Send {}
+unsafe impl<I> Sync for ArrayIteratorAdapter<I> where I: Sync {}
+
 impl<I> Iterator for ArrayIteratorAdapter<I>
 where
     I: Iterator<Item = VortexResult<ArrayRef>>,
