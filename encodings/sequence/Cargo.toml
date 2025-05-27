@@ -27,4 +27,3 @@ vortex-proto = { workspace = true }
 
 [lints]
 workspace = true
-
