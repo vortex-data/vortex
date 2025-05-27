@@ -35,6 +35,7 @@ impl SequenceArray {
         Self::new(base.into(), multiplier.into(), T::PTYPE, length)
     }
 
+    // Constructs a sequence array using two integer values (with the same ptype).
     pub fn new(
         base: ScalarValue,
         multiplier: ScalarValue,
