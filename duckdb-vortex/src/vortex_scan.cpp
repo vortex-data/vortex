@@ -129,7 +129,9 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	}
 
 	// Return the conjunction of the static and dynamic filters, if either exist.
-	//
+	// The dynamic filter can be updated and so we recompute the filter if there is an
+	// active dyn filter.
+	// TODO(joe): cache the dyn filter expr if the dynamic filters have not changed.
 	std::string filter_expression_string(google::protobuf::Arena &arena) {
 		if (dynamic_filters.empty()) {
 			return static_filter_str;
