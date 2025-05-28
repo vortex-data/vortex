@@ -1,6 +1,7 @@
 use std::any::Any;
 
-use vortex_buffer::BufferMut;
+use num_traits::AsPrimitive;
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
@@ -75,14 +76,44 @@ impl InnerDecimalBuilder {
         }
     }
 
-    fn extend_from_array(&mut self, array: &DecimalArray) {
+    fn extend_from_buffer<T: NativeDecimalType>(&mut self, array: Buffer<T>) {
         match self {
-            InnerDecimalBuilder::I8(v) => v.extend_from_slice(array.buffer::<i8>().as_slice()),
-            InnerDecimalBuilder::I16(v) => v.extend_from_slice(array.buffer::<i16>().as_slice()),
-            InnerDecimalBuilder::I32(v) => v.extend_from_slice(array.buffer::<i32>().as_slice()),
-            InnerDecimalBuilder::I64(v) => v.extend_from_slice(array.buffer::<i64>().as_slice()),
-            InnerDecimalBuilder::I128(v) => v.extend_from_slice(array.buffer::<i128>().as_slice()),
-            InnerDecimalBuilder::I256(v) => v.extend_from_slice(array.buffer::<i256>().as_slice()),
+            InnerDecimalBuilder::I8(v) => v.extend(
+                array
+                    .iter()
+                    .copied()
+                    .map(|x| <T as AsPrimitive<i8>>::as_(x)),
+            ),
+            InnerDecimalBuilder::I16(v) => v.extend(
+                array
+                    .iter()
+                    .copied()
+                    .map(|x| <T as AsPrimitive<i16>>::as_(x)),
+            ),
+            InnerDecimalBuilder::I32(v) => v.extend(
+                array
+                    .iter()
+                    .copied()
+                    .map(|x| <T as AsPrimitive<i32>>::as_(x)),
+            ),
+            InnerDecimalBuilder::I64(v) => v.extend(
+                array
+                    .iter()
+                    .copied()
+                    .map(|x| <T as AsPrimitive<i64>>::as_(x)),
+            ),
+            InnerDecimalBuilder::I128(v) => v.extend(
+                array
+                    .iter()
+                    .copied()
+                    .map(|x| <T as AsPrimitive<i128>>::as_(x)),
+            ),
+            InnerDecimalBuilder::I256(v) => v.extend(
+                array
+                    .iter()
+                    .copied()
+                    .map(|x| <T as AsPrimitive<i256>>::as_(x)),
+            ),
         }
     }
 
@@ -288,7 +319,16 @@ impl ArrayBuilder for DecimalBuilder {
             );
         }
 
-        self.values.extend_from_array(&array);
+        match array.values_type() {
+            DecimalValueType::I8 => self.values.extend_from_buffer(array.buffer::<i8>()),
+            DecimalValueType::I16 => self.values.extend_from_buffer(array.buffer::<i16>()),
+            DecimalValueType::I32 => self.values.extend_from_buffer(array.buffer::<i32>()),
+            DecimalValueType::I64 => self.values.extend_from_buffer(array.buffer::<i64>()),
+            DecimalValueType::I128 => self.values.extend_from_buffer(array.buffer::<i128>()),
+            DecimalValueType::I256 => self.values.extend_from_buffer(array.buffer::<i256>()),
+            v => vortex_panic!("unsupported values_type for decimal: {v:?}"),
+        };
+
         self.extend_with_validity_mask(array.validity_mask()?);
 
         Ok(())
@@ -308,5 +348,24 @@ impl ArrayBuilder for DecimalBuilder {
 
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_decimal().into_array()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::builders::{ArrayBuilder, DecimalBuilder};
+
+    #[test]
+    fn test_mixed_extend() {
+        let mut i8s = DecimalBuilder::new::<i8>(2, 1, false.into());
+        i8s.append_value(10);
+        i8s.append_value(11);
+        i8s.append_value(12);
+        let i8s = i8s.finish();
+
+        let mut i128s = DecimalBuilder::new::<i128>(2, 1, false.into());
+        i128s.extend_from_array(&i8s).unwrap();
+        let i128s = i128s.finish_into_decimal();
+        assert_eq!(i128s.buffer::<i128>().as_slice(), &[10, 11, 12]);
     }
 }

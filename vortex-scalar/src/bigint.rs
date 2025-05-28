@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
-use num_traits::{AsPrimitive, CheckedAdd, CheckedSub, ConstZero, One, ToPrimitive, Zero};
+use num_traits::{AsPrimitive, CheckedAdd, CheckedSub, ConstZero, NumCast, One, ToPrimitive, Zero};
 use vortex_error::VortexExpect;
 
 /// Signed 256-bit integer type.
@@ -18,12 +18,12 @@ impl i256 {
     pub const ONE: Self = Self(arrow_buffer::i256::ONE);
 
     /// Construct a new `i256` from an unsigned `lower` bits and a signed `upper` bits.
-    pub fn from_parts(lower: u128, upper: i128) -> Self {
+    pub const fn from_parts(lower: u128, upper: i128) -> Self {
         Self(arrow_buffer::i256::from_parts(lower, upper))
     }
 
     /// Create an `i256` value from a signed 128-bit value.
-    pub fn from_i128(i: i128) -> Self {
+    pub const fn from_i128(i: i128) -> Self {
         Self(arrow_buffer::i256::from_i128(i))
     }
 
@@ -39,12 +39,12 @@ impl i256 {
     /// Split the 256-bit signed integer value into an unsigned lower bits and a signed upper bits.
     ///
     /// This versions gives us ownership of the value.
-    pub fn into_parts(self) -> (u128, i128) {
+    pub const fn into_parts(self) -> (u128, i128) {
         self.0.to_parts()
     }
 
     /// Split the 256-bit signed integer value into an unsigned lower bits and a signed upper bits.
-    pub fn to_parts(&self) -> (u128, i128) {
+    pub const fn to_parts(&self) -> (u128, i128) {
         self.0.to_parts()
     }
 
@@ -58,13 +58,13 @@ impl i256 {
 
     /// Return the memory representation of this integer as a byte array in little-endian byte order.
     #[inline]
-    pub fn to_le_bytes(&self) -> [u8; 32] {
+    pub const fn to_le_bytes(&self) -> [u8; 32] {
         self.0.to_le_bytes()
     }
 
     /// Return the memory representation of this integer as a byte array in big-endian byte order.
     #[inline]
-    pub fn to_be_bytes(&self) -> [u8; 32] {
+    pub const fn to_be_bytes(&self) -> [u8; 32] {
         self.0.to_be_bytes()
     }
 }
@@ -159,6 +159,12 @@ impl CheckedSub for i256 {
     }
 }
 
+impl NumCast for i256 {
+    fn from<T: ToPrimitive>(n: T) -> Option<Self> {
+        Some(Self::from_i128(n.to_i128()?))
+    }
+}
+
 impl ToPrimitive for i256 {
     fn to_i64(&self) -> Option<i64> {
         self.maybe_i128().and_then(|v| v.to_i64())
@@ -177,24 +183,27 @@ impl ToPrimitive for i256 {
     }
 }
 
-impl<T> AsPrimitive<T> for i256
-where
-    T: 'static + Copy,
-    i128: AsPrimitive<T>,
-{
-    fn as_(self) -> T {
-        self.maybe_i128()
-            .vortex_expect("i256 is not representable as T")
-            .as_()
+// Identity
+impl AsPrimitive<i256> for i256 {
+    fn as_(self) -> i256 {
+        self
     }
 }
 
 // All signed types convert up to i256
 macro_rules! impl_as_i256 {
     ($typ:ty) => {
-        impl AsPrimitive<i256> for $typ {
-            fn as_(self) -> i256 {
-                i256::from_i128(self.as_())
+        impl AsPrimitive<$crate::i256> for $typ {
+            fn as_(self) -> $crate::i256 {
+                $crate::i256::from_i128(self.as_())
+            }
+        }
+
+        impl AsPrimitive<$typ> for $crate::i256 {
+            fn as_(self) -> $typ {
+                self.maybe_i128()
+                    .vortex_expect("i256 is not representable as T")
+                    .as_()
             }
         }
     };
