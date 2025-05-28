@@ -66,8 +66,8 @@ impl ToDuckDB for DictArray {
 }
 
 pub fn selection_vector_from_array(prim: PrimitiveArray) -> SelectionVector {
-    match_each_integer_ptype!(prim.ptype(), |$P| {
-        selection_vector_from_slice(prim.as_slice::<$P>())
+    match_each_integer_ptype!(prim.ptype(), |P| {
+        selection_vector_from_slice(prim.as_slice::<P>())
     })
 }
 

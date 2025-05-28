@@ -9,12 +9,13 @@ use vortex_error::{VortexResult, vortex_bail};
 use crate::{RunEndArray, RunEndVTable};
 
 impl TakeKernel for RunEndVTable {
+    #[allow(clippy::cast_possible_truncation)]
     fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let primitive_indices = indices.to_primitive()?;
 
-        let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |$P| {
+        let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
             primitive_indices
-                .as_slice::<$P>()
+                .as_slice::<P>()
                 .iter()
                 .copied()
                 .map(|idx| {
@@ -41,16 +42,16 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     let ends = array.ends().to_primitive()?;
     let ends_len = ends.len();
 
-    let physical_indices = match_each_integer_ptype!(ends.ptype(), |$I| {
-        let end_slices = ends.as_slice::<$I>();
+    let physical_indices = match_each_integer_ptype!(ends.ptype(), |I| {
+        let end_slices = ends.as_slice::<I>();
         indices
             .iter()
             .map(|idx| idx.as_() + array.offset())
             .map(|idx| {
-                match <$I as NumCast>::from(idx) {
+                match <I as NumCast>::from(idx) {
                     Some(idx) => end_slices.search_sorted(&idx, SearchSortedSide::Right),
                     None => {
-                        // The idx is too large for $I, therefore it's out of bounds.
+                        // The idx is too large for I, therefore it's out of bounds.
                         SearchResult::NotFound(ends_len)
                     }
                 }

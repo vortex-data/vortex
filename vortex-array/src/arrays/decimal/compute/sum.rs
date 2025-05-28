@@ -1,6 +1,6 @@
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_scalar::{Scalar, match_each_decimal_value_type};
+use vortex_scalar::{DecimalValue, Scalar, match_each_decimal_value_type};
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{SumKernel, SumKernelAdapter};
@@ -37,20 +37,20 @@ impl SumKernel for DecimalVTable {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
             }
             Mask::AllTrue(_) => {
-                match_each_decimal_value_type!(array.values_type(), |($D, $CTor)| {
-                   Ok(Scalar::decimal(
-                    $CTor(sum_decimal!($D, array.buffer::<$D>())),
-                    decimal_dtype,
-                    nullability,
+                match_each_decimal_value_type!(array.values_type(), |D| {
+                    Ok(Scalar::decimal(
+                        DecimalValue::from(sum_decimal!(D, array.buffer::<D>())),
+                        decimal_dtype,
+                        nullability,
                     ))
                 })
             }
             Mask::Values(mask_values) => {
-                match_each_decimal_value_type!(array.values_type(), |($D, $CTor)|{
+                match_each_decimal_value_type!(array.values_type(), |D| {
                     Ok(Scalar::decimal(
-                        $CTor(sum_decimal!(
-                            $D,
-                            array.buffer::<$D>(),
+                        DecimalValue::from(sum_decimal!(
+                            D,
+                            array.buffer::<D>(),
                             mask_values.boolean_buffer()
                         )),
                         decimal_dtype,

@@ -153,8 +153,8 @@ impl DecimalBuilder {
         nullability: Nullability,
     ) -> Self {
         Self {
-            values: match_each_decimal_value_type!(T::VALUES_TYPE, |$D| {
-                DecimalBuffer::from(BufferMut::<$D>::with_capacity(capacity))
+            values: match_each_decimal_value_type!(T::VALUES_TYPE, |D| {
+                DecimalBuffer::from(BufferMut::<D>::with_capacity(capacity))
             }),
             nulls: LazyNullBufferBuilder::new(capacity),
             dtype: DType::Decimal(decimal, nullability),
@@ -275,8 +275,8 @@ impl ArrayBuilder for DecimalBuilder {
             );
         }
 
-        match_each_decimal_value_type!(array.values_type(), |$D| {
-            self.extend_from_buffer(&array.buffer::<$D>())
+        match_each_decimal_value_type!(array.values_type(), |D| {
+            self.extend_from_buffer(&array.buffer::<D>())
         });
 
         self.extend_with_validity_mask(array.validity_mask()?);

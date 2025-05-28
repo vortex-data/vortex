@@ -39,12 +39,12 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             )
             .into_array())
         }
-        DType::Primitive(p, _) => match_each_native_ptype!(p, |$P| {
+        DType::Primitive(p, _) => match_each_native_ptype!(p, |P| {
             let primitive_array = array.to_primitive()?;
             Ok(PrimitiveArray::new(
                 filter
                     .iter()
-                    .zip(primitive_array.as_slice::<$P>().iter().copied())
+                    .zip(primitive_array.as_slice::<P>().iter().copied())
                     .filter(|(f, _)| **f)
                     .map(|(_, v)| v)
                     .collect::<Buffer<_>>(),

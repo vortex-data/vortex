@@ -9,15 +9,11 @@ use crate::register_kernel;
 
 impl IsSortedKernel for PrimitiveVTable {
     fn is_sorted(&self, array: &PrimitiveArray) -> VortexResult<bool> {
-        match_each_native_ptype!(array.ptype(), |$P| {
-            compute_is_sorted::<$P>(array, false)
-        })
+        match_each_native_ptype!(array.ptype(), |P| { compute_is_sorted::<P>(array, false) })
     }
 
     fn is_strict_sorted(&self, array: &PrimitiveArray) -> VortexResult<bool> {
-        match_each_native_ptype!(array.ptype(), |$P| {
-            compute_is_sorted::<$P>(array, true)
-        })
+        match_each_native_ptype!(array.ptype(), |P| { compute_is_sorted::<P>(array, true) })
     }
 }
 

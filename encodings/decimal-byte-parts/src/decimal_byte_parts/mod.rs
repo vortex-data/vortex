@@ -121,10 +121,10 @@ impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         // Depending on the decimal type and the min/max of the primitive array we can choose
         // the correct buffer size
 
-        let res = match_each_signed_integer_ptype!(prim.ptype(), |$P| {
-           Canonical::Decimal(DecimalArray::new(
-                prim.buffer::<$P>(),
-                array.decimal_dtype().clone(),
+        let res = match_each_signed_integer_ptype!(prim.ptype(), |P| {
+            Canonical::Decimal(DecimalArray::new(
+                prim.buffer::<P>(),
+                *array.decimal_dtype(),
                 prim.validity().clone(),
             ))
         });
@@ -147,6 +147,7 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         .map(|d| d.to_array())
     }
 
+    #[allow(clippy::useless_conversion)]
     fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> VortexResult<Scalar> {
         // TODO(joe): support parts len != 1
         assert!(array.lower_parts.is_empty());
@@ -155,8 +156,12 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         // Note. values in msp, can only be signed integers upto size i64.
         let primitive_scalar = scalar.as_primitive();
         // TODO(joe): extend this to support multiple parts.
-        let value = match_each_signed_integer_ptype!(primitive_scalar.ptype(), |$P| {
-            i64::from(primitive_scalar.typed_value::<$P>().vortex_expect("scalar must have correct ptype"))
+        let value = match_each_signed_integer_ptype!(primitive_scalar.ptype(), |P| {
+            i64::from(
+                primitive_scalar
+                    .typed_value::<P>()
+                    .vortex_expect("scalar must have correct ptype"),
+            )
         });
         Ok(Scalar::new(
             array.dtype.clone(),

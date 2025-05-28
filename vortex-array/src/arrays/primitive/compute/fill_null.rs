@@ -21,8 +21,8 @@ impl FillNullKernel for PrimitiveVTable {
 
         Ok(match array.validity() {
             Validity::NonNullable | Validity::AllValid => {
-                match_each_native_ptype!(array.ptype(), |$T| {
-                    PrimitiveArray::new::<$T>(array.buffer().clone(), result_validity).into_array()
+                match_each_native_ptype!(array.ptype(), |T| {
+                    PrimitiveArray::new::<T>(array.buffer(), result_validity).into_array()
                 })
             }
             Validity::AllInvalid => {
@@ -31,11 +31,11 @@ impl FillNullKernel for PrimitiveVTable {
             Validity::Array(is_valid) => {
                 // TODO(danking): when we take PrimitiveArray by value, we should mutate in-place
                 let is_invalid = is_valid.to_bool()?.boolean_buffer().not();
-                match_each_native_ptype!(array.ptype(), |$T| {
-                    let mut buffer = BufferMut::copy_from(array.as_slice::<$T>());
+                match_each_native_ptype!(array.ptype(), |T| {
+                    let mut buffer = BufferMut::copy_from(array.as_slice::<T>());
                     let fill_value = fill_value
                         .as_primitive()
-                        .typed_value::<$T>()
+                        .typed_value::<T>()
                         .vortex_expect("top-level fill_null ensure non-null fill value");
                     for invalid_index in is_invalid.set_indices() {
                         buffer[invalid_index] = fill_value;

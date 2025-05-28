@@ -280,8 +280,8 @@ impl CanonicalVTable<BitPackedVTable> for BitPackedVTable {
         array: &BitPackedArray,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
-        match_each_integer_ptype!(array.ptype(), |$T| {
-            unpack_into::<$T>(
+        match_each_integer_ptype!(array.ptype(), |T| {
+            unpack_into::<T>(
                 array,
                 builder
                     .as_any_mut()

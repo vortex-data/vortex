@@ -33,8 +33,8 @@ pub fn dict_encoder(
     constraints: &DictConstraints,
 ) -> VortexResult<Box<dyn DictEncoder>> {
     let dict_builder: Box<dyn DictEncoder> = if let Some(pa) = array.as_opt::<PrimitiveVTable>() {
-        match_each_native_ptype!(pa.ptype(), |$P| {
-            primitive_dict_builder::<$P>(pa.dtype().nullability(), &constraints)
+        match_each_native_ptype!(pa.ptype(), |P| {
+            primitive_dict_builder::<P>(pa.dtype().nullability(), constraints)
         })
     } else if let Some(vbv) = array.as_opt::<VarBinViewVTable>() {
         bytes_dict_builder(vbv.dtype().clone(), constraints)

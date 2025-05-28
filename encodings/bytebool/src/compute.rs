@@ -26,32 +26,30 @@ impl TakeKernel for ByteBoolVTable {
         //  have fallible is_valid function.
         let arr = match validity {
             Mask::AllTrue(_) => {
-                let bools = match_each_integer_ptype!(indices.ptype(), |$I| {
-                    indices.as_slice::<$I>()
-                    .iter()
-                    .map(|&idx| {
-                        let idx: usize = idx.as_();
-                        bools[idx]
-                    })
-                    .collect::<Vec<_>>()
+                let bools = match_each_integer_ptype!(indices.ptype(), |I| {
+                    indices
+                        .as_slice::<I>()
+                        .iter()
+                        .map(|&idx| {
+                            let idx: usize = idx.as_();
+                            bools[idx]
+                        })
+                        .collect::<Vec<_>>()
                 });
 
                 ByteBoolArray::from(bools).into_array()
             }
             Mask::AllFalse(_) => ByteBoolArray::from(vec![None; indices.len()]).into_array(),
             Mask::Values(values) => {
-                let bools = match_each_integer_ptype!(indices.ptype(), |$I| {
-                    indices.as_slice::<$I>()
-                    .iter()
-                    .map(|&idx| {
-                        let idx = idx.as_();
-                        if values.value(idx) {
-                            Some(bools[idx])
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<Option<_>>>()
+                let bools = match_each_integer_ptype!(indices.ptype(), |I| {
+                    indices
+                        .as_slice::<I>()
+                        .iter()
+                        .map(|&idx| {
+                            let idx = idx.as_();
+                            values.value(idx).then(|| bools[idx])
+                        })
+                        .collect::<Vec<Option<_>>>()
                 });
 
                 ByteBoolArray::from(bools).into_array()

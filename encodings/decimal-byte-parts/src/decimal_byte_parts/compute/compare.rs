@@ -46,8 +46,8 @@ fn decimal_value_wrapper_to_primitive(
     decimal_value: DecimalValue,
     ptype: PType,
 ) -> Option<ScalarValue> {
-    match_each_integer_ptype!(ptype, |$P| {
-        decimal_value_to_primitive::<$P>(decimal_value)
+    match_each_integer_ptype!(ptype, |P| {
+        decimal_value_to_primitive::<P>(decimal_value)
     })
 }
 

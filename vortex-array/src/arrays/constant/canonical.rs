@@ -41,11 +41,11 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 validity,
             )),
             DType::Primitive(ptype, ..) => {
-                match_each_native_ptype!(ptype, |$P| {
+                match_each_native_ptype!(ptype, |P| {
                     Canonical::Primitive(PrimitiveArray::new(
                         if scalar.is_valid() {
                             Buffer::full(
-                                $P::try_from(scalar)
+                                P::try_from(scalar)
                                     .vortex_expect("Couldn't unwrap scalar to primitive"),
                                 array.len(),
                             )
@@ -60,12 +60,8 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 let size = smallest_storage_type(decimal_type);
                 let decimal = scalar.as_decimal();
                 let Some(value) = decimal.decimal_value() else {
-                    let all_null = match_each_decimal_value_type!(size, |$D| {
-                       DecimalArray::new(
-                                Buffer::<$D>::zeroed(array.len()),
-                                *decimal_type,
-                                validity,
-                            )
+                    let all_null = match_each_decimal_value_type!(size, |D| {
+                        DecimalArray::new(Buffer::<D>::zeroed(array.len()), *decimal_type, validity)
                     });
                     return Ok(Canonical::Decimal(all_null));
                 };
