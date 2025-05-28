@@ -1,7 +1,10 @@
+mod bigcast;
+
 use std::fmt::Display;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
-use num_traits::{AsPrimitive, CheckedAdd, CheckedSub, ConstZero, NumCast, One, ToPrimitive, Zero};
+pub use bigcast::*;
+use num_traits::{AsPrimitive, CheckedAdd, CheckedSub, ConstZero, One, Zero};
 use vortex_error::VortexExpect;
 
 /// Signed 256-bit integer type.
@@ -16,6 +19,8 @@ pub struct i256(arrow_buffer::i256);
 impl i256 {
     pub const ZERO: Self = Self(arrow_buffer::i256::ZERO);
     pub const ONE: Self = Self(arrow_buffer::i256::ONE);
+    pub const MAX: Self = Self(arrow_buffer::i256::MAX);
+    pub const MIN: Self = Self(arrow_buffer::i256::MIN);
 
     /// Construct a new `i256` from an unsigned `lower` bits and a signed `upper` bits.
     pub const fn from_parts(lower: u128, upper: i128) -> Self {
@@ -159,13 +164,7 @@ impl CheckedSub for i256 {
     }
 }
 
-impl NumCast for i256 {
-    fn from<T: ToPrimitive>(n: T) -> Option<Self> {
-        Some(Self::from_i128(n.to_i128()?))
-    }
-}
-
-impl ToPrimitive for i256 {
+impl num_traits::ToPrimitive for i256 {
     fn to_i64(&self) -> Option<i64> {
         self.maybe_i128().and_then(|v| v.to_i64())
     }

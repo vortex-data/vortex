@@ -2,12 +2,11 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
-use num_traits::AsPrimitive;
 use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexError, VortexResult, vortex_bail};
 
 use crate::scalar_value::InnerScalarValue;
-use crate::{Scalar, ScalarValue, i256};
+use crate::{BigCast, Scalar, ScalarValue, i256};
 
 /// Type of the decimal values.
 #[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq)]
@@ -40,12 +39,13 @@ pub trait NativeDecimalType:
     + Default
     + Send
     + Sync
-    + AsPrimitive<i8>
-    + AsPrimitive<i16>
-    + AsPrimitive<i32>
-    + AsPrimitive<i64>
-    + AsPrimitive<i128>
-    + AsPrimitive<i256>
+    + BigCast
+    // + AsPrimitive<i8>
+    // + AsPrimitive<i16>
+    // + AsPrimitive<i32>
+    // + AsPrimitive<i64>
+    // + AsPrimitive<i128>
+    // + AsPrimitive<i256>
     + 'static
 {
     const VALUES_TYPE: DecimalValueType;
