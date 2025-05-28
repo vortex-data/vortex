@@ -48,22 +48,6 @@ impl Kernel for ToArrowCanonical {
             .map(Ok)
             .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
 
-        if matches!(arrow_type, DataType::Decimal128(..)) {
-            let arrow_array = to_arrow_decimal128(array.to_decimal()?)?;
-            return Ok(Some(
-                ArrowArray::new(arrow_array, array.dtype().nullability())
-                    .into_array()
-                    .into(),
-            ));
-        } else if matches!(arrow_type, DataType::Decimal256(..)) {
-            let arrow_array = to_arrow_decimal256(array.to_decimal()?)?;
-            return Ok(Some(
-                ArrowArray::new(arrow_array, array.dtype().nullability())
-                    .into_array()
-                    .into(),
-            ));
-        }
-
         let arrow_array = match (array.to_canonical()?, &arrow_type) {
             (Canonical::Null(array), DataType::Null) => to_arrow_null(array),
             (Canonical::Bool(array), DataType::Boolean) => to_arrow_bool(array),
@@ -119,6 +103,34 @@ impl Kernel for ToArrowCanonical {
                 if matches!(array.ptype(), PType::F64) =>
             {
                 to_arrow_primitive::<Float64Type>(array)
+            }
+            (Canonical::Decimal(array), DataType::Decimal128(precision, scale)) => {
+                if array.decimal_dtype().precision() != *precision
+                    || array.decimal_dtype().scale() != *scale
+                {
+                    vortex_bail!(
+                        "ToArrowCanonical: target precision/scale {}/{} does not match array precision/scale {}/{}",
+                        precision,
+                        scale,
+                        array.decimal_dtype().precision(),
+                        array.decimal_dtype().scale()
+                    );
+                }
+                to_arrow_decimal128(array)
+            }
+            (Canonical::Decimal(array), DataType::Decimal256(precision, scale)) => {
+                if array.decimal_dtype().precision() != *precision
+                    || array.decimal_dtype().scale() != *scale
+                {
+                    vortex_bail!(
+                        "ToArrowCanonical: target precision/scale {}/{} does not match array precision/scale {}/{}",
+                        precision,
+                        scale,
+                        array.decimal_dtype().precision(),
+                        array.decimal_dtype().scale()
+                    );
+                }
+                to_arrow_decimal256(array)
             }
             (Canonical::Struct(array), DataType::Struct(fields)) => {
                 to_arrow_struct(array, fields.as_ref())

@@ -1,11 +1,10 @@
 use itertools::{Itertools, MinMaxResult};
-use num_traits::{AsPrimitive, ToPrimitive};
 use vortex_array::ArrayRef;
 use vortex_array::arrays::{DecimalArray, PrimitiveArray};
 use vortex_array::vtable::ValidityHelper;
 use vortex_decimal_byte_parts::DecimalBytePartsArray;
-use vortex_error::VortexResult;
-use vortex_scalar::{DecimalValueType, i256};
+use vortex_error::{VortexExpect, VortexResult};
+use vortex_scalar::{BigCast, DecimalValueType, i256};
 
 use crate::{Compressor, IntCompressor, MAX_CASCADE};
 
@@ -29,28 +28,28 @@ pub fn compress_decimal(decimal: &DecimalArray) -> VortexResult<ArrayRef> {
 }
 
 macro_rules! try_downcast {
-    ($array:expr, from: $srctyp:ty, to: $(($dsttyp:ty, $convert:path)),*) => {{
+    ($array:expr, from: $src:ty, to: $($dst:ty),*) => {{
         // Collect the min/max of the values
-        let minmax = $array.buffer::<$srctyp>().iter().copied().minmax();
+        let minmax = $array.buffer::<$src>().iter().copied().minmax();
         match minmax {
             MinMaxResult::NoElements => return $array,
             MinMaxResult::OneElement(_) => return $array,
             MinMaxResult::MinMax(min, max) => {
                 $(
-                    if $convert(&min).is_some() && $convert(&max).is_some() {
-                        return DecimalArray::new::<$dsttyp>(
+                    if <$dst as BigCast>::from(min).is_some() && <$dst as BigCast>::from(max).is_some() {
+                        return DecimalArray::new::<$dst>(
                             $array
-                                .buffer::<$srctyp>()
+                                .buffer::<$src>()
                                 .into_iter()
-                                .map(|v| v.as_())
+                                .map(|v| <$dst as BigCast>::from(v).vortex_expect("decimal conversion failure"))
                                 .collect(),
                             $array.decimal_dtype(),
                             $array.validity().clone(),
-                        )
+                        );
                     }
                 )*
 
-                return $array
+                return $array;
             }
         }
     }};
@@ -62,37 +61,19 @@ fn narrowed_decimal(decimal_array: DecimalArray) -> DecimalArray {
         // Cannot narrow any more
         DecimalValueType::I8 => decimal_array,
         DecimalValueType::I16 => {
-            try_downcast!(decimal_array, from: i16, to: (i8, ToPrimitive::to_i8))
+            try_downcast!(decimal_array, from: i16, to: i8)
         }
         DecimalValueType::I32 => {
-            try_downcast!(decimal_array, from: i32, to:
-                (i8, ToPrimitive::to_i8),
-                (i16, ToPrimitive::to_i16)
-            )
+            try_downcast!(decimal_array, from: i32, to: i8, i16)
         }
         DecimalValueType::I64 => {
-            try_downcast!(decimal_array, from: i64, to:
-                (i8, ToPrimitive::to_i8),
-                (i16, ToPrimitive::to_i16),
-                (i32, ToPrimitive::to_i32)
-            )
+            try_downcast!(decimal_array, from: i64, to: i8, i16, i32)
         }
         DecimalValueType::I128 => {
-            try_downcast!(decimal_array, from: i128, to:
-                (i8, ToPrimitive::to_i8),
-                (i16, ToPrimitive::to_i16),
-                (i32, ToPrimitive::to_i32),
-                (i64, ToPrimitive::to_i64)
-            )
+            try_downcast!(decimal_array, from: i128, to: i8, i16, i32, i64)
         }
         DecimalValueType::I256 => {
-            try_downcast!(decimal_array, from: i256, to:
-                (i8, ToPrimitive::to_i8),
-                (i16, ToPrimitive::to_i16),
-                (i32, ToPrimitive::to_i32),
-                (i64, ToPrimitive::to_i64),
-                (i128, ToPrimitive::to_i128)
-            )
+            try_downcast!(decimal_array, from: i256, to: i8, i16, i32, i64, i128)
         }
         _ => decimal_array,
     }

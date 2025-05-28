@@ -4,8 +4,7 @@ use std::fmt::Display;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
 pub use bigcast::*;
-use num_traits::{AsPrimitive, CheckedAdd, CheckedSub, ConstZero, One, Zero};
-use vortex_error::VortexExpect;
+use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, Zero};
 
 /// Signed 256-bit integer type.
 ///
@@ -181,35 +180,3 @@ impl num_traits::ToPrimitive for i256 {
         self.maybe_i128().and_then(|v| v.to_u128())
     }
 }
-
-// Identity
-impl AsPrimitive<i256> for i256 {
-    fn as_(self) -> i256 {
-        self
-    }
-}
-
-// All signed types convert up to i256
-macro_rules! impl_as_i256 {
-    ($typ:ty) => {
-        impl AsPrimitive<$crate::i256> for $typ {
-            fn as_(self) -> $crate::i256 {
-                $crate::i256::from_i128(self.as_())
-            }
-        }
-
-        impl AsPrimitive<$typ> for $crate::i256 {
-            fn as_(self) -> $typ {
-                self.maybe_i128()
-                    .vortex_expect("i256 is not representable as T")
-                    .as_()
-            }
-        }
-    };
-}
-
-impl_as_i256!(i8);
-impl_as_i256!(i16);
-impl_as_i256!(i32);
-impl_as_i256!(i64);
-impl_as_i256!(i128);
