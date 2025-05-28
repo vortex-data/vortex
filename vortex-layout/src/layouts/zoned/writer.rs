@@ -1,5 +1,4 @@
 use std::future;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -16,8 +15,7 @@ use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SegmentWriter;
 use crate::sequence::{SequenceId, SequencePointer};
-use crate::writer::LayoutWriter;
-use crate::{IntoLayout, LayoutStrategy, SequentialArrayStream};
+use crate::{IntoLayout, LayoutStrategy, SendableLayoutWriter, SequentialArrayStream};
 
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
@@ -68,7 +66,7 @@ impl LayoutStrategy for ZonedStrategy {
         dtype: &DType,
         segment_writer: Arc<dyn SegmentWriter>,
         stream: SequentialArrayStream,
-    ) -> Pin<Box<dyn LayoutWriter>> {
+    ) -> SendableLayoutWriter {
         let present_stats: Arc<[Stat]> = self.options.stats.iter().sorted().copied().collect();
         let stats_accumulator = Arc::new(Mutex::new(StatsAccumulator::new(
             dtype,

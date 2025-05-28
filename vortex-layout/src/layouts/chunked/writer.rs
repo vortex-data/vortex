@@ -1,4 +1,3 @@
-use std::pin::Pin;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -12,7 +11,7 @@ use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::SegmentWriter;
-use crate::{IntoLayout, LayoutStrategy, LayoutWriter, SequentialArrayStream};
+use crate::{IntoLayout, LayoutStrategy, SendableLayoutWriter, SequentialArrayStream};
 
 pub struct ChunkedLayoutStrategy {
     /// The layout strategy for each chunk.
@@ -34,7 +33,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         dtype: &DType,
         segment_writer: Arc<dyn SegmentWriter>,
         mut stream: SequentialArrayStream,
-    ) -> Pin<Box<dyn LayoutWriter>> {
+    ) -> SendableLayoutWriter {
         let chunk_strategy = self.chunk_strategy.clone();
         let ctx = ctx.clone();
         let dtype = dtype.clone();

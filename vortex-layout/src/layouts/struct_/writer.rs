@@ -15,7 +15,7 @@ use vortex_error::{VortexExpect as _, VortexResult, vortex_err};
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentWriter;
-use crate::{IntoLayout as _, LayoutStrategy, LayoutWriter, SequentialArrayStream};
+use crate::{IntoLayout as _, LayoutStrategy, SendableLayoutWriter, SequentialArrayStream};
 
 pub struct StructStrategy {
     child: ArcRef<dyn LayoutStrategy>,
@@ -35,7 +35,7 @@ impl LayoutStrategy for StructStrategy {
         dtype: &DType,
         segment_writer: Arc<dyn SegmentWriter>,
         stream: SequentialArrayStream,
-    ) -> Pin<Box<dyn LayoutWriter>> {
+    ) -> SendableLayoutWriter {
         let Some(struct_dtype) = dtype.as_struct().cloned() else {
             // nothing we can do if dtype is not struct
             return self.child.write_stream(ctx, dtype, segment_writer, stream);

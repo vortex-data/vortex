@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -11,7 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::segments::SegmentWriter;
-use crate::{LayoutStrategy, LayoutWriter, SequentialArrayStream};
+use crate::{LayoutStrategy, SendableLayoutWriter, SequentialArrayStream};
 
 #[derive(Clone)]
 pub struct RepartitionWriterOptions {
@@ -43,7 +42,7 @@ impl LayoutStrategy for RepartitionStrategy {
         dtype: &DType,
         segment_writer: Arc<dyn SegmentWriter>,
         stream: SequentialArrayStream,
-    ) -> Pin<Box<dyn LayoutWriter>> {
+    ) -> SendableLayoutWriter {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
         let canonical_stream: SequentialArrayStream = Box::pin(stream.map(|chunk| {

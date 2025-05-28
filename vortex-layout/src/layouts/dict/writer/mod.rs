@@ -18,7 +18,9 @@ use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SegmentWriter;
 use crate::sequence::{SequenceId, SequencePointer};
-use crate::{IntoLayout, LayoutStrategy, LayoutWriter, OwnedLayoutChildren, SequentialArrayStream};
+use crate::{
+    IntoLayout, LayoutStrategy, OwnedLayoutChildren, SendableLayoutWriter, SequentialArrayStream,
+};
 
 #[derive(Clone)]
 pub struct DictLayoutOptions {
@@ -71,7 +73,7 @@ impl LayoutStrategy for DictStrategy {
         dtype: &DType,
         segment_writer: Arc<dyn SegmentWriter>,
         stream: SequentialArrayStream,
-    ) -> Pin<Box<dyn LayoutWriter>> {
+    ) -> SendableLayoutWriter {
         if !dict_layout_supported(dtype) {
             return self
                 .fallback

@@ -11,7 +11,7 @@ use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::LayoutWriter;
+use crate::SendableLayoutWriter;
 use crate::segments::SegmentWriter;
 use crate::sequence::SequenceId;
 
@@ -25,5 +25,5 @@ pub trait LayoutStrategy: 'static + Send + Sync {
         dtype: &DType,
         segment_writer: Arc<dyn SegmentWriter>,
         stream: SequentialArrayStream,
-    ) -> Pin<Box<dyn LayoutWriter>>;
+    ) -> SendableLayoutWriter;
 }

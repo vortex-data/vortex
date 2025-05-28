@@ -1,4 +1,3 @@
-use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -12,7 +11,7 @@ use vortex_scalar::{BinaryScalar, Utf8Scalar};
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
 use crate::segments::SegmentWriter;
-use crate::{IntoLayout, LayoutStrategy, LayoutWriter, SequentialArrayStream};
+use crate::{IntoLayout, LayoutStrategy, SendableLayoutWriter, SequentialArrayStream};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -38,7 +37,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         dtype: &DType,
         segment_writer: Arc<dyn SegmentWriter>,
         mut stream: SequentialArrayStream,
-    ) -> Pin<Box<dyn LayoutWriter>> {
+    ) -> SendableLayoutWriter {
         let ctx = ctx.clone();
         let dtype = dtype.clone();
         let options = self.clone();

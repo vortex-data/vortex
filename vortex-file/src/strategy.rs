@@ -1,7 +1,6 @@
 //! This module defines the default layout strategy for a Vortex file.
 
 use std::collections::VecDeque;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -20,7 +19,7 @@ use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
 use vortex_layout::scan::{TaskExecutor, TaskExecutorExt};
 use vortex_layout::segments::SegmentWriter;
 use vortex_layout::sequence::SequencePointer;
-use vortex_layout::{LayoutStrategy, LayoutWriter, SequentialArrayStream};
+use vortex_layout::{LayoutStrategy, SendableLayoutWriter, SequentialArrayStream};
 
 const ROW_BLOCK_SIZE: usize = 8192;
 
@@ -126,7 +125,7 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
         dtype: &DType,
         segment_writer: Arc<dyn SegmentWriter>,
         stream: SequentialArrayStream,
-    ) -> Pin<Box<dyn LayoutWriter>> {
+    ) -> SendableLayoutWriter {
         let executor = self.executor.clone();
 
         let stream = stream
@@ -167,7 +166,7 @@ impl LayoutStrategy for BufferedStrategy {
         dtype: &DType,
         segment_writer: Arc<dyn SegmentWriter>,
         stream: SequentialArrayStream,
-    ) -> Pin<Box<dyn LayoutWriter>> {
+    ) -> SendableLayoutWriter {
         let buffer_size = self.buffer_size;
         let buffered_stream = try_stream! {
             let stream = stream.peekable();
