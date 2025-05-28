@@ -1,21 +1,52 @@
+use std::cmp::Ordering;
 use std::collections::BTreeSet;
+use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
-use educe::Educe;
 use parking_lot::Mutex;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_error::VortexExpect;
 
 use crate::segments::SegmentId;
 
-#[derive(Educe)]
-#[educe(PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct SequenceId {
     id: Vec<usize>,
-    #[educe(PartialEq(ignore), PartialOrd(ignore), Hash(ignore), Debug(ignore))]
     universe: Arc<Mutex<SequenceUniverse>>,
+}
+
+impl PartialEq for SequenceId {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for SequenceId {}
+
+impl PartialOrd for SequenceId {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
+
+impl Ord for SequenceId {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+impl Hash for SequenceId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+impl fmt::Debug for SequenceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SequenceId").field("id", &self.id).finish()
+    }
 }
 
 impl SequenceId {
