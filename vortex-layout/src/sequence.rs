@@ -12,6 +12,24 @@ use vortex_error::VortexExpect;
 
 use crate::segments::SegmentId;
 
+/// A hierarchical sequence identifier that exists within a shared universe.
+///
+/// SequenceIds form a collision-free universe where each ID is represented as a vector
+/// of indices (e.g., `[0, 1, 2]`). The API design prevents collisions by only allowing
+/// new IDs to be created through controlled advancement or descent operations.
+///
+/// # Hierarchy and Ordering
+///
+/// IDs are hierarchical and lexicographically ordered:
+/// - `[0]` < `[0, 0]` < `[0, 1]` < `[1]` < `[1, 0]`
+/// - A parent ID like `[0, 1]` can spawn children `[0, 1, 0]`, `[0, 1, 1]`, etc.
+/// - Sibling IDs are created by advancing: `[0, 0]` → `[0, 1]` → `[0, 2]`
+///
+/// # Drop Ordering
+///
+/// When a SequenceId is dropped, it may wake futures waiting for ordering guarantees.
+/// The `collapse()` method leverages this to provide deterministic ordering of
+/// recursively created sequence IDs.
 pub struct SequenceId {
     id: Vec<usize>,
     universe: Arc<Mutex<SequenceUniverse>>,
@@ -50,23 +68,57 @@ impl fmt::Debug for SequenceId {
 }
 
 impl SequenceId {
-    /// Create a new Sequence from root. No ordering guarantees exists for separate instances created
-    /// using this method.
+    /// Creates a new root sequence universe starting with ID `[0]`.
+    ///
+    /// Each call to `root()` creates an independent universe with no ordering
+    /// guarantees between separate root instances. Within a single universe,
+    /// all IDs are strictly ordered.
     pub fn root() -> SequencePointer {
         SequencePointer(SequenceId::new(vec![0], Default::default()))
     }
 
-    /// Create a sub sequence starting from this [SequenceId]. If Self has an id of [1, 2],
-    /// This method would return its first child [1, 2, 0] as well as the [SequencePointer]
-    /// to create siblings [1, 2, [1, ..)]
+    /// Creates a child sequence by descending one level in the hierarchy.
+    ///
+    /// If this SequenceId has ID `[1, 2]`, this method creates the first child
+    /// `[1, 2, 0]` and returns a `SequencePointer` that can generate siblings
+    /// `[1, 2, 1]`, `[1, 2, 2]`, etc.
+    ///
+    /// # Ownership
+    ///
+    /// This method consumes `self`, as the parent ID is no longer needed once
+    /// we've descended to work with its children.
     pub fn descend(self) -> SequencePointer {
         let mut id = self.id.clone();
         id.push(0);
         SequencePointer(SequenceId::new(id, self.universe.clone()))
     }
 
-    /// Await until all id's in this universe that are strictly less than self are dropped.
-    /// Returns a monotonically increasing [SegmentId]
+    /// Waits until all SequenceIds with IDs lexicographically smaller than this one are dropped.
+    ///
+    /// This async method provides ordering guarantees by ensuring all "prior" sequences
+    /// in the universe have been dropped before returning. Combined with the collision-free
+    /// API, this guarantees that for this universe no sequences lexicographically smaller than
+    /// this one will ever be created again.
+    ///
+    /// # Ordering Guarantee
+    ///
+    /// Once `collapse()` returns, you can be certain that:
+    /// - All sequences with smaller IDs have been dropped
+    /// - No new sequences with smaller IDs can ever be created (due to collision prevention)
+    /// - The returned `SegmentId` is monotonically increasing within this universe
+    ///
+    /// # Use Cases
+    ///
+    /// This is particularly useful for ordering recursively created work:
+    /// - Recursive algorithms that spawn child tasks
+    /// - Ensuring deterministic processing order across concurrent operations  
+    /// - Converting hierarchical sequence identifiers to linear segment identifiers
+    ///
+    /// # Returns
+    ///
+    /// A monotonically increasing `SegmentId` that can be used for ordered storage
+    /// or processing. Each successful collapse within a universe produces a larger
+    /// `SegmentId` than the previous one.
     pub async fn collapse(self) -> SegmentId {
         WaitSequenceFuture(self).await
     }
@@ -91,10 +143,19 @@ impl Drop for SequenceId {
     }
 }
 
-// TODO(os): make this !Send to prevent holding this over await points
+/// A pointer that can advance through sibling sequence IDs.
+///
+/// SequencePointer is the only mechanism for creating new SequenceIds within
+/// a universe.
 pub struct SequencePointer(SequenceId);
 
 impl SequencePointer {
+    /// Advances to the next sibling sequence and returns the current one.
+    ///
+    /// # Ownership
+    ///
+    /// This method requires `&mut self` because it advances the internal state
+    /// to point to the next sibling position.
     pub fn advance(&mut self) -> SequenceId {
         let mut next_id = self.0.id.clone();
 
@@ -106,6 +167,11 @@ impl SequencePointer {
         std::mem::replace(&mut self.0, next_sibling)
     }
 
+    /// Converts this pointer into its current SequenceId, consuming the pointer.
+    ///
+    /// This method is useful when you want to access the current SequenceId
+    /// without advancing to the next sibling. Once downgraded, you cannot
+    /// create additional siblings from this pointer.
     pub fn downgrade(self) -> SequenceId {
         self.0
     }
