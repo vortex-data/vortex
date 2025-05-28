@@ -1,4 +1,5 @@
-use std::ops::{BitAnd, Deref, Range, Sub};
+use std::collections::BTreeSet;
+use std::ops::{BitAnd, Range, Sub};
 use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::BooleanBufferBuilder;
@@ -7,7 +8,9 @@ use dashmap::DashMap;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
+use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ToCanonical};
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
 use vortex_expr::{ExprRef, Identity};
@@ -16,7 +19,7 @@ use vortex_mask::Mask;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::SegmentSource;
-use crate::{ArrayEvaluation, Layout, LayoutReader, MaskEvaluation, PruningEvaluation};
+use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
 
 pub(crate) type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 pub(crate) type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
@@ -39,14 +42,6 @@ pub struct ZonedReader {
 
     /// A cache of expr -> optional pruning predicate.
     pruning_predicates: Arc<DashMap<ExprRef, PredicateCache>>,
-}
-
-impl Deref for ZonedReader {
-    type Target = dyn Layout;
-
-    fn deref(&self) -> &Self::Target {
-        self.layout.deref()
-    }
 }
 
 impl ZonedReader {
@@ -152,13 +147,31 @@ impl ZonedReader {
 
     /// Return the row offset of a given zone.
     pub(crate) fn zone_offset(&self, zone_idx: usize) -> u64 {
-        (zone_idx as u64 * self.layout.zone_len as u64).min(self.data_child.row_count())
+        (zone_idx as u64 * self.layout.zone_len as u64).min(self.layout.row_count())
     }
 }
 
 impl LayoutReader for ZonedReader {
     fn name(&self) -> &Arc<str> {
         &self.name
+    }
+
+    fn dtype(&self) -> &DType {
+        self.data_child.dtype()
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        self.data_child.row_count()
+    }
+
+    fn register_splits(
+        &self,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()> {
+        self.data_child
+            .register_splits(field_mask, row_offset, splits)
     }
 
     fn pruning_evaluation(
