@@ -1,11 +1,10 @@
 use std::any::Any;
 
-use num_traits::AsPrimitive;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
-use vortex_scalar::{DecimalValueType, NativeDecimalType, i256, match_each_decimal_value_type};
+use vortex_scalar::{BigCast, NativeDecimalType, i256, match_each_decimal_value_type};
 
 use crate::arrays::{BoolArray, DecimalArray};
 use crate::builders::ArrayBuilder;
@@ -13,8 +12,11 @@ use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-#[derive(Debug)]
-enum InnerDecimalBuilder {
+// Wrapper around the typed builder.
+// We want to be able to downcast a Box<dyn ArrayBuilder> to a DecimalBuilder and we generally
+// don't have enough type information to get the `T` at the call site, so we instead use this
+// to hold values and can push values into the correct buffer type generically.
+enum DecimalBuffer {
     I8(BufferMut<i8>),
     I16(BufferMut<i16>),
     I32(BufferMut<i32>),
@@ -23,142 +25,113 @@ enum InnerDecimalBuilder {
     I256(BufferMut<i256>),
 }
 
-macro_rules! impl_as_ref {
-    ($typ:ty, $variant:path) => {
-        impl AsRef<[$typ]> for InnerDecimalBuilder {
-            fn as_ref(&self) -> &[$typ] {
-                match self {
-                    $variant(v) => v.as_ref(),
-                    _ => vortex_panic!("Tried to access {} values from {self:?}", stringify!($typ)),
-                }
-            }
-        }
-    };
-}
-
-impl_as_ref!(i8, InnerDecimalBuilder::I8);
-impl_as_ref!(i16, InnerDecimalBuilder::I16);
-impl_as_ref!(i32, InnerDecimalBuilder::I32);
-impl_as_ref!(i64, InnerDecimalBuilder::I64);
-impl_as_ref!(i128, InnerDecimalBuilder::I128);
-impl_as_ref!(i256, InnerDecimalBuilder::I256);
-
-impl InnerDecimalBuilder {
-    fn push_zeros(&mut self, n: usize) {
-        match self {
-            InnerDecimalBuilder::I8(v) => v.push_n(0, n),
-            InnerDecimalBuilder::I16(v) => v.push_n(0, n),
-            InnerDecimalBuilder::I32(v) => v.push_n(0, n),
-            InnerDecimalBuilder::I64(v) => v.push_n(0, n),
-            InnerDecimalBuilder::I128(v) => v.push_n(0, n),
-            InnerDecimalBuilder::I256(v) => v.push_n(i256::ZERO, n),
-        }
-    }
-    fn push<V: NativeDecimalType>(&mut self, value: V) {
-        match self {
-            InnerDecimalBuilder::I8(v) => v.push(value.as_()),
-            InnerDecimalBuilder::I16(v) => v.push(value.as_()),
-            InnerDecimalBuilder::I32(v) => v.push(value.as_()),
-            InnerDecimalBuilder::I64(v) => v.push(value.as_()),
-            InnerDecimalBuilder::I128(v) => v.push(value.as_()),
-            InnerDecimalBuilder::I256(v) => v.push(value.as_()),
-        }
-    }
-
-    fn len(&self) -> usize {
-        match self {
-            InnerDecimalBuilder::I8(v) => v.len(),
-            InnerDecimalBuilder::I16(v) => v.len(),
-            InnerDecimalBuilder::I32(v) => v.len(),
-            InnerDecimalBuilder::I64(v) => v.len(),
-            InnerDecimalBuilder::I128(v) => v.len(),
-            InnerDecimalBuilder::I256(v) => v.len(),
-        }
-    }
-
-    fn extend_from_buffer<T: NativeDecimalType>(&mut self, array: Buffer<T>) {
-        match self {
-            InnerDecimalBuilder::I8(v) => v.extend(
-                array
-                    .iter()
-                    .copied()
-                    .map(|x| <T as AsPrimitive<i8>>::as_(x)),
-            ),
-            InnerDecimalBuilder::I16(v) => v.extend(
-                array
-                    .iter()
-                    .copied()
-                    .map(|x| <T as AsPrimitive<i16>>::as_(x)),
-            ),
-            InnerDecimalBuilder::I32(v) => v.extend(
-                array
-                    .iter()
-                    .copied()
-                    .map(|x| <T as AsPrimitive<i32>>::as_(x)),
-            ),
-            InnerDecimalBuilder::I64(v) => v.extend(
-                array
-                    .iter()
-                    .copied()
-                    .map(|x| <T as AsPrimitive<i64>>::as_(x)),
-            ),
-            InnerDecimalBuilder::I128(v) => v.extend(
-                array
-                    .iter()
-                    .copied()
-                    .map(|x| <T as AsPrimitive<i128>>::as_(x)),
-            ),
-            InnerDecimalBuilder::I256(v) => v.extend(
-                array
-                    .iter()
-                    .copied()
-                    .map(|x| <T as AsPrimitive<i256>>::as_(x)),
-            ),
-        }
-    }
-
-    fn reserve(&mut self, n: usize) {
-        match self {
-            InnerDecimalBuilder::I8(v) => v.reserve(n),
-            InnerDecimalBuilder::I16(v) => v.reserve(n),
-            InnerDecimalBuilder::I32(v) => v.reserve(n),
-            InnerDecimalBuilder::I64(v) => v.reserve(n),
-            InnerDecimalBuilder::I128(v) => v.reserve(n),
-            InnerDecimalBuilder::I256(v) => v.reserve(n),
-        }
-    }
-
-    fn capacity(&self) -> usize {
-        match self {
-            InnerDecimalBuilder::I8(v) => v.capacity(),
-            InnerDecimalBuilder::I16(v) => v.capacity(),
-            InnerDecimalBuilder::I32(v) => v.capacity(),
-            InnerDecimalBuilder::I64(v) => v.capacity(),
-            InnerDecimalBuilder::I128(v) => v.capacity(),
-            InnerDecimalBuilder::I256(v) => v.capacity(),
-        }
+impl Default for DecimalBuffer {
+    fn default() -> Self {
+        Self::I8(BufferMut::<i8>::empty())
     }
 }
 
 macro_rules! impl_from_buffer {
-    ($typ:ty, $variant:path) => {
-        impl From<BufferMut<$typ>> for InnerDecimalBuilder {
-            fn from(value: BufferMut<$typ>) -> Self {
-                $variant(value)
+    ($typ:ty, $variant:ident) => {
+        impl From<BufferMut<$typ>> for DecimalBuffer {
+            fn from(buffer: BufferMut<$typ>) -> Self {
+                Self::$variant(buffer)
             }
         }
     };
 }
+impl_from_buffer!(i8, I8);
+impl_from_buffer!(i16, I16);
+impl_from_buffer!(i32, I32);
+impl_from_buffer!(i64, I64);
+impl_from_buffer!(i128, I128);
+impl_from_buffer!(i256, I256);
 
-impl_from_buffer!(i8, InnerDecimalBuilder::I8);
-impl_from_buffer!(i16, InnerDecimalBuilder::I16);
-impl_from_buffer!(i32, InnerDecimalBuilder::I32);
-impl_from_buffer!(i64, InnerDecimalBuilder::I64);
-impl_from_buffer!(i128, InnerDecimalBuilder::I128);
-impl_from_buffer!(i256, InnerDecimalBuilder::I256);
+macro_rules! delegate_fn {
+    ($self:expr, | $tname:ident, $buffer:ident | $body:block) => {{
+        #[allow(unused)]
+        match $self {
+            Self::I8(buffer) => {
+                type $tname = i8;
+                let $buffer = buffer;
+                $body
+            }
+            Self::I16(buffer) => {
+                type $tname = i16;
+                let $buffer = buffer;
+                $body
+            }
+            Self::I32(buffer) => {
+                type $tname = i32;
+                let $buffer = buffer;
+                $body
+            }
+            Self::I64(buffer) => {
+                type $tname = i64;
+                let $buffer = buffer;
+                $body
+            }
+            Self::I128(buffer) => {
+                type $tname = i128;
+                let $buffer = buffer;
+                $body
+            }
+            Self::I256(buffer) => {
+                type $tname = i256;
+                let $buffer = buffer;
+                $body
+            }
+        }
+    }};
+}
 
+impl DecimalBuffer {
+    fn push<V: NativeDecimalType>(&mut self, value: V) {
+        delegate_fn!(self, |T, buffer| {
+            buffer.push(<T as BigCast>::from(value).vortex_expect("decimal conversion failure"))
+        });
+    }
+
+    fn push_n<V: NativeDecimalType>(&mut self, value: V, n: usize) {
+        delegate_fn!(self, |T, buffer| {
+            buffer.push_n(
+                <T as BigCast>::from(value).vortex_expect("decimal conversion failure"),
+                n,
+            )
+        });
+    }
+
+    fn reserve(&mut self, additional: usize) {
+        delegate_fn!(self, |T, buffer| { buffer.reserve(additional) })
+    }
+
+    fn capacity(&self) -> usize {
+        delegate_fn!(self, |T, buffer| { buffer.capacity() })
+    }
+
+    fn len(&self) -> usize {
+        delegate_fn!(self, |T, buffer| { buffer.len() })
+    }
+
+    pub fn extend<I, V: NativeDecimalType>(&mut self, iter: I)
+    where
+        I: Iterator<Item = V>,
+    {
+        delegate_fn!(self, |T, buffer| {
+            buffer.extend(
+                iter.map(|x| <T as BigCast>::from(x).vortex_expect("decimal conversion failure")),
+            )
+        })
+    }
+}
+
+/// An [`ArrayBuilder`] for `Decimal` typed arrays.
+///
+/// The output will be a new [`DecimalArray`] holding values of `T`. Any value that is
+/// a valid [decimal type][NativeDecimalType] can be appended to the builder and it will be
+/// immediately coerced into the target type.
 pub struct DecimalBuilder {
-    values: InnerDecimalBuilder,
+    values: DecimalBuffer,
     nulls: LazyNullBufferBuilder,
     dtype: DType,
 }
@@ -179,42 +152,35 @@ impl DecimalBuilder {
         decimal: DecimalDType,
         nullability: Nullability,
     ) -> Self {
-        let values: InnerDecimalBuilder = match T::VALUES_TYPE {
-            DecimalValueType::I8 => BufferMut::<i8>::with_capacity(capacity).into(),
-            DecimalValueType::I16 => BufferMut::<i16>::with_capacity(capacity).into(),
-            DecimalValueType::I32 => BufferMut::<i32>::with_capacity(capacity).into(),
-            DecimalValueType::I64 => BufferMut::<i64>::with_capacity(capacity).into(),
-            DecimalValueType::I128 => BufferMut::<i128>::with_capacity(capacity).into(),
-            DecimalValueType::I256 => BufferMut::<i256>::with_capacity(capacity).into(),
-            v => unreachable!("invalid values type {v:?}"),
-        };
-
         Self {
-            values,
+            values: match_each_decimal_value_type!(T::VALUES_TYPE, |$D| {
+                DecimalBuffer::from(BufferMut::<$D>::with_capacity(capacity))
+            }),
             nulls: LazyNullBufferBuilder::new(capacity),
             dtype: DType::Decimal(decimal, nullability),
         }
     }
+}
 
-    /// Append a `Mask` to the null buffer.
-    pub fn append_mask(&mut self, mask: Mask) {
-        self.nulls.append_validity_mask(mask);
-    }
-
+impl DecimalBuilder {
     fn extend_with_validity_mask(&mut self, validity_mask: Mask) {
         self.nulls.append_validity_mask(validity_mask);
     }
 
+    /// Extend the values buffer from another buffer of type V where V can be coerced
+    /// to the builder type.
+    fn extend_from_buffer<V: NativeDecimalType>(&mut self, values: &Buffer<V>) {
+        self.values.extend(values.iter().copied());
+    }
+}
+
+impl DecimalBuilder {
     pub fn append_value<V: NativeDecimalType>(&mut self, value: V) {
         self.values.push(value);
         self.nulls.append(true);
     }
 
-    pub fn append_option<T>(&mut self, value: Option<T>)
-    where
-        Self: Send,
-        T: NativeDecimalType + Default + Send + 'static,
-    {
+    pub fn append_option<V: NativeDecimalType>(&mut self, value: Option<V>) {
         match value {
             Some(value) => {
                 self.values.push(value);
@@ -224,6 +190,13 @@ impl DecimalBuilder {
         }
     }
 
+    /// Append a `Mask` to the null buffer.
+    pub fn append_mask(&mut self, mask: Mask) {
+        self.nulls.append_validity_mask(mask);
+    }
+}
+
+impl DecimalBuilder {
     pub fn finish_into_decimal(&mut self) -> DecimalArray {
         let nulls = self.nulls.finish();
 
@@ -254,24 +227,24 @@ impl DecimalBuilder {
             vortex_panic!("DecimalBuilder must have Decimal DType");
         };
 
-        match &mut self.values {
-            InnerDecimalBuilder::I8(v) => {
-                DecimalArray::new(std::mem::take(v).freeze(), decimal_dtype, validity)
+        match std::mem::take(&mut self.values) {
+            DecimalBuffer::I8(values) => {
+                DecimalArray::new(values.freeze(), decimal_dtype, validity)
             }
-            InnerDecimalBuilder::I16(v) => {
-                DecimalArray::new(std::mem::take(v).freeze(), decimal_dtype, validity)
+            DecimalBuffer::I16(values) => {
+                DecimalArray::new(values.freeze(), decimal_dtype, validity)
             }
-            InnerDecimalBuilder::I32(v) => {
-                DecimalArray::new(std::mem::take(v).freeze(), decimal_dtype, validity)
+            DecimalBuffer::I32(values) => {
+                DecimalArray::new(values.freeze(), decimal_dtype, validity)
             }
-            InnerDecimalBuilder::I64(v) => {
-                DecimalArray::new(std::mem::take(v).freeze(), decimal_dtype, validity)
+            DecimalBuffer::I64(values) => {
+                DecimalArray::new(values.freeze(), decimal_dtype, validity)
             }
-            InnerDecimalBuilder::I128(v) => {
-                DecimalArray::new(std::mem::take(v).freeze(), decimal_dtype, validity)
+            DecimalBuffer::I128(values) => {
+                DecimalArray::new(values.freeze(), decimal_dtype, validity)
             }
-            InnerDecimalBuilder::I256(v) => {
-                DecimalArray::new(std::mem::take(v).freeze(), decimal_dtype, validity)
+            DecimalBuffer::I256(values) => {
+                DecimalArray::new(values.freeze(), decimal_dtype, validity)
             }
         }
     }
@@ -295,12 +268,12 @@ impl ArrayBuilder for DecimalBuilder {
     }
 
     fn append_zeros(&mut self, n: usize) {
-        self.values.push_zeros(n);
+        self.values.push_n(0, n);
         self.nulls.append_n_non_nulls(n);
     }
 
     fn append_nulls(&mut self, n: usize) {
-        self.values.push_zeros(n);
+        self.values.push_n(0, n);
         self.nulls.append_n_nulls(n);
     }
 
@@ -320,7 +293,7 @@ impl ArrayBuilder for DecimalBuilder {
         }
 
         match_each_decimal_value_type!(array.values_type(), |$D| {
-            self.values.extend_from_buffer(array.buffer::<$D>())
+            self.extend_from_buffer(&array.buffer::<$D>())
         });
 
         self.extend_with_validity_mask(array.validity_mask()?);
