@@ -87,6 +87,7 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
 
 // Render the inner Array for a FlatLayout
 fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
+    let row_count = app.cursor.layout().row_count();
     let reader = app
         .cursor
         .layout()
@@ -100,10 +101,10 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     let array = TOKIO_RUNTIME
         .block_on(
             reader
-                .projection_evaluation(&(0..reader.row_count()), &Identity::new_expr())
+                .projection_evaluation(&(0..row_count), &Identity::new_expr())
                 .vortex_expect("Failed to construct projection")
                 .invoke(Mask::new_true(
-                    reader.row_count().try_into().vortex_expect("row count"),
+                    usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
                 )),
         )
         .vortex_expect("Failed to read flat array");
