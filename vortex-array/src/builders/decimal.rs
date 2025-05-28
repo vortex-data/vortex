@@ -51,32 +51,32 @@ macro_rules! delegate_fn {
     ($self:expr, | $tname:ident, $buffer:ident | $body:block) => {{
         #[allow(unused)]
         match $self {
-            Self::I8(buffer) => {
+            DecimalBuffer::I8(buffer) => {
                 type $tname = i8;
                 let $buffer = buffer;
                 $body
             }
-            Self::I16(buffer) => {
+            DecimalBuffer::I16(buffer) => {
                 type $tname = i16;
                 let $buffer = buffer;
                 $body
             }
-            Self::I32(buffer) => {
+            DecimalBuffer::I32(buffer) => {
                 type $tname = i32;
                 let $buffer = buffer;
                 $body
             }
-            Self::I64(buffer) => {
+            DecimalBuffer::I64(buffer) => {
                 type $tname = i64;
                 let $buffer = buffer;
                 $body
             }
-            Self::I128(buffer) => {
+            DecimalBuffer::I128(buffer) => {
                 type $tname = i128;
                 let $buffer = buffer;
                 $body
             }
-            Self::I256(buffer) => {
+            DecimalBuffer::I256(buffer) => {
                 type $tname = i256;
                 let $buffer = buffer;
                 $body
@@ -227,26 +227,9 @@ impl DecimalBuilder {
             vortex_panic!("DecimalBuilder must have Decimal DType");
         };
 
-        match std::mem::take(&mut self.values) {
-            DecimalBuffer::I8(values) => {
-                DecimalArray::new(values.freeze(), decimal_dtype, validity)
-            }
-            DecimalBuffer::I16(values) => {
-                DecimalArray::new(values.freeze(), decimal_dtype, validity)
-            }
-            DecimalBuffer::I32(values) => {
-                DecimalArray::new(values.freeze(), decimal_dtype, validity)
-            }
-            DecimalBuffer::I64(values) => {
-                DecimalArray::new(values.freeze(), decimal_dtype, validity)
-            }
-            DecimalBuffer::I128(values) => {
-                DecimalArray::new(values.freeze(), decimal_dtype, validity)
-            }
-            DecimalBuffer::I256(values) => {
-                DecimalArray::new(values.freeze(), decimal_dtype, validity)
-            }
-        }
+        delegate_fn!(std::mem::take(&mut self.values), |T, values| {
+            DecimalArray::new::<T>(values.freeze(), decimal_dtype, validity)
+        })
     }
 }
 
