@@ -9,20 +9,24 @@ use vortex_array::{ArrayRef, ToCanonical as _};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::SequentialArrayStream;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::sequence::SequenceId;
+use crate::{SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt};
 
 pub fn accumulate_stats(
-    dtype: &DType,
-    stream: SequentialArrayStream,
+    stream: SendableSequentialStream,
     stats: Arc<[Stat]>,
     max_variable_length_statistics_size: usize,
-) -> (FileStatsAccumulator, SequentialArrayStream) {
-    let accumulator = FileStatsAccumulator::new(dtype, stats, max_variable_length_statistics_size);
-    let stream = Box::pin(stream.scan(accumulator.clone(), |acc, item| {
-        future::ready(Some(acc.process(item)))
-    }));
+) -> (FileStatsAccumulator, SendableSequentialStream) {
+    let accumulator =
+        FileStatsAccumulator::new(stream.dtype(), stats, max_variable_length_statistics_size);
+    let stream = SequentialStreamAdapter::new(
+        stream.dtype().clone(),
+        stream.scan(accumulator.clone(), |acc, item| {
+            future::ready(Some(acc.process(item)))
+        }),
+    )
+    .sendable();
     (accumulator, stream)
 }
 

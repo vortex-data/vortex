@@ -1,5 +1,4 @@
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 
 use arcref::ArcRef;
@@ -16,10 +15,11 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
 
 use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::segments::SegmentWriter;
+use crate::segments::SequenceWriter;
 use crate::sequence::{SequenceId, SequencePointer};
 use crate::{
-    IntoLayout, LayoutStrategy, OwnedLayoutChildren, SendableLayoutWriter, SequentialArrayStream,
+    IntoLayout, LayoutStrategy, OwnedLayoutChildren, SendableLayoutWriter,
+    SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt,
 };
 
 #[derive(Clone)]
@@ -70,21 +70,18 @@ impl LayoutStrategy for DictStrategy {
     fn write_stream(
         &self,
         ctx: &ArrayContext,
-        dtype: &DType,
-        segment_writer: Arc<dyn SegmentWriter>,
-        stream: SequentialArrayStream,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
     ) -> SendableLayoutWriter {
-        if !dict_layout_supported(dtype) {
-            return self
-                .fallback
-                .write_stream(ctx, dtype, segment_writer, stream);
+        if !dict_layout_supported(stream.dtype()) {
+            return self.fallback.write_stream(ctx, sequence_writer, stream);
         }
         let codes = self.codes.clone();
         let values = self.values.clone();
         let fallback = self.fallback.clone();
         let ctx = ctx.clone();
-        let dtype = dtype.clone();
         let constraints = self.options.constraints.clone();
+        let dtype = stream.dtype().clone();
         Box::pin(async move {
             // 0. decide if chunks are eligible for dict encoding
             let (stream, is_dict_encoding) = call_for_first_item(stream, |chunk| {
@@ -92,10 +89,11 @@ impl LayoutStrategy for DictStrategy {
                 Ok(compressed.is_encoding(DictEncoding.id()))
             })
             .await;
+            let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
             if !is_dict_encoding? {
                 // first chunk did not compress to dict, skip dict layout
                 return fallback
-                    .write_stream(&ctx, &dtype, segment_writer.clone(), stream)
+                    .write_stream(&ctx, sequence_writer.clone(), stream)
                     .await;
             }
 
@@ -110,20 +108,24 @@ impl LayoutStrategy for DictStrategy {
             let mut runs = DictEncodedRuns::new(dict_stream);
             while let Some((codes_stream, values_future)) = runs.next_run().await {
                 let (codes_stream, codes_dtype) =
-                    call_for_first_item(codes_stream, |chunk| Ok(chunk.dtype().clone())).await;
+                    call_for_first_item(codes_stream.boxed(), |chunk| Ok(chunk.dtype().clone()))
+                        .await;
                 let Ok(codes_dtype) = codes_dtype else {
                     // codes_stream is empty, this would happen if the parent stream end coincided with a dict run end
                     break;
                 };
                 let codes_layout = codes
-                    .write_stream(&ctx, &codes_dtype, segment_writer.clone(), codes_stream)
+                    .write_stream(
+                        &ctx,
+                        sequence_writer.clone(),
+                        SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
+                    )
                     .await?;
                 let values_layout = values
                     .write_stream(
                         &ctx,
-                        &dtype,
-                        segment_writer.clone(),
-                        Box::pin(once(values_future)),
+                        sequence_writer.clone(),
+                        SequentialStreamAdapter::new(dtype.clone(), once(values_future)).sendable(),
                     )
                     .await?;
                 children.push(DictLayout::new(values_layout, codes_layout).into_layout());
@@ -151,7 +153,7 @@ enum DictionaryChunk {
 }
 
 fn dict_encode_stream(
-    input: SequentialArrayStream,
+    input: SendableSequentialStream,
     constraints: DictConstraints,
 ) -> DictionaryStream {
     Box::pin(try_stream! {
@@ -289,7 +291,7 @@ impl DictEncodedRuns {
     async fn next_run(
         &mut self,
     ) -> Option<(
-        SequentialArrayStream,
+        DictEncodedRunStream,
         impl Future<Output = VortexResult<(SequenceId, ArrayRef)>> + use<>,
     )> {
         // get input to send to the run stream.
@@ -308,11 +310,11 @@ impl DictEncodedRuns {
             }
         };
 
-        let codes_stream = Box::pin(DictEncodedRunStream {
+        let codes_stream = DictEncodedRunStream {
             input: Some(input),
             input_tx: Some(input_tx),
             values_tx: Some(values_tx),
-        });
+        };
 
         Some((codes_stream, values_future))
     }
@@ -379,17 +381,18 @@ impl Drop for DictEncodedRunStream {
     }
 }
 
+type Sequenced = Pin<Box<dyn Stream<Item = VortexResult<(SequenceId, ArrayRef)>> + Send>>;
 async fn call_for_first_item<T>(
-    mut stream: SequentialArrayStream,
+    mut stream: Sequenced,
     func: impl Fn(&ArrayRef) -> VortexResult<T>,
-) -> (SequentialArrayStream, VortexResult<T>) {
+) -> (Sequenced, VortexResult<T>) {
     let Some(Ok((sequence_id, first_chunk))) = stream.next().await else {
-        return (stream, Err(vortex_err!("empty stream")));
+        return (stream.boxed(), Err(vortex_err!("empty stream")));
     };
     let res = func(&first_chunk);
     // reconstruct the stream
-    let stream = Box::pin(once(async { Ok((sequence_id, first_chunk)) }).chain(stream));
-    (stream, res)
+    let stream = once(async { Ok((sequence_id, first_chunk)) }).chain(stream);
+    (stream.boxed(), res)
 }
 
 pub fn dict_layout_supported(dtype: &DType) -> bool {

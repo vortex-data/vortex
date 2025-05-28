@@ -7,15 +7,18 @@ use futures::stream::once;
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::stats::{PRUNING_STATS, Stat};
+use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::{ArrayContext, ArrayRef};
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
-use crate::segments::SegmentWriter;
-use crate::sequence::{SequenceId, SequencePointer};
-use crate::{IntoLayout, LayoutStrategy, SendableLayoutWriter, SequentialArrayStream};
+use crate::segments::SequenceWriter;
+use crate::sequence::SequenceId;
+use crate::{
+    IntoLayout, LayoutStrategy, SendableLayoutWriter, SendableSequentialStream,
+    SequentialStreamAdapter, SequentialStreamExt,
+};
 
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
@@ -40,7 +43,6 @@ pub struct ZonedStrategy {
     child: ArcRef<dyn LayoutStrategy>,
     stats: ArcRef<dyn LayoutStrategy>,
     options: ZonedLayoutOptions,
-    end_of_file: Arc<Mutex<SequencePointer>>,
 }
 
 impl ZonedStrategy {
@@ -48,13 +50,11 @@ impl ZonedStrategy {
         child: ArcRef<dyn LayoutStrategy>,
         stats: ArcRef<dyn LayoutStrategy>,
         options: ZonedLayoutOptions,
-        end_of_file: SequencePointer,
     ) -> Self {
         Self {
             child,
             stats,
             options,
-            end_of_file: Arc::new(Mutex::new(end_of_file)),
         }
     }
 }
@@ -63,29 +63,30 @@ impl LayoutStrategy for ZonedStrategy {
     fn write_stream(
         &self,
         ctx: &ArrayContext,
-        dtype: &DType,
-        segment_writer: Arc<dyn SegmentWriter>,
-        stream: SequentialArrayStream,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
     ) -> SendableLayoutWriter {
         let present_stats: Arc<[Stat]> = self.options.stats.iter().sorted().copied().collect();
         let stats_accumulator = Arc::new(Mutex::new(StatsAccumulator::new(
-            dtype,
+            stream.dtype(),
             &present_stats,
             self.options.max_variable_length_statistics_size,
         )));
-        let stream = Box::pin(stream.scan(stats_accumulator.clone(), |acc, item| {
-            future::ready(Some(accumulate_stats(acc, item)))
-        }));
+        let stream = SequentialStreamAdapter::new(
+            stream.dtype().clone(),
+            stream.scan(stats_accumulator.clone(), |acc, item| {
+                future::ready(Some(accumulate_stats(acc, item)))
+            }),
+        )
+        .sendable();
 
         let ctx = ctx.clone();
-        let dtype = dtype.clone();
         let child = self.child.clone();
         let stats_strategy = self.stats.clone();
         let block_size = self.options.block_size;
-        let end_of_file = self.end_of_file.clone();
         Box::pin(async move {
             let data_layout = child
-                .write_stream(&ctx, &dtype, segment_writer.clone(), stream)
+                .write_stream(&ctx, sequence_writer.clone(), stream)
                 .await?;
 
             let Some(stats_table) = stats_accumulator.lock().as_stats_table() else {
@@ -97,15 +98,14 @@ impl LayoutStrategy for ZonedStrategy {
             // the table depends on which stats were successfully computed.
             let stats_array = stats_table.array().to_array().clone();
 
-            // if end of file is at x.y, get x.y.0 and advance eof to x.(y + 1)
-            let stats_sequence = end_of_file.lock().advance().descend().downgrade();
+            let stats_stream =
+                sequence_writer.new_sequential(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                    stats_array.dtype().clone(),
+                    once(async { Ok(stats_array) }),
+                )));
+
             let zones_layout = stats_strategy
-                .write_stream(
-                    &ctx,
-                    &stats_array.dtype().clone(),
-                    segment_writer,
-                    Box::pin(once(async { Ok((stats_sequence, stats_array)) })),
-                )
+                .write_stream(&ctx, sequence_writer, stats_stream)
                 .await?;
 
             Ok(ZonedLayout::new(

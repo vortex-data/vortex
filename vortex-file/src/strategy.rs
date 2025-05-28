@@ -9,7 +9,6 @@ use futures::{FutureExt, StreamExt, pin_mut};
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::{Array, ArrayContext};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_dtype::DType;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -17,19 +16,18 @@ use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriter
 use vortex_layout::layouts::struct_::writer::StructStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
 use vortex_layout::scan::{TaskExecutor, TaskExecutorExt};
-use vortex_layout::segments::SegmentWriter;
-use vortex_layout::sequence::SequencePointer;
-use vortex_layout::{LayoutStrategy, SendableLayoutWriter, SequentialArrayStream};
+use vortex_layout::segments::SequenceWriter;
+use vortex_layout::{
+    LayoutStrategy, SendableLayoutWriter, SendableSequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt as _,
+};
 
 const ROW_BLOCK_SIZE: usize = 8192;
 
 pub struct VortexLayoutStrategy;
 
 impl VortexLayoutStrategy {
-    pub fn multi_threaded(
-        executor: Arc<dyn TaskExecutor>,
-        end_of_file: SequencePointer,
-    ) -> ArcRef<dyn LayoutStrategy> {
+    pub fn multi_threaded(executor: Arc<dyn TaskExecutor>) -> ArcRef<dyn LayoutStrategy> {
         // 7. for each chunk create a flat layout
         let chunked = arcref(ChunkedLayoutStrategy::default());
         // 6. buffer chunks so they end up with closer segment ids physically
@@ -74,7 +72,6 @@ impl VortexLayoutStrategy {
                 stats: PRUNING_STATS.into(),
                 max_variable_length_statistics_size: 64,
             },
-            end_of_file,
         ));
 
         // 1. repartition each column to fixed row counts
@@ -122,12 +119,12 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
     fn write_stream(
         &self,
         ctx: &ArrayContext,
-        dtype: &DType,
-        segment_writer: Arc<dyn SegmentWriter>,
-        stream: SequentialArrayStream,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
     ) -> SendableLayoutWriter {
         let executor = self.executor.clone();
 
+        let dtype = stream.dtype().clone();
         let stream = stream
             .map(|chunk| {
                 async {
@@ -143,8 +140,11 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
             .map(move |compress_future| executor.spawn(compress_future))
             .buffered(self.parallelism);
 
-        self.child
-            .write_stream(ctx, dtype, segment_writer, Box::pin(stream))
+        self.child.write_stream(
+            ctx,
+            sequence_writer,
+            SequentialStreamAdapter::new(dtype, stream).sendable(),
+        )
     }
 }
 
@@ -163,10 +163,10 @@ impl LayoutStrategy for BufferedStrategy {
     fn write_stream(
         &self,
         ctx: &ArrayContext,
-        dtype: &DType,
-        segment_writer: Arc<dyn SegmentWriter>,
-        stream: SequentialArrayStream,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
     ) -> SendableLayoutWriter {
+        let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
         let buffered_stream = try_stream! {
             let stream = stream.peekable();
@@ -204,7 +204,10 @@ impl LayoutStrategy for BufferedStrategy {
                 }
             }
         };
-        self.child
-            .write_stream(ctx, dtype, segment_writer, Box::pin(buffered_stream))
+        self.child.write_stream(
+            ctx,
+            sequence_writer,
+            SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
+        )
     }
 }

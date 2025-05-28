@@ -10,12 +10,14 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{ArrayContext, ToCanonical};
-use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult, vortex_err};
 
 use crate::layouts::struct_::StructLayout;
-use crate::segments::SegmentWriter;
-use crate::{IntoLayout as _, LayoutStrategy, SendableLayoutWriter, SequentialArrayStream};
+use crate::segments::SequenceWriter;
+use crate::{
+    IntoLayout as _, LayoutStrategy, SendableLayoutWriter, SendableSequentialStream,
+    SequentialStreamAdapter, SequentialStreamExt,
+};
 
 pub struct StructStrategy {
     child: ArcRef<dyn LayoutStrategy>,
@@ -32,13 +34,13 @@ impl LayoutStrategy for StructStrategy {
     fn write_stream(
         &self,
         ctx: &ArrayContext,
-        dtype: &DType,
-        segment_writer: Arc<dyn SegmentWriter>,
-        stream: SequentialArrayStream,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
     ) -> SendableLayoutWriter {
-        let Some(struct_dtype) = dtype.as_struct().cloned() else {
+        let dtype = stream.dtype().clone();
+        let Some(struct_dtype) = stream.dtype().as_struct().cloned() else {
             // nothing we can do if dtype is not struct
-            return self.child.write_stream(ctx, dtype, segment_writer, stream);
+            return self.child.write_stream(ctx, sequence_writer, stream);
         };
         if HashSet::from_iter(struct_dtype.names().iter()).len() != struct_dtype.names().len() {
             return Box::pin(async {
@@ -75,10 +77,10 @@ impl LayoutStrategy for StructStrategy {
         let layout_futures = column_dtypes
             .zip_eq(column_streams)
             .map(move |(dtype, stream)| {
-                child.write_stream(&ctx, &dtype, segment_writer.clone(), Box::pin(stream))
+                let column_stream = SequentialStreamAdapter::new(dtype, stream).sendable();
+                child.write_stream(&ctx, sequence_writer.clone(), column_stream)
             });
 
-        let dtype = dtype.clone();
         Box::pin(async move {
             let column_layouts = try_join_all(layout_futures).await?;
             // TODO(os): transposed stream could count row counts as well,

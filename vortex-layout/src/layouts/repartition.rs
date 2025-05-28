@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::sync::Arc;
 
 use arcref::ArcRef;
 use async_stream::try_stream;
@@ -9,8 +8,11 @@ use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::segments::SegmentWriter;
-use crate::{LayoutStrategy, SendableLayoutWriter, SequentialArrayStream};
+use crate::segments::SequenceWriter;
+use crate::{
+    LayoutStrategy, SendableLayoutWriter, SendableSequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt,
+};
 
 #[derive(Clone)]
 pub struct RepartitionWriterOptions {
@@ -39,16 +41,20 @@ impl LayoutStrategy for RepartitionStrategy {
     fn write_stream(
         &self,
         ctx: &ArrayContext,
-        dtype: &DType,
-        segment_writer: Arc<dyn SegmentWriter>,
-        stream: SequentialArrayStream,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
     ) -> SendableLayoutWriter {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
-        let canonical_stream: SequentialArrayStream = Box::pin(stream.map(|chunk| {
-            let (sequence_id, chunk) = chunk?;
-            VortexResult::Ok((sequence_id, chunk.to_canonical()?.into_array()))
-        }));
+        let dtype = stream.dtype().clone();
+        let canonical_stream = SequentialStreamAdapter::new(
+            dtype.clone(),
+            stream.map(|chunk| {
+                let (sequence_id, chunk) = chunk?;
+                VortexResult::Ok((sequence_id, chunk.to_canonical()?.into_array()))
+            }),
+        )
+        .sendable();
 
         let dtype_clone = dtype.clone();
         let options = self.options.clone();
@@ -81,8 +87,11 @@ impl LayoutStrategy for RepartitionStrategy {
             }
         };
 
-        self.child
-            .write_stream(ctx, dtype, segment_writer, Box::pin(repartitioned_stream))
+        self.child.write_stream(
+            ctx,
+            sequence_writer,
+            SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
+        )
     }
 }
 

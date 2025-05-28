@@ -1,17 +1,15 @@
-use std::future;
 use std::sync::Arc;
 
-use futures::StreamExt;
 use futures::future::try_join;
 use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
-use vortex_array::stream::ArrayStream;
+use vortex_array::stream::{ArrayStream, ArrayStreamExt};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::accumulate_stats;
 use vortex_layout::scan::TaskExecutor;
-use vortex_layout::sequence::SequenceId;
+use vortex_layout::segments::SequenceWriter;
 use vortex_layout::{LayoutContext, LayoutStrategy};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
@@ -83,36 +81,26 @@ impl VortexWriteOptions {
         // Set up a Context to capture the encodings used in the file.
         let ctx = ArrayContext::empty();
 
-        let mut end_of_file = SequenceId::root();
-        let file_pointer = end_of_file.advance();
-        let file_pointer = file_pointer.descend();
-
         let dtype = stream.dtype().clone();
+        let (segment_writer, flusher) = SerialSegmentWriter::create();
+        let sequence_writer = SequenceWriter::new(Box::new(segment_writer));
 
-        let stream = Box::pin(stream.scan(file_pointer, |pointer, item| match item {
-            Ok(chunk) => {
-                let sequence_id = pointer.advance();
-                future::ready(Some(Ok((sequence_id, chunk))))
-            }
-            Err(e) => future::ready(Some(Err(e))),
-        }));
+        let stream = sequence_writer.new_sequential(ArrayStreamExt::boxed(stream));
+
         let (file_stats, stream) = accumulate_stats(
-            &dtype,
             stream,
             self.file_statistics.clone().into(),
             self.max_variable_length_statistics_size,
         );
 
-        let strategy = VortexLayoutStrategy::multi_threaded(executor.clone(), end_of_file);
+        let strategy = VortexLayoutStrategy::multi_threaded(executor.clone());
 
         // First we write the magic number
         let mut write = futures::io::Cursor::new(write);
         write.write_all(MAGIC_BYTES).await?;
 
-        let (segment_writer, flusher) = SerialSegmentWriter::create();
-
         let io_fut = async { flusher.flush(write).await };
-        let compute_fut = strategy.write_stream(&ctx, &dtype, Arc::new(segment_writer), stream);
+        let compute_fut = strategy.write_stream(&ctx, sequence_writer, stream);
         let (layout, (mut write, segment_specs)) = try_join(compute_fut, io_fut).await?;
 
         // We write our footer components in order of least likely to be needed to most likely.
