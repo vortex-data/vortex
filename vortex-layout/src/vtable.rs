@@ -1,10 +1,9 @@
-use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
-use vortex_dtype::{DType, FieldMask};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::children::LayoutChildren;
@@ -45,16 +44,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
     /// Return the type of the child at the given index.
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType;
-
-    /// Register row splits for the layout.
-    // TODO(ngates): this should be implemented with a visitor, but we need to fix the FieldMask
-    //  API first.
-    fn register_splits(
-        layout: &Self::Layout,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()>;
 
     /// Create a new reader for the layout.
     fn new_reader(
