@@ -5,7 +5,7 @@ use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
-use vortex_scalar::{DecimalValueType, NativeDecimalType, i256};
+use vortex_scalar::{DecimalValueType, NativeDecimalType, i256, match_each_decimal_value_type};
 
 use crate::arrays::{BoolArray, DecimalArray};
 use crate::builders::ArrayBuilder;
@@ -319,15 +319,9 @@ impl ArrayBuilder for DecimalBuilder {
             );
         }
 
-        match array.values_type() {
-            DecimalValueType::I8 => self.values.extend_from_buffer(array.buffer::<i8>()),
-            DecimalValueType::I16 => self.values.extend_from_buffer(array.buffer::<i16>()),
-            DecimalValueType::I32 => self.values.extend_from_buffer(array.buffer::<i32>()),
-            DecimalValueType::I64 => self.values.extend_from_buffer(array.buffer::<i64>()),
-            DecimalValueType::I128 => self.values.extend_from_buffer(array.buffer::<i128>()),
-            DecimalValueType::I256 => self.values.extend_from_buffer(array.buffer::<i256>()),
-            v => vortex_panic!("unsupported values_type for decimal: {v:?}"),
-        };
+        match_each_decimal_value_type!(array.values_type(), |$D| {
+            self.values.extend_from_buffer(array.buffer::<$D>())
+        });
 
         self.extend_with_validity_mask(array.validity_mask()?);
 

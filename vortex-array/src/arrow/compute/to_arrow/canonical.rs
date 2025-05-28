@@ -231,8 +231,7 @@ fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
         DecimalValueType::I128 => array
             .buffer::<i128>()
             .into_iter()
-            // SAFETY: Vortex i256 is just a newtype wrapper around Arrow i256
-            .map(|x| unsafe { std::mem::transmute(vortex_scalar::i256::from_i128(x)) })
+            .map(|x| vortex_scalar::i256::from_i128(x).into())
             .collect(),
         DecimalValueType::I256 => Buffer::<i256>::from_byte_buffer(array.byte_buffer()),
         _ => vortex_bail!("unknown type {:?}", array.values_type()),
