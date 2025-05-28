@@ -33,15 +33,6 @@ using std::string;
 
 namespace vortex {
 
-// vortex expr proto ids.
-const string BETWEEN_ID = "between";
-const string BINARY_ID = "binary";
-const string GET_ITEM_ID = "get_item";
-const string IDENTITY_ID = "identity";
-const string LIKE_ID = "like";
-const string LITERAL_ID = "literal";
-const string NOT_ID = "not";
-
 // Temporal ids
 const string VORTEX_DATE_ID = "vortex.date";
 const string VORTEX_TIME_ID = "vortex.time";
