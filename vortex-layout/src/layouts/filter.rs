@@ -1,5 +1,6 @@
+use std::collections::BTreeSet;
 use std::iter;
-use std::ops::{BitAnd, Deref, Range};
+use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -8,14 +9,14 @@ use dashmap::DashMap;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
+use vortex_array::stats::Precision;
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
-use crate::{
-    ArrayEvaluation, Layout, LayoutReader, LayoutReaderRef, MaskEvaluation, PruningEvaluation,
-};
+use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, PruningEvaluation};
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -40,17 +41,27 @@ impl FilterLayoutReader {
     }
 }
 
-impl Deref for FilterLayoutReader {
-    type Target = dyn Layout;
-
-    fn deref(&self) -> &Self::Target {
-        self.child.deref()
-    }
-}
-
 impl LayoutReader for FilterLayoutReader {
     fn name(&self) -> &Arc<str> {
         self.child.name()
+    }
+
+    fn dtype(&self) -> &DType {
+        self.child.dtype()
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        self.child.row_count()
+    }
+
+    fn register_splits(
+        &self,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()> {
+        // Pass-through the splits to the child layout reader.
+        self.child.register_splits(field_mask, row_offset, splits)
     }
 
     fn pruning_evaluation(

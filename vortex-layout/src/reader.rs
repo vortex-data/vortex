@@ -1,28 +1,45 @@
-use std::ops::{Deref, Range};
+use std::collections::BTreeSet;
+use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
+use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ArrayRef};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
-use crate::Layout;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentSource;
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
-/// A [`LayoutReader`] is used to read a [`Layout`] in a way that can cache state across multiple
+/// A [`LayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
 /// evaluation operations.
 ///
 /// It dereferences into the underlying layout being read.
-pub trait LayoutReader: 'static + Send + Sync + Deref<Target = dyn Layout> {
+pub trait LayoutReader: 'static + Send + Sync {
     /// Returns the name of the layout reader for debugging.
     fn name(&self) -> &Arc<str>;
+
+    /// Returns the un-projected dtype of the layout reader.
+    fn dtype(&self) -> &DType;
+
+    /// Returns the number of rows in the layout reader.
+    /// An inexact count may be larger or smaller than the actual row count.
+    fn row_count(&self) -> Precision<u64>;
+
+    /// Register the splits of this layout reader.
+    // TODO(ngates): this is a temporary API until we make layout readers stream based.
+    fn register_splits(
+        &self,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()>;
 
     /// Performs an approximate evaluation of the expression against the layout reader.
     fn pruning_evaluation(

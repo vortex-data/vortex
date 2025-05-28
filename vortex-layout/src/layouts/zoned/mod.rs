@@ -3,13 +3,12 @@ mod reader;
 pub mod writer;
 pub mod zone_map;
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 pub use builder::{MAX_IS_TRUNCATED, MIN_IS_TRUNCATED, lower_bound, upper_bound};
 use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
-use vortex_dtype::{DType, FieldMask, TryFromBytes};
+use vortex_dtype::{DType, TryFromBytes};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
@@ -72,15 +71,6 @@ impl VTable for ZonedVTable {
             1 => LayoutChildType::Auxiliary("zones".into()),
             _ => vortex_panic!("Invalid child index: {}", idx),
         }
-    }
-
-    fn register_splits(
-        layout: &Self::Layout,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        layout.data.register_splits(field_mask, row_offset, splits)
     }
 
     fn new_reader(
