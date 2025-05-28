@@ -146,6 +146,9 @@ impl LayoutReader for StructReader {
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
+        // In the case of an empty struct, we need to register the end split.
+        splits.insert(row_offset + self.layout.row_count);
+
         self.layout.matching_fields(field_mask, |mask, idx| {
             self.child_by_idx(idx)?
                 .register_splits(&[mask], row_offset, splits)
