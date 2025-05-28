@@ -148,7 +148,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 			}
 		}
 		if (conjs.empty()) {
-			return static_filter_str;
+			return static_filter_expr->SerializeAsString();
 		}
 		auto dynamic_expr = flatten_exprs(arena, conjs);
 		auto expr = arena.Create<expr::Expr>(&arena);
