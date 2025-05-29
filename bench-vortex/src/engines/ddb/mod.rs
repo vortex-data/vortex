@@ -6,7 +6,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-// use anyhow::bail;
+use anyhow::bail;
 use log::{info, trace};
 use path::Path;
 use url::Url;

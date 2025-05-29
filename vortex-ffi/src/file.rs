@@ -2,7 +2,6 @@
 
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::str::FromStr;
-use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, LazyLock};
 use std::{iter, ptr, slice};
 
@@ -272,8 +271,6 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_iterator {
-    static COUNTER: AtomicUsize = AtomicUsize::new(0);
-    let file_counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     try_or(error, ptr::null_mut(), || {
         let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file reader") };
 
@@ -323,11 +320,9 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
         let jh = CURR_THREAD_RUNTIME.spawn(async move {
             pin_mut!(stream);
 
-            let mut array_count = 0;
             while let Some(array) = stream.next().await {
-                array_count += 1;
-
                 if let Err(_e) = send.send(array).await {
+                    log::debug!("Failed to send array over channel");
                     break;
                 }
             }
