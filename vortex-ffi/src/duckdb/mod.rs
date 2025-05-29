@@ -7,9 +7,9 @@ use std::sync::Arc;
 use duckdb::core::{DataChunkHandle, LogicalTypeHandle};
 use duckdb::ffi::{duckdb_data_chunk, duckdb_logical_type};
 use itertools::Itertools;
+use vortex::ArrayRef;
 use vortex::dtype::{DType, Nullability, StructDType};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
-use vortex::{Array, ArrayRef, ToCanonical};
 use vortex_duckdb::{FromDuckDB, FromDuckDBType, NamedDataChunk, ToDuckDBType};
 
 use crate::array::vx_array;
