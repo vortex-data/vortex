@@ -307,7 +307,7 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
         // This means any thread that calls into the iterator will use the same runtime to make
         // progress on _all_ the spawned tasks (across all scans!)
         let scan_builder = scan_builder
-            .with_concurrency(100)
+            .with_concurrency(10000)
             .with_executor(Arc::new(CURR_THREAD_RUNTIME.handle()));
         // .with_tokio_executor(CURR_THREAD_RUNTIME.handle().clone());
         let dtype = scan_builder.dtype()?;
