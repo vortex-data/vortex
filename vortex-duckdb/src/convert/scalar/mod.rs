@@ -1,10 +1,10 @@
 use duckdb::core::Value;
 use duckdb::ffi::{duckdb_decimal, duckdb_hugeint};
-use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};
-use vortex_dtype::half::f16;
-use vortex_dtype::{DType, PType, match_each_native_simd_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::{
+use vortex::dtype::datetime::{TemporalMetadata, TimeUnit};
+use vortex::dtype::half::f16;
+use vortex::dtype::{DType, PType, match_each_native_simd_ptype};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::scalar::{
     BinaryScalar, BoolScalar, DecimalScalar, DecimalValue, ExtScalar, PrimitiveScalar, Scalar,
     Utf8Scalar,
 };
