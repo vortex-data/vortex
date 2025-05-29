@@ -31,7 +31,7 @@ exclude = ["duckdb-vortex/duckdb-rs", "wasm-test"]
 resolver = "2"
 
 [workspace.package]
-    authors = ["Vortex Authors <hello@vortex.dev>"]
+authors = ["Vortex Authors <hello@vortex.dev>"]
 categories = ["database-implementations", "data-structures", "compression"]
 edition = "2024"
 homepage = "https://github.com/spiraldb/vortex"
