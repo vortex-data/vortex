@@ -46,7 +46,7 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 /// assert_eq!(to_vec, vec![false, true, false]);
 /// ```
 pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef> {
-    let DType::List(elem_dtype, _nullability) = array.dtype() else {
+    let DType::List(elem_dtype, nullability) = array.dtype() else {
         vortex_bail!("Array must be of List type");
     };
     if &**elem_dtype != value.dtype() {
@@ -77,8 +77,12 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
     // Fast path: no elements match.
     if let Some(pred) = matches.as_constant() {
         if matches!(pred.as_bool().value(), None | Some(false)) {
-            // TODO(aduffy): how do we handle null?
-            return Ok(ConstantArray::new::<bool>(false, list_array.len()).into_array());
+            // Match the nullability to the input list array.
+            return Ok(ConstantArray::new(
+                Scalar::bool(false, *nullability),
+                list_array.len(),
+            )
+            .into_array());
         }
     }
 
