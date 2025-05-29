@@ -14,7 +14,7 @@ use vortex::arrays::{ConstantVTable, StructArray};
 use vortex::arrow::compute::to_arrow_preferred;
 use vortex::encodings::dict::DictVTable;
 use vortex::encodings::runend::RunEndVTable;
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::iter::ArrayIterator;
 use vortex::mask::Mask;
 use vortex::{Array, Canonical, ToCanonical};
@@ -96,12 +96,11 @@ impl ArrayExporter {
         }
 
         if self.fields.is_empty() {
-            // Export everything in a single chunk.
+            // No fields can occur in e.g. count(*) queries. In these cases, we just need to
+            // set the length of the chunk and return.
             chunk.set_len(self.remaining);
             self.remaining = 0;
 
-            // No fields can occur in e.g. select(*) queries. In these cases, we just need to
-            // set the length of the chunk and return.
             return Ok(true);
         }
 
@@ -157,8 +156,14 @@ fn new_array_exporter(
         Canonical::Bool(_) => {}
         Canonical::Primitive(array) => return primitive::new_exporter(&array),
         Canonical::Decimal(array) => return decimal::new_exporter(&array),
-        Canonical::Struct(_) => {}
-        Canonical::List(_) => {}
+        Canonical::Struct(_) => {
+            // The Arrow exporter does not support struct arrays yet, so we bail out.
+            vortex_bail!("Struct arrays are not supported in DuckDB export yet");
+        }
+        Canonical::List(_) => {
+            // The Arrow exporter does not support list arrays yet, so we bail out.
+            vortex_bail!("List arrays are not supported in DuckDB export yet");
+        }
         Canonical::VarBinView(array) => return varbinview::new_exporter(&array),
         Canonical::Extension(_) => {}
     }
@@ -185,7 +190,8 @@ impl ColumnExporter for ArrowArrayExporter {
 }
 
 pub(crate) trait FlatVectorExt {
-    /// Returns true if *all* values are null.
+    /// Returns true if *all* values within the offset -> len slice are null.
+    /// Since we're iterating these values anyway, then it's cheaper for us to check it inline.
     fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool;
 }
 
@@ -193,6 +199,7 @@ impl FlatVectorExt for FlatVector {
     fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
         match mask {
             Mask::AllTrue(_) => {
+                // We only need to blank out validity if there is already a slice allocated.
                 if let Some(validity) = self.validity_slice() {
                     validity[..].fill(u64::MAX)
                 }

@@ -14,7 +14,9 @@ struct ConstantExporter {
 
 pub(crate) fn new_exporter(array: &ConstantArray) -> VortexResult<Box<dyn ColumnExporter>> {
     let value = if array.scalar().is_null() && !matches!(array.dtype(), DType::Null) {
-        // If the scalar is null or of type Null, we can return a constant null DuckDB vector.
+        // If the scalar is null and _not_ of type Null, then we cannot assign a null DuckDB value
+        // to a constant vector since DuckDB will complain about a type-mismatch. In these cases,
+        // we need to create an all-null flat vector instead.
         None
     } else {
         // For null scalars (that are not explicitly of type Null), we cannot return a
