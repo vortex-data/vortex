@@ -95,11 +95,6 @@ impl ArrayExporter {
             return Ok(false);
         }
 
-        let chunk_len = DUCKDB_STANDARD_VECTOR_SIZE.min(self.remaining);
-        let position = self.array_len - self.remaining;
-        self.remaining -= chunk_len;
-        chunk.set_len(chunk_len);
-
         if self.fields.is_empty() {
             // Export everything in a single chunk.
             chunk.set_len(self.remaining);
@@ -109,6 +104,11 @@ impl ArrayExporter {
             // set the length of the chunk and return.
             return Ok(true);
         }
+
+        let chunk_len = DUCKDB_STANDARD_VECTOR_SIZE.min(self.remaining);
+        let position = self.array_len - self.remaining;
+        self.remaining -= chunk_len;
+        chunk.set_len(chunk_len);
 
         for (i, field) in self.fields.iter_mut().enumerate() {
             let mut vector = unsafe { duckdb_data_chunk_get_vector(chunk.get_ptr(), i as u64) };
