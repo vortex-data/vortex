@@ -56,8 +56,8 @@ where
     P: NativePType + NumCast,
     ScalarValue: From<P>,
 {
-    match_each_decimal_value!(decimal_value, |$decimal_v| {
-        Some(ScalarValue::from(<P as NumCast>::from($decimal_v)?))
+    match_each_decimal_value!(decimal_value, |decimal_v| {
+        Some(ScalarValue::from(<P as NumCast>::from(decimal_v)?))
     })
 }
 

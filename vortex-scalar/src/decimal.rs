@@ -316,17 +316,34 @@ decimal_scalar_pack!(i256, i256, I256);
 
 #[macro_export]
 macro_rules! match_each_decimal_value {
-    ($self:expr, | $_:tt $value:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_ $value:ident ) => ( $($body)* )}
+    ($self:expr, | $value:ident | $body:block) => {{
         match $self {
-            DecimalValue::I8(v) => __with__! { v },
-            DecimalValue::I16(v) => __with__! { v },
-            DecimalValue::I32(v) => __with__! { v },
-            DecimalValue::I64(v) => __with__! { v },
-            DecimalValue::I128(v) => __with__! { v },
-            DecimalValue::I256(v) => __with__! { v },
+            DecimalValue::I8(v) => {
+                let $value = v;
+                $body
+            }
+            DecimalValue::I16(v) => {
+                let $value = v;
+                $body
+            }
+            DecimalValue::I32(v) => {
+                let $value = v;
+                $body
+            }
+            DecimalValue::I64(v) => {
+                let $value = v;
+                $body
+            }
+            DecimalValue::I128(v) => {
+                let $value = v;
+                $body
+            }
+            DecimalValue::I256(v) => {
+                let $value = v;
+                $body
+            }
         }
-    });
+    }};
 }
 
 /// Macro to match over each decimal value type, binding the corresponding native type (from `DecimalValueType`)
