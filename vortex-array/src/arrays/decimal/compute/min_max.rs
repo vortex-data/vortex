@@ -12,8 +12,8 @@ use crate::register_kernel;
 
 impl MinMaxKernel for DecimalVTable {
     fn min_max(&self, array: &DecimalArray) -> VortexResult<Option<MinMaxResult>> {
-        match_each_decimal_value_type!(array.values_type(), |$T| {
-            compute_min_max_with_validity::<$T>(array)
+        match_each_decimal_value_type!(array.values_type(), |T| {
+            compute_min_max_with_validity::<T>(array)
         })
     }
 }

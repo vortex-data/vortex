@@ -19,8 +19,15 @@ impl CompareKernel for FoRVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(constant) = rhs.as_constant() {
             if let Ok(constant) = PrimitiveScalar::try_from(&constant) {
-                match_each_integer_ptype!(constant.ptype(), |$T| {
-                    return compare_constant(lhs, constant.typed_value::<$T>().vortex_expect("null scalar handled in top-level"), rhs.dtype().nullability(), operator);
+                match_each_integer_ptype!(constant.ptype(), |T| {
+                    return compare_constant(
+                        lhs,
+                        constant
+                            .typed_value::<T>()
+                            .vortex_expect("null scalar handled in top-level"),
+                        rhs.dtype().nullability(),
+                        operator,
+                    );
                 })
             }
         }

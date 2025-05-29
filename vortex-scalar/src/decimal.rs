@@ -6,7 +6,7 @@ use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexError, VortexResult, vortex_bail};
 
 use crate::scalar_value::InnerScalarValue;
-use crate::{Scalar, ScalarValue, i256};
+use crate::{BigCast, Scalar, ScalarValue, i256};
 
 /// Type of the decimal values.
 #[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq)]
@@ -32,32 +32,91 @@ pub enum DecimalValue {
 }
 
 /// Type of decimal scalar values.
-pub trait NativeDecimalType: Copy + Eq + Ord + Default + Send + Sync + 'static {
+pub trait NativeDecimalType:
+    Copy
+    + Eq
+    + Ord
+    + Default
+    + Send
+    + Sync
+    + BigCast
+    // + AsPrimitive<i8>
+    // + AsPrimitive<i16>
+    // + AsPrimitive<i32>
+    // + AsPrimitive<i64>
+    // + AsPrimitive<i128>
+    // + AsPrimitive<i256>
+    + 'static
+{
     const VALUES_TYPE: DecimalValueType;
+
+    fn try_from(decimal_type: DecimalValue) -> Option<Self>;
 }
 
 impl NativeDecimalType for i8 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I8;
+
+    fn try_from(decimal_type: DecimalValue) -> Option<Self> {
+        match decimal_type {
+            DecimalValue::I8(v) => Some(v),
+            _ => None,
+        }
+    }
 }
 
 impl NativeDecimalType for i16 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I16;
+
+    fn try_from(decimal_type: DecimalValue) -> Option<Self> {
+        match decimal_type {
+            DecimalValue::I16(v) => Some(v),
+            _ => None,
+        }
+    }
 }
 
 impl NativeDecimalType for i32 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I32;
+
+    fn try_from(decimal_type: DecimalValue) -> Option<Self> {
+        match decimal_type {
+            DecimalValue::I32(v) => Some(v),
+            _ => None,
+        }
+    }
 }
 
 impl NativeDecimalType for i64 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I64;
+
+    fn try_from(decimal_type: DecimalValue) -> Option<Self> {
+        match decimal_type {
+            DecimalValue::I64(v) => Some(v),
+            _ => None,
+        }
+    }
 }
 
 impl NativeDecimalType for i128 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I128;
+
+    fn try_from(decimal_type: DecimalValue) -> Option<Self> {
+        match decimal_type {
+            DecimalValue::I128(v) => Some(v),
+            _ => None,
+        }
+    }
 }
 
 impl NativeDecimalType for i256 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I256;
+
+    fn try_from(decimal_type: DecimalValue) -> Option<Self> {
+        match decimal_type {
+            DecimalValue::I256(v) => Some(v),
+            _ => None,
+        }
+    }
 }
 
 impl Display for DecimalValue {
@@ -207,7 +266,7 @@ macro_rules! decimal_scalar_unpack {
                 Ok(match value.value {
                     None => None,
                     Some(DecimalValue::$arm(v)) => Some(v),
-                    _ => vortex_bail!("Cannot extract decimal as "),
+                    v => vortex_bail!("Cannot extract decimal {:?} as {}", v, stringify!($ty)),
                 })
             }
         }
@@ -219,7 +278,7 @@ macro_rules! decimal_scalar_unpack {
                 match value.value {
                     None => vortex_bail!("Cannot extract value from null decimal"),
                     Some(DecimalValue::$arm(v)) => Ok(v),
-                    _ => vortex_bail!("Cannot extract decimal as "),
+                    v => vortex_bail!("Cannot extract decimal {:?} as {}", v, stringify!($ty)),
                 }
             }
         }
@@ -273,33 +332,34 @@ macro_rules! match_each_decimal_value {
 /// Macro to match over each decimal value type, binding the corresponding native type (from `DecimalValueType`)
 #[macro_export]
 macro_rules! match_each_decimal_value_type {
-    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
+    ($self:expr, | $enc:ident | $body:block) => {{
         use $crate::{DecimalValueType, i256};
         match $self {
-            DecimalValueType::I8 => __with__! { i8 },
-            DecimalValueType::I16 => __with__! { i16 },
-            DecimalValueType::I32 => __with__! { i32 },
-            DecimalValueType::I64 => __with__! { i64 },
-            DecimalValueType::I128 => __with__! { i128 },
-            DecimalValueType::I256 => __with__! { i256 },
-            ty => vortex_error::vortex_panic!("unknown decimal value type {:?}", ty),
+            DecimalValueType::I8 => {
+                type $enc = i8;
+                $body
+            }
+            DecimalValueType::I16 => {
+                type $enc = i16;
+                $body
+            }
+            DecimalValueType::I32 => {
+                type $enc = i32;
+                $body
+            }
+            DecimalValueType::I64 => {
+                type $enc = i64;
+                $body
+            }
+            DecimalValueType::I128 => {
+                type $enc = i128;
+                $body
+            }
+            DecimalValueType::I256 => {
+                type $enc = i256;
+                $body
+            }
+            ty => unreachable!("unknown decimal value type {:?}", ty),
         }
-    });
-    ($self:expr, | ($_0:tt $enc:ident, $_1:tt $dv_path:ident) | $($body:tt)*) => ({
-        macro_rules! __with__ { ( $_0 $enc:ident, $_1 $dv_path:ident ) => ( $($body)* ) }
-        use $crate::{DecimalValueType, i256};
-        use $crate::DecimalValue::*;
-
-        match $self {
-            DecimalValueType::I8 => __with__! { i8, I8 },
-            DecimalValueType::I16 => __with__! { i16, I16 },
-            DecimalValueType::I32 => __with__! { i32, I32 },
-            DecimalValueType::I64 => __with__! { i64, I64 },
-            DecimalValueType::I128 => __with__! { i128, I128 },
-            DecimalValueType::I256 => __with__! { i256, I256 },
-            ty => vortex_error::vortex_panic!("unknown decimal value type {:?}", ty),
-
-        }
-    });
+    }};
 }

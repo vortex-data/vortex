@@ -23,17 +23,12 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive()?;
-            match_each_native_ptype!(p, |$P| {
+            match_each_native_ptype!(p, |P| {
                 let mut opt_values = primitive_array
-                    .as_slice::<$P>()
+                    .as_slice::<P>()
                     .iter()
                     .copied()
-                    .zip(
-                        primitive_array
-                            .validity_mask()?
-                            .to_boolean_buffer()
-                            .iter(),
-                    )
+                    .zip(primitive_array.validity_mask()?.to_boolean_buffer().iter())
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 sort_primitive_slice(&mut opt_values);

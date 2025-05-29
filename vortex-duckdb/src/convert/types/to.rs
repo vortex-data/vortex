@@ -1,7 +1,7 @@
 use duckdb::core::{LogicalTypeHandle, LogicalTypeId};
-use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
-use vortex_dtype::{DType, ExtDType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex::dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
+use vortex::dtype::{DType, ExtDType, PType};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 pub trait ToDuckDBType {
     fn to_duckdb_type(&self) -> VortexResult<LogicalTypeHandle>;
@@ -11,7 +11,7 @@ impl ToDuckDBType for DType {
     fn to_duckdb_type(&self) -> VortexResult<LogicalTypeHandle> {
         // TODO(joe): handle nullability.
         match self {
-            DType::Null => vortex_bail!("cannot convert null to duckdb type"),
+            DType::Null => Ok(LogicalTypeHandle::from(LogicalTypeId::SQLNull)),
             DType::Bool(_) => Ok(LogicalTypeHandle::from(LogicalTypeId::Boolean)),
             DType::Primitive(ptype, _) => Ok(LogicalTypeHandle::from(match ptype {
                 PType::I8 => LogicalTypeId::Tinyint,

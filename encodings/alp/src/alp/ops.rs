@@ -1,6 +1,6 @@
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{ALPArray, ALPFloat, ALPVTable, match_each_alp_float_ptype};
@@ -32,12 +32,15 @@ impl OperationsVTable<ALPVTable> for ALPVTable {
 
         let encoded_val = array.encoded().scalar_at(index)?;
 
-        Ok(match_each_alp_float_ptype!(array.ptype(), |$T| {
-            let encoded_val: <$T as ALPFloat>::ALPInt = encoded_val.as_ref().try_into().unwrap();
-            Scalar::primitive(<$T as ALPFloat>::decode_single(
-                encoded_val,
-                array.exponents(),
-            ), array.dtype().nullability())
+        Ok(match_each_alp_float_ptype!(array.ptype(), |T| {
+            let encoded_val: <T as ALPFloat>::ALPInt = encoded_val
+                .as_ref()
+                .try_into()
+                .vortex_expect("invalid ALPInt");
+            Scalar::primitive(
+                <T as ALPFloat>::decode_single(encoded_val, array.exponents()),
+                array.dtype().nullability(),
+            )
         }))
     }
 }

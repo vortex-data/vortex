@@ -27,11 +27,11 @@ impl TakeKernel for PrimitiveVTable {
             && array.all_valid()?
         {
             // TODO(alex): handle nullable codes & values
-            match_each_unsigned_integer_ptype!(indices.ptype(), |$C| {
-                match_each_native_simd_ptype!(array.ptype(), |$V| {
+            match_each_unsigned_integer_ptype!(indices.ptype(), |C| {
+                match_each_native_simd_ptype!(array.ptype(), |V| {
                     // SIMD types larger than the SIMD register size are beneficial for
                     // performance as this leads to better instruction level parallelism.
-                    let decoded = take_primitive_simd::<$C, $V, 64>(
+                    let decoded = take_primitive_simd::<C, V, 64>(
                         indices.as_slice(),
                         array.as_slice(),
                         array.dtype().nullability() | indices.dtype().nullability(),
@@ -42,9 +42,9 @@ impl TakeKernel for PrimitiveVTable {
             });
         }
 
-        match_each_native_ptype!(array.ptype(), |$T| {
-            match_each_integer_ptype!(indices.ptype(), |$I| {
-                let values = take_primitive(array.as_slice::<$T>(), indices.as_slice::<$I>());
+        match_each_native_ptype!(array.ptype(), |T| {
+            match_each_integer_ptype!(indices.ptype(), |I| {
+                let values = take_primitive(array.as_slice::<T>(), indices.as_slice::<I>());
                 Ok(PrimitiveArray::new(values, validity).into_array())
             })
         })

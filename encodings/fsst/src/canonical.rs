@@ -33,6 +33,7 @@ impl CanonicalVTable<FSSTVTable> for FSSTVTable {
 
 // Decompresses a fsst encoded array into a varbinview, a block_offset can be passed if the decoding
 // if happening as part of the larger view and is used to set the block_offset in each view.
+#[allow(clippy::cast_possible_truncation)]
 fn fsst_into_varbin_view(
     decompressor: Decompressor,
     fsst_array: &FSSTArray,
@@ -53,8 +54,12 @@ fn fsst_into_varbin_view(
 
     // Decompres the full dataset.
     #[allow(clippy::cast_possible_truncation)]
-    let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
-       uncompressed_lens_array.as_slice::<$P>().iter().map(|x| *x as usize).sum()
+    let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
+        uncompressed_lens_array
+            .as_slice::<P>()
+            .iter()
+            .map(|x| *x as usize)
+            .sum()
     });
 
     // Bulk-decompress the entire array.
@@ -68,9 +73,9 @@ fn fsst_into_varbin_view(
     // Directly create the binary views.
     let mut views = BufferMut::<BinaryView>::with_capacity(uncompressed_lens_array.len());
 
-    match_each_integer_ptype!(uncompressed_lens_array.ptype(), |$P| {
+    match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
         let mut offset = 0;
-        for len in uncompressed_lens_array.as_slice::<$P>() {
+        for len in uncompressed_lens_array.as_slice::<P>() {
             let len = *len as usize;
             let view = BinaryView::make_view(
                 &uncompressed_bytes[offset..][..len],
@@ -78,7 +83,7 @@ fn fsst_into_varbin_view(
                 offset as u32,
             );
             // SAFETY: we reserved the right capacity beforehand
-            unsafe { views.push_unchecked(view.into()) };
+            unsafe { views.push_unchecked(view) };
             offset += len;
         }
     });

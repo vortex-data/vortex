@@ -20,9 +20,9 @@ impl TakeKernel for VarBinViewVTable {
         let validity = array.validity().take(indices)?;
         let indices = indices.to_primitive()?;
 
-        let views_buffer = match_each_integer_ptype!(indices.ptype(), |$I| {
-        // This is valid since all elements even null values are inside the min-max valid range.
-            take_views(array.views(), indices.as_slice::<$I>())
+        let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
+            // This is valid since all elements even null values are inside the min-max valid range.
+            take_views(array.views(), indices.as_slice::<I>())
         });
 
         Ok(VarBinViewArray::try_new(

@@ -1,7 +1,10 @@
+mod bigcast;
+
 use std::fmt::Display;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 
-use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, ToPrimitive, Zero};
+pub use bigcast::*;
+use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, Zero};
 
 /// Signed 256-bit integer type.
 ///
@@ -15,14 +18,16 @@ pub struct i256(arrow_buffer::i256);
 impl i256 {
     pub const ZERO: Self = Self(arrow_buffer::i256::ZERO);
     pub const ONE: Self = Self(arrow_buffer::i256::ONE);
+    pub const MAX: Self = Self(arrow_buffer::i256::MAX);
+    pub const MIN: Self = Self(arrow_buffer::i256::MIN);
 
     /// Construct a new `i256` from an unsigned `lower` bits and a signed `upper` bits.
-    pub fn from_parts(lower: u128, upper: i128) -> Self {
+    pub const fn from_parts(lower: u128, upper: i128) -> Self {
         Self(arrow_buffer::i256::from_parts(lower, upper))
     }
 
     /// Create an `i256` value from a signed 128-bit value.
-    pub fn from_i128(i: i128) -> Self {
+    pub const fn from_i128(i: i128) -> Self {
         Self(arrow_buffer::i256::from_i128(i))
     }
 
@@ -35,20 +40,15 @@ impl i256 {
         Self(arrow_buffer::i256::from_le_bytes(bytes))
     }
 
-    /// Return the memory representation of this integer as a byte array in little-endian byte order.
-    pub fn to_le_bytes(&self) -> [u8; 32] {
-        self.0.to_le_bytes()
-    }
-
     /// Split the 256-bit signed integer value into an unsigned lower bits and a signed upper bits.
     ///
     /// This versions gives us ownership of the value.
-    pub fn into_parts(self) -> (u128, i128) {
+    pub const fn into_parts(self) -> (u128, i128) {
         self.0.to_parts()
     }
 
     /// Split the 256-bit signed integer value into an unsigned lower bits and a signed upper bits.
-    pub fn to_parts(&self) -> (u128, i128) {
+    pub const fn to_parts(&self) -> (u128, i128) {
         self.0.to_parts()
     }
 
@@ -58,6 +58,18 @@ impl i256 {
 
     pub fn wrapping_add(&self, other: Self) -> Self {
         Self(self.0.wrapping_add(other.0))
+    }
+
+    /// Return the memory representation of this integer as a byte array in little-endian byte order.
+    #[inline]
+    pub const fn to_le_bytes(&self) -> [u8; 32] {
+        self.0.to_le_bytes()
+    }
+
+    /// Return the memory representation of this integer as a byte array in big-endian byte order.
+    #[inline]
+    pub const fn to_be_bytes(&self) -> [u8; 32] {
+        self.0.to_be_bytes()
     }
 }
 
@@ -151,17 +163,17 @@ impl CheckedSub for i256 {
     }
 }
 
-impl ToPrimitive for i256 {
+impl num_traits::ToPrimitive for i256 {
     fn to_i64(&self) -> Option<i64> {
         self.maybe_i128().and_then(|v| v.to_i64())
     }
 
-    fn to_u64(&self) -> Option<u64> {
-        self.maybe_i128().and_then(|v| v.to_u64())
-    }
-
     fn to_i128(&self) -> Option<i128> {
         self.maybe_i128()
+    }
+
+    fn to_u64(&self) -> Option<u64> {
+        self.maybe_i128().and_then(|v| v.to_u64())
     }
 
     fn to_u128(&self) -> Option<u128> {
