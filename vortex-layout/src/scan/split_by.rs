@@ -88,7 +88,7 @@ mod test {
                     stream::once(async {
                         Ok((
                             SequenceId::root().downgrade(),
-                            buffer![1_i32, 10].into_array(),
+                            buffer![1_i32; 10].into_array(),
                         ))
                     }),
                 )
@@ -120,7 +120,7 @@ mod test {
                     stream::once(async {
                         Ok((
                             SequenceId::root().downgrade(),
-                            buffer![1_i32, 10].into_array(),
+                            buffer![1_i32; 10].into_array(),
                         ))
                     }),
                 )
