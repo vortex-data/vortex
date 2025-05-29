@@ -1397,9 +1397,9 @@ dependencies = [
 
 [[package]]
 name = "cuckoo-runtime"
-version = "0.0.4"
+version = "0.0.5-rc1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e3d0686f4485a63b358314a66361d9833348e73ffaf4bcb000d4957a5ada0f7"
+checksum = "d2e2ca69d5de49b624199097d9c77e3ef3ade8cf8ac8fad66ca8e4b99964059f"
 dependencies = [
  "async-task",
  "crossbeam",
