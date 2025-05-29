@@ -146,13 +146,6 @@ fn new_array_exporter(
         return dict::new_exporter(array, cache);
     }
 
-    println!(
-        "ENCODING: {} {} {}",
-        array.encoding(),
-        array.dtype(),
-        array.len()
-    );
-
     // Otherwise, we fall back to canonical
     let array = array.to_canonical()?;
     match array {
