@@ -27,6 +27,7 @@ use crate::{
 #[derive(Clone)]
 pub struct DictLayoutOptions {
     pub constraints: DictConstraints,
+    /// Max number of encoded chunks to keep in memory.
     pub encoded_buffer_size: usize,
 }
 
@@ -37,7 +38,7 @@ impl Default for DictLayoutOptions {
                 max_bytes: 1024 * 1024,
                 max_len: u16::MAX as usize,
             },
-            encoded_buffer_size: 512,
+            encoded_buffer_size: 8,
         }
     }
 }
