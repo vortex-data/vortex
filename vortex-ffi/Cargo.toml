@@ -18,8 +18,8 @@ categories = { workspace = true }
 
 [dependencies]
 async-channel = { workspace = true }
-cuckoo-runtime = { workspace = true }
 crossbeam = "0.8.4"
+cuckoo-runtime = { workspace = true }
 duckdb = { workspace = true, optional = true }
 futures = { workspace = true }
 itertools = { workspace = true }
