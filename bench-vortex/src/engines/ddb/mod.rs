@@ -326,17 +326,10 @@ pub fn execute_query(
 
     // DuckDB does not return non-zero exit codes in case of failures.
     // Therefore, we need to additionally check whether stderr is set.
-    // if !output.status.success() || !output.stderr.is_empty() {
-    //     bail!(
-    //         "DuckDB query failed.\nstdout: {}\nstderr: {}",
-    //         String::from_utf8_lossy(&output.stdout),
-    //         String::from_utf8_lossy(&output.stderr)
-    //     );
-    // }
-
-    if dbg!(!output.stderr.is_empty()) {
-        eprintln!(
-            "Command stderr:\n{}\n--------",
+    if !output.status.success() || !output.stderr.is_empty() {
+        bail!(
+            "DuckDB query failed.\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
     }
