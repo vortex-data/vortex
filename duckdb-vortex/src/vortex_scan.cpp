@@ -76,6 +76,8 @@ struct ScanPartition {
 /// operation. In DuckDB's execution model, a query reading from a file can be
 /// parallelized by dividing it into ranges, each handled by a different scan.
 struct ScanLocalState : public LocalTableFunctionState {
+	bool finished;
+
 	unique_ptr<ArrayExporter> array_exporter;
 
 	std::queue<ScanPartition> scan_partitions;
@@ -85,7 +87,6 @@ struct ScanLocalState : public LocalTableFunctionState {
 };
 
 struct ScanGlobalState : public GlobalTableFunctionState {
-	std::atomic_bool finished;
 	std::atomic_uint64_t cache_id;
 
 	vector<string> expanded_files;
@@ -387,7 +388,7 @@ static bool GetNextExporter(ClientContext &context, const ScanBindData &bind_dat
 				// A new partition might have been created after the first pop. Therefore,
 				// one more pop is necessary to ensure no more partitions are left to process.
 				if (success = global_state.scan_partitions.try_dequeue(partition); !success) {
-					global_state.finished = true;
+					local_state.finished = true;
 					return false;
 				}
 			}
@@ -424,7 +425,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			}
 		}
 
-		if (!global_state.finished) {
+		if (!local_state.finished) {
 			// Try to get the next exporter, if we fail, make progress on partitions and then loop.
 			if (!GetNextExporter(context, bind_data, global_state, local_state)) {
 				// Free file readers when owned by the thread.
@@ -510,9 +511,15 @@ void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData
 	auto &bind = bind_data->Cast<ScanBindData>();
 	bind.conjuncts.reserve(filters.size());
 
-	for (auto &filter : filters) {
-		if (auto expr = expression_into_vortex_expr(*bind.arena, *filter); expr != nullptr) {
+	// Delete filters here so they are not given to used the create global state callback.
+	for (auto iter = filters.begin(); iter != filters.end();) {
+		auto expr = expression_into_vortex_expr(*bind.arena, *iter->get());
+		if (expr != nullptr) {
 			bind.conjuncts.push_back(expr);
+
+			iter = filters.erase(iter);
+		} else {
+			++iter;
 		}
 	}
 }
