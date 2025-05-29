@@ -7,7 +7,7 @@ use arcref::ArcRef;
 use itertools::Itertools;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::stats::{PRUNING_STATS, Stat};
-use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
+use vortex_array::{Array, ArrayContext, ArrayRef, Canonical, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -271,6 +271,8 @@ fn encode_children_like(current: ArrayRef, previous: ArrayRef) -> VortexResult<O
         Ok(Some(
             ConstantArray::new(constant, current.len()).into_array(),
         ))
+    } else if current.is_empty() {
+        Ok(Some(Canonical::empty(current.dtype()).into_array()))
     } else if let Some(encoded) = previous
         .encoding()
         .encode(&current.to_canonical()?, Some(&previous))?
