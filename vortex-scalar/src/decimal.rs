@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::hash::Hash;
 
 use vortex_dtype::{DType, DecimalDType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
@@ -88,7 +89,7 @@ pub enum DecimalValueType {
     I256 = 5,
 }
 
-#[derive(Debug, Clone, Copy, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum DecimalValue {
     I8(i8),
     I16(i16),
@@ -131,6 +132,17 @@ impl PartialOrd for DecimalValue {
         });
 
         self_upcast.partial_cmp(&other_upcast)
+    }
+}
+
+// Hashing works in the upcast space similar to the other comparison and equality operators.
+impl Hash for DecimalValue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let self_upcast = match_each_decimal_value!(self, |v| {
+            v.to_i256()
+                .vortex_expect("upcast to i256 must always succeed")
+        });
+        self_upcast.hash(state);
     }
 }
 
