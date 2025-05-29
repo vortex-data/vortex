@@ -3,10 +3,77 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 
 use vortex_dtype::{DType, DecimalDType, Nullability};
-use vortex_error::{VortexError, VortexResult, vortex_bail};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 
 use crate::scalar_value::InnerScalarValue;
-use crate::{BigCast, Scalar, ScalarValue, i256};
+use crate::{BigCast, Scalar, ScalarValue, ToPrimitive, i256};
+
+#[macro_export]
+macro_rules! match_each_decimal_value {
+    ($self:expr, | $value:ident | $body:block) => {{
+        match $self {
+            DecimalValue::I8(v) => {
+                let $value = v;
+                $body
+            }
+            DecimalValue::I16(v) => {
+                let $value = v;
+                $body
+            }
+            DecimalValue::I32(v) => {
+                let $value = v;
+                $body
+            }
+            DecimalValue::I64(v) => {
+                let $value = v;
+                $body
+            }
+            DecimalValue::I128(v) => {
+                let $value = v;
+                $body
+            }
+            DecimalValue::I256(v) => {
+                let $value = v;
+                $body
+            }
+        }
+    }};
+}
+
+/// Macro to match over each decimal value type, binding the corresponding native type (from `DecimalValueType`)
+#[macro_export]
+macro_rules! match_each_decimal_value_type {
+    ($self:expr, | $enc:ident | $body:block) => {{
+        use $crate::{DecimalValueType, i256};
+        match $self {
+            DecimalValueType::I8 => {
+                type $enc = i8;
+                $body
+            }
+            DecimalValueType::I16 => {
+                type $enc = i16;
+                $body
+            }
+            DecimalValueType::I32 => {
+                type $enc = i32;
+                $body
+            }
+            DecimalValueType::I64 => {
+                type $enc = i64;
+                $body
+            }
+            DecimalValueType::I128 => {
+                type $enc = i128;
+                $body
+            }
+            DecimalValueType::I256 => {
+                type $enc = i256;
+                $body
+            }
+            ty => unreachable!("unknown decimal value type {:?}", ty),
+        }
+    }};
+}
 
 /// Type of the decimal values.
 #[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq)]
@@ -21,7 +88,7 @@ pub enum DecimalValueType {
     I256 = 5,
 }
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Clone, Copy, Hash)]
 pub enum DecimalValue {
     I8(i8),
     I16(i16),
@@ -29,6 +96,42 @@ pub enum DecimalValue {
     I64(i64),
     I128(i128),
     I256(i256),
+}
+
+// Comparisons between DecimalValue types should upcast to i256 and operate in the upcast space.
+// Decimal values can take on any signed scalar type, but so long as their values are the same
+// they are considered the same.
+// DecimalScalar handles ensuring that both values being compared have the same precision/scale.
+impl PartialEq for DecimalValue {
+    fn eq(&self, other: &Self) -> bool {
+        let self_upcast = match_each_decimal_value!(self, |v| {
+            v.to_i256()
+                .vortex_expect("upcast to i256 must always succeed")
+        });
+        let other_upcast = match_each_decimal_value!(other, |v| {
+            v.to_i256()
+                .vortex_expect("upcast to i256 must always succeed")
+        });
+
+        self_upcast == other_upcast
+    }
+}
+
+impl Eq for DecimalValue {}
+
+impl PartialOrd for DecimalValue {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let self_upcast = match_each_decimal_value!(self, |v| {
+            v.to_i256()
+                .vortex_expect("upcast to i256 must always succeed")
+        });
+        let other_upcast = match_each_decimal_value!(other, |v| {
+            v.to_i256()
+                .vortex_expect("upcast to i256 must always succeed")
+        });
+
+        self_upcast.partial_cmp(&other_upcast)
+    }
 }
 
 /// Type of decimal scalar values.
@@ -314,69 +417,25 @@ decimal_scalar_pack!(u64, i128, I128);
 decimal_scalar_pack!(i128, i128, I128);
 decimal_scalar_pack!(i256, i256, I256);
 
-#[macro_export]
-macro_rules! match_each_decimal_value {
-    ($self:expr, | $value:ident | $body:block) => {{
-        match $self {
-            DecimalValue::I8(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I16(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I32(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I64(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I128(v) => {
-                let $value = v;
-                $body
-            }
-            DecimalValue::I256(v) => {
-                let $value = v;
-                $body
-            }
-        }
-    }};
-}
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
 
-/// Macro to match over each decimal value type, binding the corresponding native type (from `DecimalValueType`)
-#[macro_export]
-macro_rules! match_each_decimal_value_type {
-    ($self:expr, | $enc:ident | $body:block) => {{
-        use $crate::{DecimalValueType, i256};
-        match $self {
-            DecimalValueType::I8 => {
-                type $enc = i8;
-                $body
-            }
-            DecimalValueType::I16 => {
-                type $enc = i16;
-                $body
-            }
-            DecimalValueType::I32 => {
-                type $enc = i32;
-                $body
-            }
-            DecimalValueType::I64 => {
-                type $enc = i64;
-                $body
-            }
-            DecimalValueType::I128 => {
-                type $enc = i128;
-                $body
-            }
-            DecimalValueType::I256 => {
-                type $enc = i256;
-                $body
-            }
-            ty => unreachable!("unknown decimal value type {:?}", ty),
-        }
-    }};
+    use crate::{DecimalValue, i256};
+
+    #[rstest]
+    #[case(DecimalValue::I8(100), DecimalValue::I8(100))]
+    #[case(DecimalValue::I16(0), DecimalValue::I256(i256::ZERO))]
+    #[case(DecimalValue::I8(100), DecimalValue::I128(100))]
+    fn test_decimal_value_eq(#[case] left: DecimalValue, #[case] right: DecimalValue) {
+        assert_eq!(left, right);
+    }
+
+    #[rstest]
+    #[case(DecimalValue::I128(10), DecimalValue::I8(11))]
+    #[case(DecimalValue::I256(i256::ZERO), DecimalValue::I16(10))]
+    #[case(DecimalValue::I128(-1_000), DecimalValue::I8(1))]
+    fn test_decimal_value_cmp(#[case] lower: DecimalValue, #[case] upper: DecimalValue) {
+        assert!(lower < upper, "expected {lower} < {upper}");
+    }
 }
