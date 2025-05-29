@@ -75,7 +75,7 @@ fn into_decimal<D: NativeDecimalType>(
 }
 
 /// Maps a decimal precision into the small type that can represent it.
-/// see https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
+/// see <https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals>
 pub fn precision_to_duckdb_storage_size(
     decimal_dtype: &DecimalDType,
 ) -> VortexResult<DecimalValueType> {

@@ -113,6 +113,10 @@ struct ArrayIterator {
 	explicit ArrayIterator(vx_array_iterator *array_iter) : array_iter(array_iter) {
 	}
 
+	/// Releases ownership of the native array iterator ptr to the caller. The caller is then responsible for
+	/// eventually calling vx_array_iter_free.
+	///
+	/// This ArrayIterator is useless after this call.
 	vx_array_iterator* release() {
 		auto* ptr = array_iter;
 		array_iter = nullptr;  // Give up ownership
