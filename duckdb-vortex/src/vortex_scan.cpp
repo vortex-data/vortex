@@ -22,6 +22,9 @@
 #include "vortex_common.hpp"
 #include "vortex_expr.hpp"
 #include "vortex_session.hpp"
+#include "duckdb/function/table/table_scan.hpp"
+#include "duckdb/planner/filter/dynamic_filter.hpp"
+#include "duckdb/planner/filter/optional_filter.hpp"
 
 using namespace duckdb;
 
@@ -30,7 +33,7 @@ namespace vortex {
 /// Bind data for the Vortex table function that holds information about the
 /// file and its schema. This data is populated during the bind phase, which
 /// happens during the query planning phase.
-struct BindData : public TableFunctionData {
+struct ScanBindData : public TableFunctionData {
 	// Session used to caching
 	shared_ptr<VortexSession> session;
 
@@ -47,19 +50,19 @@ struct BindData : public TableFunctionData {
 	vector<expr::Expr *> conjuncts;
 
 	bool Equals(const FunctionData &other_p) const override {
-		auto &other = other_p.Cast<BindData>();
+		auto &other = other_p.Cast<ScanBindData>();
 		return file_list == other.file_list && column_names == other.column_names &&
 		       columns_types == other.columns_types;
 	}
 
 	unique_ptr<FunctionData> Copy() const override {
-		auto result = make_uniq<BindData>();
+		auto result = make_uniq<ScanBindData>();
 		result->session = session;
 		result->file_list = file_list;
 		result->columns_types = columns_types;
 		result->column_names = column_names;
 		result->initial_file = initial_file;
- 		return std::move(result);
+		return std::move(result);
 	}
 };
 
@@ -89,7 +92,11 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 
 	optional_ptr<TableFilterSet> filter;
 	// The precomputed filter string used in the query
-	std::string filter_str;
+	std::string static_filter_str;
+	// Any dynamic filter contained in the query
+	map<string, shared_ptr<DynamicFilterData>> dynamic_filters;
+	// Static filter expression, owned by the arena
+	expr::Expr *static_filter_expr;
 
 	// Limited to indicate progress in `table_scan_progress`.
 	std::atomic_uint32_t partitions_processed;
@@ -117,20 +124,61 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 		constexpr uint32_t MAX_THREAD_COUNT = 192;
 		return MAX_THREAD_COUNT;
 	}
+
+	// Return the conjunction of the static and dynamic filters, if either exist.
+	// The dynamic filter can be updated and so we recompute the filter if there is an
+	// active dyn filter.
+	// TODO(joe): cache the dyn filter expr if the dynamic filters have not changed.
+	std::string filter_expression_string(google::protobuf::Arena &arena) {
+		if (dynamic_filters.empty()) {
+			return static_filter_str;
+		}
+		vector<expr::Expr *> conjs;
+		for (auto &[col_name, filter] : dynamic_filters) {
+			auto g = lock_guard(filter->lock);
+			if (!filter->initialized) {
+				continue;
+			}
+			auto conj = table_expression_into_expr(arena, *filter->filter, col_name);
+			if (conj) {
+				conjs.push_back(conj);
+			}
+		}
+		if (conjs.empty()) {
+			return static_filter_expr->SerializeAsString();
+		}
+		auto dynamic_expr = flatten_exprs(arena, conjs);
+		auto expr = arena.Create<expr::Expr>(&arena);
+		expr->set_id(BINARY_ID);
+		expr->mutable_kind()->set_binary_op(expr::Kind::And);
+		expr->add_children()->Swap(dynamic_expr);
+		expr->add_children()->CopyFrom(*static_filter_expr);
+		return expr->SerializeAsString();
+	}
 };
 
 // Use to create vortex expressions from `TableFilterSet` filter.
-void CreateFilterExpression(google::protobuf::Arena &arena, vector<std::string> column_names,
-                            optional_ptr<TableFilterSet> filter, vector<idx_t> column_ids,
-                            vector<expr::Expr *> &conjuncts) {
-	if (filter == nullptr) {
+void ExtractFilterExpression(google::protobuf::Arena &arena, vector<std::string> column_names,
+                             optional_ptr<TableFilterSet> filter_set, vector<idx_t> column_ids,
+                             vector<expr::Expr *> &conjuncts, map<string, shared_ptr<DynamicFilterData>> &dyn_filters) {
+	if (filter_set == nullptr) {
 		return;
 	}
 
-	for (const auto &[col_id, value] : filter->filters) {
+	for (const auto &[col_id, value] : filter_set->filters) {
 		auto column_name = column_names[column_ids[col_id]];
-		auto conj = table_expression_into_expr(arena, *value, column_name);
-		conjuncts.push_back(conj);
+
+		// Extract the optional dynamic filter, this seems like the only way that
+		// duckdb will use dynamic filters.
+		if (value->filter_type == TableFilterType::OPTIONAL_FILTER) {
+			auto &opt_filter = value->Cast<OptionalFilter>().child_filter;
+			if (opt_filter->filter_type == TableFilterType::DYNAMIC_FILTER) {
+				dyn_filters.emplace(column_name, opt_filter->Cast<DynamicFilter>().filter_data);
+			}
+		} else {
+			auto conj = table_expression_into_expr(arena, *value, column_name);
+			conjuncts.push_back(conj);
+		}
 	}
 }
 
@@ -211,7 +259,8 @@ static unique_ptr<FileReader> OpenFile(const std::string &filename, VortexSessio
 // This function ensures schema consistency across all the files in a multi-file query.
 // It compares the column types and names extracted from a new file against the schema
 // obtained from the first file (stored in bind_data).
-static void VerifyNewFile(const BindData &bind_data, vector<LogicalType> &column_types, vector<string> &column_names) {
+static void VerifyNewFile(const ScanBindData &bind_data, vector<LogicalType> &column_types,
+                          vector<string> &column_names) {
 	if (column_types.size() != bind_data.columns_types.size() || column_names != bind_data.column_names) {
 		throw FatalException("Vortex file does not contain the same number of columns as the first");
 	}
@@ -227,7 +276,7 @@ static void VerifyNewFile(const BindData &bind_data, vector<LogicalType> &column
 }
 
 static unique_ptr<FileReader> OpenFileAndVerify(FileSystem &fs, VortexSession &session, const std::string &filename,
-                                                const BindData &bind_data) {
+                                                const ScanBindData &bind_data) {
 	auto new_column_names = vector<string>();
 	new_column_names.reserve(bind_data.column_names.size());
 
@@ -248,11 +297,10 @@ static bool PinFileToThread(ScanGlobalState &global_state) {
 	return (file_count - global_state.files_partitioned) > thread_count;
 }
 
-static void CreateScanPartitions(ClientContext &context, const BindData &bind, ScanGlobalState &global_state,
+static void CreateScanPartitions(ClientContext &context, const ScanBindData &bind, ScanGlobalState &global_state,
                                  ScanLocalState &local_state, uint64_t file_idx, FileReader &file_reader) {
-
-	if (global_state.file_readers[file_idx]->CanPrune(global_state.filter_str.data(),
-	                                                  static_cast<unsigned>(global_state.filter_str.length()))) {
+	auto filter_str = global_state.filter_expression_string(*bind.arena);
+	if (global_state.file_readers[file_idx]->CanPrune(filter_str.data(), static_cast<unsigned>(filter_str.length()))) {
 		global_state.files_partitioned += 1;
 		return;
 	}
@@ -295,13 +343,15 @@ static void CreateScanPartitions(ClientContext &context, const BindData &bind, S
 	D_ASSERT(global_state.files_partitioned <= global_state.expanded_files.size());
 }
 
-static unique_ptr<ArrayIterator> OpenArrayIter(ScanGlobalState &global_state, shared_ptr<FileReader> &file_reader,
-                                               ScanPartition row_range_partition) {
+static unique_ptr<ArrayIterator> OpenArrayIter(const ScanBindData &bind, ScanGlobalState &global_state,
+                                               shared_ptr<FileReader> &file_reader, ScanPartition row_range_partition) {
+	auto filter_str = global_state.filter_expression_string(*bind.arena);
+
 	const auto options = vx_file_scan_options {
 	    .projection = global_state.projected_column_names.data(),
 	    .projection_len = static_cast<unsigned>(global_state.projected_column_names.size()),
-	    .filter_expression = global_state.filter_str.data(),
-	    .filter_expression_len = static_cast<unsigned>(global_state.filter_str.length()),
+	    .filter_expression = filter_str.data(),
+	    .filter_expression_len = static_cast<unsigned>(filter_str.length()),
 	    .split_by_row_count = 0,
 	    .row_range_start = row_range_partition.start_row,
 	    .row_range_end = row_range_partition.end_row,
@@ -313,7 +363,7 @@ static unique_ptr<ArrayIterator> OpenArrayIter(ScanGlobalState &global_state, sh
 // Assigns the next array exporter.
 //
 // Returns true if a new exporter was assigned, false otherwise.
-static bool GetNextExporter(ClientContext &context, const BindData &bind_data, ScanGlobalState &global_state, ScanLocalState &local_state) {
+static bool GetNextExporter(ClientContext &context, const ScanBindData &bind_data, ScanGlobalState &global_state, ScanLocalState &local_state) {
 
 	// Try to deque a partition off the thread local queue.
 	auto try_dequeue = [&](ScanPartition &scan_partition) {
@@ -350,7 +400,7 @@ static bool GetNextExporter(ClientContext &context, const BindData &bind_data, S
 		// Layout readers are safe to share across threads for reading. Further, they
 		// are created before pushing partitions of the corresponing files into a queue.
 		auto file_reader = global_state.file_readers[partition.file_idx];
-		auto array_iter = OpenArrayIter(global_state, file_reader, partition);
+		auto array_iter = OpenArrayIter(bind_data, global_state, file_reader, partition);
 		local_state.array_exporter = ArrayExporter::FromArrayIterator(std::move(array_iter));
 	}
 
@@ -358,7 +408,7 @@ static bool GetNextExporter(ClientContext &context, const BindData &bind_data, S
 }
 
 static void VortexScanFunction(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
-	auto &bind_data = data.bind_data->Cast<BindData>();
+	auto &bind_data = data.bind_data->Cast<ScanBindData>();
 	auto &global_state = data.global_state->Cast<ScanGlobalState>();
 	auto &local_state = data.local_state->Cast<ScanLocalState>();
 
@@ -413,7 +463,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 /// like projection pushdown and predicate pushdown.
 static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunctionBindInput &input,
                                            vector<LogicalType> &column_types, vector<string> &column_names) {
-	auto result = make_uniq<BindData>();
+	auto result = make_uniq<ScanBindData>();
 	result->arena = make_uniq<google::protobuf::Arena>();
 
 	const static string VortexExtensionKey = std::string("vortex_extension:vortex_session");
@@ -440,7 +490,7 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
 }
 
 unique_ptr<NodeStatistics> VortexCardinality(ClientContext &context, const FunctionData *bind_data) {
-	auto &data = bind_data->Cast<BindData>();
+	auto &data = bind_data->Cast<ScanBindData>();
 
 	auto row_count = data.initial_file->FileRowCount();
 	if (data.file_list->GetTotalFileCount() == 1) {
@@ -457,7 +507,7 @@ void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData
 		return;
 	}
 
-	auto &bind = bind_data->Cast<BindData>();
+	auto &bind = bind_data->Cast<ScanBindData>();
 	bind.conjuncts.reserve(filters.size());
 
 	for (auto &filter : filters) {
@@ -473,7 +523,7 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 
 	vortex_scan.init_global = [](ClientContext &context,
 	                             TableFunctionInitInput &input) -> unique_ptr<GlobalTableFunctionState> {
-		auto &bind = input.bind_data->CastNoConst<BindData>();
+		auto &bind = input.bind_data->CastNoConst<ScanBindData>();
 		auto global_state = make_uniq<ScanGlobalState>();
 
 		// TODO(joe): do this expansion gradually in the scan to avoid a slower start.
@@ -488,15 +538,17 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 		PopulateProjection(*global_state, bind.column_names, input);
 
 		// Most expressions are extracted from `PushdownComplexFilter`, the final filters come from `input.filters`.
-		CreateFilterExpression(*bind.arena, bind.column_names, input.filters, input.column_ids, bind.conjuncts);
-		if (auto exprs = flatten_exprs(*bind.arena, bind.conjuncts); exprs != nullptr) {
-			global_state->filter_str = exprs->SerializeAsString();
+		ExtractFilterExpression(*bind.arena, bind.column_names, input.filters, input.column_ids, bind.conjuncts,
+		                        global_state->dynamic_filters);
+		// Create the static filter expression
+		global_state->static_filter_expr = flatten_exprs(*bind.arena, bind.conjuncts);
+		if (global_state->static_filter_expr != nullptr) {
+			global_state->static_filter_str = global_state->static_filter_expr->SerializeAsString();
 		}
 
 		// Resizing the empty vector default constructs std::shared pointers at all indices with nullptr.
 		global_state->file_readers.resize(global_state->expanded_files.size());
 
-		bind.arena->Reset();
 		return std::move(global_state);
 	};
 

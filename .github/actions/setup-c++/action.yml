@@ -8,6 +8,11 @@ runs:
       uses: aminya/setup-cpp@v1
       with:
         compiler: llvm
-        # sccache: true  Failing for whatever reason, so disable it for now.
         cmake: true
         ninja: true
+    - name: Install sccache
+      uses: mozilla-actions/sccache-action@v0.0.9
+    - name: Sccache config
+      shell: bash
+      run: |
+        echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
