@@ -145,10 +145,11 @@ impl ValidityVTable<DictVTable> for DictVTable {
             AllOr::All => {
                 let primitive_codes = array.codes().to_primitive()?;
                 let values_mask = array.values().validity_mask()?;
-                let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
-                    let codes_slice = primitive_codes.as_slice::<$P>();
+                let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
+                    let codes_slice = primitive_codes.as_slice::<P>();
                     BooleanBuffer::collect_bool(array.len(), |idx| {
-                       values_mask.value(codes_slice[idx] as usize)
+                        #[allow(clippy::cast_possible_truncation)]
+                        values_mask.value(codes_slice[idx] as usize)
                     })
                 });
                 Ok(Mask::from_buffer(is_valid_buffer))
@@ -157,10 +158,11 @@ impl ValidityVTable<DictVTable> for DictVTable {
             AllOr::Some(validity_buff) => {
                 let primitive_codes = array.codes().to_primitive()?;
                 let values_mask = array.values().validity_mask()?;
-                let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |$P| {
-                    let codes_slice = primitive_codes.as_slice::<$P>();
+                let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
+                    let codes_slice = primitive_codes.as_slice::<P>();
+                    #[allow(clippy::cast_possible_truncation)]
                     BooleanBuffer::collect_bool(array.len(), |idx| {
-                       validity_buff.value(idx) && values_mask.value(codes_slice[idx] as usize)
+                        validity_buff.value(idx) && values_mask.value(codes_slice[idx] as usize)
                     })
                 });
                 Ok(Mask::from_buffer(is_valid_buffer))

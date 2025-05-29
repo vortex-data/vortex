@@ -102,11 +102,7 @@ impl ListArray {
     pub fn offset_at(&self, index: usize) -> usize {
         self.offsets()
             .as_opt::<PrimitiveVTable>()
-            .map(|p| {
-                match_each_native_ptype!(p.ptype(), |$P| {
-                    p.as_slice::<$P>()[index].as_()
-                })
-            })
+            .map(|p| match_each_native_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
                 self.offsets()
                     .scalar_at(index)

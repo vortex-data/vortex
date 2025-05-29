@@ -12,8 +12,8 @@ impl IsConstantKernel for DecimalVTable {
         array: &DecimalArray,
         _opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
-        let constant = match_each_decimal_value_type!(array.values_type, |$S| {
-           array.buffer::<$S>().iter().all_equal()
+        let constant = match_each_decimal_value_type!(array.values_type, |S| {
+            array.buffer::<S>().iter().all_equal()
         });
         Ok(Some(constant))
     }

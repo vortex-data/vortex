@@ -18,8 +18,8 @@ use crate::{BitPackedArray, BitPackedVTable};
 
 impl FilterKernel for BitPackedVTable {
     fn filter(&self, array: &BitPackedArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |$I| {
-            filter_primitive::<$I>(array, mask)
+        let primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |I| {
+            filter_primitive::<I>(array, mask)
         });
         Ok(primitive?.into_array())
     }

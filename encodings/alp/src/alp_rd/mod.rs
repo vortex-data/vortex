@@ -167,9 +167,7 @@ impl RDEncoder {
     ///
     /// Each value will be split into a left and right component, which are compressed individually.
     pub fn encode(&self, array: &PrimitiveArray) -> ALPRDArray {
-        match_each_alp_float_ptype!(array.ptype(), |$P| {
-            self.encode_generic::<$P>(array)
-        })
+        match_each_alp_float_ptype!(array.ptype(), |P| { self.encode_generic::<P>(array) })
     }
 
     fn encode_generic<T>(&self, array: &PrimitiveArray) -> ALPRDArray
@@ -288,12 +286,12 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     if let Some(patches) = left_parts_patches {
         let indices = patches.indices().to_primitive()?;
         let patch_values = patches.values().to_primitive()?;
-        match_each_integer_ptype!(indices.ptype(), |$T| {
+        match_each_integer_ptype!(indices.ptype(), |T| {
             indices
-                .as_slice::<$T>()
+                .as_slice::<T>()
                 .iter()
                 .copied()
-                .map(|idx| idx - patches.offset() as $T)
+                .map(|idx| idx - patches.offset() as T)
                 .zip(patch_values.as_slice::<u16>().iter())
                 .for_each(|(idx, v)| values[idx as usize] = *v);
         })

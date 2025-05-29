@@ -30,8 +30,8 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
 
     let (ends, values) = match validity {
         None => {
-            match_each_native_ptype!(array.ptype(), |$P| {
-                let (ends, values) = runend_encode_primitive(array.as_slice::<$P>());
+            match_each_native_ptype!(array.ptype(), |P| {
+                let (ends, values) = runend_encode_primitive(array.as_slice::<P>());
                 (
                     PrimitiveArray::new(ends, Validity::NonNullable),
                     PrimitiveArray::new(values, array.dtype().nullability().into()).into_array(),
@@ -39,9 +39,9 @@ pub fn runend_encode(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, Ar
             })
         }
         Some(validity) => {
-            match_each_native_ptype!(array.ptype(), |$P| {
+            match_each_native_ptype!(array.ptype(), |P| {
                 let (ends, values) =
-                    runend_encode_nullable_primitive(array.as_slice::<$P>(), validity.clone());
+                    runend_encode_nullable_primitive(array.as_slice::<P>(), validity);
                 (
                     PrimitiveArray::new(ends, Validity::NonNullable),
                     values.into_array(),
@@ -148,11 +148,11 @@ pub fn runend_decode_primitive(
     offset: usize,
     length: usize,
 ) -> VortexResult<PrimitiveArray> {
-    match_each_native_ptype!(values.ptype(), |$P| {
-        match_each_integer_ptype!(ends.ptype(), |$E| {
+    match_each_native_ptype!(values.ptype(), |P| {
+        match_each_integer_ptype!(ends.ptype(), |E| {
             runend_decode_typed_primitive(
-                trimmed_ends_iter(ends.as_slice::<$E>(), offset, length),
-                values.as_slice::<$P>(),
+                trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
+                values.as_slice::<P>(),
                 values.validity_mask()?,
                 values.dtype().nullability(),
                 length,
@@ -167,9 +167,9 @@ pub fn runend_decode_bools(
     offset: usize,
     length: usize,
 ) -> VortexResult<BoolArray> {
-    match_each_integer_ptype!(ends.ptype(), |$E| {
+    match_each_integer_ptype!(ends.ptype(), |E| {
         runend_decode_typed_bool(
-            trimmed_ends_iter(ends.as_slice::<$E>(), offset, length),
+            trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
             values.boolean_buffer().clone(),
             values.validity_mask()?,
             values.dtype().nullability(),

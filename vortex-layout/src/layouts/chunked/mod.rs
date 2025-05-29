@@ -1,11 +1,10 @@
 mod reader;
 pub mod writer;
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::{DType, FieldMask};
+use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::children::LayoutChildren;
@@ -56,22 +55,6 @@ impl VTable for ChunkedVTable {
 
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType {
         LayoutChildType::Chunk((idx, layout.chunk_offsets[idx]))
-    }
-
-    fn register_splits(
-        layout: &Self::Layout,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        let mut offset = row_offset;
-        for i in 0..layout.nchildren() {
-            let child = layout.child(i)?;
-            child.register_splits(field_mask, offset, splits)?;
-            offset += child.row_count();
-            splits.insert(offset);
-        }
-        Ok(())
     }
 
     fn new_reader(

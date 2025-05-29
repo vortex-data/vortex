@@ -1,11 +1,14 @@
-use std::ops::{BitAnd, Deref, Range};
+use std::collections::BTreeSet;
+use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures::FutureExt;
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayParts;
+use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayContext, ArrayRef};
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
@@ -14,7 +17,7 @@ use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, Layout, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
 };
 
 /// The threshold of mask density below which we will evaluate the expression only over the
@@ -30,14 +33,6 @@ pub struct FlatReader {
     segment_source: Arc<dyn SegmentSource>,
     ctx: ArrayContext,
     array: OnceLock<SharedArrayFuture>,
-}
-
-impl Deref for FlatReader {
-    type Target = dyn Layout;
-
-    fn deref(&self) -> &Self::Target {
-        self.layout.deref()
-    }
 }
 
 impl FlatReader {
@@ -94,6 +89,24 @@ impl FlatReader {
 impl LayoutReader for FlatReader {
     fn name(&self) -> &Arc<str> {
         &self.name
+    }
+
+    fn dtype(&self) -> &DType {
+        self.layout.dtype()
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        Precision::Exact(self.layout.row_count())
+    }
+
+    fn register_splits(
+        &self,
+        _field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()> {
+        splits.insert(row_offset + self.layout.row_count());
+        Ok(())
     }
 
     fn pruning_evaluation(
