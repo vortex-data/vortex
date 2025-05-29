@@ -109,6 +109,13 @@ typedef struct vx_array_sink vx_array_sink;
 typedef struct vx_conversion_cache vx_conversion_cache;
 #endif
 
+#if defined(ENABLE_DUCKDB_FFI)
+/**
+ * A type for exporting Vortex arrays to a stream of mutable DuckDB vectors.
+ */
+typedef struct vx_duckdb_exporter vx_duckdb_exporter;
+#endif
+
 /**
  * The error structure populated by fallible Vortex C functions.
  */
@@ -341,7 +348,7 @@ struct vx_dtype *vx_duckdb_logical_type_to_dtype(const duckdb_logical_type *colu
  * The offset is returned to the caller, which can be used to request the next chunk.
  * 0 is returned when the stream is finished.
  */
-unsigned int vx_array_to_duckdb_chunk(struct vx_array *stream,
+unsigned int vx_array_to_duckdb_chunk(struct vx_array *array,
                                       unsigned int offset,
                                       duckdb_data_chunk data_chunk_ptr,
                                       struct vx_conversion_cache *cache,
@@ -363,6 +370,21 @@ struct vx_conversion_cache *vx_conversion_cache_create(unsigned int id);
 
 #if defined(ENABLE_DUCKDB_FFI)
 void vx_conversion_cache_free(struct vx_conversion_cache *buffer);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+struct vx_duckdb_exporter *vx_duckdb_exporter_create(struct vx_array_iterator *iter,
+                                                     struct vx_error **error);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+bool vx_duckdb_exporter_next(struct vx_duckdb_exporter *exporter,
+                             duckdb_data_chunk data_chunk_ptr,
+                             struct vx_error **error);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+void vx_duckdb_exporter_free(struct vx_duckdb_exporter *exporter);
 #endif
 
 /**

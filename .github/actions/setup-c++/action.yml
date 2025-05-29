@@ -8,6 +8,6 @@ runs:
       uses: aminya/setup-cpp@v1
       with:
         compiler: llvm
-        sccache: true
+        # sccache: true  Failing for whatever reason, so disable it for now.
         cmake: true
         ninja: true

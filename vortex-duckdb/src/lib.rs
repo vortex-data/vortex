@@ -8,8 +8,10 @@ pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
 
 mod buffer;
 mod convert;
+mod exporter;
 
 pub use convert::*;
+pub use exporter::*;
 
 // Note: To generate C decls to include in vortex_duckdb_extension.cpp,
 // call `cbindgen` from `vortex/vortex-duckdb`.
