@@ -178,14 +178,14 @@ mod tests {
 
     use arcref::ArcRef;
     use futures::executor::block_on;
-    use futures::{StreamExt, stream};
+    use futures::stream;
     use vortex_array::ArrayContext;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
-    use crate::segments::TestSegments;
+    use crate::segments::{SequenceWriter, TestSegments};
+    use crate::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
 
     #[test]
     #[should_panic]
@@ -195,19 +195,22 @@ mod tests {
         block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
-                &DType::Struct(
-                    Arc::new(
-                        [
-                            ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                            ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                        ]
-                        .into_iter()
-                        .collect(),
+                SequenceWriter::new(Box::new(TestSegments::default())),
+                SequentialStreamAdapter::new(
+                    DType::Struct(
+                        Arc::new(
+                            [
+                                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        ),
+                        Nullability::NonNullable,
                     ),
-                    Nullability::NonNullable,
-                ),
-                Arc::new(TestSegments::default()),
-                stream::empty().boxed(),
+                    stream::empty(),
+                )
+                .sendable(),
             ),
         )
         .unwrap();

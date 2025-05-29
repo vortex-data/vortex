@@ -45,7 +45,7 @@ impl Eq for SequenceId {}
 
 impl PartialOrd for SequenceId {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.id.partial_cmp(&other.id)
+        Some(self.cmp(other))
     }
 }
 

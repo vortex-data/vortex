@@ -279,7 +279,7 @@ mod test {
 
     use arcref::ArcRef;
     use futures::executor::block_on;
-    use futures::{StreamExt as _, stream};
+    use futures::stream;
     use rstest::{fixture, rstest};
     use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
@@ -291,15 +291,15 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
-    use crate::segments::{SegmentSource, TestSegments};
+    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutRef, LayoutStrategy};
+    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
     fn stats_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
-        let segments = Arc::new(TestSegments::default());
+        let segments = TestSegments::default();
         let mut eof = SequenceId::root();
         let mut pointer = eof.advance().descend();
         let strategy = ZonedStrategy::new(
@@ -309,23 +309,24 @@ mod test {
                 block_size: 3,
                 ..Default::default()
             },
-            eof,
         );
         let layout = block_on(
             strategy.write_stream(
                 &ctx,
-                &DType::Primitive(PType::I32, NonNullable),
-                segments.clone(),
-                stream::iter([
-                    Ok((pointer.advance(), buffer![1, 2, 3].into_array())),
-                    Ok((pointer.advance(), buffer![4, 5, 6].into_array())),
-                    Ok((pointer.advance(), buffer![7, 8, 9].into_array())),
-                ])
-                .boxed(),
+                SequenceWriter::new(Box::new(segments.clone())),
+                SequentialStreamAdapter::new(
+                    DType::Primitive(PType::I32, NonNullable),
+                    stream::iter([
+                        Ok((pointer.advance(), buffer![1, 2, 3].into_array())),
+                        Ok((pointer.advance(), buffer![4, 5, 6].into_array())),
+                        Ok((pointer.advance(), buffer![7, 8, 9].into_array())),
+                    ]),
+                )
+                .sendable(),
             ),
         )
         .unwrap();
-        (ctx, segments, layout)
+        (ctx, Arc::new(segments), layout)
     }
 
     #[rstest]

@@ -59,20 +59,18 @@ impl SplitBy {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use futures::executor::block_on;
-    use futures::{StreamExt, stream};
+    use futures::stream;
     use vortex_array::{ArrayContext, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, FieldPath, PType};
 
     use super::*;
-    use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::TestSegments;
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
+    use crate::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
     #[test]
     fn test_layout_splits_flat() {
@@ -80,15 +78,17 @@ mod test {
         let layout = block_on(
             FlatLayoutStrategy::default().write_stream(
                 &ArrayContext::empty(),
-                &DType::Primitive(PType::I32, NonNullable),
-                Arc::new(segments),
-                stream::once(async {
-                    Ok((
-                        SequenceId::root().downgrade(),
-                        buffer![1_i32, 10].into_array(),
-                    ))
-                })
-                .boxed(),
+                SequenceWriter::new(Box::new(segments)),
+                SequentialStreamAdapter::new(
+                    DType::Primitive(PType::I32, NonNullable),
+                    stream::once(async {
+                        Ok((
+                            SequenceId::root().downgrade(),
+                            buffer![1_i32, 10].into_array(),
+                        ))
+                    }),
+                )
+                .sendable(),
             ),
         )
         .unwrap();
@@ -104,15 +104,17 @@ mod test {
         let layout = block_on(
             FlatLayoutStrategy::default().write_stream(
                 &ArrayContext::empty(),
-                &DType::Primitive(PType::I32, NonNullable),
-                Arc::new(segments),
-                stream::once(async {
-                    Ok((
-                        SequenceId::root().downgrade(),
-                        buffer![1_i32, 10].into_array(),
-                    ))
-                })
-                .boxed(),
+                SequenceWriter::new(Box::new(segments)),
+                SequentialStreamAdapter::new(
+                    DType::Primitive(PType::I32, NonNullable),
+                    stream::once(async {
+                        Ok((
+                            SequenceId::root().downgrade(),
+                            buffer![1_i32, 10].into_array(),
+                        ))
+                    }),
+                )
+                .sendable(),
             ),
         )
         .unwrap();

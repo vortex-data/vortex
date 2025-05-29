@@ -9,9 +9,9 @@ use crate::segments::sink::SegmentWriter;
 use crate::segments::{SegmentFuture, SegmentId, SegmentSource};
 
 /// A dummy in-memory implementation of a segment reader and writer.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct TestSegments {
-    segments: Mutex<Vec<ByteBuffer>>,
+    segments: Arc<Mutex<Vec<ByteBuffer>>>,
 }
 
 impl SegmentSource for TestSegments {

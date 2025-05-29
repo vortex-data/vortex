@@ -315,7 +315,7 @@ mod test {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use futures::{StreamExt, stream};
+    use futures::stream;
     use rstest::{fixture, rstest};
     use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
@@ -325,33 +325,36 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
-    use crate::segments::{SegmentSource, TestSegments};
+    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutRef, LayoutStrategy};
+    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn chunked_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
-        let segments = Arc::new(TestSegments::default());
+        let segments = TestSegments::default();
+        let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
         let strategy = ChunkedLayoutStrategy::default();
         let mut sequence_id = SequenceId::root();
         let layout = block_on(
             strategy.write_stream(
                 &ctx,
-                &DType::Primitive(PType::I32, NonNullable),
-                segments.clone(),
-                stream::iter([
-                    Ok((sequence_id.advance(), buffer![1, 2, 3].into_array())),
-                    Ok((sequence_id.advance(), buffer![4, 5, 6].into_array())),
-                    Ok((sequence_id.advance(), buffer![7, 8, 9].into_array())),
-                ])
-                .boxed(),
+                sequence_writer,
+                SequentialStreamAdapter::new(
+                    DType::Primitive(PType::I32, NonNullable),
+                    stream::iter([
+                        Ok((sequence_id.advance(), buffer![1, 2, 3].into_array())),
+                        Ok((sequence_id.advance(), buffer![4, 5, 6].into_array())),
+                        Ok((sequence_id.advance(), buffer![7, 8, 9].into_array())),
+                    ]),
+                )
+                .sendable(),
             ),
         )
         .unwrap();
 
-        (ctx, segments, layout)
+        (ctx, Arc::new(segments), layout)
     }
 
     #[rstest]
