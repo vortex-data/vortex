@@ -10,14 +10,14 @@ use duckdb::core::{DataChunkHandle, FlatVector};
 use duckdb::ffi::duckdb_data_chunk_get_vector;
 use duckdb::vtab::arrow::{WritableVector, write_arrow_array_to_vector};
 use itertools::Itertools;
-use vortex_array::arrays::{ConstantVTable, StructArray};
-use vortex_array::arrow::compute::to_arrow_preferred;
-use vortex_array::iter::ArrayIterator;
-use vortex_array::{Array, Canonical, ToCanonical};
-use vortex_dict::DictVTable;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_mask::Mask;
-use vortex_runend::RunEndVTable;
+use vortex::arrays::{ConstantVTable, StructArray};
+use vortex::arrow::compute::to_arrow_preferred;
+use vortex::encodings::dict::DictVTable;
+use vortex::encodings::runend::RunEndVTable;
+use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::iter::ArrayIterator;
+use vortex::mask::Mask;
+use vortex::{Array, Canonical, ToCanonical};
 
 use crate::{ConversionCache, DUCKDB_STANDARD_VECTOR_SIZE};
 
@@ -78,7 +78,7 @@ impl ArrayExporter {
         let fields = array
             .fields()
             .iter()
-            .map(|field| create_exporter(field.as_ref(), cache))
+            .map(|field| new_array_exporter(field.as_ref(), cache))
             .try_collect()?;
         Ok(Self {
             fields,
@@ -130,17 +130,10 @@ pub trait ColumnExporter {
 }
 
 /// Create a DuckDB exporter for the given Vortex array.
-fn create_exporter(
+fn new_array_exporter(
     array: &dyn Array,
     cache: &mut ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    // Constant
-    // Chunked
-    // VarBinView
-    // FSST
-    // Dict
-    // RunEnd
-
     if let Some(array) = array.as_opt::<ConstantVTable>() {
         return constant::new_exporter(array);
     }
@@ -152,24 +145,24 @@ fn create_exporter(
     if let Some(array) = array.as_opt::<DictVTable>() {
         return dict::new_exporter(array, cache);
     }
-    //
-    // println!(
-    //     "ENCODING: {} {} {}",
-    //     array.encoding(),
-    //     array.dtype(),
-    //     array.len()
-    // );
+
+    println!(
+        "ENCODING: {} {} {}",
+        array.encoding(),
+        array.dtype(),
+        array.len()
+    );
 
     // Otherwise, we fall back to canonical
     let array = array.to_canonical()?;
     match array {
         Canonical::Null(_) => {}
         Canonical::Bool(_) => {}
-        Canonical::Primitive(array) => return primitive::new_exporter(array),
-        Canonical::Decimal(array) => return decimal::new_exporter(array),
+        Canonical::Primitive(array) => return primitive::new_exporter(&array),
+        Canonical::Decimal(array) => return decimal::new_exporter(&array),
         Canonical::Struct(_) => {}
         Canonical::List(_) => {}
-        Canonical::VarBinView(array) => return varbinview::new_exporter(array),
+        Canonical::VarBinView(array) => return varbinview::new_exporter(&array),
         Canonical::Extension(_) => {}
     }
 
@@ -224,5 +217,161 @@ impl FlatVectorExt for FlatVector {
                 null_count == len
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+    use vortex::arrays::{
+        BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray, VarBinViewArray,
+    };
+    use vortex::dtype::{DType, FieldNames, Nullability};
+    use vortex::encodings::dict::DictArray;
+    use vortex::scalar::Scalar;
+    use vortex::validity::Validity;
+    use vortex::{Array, ArrayRef, IntoArray, ToCanonical};
+
+    use super::*;
+    use crate::{FromDuckDB, NamedDataChunk, ToDuckDBType};
+
+    fn data() -> ArrayRef {
+        let xs = PrimitiveArray::from_iter(0..5);
+        let ys = VarBinArray::from_vec(
+            vec!["a", "b", "c", "d", "e"],
+            DType::Utf8(Nullability::NonNullable),
+        );
+        let zs = BoolArray::from_iter([true, true, true, false, false]);
+
+        let struct_a = StructArray::try_new(
+            FieldNames::from(["xs".into(), "ys".into(), "zs".into()]),
+            vec![xs.into_array(), ys.into_array(), zs.into_array()],
+            5,
+            Validity::NonNullable,
+        )
+        .unwrap();
+        struct_a.to_array()
+    }
+
+    #[test]
+    fn test_vortex_to_duckdb() {
+        let arr = data();
+        let (nullable, ddb_type): (Vec<_>, Vec<_>) = arr
+            .dtype()
+            .as_struct()
+            .unwrap()
+            .fields()
+            .map(|f| (f.is_nullable(), f.to_duckdb_type().unwrap()))
+            .unzip();
+        let struct_arr = arr.to_struct().unwrap();
+
+        let mut output_chunk = DataChunkHandle::new(ddb_type.as_slice());
+
+        ArrayExporter::try_new(&struct_arr, &mut ConversionCache::default())
+            .unwrap()
+            .export(&mut output_chunk)
+            .unwrap();
+
+        let vx_arr = ArrayRef::from_duckdb(&NamedDataChunk::new(
+            &output_chunk,
+            &nullable,
+            FieldNames::from(["xs".into(), "ys".into(), "zs".into()]),
+        ))
+        .unwrap();
+        assert_eq!(
+            struct_arr.names(),
+            vx_arr.clone().to_struct().unwrap().names()
+        );
+        for field in vx_arr.to_struct().unwrap().fields() {
+            assert_eq!(field.len(), arr.len());
+        }
+        assert_eq!(vx_arr.len(), arr.len());
+        assert_eq!(vx_arr.dtype(), arr.dtype());
+    }
+
+    #[test]
+    fn test_large_struct_to_duckdb() {
+        let len = 5;
+        let mut chunk = DataChunkHandle::new(&[
+            LogicalTypeHandle::from(LogicalTypeId::Integer),
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),
+            LogicalTypeHandle::from(LogicalTypeId::Boolean),
+            LogicalTypeHandle::from(LogicalTypeId::SQLNull),
+        ]);
+        let pr: PrimitiveArray = (0i32..i32::try_from(len).unwrap()).collect();
+        let varbin: VarBinViewArray =
+            VarBinViewArray::from_iter_str(["a", "ab", "abc", "abcd", "abcde"]);
+        let dict_varbin = DictArray::try_new(
+            [0u32, 3, 4, 2, 1]
+                .into_iter()
+                .collect::<PrimitiveArray>()
+                .to_array(),
+            varbin.to_array(),
+        )
+        .unwrap();
+        let const1 = ConstantArray::new(
+            Scalar::new(DType::Bool(Nullability::Nullable), true.into()),
+            len,
+        );
+        let const2 = ConstantArray::new(Scalar::null(DType::Null), len);
+        let str = StructArray::from_fields(&[
+            ("pr", pr.to_array()),
+            ("varbin", varbin.to_array()),
+            ("dict_varbin", dict_varbin.to_array()),
+            ("const1", const1.to_array()),
+            ("const2", const2.to_array()),
+        ])
+        .unwrap()
+        .to_struct()
+        .unwrap();
+
+        ArrayExporter::try_new(&str, &mut ConversionCache::default())
+            .unwrap()
+            .export(&mut chunk)
+            .unwrap();
+
+        chunk.verify();
+        assert_eq!(
+            format!("{chunk:?}"),
+            r#"Chunk - [5 Columns]
+- FLAT INTEGER: 5 = [ 0, 1, 2, 3, 4]
+- FLAT VARCHAR: 5 = [ a, ab, abc, abcd, abcde]
+- DICTIONARY VARCHAR: 5 = [ a, abcd, abcde, abc, ab]
+- CONSTANT BOOLEAN: 5 = [ true]
+- CONSTANT "NULL": 5 = [ NULL]
+"#
+        );
+    }
+
+    // The values of the dict don't fit in a vectors, this can cause problems.
+    #[test]
+    fn test_large_dict_to_duckdb() {
+        let mut chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
+        let dict_varbin = DictArray::try_new(
+            [0u32, 3, 4, 2, 1]
+                .into_iter()
+                .collect::<PrimitiveArray>()
+                .to_array(),
+            (0i32..100000).collect::<PrimitiveArray>().to_array(),
+        )
+        .unwrap();
+        let str = StructArray::from_fields(&[("dict", dict_varbin.to_array())])
+            .unwrap()
+            .to_struct()
+            .unwrap();
+
+        ArrayExporter::try_new(&str, &mut ConversionCache::default())
+            .unwrap()
+            .export(&mut chunk)
+            .unwrap();
+
+        chunk.verify();
+        assert_eq!(
+            format!("{chunk:?}"),
+            r#"Chunk - [1 Columns]
+- DICTIONARY INTEGER: 5 = [ 0, 3, 4, 2, 1]
+"#
+        );
     }
 }

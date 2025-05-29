@@ -4,13 +4,13 @@ use std::sync::Arc;
 use duckdb::core::{FlatVector, SelectionVector};
 use duckdb::vtab::arrow::WritableVector;
 use num_traits::AsPrimitive;
-use vortex_array::ToCanonical;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_dict::DictArray;
-use vortex_dtype::{NativePType, match_each_integer_ptype};
-use vortex_error::VortexResult;
+use vortex::ToCanonical;
+use vortex::arrays::PrimitiveArray;
+use vortex::dtype::{NativePType, match_each_integer_ptype};
+use vortex::encodings::dict::DictArray;
+use vortex::error::VortexResult;
 
-use crate::exporter::create_exporter;
+use crate::exporter::new_array_exporter;
 use crate::{ColumnExporter, ConversionCache, ToDuckDBType};
 
 struct DictExporter<I: NativePType> {
@@ -35,7 +35,7 @@ pub(crate) fn new_exporter(
                 values.dtype().to_duckdb_type()?,
                 values.len(),
             );
-            create_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
+            new_array_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
             let unowned = vector.clone();
             cache
                 .values_cache

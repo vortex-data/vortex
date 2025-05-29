@@ -114,10 +114,10 @@ struct ArrayIterator {
 	}
 
 	vx_array_iterator* release() {
-        auto* ptr = array_iter;
-        array_iter = nullptr;  // Give up ownership
-        return ptr;
-    }
+		auto* ptr = array_iter;
+		array_iter = nullptr;  // Give up ownership
+		return ptr;
+	}
 
 	~ArrayIterator() {
 		if (array_iter) {

@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
 use duckdb::vtab::arrow::WritableVector;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_dtype::{NativePType, match_each_native_ptype};
-use vortex_error::VortexResult;
-use vortex_mask::Mask;
+use vortex::arrays::PrimitiveArray;
+use vortex::dtype::{NativePType, match_each_native_ptype};
+use vortex::error::VortexResult;
+use vortex::mask::Mask;
 
 use crate::ColumnExporter;
 use crate::exporter::FlatVectorExt;
@@ -15,7 +15,7 @@ struct PrimitiveExporter<T: NativePType> {
     validity: Mask,
 }
 
-pub(crate) fn new_exporter(array: PrimitiveArray) -> VortexResult<Box<dyn ColumnExporter>> {
+pub(crate) fn new_exporter(array: &PrimitiveArray) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(match_each_native_ptype!(array.ptype(), |T| {
         Box::new(PrimitiveExporter {
             array: array.clone(),

@@ -359,7 +359,7 @@ macro_rules! match_each_decimal_value_type {
                 type $enc = i256;
                 $body
             }
-            ty => vortex_error::vortex_panic!("unknown decimal value type {:?}", ty),
+            ty => unreachable!("unknown decimal value type {:?}", ty),
         }
     }};
 }

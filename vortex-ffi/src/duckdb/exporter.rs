@@ -9,8 +9,6 @@ use crate::array::vx_array_iterator;
 use crate::error::{try_or, vx_error};
 
 /// A type for exporting Vortex arrays to a stream of mutable DuckDB vectors.
-// TODO(ngates): if this works, we should just wrap up an ArrayIterator and export the whole
-//  thing ourselves.
 #[allow(non_camel_case_types)]
 pub struct vx_duckdb_exporter(ArrayIteratorExporter);
 

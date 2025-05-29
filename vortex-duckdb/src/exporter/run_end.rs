@@ -3,14 +3,14 @@ use std::marker::PhantomData;
 use duckdb::core::SelectionVector;
 use duckdb::vtab::arrow::WritableVector;
 use num_traits::{FromPrimitive, ToPrimitive};
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::search_sorted::{SearchSorted, SearchSortedSide};
-use vortex_array::{ArrayRef, ToCanonical};
-use vortex_dtype::{NativePType, match_each_integer_ptype};
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_runend::RunEndArray;
+use vortex::arrays::PrimitiveArray;
+use vortex::dtype::{NativePType, match_each_integer_ptype};
+use vortex::encodings::runend::RunEndArray;
+use vortex::error::{VortexExpect, VortexResult};
+use vortex::search_sorted::{SearchSorted, SearchSortedSide};
+use vortex::{ArrayRef, ToCanonical};
 
-use crate::exporter::create_exporter;
+use crate::exporter::new_array_exporter;
 use crate::{ColumnExporter, ConversionCache, ToDuckDBScalar};
 
 /// We export run-end arrays to a DuckDB dictionary vector, using a selection vector to
@@ -29,7 +29,7 @@ pub(crate) fn new_exporter(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let ends = array.ends().to_primitive()?;
     let values = array.values().clone();
-    let values_exporter = create_exporter(array.values(), cache)?;
+    let values_exporter = new_array_exporter(array.values(), cache)?;
 
     match_each_integer_ptype!(ends.ptype(), |E| {
         Ok(Box::new(RunEndExporter {
@@ -110,5 +110,76 @@ impl<E: NativePType + Ord + FromPrimitive + ToPrimitive> ColumnExporter for RunE
         vector.flat_vector().slice(values_len as u64, sel_vec);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
+    use itertools::Itertools;
+    use vortex::buffer::buffer;
+    use vortex::encodings::runend::{RunEndArray, RunEndVTable};
+    use vortex::{Array, IntoArray};
+
+    use super::*;
+    use crate::ConversionCache;
+
+    #[test]
+    fn test_run_end_array_to_duckdb() {
+        let arr = RunEndArray::try_new(
+            buffer![2u32, 5, 10, 14].into_array(),
+            buffer![1i32, 2, 3, 4].into_array(),
+        )
+        .unwrap();
+
+        let arr = arr.slice(1, 5).unwrap();
+
+        let chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
+        chunk.set_len(arr.len());
+
+        new_exporter(arr.as_::<RunEndVTable>(), &mut ConversionCache::default())
+            .unwrap()
+            .export(0, arr.len(), &mut chunk.flat_vector(0))
+            .unwrap();
+
+        chunk.verify();
+        assert_eq!(
+            format!("{chunk:?}"),
+            r#"Chunk - [1 Columns]
+- DICTIONARY INTEGER: 4 = [ 1, 2, 2, 2]
+"#
+        );
+    }
+
+    #[test]
+    fn test_run_end_array_large_to_duckdb() {
+        let arr = RunEndArray::try_new(
+            buffer![1000u32, 2000, 3000].into_array(),
+            buffer![1i32, 2, 3].into_array(),
+        )
+        .unwrap();
+
+        let arr = arr.slice(900, 2948).unwrap();
+
+        let chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
+        chunk.set_len(arr.len());
+
+        new_exporter(arr.as_::<RunEndVTable>(), &mut ConversionCache::default())
+            .unwrap()
+            .export(0, arr.len(), &mut chunk.flat_vector(0))
+            .unwrap();
+
+        chunk.verify();
+        assert_eq!(
+            format!("{chunk:?}"),
+            format!(
+                r#"Chunk - [1 Columns]
+- DICTIONARY INTEGER: 2048 = [ {}, {}, {}]
+"#,
+                (0..100).map(|_| "1").join(", "),
+                (0..1000).map(|_| "2").join(", "),
+                (0..948).map(|_| "3").join(", "),
+            ),
+        );
     }
 }
