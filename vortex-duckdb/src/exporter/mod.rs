@@ -101,6 +101,10 @@ impl ArrayExporter {
         chunk.set_len(chunk_len);
 
         if self.fields.is_empty() {
+            // Export everything in a single chunk.
+            chunk.set_len(self.remaining);
+            self.remaining = 0;
+
             // No fields can occur in e.g. select(*) queries. In these cases, we just need to
             // set the length of the chunk and return.
             return Ok(true);
