@@ -27,7 +27,7 @@ const ROW_BLOCK_SIZE: usize = 8192;
 pub struct VortexLayoutStrategy;
 
 impl VortexLayoutStrategy {
-    pub fn multi_threaded(executor: Arc<dyn TaskExecutor>) -> ArcRef<dyn LayoutStrategy> {
+    pub fn with_executor(executor: Arc<dyn TaskExecutor>) -> ArcRef<dyn LayoutStrategy> {
         // 7. for each chunk create a flat layout
         let chunked = arcref(ChunkedLayoutStrategy::default());
         // 6. buffer chunks so they end up with closer segment ids physically

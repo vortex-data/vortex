@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use futures::future::try_join;
 use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
@@ -8,7 +9,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::accumulate_stats;
-use vortex_layout::scan::TaskExecutor;
+use vortex_layout::scan::LocalExecutor;
 use vortex_layout::segments::SequenceWriter;
 use vortex_layout::{LayoutContext, LayoutStrategy};
 
@@ -21,20 +22,18 @@ use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexLayoutStrateg
 /// By default, the [`LayoutStrategy`] will be the [`VortexLayoutStrategy`], which includes re-chunking and will also
 /// uncompress all data back to its canonical form before compressing it using the [`BtrBlocksCompressor`](vortex_btrblocks::BtrBlocksCompressor).
 pub struct VortexWriteOptions {
-    // strategy: Box<dyn LayoutStrategy>,
+    strategy: ArcRef<dyn LayoutStrategy>,
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
-    executor: Option<Arc<dyn TaskExecutor>>,
 }
 
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            // strategy: Box::new(VortexLayoutStrategy::default()),
+            strategy: VortexLayoutStrategy::with_executor(Arc::new(LocalExecutor {})),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
-            executor: None,
             max_variable_length_statistics_size: 64,
         }
     }
@@ -42,13 +41,8 @@ impl Default for VortexWriteOptions {
 
 impl VortexWriteOptions {
     /// Replace the default layout strategy with the provided one.
-    pub fn with_strategy<S: LayoutStrategy>(self, _strategy: S) -> Self {
-        todo!("make strategy configurable again");
-    }
-
-    #[cfg(feature = "tokio")]
-    pub fn with_tokio_executor(mut self, handle: tokio::runtime::Handle) -> Self {
-        self.executor = Some(Arc::new(handle));
+    pub fn with_strategy(mut self, strategy: ArcRef<dyn LayoutStrategy>) -> Self {
+        self.strategy = strategy;
         self
     }
 
@@ -74,10 +68,6 @@ impl VortexWriteOptions {
         write: W,
         stream: S,
     ) -> VortexResult<W> {
-        let Some(executor) = self.executor.as_ref() else {
-            // TODO(os): support no executor
-            vortex_bail!("no task executor");
-        };
         // Set up a Context to capture the encodings used in the file.
         let ctx = ArrayContext::empty();
 
@@ -93,14 +83,12 @@ impl VortexWriteOptions {
             self.max_variable_length_statistics_size,
         );
 
-        let strategy = VortexLayoutStrategy::multi_threaded(executor.clone());
-
         // First we write the magic number
         let mut write = futures::io::Cursor::new(write);
         write.write_all(MAGIC_BYTES).await?;
 
         let io_fut = async { flusher.flush(write).await };
-        let compute_fut = strategy.write_stream(&ctx, sequence_writer, stream);
+        let compute_fut = self.strategy.write_stream(&ctx, sequence_writer, stream);
         let (layout, (mut write, segment_specs)) = try_join(compute_fut, io_fut).await?;
 
         // We write our footer components in order of least likely to be needed to most likely.
