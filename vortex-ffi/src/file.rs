@@ -319,21 +319,16 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
         // We set up a mpmc channel so that any thread can return any other thread's result.
         let (send, recv) = async_channel::unbounded::<VortexResult<ArrayRef>>();
 
-        eprintln!("Spawning background task");
-
         // We spawn a task onto the runtime to drive the scan and send results to the channel.
         let jh = CURR_THREAD_RUNTIME.spawn(async move {
             pin_mut!(stream);
-            eprintln!("In spawned stream polling! - {file_counter}");
+
             let mut array_count = 0;
             while let Some(array) = stream.next().await {
                 array_count += 1;
-                eprintln!("Got array from IO stream - {file_counter}");
+
                 if let Err(_e) = send.send(array).await {
-                    eprintln!("All array iterators dropped - {file_counter}");
                     break;
-                } else {
-                    eprintln!("Successfully sent array - {file_counter} - {array_count}");
                 }
             }
         });
