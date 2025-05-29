@@ -78,11 +78,10 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
     if let Some(pred) = matches.as_constant() {
         if matches!(pred.as_bool().value(), None | Some(false)) {
             // Match the nullability to the input list array.
-            return Ok(ConstantArray::new(
-                Scalar::bool(false, *nullability),
-                list_array.len(),
-            )
-            .into_array());
+            return Ok(
+                ConstantArray::new(Scalar::bool(false, *nullability), list_array.len())
+                    .into_array(),
+            );
         }
     }
 
