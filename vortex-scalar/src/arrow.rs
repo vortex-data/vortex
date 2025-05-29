@@ -81,8 +81,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                 Some(DecimalValue::I64(v)) => Ok(Arc::new(Decimal128Array::new_scalar(*v as i128))),
                 Some(DecimalValue::I128(v128)) => Ok(Arc::new(Decimal128Array::new_scalar(*v128))),
                 Some(DecimalValue::I256(v256)) => {
-                    let v256 = arrow_buffer::i256::from_le_bytes(v256.to_le_bytes());
-                    Ok(Arc::new(Decimal256Array::new_scalar(v256)))
+                    Ok(Arc::new(Decimal256Array::new_scalar((*v256).into())))
                 }
                 None => Ok(Arc::new(arrow_array::Scalar::new(
                     Decimal128Array::new_null(1),

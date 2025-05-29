@@ -31,10 +31,10 @@ pub(crate) fn new_exporter(
     let values = array.values().clone();
     let values_exporter = create_exporter(array.values(), cache)?;
 
-    match_each_integer_ptype!(ends.ptype(), |$E| {
+    match_each_integer_ptype!(ends.ptype(), |E| {
         Ok(Box::new(RunEndExporter {
             ends,
-            ends_type: PhantomData::<$E>,
+            ends_type: PhantomData::<E>,
             values,
             values_exporter,
             run_end_offset: array.offset(),

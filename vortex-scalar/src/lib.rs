@@ -9,6 +9,7 @@ use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;
+mod bigint;
 mod binary;
 mod bool;
 mod datafusion;
@@ -25,6 +26,7 @@ mod scalar_value;
 mod struct_;
 mod utf8;
 
+pub use bigint::*;
 pub use binary::*;
 pub use bool::*;
 pub use decimal::*;

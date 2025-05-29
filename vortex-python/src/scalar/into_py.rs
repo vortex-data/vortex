@@ -146,11 +146,11 @@ impl_decimal_into_parts!(i128, 10i128);
 impl DecimalIntoParts for i256 {
     fn decimal_parts(self, scale: i8) -> (Self, Self) {
         match scale.cmp(&0) {
-            Ordering::Equal => (self, i256::from_i64(0)),
+            Ordering::Equal => (self, i256::ZERO),
             Ordering::Less => {
                 // Negative scale -> apply the given number of trailing zeros
                 let scale_factor = i256::from_i128(10).wrapping_pow(-scale as u32);
-                (self * scale_factor, i256::from_i64(0))
+                (self * scale_factor, i256::ZERO)
             }
             Ordering::Greater => {
                 // Positive scale -> extract the leading/trailing digits separately.

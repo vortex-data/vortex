@@ -16,10 +16,10 @@ struct PrimitiveExporter<T: NativePType> {
 }
 
 pub(crate) fn new_exporter(array: PrimitiveArray) -> VortexResult<Box<dyn ColumnExporter>> {
-    Ok(match_each_native_ptype!(array.ptype(), |$T| {
+    Ok(match_each_native_ptype!(array.ptype(), |T| {
         Box::new(PrimitiveExporter {
             array: array.clone(),
-            array_type: PhantomData::<$T>,
+            array_type: PhantomData::<T>,
             validity: array.validity_mask()?,
         })
     }))

@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
 use duckdb::vtab::arrow::WritableVector;
-use num_traits::{NumCast, ToPrimitive};
+use num_traits::ToPrimitive;
 use vortex_array::arrays::DecimalArray;
 use vortex_buffer::Buffer;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
-use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
+use vortex_scalar::{BigCast, NativeDecimalType, match_each_decimal_value_type};
 
 use crate::exporter::FlatVectorExt;
 use crate::{ColumnExporter, precision_to_duckdb_storage_size};
@@ -22,12 +22,12 @@ pub(crate) fn new_exporter(array: DecimalArray) -> VortexResult<Box<dyn ColumnEx
     let validity = array.validity_mask()?;
     let dest_values_type = precision_to_duckdb_storage_size(&array.decimal_dtype())?;
 
-    match_each_decimal_value_type!(array.values_type(), |$D| {
-        match_each_decimal_value_type!(dest_values_type, |$N| {
+    match_each_decimal_value_type!(array.values_type(), |D| {
+        match_each_decimal_value_type!(dest_values_type, |N| {
             Ok(Box::new(DecimalExporter {
-                values: array.buffer::<$D>(),
+                values: array.buffer::<D>(),
                 validity,
-                dest_value_type: PhantomData::<$N>,
+                dest_value_type: PhantomData::<N>,
             }))
         })
     })
@@ -36,7 +36,7 @@ pub(crate) fn new_exporter(array: DecimalArray) -> VortexResult<Box<dyn ColumnEx
 impl<D: NativeDecimalType, N: NativeDecimalType> ColumnExporter for DecimalExporter<D, N>
 where
     D: ToPrimitive,
-    N: NumCast,
+    N: BigCast,
 {
     fn export(
         &self,
@@ -57,8 +57,9 @@ where
             .iter()
             .zip(vector.as_mut_slice_with_len(len))
         {
-            *dst = <N as NumCast>::from(*src)
-                .vortex_expect("Decimal value must fit into target precision, we checked");
+            *dst = <N as BigCast>::from(*src).vortex_expect(
+                "We know all decimals with this scale/precision fit into the target bit width",
+            );
         }
 
         Ok(())

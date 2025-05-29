@@ -46,12 +46,12 @@ pub(crate) fn new_exporter(
     };
 
     let codes = array.codes().to_primitive()?;
-    match_each_integer_ptype!(codes.ptype(), |$I| {
+    match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
             values_vector,
             values_len: array.values().len(),
             codes,
-            codes_type: PhantomData::<$I>,
+            codes_type: PhantomData::<I>,
         }))
     })
 }
