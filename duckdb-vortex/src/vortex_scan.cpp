@@ -59,7 +59,7 @@ struct BindData : public TableFunctionData {
 		result->columns_types = columns_types;
 		result->column_names = column_names;
 		result->initial_file = initial_file;
- 		return std::move(result);
+		return std::move(result);
 	}
 };
 
@@ -73,6 +73,8 @@ struct ScanPartition {
 /// operation. In DuckDB's execution model, a query reading from a file can be
 /// parallelized by dividing it into ranges, each handled by a different scan.
 struct ScanLocalState : public LocalTableFunctionState {
+	bool finished;
+
 	idx_t array_row_offset;
 	unique_ptr<Array> currently_scanned_array;
 	unique_ptr<ArrayIterator> array_iterator;
@@ -85,7 +87,6 @@ struct ScanLocalState : public LocalTableFunctionState {
 };
 
 struct ScanGlobalState : public GlobalTableFunctionState {
-	std::atomic_bool finished;
 	std::atomic_uint64_t cache_id;
 
 	vector<string> expanded_files;
@@ -341,7 +342,7 @@ static bool GetNextArray(ClientContext &context, const BindData &bind_data, Scan
 				// A new partition might have been created after the first pop. Therefore,
 				// one more pop is necessary to ensure no more partitions are left to process.
 				if (success = global_state.scan_partitions.try_dequeue(partition); !success) {
-					global_state.finished = true;
+					local_state.finished = true;
 					return false;
 				}
 			}
@@ -352,7 +353,7 @@ static bool GetNextArray(ClientContext &context, const BindData &bind_data, Scan
 		}
 
 		// Layout readers are safe to share across threads for reading. Further, they
-		// are created before pushing partitions of the corresponing files into a queue.
+		// are created before pushing partitions of the corresponding files into a queue.
 		auto file_reader = global_state.file_readers[partition.file_idx];
 		local_state.array_iterator = OpenArrayIter(global_state, file_reader, partition);
 	}
@@ -377,7 +378,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 
 	if (local_state.currently_scanned_array == nullptr) {
 		while (!GetNextArray(context, bind_data, global_state, local_state, output)) {
-			if (global_state.finished) {
+			if (local_state.finished) {
 				output.Reset();
 				output.SetCardinality(0);
 				return;
