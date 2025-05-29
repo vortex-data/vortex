@@ -52,6 +52,12 @@ public interface DType extends AutoCloseable {
 
     Optional<String> getTimeZone();
 
+    boolean isDecimal();
+
+    int getPrecision();
+
+    byte getScale();
+
     @Override
     void close();
 
@@ -100,6 +106,7 @@ public interface DType extends AutoCloseable {
         STRUCT,
         LIST,
         EXTENSION,
+        DECIMAL,
         ;
 
         public static Variant from(byte variant) {
@@ -140,6 +147,8 @@ public interface DType extends AutoCloseable {
                     return LIST;
                 case 17:
                     return EXTENSION;
+                case 18:
+                    return DECIMAL;
                 default:
                     throw new IllegalArgumentException("Unknown DType variant: " + variant);
             }

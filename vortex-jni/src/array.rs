@@ -334,8 +334,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
     })
 }
 
-static BIGDECIMAL_CLASS: &str = "java/lang/BigDecimal";
-static BIGINT_CLASS: &str = "java/lang/BigInteger";
+static BIGDECIMAL_CLASS: &str = "java/math/BigDecimal";
+static BIGINT_CLASS: &str = "java/math/BigInteger";
 
 macro_rules! bigdecimal_from_bytes {
     ($typ:ty, $name:ident) => {
