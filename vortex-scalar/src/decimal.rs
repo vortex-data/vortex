@@ -430,7 +430,10 @@ decimal_scalar_pack!(i128, i128, I128);
 decimal_scalar_pack!(i256, i256, I256);
 
 #[cfg(test)]
+#[allow(clippy::disallowed_types)]
 mod tests {
+    use std::collections::HashSet;
+
     use rstest::rstest;
 
     use crate::{DecimalValue, i256};
@@ -449,5 +452,17 @@ mod tests {
     #[case(DecimalValue::I128(-1_000), DecimalValue::I8(1))]
     fn test_decimal_value_cmp(#[case] lower: DecimalValue, #[case] upper: DecimalValue) {
         assert!(lower < upper, "expected {lower} < {upper}");
+    }
+
+    #[test]
+    fn test_hash() {
+        let mut set = HashSet::new();
+        set.insert(DecimalValue::I8(100));
+        set.insert(DecimalValue::I16(100));
+        set.insert(DecimalValue::I32(100));
+        set.insert(DecimalValue::I64(100));
+        set.insert(DecimalValue::I128(100));
+        set.insert(DecimalValue::I256(i256::from_i128(100)));
+        assert_eq!(set.len(), 1);
     }
 }
