@@ -403,7 +403,6 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 
 		// Otherwise, we're truly done.
 		output.Reset();
-		output.SetCardinality(0);
 		return;
 	}
 }
