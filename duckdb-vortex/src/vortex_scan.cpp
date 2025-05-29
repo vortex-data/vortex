@@ -516,9 +516,7 @@ void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData
 		auto expr = expression_into_vortex_expr(*bind.arena, *iter->get());
 		if (expr != nullptr) {
 			bind.conjuncts.push_back(expr);
-		}
 
-		if (expr != nullptr) {
 			iter = filters.erase(iter);
 		} else {
 			++iter;
