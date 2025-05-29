@@ -14,7 +14,6 @@ use datafusion::prelude::SessionContext;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::info;
-use tempfile::tempdir;
 use url::Url;
 use vortex::error::VortexExpect;
 
@@ -176,10 +175,9 @@ async fn bench_main(
         match engine {
             // TODO(joe): support datafusion
             Engine::DuckDB => {
-                let temp_dir = tempdir()?;
-                let duckdb_file = temp_dir
-                    .path()
-                    .join(format!("duckdb-file-{}.db", format.name()));
+                let scale_factor = 1;
+                let duckdb_file =
+                    format!("tpcds/{scale_factor}/{}/db.db", format.name()).to_data_path();
 
                 let executor = DuckDBExecutor::new(duckdb_resolved_path, duckdb_file);
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcDS)?;

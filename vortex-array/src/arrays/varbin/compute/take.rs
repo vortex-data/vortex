@@ -14,16 +14,17 @@ impl TakeKernel for VarBinVTable {
         let offsets = array.offsets().to_primitive()?;
         let data = array.bytes();
         let indices = indices.to_primitive()?;
-        match_each_integer_ptype!(offsets.ptype(), |$O| {
-            match_each_integer_ptype!(indices.ptype(), |$I| {
+        match_each_integer_ptype!(offsets.ptype(), |O| {
+            match_each_integer_ptype!(indices.ptype(), |I| {
                 Ok(take(
                     array.dtype().clone(),
-                    offsets.as_slice::<$O>(),
+                    offsets.as_slice::<O>(),
                     data.as_slice(),
-                    indices.as_slice::<$I>(),
+                    indices.as_slice::<I>(),
                     array.validity_mask()?,
                     indices.validity_mask()?,
-                )?.into_array())
+                )?
+                .into_array())
             })
         })
     }

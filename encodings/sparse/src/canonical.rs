@@ -21,11 +21,8 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
             canonicalize_sparse_bools(&resolved_patches, array.fill_scalar())
         } else {
             let ptype = PType::try_from(resolved_patches.values().dtype())?;
-            match_each_native_ptype!(ptype, |$P| {
-                canonicalize_sparse_primitives::<$P>(
-                    &resolved_patches,
-                    &array.fill_scalar(),
-                )
+            match_each_native_ptype!(ptype, |P| {
+                canonicalize_sparse_primitives::<P>(&resolved_patches, array.fill_scalar())
             })
         }
     }

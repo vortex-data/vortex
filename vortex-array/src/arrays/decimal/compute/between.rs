@@ -1,7 +1,7 @@
 use arrow_buffer::BooleanBuffer;
 use vortex_dtype::Nullability;
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::{DecimalValue, NativeDecimalType, Scalar, match_each_decimal_value_type};
+use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
 
 use crate::arrays::{BoolArray, DecimalArray, DecimalVTable};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
@@ -28,18 +28,8 @@ impl BetweenKernel for DecimalVTable {
         let nullability =
             arr.dtype.nullability() | lower.dtype().nullability() | upper.dtype().nullability();
 
-        match_each_decimal_value_type!(arr.values_type(), |($D, $CTor)| {
-           between_unpack::<$D>(
-                arr,
-                lower,
-                upper,
-                |d| match d {
-                    $CTor(v) => Some(v),
-                    _ => None,
-                },
-                nullability,
-                options,
-             )
+        match_each_decimal_value_type!(arr.values_type(), |D| {
+            between_unpack::<D>(arr, lower, upper, nullability, options)
         })
     }
 }
@@ -48,14 +38,21 @@ fn between_unpack<T: NativeDecimalType>(
     arr: &DecimalArray,
     lower: Scalar,
     upper: Scalar,
-    unpack: impl Fn(DecimalValue) -> Option<T> + Copy,
     nullability: Nullability,
     options: &BetweenOptions,
 ) -> VortexResult<Option<ArrayRef>> {
-    let Some(lower_value) = lower.as_decimal().decimal_value().and_then(unpack) else {
+    let Some(lower_value) = lower
+        .as_decimal()
+        .decimal_value()
+        .and_then(|v| T::try_from(v))
+    else {
         vortex_bail!("invalid lower bound Scalar: {lower}");
     };
-    let Some(upper_value) = upper.as_decimal().decimal_value().and_then(unpack) else {
+    let Some(upper_value) = upper
+        .as_decimal()
+        .decimal_value()
+        .and_then(|v| T::try_from(v))
+    else {
         vortex_bail!("invalid upper bound Scalar: {upper}");
     };
 

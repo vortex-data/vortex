@@ -16,14 +16,18 @@ pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, P
     // let filled = fill_forward(array)?.to_primitive()?;
 
     // Compress the filled array
-    let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |$T| {
-        let (bases, deltas) = compress_primitive(array.as_slice::<$T>());
-        let base_validity = (array.validity().nullability() != Nullability::NonNullable)
-            .then(|| Validity::AllValid)
-            .unwrap_or(Validity::NonNullable);
-        let delta_validity = (array.validity().nullability() != Nullability::NonNullable)
-            .then(|| Validity::AllValid)
-            .unwrap_or(Validity::NonNullable);
+    let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |T| {
+        let (bases, deltas) = compress_primitive(array.as_slice::<T>());
+        let base_validity = if array.validity().nullability() != Nullability::NonNullable {
+            Validity::AllValid
+        } else {
+            Validity::NonNullable
+        };
+        let delta_validity = if array.validity().nullability() != Nullability::NonNullable {
+            Validity::AllValid
+        } else {
+            Validity::NonNullable
+        };
         (
             // To preserve nullability, we include Validity
             PrimitiveArray::new(bases, base_validity),
@@ -100,10 +104,10 @@ where
 pub fn delta_decompress(array: &DeltaArray) -> VortexResult<PrimitiveArray> {
     let bases = array.bases().to_primitive()?;
     let deltas = array.deltas().to_primitive()?;
-    let decoded = match_each_unsigned_integer_ptype!(deltas.ptype(), |$T| {
+    let decoded = match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
         PrimitiveArray::new(
-            decompress_primitive::<$T>(bases.as_slice(), deltas.as_slice()),
-            array.validity().clone()
+            decompress_primitive::<T>(bases.as_slice(), deltas.as_slice()),
+            array.validity().clone(),
         )
     });
 

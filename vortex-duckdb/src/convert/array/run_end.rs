@@ -17,12 +17,8 @@ pub fn selection_vector_from_ends_array(
     offset: usize,
     length: usize,
 ) -> VortexResult<SelectionVector> {
-    match_each_integer_ptype!(ends.ptype(), |$E| {
-        selection_vector_from_ends_slice(
-            ends.as_slice::<$E>(),
-            offset,
-            length,
-        )
+    match_each_integer_ptype!(ends.ptype(), |E| {
+        selection_vector_from_ends_slice(ends.as_slice::<E>(), offset, length)
     })
 }
 

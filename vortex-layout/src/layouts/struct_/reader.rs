@@ -1,5 +1,6 @@
+use std::collections::BTreeSet;
 use std::hash::Hash;
-use std::ops::{BitAnd, Deref, Range};
+use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -9,9 +10,10 @@ use futures::stream::FuturesOrdered;
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::StructArray;
+use vortex_array::stats::Precision;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayContext, ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldName, StructDType};
+use vortex_dtype::{DType, FieldMask, FieldName, StructDType};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::ExprRef;
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
@@ -20,7 +22,7 @@ use vortex_mask::Mask;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, Layout, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
     NoOpPruningEvaluation, PruningEvaluation,
 };
 
@@ -31,14 +33,6 @@ pub struct StructReader {
 
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactExpr, Arc<PartitionedExpr>>,
-}
-
-impl Deref for StructReader {
-    type Target = dyn Layout;
-
-    fn deref(&self) -> &Self::Target {
-        self.layout.deref()
-    }
 }
 
 impl StructReader {
@@ -79,7 +73,7 @@ impl StructReader {
         self.layout.struct_dtype()
     }
 
-    /// Return the child reader for the chunk.
+    /// Return the child reader for the field.
     fn child(&self, name: &FieldName) -> VortexResult<&LayoutReaderRef> {
         let idx = self
             .field_lookup
@@ -87,8 +81,13 @@ impl StructReader {
             .and_then(|lookup| lookup.get(name).copied())
             .or_else(|| self.struct_dtype().find(name).ok())
             .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
+        self.child_by_idx(idx)
+    }
 
+    /// Return the child reader for the field, by index.
+    fn child_by_idx(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
         let field_dtype = self.struct_dtype().field_by_index(idx)?;
+        let name = &self.struct_dtype().names()[idx];
         self.lazy_children
             .get(idx, &field_dtype, &format!("{}.{}", self.name, name).into())
     }
@@ -131,6 +130,29 @@ impl Hash for ExactExpr {
 impl LayoutReader for StructReader {
     fn name(&self) -> &Arc<str> {
         &self.name
+    }
+
+    fn dtype(&self) -> &DType {
+        self.layout.dtype()
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        Precision::Exact(self.layout.row_count())
+    }
+
+    fn register_splits(
+        &self,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()> {
+        // In the case of an empty struct, we need to register the end split.
+        splits.insert(row_offset + self.layout.row_count);
+
+        self.layout.matching_fields(field_mask, |mask, idx| {
+            self.child_by_idx(idx)?
+                .register_splits(&[mask], row_offset, splits)
+        })
     }
 
     fn pruning_evaluation(

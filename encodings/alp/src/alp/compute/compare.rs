@@ -30,10 +30,14 @@ impl CompareKernel for ALPVTable {
         if let Some(const_scalar) = rhs.as_constant() {
             let pscalar = PrimitiveScalar::try_from(&const_scalar)?;
 
-            match_each_alp_float_ptype!(pscalar.ptype(), |$T| {
-                match pscalar.typed_value::<$T>() {
+            match_each_alp_float_ptype!(pscalar.ptype(), |T| {
+                match pscalar.typed_value::<T>() {
                     Some(value) => return alp_scalar_compare(lhs, value, operator),
-                    None => vortex_bail!("Failed to convert scalar {:?} to ALP type {:?}", pscalar, pscalar.ptype()),
+                    None => vortex_bail!(
+                        "Failed to convert scalar {:?} to ALP type {:?}",
+                        pscalar,
+                        pscalar.ptype()
+                    ),
                 }
             });
         }

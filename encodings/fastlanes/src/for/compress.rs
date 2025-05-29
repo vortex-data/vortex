@@ -18,9 +18,9 @@ impl FoRArray {
             .ok_or_else(|| vortex_err!("Min stat not found"))?;
 
         let dtype = array.dtype().clone();
-        let encoded = match_each_integer_ptype!(array.ptype(), |$T| {
+        let encoded = match_each_integer_ptype!(array.ptype(), |T| {
             let unsigned_ptype = array.ptype().to_unsigned();
-            compress_primitive::<$T>(array, $T::try_from(&min)?)?
+            compress_primitive::<T>(array, T::try_from(&min)?)?
                 .reinterpret_cast(unsigned_ptype)
                 .into_array()
         });
@@ -51,16 +51,17 @@ pub fn decompress(array: &FoRArray) -> VortexResult<PrimitiveArray> {
     let encoded = array.encoded().to_primitive()?.reinterpret_cast(ptype);
     let validity = encoded.validity().clone();
 
-    Ok(match_each_integer_ptype!(ptype, |$T| {
-        let min = array.reference_scalar()
+    Ok(match_each_integer_ptype!(ptype, |T| {
+        let min = array
+            .reference_scalar()
             .as_primitive()
-            .typed_value::<$T>()
+            .typed_value::<T>()
             .ok_or_else(|| vortex_err!("expected reference to be non-null"))?;
         if min == 0 {
             encoded
         } else {
             PrimitiveArray::new(
-                decompress_primitive(encoded.into_buffer_mut::<$T>(), min),
+                decompress_primitive(encoded.into_buffer_mut::<T>(), min),
                 validity,
             )
         }

@@ -8,8 +8,8 @@ use crate::register_kernel;
 
 impl NaNCountKernel for PrimitiveVTable {
     fn nan_count(&self, array: &PrimitiveArray) -> VortexResult<usize> {
-        Ok(match_each_float_ptype!(array.ptype(), |$F| {
-            compute_nan_count_with_validity(array.as_slice::<$F>(), array.validity_mask()?)
+        Ok(match_each_float_ptype!(array.ptype(), |F| {
+            compute_nan_count_with_validity(array.as_slice::<F>(), array.validity_mask()?)
         }))
     }
 }

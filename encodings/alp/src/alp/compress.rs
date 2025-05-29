@@ -15,17 +15,22 @@ use crate::alp::{ALPArray, ALPFloat};
 
 #[macro_export]
 macro_rules! match_each_alp_float_ptype {
-    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
+    ($self:expr, | $enc:ident | $body:block) => {{
         use vortex_dtype::PType;
         use vortex_error::vortex_panic;
         let ptype = $self;
         match ptype {
-            PType::F32 => __with__! { f32 },
-            PType::F64 => __with__! { f64 },
+            PType::F32 => {
+                type $enc = f32;
+                $body
+            }
+            PType::F64 => {
+                type $enc = f64;
+                $body
+            }
             _ => vortex_panic!("ALP can only encode f32 and f64, got {}", ptype),
         }
-    })
+    }};
 }
 
 pub fn alp_encode(parray: &PrimitiveArray, exponents: Option<Exponents>) -> VortexResult<ALPArray> {
@@ -100,9 +105,9 @@ pub fn decompress(array: &ALPArray) -> VortexResult<PrimitiveArray> {
     let validity = encoded.validity().clone();
     let ptype = array.dtype().try_into()?;
 
-    let decoded = match_each_alp_float_ptype!(ptype, |$T| {
-        PrimitiveArray::new::<$T>(
-            <$T>::decode_buffer(encoded.into_buffer_mut(), array.exponents()),
+    let decoded = match_each_alp_float_ptype!(ptype, |T| {
+        PrimitiveArray::new::<T>(
+            <T>::decode_buffer(encoded.into_buffer_mut(), array.exponents()),
             validity,
         )
     });

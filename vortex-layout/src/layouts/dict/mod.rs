@@ -1,12 +1,11 @@
 mod reader;
 pub mod writer;
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use reader::DictReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
-use vortex_dtype::{DType, FieldMask, PType};
+use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
@@ -66,15 +65,6 @@ impl VTable for DictVTable {
             1 => LayoutChildType::Transparent("codes".into()),
             _ => vortex_panic!("Unreachable child index: {}", idx),
         }
-    }
-
-    fn register_splits(
-        layout: &Self::Layout,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        layout.codes.register_splits(field_mask, row_offset, splits)
     }
 
     fn new_reader(

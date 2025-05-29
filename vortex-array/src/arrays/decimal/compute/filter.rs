@@ -40,12 +40,12 @@ impl FilterKernel for DecimalVTable {
         }
 
         match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
-            MaskIter::Indices(indices) => match_each_decimal_value_type!(array.values_type, |$S| {
-                filter_by_indices!($S, array, indices, validity)
+            MaskIter::Indices(indices) => match_each_decimal_value_type!(array.values_type, |S| {
+                filter_by_indices!(S, array, indices, validity)
             }),
 
-            MaskIter::Slices(slices) => match_each_decimal_value_type!(array.values_type, |$S| {
-                filter_by_slices!($S, array,  mask, slices, validity)
+            MaskIter::Slices(slices) => match_each_decimal_value_type!(array.values_type, |S| {
+                filter_by_slices!(S, array, mask, slices, validity)
             }),
         }
     }

@@ -201,9 +201,7 @@ impl DeltaArray {
     fn lanes(&self) -> usize {
         let ptype = PType::try_from(self.dtype())
             .vortex_expect("Failed to convert DeltaArray DType to PType");
-        match_each_unsigned_integer_ptype!(ptype, |$T| {
-            <$T as fastlanes::FastLanes>::LANES
-        })
+        match_each_unsigned_integer_ptype!(ptype, |T| { <T as fastlanes::FastLanes>::LANES })
     }
 
     #[inline]

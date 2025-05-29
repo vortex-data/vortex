@@ -273,9 +273,9 @@ impl Patches {
             AllOr::None => Ok(None),
             AllOr::Some(mask_indices) => {
                 let flat_indices = self.indices().to_primitive()?;
-                match_each_integer_ptype!(flat_indices.ptype(), |$I| {
+                match_each_integer_ptype!(flat_indices.ptype(), |I| {
                     filter_patches_with_mask(
-                        flat_indices.as_slice::<$I>(),
+                        flat_indices.as_slice::<I>(),
                         self.offset(),
                         self.values(),
                         mask_indices,
@@ -331,11 +331,17 @@ impl Patches {
         let indices = self.indices.to_primitive()?;
         let new_length = take_indices.len();
 
-        let Some((new_indices, values_indices)) = match_each_integer_ptype!(indices.ptype(), |$INDICES| {
-            match_each_integer_ptype!(take_indices.ptype(), |$TAKE_INDICES| {
-                take_search::<_, $TAKE_INDICES>(indices.as_slice::<$INDICES>(), take_indices, self.offset())?
+        let Some((new_indices, values_indices)) =
+            match_each_integer_ptype!(indices.ptype(), |Indices| {
+                match_each_integer_ptype!(take_indices.ptype(), |TakeIndices| {
+                    take_search::<_, TakeIndices>(
+                        indices.as_slice::<Indices>(),
+                        take_indices,
+                        self.offset(),
+                    )?
+                })
             })
-        }) else {
+        else {
             return Ok(None);
         };
 
@@ -351,11 +357,19 @@ impl Patches {
         let indices = self.indices.to_primitive()?;
         let new_length = take_indices.len();
 
-        let Some((new_sparse_indices, value_indices)) = match_each_integer_ptype!(self.indices_ptype(), |$INDICES| {
-            match_each_integer_ptype!(take_indices.ptype(), |$TAKE_INDICES| {
-                take_map::<_, $TAKE_INDICES>(indices.as_slice::<$INDICES>(), take_indices, self.offset(), self.min_index()?, self.max_index()?)?
+        let Some((new_sparse_indices, value_indices)) =
+            match_each_integer_ptype!(self.indices_ptype(), |Indices| {
+                match_each_integer_ptype!(take_indices.ptype(), |TakeIndices| {
+                    take_map::<_, TakeIndices>(
+                        indices.as_slice::<Indices>(),
+                        take_indices,
+                        self.offset(),
+                        self.min_index()?,
+                        self.max_index()?,
+                    )?
+                })
             })
-        }) else {
+        else {
             return Ok(None);
         };
 

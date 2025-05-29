@@ -37,8 +37,10 @@ impl ToDuckDBScalar for PrimitiveScalar<'_> {
                     .map(|f| f.to_f32()),
             ));
         }
-        match_each_native_simd_ptype!(self.ptype(), |$P| {
-            Ok(Value::from(self.as_::<$P>().vortex_expect("ptype value mismatch")))
+        match_each_native_simd_ptype!(self.ptype(), |P| {
+            Ok(Value::from(
+                self.as_::<P>().vortex_expect("ptype value mismatch"),
+            ))
         })
     }
 }

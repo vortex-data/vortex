@@ -397,6 +397,14 @@ void vx_file_statistics_free(struct vx_file_statistics *stat);
 struct vx_dtype *vx_file_dtype(const struct vx_file_reader *file);
 
 /**
+ * Can we prune the whole file using file stats and an expression
+ */
+bool vx_file_reader_can_prune(const struct vx_file_reader *file_reader,
+                              const char *filter_expression,
+                              unsigned int filter_expression_len,
+                              struct vx_error **error);
+
+/**
  * Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
  */
 struct vx_array_iterator *vx_file_reader_scan(const struct vx_file_reader *file_reader,

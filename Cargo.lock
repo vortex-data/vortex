@@ -544,7 +544,6 @@ dependencies = [
  "similar",
  "tabled",
  "tar",
- "tempfile",
  "tokio",
  "tracing",
  "tracing-chrome",

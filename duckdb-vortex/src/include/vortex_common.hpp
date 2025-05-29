@@ -65,6 +65,12 @@ struct FileReader {
 		return Try([&](auto err) { return vx_file_reader_scan(this->file, options, err); });
 	}
 
+	bool CanPrune(const char *filter_expression, unsigned int filter_expression_len) {
+		return Try([&](auto err) {
+			return vx_file_reader_can_prune(this->file, filter_expression, filter_expression_len, err);
+		});
+	}
+
 	uint64_t FileRowCount() {
 		return Try([&](auto err) { return vx_file_row_count(file, err); });
 	}

@@ -1,17 +1,19 @@
 use arrow::datatypes::{DataType, FieldRef, Fields};
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use jni::JNIEnv;
-use jni::objects::{JClass, JIntArray, JLongArray, JObject};
+use jni::objects::{JClass, JIntArray, JLongArray, JObject, JValue};
 use jni::sys::{
-    JNI_FALSE, JNI_TRUE, jboolean, jbyte, jbyteArray, jdouble, jfloat, jint, jlong, jshort, jstring,
+    JNI_FALSE, JNI_TRUE, jboolean, jbyte, jbyteArray, jdouble, jfloat, jint, jlong, jobject,
+    jshort, jstring,
 };
 use vortex::arrays::{VarBinArray, VarBinViewArray};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex::scalar::{DecimalValue, i256};
 use vortex::{Array, ArrayRef, ToCanonical};
 
-use crate::errors::try_or_throw;
+use crate::errors::{JNIError, try_or_throw};
 
 pub struct NativeArray {
     inner: ArrayRef,
@@ -127,11 +129,11 @@ fn data_type_no_views(data_type: DataType) -> DataType {
                 .collect();
             DataType::Struct(Fields::from(viewless_fields))
         }
+        DataType::Decimal128(precision, scale) => DataType::Decimal128(precision, scale),
+        DataType::Decimal256(precision, scale) => DataType::Decimal256(precision, scale),
         DataType::FixedSizeList(..) => unreachable!("Vortex never returns FixedSizeList"),
         DataType::Union(..) => unreachable!("Vortex never returns Union"),
         DataType::Dictionary(..) => unreachable!("Vortex never returns Dictionary"),
-        DataType::Decimal128(..) => unreachable!("Vortex never returns Decimal128"),
-        DataType::Decimal256(..) => unreachable!("Vortex never returns Decimal256"),
         DataType::Map(..) => unreachable!("Vortex never returns Map"),
         DataType::RunEndEncoded(..) => unreachable!("Vortex never returns RunEndEncoded"),
         // The non-nested non-view types stay the same.
@@ -291,6 +293,76 @@ get_primitive!(
     f64,
     jdouble
 );
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBigDecimal(
+    mut env: JNIEnv,
+    _class: JClass,
+    array_ptr: jlong,
+    index: jint,
+) -> jobject {
+    let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
+    try_or_throw(&mut env, |env| {
+        let scalar_value = if array_ref.is_extension {
+            array_ref
+                .inner
+                .to_extension()
+                .vortex_expect("extension array")
+                .storage()
+                .scalar_at(index as usize)?
+        } else {
+            array_ref.inner.scalar_at(index as usize)?
+        };
+
+        let decimal_scalar = scalar_value.as_decimal();
+        let DType::Decimal(decimal_type, ..) = decimal_scalar.dtype() else {
+            return Err(vortex_err!("Expected Decimal type").into());
+        };
+        let scale = decimal_type.scale();
+        if let Some(v) = decimal_scalar.decimal_value() {
+            match v {
+                DecimalValue::I8(v) => bigdecimal_i8(env, *v, scale),
+                DecimalValue::I16(v) => bigdecimal_i16(env, *v, scale),
+                DecimalValue::I32(v) => bigdecimal_i32(env, *v, scale),
+                DecimalValue::I64(v) => bigdecimal_i64(env, *v, scale),
+                DecimalValue::I128(v) => bigdecimal_i128(env, *v, scale),
+                DecimalValue::I256(v) => bigdecimal_i256(env, *v, scale),
+            }
+        } else {
+            Ok(JObject::null().into_raw())
+        }
+    })
+}
+
+static BIGDECIMAL_CLASS: &str = "java/lang/BigDecimal";
+static BIGINT_CLASS: &str = "java/lang/BigInteger";
+
+macro_rules! bigdecimal_from_bytes {
+    ($typ:ty, $name:ident) => {
+        fn $name(env: &mut JNIEnv, value: $typ, scale: i8) -> Result<jobject, JNIError> {
+            // NOTE: BigInteger constructor expects big-endian bytes.
+            let be_bytes = value.to_be_bytes();
+            let bytearray = env.byte_array_from_slice(&be_bytes)?;
+            let bigint = env.new_object(BIGINT_CLASS, "([B)V", &[JValue::from(&bytearray)])?;
+
+            // Create the BigDecimal from a BigInteger + scale
+            let bigdecimal = env.new_object(
+                BIGDECIMAL_CLASS,
+                "(Ljava/math/BigInteger;I)V",
+                &[JValue::from(&bigint), JValue::from(scale as jint)],
+            )?;
+
+            Ok(bigdecimal.into_raw())
+        }
+    };
+}
+
+bigdecimal_from_bytes!(i8, bigdecimal_i8);
+bigdecimal_from_bytes!(i16, bigdecimal_i16);
+bigdecimal_from_bytes!(i32, bigdecimal_i32);
+bigdecimal_from_bytes!(i64, bigdecimal_i64);
+bigdecimal_from_bytes!(i128, bigdecimal_i128);
+bigdecimal_from_bytes!(i256, bigdecimal_i256);
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBool(

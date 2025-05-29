@@ -23,10 +23,11 @@ impl IsConstantKernel for PrimitiveVTable {
         if opts.is_negligible_cost() {
             return Ok(None);
         }
-        let is_constant = match_each_native_ptype!(array.ptype(), integral: |$P| {
-            compute_is_constant::<_, {IS_CONST_LANE_WIDTH / size_of::<$P>()}>(array.as_slice::<$P>())
-        } floating_point: |$P| {
-            compute_is_constant::<_, {IS_CONST_LANE_WIDTH / size_of::<$P>()}>(unsafe { std::mem::transmute::<&[$P], &[<$P as EqFloat>::IntType]>(array.as_slice::<$P>()) })
+
+        let is_constant = match_each_native_ptype!(array.ptype(), integral: |P| {
+            compute_is_constant::<_, {IS_CONST_LANE_WIDTH / size_of::<P>()}>(array.as_slice::<P>())
+        }, floating_point: |P| {
+            compute_is_constant::<_, {IS_CONST_LANE_WIDTH / size_of::<P>()}>(unsafe { std::mem::transmute::<&[P], &[<P as EqFloat>::IntType]>(array.as_slice::<P>()) })
         });
 
         Ok(Some(is_constant))

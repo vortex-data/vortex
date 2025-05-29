@@ -2,10 +2,11 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 
 use itertools::Itertools;
+use vortex_array::stats::StatBound;
 use vortex_dtype::FieldMask;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_err};
 
-use crate::Layout;
+use crate::LayoutReader;
 
 /// Defines how the Vortex file is split into batches for reading.
 ///
@@ -22,20 +23,19 @@ pub enum SplitBy {
 
 impl SplitBy {
     /// Compute the splits for the given layout.
+    // TODO(ngates): remove this once layout readers are stream based.
     pub(crate) fn splits(
         &self,
-        layout: &dyn Layout,
+        layout_reader: &dyn LayoutReader,
         field_mask: &[FieldMask],
     ) -> VortexResult<Vec<Range<u64>>> {
         Ok(match *self {
             SplitBy::Layout => {
                 let mut row_splits = BTreeSet::<u64>::new();
-
-                // Make sure we always have the first and last row.
                 row_splits.insert(0);
-                row_splits.insert(layout.row_count());
+
                 // Register the splits for all the layouts.
-                layout.register_splits(field_mask, 0, &mut row_splits)?;
+                layout_reader.register_splits(field_mask, 0, &mut row_splits)?;
 
                 row_splits
                     .into_iter()
@@ -44,7 +44,9 @@ impl SplitBy {
                     .collect()
             }
             SplitBy::RowCount(n) => {
-                let row_count = layout.row_count();
+                let row_count = *layout_reader.row_count().to_exact().ok_or_else(|| {
+                    vortex_err!("Cannot split layout by row count, row count is not exact")
+                })?;
                 let mut splits =
                     Vec::with_capacity(usize::try_from((row_count + n as u64) / n as u64)?);
                 for start in (0..row_count).step_by(n) {
@@ -59,6 +61,8 @@ impl SplitBy {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use futures::executor::block_on;
     use futures::stream;
     use vortex_array::{ArrayContext, IntoArray};
@@ -68,7 +72,7 @@ mod test {
 
     use super::*;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SequenceWriter, TestSegments};
+    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
@@ -78,7 +82,7 @@ mod test {
         let layout = block_on(
             FlatLayoutStrategy::default().write_stream(
                 &ArrayContext::empty(),
-                SequenceWriter::new(Box::new(segments)),
+                SequenceWriter::new(Box::new(segments.clone())),
                 SequentialStreamAdapter::new(
                     DType::Primitive(PType::I32, NonNullable),
                     stream::once(async {
@@ -92,8 +96,14 @@ mod test {
             ),
         )
         .unwrap();
+
+        let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+        let reader = layout
+            .new_reader(&"".into(), &segments, &ArrayContext::empty())
+            .unwrap();
+
         let splits = SplitBy::Layout
-            .splits(layout.as_ref(), &[FieldMask::Exact(FieldPath::root())])
+            .splits(reader.as_ref(), &[FieldMask::Exact(FieldPath::root())])
             .unwrap();
         assert_eq!(splits, vec![0..10]);
     }
@@ -104,7 +114,7 @@ mod test {
         let layout = block_on(
             FlatLayoutStrategy::default().write_stream(
                 &ArrayContext::empty(),
-                SequenceWriter::new(Box::new(segments)),
+                SequenceWriter::new(Box::new(segments.clone())),
                 SequentialStreamAdapter::new(
                     DType::Primitive(PType::I32, NonNullable),
                     stream::once(async {
@@ -118,8 +128,14 @@ mod test {
             ),
         )
         .unwrap();
+
+        let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+        let reader = layout
+            .new_reader(&"".into(), &segments, &ArrayContext::empty())
+            .unwrap();
+
         let splits = SplitBy::RowCount(3)
-            .splits(layout.as_ref(), &[FieldMask::Exact(FieldPath::root())])
+            .splits(reader.as_ref(), &[FieldMask::Exact(FieldPath::root())])
             .unwrap();
         assert_eq!(splits, vec![0..3, 3..6, 6..9, 9..10]);
     }

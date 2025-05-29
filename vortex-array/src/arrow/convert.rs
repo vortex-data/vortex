@@ -98,16 +98,16 @@ impl_from_arrow_primitive!(Float32Type);
 impl_from_arrow_primitive!(Float64Type);
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
-    fn from_arrow(array: &ArrowPrimitiveArray<Decimal128Type>, _nullable: bool) -> Self {
+    fn from_arrow(array: &ArrowPrimitiveArray<Decimal128Type>, nullable: bool) -> Self {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
         let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-        let validity = nulls(array.nulls(), false);
+        let validity = nulls(array.nulls(), nullable);
         DecimalArray::new(buffer, decimal_type, validity).into_array()
     }
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
-    fn from_arrow(array: &ArrowPrimitiveArray<Decimal256Type>, _nullable: bool) -> Self {
+    fn from_arrow(array: &ArrowPrimitiveArray<Decimal256Type>, nullable: bool) -> Self {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
         let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
         // SAFETY: Our i256 implementation has the same bit-pattern representation of the
@@ -115,7 +115,7 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
         //  of either type.
         let buffer =
             unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(buffer) };
-        let validity = nulls(array.nulls(), false);
+        let validity = nulls(array.nulls(), nullable);
         DecimalArray::new(buffer, decimal_type, validity).into_array()
     }
 }

@@ -18,6 +18,7 @@ package dev.vortex.jni;
 import com.google.common.base.Preconditions;
 import dev.vortex.api.Array;
 import dev.vortex.api.DType;
+import java.math.BigDecimal;
 import java.util.OptionalLong;
 import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
@@ -128,6 +129,11 @@ public final class JNIArray implements Array {
     @Override
     public double getDouble(int index) {
         return NativeArrayMethods.getDouble(pointer.getAsLong(), index);
+    }
+
+    @Override
+    public BigDecimal getBigDecimal(int index) {
+        return NativeArrayMethods.getBigDecimal(pointer.getAsLong(), index);
     }
 
     @Override

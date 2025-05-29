@@ -132,8 +132,8 @@ impl CompressorStats for IntegerStats {
     type ArrayVTable = PrimitiveVTable;
 
     fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
-        match_each_integer_ptype!(input.ptype(), |$T| {
-            typed_int_stats::<$T>(input, opts.count_distinct_values)
+        match_each_integer_ptype!(input.ptype(), |T| {
+            typed_int_stats::<T>(input, opts.count_distinct_values)
         })
     }
 

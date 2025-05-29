@@ -20,9 +20,10 @@ impl ArrayAccessor<[u8]> for VarBinArray {
         let bytes = self.bytes();
         let bytes = bytes.as_slice();
 
-        match_each_integer_ptype!(offsets.ptype(), |$T| {
-            let offsets = offsets.as_slice::<$T>();
+        match_each_integer_ptype!(offsets.ptype(), |T| {
+            let offsets = offsets.as_slice::<T>();
 
+            #[allow(clippy::cast_possible_truncation)]
             match validity {
                 Validity::NonNullable | Validity::AllValid => {
                     let mut iter = offsets
@@ -36,13 +37,7 @@ impl ArrayAccessor<[u8]> for VarBinArray {
                     let mut iter = offsets
                         .windows(2)
                         .zip(validity.boolean_buffer())
-                        .map(|(w, valid)| {
-                            if valid {
-                                Some(&bytes[w[0] as usize..w[1] as usize])
-                            } else {
-                                None
-                            }
-                        });
+                        .map(|(w, valid)| valid.then(|| &bytes[w[0] as usize..w[1] as usize]));
                     Ok(f(&mut iter))
                 }
             }

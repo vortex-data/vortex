@@ -1,4 +1,5 @@
-use std::ops::{Deref, Range};
+use std::collections::BTreeSet;
+use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -7,8 +8,9 @@ use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ArrayRef};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
@@ -17,7 +19,7 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, Layout, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
 };
 
 /// A [`LayoutReader`] for chunked layouts.
@@ -111,17 +113,33 @@ impl ChunkedReader {
     }
 }
 
-impl Deref for ChunkedReader {
-    type Target = dyn Layout;
-
-    fn deref(&self) -> &Self::Target {
-        self.layout.as_ref()
-    }
-}
-
 impl LayoutReader for ChunkedReader {
     fn name(&self) -> &Arc<str> {
         &self.name
+    }
+
+    fn dtype(&self) -> &DType {
+        self.layout.dtype()
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        Precision::Exact(self.layout.row_count())
+    }
+
+    fn register_splits(
+        &self,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()> {
+        let mut offset = row_offset;
+        for i in 0..self.layout.nchildren() {
+            let child = self.chunk_reader(i)?;
+            child.register_splits(field_mask, offset, splits)?;
+            offset += self.layout.child(i)?.row_count();
+            splits.insert(offset);
+        }
+        Ok(())
     }
 
     fn pruning_evaluation(

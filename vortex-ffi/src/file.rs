@@ -3,7 +3,7 @@
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{iter, ptr, slice};
+use std::{ptr, slice};
 
 use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
@@ -18,7 +18,6 @@ use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex
 use vortex::expr::{ExprRef, Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
-use vortex::iter::ArrayIteratorAdapter;
 use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 
@@ -73,6 +72,26 @@ pub struct vx_file_scan_options {
     pub row_range_end: c_ulong,
 }
 
+fn extract_filter_expression(
+    filter_expression: *const c_char,
+    filter_expression_len: c_uint,
+) -> VortexResult<Option<ExprRef>> {
+    Ok(
+        (!filter_expression.is_null() && filter_expression_len > 0).then_some({
+            let bytes = unsafe {
+                slice::from_raw_parts(
+                    filter_expression as *const u8,
+                    filter_expression_len as usize,
+                )
+            };
+
+            // Decode the protobuf message.
+            deserialize_expr(&Expr::decode(bytes)?)
+                .map_err(|e| e.with_context("deserializing expr"))?
+        }),
+    )
+}
+
 impl vx_file_scan_options {
     /// Processes FFI scan options.
     ///
@@ -83,19 +102,8 @@ impl vx_file_scan_options {
             .map(|idx| unsafe { to_string(*self.projection.add(idx as usize)).into() })
             .collect::<Vec<Arc<str>>>();
 
-        let filter_expr = (!self.filter_expression.is_null() && self.filter_expression_len > 0)
-            .then_some({
-                let bytes = unsafe {
-                    slice::from_raw_parts(
-                        self.filter_expression as *const u8,
-                        self.filter_expression_len as usize,
-                    )
-                };
-
-                // Decode the protobuf message.
-                deserialize_expr(&Expr::decode(bytes)?)
-                    .map_err(|e| e.with_context("deserializing expr"))?
-            });
+        let filter_expr =
+            extract_filter_expression(self.filter_expression, self.filter_expression_len)?;
 
         let row_range = (self.row_range_end > self.row_range_start)
             .then_some(self.row_range_start..self.row_range_end);
@@ -234,6 +242,25 @@ pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *m
     ))
 }
 
+/// Can we prune the whole file using file stats and an expression
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_file_reader_can_prune(
+    file_reader: *const vx_file_reader,
+    filter_expression: *const c_char,
+    filter_expression_len: c_uint,
+    error: *mut *mut vx_error,
+) -> bool {
+    try_or(error, false, || {
+        let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file reader") };
+
+        let filter_expr = extract_filter_expression(filter_expression, filter_expression_len)?;
+        Ok(filter_expr
+            .map(|expr| file_reader.inner.can_prune(&expr))
+            .transpose()?
+            .unwrap_or(false))
+    })
+}
+
 /// Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_reader_scan(
@@ -248,17 +275,6 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
             || Ok(ScanOptions::default()),
             |options| options.process_scan_options(),
         )?;
-
-        if let Some(expr) = &scan_options.filter_expr {
-            if file_reader.inner.can_prune(expr)? {
-                let dtype = file_reader.inner.dtype().clone();
-                let empty_iter = ArrayIteratorAdapter::new(dtype, iter::empty());
-
-                return Ok(Box::into_raw(Box::new(vx_array_iterator {
-                    inner: Some(Box::new(empty_iter)),
-                })));
-            }
-        };
 
         let layout_reader = file_reader.inner.layout_reader()?;
         let mut scan_builder = ScanBuilder::new(layout_reader.clone());

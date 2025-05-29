@@ -15,6 +15,7 @@
  */
 package dev.vortex.api;
 
+import java.math.BigDecimal;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
@@ -51,6 +52,8 @@ public interface Array extends AutoCloseable {
     float getFloat(int index);
 
     double getDouble(int index);
+
+    BigDecimal getBigDecimal(int index);
 
     String getUTF8(int index);
 
