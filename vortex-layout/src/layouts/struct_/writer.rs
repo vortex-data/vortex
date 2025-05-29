@@ -23,7 +23,7 @@ pub struct StructStrategy {
     child: ArcRef<dyn LayoutStrategy>,
 }
 
-/// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
+/// A [`LayoutStrategy`] that splits a StructArray batch into child layout writers
 impl StructStrategy {
     pub fn new(child: ArcRef<dyn LayoutStrategy>) -> Self {
         Self { child }
