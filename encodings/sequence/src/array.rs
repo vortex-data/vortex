@@ -136,7 +136,7 @@ impl CanonicalVTable<SequenceVTable> for SequenceVTable {
         let prim = match_each_native_ptype!(array.ptype(), |$P| {
             let base = <$P>::try_from(&array.base)?;
             let multi = <$P>::try_from(&array.multiplier)?;
-            PrimitiveArray::from_iter((0..array.len()).map(|i| base + <$P>::from_usize(i).vortex_expect("") * multi))
+            PrimitiveArray::from_iter((0..array.len()).map(|i| base + <$P>::from_usize(i).vortex_expect("must fit") * multi))
         });
 
         Ok(Canonical::Primitive(prim))
