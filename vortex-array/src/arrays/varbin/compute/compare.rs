@@ -45,8 +45,8 @@ impl CompareKernel for VarBinVTable {
                     Operator::Lt => BooleanBuffer::new_unset(len),
                     _ => {
                         let lhs_offsets = lhs.offsets().to_canonical()?.into_primitive()?;
-                        match_each_native_ptype!(lhs_offsets.ptype(), |$P| {
-                            compare_offsets_to_empty::<$P>(lhs_offsets, operator)
+                        match_each_native_ptype!(lhs_offsets.ptype(), |P| {
+                            compare_offsets_to_empty::<P>(lhs_offsets, operator)
                         })
                     }
                 };

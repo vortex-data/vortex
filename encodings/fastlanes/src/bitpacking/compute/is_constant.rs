@@ -21,8 +21,8 @@ impl IsConstantKernel for BitPackedVTable {
         if opts.is_negligible_cost() {
             return Ok(None);
         }
-        match_each_integer_ptype!(array.ptype(), |$P| {
-            bitpacked_is_constant::<$P, {IS_CONST_LANE_WIDTH / size_of::<$P>()}>(array)
+        match_each_integer_ptype!(array.ptype(), |P| {
+            bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array)
         })
         .map(Some)
     }
@@ -131,8 +131,14 @@ fn apply_patches<T: BitPacked>(
     patch_values: &[T],
     indices_offset: usize,
 ) {
-    match_each_unsigned_integer_ptype!(patch_indices.ptype(), |$I| {
-        apply_patches_idx_typed(values, values_range, patch_indices.as_slice::<$I>(), patch_values, indices_offset)
+    match_each_unsigned_integer_ptype!(patch_indices.ptype(), |I| {
+        apply_patches_idx_typed(
+            values,
+            values_range,
+            patch_indices.as_slice::<I>(),
+            patch_values,
+            indices_offset,
+        )
     });
 }
 

@@ -1,7 +1,6 @@
 mod reader;
 pub mod writer;
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use reader::StructReader;
@@ -64,19 +63,6 @@ impl VTable for StructVTable {
                 .vortex_expect("Field index out of bounds")
                 .clone(),
         )
-    }
-
-    fn register_splits(
-        layout: &Self::Layout,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        layout.matching_fields(field_mask, |mask, idx| {
-            layout
-                .child(idx)?
-                .register_splits(&[mask], row_offset, splits)
-        })
     }
 
     fn new_reader(

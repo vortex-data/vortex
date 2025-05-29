@@ -1,12 +1,11 @@
 use std::any::Any;
-use std::collections::BTreeSet;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use arcref::ArcRef;
 use itertools::Itertools;
 use vortex_array::{ArrayContext, SerializeMetadata};
-use vortex_dtype::{DType, FieldMask, FieldName};
+use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::segments::{SegmentId, SegmentSource};
@@ -47,13 +46,6 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
 
     /// Get the segment IDs for this layout.
     fn segment_ids(&self) -> Vec<SegmentId>;
-
-    fn register_splits(
-        &self,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()>;
 
     fn new_reader(
         &self,
@@ -247,15 +239,6 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
 
     fn segment_ids(&self) -> Vec<SegmentId> {
         V::segment_ids(&self.0)
-    }
-
-    fn register_splits(
-        &self,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        V::register_splits(&self.0, field_mask, row_offset, splits)
     }
 
     fn new_reader(

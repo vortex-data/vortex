@@ -39,14 +39,14 @@ fn filter_select_var_bin_by_slice(
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let offsets = values.offsets().to_primitive()?;
-    match_each_integer_ptype!(offsets.ptype(), |$O| {
+    match_each_integer_ptype!(offsets.ptype(), |O| {
         filter_select_var_bin_by_slice_primitive_offset(
             values.dtype().clone(),
-            offsets.as_slice::<$O>(),
+            offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_slices,
             values.validity_mask()?,
-            selection_count
+            selection_count,
         )
     })
 }
@@ -137,14 +137,14 @@ fn filter_select_var_bin_by_index(
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let offsets = values.offsets().to_primitive()?;
-    match_each_integer_ptype!(offsets.ptype(), |$O| {
+    match_each_integer_ptype!(offsets.ptype(), |O| {
         filter_select_var_bin_by_index_primitive_offset(
             values.dtype().clone(),
-            offsets.as_slice::<$O>(),
+            offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_indices,
             values.validity().clone(),
-            selection_count
+            selection_count,
         )
     })
 }

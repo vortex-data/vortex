@@ -21,9 +21,9 @@ impl PrimitiveArray {
             patch_indices.as_ref(),
             patch_values.validity(),
         )?;
-        match_each_integer_ptype!(patch_indices.ptype(), |$I| {
-            match_each_native_ptype!(self.ptype(), |$T| {
-                self.patch_typed::<$T, $I>(patch_indices, offset, patch_values, patched_validity)
+        match_each_integer_ptype!(patch_indices.ptype(), |I| {
+            match_each_native_ptype!(self.ptype(), |T| {
+                self.patch_typed::<T, I>(patch_indices, offset, patch_values, patched_validity)
             })
         })
     }

@@ -28,8 +28,8 @@ pub fn take_canonical_array(array: &dyn Array, indices: &[usize]) -> VortexResul
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive()?;
-            match_each_native_ptype!(p, |$P| {
-                Ok(take_primitive::<$P>(primitive_array, validity, indices))
+            match_each_native_ptype!(p, |P| {
+                Ok(take_primitive::<P>(primitive_array, validity, indices))
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {

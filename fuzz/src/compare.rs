@@ -43,11 +43,13 @@ pub fn compare_canonical_array(
         DType::Primitive(p, _) => {
             let primitive = value.as_primitive();
             let primitive_array = array.to_primitive()?;
-            match_each_native_ptype!(p, |$P| {
-                let pval = primitive.typed_value::<$P>().vortex_expect("nulls handled before");
+            match_each_native_ptype!(p, |P| {
+                let pval = primitive
+                    .typed_value::<P>()
+                    .vortex_expect("nulls handled before");
                 Ok(compare_native_ptype(
                     primitive_array
-                        .as_slice::<$P>()
+                        .as_slice::<P>()
                         .iter()
                         .copied()
                         .zip(array.validity_mask()?.to_boolean_buffer().iter())

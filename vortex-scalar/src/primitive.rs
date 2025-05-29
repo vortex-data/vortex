@@ -53,9 +53,9 @@ impl<'a> PrimitiveScalar<'a> {
 
         // Read the serialized value into the correct PValue.
         // The serialized form may come back over the wire as e.g. any integer type.
-        let pvalue = match_each_native_ptype!(ptype, |$T| {
+        let pvalue = match_each_native_ptype!(ptype, |T| {
             if let Some(pvalue) = value.as_pvalue()? {
-                Some(PValue::from(<$T>::try_from(pvalue)?))
+                Some(PValue::from(<T>::try_from(pvalue)?))
             } else {
                 None
             }
@@ -100,12 +100,18 @@ impl<'a> PrimitiveScalar<'a> {
         let pvalue = self
             .pvalue
             .vortex_expect("nullness handled in Scalar::cast");
-        Ok(match_each_native_ptype!(ptype, |$Q| {
+        Ok(match_each_native_ptype!(ptype, |Q| {
             Scalar::primitive(
-                pvalue
-                    .as_primitive::<$Q>()
-                    .map_err(|err| vortex_err!("Can't cast {} scalar {} to {} (cause: {})", self.ptype, pvalue, dtype, err))?,
-                dtype.nullability()
+                pvalue.as_primitive::<Q>().map_err(|err| {
+                    vortex_err!(
+                        "Can't cast {} scalar {} to {} (cause: {})",
+                        self.ptype,
+                        pvalue,
+                        dtype,
+                        err
+                    )
+                })?,
+                dtype.nullability(),
             )
         }))
     }
@@ -417,12 +423,12 @@ impl<'a> PrimitiveScalar<'a> {
 
         match_each_native_ptype!(
             self.ptype(),
-            integral: |$P| {
-                self.checked_integeral_numeric_operator::<$P>(other, result_dtype, ptype, op)
-            }
-            floating_point: |$P| {
-                let lhs = self.typed_value::<$P>();
-                let rhs = other.typed_value::<$P>();
+            integral: |P| {
+                self.checked_integeral_numeric_operator::<P>(other, result_dtype, ptype, op)
+            },
+            floating_point: |P| {
+                let lhs = self.typed_value::<P>();
+                let rhs = other.typed_value::<P>();
                 let value_or_null = match (lhs, rhs) {
                     (_, None) | (None, _) => None,
                     (Some(lhs), Some(rhs)) => match op {
@@ -434,7 +440,7 @@ impl<'a> PrimitiveScalar<'a> {
                         NumericOperator::RDiv => Some(rhs / lhs),
                     }
                 };
-                Some(Self { dtype: result_dtype, ptype: ptype, pvalue: value_or_null.map(PValue::from) })
+                Some(Self { dtype: result_dtype, ptype, pvalue: value_or_null.map(PValue::from) })
             }
         )
     }

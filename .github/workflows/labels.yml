@@ -13,6 +13,7 @@ jobs:
           contains(github.event.pull_request.labels.*.name, 'chore') == false &&
           contains(github.event.pull_request.labels.*.name, 'bug') == false &&
           contains(github.event.pull_request.labels.*.name, 'feature') == false &&
+          contains(github.event.pull_request.labels.*.name, 'fix') == false &&
           contains(github.event.pull_request.labels.*.name, 'performance') == false &&
           contains(github.event.pull_request.labels.*.name, 'break') == false &&
           contains(github.event.pull_request.labels.*.name, 'wire-break') == false

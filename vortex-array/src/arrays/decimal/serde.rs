@@ -52,8 +52,8 @@ impl SerdeVTable<DecimalVTable> for DecimalVTable {
             vortex_bail!("Expected Decimal dtype, got {:?}", dtype)
         };
 
-        match_each_decimal_value_type!(metadata.values_type(), |$D| {
-           check_and_build_decimal::<$D>(len, buffer, *decimal_dtype, validity)
+        match_each_decimal_value_type!(metadata.values_type(), |D| {
+            check_and_build_decimal::<D>(len, buffer, *decimal_dtype, validity)
         })
     }
 }

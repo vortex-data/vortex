@@ -27,13 +27,14 @@ impl MaskKernel for NullVTable {
 register_kernel!(MaskKernelAdapter(NullVTable).lift());
 
 impl TakeKernel for NullVTable {
+    #[allow(clippy::cast_possible_truncation)]
     fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
 
         // Enforce all indices are valid
-        match_each_integer_ptype!(indices.ptype(), |$T| {
-            for index in indices.as_slice::<$T>() {
-                if !((*index as usize) < array.len()) {
+        match_each_integer_ptype!(indices.ptype(), |T| {
+            for index in indices.as_slice::<T>() {
+                if (*index as usize) >= array.len() {
                     vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
                 }
             }

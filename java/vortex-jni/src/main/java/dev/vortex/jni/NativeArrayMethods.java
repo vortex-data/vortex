@@ -15,6 +15,8 @@
  */
 package dev.vortex.jni;
 
+import java.math.BigDecimal;
+
 public final class NativeArrayMethods {
     static {
         NativeLoader.loadJni();
@@ -57,6 +59,8 @@ public final class NativeArrayMethods {
     public static native float getFloat(long pointer, int index);
 
     public static native double getDouble(long pointer, int index);
+
+    public static native BigDecimal getBigDecimal(long pointer, int index);
 
     public static native String getUTF8(long pointer, int index);
 

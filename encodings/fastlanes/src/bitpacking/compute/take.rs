@@ -35,9 +35,9 @@ impl TakeKernel for BitPackedVTable {
         let taken_validity = validity.take(indices)?;
 
         let indices = indices.to_primitive()?;
-        let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |$T| {
-            match_each_integer_ptype!(indices.ptype(), |$I| {
-                take_primitive::<$T, $I>(array, &indices, taken_validity)?
+        let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
+            match_each_integer_ptype!(indices.ptype(), |I| {
+                take_primitive::<T, I>(array, &indices, taken_validity)?
             })
         });
         Ok(taken.reinterpret_cast(ptype).into_array())

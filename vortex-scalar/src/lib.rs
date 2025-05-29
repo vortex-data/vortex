@@ -29,7 +29,6 @@ pub use binary::*;
 pub use bool::*;
 pub use decimal::*;
 pub use extension::*;
-pub use i256::I256 as i256;
 pub use list::*;
 pub use primitive::*;
 pub use pvalue::*;
