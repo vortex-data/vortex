@@ -317,7 +317,7 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
         let (send, recv) = async_channel::unbounded::<VortexResult<ArrayRef>>();
 
         // We spawn a task onto the runtime to drive the scan and send results to the channel.
-        let jh = CURR_THREAD_RUNTIME.spawn(async move {
+        CURR_THREAD_RUNTIME.spawn(async move {
             pin_mut!(stream);
 
             while let Some(array) = stream.next().await {
@@ -328,8 +328,6 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
             }
         });
         let handle = CURR_THREAD_RUNTIME.handle();
-
-        handle.block_on(jh);
 
         // Now we create a thread-safe ArrayIterator that drives the current-thread runtime
         // to produce the next array from the scan.
