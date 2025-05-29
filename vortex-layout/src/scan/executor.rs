@@ -52,6 +52,15 @@ impl<E: TaskExecutor + ?Sized> TaskExecutorExt for E {
     }
 }
 
+impl TaskExecutor for cuckoo_runtime::Handle {
+    fn do_spawn(
+        &self,
+        fut: BoxFuture<'static, VortexResult<()>>,
+    ) -> BoxFuture<'static, VortexResult<()>> {
+        self.spawn(fut).boxed()
+    }
+}
+
 #[cfg(feature = "tokio")]
 impl TaskExecutor for tokio::runtime::Handle {
     fn do_spawn(

@@ -2,6 +2,7 @@
 
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::str::FromStr;
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, LazyLock};
 use std::{iter, ptr, slice};
 
@@ -13,7 +14,6 @@ use object_store::gcp::{GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
-use tokio::runtime::{Builder, Runtime};
 use url::Url;
 use vortex::ArrayRef;
 use vortex::dtype::DType;
@@ -272,6 +272,8 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_iterator {
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    let file_counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     try_or(error, ptr::null_mut(), || {
         let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file reader") };
 
@@ -301,43 +303,54 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
             scan_builder = scan_builder.with_split_by(split_by_value);
         }
 
-        static CURR_THREAD_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-            Builder::new_current_thread()
-                .thread_name("vortex-ffi-scan")
-                .build()
-                .vortex_expect("Failed to build current thread runtime")
-        });
+        static CURR_THREAD_RUNTIME: LazyLock<cuckoo_runtime::Runtime> =
+            LazyLock::new(|| cuckoo_runtime::Runtime::new(0));
 
         // Configure the scan to use the global current thread runtime for execution.
         // This means any thread that calls into the iterator will use the same runtime to make
         // progress on _all_ the spawned tasks (across all scans!)
         let scan_builder = scan_builder
-            .with_concurrency(10000)
-            .with_tokio_executor(CURR_THREAD_RUNTIME.handle().clone());
+            .with_concurrency(100)
+            .with_executor(Arc::new(CURR_THREAD_RUNTIME.handle()));
+        // .with_tokio_executor(CURR_THREAD_RUNTIME.handle().clone());
         let dtype = scan_builder.dtype()?;
         let stream = scan_builder.into_array_stream()?;
 
         // We set up a mpmc channel so that any thread can return any other thread's result.
         let (send, recv) = async_channel::unbounded::<VortexResult<ArrayRef>>();
 
+        eprintln!("Spawning background task");
+
         // We spawn a task onto the runtime to drive the scan and send results to the channel.
-        CURR_THREAD_RUNTIME.spawn(async move {
+        let jh = CURR_THREAD_RUNTIME.spawn(async move {
             pin_mut!(stream);
+            eprintln!("In spawned stream polling! - {file_counter}");
+            let mut array_count = 0;
             while let Some(array) = stream.next().await {
-                if send.send(array).await.is_err() {
-                    log::warn!("All array iterators dropped");
+                array_count += 1;
+                eprintln!("Got array from IO stream - {file_counter}");
+                if let Err(_e) = send.send(array).await {
+                    eprintln!("All array iterators dropped - {file_counter}");
                     break;
+                } else {
+                    eprintln!("Successfully sent array - {file_counter} - {array_count}");
                 }
             }
         });
+        let handle = CURR_THREAD_RUNTIME.handle();
+
+        handle.block_on(jh);
 
         // Now we create a thread-safe ArrayIterator that drives the current-thread runtime
         // to produce the next array from the scan.
         let iter = iter::from_fn(move || {
             let recv = recv.clone();
-            pin_mut!(recv);
 
-            CURR_THREAD_RUNTIME.block_on(recv.next())
+            handle.block_on(async move {
+                pin_mut!(recv);
+
+                recv.next().await
+            })
         });
 
         Ok(Box::into_raw(Box::new(vx_array_iterator {

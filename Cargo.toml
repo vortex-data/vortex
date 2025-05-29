@@ -31,7 +31,7 @@ exclude = ["duckdb-vortex/duckdb-rs", "wasm-test"]
 resolver = "2"
 
 [workspace.package]
-authors = ["Vortex Authors <hello@vortex.dev>"]
+    authors = ["Vortex Authors <hello@vortex.dev>"]
 categories = ["database-implementations", "data-structures", "compression"]
 edition = "2024"
 homepage = "https://github.com/spiraldb/vortex"
@@ -65,10 +65,8 @@ arrow-ord = "55"
 arrow-schema = "55"
 arrow-select = "55"
 arrow-string = "55"
-async-once-cell = "0.5.4"
 async-channel = "2.3.1"
 async-trait = "0.1.88"
-backtrace = "0.3.74"
 bit-vec = "0.8.0"
 bytes = "1.10"
 bzip2 = "0.5.0"
@@ -99,7 +97,6 @@ flume = "0.11"
 fsst-rs = "0.5.2"
 futures = { version = "0.3.31", default-features = false }
 futures-util = "0.3.31"
-getrandom = "0.3"
 goldenfile = "1"
 governor = "0.10"
 half = { version = "2.5", features = ["std", "num-traits"] }
@@ -123,6 +120,7 @@ object_store = "0.12.1"
 opentelemetry = "0.29.0"
 opentelemetry-otlp = "0.29.0"
 opentelemetry_sdk = "0.29.0"
+cuckoo-runtime = {version = "0.0.3", path = "/Users/adamgs/code/cuckoo-runtime"}
 parquet = "55"
 paste = "1.0.15"
 pin-project = "1.1.5"
@@ -200,13 +198,11 @@ vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = 
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scalar = { version = "0.1.0", path = "./vortex-scalar", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
-vortex-tui = { version = "0.1.0", path = "./vortex-tui", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 # END crates published by this project
 
 # No version contraints for unpublished crates.
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
-vortex-ffi = { path = "./vortex-ffi", default-features = false }
 
 worker = "0.5.0"
 xshell = "0.2.6"

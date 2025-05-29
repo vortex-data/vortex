@@ -1278,6 +1278,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1137cd7e7fc0fb5d3c5a8678be38ec56e819125d8d7907411fe24ccb943faca8"
+dependencies = [
+ "crossbeam-channel",
+ "crossbeam-deque",
+ "crossbeam-epoch",
+ "crossbeam-queue",
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "crossbeam-channel"
 version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1380,6 +1393,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d02f3b0da4c6504f86e9cd789d8dbafab48c2321be74e9987593de5a894d93d"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "cuckoo-runtime"
+version = "0.0.3"
+dependencies = [
+ "async-task",
+ "crossbeam",
+ "dashmap",
+ "futures",
+ "parking_lot",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -6340,6 +6365,8 @@ name = "vortex-ffi"
 version = "0.1.0"
 dependencies = [
  "async-channel",
+ "crossbeam",
+ "cuckoo-runtime",
  "duckdb",
  "futures",
  "itertools 0.14.0",
@@ -6517,6 +6544,7 @@ dependencies = [
  "async-trait",
  "bit-vec",
  "bytes",
+ "cuckoo-runtime",
  "dashmap",
  "flatbuffers",
  "futures",
