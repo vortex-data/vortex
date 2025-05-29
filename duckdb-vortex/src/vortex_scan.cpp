@@ -137,7 +137,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 			return static_filter_str;
 		}
 		vector<expr::Expr *> conjs;
-		for (auto [col_name, filter] : dynamic_filters) {
+		for (auto &[col_name, filter] : dynamic_filters) {
 			auto g = lock_guard(filter->lock);
 			if (!filter->initialized) {
 				continue;
@@ -162,13 +162,13 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 
 // Use to create vortex expressions from `TableFilterSet` filter.
 void ExtractFilterExpression(google::protobuf::Arena &arena, vector<std::string> column_names,
-                             optional_ptr<TableFilterSet> filter, vector<idx_t> column_ids,
+                             optional_ptr<TableFilterSet> filter_set, vector<idx_t> column_ids,
                              vector<expr::Expr *> &conjuncts, map<string, shared_ptr<DynamicFilterData>> &dyn_filters) {
-	if (filter == nullptr) {
+	if (filter_set == nullptr) {
 		return;
 	}
 
-	for (const auto &[col_id, value] : filter->filters) {
+	for (const auto &[col_id, value] : filter_set->filters) {
 		auto column_name = column_names[column_ids[col_id]];
 
 		// Extract the optional dynamic filter, this seems like the only way that
