@@ -95,8 +95,8 @@ impl SequenceArray {
             let len_t = <$P>::from_usize(length-1)
                 .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
 
-            let base = <$P>::try_from(base)?;
-            let multiplier = <$P>::try_from(multiplier)?;
+            let base = base.as_primitive::<$P>()?;
+            let multiplier = multiplier.as_primitive::<$P>()?;
 
             let last = len_t
                 .checked_mul(multiplier)
@@ -111,9 +111,9 @@ impl SequenceArray {
             vortex_bail!("out of bounds")
         }
         match_each_native_ptype!(self.ptype(), |$P| {
-            let base = <$P>::try_from(self.base)?;
-            let multi = <$P>::try_from(self.multiplier)?;
-            let value = base + (multi * <$P>::from_usize(idx).vortex_expect("must fit"));
+            let base = self.base.as_primitive::<$P>()?;
+            let multiplier = self.multiplier.as_primitive::<$P>()?;
+            let value = base + (multiplier * <$P>::from_usize(idx).vortex_expect("must fit"));
 
             Ok(PValue::from(value))
         })
@@ -165,9 +165,9 @@ impl ArrayVTable<SequenceVTable> for SequenceVTable {
 impl CanonicalVTable<SequenceVTable> for SequenceVTable {
     fn canonicalize(array: &SequenceArray) -> VortexResult<Canonical> {
         let prim = match_each_native_ptype!(array.ptype(), |$P| {
-            let base = <$P>::try_from(array.base)?;
-            let multi = <$P>::try_from(array.multiplier)?;
-            PrimitiveArray::from_iter((0..array.len()).map(|i| base + <$P>::from_usize(i).vortex_expect("must fit") * multi))
+            let base = array.base().as_primitive::<$P>()?;
+            let multiplier = array.multiplier().as_primitive::<$P>()?;
+            PrimitiveArray::from_iter((0..array.len()).map(|i| base + <$P>::from_usize(i).vortex_expect("must fit") * multiplier))
         });
 
         Ok(Canonical::Primitive(prim))

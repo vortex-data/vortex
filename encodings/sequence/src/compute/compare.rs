@@ -32,8 +32,8 @@ impl CompareKernel for SequenceVTable {
                 .as_::<$P>()?
                 .vortex_expect("null constant already checked in entry");
 
-            let base = <$P>::try_from(lhs.base())?;
-            let multiplier = <$P>::try_from(lhs.multiplier())?;
+            let base = lhs.base().as_primitive::<$P>()?;
+            let multiplier = lhs.multiplier().as_primitive::<$P>()?;
             if multiplier != <$P>::from_usize(1).vortex_expect("cannot fail") {
                 // TODO(joe): support other lengths.
                 return Ok(None);
