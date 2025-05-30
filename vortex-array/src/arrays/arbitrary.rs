@@ -7,14 +7,15 @@ use builders::ListBuilder;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexUnwrap};
-use vortex_scalar::Scalar;
-use vortex_scalar::arbitrary::random_scalar;
+use vortex_scalar::arbitrary::{random_decimal, random_scalar};
+use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 use super::{
-    BoolArray, ChunkedArray, DecimalArray, NullArray, OffsetPType, PrimitiveArray, StructArray,
+    BoolArray, ChunkedArray, NullArray, OffsetPType, PrimitiveArray, StructArray,
+    smallest_storage_type,
 };
 use crate::arrays::{VarBinArray, VarBinViewArray};
-use crate::builders::ArrayBuilder;
+use crate::builders::{ArrayBuilder, ArrayBuilderExt, DecimalBuilder};
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, builders};
 
@@ -69,13 +70,17 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                     PType::F64 => random_primitive::<f64>(u, *n, chunk_len),
                 },
                 DType::Decimal(decimal, n) => {
-                    // TODO(aduffy): also do i256.
-                    let chunk: Vec<i128> = arbitrary_vec_of_len(u, chunk_len)?;
-                    let validity = random_validity(u, *n, chunk.len())?;
-                    Ok(
-                        DecimalArray::new(Buffer::from_iter(chunk), *decimal, validity)
-                            .into_array(),
-                    )
+                    let elem_len = u.int_in_range(0..=20)?;
+                    match_each_decimal_value_type!(smallest_storage_type(decimal), |DVT| {
+                        let mut builder =
+                            DecimalBuilder::new::<DVT>(decimal.precision(), decimal.scale(), *n);
+                        for _i in 0..elem_len {
+                            builder
+                                .append_scalar_value(random_decimal(u, decimal)?)
+                                .vortex_unwrap();
+                        }
+                        Ok(builder.finish())
+                    })
                 }
                 DType::Utf8(n) => random_string(u, *n, chunk_len),
                 DType::Binary(n) => random_bytes(u, *n, chunk_len),
