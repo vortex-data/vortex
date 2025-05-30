@@ -25,5 +25,12 @@ vortex-mask = { workspace = true }
 vortex-proto = { workspace = true }
 vortex-scalar = { workspace = true }
 
+[dev-dependencies]
+
+tokio = { workspace = true, features = ["full"] }
+vortex-file = { workspace = true, features = ["tokio"] }
+vortex-layout = { workspace = true }
+vortex-expr = { workspace = true }
+
 [lints]
 workspace = true

@@ -12,22 +12,22 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
-use vortex_scalar::{Scalar, ScalarValue};
+use vortex_scalar::{PValue, Scalar, ScalarValue};
 
 vtable!(Sequence);
 
 #[derive(Clone, Debug)]
 /// An array representing the equation `A[i] = base + i * multiplier`.
 pub struct SequenceArray {
-    base: ScalarValue,
-    multiplier: ScalarValue,
+    base: PValue,
+    multiplier: PValue,
     dtype: DType,
     length: usize,
     stats_set: ArrayStats,
 }
 
 impl SequenceArray {
-    pub fn typed_new<T: NativePType + Into<ScalarValue>>(
+    pub fn typed_new<T: NativePType + Into<PValue>>(
         base: T,
         multiplier: T,
         length: usize,
@@ -37,8 +37,8 @@ impl SequenceArray {
 
     // Constructs a sequence array using two integer values (with the same ptype).
     pub fn new(
-        base: ScalarValue,
-        multiplier: ScalarValue,
+        base: PValue,
+        multiplier: PValue,
         ptype: PType,
         length: usize,
     ) -> VortexResult<Self> {
@@ -50,8 +50,8 @@ impl SequenceArray {
             let len_t = <$P>::from_usize(length)
                 .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
 
-            let base = <$P>::try_from(&base)?;
-            let multiplier = <$P>::try_from(&multiplier)?;
+            let base = <$P>::try_from(base)?;
+            let multiplier = <$P>::try_from(multiplier)?;
 
             if len_t
                 .checked_mul(multiplier)
@@ -66,8 +66,8 @@ impl SequenceArray {
     }
 
     pub(crate) fn unchecked_new(
-        base: ScalarValue,
-        multiplier: ScalarValue,
+        base: PValue,
+        multiplier: PValue,
         ptype: PType,
         length: usize,
     ) -> Self {
@@ -86,12 +86,12 @@ impl SequenceArray {
         self.dtype.as_ptype()
     }
 
-    pub fn base(&self) -> &ScalarValue {
-        &self.base
+    pub fn base(&self) -> PValue {
+        self.base
     }
 
-    pub fn multiplier(&self) -> &ScalarValue {
-        &self.multiplier
+    pub fn multiplier(&self) -> PValue {
+        self.multiplier
     }
 }
 
@@ -134,8 +134,8 @@ impl ArrayVTable<SequenceVTable> for SequenceVTable {
 impl CanonicalVTable<SequenceVTable> for SequenceVTable {
     fn canonicalize(array: &SequenceArray) -> VortexResult<Canonical> {
         let prim = match_each_native_ptype!(array.ptype(), |$P| {
-            let base = <$P>::try_from(&array.base)?;
-            let multi = <$P>::try_from(&array.multiplier)?;
+            let base = <$P>::try_from(array.base)?;
+            let multi = <$P>::try_from(array.multiplier)?;
             PrimitiveArray::from_iter((0..array.len()).map(|i| base + <$P>::from_usize(i).vortex_expect("must fit") * multi))
         });
 
@@ -148,8 +148,8 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
         let sliced_len = stop - start;
         let ptype = array.ptype();
         let arr = match_each_native_ptype!(array.ptype(), |$P| {
-            let base = <$P>::try_from(&array.base)?;
-            let multi = <$P>::try_from(&array.multiplier)?;
+            let base = <$P>::try_from(array.base)?;
+            let multi = <$P>::try_from(array.multiplier)?;
             let new_base = base + (multi * <$P>::from_usize(start).vortex_expect("must fit"));
 
             SequenceArray::unchecked_new(new_base.into(), array.multiplier.clone(), ptype, sliced_len)
@@ -160,8 +160,8 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
 
     fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
         let scalar_value = match_each_native_ptype!(array.ptype(), |$P| {
-            let base = <$P>::try_from(&array.base)?;
-            let multi = <$P>::try_from(&array.multiplier)?;
+            let base = <$P>::try_from(array.base)?;
+            let multi = <$P>::try_from(array.multiplier)?;
             let scalar = base + (multi * <$P>::from_usize(index).vortex_expect("must fit"));
             ScalarValue::from(scalar)
         });
