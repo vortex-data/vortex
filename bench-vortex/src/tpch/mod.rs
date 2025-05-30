@@ -11,7 +11,7 @@ use itertools::Itertools;
 use object_store::ObjectStore;
 use url::Url;
 use vortex::arrays::ChunkedArray;
-use vortex::arrow::FromArrowArray;
+use vortex::arrow::{ArrowNullability, FromArrowArray};
 use vortex::{Array, ArrayRef, IntoArray, TryIntoArray};
 use vortex_datafusion::SessionContextExt;
 
@@ -244,7 +244,7 @@ async fn register_vortex(
     let chunks: Vec<ArrayRef> = record_batches
         .into_iter()
         .map(ArrowStructArray::from)
-        .map(|struct_array| ArrayRef::from_arrow(&struct_array, false))
+        .map(|struct_array| ArrayRef::from_arrow(&struct_array, ArrowNullability::NonNullable))
         .collect();
 
     let dtype = chunks[0].dtype().clone();

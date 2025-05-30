@@ -20,7 +20,7 @@ use itertools::Itertools;
 use pin_project::pin_project;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::compute::to_arrow;
-use vortex_array::arrow::{FromArrowArray, IntoArrowArray};
+use vortex_array::arrow::{ArrowNullability, FromArrowArray, IntoArrowArray};
 use vortex_array::compute::take;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{FieldName, FieldNames};
@@ -343,8 +343,10 @@ where
             "input yielded too many RecordBatches"
         );
 
-        let row_indices =
-            ArrayRef::from_arrow(record_batch.column(0).as_primitive::<UInt64Type>(), false);
+        let row_indices = ArrayRef::from_arrow(
+            record_batch.column(0).as_primitive::<UInt64Type>(),
+            ArrowNullability::NonNullable,
+        );
 
         // If no columns in the output projection, we send back a RecordBatch with empty schema.
         // This is common for COUNT queries.

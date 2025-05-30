@@ -2,7 +2,7 @@ use duckdb::core::LogicalTypeId;
 use duckdb::vtab::arrow::flat_vector_to_arrow_array;
 use vortex::ArrayRef;
 use vortex::arrays::DecimalArray;
-use vortex::arrow::FromArrowArray;
+use vortex::arrow::{ArrowNullability, FromArrowArray};
 use vortex::error::{VortexResult, vortex_err};
 
 use crate::FromDuckDB;
@@ -20,7 +20,7 @@ impl FromDuckDB<SizedFlatVector> for ArrayRef {
             .map_err(|e| vortex_err!("Failed to convert duckdb array to vortex: {}", e))?;
         Ok(ArrayRef::from_arrow(
             arrow_arr.as_ref(),
-            sized_vector.nullable,
+            ArrowNullability::from_top_level_is_nullable(sized_vector.nullable),
         ))
     }
 }
