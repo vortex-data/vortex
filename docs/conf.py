@@ -2,6 +2,8 @@ import doctest
 from pathlib import Path
 import re
 
+import hawkmoth.docstring
+
 # Configuration file for the Sphinx documentation builder.
 #
 # For the full list of built-in configuration values, see the documentation:
@@ -108,6 +110,13 @@ def _replace_rust_references(app, lines, transform, options):
 
     See: https://hawkmoth.readthedocs.io/en/stable/extending.html#event-hawkmoth-process-docstring
     """
+    import sys
+
+    # This is one of my finest hacks...
+    # Hawkmoth doesn't expose type information to us. So we grab it from the caller's stack frame locals.
+    stack_frame = sys._getframe(6)
+    docs: hawkmoth.docstring.RootDocstring = stack_frame.f_locals["root"]
+
     if transform != "c_to_rust":
         # Not for us!
         return
@@ -119,7 +128,26 @@ def _replace_rust_references(app, lines, transform, options):
         # Extract the function name (already starts with vx_)
         # TODO(ngates): detect if the reference is a function or a type
         func_name = match.group(2)
-        return f':c:func:`{func_name}`'
+
+        refs = list(docs.walk(filter_names=[func_name]))
+        if not refs:
+            # If we can't find the function, return the original match without a reference
+            return func_name
+        ref = refs[0]
+        if isinstance(ref, hawkmoth.docstring.FunctionDocstring):
+            # If it's a function, return the C identifier
+            return f':c:func:`{func_name}`'
+        elif isinstance(ref, hawkmoth.docstring.EnumDocstring):
+            # If it's an enum, return the C identifier
+            return f':c:type:`{func_name}`'
+        elif isinstance(ref, hawkmoth.docstring.TypedefDocstring):
+            # If it's a typedef, return the C identifier
+            return f':c:type:`{func_name}`'
+        elif isinstance(ref, hawkmoth.docstring.StructDocstring):
+            # If it's a typedef, return the C identifier
+            return f':c:type:`{func_name}`'
+        else:
+            return func_name
 
     for i, line in enumerate(lines):
         lines[i] = re.sub(pattern, replace_match, line)

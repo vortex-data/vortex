@@ -132,7 +132,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_decimal(
 
 /// Get the variant of a [`vx_dtype`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_variant(dtype: *const vx_dtype) -> vx_dtype_variant {
+pub unsafe extern "C-unwind" fn vx_dtype_get_variant(dtype: *const vx_dtype) -> vx_dtype_variant {
     vx_dtype::as_ref(dtype).into()
 }
 

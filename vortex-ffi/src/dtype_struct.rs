@@ -15,11 +15,13 @@ arc_wrapper!(
 );
 
 /// Return the number of fields in the struct dtype.
+#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_dtype_nfields(dtype: *const vx_struct_dtype) -> usize {
     vx_struct_dtype::as_ref(dtype).nfields()
 }
 
 /// Return a borrowed reference to the name of the field at the given index.
+#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_dtype_field_name(
     dtype: *const vx_struct_dtype,
     idx: usize,
@@ -37,6 +39,7 @@ pub unsafe extern "C-unwind" fn vx_struct_dtype_field_name(
 /// which case it's not possible to return a borrowed reference to the field dtype.
 // TODO(ngates): should StructDType cache owned fields internally?
 // TODO(ngates): should this output a vx_error?
+#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_dtype_field_dtype(
     dtype: *const vx_struct_dtype,
     idx: usize,
@@ -57,6 +60,7 @@ pub struct vx_struct_dtype_builder {
 }
 
 /// Create a new struct dtype builder.
+#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_dtype_builder_new() -> *mut vx_struct_dtype_builder {
     Box::into_raw(Box::new(vx_struct_dtype_builder {
         names: Vec::new(),
@@ -68,6 +72,7 @@ pub unsafe extern "C-unwind" fn vx_struct_dtype_builder_new() -> *mut vx_struct_
 ///
 /// Takes ownership of both the `name` and `dtype` pointers.
 /// Must either free or finalize the builder.
+#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_dtype_builder_add_field(
     builder: *mut vx_struct_dtype_builder,
     name: *const vx_string,
@@ -83,6 +88,7 @@ pub unsafe extern "C-unwind" fn vx_struct_dtype_builder_add_field(
 /// Finalize the struct dtype builder, returning a new `vx_struct_dtype`.
 ///
 /// Takes ownership of the `builder`.
+#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_dtype_builder_finalize(
     builder: *mut vx_struct_dtype_builder,
 ) -> *const vx_struct_dtype {

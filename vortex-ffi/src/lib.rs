@@ -93,8 +93,8 @@ macro_rules! arc_dyn_wrapper {
                 }
             }
 
-            #[doc = "Clone a borrowed [`" $ffi_ident "`], returning an owned [`" $ffi_ident "`]]."]
-            #[doc = "Must be released with [`" $ffi_ident "_free`]."]
+            #[doc = r" Clone a borrowed [`" $ffi_ident "`], returning an owned [`" $ffi_ident "`].\n\n"]
+            #[doc = r" Must be released with [`" $ffi_ident "_free`]."]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _clone>](ptr: *const $ffi_ident) -> *const $ffi_ident {
                 if ptr.is_null() {
@@ -103,7 +103,7 @@ macro_rules! arc_dyn_wrapper {
                 $ffi_ident::new($ffi_ident::into_arc(ptr.cast_mut()).clone())
             }
 
-            #[doc = "Free an owned [`" $ffi_ident "`] object."]
+            #[doc = r" Free an owned [`" $ffi_ident "`] object."]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *const $ffi_ident) {
                 if ptr.is_null() {
@@ -122,7 +122,9 @@ macro_rules! arc_wrapper {
         paste::paste! {
             $(#[$meta])*
             #[allow(non_camel_case_types)]
-            pub struct $ffi_ident($T);
+            pub struct $ffi_ident {
+                inner: $T
+            }
 
             #[allow(dead_code)]
             impl $ffi_ident {
@@ -141,7 +143,7 @@ macro_rules! arc_wrapper {
                     use vortex::error::VortexExpect;
                     &unsafe { ptr.as_ref() }
                         .vortex_expect("null pointer")
-                        .0
+                        .inner
                 }
 
                 /// Extract an owned reference.
@@ -153,8 +155,8 @@ macro_rules! arc_wrapper {
                 }
             }
 
-            #[doc = "Clone a borrowed [`" $ffi_ident "`], returning an owned [`" $ffi_ident "`]]."]
-            #[doc = "Must be released with [`" $ffi_ident "_free`]."]
+            #[doc = r" Clone a borrowed [`" $ffi_ident "`], returning an owned [`" $ffi_ident "`].\n\n"]
+            #[doc = r" Must be released with [`" $ffi_ident "_free`]."]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _clone>](ptr: *const $ffi_ident) -> *mut $ffi_ident {
                 if ptr.is_null() {
@@ -164,7 +166,7 @@ macro_rules! arc_wrapper {
                 ptr.cast_mut()
             }
 
-            #[doc = "Free an owned [`" $ffi_ident "`] object."]
+            #[doc = r" Free an owned [`" $ffi_ident "`] object."]
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *const $ffi_ident) {
                 if ptr.is_null() {

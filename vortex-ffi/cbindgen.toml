@@ -1,6 +1,8 @@
 language = "C"
 pragma_once = true
 cpp_compat = true
+usize_is_size_t = true
+style = "type"
 
 header = """
 //
@@ -22,6 +24,9 @@ header = """
 // See the License for the specific language governing permissions and
 // limitations under the License.
 """
+
+[parse.expand]
+crates = ["vortex-ffi"]
 
 [defines]
 "feature = duckdb" = "ENABLE_DUCKDB_FFI"
