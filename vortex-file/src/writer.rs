@@ -1,10 +1,12 @@
+use std::future;
 use std::sync::Arc;
 
 use arcref::ArcRef;
+use futures::StreamExt;
 use futures::future::try_join;
 use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
-use vortex_array::stream::{ArrayStream, ArrayStreamExt};
+use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
@@ -75,7 +77,13 @@ impl VortexWriteOptions {
         let (segment_writer, flusher) = SerialSegmentWriter::create();
         let sequence_writer = SequenceWriter::new(Box::new(segment_writer));
 
-        let stream = sequence_writer.new_sequential(ArrayStreamExt::boxed(stream));
+        let stream = stream.filter(|item| match item {
+            Ok(chunk) => future::ready(!chunk.is_empty()),
+            Err(_) => future::ready(true),
+        });
+        let stream = sequence_writer.new_sequential(ArrayStreamExt::boxed(
+            ArrayStreamAdapter::new(dtype.clone(), stream),
+        ));
 
         let (file_stats, stream) = accumulate_stats(
             stream,

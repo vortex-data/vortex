@@ -76,12 +76,16 @@ impl LayoutStrategy for RepartitionStrategy {
                         let output_chunks = chunks.collect_exact_blocks()?;
                         assert!(!output_chunks.is_empty());
                         let chunked_array = to_canonical_chunked(output_chunks, &dtype_clone)?;
-                        yield (sequence_pointer.advance(), chunked_array)
+                        if !chunked_array.is_empty() {
+                            yield (sequence_pointer.advance(), chunked_array)
+                        }
                     }
                 }
                 if canonical_stream.as_mut().peek().await.is_none() {
                     let to_flush = to_canonical_chunked(chunks.data.drain(..).collect(), &dtype_clone)?;
-                    yield (sequence_pointer.advance(), to_flush)
+                    if !to_flush.is_empty() {
+                        yield (sequence_pointer.advance(), to_flush)
+                    }
 
                 }
             }
