@@ -11,7 +11,9 @@ use arrow_array::types::{
     TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType,
     TimestampSecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
-use arrow_array::{BinaryViewArray, GenericByteViewArray, GenericListArray, StringViewArray};
+use arrow_array::{
+    BinaryViewArray, GenericByteViewArray, GenericListArray, StringViewArray, make_array,
+};
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
@@ -225,15 +227,114 @@ impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
     }
 }
 
+fn remove_nulls_from_non_nullable_arrays(
+    array: &arrow_array::ArrayRef,
+    nullable: bool,
+) -> arrow_array::ArrayRef {
+    make_array(remove_nulls_from_non_nullable_array_datas(array, nullable))
+}
+
+fn replace_children(
+    array: &arrow_array::ArrayRef,
+    nullable: bool,
+    children: Vec<arrow_data::ArrayData>,
+) -> arrow_data::ArrayData {
+    let mut builder = array.to_data().into_builder().child_data(children);
+    if !nullable {
+        builder = builder.nulls(None);
+    }
+    builder
+        .build()
+        .vortex_expect("reconstructing without nulls")
+}
+
+fn remove_nulls_from_non_nullable_array_datas(
+    array: &arrow_array::ArrayRef,
+    nullable: bool,
+) -> arrow_data::ArrayData {
+    match array.data_type() {
+        DataType::List(field) => {
+            let list = array.as_list::<i32>();
+            let new_values =
+                remove_nulls_from_non_nullable_array_datas(list.values(), field.is_nullable());
+            replace_children(array, nullable, vec![new_values])
+        }
+        DataType::LargeList(field) => {
+            let list = array.as_list::<i64>();
+            let new_values =
+                remove_nulls_from_non_nullable_array_datas(list.values(), field.is_nullable());
+            replace_children(array, nullable, vec![new_values])
+        }
+        DataType::ListView(field) => {
+            let list = array.as_list_view::<i32>();
+            let new_values =
+                remove_nulls_from_non_nullable_array_datas(list.values(), field.is_nullable());
+            replace_children(array, nullable, vec![new_values])
+        }
+        DataType::LargeListView(field) => {
+            let list = array.as_list_view::<i64>();
+            let new_values =
+                remove_nulls_from_non_nullable_array_datas(list.values(), field.is_nullable());
+            replace_children(array, nullable, vec![new_values])
+        }
+        DataType::FixedSizeList(field, _) => {
+            let list = array.as_fixed_size_list();
+            let new_values =
+                remove_nulls_from_non_nullable_array_datas(list.values(), field.is_nullable());
+            replace_children(array, nullable, vec![new_values])
+        }
+        DataType::Struct(fields) => {
+            let new_fields = fields
+                .iter()
+                .zip(array.as_struct().columns().iter())
+                .map(|(field, array)| {
+                    remove_nulls_from_non_nullable_array_datas(array, field.is_nullable())
+                })
+                .collect::<Vec<_>>();
+            replace_children(array, nullable, new_fields)
+        }
+        DataType::Dictionary(..) => {
+            if !nullable && array.null_count() > 0 {
+                vortex_panic!(
+                    "Cannot convert this non-nullable field of a nullable struct or list because there is no general & zero-copy way to remove the null buffer of an Arrow DictionaryArray"
+                );
+            }
+
+            array.to_data()
+        }
+        _ => {
+            if nullable {
+                array.to_data()
+            } else {
+                let mut builder = array.to_data().into_builder();
+                if !nullable {
+                    builder = builder.nulls(None);
+                }
+                builder
+                    .build()
+                    .vortex_expect("reconstructing array without nulls")
+            }
+        }
+    }
+}
+
 impl FromArrowArray<&ArrowStructArray> for ArrayRef {
     fn from_arrow(value: &ArrowStructArray, nullable: bool) -> Self {
+        let struct_has_nulls = value.null_count() > 0;
         StructArray::try_new(
             value.column_names().iter().map(|s| (*s).into()).collect(),
             value
                 .columns()
                 .iter()
                 .zip(value.fields())
-                .map(|(c, field)| Self::from_arrow(c.as_ref(), field.is_nullable()))
+                .map(|(c, field)| {
+                    if struct_has_nulls {
+                        let array = remove_nulls_from_non_nullable_arrays(c, field.is_nullable());
+                        Self::from_arrow(array.as_ref(), field.is_nullable())
+                    } else {
+                        Self::from_arrow(c.as_ref(), field.is_nullable())
+                    }
+                })
                 .collect(),
             value.len(),
             nulls(value.nulls(), nullable),
@@ -368,5 +469,59 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 array.data_type().clone()
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::new_null_array;
+    use arrow_schema::{DataType, Field, Fields};
+
+    use crate::ArrayRef;
+    use crate::arrow::FromArrowArray as _;
+
+    #[test]
+    pub fn nullable_may_contain_non_nullable() {
+        let null_struct_array_with_non_nullable_field = new_null_array(
+            &DataType::Struct(Fields::from(vec![Field::new(
+                "non_nullable_inner",
+                DataType::Int32,
+                false,
+            )])),
+            1,
+        );
+        ArrayRef::from_arrow(null_struct_array_with_non_nullable_field.as_ref(), true);
+    }
+
+    #[test]
+    pub fn nullable_may_contain_deeply_nested_non_nullable() {
+        let null_struct_array_with_non_nullable_field = new_null_array(
+            &DataType::Struct(Fields::from(vec![Field::new(
+                "non_nullable_inner",
+                DataType::Struct(Fields::from(vec![Field::new(
+                    "non_nullable_deeper_inner",
+                    DataType::Int32,
+                    false,
+                )])),
+                false,
+            )])),
+            1,
+        );
+        ArrayRef::from_arrow(null_struct_array_with_non_nullable_field.as_ref(), true);
+    }
+
+    #[test]
+    #[should_panic]
+    pub fn cannot_handle_nullable_struct_containing_non_nullable_dictionary() {
+        let null_struct_array_with_non_nullable_field = new_null_array(
+            &DataType::Struct(Fields::from(vec![Field::new(
+                "non_nullable_deeper_inner",
+                DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
+                false,
+            )])),
+            1,
+        );
+
+        ArrayRef::from_arrow(null_struct_array_with_non_nullable_field.as_ref(), true);
     }
 }
