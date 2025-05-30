@@ -1,8 +1,7 @@
 use arbitrary::unstructured::Int;
-use arbitrary::{Arbitrary, Result, Unstructured};
+use arbitrary::{Result, Unstructured};
 use num_traits::{CheckedAdd, WrappingAdd, WrappingSub};
 use vortex_dtype::{DECIMAL128_MAX_PRECISION, DecimalDType};
-use vortex_error::VortexUnwrap;
 
 use crate::{DecimalValue, InnerScalarValue, ScalarValue, i256};
 
