@@ -88,8 +88,8 @@ impl VortexExpr for BinaryExpr {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let lhs = self.lhs.evaluate(batch)?;
-        let rhs = self.rhs.evaluate(batch)?;
+        let lhs = self.lhs.unchecked_evaluate(batch)?;
+        let rhs = self.rhs.unchecked_evaluate(batch)?;
 
         match self.operator {
             Operator::Eq => compare(&lhs, &rhs, ArrayOperator::Eq),

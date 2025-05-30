@@ -158,7 +158,7 @@ impl VortexExpr for Select {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let batch = self.child.evaluate(batch)?.to_struct()?;
+        let batch = self.child.unchecked_evaluate(batch)?.to_struct()?;
         Ok(match &self.fields {
             SelectField::Include(f) => batch.project(f),
             SelectField::Exclude(names) => {

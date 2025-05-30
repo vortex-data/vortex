@@ -98,7 +98,7 @@ impl VortexExpr for Merge {
         let value_arrays = self
             .values
             .iter()
-            .map(|value_expr| value_expr.evaluate(batch))
+            .map(|value_expr| value_expr.unchecked_evaluate(batch))
             .process_results(|it| it.collect::<Vec<_>>())?;
 
         // Collect fields in order of appearance. Later fields overwrite earlier fields.

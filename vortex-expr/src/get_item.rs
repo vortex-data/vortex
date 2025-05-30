@@ -101,7 +101,7 @@ impl VortexExpr for GetItem {
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         self.child
-            .evaluate(batch)?
+            .unchecked_evaluate(batch)?
             .to_struct()?
             .field_by_name(self.field())
             .cloned()

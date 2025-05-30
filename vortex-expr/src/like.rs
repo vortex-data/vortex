@@ -108,8 +108,8 @@ impl VortexExpr for Like {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let child = self.child().evaluate(batch)?;
-        let pattern = self.pattern().evaluate(&child)?;
+        let child = self.child().unchecked_evaluate(batch)?;
+        let pattern = self.pattern().unchecked_evaluate(&child)?;
         like(
             &child,
             &pattern,

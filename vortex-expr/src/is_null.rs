@@ -79,7 +79,7 @@ impl VortexExpr for IsNull {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let array = self.child.evaluate(batch)?;
+        let array = self.child.unchecked_evaluate(batch)?;
         match array.validity_mask()? {
             Mask::AllTrue(len) => Ok(ConstantArray::new(false, len).into_array()),
             Mask::AllFalse(len) => Ok(ConstantArray::new(true, len).into_array()),

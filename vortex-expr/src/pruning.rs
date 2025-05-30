@@ -152,7 +152,7 @@ impl PruningPredicate {
             return Ok(None);
         }
 
-        Ok(Some(self.expr.evaluate(metadata)?))
+        Ok(Some(self.expr.unchecked_evaluate(metadata)?))
     }
 }
 
