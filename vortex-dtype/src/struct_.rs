@@ -33,6 +33,7 @@ impl From<DType> for FieldDType {
 #[derive(Debug, Clone, Eq)]
 enum FieldDTypeInner {
     /// Owned DType instance
+    // TODO(ngates): we should consider making this an Arc<DType>.
     Owned(DType),
     /// A view over a flatbuffer, parsed only when accessed.
     View(ViewedDType),
@@ -148,6 +149,7 @@ impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
 }
 
 /// A struct dtype is a list of names and corresponding dtypes
+// FIXME(ngates): rename to StructFields
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StructDType {
@@ -236,7 +238,7 @@ impl StructDType {
     pub fn field_by_index(&self, index: usize) -> VortexResult<DType> {
         self.dtypes
             .get(index)
-            .ok_or_else(|| vortex_err!("Field index out of bounds"))?
+            .vortex_expect("Field index out of bounds")
             .value()
     }
 

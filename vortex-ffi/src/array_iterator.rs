@@ -32,7 +32,7 @@ pub unsafe extern "C-unwind" fn vx_array_iter_next(
         let element = inner.next();
 
         if let Some(element) = element {
-            Ok(vx_array::from(element?))
+            Ok(vx_array::new(element?))
         } else {
             // Drop the iter pointer.
             iter.inner.take();

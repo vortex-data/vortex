@@ -53,6 +53,21 @@ Errors
 .. c:autofunction:: vx_error_get_code
    :file: vortex.h
 
+Strings
+------
+
+.. c:autotype:: vx_string
+   :file: vortex.h
+
+.. c:autofunction:: vx_string_new
+   :file: vortex.h
+
+.. c:autofunction:: vx_string_new_from_cstr
+   :file: vortex.h
+
+.. c:autofunction:: vx_string_free
+   :file: vortex.h
+
 Logging
 -------
 

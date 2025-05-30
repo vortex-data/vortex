@@ -2,16 +2,15 @@
 use std::ffi::{c_int, c_void};
 use std::ptr;
 
-use vortex::dtype::DType;
 use vortex::dtype::half::f16;
-use vortex::error::{VortexExpect, VortexUnwrap, vortex_err, vortex_panic};
-use vortex::iter::ArrayIterator;
+use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
 use vortex::{Array, ToCanonical};
 
-use crate::arc_wrapper;
+use crate::arc_dyn_wrapper;
+use crate::dtype::vx_dtype;
 use crate::error::{try_or, vx_error};
 
-arc_wrapper!(
+arc_dyn_wrapper!(
     /// Base type for all Vortex arrays.
     ///
     /// All built-in Vortex array types can be safely cast to this type to pass into functions that
@@ -27,7 +26,7 @@ arc_wrapper!(
 
 /// Get the length of the array.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn vx_array_len(array: *const vx_array) -> usize {
+pub unsafe extern "C-unwind" fn vx_array_len(array: *const vx_array) -> usize {
     vx_array::as_ref(array).len()
 }
 
@@ -35,8 +34,8 @@ pub extern "C-unwind" fn vx_array_len(array: *const vx_array) -> usize {
 ///
 /// The returned pointer is valid as long as the array is valid.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn vx_array_dtype(array: *const vx_array) -> *const DType {
-    vx_array::as_ref(array).dtype()
+pub unsafe extern "C-unwind" fn vx_array_dtype(array: *const vx_array) -> *const vx_dtype {
+    vx_dtype::new_ref(vx_array::as_ref(array).dtype())
 }
 
 #[unsafe(no_mangle)]
@@ -55,7 +54,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
             .ok_or_else(|| vortex_err!("Field index out of bounds"))?
             .clone();
 
-        Ok(vx_array::from(field_array))
+        Ok(vx_array::new(field_array))
     })
 }
 
@@ -69,7 +68,7 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     let array = vx_array::as_ref(array);
     try_or(error, ptr::null_mut(), || {
         let sliced = array.slice(start as usize, stop as usize)?;
-        Ok(vx_array::from(sliced))
+        Ok(vx_array::new(sliced))
     })
 }
 
@@ -178,18 +177,21 @@ mod tests {
     use vortex::validity::Validity;
 
     use crate::array::{vx_array, vx_array_dtype, vx_array_free, vx_array_get_i32, vx_array_len};
-    use crate::dtype::{DTYPE_PRIMITIVE_I32, vx_dtype_get};
+    use crate::dtype::vx_dtype_variant;
 
     #[test]
     fn test_simple() {
         unsafe {
             let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-            let ffi_array = vx_array::from(primitive.to_array());
+            let ffi_array = vx_array::new(primitive.to_array());
 
             assert_eq!(vx_array_len(ffi_array), 3);
 
             let array_dtype = vx_array_dtype(ffi_array);
-            assert_eq!(vx_dtype_get(array_dtype), DTYPE_PRIMITIVE_I32);
+            assert_eq!(
+                vx_dtype_variant(array_dtype),
+                vx_dtype_variant::DTYPE_PRIMITIVE
+            );
 
             assert_eq!(vx_array_get_i32(ffi_array, 0), 1);
             assert_eq!(vx_array_get_i32(ffi_array, 1), 2);

@@ -306,7 +306,7 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
 
 /// Returns the row count for a given file reader.
 #[unsafe(no_mangle)]
-pub extern "C-unwind" fn vx_file_row_count(
+pub unsafe extern "C-unwind" fn vx_file_row_count(
     file_reader: *mut vx_file_reader,
     error: *mut *mut vx_error,
 ) -> u64 {
