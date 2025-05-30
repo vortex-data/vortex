@@ -413,7 +413,6 @@ mod tests {
             ArrowStructArray::try_new(fields, vec![new_null_array(&DataType::Int32, 1)], nulls)
                 .unwrap(),
         );
-        println!("{:?}", array);
 
         ArrayRef::from_arrow(array.as_ref(), true);
     }
