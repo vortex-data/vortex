@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::{ExprRef, VortexExpr};
+use crate::{EvaluationContext, ExprRef, VortexExpr};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Literal {
@@ -86,7 +86,11 @@ impl VortexExpr for Literal {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(
+        &self,
+        batch: &dyn Array,
+        _ctx: &EvaluationContext,
+    ) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(self.value.clone(), batch.len()).into_array())
     }
 

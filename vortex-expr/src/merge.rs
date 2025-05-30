@@ -10,7 +10,7 @@ use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructDType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
-use crate::{ExprRef, VortexExpr};
+use crate::{EvaluationContext, ExprRef, VortexExpr};
 
 /// Merge zero or more expressions that ALL return structs.
 ///
@@ -93,12 +93,16 @@ impl VortexExpr for Merge {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(
+        &self,
+        batch: &dyn Array,
+        ctx: &EvaluationContext,
+    ) -> VortexResult<ArrayRef> {
         let len = batch.len();
         let value_arrays = self
             .values
             .iter()
-            .map(|value_expr| value_expr.unchecked_evaluate(batch))
+            .map(|value_expr| value_expr.unchecked_evaluate(batch, ctx))
             .process_results(|it| it.collect::<Vec<_>>())?;
 
         // Collect fields in order of appearance. Later fields overwrite earlier fields.
@@ -188,7 +192,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{EvaluationContext, GetItem, Identity, Merge, VortexExpr};
+    use crate::{GetItem, Identity, Merge, VortexExpr};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
@@ -246,9 +250,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr
-            .evaluate(&EvaluationContext::new_ident(test_array))
-            .unwrap();
+        let actual_array = expr.evaluate_array(&test_array).unwrap();
 
         assert_eq!(
             actual_array.as_struct_typed().names(),
@@ -294,9 +296,7 @@ mod tests {
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
-        let actual_array = expr
-            .evaluate(&EvaluationContext::new_ident(test_array.clone()))
-            .unwrap();
+        let actual_array = expr.evaluate_array(&test_array).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.as_struct_typed().nfields(), 0);
     }
@@ -343,7 +343,7 @@ mod tests {
         .unwrap()
         .into_array();
         let actual_array = expr
-            .evaluate(&EvaluationContext::new_ident(test_array))
+            .evaluate_array(&test_array)
             .unwrap()
             .to_struct()
             .unwrap();
@@ -395,7 +395,7 @@ mod tests {
         .unwrap()
         .into_array();
         let actual_array = expr
-            .evaluate(&EvaluationContext::new_ident(test_array))
+            .evaluate_array(&test_array)
             .unwrap()
             .to_struct()
             .unwrap();
@@ -424,9 +424,7 @@ mod tests {
         )])
         .unwrap()
         .into_array();
-        let actual_array = expr
-            .evaluate(&EvaluationContext::new_ident(test_array))
-            .unwrap();
+        let actual_array = expr.evaluate_array(&test_array).unwrap();
         assert!(actual_array.dtype().is_nullable());
     }
 }

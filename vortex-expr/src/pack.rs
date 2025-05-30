@@ -10,7 +10,7 @@ use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructDType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
-use crate::{ExprRef, VortexExpr};
+use crate::{EvaluationContext, ExprRef, VortexExpr};
 
 /// Pack zero or more expressions into a structure with named fields.
 ///
@@ -148,12 +148,16 @@ impl VortexExpr for Pack {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(
+        &self,
+        batch: &dyn Array,
+        ctx: &EvaluationContext,
+    ) -> VortexResult<ArrayRef> {
         let len = batch.len();
         let value_arrays = self
             .values
             .iter()
-            .map(|value_expr| value_expr.unchecked_evaluate(batch))
+            .map(|value_expr| value_expr.unchecked_evaluate(batch, ctx))
             .process_results(|it| it.collect::<Vec<_>>())?;
         let validity = match self.nullability {
             Nullability::NonNullable => Validity::NonNullable,
@@ -197,7 +201,7 @@ mod tests {
     use vortex_dtype::{FieldNames, Nullability};
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{EvaluationContext, Pack, VortexExpr, col};
+    use crate::{Pack, VortexExpr, col};
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
@@ -227,9 +231,7 @@ mod tests {
         let expr = Pack::try_new_expr(Arc::new([]), Vec::new(), Nullability::NonNullable).unwrap();
 
         let test_array = test_array();
-        let actual_array = expr
-            .evaluate(&EvaluationContext::new_ident(test_array.clone()))
-            .unwrap();
+        let actual_array = expr.evaluate_array(&test_array).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(
             actual_array.to_struct().unwrap().struct_dtype().nfields(),
@@ -247,7 +249,7 @@ mod tests {
         .unwrap();
 
         let actual_array = expr
-            .evaluate(&EvaluationContext::new_ident(test_array()))
+            .evaluate_array(test_array().as_ref())
             .unwrap()
             .to_struct()
             .unwrap();
@@ -294,7 +296,7 @@ mod tests {
         .unwrap();
 
         let actual_array = expr
-            .evaluate(&EvaluationContext::new_ident(test_array()))
+            .evaluate_array(&test_array())
             .unwrap()
             .to_struct()
             .unwrap();
@@ -337,7 +339,7 @@ mod tests {
         .unwrap();
 
         let actual_array = expr
-            .evaluate(&EvaluationContext::new_ident(test_array()))
+            .evaluate_array(&test_array())
             .unwrap()
             .to_struct()
             .unwrap();

@@ -8,7 +8,7 @@ use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ExprRef, VortexExpr};
+use crate::{EvaluationContext, ExprRef, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -107,9 +107,13 @@ impl VortexExpr for Like {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let child = self.child().unchecked_evaluate(batch)?;
-        let pattern = self.pattern().unchecked_evaluate(&child)?;
+    fn unchecked_evaluate(
+        &self,
+        batch: &dyn Array,
+        ctx: &EvaluationContext,
+    ) -> VortexResult<ArrayRef> {
+        let child = self.child().unchecked_evaluate(batch, ctx)?;
+        let pattern = self.pattern().unchecked_evaluate(&child, ctx)?;
         like(
             &child,
             &pattern,
@@ -158,7 +162,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{EvaluationContext, Like, ident, lit, not};
+    use crate::{Like, ident, lit, not};
 
     #[test]
     fn invert_booleans() {
@@ -166,7 +170,7 @@ mod tests {
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
-                .evaluate(&EvaluationContext::new_ident(bools.to_array()))
+                .evaluate_array(bools.as_ref())
                 .unwrap()
                 .to_bool()
                 .unwrap()

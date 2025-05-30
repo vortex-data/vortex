@@ -25,7 +25,7 @@ use vortex_array::compute::take;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{FieldName, FieldNames};
 use vortex_error::{VortexError, vortex_err, vortex_panic};
-use vortex_expr::{EvaluationContext, ExprRef, VortexExprExt};
+use vortex_expr::{ExprRef, VortexExprExt};
 
 /// Physical plan operator that applies a set of [filters][Expr] against the input, producing a
 /// row mask that can be used downstream to force a take against the corresponding struct array
@@ -158,7 +158,7 @@ impl Stream for RowIndicesStream {
         let selection = to_arrow(
             &this
                 .conjunction_expr
-                .evaluate(&EvaluationContext::new_ident(vortex_struct.to_array()))
+                .evaluate_array(vortex_struct.as_ref())
                 .map_err(|e| DataFusionError::External(e.into()))?,
             &DataType::Boolean,
         )?;

@@ -7,7 +7,7 @@ use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::{ExprRef, VortexExpr, ident};
+use crate::{EvaluationContext, ExprRef, VortexExpr, ident};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -99,9 +99,13 @@ impl VortexExpr for GetItem {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(
+        &self,
+        batch: &dyn Array,
+        ctx: &EvaluationContext,
+    ) -> VortexResult<ArrayRef> {
         self.child
-            .unchecked_evaluate(batch)?
+            .unchecked_evaluate(batch, ctx)?
             .to_struct()?
             .field_by_name(self.field())
             .cloned()
@@ -140,7 +144,7 @@ mod tests {
     use vortex_dtype::PType::I32;
 
     use crate::get_item::get_item;
-    use crate::{EvaluationContext, ident};
+    use crate::ident;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -154,9 +158,7 @@ mod tests {
     pub fn get_item_by_name() {
         let st = test_array();
         let get_item = get_item("a", ident());
-        let item = get_item
-            .evaluate(&EvaluationContext::new_ident(st.to_array()))
-            .unwrap();
+        let item = get_item.evaluate_array(st.as_ref()).unwrap();
         assert_eq!(item.dtype(), &DType::from(I32))
     }
 
@@ -164,10 +166,6 @@ mod tests {
     pub fn get_item_by_name_none() {
         let st = test_array();
         let get_item = get_item("c", ident());
-        assert!(
-            get_item
-                .evaluate(&EvaluationContext::new_ident(st.to_array()))
-                .is_err()
-        );
+        assert!(get_item.evaluate_array(st.as_ref()).is_err());
     }
 }

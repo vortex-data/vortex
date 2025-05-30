@@ -42,8 +42,8 @@ pub use pack::*;
 #[cfg(feature = "proto")]
 pub use registry::deserialize_expr;
 pub use select::*;
+use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_array::arrays::StructArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, VortexUnwrap};
@@ -78,25 +78,14 @@ pub trait ExprSerializable {}
 #[cfg(not(feature = "proto"))]
 impl<T> ExprSerializable for T {}
 
+#[derive(Clone, Default)]
 pub struct EvaluationContext {
-    struct_array: StructArray,
+    ctx: HashMap<Arc<str>, Arc<dyn Any>>,
 }
 
 impl EvaluationContext {
-    pub fn new(ident: ArrayRef, aux: ArrayRef) -> VortexResult<EvaluationContext> {
-        Ok(EvaluationContext {
-            struct_array: StructArray::from_fields(&[("$", ident), ("#", aux)])?,
-        })
-    }
-
-    pub fn new_ident(ident: ArrayRef) -> EvaluationContext {
-        EvaluationContext {
-            struct_array: StructArray::from_fields(&[("$", ident)]).unwrap(),
-        }
-    }
-
-    pub fn ident(&self) -> ArrayRef {
-        self.struct_array.field_by_name("$").unwrap().clone()
+    pub fn new(ctx: HashMap<Arc<str>, Arc<dyn Any>>) -> Self {
+        Self { ctx }
     }
 }
 
@@ -107,9 +96,9 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSeri
 
     /// Compute result of expression on given batch producing a new batch
     ///
-    fn evaluate(&self, eval_ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, array: &dyn Array, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
         // let batch =
-        let result = self.unchecked_evaluate(eval_ctx.struct_array.as_ref())?;
+        let result = self.unchecked_evaluate(array, ctx)?;
         // TODO(joe): enable
         // debug_assert_eq!(
         //     result.dtype(),
@@ -122,12 +111,20 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSeri
         Ok(result)
     }
 
+    fn evaluate_array(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
+        self.evaluate(array, &EvaluationContext::default())
+    }
+
     /// Compute result of expression on given batch producing a new batch
     ///
     /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
     /// the [VortexExpr::return_dtype] method. Use instead the [VortexExpr::evaluate] function which
     /// includes such an assertion.
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef>;
+    fn unchecked_evaluate(
+        &self,
+        array: &dyn Array,
+        ctx: &EvaluationContext,
+    ) -> VortexResult<ArrayRef>;
 
     fn children(&self) -> Vec<&ExprRef>;
 

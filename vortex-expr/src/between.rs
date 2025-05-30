@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
 use vortex_error::VortexResult;
 
-use crate::{BinaryExpr, ExprRef, VortexExpr};
+use crate::{BinaryExpr, EvaluationContext, ExprRef, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -135,10 +135,14 @@ impl VortexExpr for Between {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let arr_val = self.arr.unchecked_evaluate(batch)?;
-        let lower_arr_val = self.lower.unchecked_evaluate(batch)?;
-        let upper_arr_val = self.upper.unchecked_evaluate(batch)?;
+    fn unchecked_evaluate(
+        &self,
+        batch: &dyn Array,
+        ctx: &EvaluationContext,
+    ) -> VortexResult<ArrayRef> {
+        let arr_val = self.arr.unchecked_evaluate(batch, ctx)?;
+        let lower_arr_val = self.lower.unchecked_evaluate(batch, ctx)?;
+        let upper_arr_val = self.upper.unchecked_evaluate(batch, ctx)?;
 
         between(&arr_val, &lower_arr_val, &upper_arr_val, &self.options)
     }

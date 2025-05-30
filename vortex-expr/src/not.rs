@@ -8,7 +8,7 @@ use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ExprRef, VortexExpr};
+use crate::{EvaluationContext, ExprRef, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 // We cannot auto derive PartialEq because ExprRef, since its a Arc<..> and derive doesn't work
@@ -73,8 +73,12 @@ impl VortexExpr for Not {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let child_result = self.child.unchecked_evaluate(batch)?;
+    fn unchecked_evaluate(
+        &self,
+        batch: &dyn Array,
+        ctx: &EvaluationContext,
+    ) -> VortexResult<ArrayRef> {
+        let child_result = self.child.unchecked_evaluate(batch, ctx)?;
         invert(&child_result)
     }
 
@@ -108,7 +112,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{EvaluationContext, col, ident, not, test_harness};
+    use crate::{col, ident, not, test_harness};
 
     #[test]
     fn invert_booleans() {
@@ -116,7 +120,7 @@ mod tests {
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
-                .evaluate(&EvaluationContext::new_ident(bools.to_array()))
+                .evaluate_array(bools.as_ref())
                 .unwrap()
                 .to_bool()
                 .unwrap()

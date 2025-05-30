@@ -8,7 +8,7 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::field::DisplayFieldNames;
-use crate::{ExprRef, VortexExpr};
+use crate::{EvaluationContext, ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SelectField {
@@ -157,8 +157,12 @@ impl VortexExpr for Select {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let batch = self.child.unchecked_evaluate(batch)?.to_struct()?;
+    fn unchecked_evaluate(
+        &self,
+        batch: &dyn Array,
+        ctx: &EvaluationContext,
+    ) -> VortexResult<ArrayRef> {
+        let batch = self.child.unchecked_evaluate(batch, ctx)?.to_struct()?;
         Ok(match &self.fields {
             SelectField::Include(f) => batch.project(f),
             SelectField::Exclude(names) => {
@@ -218,19 +222,18 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::arrays::StructArray;
-    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, Nullability};
 
-    use crate::{EvaluationContext, ident, select, select_exclude, test_harness};
+    use crate::{ident, select, select_exclude, test_harness};
 
-    fn test_array() -> ArrayRef {
+    fn test_array() -> StructArray {
         StructArray::from_fields(&[
             ("a", buffer![0, 1, 2].into_array()),
             ("b", buffer![4, 5, 6].into_array()),
         ])
         .unwrap()
-        .into_array()
     }
 
     #[test]
@@ -238,7 +241,7 @@ mod tests {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], ident());
         let selected = select
-            .evaluate(&EvaluationContext::new_ident(st))
+            .evaluate_array(st.as_ref())
             .unwrap()
             .to_struct()
             .unwrap();
@@ -251,7 +254,7 @@ mod tests {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], ident());
         let selected = select
-            .evaluate(&EvaluationContext::new_ident(st))
+            .evaluate_array(st.as_ref())
             .unwrap()
             .to_struct()
             .unwrap();

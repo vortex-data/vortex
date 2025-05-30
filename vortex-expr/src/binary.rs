@@ -8,7 +8,7 @@ use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ExprRef, Operator, VortexExpr};
+use crate::{EvaluationContext, ExprRef, Operator, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -87,9 +87,13 @@ impl VortexExpr for BinaryExpr {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let lhs = self.lhs.unchecked_evaluate(batch)?;
-        let rhs = self.rhs.unchecked_evaluate(batch)?;
+    fn unchecked_evaluate(
+        &self,
+        batch: &dyn Array,
+        ctx: &EvaluationContext,
+    ) -> VortexResult<ArrayRef> {
+        let lhs = self.lhs.unchecked_evaluate(batch, ctx)?;
+        let rhs = self.rhs.unchecked_evaluate(batch, ctx)?;
 
         match self.operator {
             Operator::Eq => compare(&lhs, &rhs, ArrayOperator::Eq),

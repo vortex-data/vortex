@@ -2,14 +2,14 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_err};
 
-use crate::{ExprRef, VortexExpr};
+use crate::{EvaluationContext, ExprRef, VortexExpr};
 
 static AUX: LazyLock<ExprRef> = LazyLock::new(|| Arc::new(Aux));
-pub static AUX_ID: &'static str = "aux";
+pub static AUX_ID: &'static str = "#aux";
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Aux;
@@ -65,8 +65,17 @@ impl VortexExpr for Aux {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        batch.to_struct()?.field_by_name("#").cloned()
+    fn unchecked_evaluate(
+        &self,
+        _array: &dyn Array,
+        ctx: &EvaluationContext,
+    ) -> VortexResult<ArrayRef> {
+        ctx.ctx
+            .get(AUX_ID)
+            .ok_or_else(|| vortex_err!("missing aux"))?
+            .downcast_ref::<ArrayRef>()
+            .ok_or_else(|| vortex_err!("aux not array"))
+            .cloned()
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -89,24 +98,31 @@ pub fn aux() -> ExprRef {
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
-    use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
+    use std::any::Any;
+    use std::sync::Arc;
 
-    use crate::{EvaluationContext, aux, ident};
+    use itertools::Itertools;
+    use vortex_array::aliases::hash_map::HashMap;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::{IntoArray, ToCanonical};
+
+    use crate::{AUX_ID, EvaluationContext, aux, ident};
 
     #[test]
     fn test_aux_and_arr() {
-        let aux_array = PrimitiveArray::from_iter(0i32..10).to_array();
+        let aux_array = PrimitiveArray::from_iter(0i32..10).into_array();
         let arr = PrimitiveArray::from_iter(10i32..20).to_array();
 
-        let ctx = EvaluationContext::new(arr, aux_array).unwrap();
+        let ctx = EvaluationContext::new(HashMap::from_iter([(
+            Arc::from(AUX_ID),
+            Arc::new(aux_array) as Arc<dyn Any>,
+        )]));
 
-        let value = ident().evaluate(&ctx).unwrap();
+        let value = ident().evaluate(&arr, &ctx).unwrap();
         let value = value.to_primitive().unwrap();
         assert_eq!(value.as_slice::<i32>(), (10..20).collect_vec().as_slice());
 
-        let row_id = aux().evaluate(&ctx).unwrap();
+        let row_id = aux().evaluate(&arr, &ctx).unwrap();
         let row_id = row_id.to_primitive().unwrap();
         assert_eq!(row_id.as_slice::<i32>(), (0..10).collect_vec().as_slice());
     }

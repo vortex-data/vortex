@@ -2,11 +2,11 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ExprRef, VortexExpr};
+use crate::{EvaluationContext, ExprRef, VortexExpr};
 
 static IDENTITY: LazyLock<ExprRef> = LazyLock::new(|| Arc::new(Identity));
 
@@ -64,8 +64,12 @@ impl VortexExpr for Identity {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        batch.to_struct()?.field_by_name("$").cloned()
+    fn unchecked_evaluate(
+        &self,
+        batch: &dyn Array,
+        _ctx: &EvaluationContext,
+    ) -> VortexResult<ArrayRef> {
+        Ok(batch.to_array())
     }
 
     fn children(&self) -> Vec<&ExprRef> {
