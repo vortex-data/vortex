@@ -7,6 +7,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use super::ArrowNullability;
 use crate::arrow::FromArrowArray;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::vtable::{
@@ -84,7 +85,8 @@ impl ArrayVTable<ArrowVTable> for ArrowVTable {
 
 impl CanonicalVTable<ArrowVTable> for ArrowVTable {
     fn canonicalize(array: &ArrowArray) -> VortexResult<Canonical> {
-        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable()).to_canonical()
+        ArrayRef::from_arrow(array.inner.as_ref(), ArrowNullability::from(&array.dtype))
+            .to_canonical()
     }
 }
 

@@ -7,7 +7,7 @@ use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 
-use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::arrow::{ArrowNullability, FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
@@ -252,7 +252,10 @@ pub(crate) fn arrow_boolean(
         BooleanOperator::OrKleene => arrow_arith::boolean::or_kleene(&lhs, &rhs)?,
     };
 
-    Ok(ArrayRef::from_arrow(&array, nullable))
+    Ok(ArrayRef::from_arrow(
+        &array,
+        ArrowNullability::from_top_level_is_nullable(nullable),
+    ))
 }
 
 #[cfg(test)]

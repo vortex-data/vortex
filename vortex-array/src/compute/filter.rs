@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, ConstantArray};
-use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::arrow::{ArrowNullability, FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, fill_null};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
@@ -241,7 +241,7 @@ pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef>
 
     Ok(ArrayRef::from_arrow(
         filtered.as_ref(),
-        array.dtype().is_nullable(),
+        ArrowNullability::from(array.dtype()),
     ))
 }
 

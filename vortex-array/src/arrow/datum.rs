@@ -2,6 +2,7 @@ use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef, Datum as Arrow
 use arrow_schema::DataType;
 use vortex_error::{VortexResult, vortex_panic};
 
+use super::ArrowNullability;
 use crate::arrays::ConstantArray;
 use crate::arrow::{FromArrowArray, IntoArrowArray};
 use crate::{Array, ArrayRef, IntoArray};
@@ -62,7 +63,8 @@ pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> Vor
 where
     ArrayRef: FromArrowArray<A>,
 {
-    let array = ArrayRef::from_arrow(array, nullable);
+    let desired_nullability = ArrowNullability::from_top_level_is_nullable(nullable);
+    let array = ArrayRef::from_arrow(array, desired_nullability);
     if array.len() == len {
         return Ok(array);
     }

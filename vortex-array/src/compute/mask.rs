@@ -8,7 +8,7 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::ConstantArray;
-use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::arrow::{ArrowNullability, FromArrowArray, IntoArrowArray};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, cast};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
@@ -128,7 +128,7 @@ impl ComputeFnVTable for MaskFn {
 
         let masked = arrow_select::nullif::nullif(array_ref.as_ref(), &mask)?;
 
-        Ok(ArrayRef::from_arrow(masked.as_ref(), true).into())
+        Ok(ArrayRef::from_arrow(masked.as_ref(), ArrowNullability::Nullable).into())
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {

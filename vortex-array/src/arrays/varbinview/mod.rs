@@ -9,7 +9,7 @@ use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
 
-use crate::arrow::FromArrowArray;
+use crate::arrow::{ArrowNullability, FromArrowArray};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
@@ -424,7 +424,7 @@ impl VarBinViewArray {
         for s in iter {
             builder.append_value(s);
         }
-        ArrayRef::from_arrow(&builder.finish(), false)
+        ArrayRef::from_arrow(&builder.finish(), ArrowNullability::NonNullable)
             .to_varbinview()
             .vortex_expect("VarBinViewArray from StringViewBuilder")
     }
@@ -436,7 +436,7 @@ impl VarBinViewArray {
         let mut builder = StringViewBuilder::with_capacity(iter.size_hint().0);
         builder.extend(iter);
 
-        let array = ArrayRef::from_arrow(&builder.finish(), true);
+        let array = ArrayRef::from_arrow(&builder.finish(), ArrowNullability::Nullable);
         array
             .to_varbinview()
             .vortex_expect("VarBinViewArray from StringViewBuilder")
@@ -448,7 +448,7 @@ impl VarBinViewArray {
         for b in iter {
             builder.append_value(b);
         }
-        ArrayRef::from_arrow(&builder.finish(), false)
+        ArrayRef::from_arrow(&builder.finish(), ArrowNullability::NonNullable)
             .to_varbinview()
             .vortex_expect("VarBinViewArray from StringViewBuilder")
     }
@@ -459,7 +459,7 @@ impl VarBinViewArray {
         let iter = iter.into_iter();
         let mut builder = BinaryViewBuilder::with_capacity(iter.size_hint().0);
         builder.extend(iter);
-        ArrayRef::from_arrow(&builder.finish(), true)
+        ArrayRef::from_arrow(&builder.finish(), ArrowNullability::Nullable)
             .to_varbinview()
             .vortex_expect("VarBinViewArray from StringViewBuilder")
     }

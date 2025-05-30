@@ -4,14 +4,14 @@ use vortex_error::VortexResult;
 
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
-use crate::arrow::{FromArrowArray, IntoArrowArray};
+use crate::arrow::{ArrowNullability, FromArrowArray, IntoArrowArray};
 use crate::vtable::CanonicalVTable;
 use crate::{ArrayRef, Canonical, ToCanonical};
 
 impl CanonicalVTable<VarBinVTable> for VarBinVTable {
     fn canonicalize(array: &VarBinArray) -> VortexResult<Canonical> {
         let dtype = array.dtype().clone();
-        let nullable = dtype.is_nullable();
+        let nullable = ArrowNullability::from(&dtype);
 
         let array_ref = array.to_array().into_arrow_preferred()?;
         let array = match dtype {

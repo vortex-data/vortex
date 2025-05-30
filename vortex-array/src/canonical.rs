@@ -222,7 +222,7 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::arrays::{ConstantArray, StructArray};
-    use crate::arrow::{FromArrowArray, IntoArrowArray};
+    use crate::arrow::{ArrowNullability, FromArrowArray, IntoArrowArray};
     use crate::{ArrayRef, IntoArray};
 
     #[test]
@@ -316,7 +316,7 @@ mod test {
             nulls.finish(),
         );
 
-        let vortex_struct = ArrayRef::from_arrow(&arrow_struct, true);
+        let vortex_struct = ArrayRef::from_arrow(&arrow_struct, ArrowNullability::Nullable);
 
         assert_eq!(
             &arrow_struct,
@@ -340,8 +340,7 @@ mod test {
         );
         let list_data_type = arrow_list.data_type();
 
-        let vortex_list = ArrayRef::from_arrow(&arrow_list, true);
-
+        let vortex_list = ArrayRef::from_arrow(&arrow_list, ArrowNullability::Nullable);
         let rt_arrow_list = vortex_list.into_arrow(list_data_type).unwrap();
 
         assert_eq!(

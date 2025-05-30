@@ -3,6 +3,7 @@ use arrow_array::cast::AsArray;
 use arrow_schema::{DataType, Schema};
 use vortex_error::{VortexError, VortexResult, vortex_err};
 
+use super::ArrowNullability;
 use crate::arrays::StructArray;
 use crate::arrow::FromArrowArray;
 use crate::arrow::compute::{to_arrow, to_arrow_preferred};
@@ -20,7 +21,9 @@ impl TryIntoArray for RecordBatch {
             self.columns()
                 .iter()
                 .zip(self.schema().fields())
-                .map(|(array, field)| ArrayRef::from_arrow(array.as_ref(), field.is_nullable()))
+                .map(|(array, field)| {
+                    ArrayRef::from_arrow(array.as_ref(), ArrowNullability::from(field.as_ref()))
+                })
                 .collect(),
             self.num_rows(),
             Validity::NonNullable, // Must match FromArrowType<SchemaRef> for DType

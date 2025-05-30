@@ -12,7 +12,7 @@ use arrow_array::types::{
     TimestampSecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
 use arrow_array::{BinaryViewArray, GenericByteViewArray, GenericListArray, StringViewArray};
-use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
+use arrow_buffer::buffer::OffsetBuffer;
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
@@ -25,7 +25,7 @@ use crate::arrays::{
     BoolArray, DecimalArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray,
     VarBinArray, VarBinViewArray,
 };
-use crate::arrow::FromArrowArray;
+use crate::arrow::{ArrowNullability, FromArrowArray};
 use crate::validity::Validity;
 use crate::{ArrayRef, IntoArray};
 
@@ -76,9 +76,9 @@ where
 macro_rules! impl_from_arrow_primitive {
     ($ty:path) => {
         impl FromArrowArray<&ArrowPrimitiveArray<$ty>> for ArrayRef {
-            fn from_arrow(value: &ArrowPrimitiveArray<$ty>, nullable: bool) -> Self {
+            fn from_arrow(value: &ArrowPrimitiveArray<$ty>, nullable: ArrowNullability) -> Self {
                 let buffer = Buffer::from_arrow_scalar_buffer(value.values().clone());
-                let validity = nulls(value.nulls(), nullable);
+                let validity = nullable.into_validity(value.nulls());
                 PrimitiveArray::new(buffer, validity).into_array()
             }
         }
@@ -98,16 +98,16 @@ impl_from_arrow_primitive!(Float32Type);
 impl_from_arrow_primitive!(Float64Type);
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
-    fn from_arrow(array: &ArrowPrimitiveArray<Decimal128Type>, nullable: bool) -> Self {
+    fn from_arrow(array: &ArrowPrimitiveArray<Decimal128Type>, nullable: ArrowNullability) -> Self {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
         let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-        let validity = nulls(array.nulls(), nullable);
+        let validity = nullable.into_validity(array.nulls());
         DecimalArray::new(buffer, decimal_type, validity).into_array()
     }
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
-    fn from_arrow(array: &ArrowPrimitiveArray<Decimal256Type>, nullable: bool) -> Self {
+    fn from_arrow(array: &ArrowPrimitiveArray<Decimal256Type>, nullable: ArrowNullability) -> Self {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
         let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
         // SAFETY: Our i256 implementation has the same bit-pattern representation of the
@@ -115,7 +115,7 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
         //  of either type.
         let buffer =
             unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(buffer) };
-        let validity = nulls(array.nulls(), nullable);
+        let validity = nullable.into_validity(array.nulls());
         DecimalArray::new(buffer, decimal_type, validity).into_array()
     }
 }
@@ -123,7 +123,7 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
 macro_rules! impl_from_arrow_temporal {
     ($ty:path) => {
         impl FromArrowArray<&ArrowPrimitiveArray<$ty>> for ArrayRef {
-            fn from_arrow(value: &ArrowPrimitiveArray<$ty>, nullable: bool) -> Self {
+            fn from_arrow(value: &ArrowPrimitiveArray<$ty>, nullable: ArrowNullability) -> Self {
                 temporal_array(value, nullable)
             }
         }
@@ -146,13 +146,16 @@ impl_from_arrow_temporal!(Time64NanosecondType);
 impl_from_arrow_temporal!(Date32Type);
 impl_from_arrow_temporal!(Date64Type);
 
-fn temporal_array<T: ArrowPrimitiveType>(value: &ArrowPrimitiveArray<T>, nullable: bool) -> ArrayRef
+fn temporal_array<T: ArrowPrimitiveType>(
+    value: &ArrowPrimitiveArray<T>,
+    nullable: ArrowNullability,
+) -> ArrayRef
 where
     T::Native: NativePType,
 {
     let arr = PrimitiveArray::new(
         Buffer::from_arrow_scalar_buffer(value.values().clone()),
-        nulls(value.nulls(), nullable),
+        nullable.into_validity(value.nulls()),
     )
     .into_array();
 
@@ -175,7 +178,7 @@ impl<T: ByteArrayType> FromArrowArray<&GenericByteArray<T>> for ArrayRef
 where
     <T as ByteArrayType>::Offset: NativePType,
 {
-    fn from_arrow(value: &GenericByteArray<T>, nullable: bool) -> Self {
+    fn from_arrow(value: &GenericByteArray<T>, nullable: ArrowNullability) -> Self {
         let dtype = match T::DATA_TYPE {
             DataType::Binary | DataType::LargeBinary => DType::Binary(nullable.into()),
             DataType::Utf8 | DataType::LargeUtf8 => DType::Utf8(nullable.into()),
@@ -185,7 +188,7 @@ where
             value.offsets().clone().into_array(),
             ByteBuffer::from_arrow_buffer(value.values().clone(), Alignment::of::<u8>()),
             dtype,
-            nulls(value.nulls(), nullable),
+            nullable.into_validity(value.nulls()),
         )
         .vortex_expect("Failed to convert Arrow GenericByteArray to Vortex VarBinArray")
         .into_array()
@@ -193,7 +196,7 @@ where
 }
 
 impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
-    fn from_arrow(value: &GenericByteViewArray<T>, nullable: bool) -> Self {
+    fn from_arrow(value: &GenericByteViewArray<T>, nullable: ArrowNullability) -> Self {
         let dtype = match T::DATA_TYPE {
             DataType::BinaryView => DType::Binary(nullable.into()),
             DataType::Utf8View => DType::Utf8(nullable.into()),
@@ -212,7 +215,7 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
                 .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
                 .collect::<Vec<_>>(),
             dtype,
-            nulls(value.nulls(), nullable),
+            nullable.into_validity(value.nulls()),
         )
         .vortex_expect("Failed to convert Arrow GenericByteViewArray to Vortex VarBinViewArray")
         .into_array()
@@ -220,23 +223,33 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
 }
 
 impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
-    fn from_arrow(value: &ArrowBooleanArray, nullable: bool) -> Self {
-        BoolArray::new(value.values().clone(), nulls(value.nulls(), nullable)).into_array()
+    fn from_arrow(value: &ArrowBooleanArray, nullable: ArrowNullability) -> Self {
+        BoolArray::new(
+            value.values().clone(),
+            nullable.into_validity(value.nulls()),
+        )
+        .into_array()
     }
 }
 
 impl FromArrowArray<&ArrowStructArray> for ArrayRef {
-    fn from_arrow(value: &ArrowStructArray, nullable: bool) -> Self {
+    fn from_arrow(struct_array: &ArrowStructArray, nullable: ArrowNullability) -> Self {
         StructArray::try_new(
-            value.column_names().iter().map(|s| (*s).into()).collect(),
-            value
+            struct_array
+                .column_names()
+                .iter()
+                .map(|s| (*s).into())
+                .collect(),
+            struct_array
                 .columns()
                 .iter()
-                .zip(value.fields())
-                .map(|(c, field)| Self::from_arrow(c.as_ref(), field.is_nullable()))
+                .zip(struct_array.fields())
+                .map(|(c, field)| {
+                    Self::from_arrow(c.as_ref(), ArrowNullability::from(field.as_ref()))
+                })
                 .collect(),
-            value.len(),
-            nulls(value.nulls(), nullable),
+            struct_array.len(),
+            nullable.into_validity(struct_array.nulls()),
         )
         .vortex_expect("Failed to convert Arrow StructArray to Vortex StructArray")
         .into_array()
@@ -244,18 +257,19 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
 }
 
 impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for ArrayRef {
-    fn from_arrow(value: &GenericListArray<O>, nullable: bool) -> Self {
+    fn from_arrow(value: &GenericListArray<O>, nullable: ArrowNullability) -> Self {
         // Extract the validity of the underlying element array
-        let elem_nullable = match value.data_type() {
-            DataType::List(field) => field.is_nullable(),
-            DataType::LargeList(field) => field.is_nullable(),
+        let field = match value.data_type() {
+            DataType::List(field) => field,
+            DataType::LargeList(field) => field,
             dt => vortex_panic!("Invalid data type for ListArray: {dt}"),
         };
+        let elem_nullable = ArrowNullability::from(field.as_ref());
         ListArray::try_new(
             Self::from_arrow(value.values().as_ref(), elem_nullable),
             // offsets are always non-nullable
             value.offsets().clone().into_array(),
-            nulls(value.nulls(), nullable),
+            nullable.into_validity(value.nulls()),
         )
         .vortex_expect("Failed to convert Arrow StructArray to Vortex StructArray")
         .into_array()
@@ -263,31 +277,14 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for 
 }
 
 impl FromArrowArray<&ArrowNullArray> for ArrayRef {
-    fn from_arrow(value: &ArrowNullArray, nullable: bool) -> Self {
-        assert!(nullable);
+    fn from_arrow(value: &ArrowNullArray, nullable: ArrowNullability) -> Self {
+        assert!(nullable.is_nullable());
         NullArray::new(value.len()).into_array()
     }
 }
 
-fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
-    if nullable {
-        nulls
-            .map(|nulls| {
-                if nulls.null_count() == nulls.len() {
-                    Validity::AllInvalid
-                } else {
-                    Validity::from(nulls.inner().clone())
-                }
-            })
-            .unwrap_or_else(|| Validity::AllValid)
-    } else {
-        assert!(nulls.map(|x| x.null_count() == 0).unwrap_or(true));
-        Validity::NonNullable
-    }
-}
-
 impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
-    fn from_arrow(array: &dyn ArrowArray, nullable: bool) -> Self {
+    fn from_arrow(array: &dyn ArrowArray, nullable: ArrowNullability) -> Self {
         match array.data_type() {
             DataType::Boolean => Self::from_arrow(array.as_boolean(), nullable),
             DataType::UInt8 => Self::from_arrow(array.as_primitive::<UInt8Type>(), nullable),
@@ -368,5 +365,30 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 array.data_type().clone()
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::new_null_array;
+    use arrow_schema::{DataType, Field, Fields};
+
+    use crate::ArrayRef;
+    use crate::arrow::{ArrowNullability, FromArrowArray as _};
+
+    #[test]
+    pub fn nullable_may_contain_non_nullable() {
+        let null_struct_array_with_non_nullable_field = new_null_array(
+            &DataType::Struct(Fields::from(vec![Field::new(
+                "non_nullable_inner",
+                DataType::Int32,
+                false,
+            )])),
+            1,
+        );
+        ArrayRef::from_arrow(
+            null_struct_array_with_non_nullable_field.as_ref(),
+            ArrowNullability::Nullable,
+        );
     }
 }
