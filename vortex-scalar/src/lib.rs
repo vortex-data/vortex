@@ -182,11 +182,38 @@ impl Scalar {
 
     /// Produces a "zero" value of the given type.
     ///
-    /// Even recursive values (i.e. structs) transitively will not contain any nulls.
+    /// For every type except the Null type, the value is guarnateed to be not null. This
+    /// transitively applies to any value contained in a recursive value (i.e. structs).
     ///
-    /// # Panics
+    /// # Examples
     ///
-    /// This function panics if given the nullable data type.
+    /// ```
+    /// use std::sync::Arc;
+    /// use vortex_scalar::{Scalar, PValue};
+    /// use vortex_dtype::{DType, PType};
+    /// use vortex_dtype::Nullability::Nullable;
+    ///
+    /// let zero = Scalar::zero(&DType::Null);
+    /// assert!(zero.is_null());
+    ///
+    /// let zero = Scalar::zero(&DType::Bool(Nullable));
+    /// assert_eq!(zero.as_bool().value(), Some(false));
+    ///
+    /// let zero = Scalar::zero(&DType::Primitive(PType::I32, Nullable));
+    /// assert_eq!(
+    ///   zero.as_primitive().pvalue(),
+    ///   Some(PValue::I32(0))
+    /// );
+    ///
+    /// let zero = Scalar::zero(&DType::Utf8(Nullable));
+    /// assert_eq!(
+    ///     zero.as_utf8().value().as_ref().map(|x| x.as_str()),
+    ///     Some("")
+    /// );
+    ///
+    /// let zero = Scalar::zero(&DType::List(Arc::from(DType::Bool(Nullable)), Nullable));
+    /// assert!(zero.as_list().is_empty());
+    /// ```
     pub fn zero(dtype: &DType) -> Self {
         Scalar::new(dtype.clone(), ScalarValue::zero(dtype))
     }

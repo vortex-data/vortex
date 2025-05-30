@@ -13,7 +13,7 @@ use itertools::Itertools;
 use prost::Message;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 use vortex_proto::scalar as pb;
 
 use crate::decimal::DecimalValue;
@@ -158,11 +158,8 @@ impl ScalarValue {
 
     /// Produces a "zero" value of the given type.
     ///
-    /// Even recursive values (i.e. structs) transitively will not contain any nulls.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if given the nullable data type.
+    /// For every type except the Null type, the value is guarnateed to be not null. This
+    /// transitively applies to any value contained in a recursive value (i.e. structs).
     pub(crate) fn zero(dtype: &DType) -> Self {
         Self(InnerScalarValue::zero(dtype))
     }
@@ -272,14 +269,11 @@ impl InnerScalarValue {
 
     /// Produces a "zero" value of the given type.
     ///
-    /// Even recursive values (i.e. structs) transitively will not contain any nulls.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if given the nullable data type.
+    /// For every type except the Null type, the value is guarnateed to be not null. This
+    /// transitively applies to any value contained in a recursive value (i.e. structs).
     pub(crate) fn zero(dtype: &DType) -> Self {
         match &dtype {
-            DType::Null => vortex_panic!("the null data type has no 'zero' value"),
+            DType::Null => Self::Null,
             DType::Bool(_) => Self::Bool(false),
             DType::Primitive(ptype, _) => Self::Primitive(PValue::zero(*ptype)),
             DType::Decimal(decimal_dtype, _) => {
