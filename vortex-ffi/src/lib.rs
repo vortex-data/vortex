@@ -63,6 +63,7 @@ macro_rules! arc_dyn_wrapper {
             #[allow(non_camel_case_types)]
             pub struct $ffi_ident(std::sync::Arc<$T>);
 
+            #[allow(dead_code)]
             impl $ffi_ident {
                 /// Wrap an owned object into a raw pointer.
                 pub(crate) fn new(obj: std::sync::Arc<$T>) -> *const $ffi_ident {
@@ -94,12 +95,20 @@ macro_rules! arc_dyn_wrapper {
 
             #[doc = "Clone a borrowed [`" $ffi_ident "`], returning an owned [`" $ffi_ident "`]]."]
             #[doc = "Must be released with [`" $ffi_ident "_free`]."]
+            #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _clone>](ptr: *const $ffi_ident) -> *const $ffi_ident {
+                if ptr.is_null() {
+                    vortex::error::vortex_panic!("null pointer");
+                }
                 $ffi_ident::new($ffi_ident::into_arc(ptr.cast_mut()).clone())
             }
 
             #[doc = "Free an owned [`" $ffi_ident "`] object."]
+            #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *const $ffi_ident) {
+                if ptr.is_null() {
+                    vortex::error::vortex_panic!("null pointer");
+                }
                 drop($ffi_ident::into_arc(ptr.cast_mut()))
             }
         }
@@ -115,6 +124,7 @@ macro_rules! arc_wrapper {
             #[allow(non_camel_case_types)]
             pub struct $ffi_ident($T);
 
+            #[allow(dead_code)]
             impl $ffi_ident {
                 /// Wrap an owned object into a raw pointer.
                 pub(crate) fn new(obj: std::sync::Arc<$T>) -> *const $ffi_ident {
@@ -145,6 +155,7 @@ macro_rules! arc_wrapper {
 
             #[doc = "Clone a borrowed [`" $ffi_ident "`], returning an owned [`" $ffi_ident "`]]."]
             #[doc = "Must be released with [`" $ffi_ident "_free`]."]
+            #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _clone>](ptr: *const $ffi_ident) -> *mut $ffi_ident {
                 if ptr.is_null() {
                     vortex::error::vortex_panic!("null pointer");
@@ -154,9 +165,10 @@ macro_rules! arc_wrapper {
             }
 
             #[doc = "Free an owned [`" $ffi_ident "`] object."]
+            #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *const $ffi_ident) {
                 if ptr.is_null() {
-                    vortex_panic!("null pointer");
+                    vortex::error::vortex_panic!("null pointer");
                 }
                 unsafe { std::sync::Arc::decrement_strong_count(ptr) };
             }

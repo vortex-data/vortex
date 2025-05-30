@@ -125,9 +125,11 @@ impl vx_file_scan_options {
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_open_reader(
     options: *const vx_file_open_options,
-    session: *mut vx_session,
+    session: *const vx_session,
     error: *mut *mut vx_error,
 ) -> *mut vx_file_reader {
+    let session = vx_session::as_ref(session);
+
     try_or(error, ptr::null_mut(), || {
         let options = unsafe {
             options
@@ -146,30 +148,25 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
-        let file = VortexOpenOptions::file();
-        let (file, cache_hit) = if let Some(footer) = unsafe { session.as_ref() }.and_then(|s| {
-            s.inner.get_footer(&FileKey {
-                location: uri_str.to_string(),
-            })
+        let mut file = VortexOpenOptions::file();
+        let mut cache_hit = false;
+        if let Some(footer) = session.get_footer(&FileKey {
+            location: uri_str.to_string(),
         }) {
-            (file.with_footer(footer), true)
-        } else {
-            (file, false)
-        };
+            file = file.with_footer(footer.clone());
+            cache_hit = true;
+        }
 
         let inner = RUNTIME
             .block_on(async move { file.open_object_store(&object_store, uri.path()).await })?;
 
         if !cache_hit {
-            let _ = unsafe { session.as_ref() }.is_some_and(|s| {
-                s.inner.put_footer(
-                    FileKey {
-                        location: uri_str.to_string(),
-                    },
-                    inner.footer().clone(),
-                );
-                true
-            });
+            session.put_footer(
+                FileKey {
+                    location: uri_str.to_string(),
+                },
+                inner.footer().clone(),
+            );
         }
 
         Ok(Box::into_raw(Box::new(vx_file_reader { inner })))
@@ -179,18 +176,18 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_write_array(
     path: *const c_char,
-    ffi_array: *mut vx_array,
+    array: *const vx_array,
     error: *mut *mut vx_error,
 ) {
+    let array = vx_array::as_ref(array);
     try_or(error, (), || {
-        let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
         let path = unsafe { CStr::from_ptr(path).to_str()? };
 
         RUNTIME.block_on(async {
             VortexWriteOptions::default()
                 .write(
                     &mut tokio::fs::File::create(path).await?,
-                    array.inner.to_array_stream(),
+                    array.to_array_stream(),
                 )
                 .await?;
             Ok(())

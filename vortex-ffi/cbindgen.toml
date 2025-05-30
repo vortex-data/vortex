@@ -23,10 +23,6 @@ header = """
 // limitations under the License.
 """
 
-[export.rename]
-"DType" = "vx_dtype"
-"VortexSession" = "vx_session"
-
 [defines]
 "feature = duckdb" = "ENABLE_DUCKDB_FFI"
 

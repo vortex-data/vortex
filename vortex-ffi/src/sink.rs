@@ -61,11 +61,11 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
     array: *const vx_array,
     error: *mut *mut vx_error,
 ) {
-    let array = unsafe { array.as_ref().vortex_expect("null array") };
+    let array = vx_array::as_ref(array);
     let sink = unsafe { sink.as_ref().vortex_expect("null array stream") };
     try_or(error, (), || {
         sink.sink
-            .blocking_send(Ok(array.inner.clone()))
+            .blocking_send(Ok(array.clone()))
             .map_err(|e| vortex_err!("send error {}", e.to_string()))
     })
 }

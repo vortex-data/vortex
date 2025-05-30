@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
 use vortex::dtype::{DType, DecimalDType};
-use vortex::error::{VortexExpect, VortexUnwrap, vortex_panic};
+use vortex::error::{VortexExpect, VortexUnwrap};
 
 use crate::arc_wrapper;
 use crate::dtype_struct::vx_struct_dtype;
@@ -21,6 +21,7 @@ arc_wrapper!(
 /// The variant tag for a Vortex data type.
 #[allow(non_camel_case_types)]
 #[non_exhaustive]
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum vx_dtype_variant {
     /// Null type

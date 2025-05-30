@@ -3,38 +3,35 @@ use std::sync::Arc;
 use moka::sync::Cache;
 use vortex::aliases::DefaultHashBuilder;
 use vortex::dtype::DType;
-use vortex::error::VortexExpect;
 use vortex::file::{Footer, SegmentSpec};
 use vortex::layout::segments::SegmentId;
 use vortex::scalar::ScalarValue;
 use vortex::stats::{Precision, Stat};
 
-/// A Vortex session stores registries of extensible types, various caches, and other
-/// top-level configuration.
-///
-/// Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
-///
-/// Multiple sessions may be created in a single process, and individual arrays are not tied to a
-/// specific session.
-#[allow(non_camel_case_types)]
-pub struct vx_session(VortexSession);
+use crate::arc_wrapper;
 
-pub struct VortexSession {
-    file_cache: Cache<FileKey, Footer, DefaultHashBuilder>,
-}
+arc_wrapper!(
+    /// A Vortex session stores registries of extensible types, various caches, and other
+    /// top-level configuration.
+    ///
+    /// Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
+    ///
+    /// Multiple sessions may be created in a single process, and individual arrays are not tied to a
+    /// specific session.
+    VortexSession,
+    vx_session
+);
 
 /// Create a new Vortex session.
 ///
 /// The caller is responsible for freeing the session with [`vx_session_free`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_session_new() -> *mut VortexSession {
-    Box::into_raw(Box::new(VortexSession::new()))
+pub unsafe extern "C-unwind" fn vx_session_new() -> *const vx_session {
+    vx_session::new(Arc::new(VortexSession::new()))
 }
 
-/// Free a session
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_session_free(session: *mut VortexSession) {
-    drop(unsafe { Box::from_raw(session.as_mut().vortex_expect("null session")) })
+pub struct VortexSession {
+    file_cache: Cache<FileKey, Footer, DefaultHashBuilder>,
 }
 
 /// Cache key for a [`VortexFile`].
