@@ -136,9 +136,9 @@ impl VortexExpr for Between {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let arr_val = self.arr.evaluate(batch)?;
-        let lower_arr_val = self.lower.evaluate(batch)?;
-        let upper_arr_val = self.upper.evaluate(batch)?;
+        let arr_val = self.arr.unchecked_evaluate(batch)?;
+        let lower_arr_val = self.lower.unchecked_evaluate(batch)?;
+        let upper_arr_val = self.upper.unchecked_evaluate(batch)?;
 
         between(&arr_val, &lower_arr_val, &upper_arr_val, &self.options)
     }

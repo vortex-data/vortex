@@ -2,7 +2,7 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -65,7 +65,7 @@ impl VortexExpr for Identity {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        Ok(batch.to_array())
+        batch.to_struct()?.field_by_name("$").cloned()
     }
 
     fn children(&self) -> Vec<&ExprRef> {

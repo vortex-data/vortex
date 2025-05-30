@@ -98,7 +98,7 @@ impl VortexExpr for Merge {
         let value_arrays = self
             .values
             .iter()
-            .map(|value_expr| value_expr.evaluate(batch))
+            .map(|value_expr| value_expr.unchecked_evaluate(batch))
             .process_results(|it| it.collect::<Vec<_>>())?;
 
         // Collect fields in order of appearance. Later fields overwrite earlier fields.
@@ -188,7 +188,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{GetItem, Identity, Merge, VortexExpr};
+    use crate::{EvalCtx, GetItem, Identity, Merge, VortexExpr};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
@@ -246,7 +246,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(test_array.as_ref()).unwrap();
+        let actual_array = expr.evaluate(&EvalCtx::new_ident(test_array)).unwrap();
 
         assert_eq!(
             actual_array.as_struct_typed().names(),
@@ -292,7 +292,9 @@ mod tests {
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
-        let actual_array = expr.evaluate(&test_array).unwrap();
+        let actual_array = expr
+            .evaluate(&EvalCtx::new_ident(test_array.clone()))
+            .unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.as_struct_typed().nfields(), 0);
     }
@@ -339,7 +341,7 @@ mod tests {
         .unwrap()
         .into_array();
         let actual_array = expr
-            .evaluate(test_array.as_ref())
+            .evaluate(&EvalCtx::new_ident(test_array))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -391,7 +393,7 @@ mod tests {
         .unwrap()
         .into_array();
         let actual_array = expr
-            .evaluate(test_array.as_ref())
+            .evaluate(&EvalCtx::new_ident(test_array))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -420,7 +422,7 @@ mod tests {
         )])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(test_array.as_ref()).unwrap();
+        let actual_array = expr.evaluate(&EvalCtx::new_ident(test_array)).unwrap();
         assert!(actual_array.dtype().is_nullable());
     }
 }

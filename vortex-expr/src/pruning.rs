@@ -15,8 +15,8 @@ use vortex_scalar::Scalar;
 
 use crate::between::Between;
 use crate::{
-    BinaryExpr, ExprRef, GetItem, Identity, Literal, Not, Operator, VortexExprExt, and, eq,
-    get_item, gt, ident, lit, not, or,
+    BinaryExpr, EvalCtx, ExprRef, GetItem, Identity, Literal, Not, Operator, VortexExprExt, and,
+    eq, get_item, gt, ident, lit, not, or,
 };
 
 #[derive(Debug, Clone)]
@@ -152,7 +152,10 @@ impl PruningPredicate {
             return Ok(None);
         }
 
-        Ok(Some(self.expr.evaluate(metadata)?))
+        Ok(Some(
+            self.expr
+                .evaluate(&EvalCtx::new_ident(metadata.to_array()))?,
+        ))
     }
 }
 

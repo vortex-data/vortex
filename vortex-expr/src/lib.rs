@@ -43,6 +43,7 @@ pub use pack::*;
 pub use registry::deserialize_expr;
 pub use select::*;
 use vortex_array::aliases::hash_set::HashSet;
+use vortex_array::arrays::StructArray;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, VortexUnwrap};
@@ -77,6 +78,28 @@ pub trait ExprSerializable {}
 #[cfg(not(feature = "proto"))]
 impl<T> ExprSerializable for T {}
 
+pub struct EvalCtx {
+    struct_array: StructArray,
+}
+
+impl EvalCtx {
+    pub fn new(ident: ArrayRef, aux: ArrayRef) -> VortexResult<EvalCtx> {
+        Ok(EvalCtx {
+            struct_array: StructArray::from_fields(&[("$", ident), ("#", aux)])?,
+        })
+    }
+
+    pub fn new_ident(ident: ArrayRef) -> EvalCtx {
+        EvalCtx {
+            struct_array: StructArray::from_fields(&[("$", ident)]).unwrap(),
+        }
+    }
+
+    pub fn ident(&self) -> ArrayRef {
+        self.struct_array.field_by_name("$").unwrap().clone()
+    }
+}
+
 /// Represents logical operation on [`ArrayRef`]s
 pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable {
     /// Convert expression reference to reference of [`Any`] type
@@ -84,16 +107,18 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSeri
 
     /// Compute result of expression on given batch producing a new batch
     ///
-    fn evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let result = self.unchecked_evaluate(batch)?;
-        assert_eq!(
-            result.dtype(),
-            &self.return_dtype(batch.dtype())?,
-            "Expression {} returned dtype {} but declared return_dtype of {}",
-            self,
-            result.dtype(),
-            self.return_dtype(batch.dtype())?,
-        );
+    fn evaluate(&self, eval_ctx: &EvalCtx) -> VortexResult<ArrayRef> {
+        // let batch =
+        let result = self.unchecked_evaluate(eval_ctx.struct_array.as_ref())?;
+        // TODO(joe): enable
+        // debug_assert_eq!(
+        //     result.dtype(),
+        //     &self.return_dtype(batch.dtype())?,
+        //     "Expression {} returned dtype {} but declared return_dtype of {}",
+        //     self,
+        //     result.dtype(),
+        //     self.return_dtype(batch.dtype())?,
+        // );
         Ok(result)
     }
 

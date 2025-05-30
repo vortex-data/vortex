@@ -158,7 +158,7 @@ impl VortexExpr for Select {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let batch = self.child.evaluate(batch)?.to_struct()?;
+        let batch = self.child.unchecked_evaluate(batch)?.to_struct()?;
         Ok(match &self.fields {
             SelectField::Include(f) => batch.project(f),
             SelectField::Exclude(names) => {
@@ -218,25 +218,30 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::arrays::StructArray;
-    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, Nullability};
 
-    use crate::{ident, select, select_exclude, test_harness};
+    use crate::{EvalCtx, ident, select, select_exclude, test_harness};
 
-    fn test_array() -> StructArray {
+    fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
             ("a", buffer![0, 1, 2].into_array()),
             ("b", buffer![4, 5, 6].into_array()),
         ])
         .unwrap()
+        .into_array()
     }
 
     #[test]
     pub fn include_columns() {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], ident());
-        let selected = select.evaluate(st.as_ref()).unwrap().to_struct().unwrap();
+        let selected = select
+            .evaluate(&EvalCtx::new_ident(st))
+            .unwrap()
+            .to_struct()
+            .unwrap();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a".into()]);
     }
@@ -245,7 +250,11 @@ mod tests {
     pub fn exclude_columns() {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], ident());
-        let selected = select.evaluate(st.as_ref()).unwrap().to_struct().unwrap();
+        let selected = select
+            .evaluate(&EvalCtx::new_ident(st))
+            .unwrap()
+            .to_struct()
+            .unwrap();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);
     }

@@ -28,7 +28,7 @@ use crate::{ExprRef, VortexExpr};
 ///     vec![Identity::new_expr(), Identity::new_expr(), Identity::new_expr()],
 ///     Nullability::NonNullable,
 /// ).unwrap();
-/// let packed = example.evaluate(&buffer![100, 110, 200].into_array()).unwrap();
+/// let packed = example.evaluate(&EvalCtx::new_ident(buffer![100, 110, 200].into_array())).unwrap();
 /// let x_copy = packed
 ///     .to_struct()
 ///     .unwrap()
@@ -153,7 +153,7 @@ impl VortexExpr for Pack {
         let value_arrays = self
             .values
             .iter()
-            .map(|value_expr| value_expr.evaluate(batch))
+            .map(|value_expr| value_expr.unchecked_evaluate(batch))
             .process_results(|it| it.collect::<Vec<_>>())?;
         let validity = match self.nullability {
             Nullability::NonNullable => Validity::NonNullable,
@@ -192,19 +192,20 @@ mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{FieldNames, Nullability};
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{Pack, VortexExpr, col};
+    use crate::{EvalCtx, Pack, VortexExpr, col};
 
-    fn test_array() -> StructArray {
+    fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
             ("a", buffer![0, 1, 2].into_array()),
             ("b", buffer![4, 5, 6].into_array()),
         ])
         .unwrap()
+        .into_array()
     }
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
@@ -225,8 +226,10 @@ mod tests {
     pub fn test_empty_pack() {
         let expr = Pack::try_new_expr(Arc::new([]), Vec::new(), Nullability::NonNullable).unwrap();
 
-        let test_array = test_array().into_array();
-        let actual_array = expr.evaluate(&test_array).unwrap();
+        let test_array = test_array();
+        let actual_array = expr
+            .evaluate(&EvalCtx::new_ident(test_array.clone()))
+            .unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(
             actual_array.to_struct().unwrap().struct_dtype().nfields(),
@@ -244,7 +247,7 @@ mod tests {
         .unwrap();
 
         let actual_array = expr
-            .evaluate(test_array().as_ref())
+            .evaluate(&EvalCtx::new_ident(test_array()))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -291,7 +294,7 @@ mod tests {
         .unwrap();
 
         let actual_array = expr
-            .evaluate(test_array().as_ref())
+            .evaluate(&EvalCtx::new_ident(test_array()))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -334,7 +337,7 @@ mod tests {
         .unwrap();
 
         let actual_array = expr
-            .evaluate(test_array().as_ref())
+            .evaluate(&EvalCtx::new_ident(test_array()))
             .unwrap()
             .to_struct()
             .unwrap();

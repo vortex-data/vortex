@@ -88,8 +88,8 @@ impl VortexExpr for BinaryExpr {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let lhs = self.lhs.evaluate(batch)?;
-        let rhs = self.rhs.evaluate(batch)?;
+        let lhs = self.lhs.unchecked_evaluate(batch)?;
+        let rhs = self.rhs.unchecked_evaluate(batch)?;
 
         match self.operator {
             Operator::Eq => compare(&lhs, &rhs, ArrayOperator::Eq),
@@ -291,10 +291,10 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ```
 /// use vortex_array::arrays::BoolArray;
 /// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_expr::{and, ident, lit};
+/// use vortex_expr::{and, ident, lit, EvalCtx};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = and(ident(), lit(true)).evaluate(xs.as_ref()).unwrap();
+/// let result = and(ident(), lit(true)).evaluate(&EvalCtx::new_ident(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),

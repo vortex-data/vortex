@@ -74,7 +74,7 @@ impl VortexExpr for Not {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let child_result = self.child.evaluate(batch)?;
+        let child_result = self.child.unchecked_evaluate(batch)?;
         invert(&child_result)
     }
 
@@ -108,7 +108,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{col, ident, not, test_harness};
+    use crate::{EvalCtx, col, ident, not, test_harness};
 
     #[test]
     fn invert_booleans() {
@@ -116,7 +116,7 @@ mod tests {
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
-                .evaluate(bools.as_ref())
+                .evaluate(&EvalCtx::new_ident(bools.to_array()))
                 .unwrap()
                 .to_bool()
                 .unwrap()

@@ -101,7 +101,7 @@ impl VortexExpr for GetItem {
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
         self.child
-            .evaluate(batch)?
+            .unchecked_evaluate(batch)?
             .to_struct()?
             .field_by_name(self.field())
             .cloned()
@@ -140,7 +140,7 @@ mod tests {
     use vortex_dtype::PType::I32;
 
     use crate::get_item::get_item;
-    use crate::ident;
+    use crate::{EvalCtx, ident};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -154,7 +154,9 @@ mod tests {
     pub fn get_item_by_name() {
         let st = test_array();
         let get_item = get_item("a", ident());
-        let item = get_item.evaluate(st.as_ref()).unwrap();
+        let item = get_item
+            .evaluate(&EvalCtx::new_ident(st.to_array()))
+            .unwrap();
         assert_eq!(item.dtype(), &DType::from(I32))
     }
 
@@ -162,6 +164,10 @@ mod tests {
     pub fn get_item_by_name_none() {
         let st = test_array();
         let get_item = get_item("c", ident());
-        assert!(get_item.evaluate(st.as_ref()).is_err());
+        assert!(
+            get_item
+                .evaluate(&EvalCtx::new_ident(st.to_array()))
+                .is_err()
+        );
     }
 }

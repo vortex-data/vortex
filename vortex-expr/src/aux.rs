@@ -9,7 +9,7 @@ use vortex_error::VortexResult;
 use crate::{ExprRef, VortexExpr};
 
 static AUX: LazyLock<ExprRef> = LazyLock::new(|| Arc::new(Aux));
-static AUX_ID: &'static str = "aux";
+pub static AUX_ID: &'static str = "aux";
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Aux;
@@ -85,4 +85,29 @@ impl VortexExpr for Aux {
 
 pub fn aux() -> ExprRef {
     Aux::new_expr()
+}
+
+#[cfg(test)]
+mod tests {
+    use itertools::Itertools;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::PrimitiveArray;
+
+    use crate::{EvalCtx, aux, ident};
+
+    #[test]
+    fn test_aux_and_arr() {
+        let aux_array = PrimitiveArray::from_iter(0i32..10).to_array();
+        let arr = PrimitiveArray::from_iter(10i32..20).to_array();
+
+        let ctx = EvalCtx::new(arr, aux_array).unwrap();
+
+        let value = ident().evaluate(&ctx).unwrap();
+        let value = value.to_primitive().unwrap();
+        assert_eq!(value.as_slice::<i32>(), (10..20).collect_vec().as_slice());
+
+        let row_id = aux().evaluate(&ctx).unwrap();
+        let row_id = row_id.to_primitive().unwrap();
+        assert_eq!(row_id.as_slice::<i32>(), (0..10).collect_vec().as_slice());
+    }
 }
