@@ -1,93 +1,42 @@
 //! FFI interface for working with Vortex Arrays.
-//!
-//! The VXArray provides both type-erased and type-aware access behind an `ArrayRef`.
-
 use std::ffi::{c_int, c_void};
 use std::ptr;
 
 use vortex::dtype::DType;
 use vortex::dtype::half::f16;
-use vortex::error::{VortexExpect, VortexUnwrap, vortex_bail, vortex_err};
+use vortex::error::{VortexExpect, VortexUnwrap, vortex_err, vortex_panic};
 use vortex::iter::ArrayIterator;
-use vortex::{Array, ArrayRef, ToCanonical};
+use vortex::{Array, ToCanonical};
 
+use crate::arc_wrapper;
 use crate::error::{try_or, vx_error};
 
-/// The FFI interface for an [`Array`].
-///
-/// Because dyn Trait pointers cannot be shared across FFI, we create a new struct to hold
-/// the wide pointer. The C FFI only seems a pointer to this structure, and can pass it into
-/// one of the various `vx_array_*` functions.
-#[allow(non_camel_case_types)]
-pub struct vx_array {
-    pub inner: ArrayRef,
-}
-
-/// The FFI interface for an [`ArrayIterator`].
-#[allow(non_camel_case_types)]
-pub struct vx_array_iterator {
-    pub inner: Option<Box<dyn ArrayIterator>>,
-}
-
-/// Attempt to advance the `current` pointer of the iterator.
-///
-/// A return value of `true` indicates that another element was pulled from the iterator, and a return
-/// of `false` indicates that the iterator is finished.
-///
-/// It is an error to call this function again after the iterator is finished.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_iter_next(
-    iter: *mut vx_array_iterator,
-    error: *mut *mut vx_error,
-) -> *mut vx_array {
-    try_or(error, ptr::null_mut(), || {
-        let iter = unsafe { iter.as_mut() }.vortex_expect("iter null");
-        let Some(inner) = iter.inner.as_mut() else {
-            vortex_bail!("vx_array_iter_next called after finish")
-        };
-
-        let element = inner.next();
-
-        if let Some(element) = element {
-            Ok(Box::into_raw(Box::new(vx_array { inner: element? })))
-        } else {
-            // Drop the iter pointer.
-            iter.inner.take();
-            Ok(ptr::null_mut())
-        }
-    })
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_iter_free(array_iter: *mut vx_array_iterator) {
-    assert!(!array_iter.is_null());
-    let iter = unsafe { Box::from_raw(array_iter) };
-    assert!(
-        iter.inner.is_none(),
-        "vx_array_iter_free called before finish"
-    );
-    drop(iter);
-}
+arc_wrapper!(
+    /// Base type for all Vortex arrays.
+    ///
+    /// All built-in Vortex array types can be safely cast to this type to pass into functions that
+    /// expect a generic array type. e.g.
+    ///
+    /// ```cpp
+    /// auto primitive_array = vx_array_primitive_new(...);
+    /// vx_array_len((*vx_array) primitive_array));
+    /// ```
+    dyn Array,
+    vx_array
+);
 
 /// Get the length of the array.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_len(array: *const vx_array) -> u64 {
-    unsafe { array.as_ref() }
-        .vortex_expect("array null")
-        .inner
-        .len() as u64
+pub extern "C-unwind" fn vx_array_len(array: *const vx_array) -> usize {
+    vx_array::as_ref(array).len()
 }
 
-/// Get a pointer to the data type for an array.
+/// Get the [`crate::vx_dtype`] of the array.
 ///
-/// Note that this pointer is tied to the lifetime of the array, and the caller is responsible
-/// for ensuring that it is never dereferenced after the array has been freed.
+/// The returned pointer is valid as long as the array is valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_dtype(array: *const vx_array) -> *const DType {
-    unsafe { array.as_ref() }
-        .vortex_expect("array null")
-        .inner
-        .dtype()
+pub extern "C-unwind" fn vx_array_dtype(array: *const vx_array) -> *const DType {
+    vx_array::as_ref(array).dtype()
 }
 
 #[unsafe(no_mangle)]
@@ -97,30 +46,17 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
     error: *mut *mut vx_error,
 ) -> *const vx_array {
     try_or(error, ptr::null(), || {
-        let array = unsafe { array.as_ref() }.vortex_expect("array null");
+        let array = vx_array::as_ref(array);
 
         let field_array = array
-            .inner
             .to_struct()?
             .fields()
             .get(index as usize)
             .ok_or_else(|| vortex_err!("Field index out of bounds"))?
             .clone();
 
-        let ffi_array = field_array;
-
-        Ok(Box::into_raw(Box::new(vx_array { inner: ffi_array })))
+        Ok(vx_array::from(field_array))
     })
-}
-
-// Get a pointer to the child array reference here instead...we have no concept of references
-// and ownership lifetimes. Holy shit this is a bit scary tbh.
-
-/// Free the array and all associated resources.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_array_free(array: *mut vx_array) {
-    assert!(!array.is_null());
-    drop(unsafe { Box::from_raw(array) });
 }
 
 #[unsafe(no_mangle)]
@@ -130,10 +66,10 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     stop: u32,
     error: *mut *mut vx_error,
 ) -> *const vx_array {
-    let array = unsafe { array.as_ref() }.vortex_expect("array null");
+    let array = vx_array::as_ref(array);
     try_or(error, ptr::null_mut(), || {
-        let sliced = array.inner.as_ref().slice(start as usize, stop as usize)?;
-        Ok(Box::into_raw(Box::new(vx_array { inner: sliced })))
+        let sliced = array.slice(start as usize, stop as usize)?;
+        Ok(vx_array::from(sliced))
     })
 }
 
@@ -143,8 +79,8 @@ pub unsafe extern "C-unwind" fn vx_array_is_null(
     index: u32,
     error: *mut *mut vx_error,
 ) -> bool {
-    let array = unsafe { array.as_ref() }.vortex_expect("array null");
-    try_or(error, false, || array.inner.is_invalid(index as usize))
+    let array = vx_array::as_ref(array);
+    try_or(error, false, || array.is_invalid(index as usize))
 }
 
 #[unsafe(no_mangle)]
@@ -152,10 +88,8 @@ pub unsafe extern "C-unwind" fn vx_array_null_count(
     array: *const vx_array,
     error: *mut *mut vx_error,
 ) -> u32 {
-    let array = unsafe { array.as_ref() }.vortex_expect("array null");
-    try_or(error, 0, || {
-        Ok(array.inner.as_ref().invalid_count()?.try_into()?)
-    })
+    let array = vx_array::as_ref(array);
+    try_or(error, 0, || Ok(array.invalid_count()?.try_into()?))
 }
 
 macro_rules! ffiarray_get_ptype {
@@ -163,8 +97,8 @@ macro_rules! ffiarray_get_ptype {
         paste::paste! {
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
-                let array = unsafe { array.as_ref() } .vortex_expect("array null");
-                let value = array.inner.scalar_at(index as usize).vortex_expect("scalar_at");
+                let array = vx_array::as_ref(array);
+                let value = array.scalar_at(index as usize).vortex_expect("scalar_at");
                 value.as_primitive()
                     .as_::<$ptype>()
                     .vortex_expect("as_")
@@ -173,8 +107,8 @@ macro_rules! ffiarray_get_ptype {
 
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
-                let array = unsafe { array.as_ref() }.vortex_expect("array null");
-                let value = array.inner.scalar_at(index as usize).vortex_expect("scalar_at");
+                let array = vx_array::as_ref(array);
+                let value = array.scalar_at(index as usize).vortex_expect("scalar_at");
                 value.as_extension()
                     .storage()
                     .as_primitive()
@@ -207,12 +141,8 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     dst: *mut c_void,
     len: *mut c_int,
 ) {
-    let array = unsafe { array.as_ref() }.vortex_expect("array null");
-    let value = array
-        .inner
-        .as_ref()
-        .scalar_at(index as usize)
-        .vortex_expect("scalar_at");
+    let array = vx_array::as_ref(array);
+    let value = array.scalar_at(index as usize).vortex_expect("scalar_at");
     let utf8_scalar = value.as_utf8();
     if let Some(buffer) = utf8_scalar.value() {
         let bytes = buffer.as_bytes();
@@ -231,11 +161,8 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     dst: *mut c_void,
     len: *mut c_int,
 ) {
-    let array = unsafe { array.as_ref() }.vortex_expect("array null");
-    let value = array
-        .inner
-        .scalar_at(index as usize)
-        .vortex_expect("scalar_at");
+    let array = vx_array::as_ref(array);
+    let value = array.scalar_at(index as usize).vortex_expect("scalar_at");
     let utf8_scalar = value.as_binary();
     if let Some(bytes) = utf8_scalar.value() {
         let dst = unsafe { std::slice::from_raw_parts_mut(dst as *mut u8, bytes.len()) };
@@ -257,20 +184,18 @@ mod tests {
     fn test_simple() {
         unsafe {
             let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-            let vx_array = Box::new(vx_array {
-                inner: primitive.to_array(),
-            });
+            let ffi_array = vx_array::from(primitive.to_array());
 
-            assert_eq!(vx_array_len(&raw const *vx_array), 3);
+            assert_eq!(vx_array_len(ffi_array), 3);
 
-            let array_dtype = vx_array_dtype(&raw const *vx_array);
+            let array_dtype = vx_array_dtype(ffi_array);
             assert_eq!(vx_dtype_get(array_dtype), DTYPE_PRIMITIVE_I32);
 
-            assert_eq!(vx_array_get_i32(&raw const *vx_array, 0), 1);
-            assert_eq!(vx_array_get_i32(&raw const *vx_array, 1), 2);
-            assert_eq!(vx_array_get_i32(&raw const *vx_array, 2), 3);
+            assert_eq!(vx_array_get_i32(ffi_array, 0), 1);
+            assert_eq!(vx_array_get_i32(ffi_array, 1), 2);
+            assert_eq!(vx_array_get_i32(ffi_array, 2), 3);
 
-            vx_array_free(Box::into_raw(vx_array));
+            vx_array_free(ffi_array);
         }
     }
 }

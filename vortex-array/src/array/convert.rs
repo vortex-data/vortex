@@ -11,3 +11,9 @@ pub trait IntoArray {
 pub trait TryIntoArray {
     fn try_into_array(self) -> VortexResult<ArrayRef>;
 }
+
+impl IntoArray for ArrayRef {
+    fn into_array(self) -> ArrayRef {
+        self
+    }
+}

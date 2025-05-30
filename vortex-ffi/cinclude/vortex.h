@@ -101,25 +101,7 @@ typedef enum vx_log_level {
  */
 typedef struct vx_dtype vx_dtype;
 
-/**
- * A Vortex session stores registries of extensible types, various caches, and other
- * top-level configuration.
- *
- * Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
- *
- * Multiple sessions may be created in a single process, and individual arrays are not tied to a
- * specific session.
- */
 typedef struct vx_session vx_session;
-
-/**
- * The FFI interface for an [`Array`].
- *
- * Because dyn Trait pointers cannot be shared across FFI, we create a new struct to hold
- * the wide pointer. The C FFI only seems a pointer to this structure, and can pass it into
- * one of the various `vx_array_*` functions.
- */
-typedef struct vx_array vx_array;
 
 /**
  * The FFI interface for an [`ArrayIterator`].
@@ -148,6 +130,27 @@ typedef struct vx_error vx_error;
  * A file reader that can be used to read from a file.
  */
 typedef struct vx_file_reader vx_file_reader;
+
+/**
+ * A Vortex session stores registries of extensible types, various caches, and other
+ * top-level configuration.
+ *
+ * Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
+ *
+ * Multiple sessions may be created in a single process, and individual arrays are not tied to a
+ * specific session.
+ */
+typedef struct vx_session vx_session;
+
+/**
+ * Base type for all Vortex arrays.
+ *
+ * Other array types can be safely cast to this type to pass into functions that expect a
+ * generic array type. These types will be documented as such.
+ */
+typedef struct vx_array {
+
+} vx_array;
 
 /**
  * Options supplied for opening a file.
@@ -222,17 +225,6 @@ typedef struct vx_file_scan_options {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-
-/**
- * Attempt to advance the `current` pointer of the iterator.
- *
- * A return value of `true` indicates that another element was pulled from the iterator, and a return
- * of `false` indicates that the iterator is finished.
- *
- * It is an error to call this function again after the iterator is finished.
- */
-struct vx_array *vx_array_iter_next(struct vx_array_iterator *iter,
-                                    struct vx_error **error);
 
 void vx_array_iter_free(struct vx_array_iterator *array_iter);
 
@@ -403,7 +395,7 @@ void vx_error_free(struct vx_error *error);
  * Open a file at the given path on the file system.
  */
 struct vx_file_reader *vx_file_open_reader(const struct vx_file_open_options *options,
-                                           vx_session *session,
+                                           struct vx_session *session,
                                            struct vx_error **error);
 
 void vx_file_write_array(const char *path, struct vx_array *ffi_array, struct vx_error **error);

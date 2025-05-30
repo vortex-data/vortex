@@ -1,20 +1,69 @@
-// TODO(joe): remove me
-#![allow(clippy::panic)]
-
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::ptr;
 use std::sync::Arc;
 
+use vortex::Array;
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
 use vortex::dtype::{DType, FieldNames, PType, StructDType};
-use vortex::error::{VortexExpect, VortexUnwrap, vortex_bail};
+use vortex::error::{VortexExpect, VortexUnwrap, vortex_bail, vortex_panic};
 
 use crate::error::{try_or, vx_error};
 
-/// Pointer to a `DType` value that has been heap-allocated.
+/// A Vortex data type.
+///
+/// Data types in Vortex are purely logical, meaning they confer no information about how the data
+/// is physically stored.
+#[allow(non_camel_case_types)]
+pub struct vx_dtype(Arc<DType>);
+
+impl vx_dtype {
+    /// Extract a borrowed reference from a const pointer to a `vx_array`.
+    pub(crate) fn as_ref<'a>(dtype: *const vx_dtype) -> &'a Arc<DType> {
+        &unsafe { dtype.as_ref() }
+            .vortex_expect("vx_dtype pointer is null")
+            .0
+    }
+
+    /// Extract an owned reference from a mutable pointer to a `vx_array`.
+    pub(crate) fn into_dtype(dtype: *mut vx_dtype) -> Arc<DType> {
+        if dtype.is_null() {
+            vortex_panic!("vx_array pointer is null");
+        }
+        unsafe { Box::from_raw(dtype) }.0
+    }
+}
+
+/// The variant tag for a Vortex data type.
+#[allow(non_camel_case_types)]
+pub enum vx_dtype_variant {
+    /// Null type
+    DTYPE_NULL = 0,
+    /// Boolean type
+    DTYPE_BOOL = 1,
+    /// Primitive types (e.g., u8, i16, f32, etc.)
+    DTYPE_PRIMITIVE = 2,
+    /// Variable-length UTF-8 string type
+    DTYPE_UTF8 = 3,
+    /// Variable-length binary data type
+    DTYPE_BINARY = 4,
+    /// Nested struct type
+    DTYPE_STRUCT = 5,
+    /// Nested list type
+    DTYPE_LIST = 6,
+    /// User-defined extension type
+    DTYPE_EXTENSION = 7,
+    /// Decimal type with fixed precision and scale
+    DTYPE_DECIMAL = 8,
+}
+
+pub extern "C-unwind" fn vx_dtype_free(dtype: *mut vx_dtype) {
+    assert!(!dtype.is_null(), "vx_dtype_free: null pointer");
+    drop(unsafe { Box::from_raw(dtype) });
+}
+
 /// Create a new simple dtype.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_new(variant: u8, nullable: bool) -> *mut DType {
+pub unsafe extern "C-unwind" fn vx_dtype_new(variant: u8, nullable: bool) -> *mut vx_dtype {
     assert!(
         variant < DTYPE_STRUCT,
         "DType_new: invalid variant: {variant}"
@@ -88,12 +137,6 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_struct(
     let struct_dtype = Arc::new(StructDType::new(field_names, field_dtypes));
 
     Box::into_raw(Box::new(DType::Struct(struct_dtype, nullable.into())))
-}
-
-/// Free an [`DType`] and all associated resources.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_dtype_free(dtype: *mut DType) {
-    drop(unsafe { Box::from_raw(dtype) });
 }
 
 /// Get the dtype variant tag for an [`DType`].

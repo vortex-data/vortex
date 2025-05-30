@@ -17,6 +17,8 @@ use vortex::stats::{Precision, Stat};
 /// Multiple sessions may be created in a single process, and individual arrays are not tied to a
 /// specific session.
 #[allow(non_camel_case_types)]
+pub struct vx_session(VortexSession);
+
 pub struct VortexSession {
     file_cache: Cache<FileKey, Footer, DefaultHashBuilder>,
 }

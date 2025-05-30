@@ -21,7 +21,8 @@ use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 
-use crate::array::{vx_array, vx_array_iterator};
+use crate::array::vx_array;
+use crate::array_iterator::vx_array_iterator;
 use crate::error::{try_or, vx_error};
 use crate::session::{FileKey, vx_session};
 use crate::{RUNTIME, to_string, to_string_vec};
