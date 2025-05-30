@@ -35,6 +35,9 @@ DTypes
 Arrays
 ------
 
+.. c:autotype:: vx_array
+   :file: vortex.h
+
 .. c:autofunction:: vx_array_dtype
    :file: vortex.h
 
