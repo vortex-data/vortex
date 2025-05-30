@@ -9,7 +9,7 @@ use vortex_error::{VortexResult, vortex_err};
 use crate::{EvaluationContext, ExprRef, VortexExpr};
 
 static AUX: LazyLock<ExprRef> = LazyLock::new(|| Arc::new(Aux));
-pub static AUX_ID: &'static str = "#aux";
+pub static AUX_ID: &str = "#aux";
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Aux;
