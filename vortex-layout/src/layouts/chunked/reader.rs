@@ -166,7 +166,6 @@ impl LayoutReader for ChunkedReader {
 
     fn filter_evaluation(
         &self,
-
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
