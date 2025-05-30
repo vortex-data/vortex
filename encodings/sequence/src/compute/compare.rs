@@ -26,28 +26,22 @@ impl CompareKernel for SequenceVTable {
         };
 
         // Check if there exists an integer solution to const = base + (0..len) * multiplier.
-        let set_idx: Option<usize> = match_each_integer_ptype!(lhs.ptype(), |$P| {
+        let set_idx: Option<usize> = match_each_integer_ptype!(lhs.ptype(), |P| {
             let c = constant
                 .as_primitive()
-                .as_::<$P>()?
+                .as_::<P>()?
                 .vortex_expect("null constant already checked in entry");
 
-            let base = lhs.base().as_primitive::<$P>()?;
-            let multiplier = lhs.multiplier().as_primitive::<$P>()?;
-            if multiplier != <$P>::from_usize(1).vortex_expect("cannot fail") {
-                // TODO(joe): support other lengths.
-                return Ok(None);
-            }
+            let base = lhs.base().as_primitive::<P>()?;
+            let multiplier = lhs.multiplier().as_primitive::<P>()?;
 
             // Array is non-empty here.
-            let end_element = base
-                + (multiplier * <$P>::from_usize(lhs.len() - 1).vortex_expect("idx must fit into type"));
+            let count = <P>::from_usize(lhs.len() - 1).vortex_expect("idx must fit into type");
 
-            if c >= base && c <= end_element && c - base % multiplier == 0{
-                Some(((c - base / multiplier)).as_())
-            } else {
-                None
-            }
+            let end_element = base + (multiplier * count);
+
+            (c >= base && c <= end_element && c - base % multiplier == 0)
+                .then(|| (c - base / multiplier).as_())
         });
 
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();

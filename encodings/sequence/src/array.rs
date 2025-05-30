@@ -91,12 +91,12 @@ impl SequenceArray {
         ptype: PType,
         length: usize,
     ) -> VortexResult<PValue> {
-        match_each_integer_ptype!(ptype, |$P| {
-            let len_t = <$P>::from_usize(length-1)
+        match_each_integer_ptype!(ptype, |P| {
+            let len_t = <P>::from_usize(length - 1)
                 .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
 
-            let base = base.as_primitive::<$P>()?;
-            let multiplier = multiplier.as_primitive::<$P>()?;
+            let base = base.as_primitive::<P>()?;
+            let multiplier = multiplier.as_primitive::<P>()?;
 
             let last = len_t
                 .checked_mul(multiplier)
@@ -110,10 +110,10 @@ impl SequenceArray {
         if idx > self.length {
             vortex_bail!("out of bounds")
         }
-        match_each_native_ptype!(self.ptype(), |$P| {
-            let base = self.base.as_primitive::<$P>()?;
-            let multiplier = self.multiplier.as_primitive::<$P>()?;
-            let value = base + (multiplier * <$P>::from_usize(idx).vortex_expect("must fit"));
+        match_each_native_ptype!(self.ptype(), |P| {
+            let base = self.base.as_primitive::<P>()?;
+            let multiplier = self.multiplier.as_primitive::<P>()?;
+            let value = base + (multiplier * <P>::from_usize(idx).vortex_expect("must fit"));
 
             Ok(PValue::from(value))
         })
@@ -164,10 +164,13 @@ impl ArrayVTable<SequenceVTable> for SequenceVTable {
 
 impl CanonicalVTable<SequenceVTable> for SequenceVTable {
     fn canonicalize(array: &SequenceArray) -> VortexResult<Canonical> {
-        let prim = match_each_native_ptype!(array.ptype(), |$P| {
-            let base = array.base().as_primitive::<$P>()?;
-            let multiplier = array.multiplier().as_primitive::<$P>()?;
-            PrimitiveArray::from_iter((0..array.len()).map(|i| base + <$P>::from_usize(i).vortex_expect("must fit") * multiplier))
+        let prim = match_each_native_ptype!(array.ptype(), |P| {
+            let base = array.base().as_primitive::<P>()?;
+            let multiplier = array.multiplier().as_primitive::<P>()?;
+            PrimitiveArray::from_iter(
+                (0..array.len())
+                    .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
+            )
         });
 
         Ok(Canonical::Primitive(prim))
@@ -178,7 +181,7 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
     fn slice(array: &SequenceArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
         Ok(SequenceArray::unchecked_new(
             array.index_value(start)?,
-            array.multiplier.clone(),
+            array.multiplier,
             array.ptype(),
             stop - start,
         )
