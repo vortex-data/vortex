@@ -97,17 +97,15 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSeri
     /// Compute result of expression on given batch producing a new batch
     ///
     fn evaluate(&self, array: &dyn Array, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
-        // let batch =
         let result = self.unchecked_evaluate(array, ctx)?;
-        // TODO(joe): enable
-        // debug_assert_eq!(
-        //     result.dtype(),
-        //     &self.return_dtype(batch.dtype())?,
-        //     "Expression {} returned dtype {} but declared return_dtype of {}",
-        //     self,
-        //     result.dtype(),
-        //     self.return_dtype(batch.dtype())?,
-        // );
+        assert_eq!(
+            result.dtype(),
+            &self.return_dtype(array.dtype())?,
+            "Expression {} returned dtype {} but declared return_dtype of {}",
+            self,
+            result.dtype(),
+            self.return_dtype(array.dtype())?,
+        );
         Ok(result)
     }
 

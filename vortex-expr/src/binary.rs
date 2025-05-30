@@ -141,7 +141,7 @@ impl PartialEq for BinaryExpr {
 /// use vortex_expr::{eq, ident, lit};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = eq(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
+/// let result = eq(ident(), lit(3)).evaluate_array(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -298,7 +298,7 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{and, ident, lit, EvaluationContext};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = and(ident(), lit(true)).evaluate_array(&xs).unwrap();
+/// let result = and(ident(), lit(true)).evaluate_array(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
