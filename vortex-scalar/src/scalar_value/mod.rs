@@ -13,12 +13,12 @@ use itertools::Itertools;
 use prost::Message;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err, vortex_panic};
 use vortex_proto::scalar as pb;
 
 use crate::decimal::DecimalValue;
 use crate::pvalue::PValue;
-use crate::{ScalarType, i256};
+use crate::{DecimalValueType, ScalarType, i256};
 
 /// Represents the internal data of a scalar value. Must be interpreted by wrapping
 /// up with a DType to make a Scalar.
@@ -155,6 +155,17 @@ impl ScalarValue {
     pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
         self.0.as_list()
     }
+
+    /// Produces a "zero" value of the given type.
+    ///
+    /// Even recursive values (i.e. structs) transitively will not contain any nulls.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if given the nullable data type.
+    pub(crate) fn zero(dtype: &DType) -> Self {
+        Self(InnerScalarValue::zero(dtype))
+    }
 }
 
 impl InnerScalarValue {
@@ -256,6 +267,35 @@ impl InnerScalarValue {
             InnerScalarValue::Null => Ok(None),
             InnerScalarValue::List(l) => Ok(Some(l)),
             _ => Err(vortex_err!("Expected a list scalar, found {:?}", self)),
+        }
+    }
+
+    /// Produces a "zero" value of the given type.
+    ///
+    /// Even recursive values (i.e. structs) transitively will not contain any nulls.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if given the nullable data type.
+    pub(crate) fn zero(dtype: &DType) -> Self {
+        match &dtype {
+            DType::Null => vortex_panic!("the null data type has no 'zero' value"),
+            DType::Bool(_) => Self::Bool(false),
+            DType::Primitive(ptype, _) => Self::Primitive(PValue::zero(*ptype)),
+            DType::Decimal(decimal_dtype, _) => {
+                let decimal_storage_dtype = DecimalValueType::smallest_storage_type(decimal_dtype);
+                Self::Decimal(DecimalValue::zero(decimal_storage_dtype))
+            }
+            DType::Utf8(_) => Self::BufferString(Arc::from(BufferString::from(""))),
+            DType::Binary(_) => Self::Buffer(Arc::from(ByteBuffer::empty())),
+            DType::Struct(struct_dtype, _) => Self::List(Arc::from(
+                struct_dtype
+                    .fields()
+                    .map(|t| ScalarValue::zero(&t))
+                    .collect::<Vec<_>>(),
+            )),
+            DType::List(..) => Self::List(Arc::from(Vec::new())),
+            DType::Extension(ext_dtype) => Self::zero(ext_dtype.storage_dtype()),
         }
     }
 }

@@ -53,7 +53,6 @@ use vortex_scalar::{
     ScalarValue, StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
 };
 
-use crate::arrays::smallest_storage_type;
 use crate::{Array, ArrayRef};
 
 pub trait ArrayBuilder: Send {
@@ -140,13 +139,16 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             })
         }
         DType::Decimal(decimal_type, n) => {
-            match_each_decimal_value_type!(smallest_storage_type(decimal_type), |D| {
-                Box::new(DecimalBuilder::with_capacity::<D>(
-                    capacity,
-                    *decimal_type,
-                    *n,
-                ))
-            })
+            match_each_decimal_value_type!(
+                DecimalValueType::smallest_storage_type(decimal_type),
+                |D| {
+                    Box::new(DecimalBuilder::with_capacity::<D>(
+                        capacity,
+                        *decimal_type,
+                        *n,
+                    ))
+                }
+            )
         }
         DType::Utf8(n) => Box::new(VarBinViewBuilder::with_capacity(DType::Utf8(*n), capacity)),
         DType::Binary(n) => Box::new(VarBinViewBuilder::with_capacity(

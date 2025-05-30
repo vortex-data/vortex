@@ -89,6 +89,22 @@ pub enum DecimalValueType {
     I256 = 5,
 }
 
+impl DecimalValueType {
+    /// Maps a decimal precision into the smallest type that can represent it.
+    pub fn smallest_storage_type(decimal_dtype: &DecimalDType) -> Self {
+        match decimal_dtype.precision() {
+            1..=2 => Self::I8,
+            3..=4 => Self::I16,
+            5..=9 => Self::I32,
+            10..=18 => Self::I64,
+            19..=38 => Self::I128,
+            39..=76 => Self::I256,
+            0 => unreachable!("precision must be greater than 0"),
+            p => unreachable!("precision larger than 76 is invalid found precision {p}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum DecimalValue {
     I8(i8),
@@ -97,6 +113,19 @@ pub enum DecimalValue {
     I64(i64),
     I128(i128),
     I256(i256),
+}
+
+impl DecimalValue {
+    pub fn zero(decimal_dtype: DecimalValueType) -> Self {
+        match decimal_dtype {
+            DecimalValueType::I8 => Self::I8(0),
+            DecimalValueType::I16 => Self::I16(0),
+            DecimalValueType::I32 => Self::I32(0),
+            DecimalValueType::I64 => Self::I64(0),
+            DecimalValueType::I128 => Self::I128(0),
+            DecimalValueType::I256 => Self::I256(i256::from_i128(0)),
+        }
+    }
 }
 
 // Comparisons between DecimalValue types should upcast to i256 and operate in the upcast space.

@@ -3,15 +3,15 @@ use vortex_buffer::{Buffer, BufferMut, buffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{
-    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, ScalarValue,
-    StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
+    BinaryScalar, BoolScalar, DecimalValue, DecimalValueType, ExtScalar, ListScalar, Scalar,
+    ScalarValue, StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
 };
 
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
     BinaryView, BoolArray, ConstantVTable, DecimalArray, ExtensionArray, ListArray, NullArray,
-    StructArray, VarBinViewArray, smallest_storage_type,
+    StructArray, VarBinViewArray,
 };
 use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
@@ -57,7 +57,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 })
             }
             DType::Decimal(decimal_type, ..) => {
-                let size = smallest_storage_type(decimal_type);
+                let size = DecimalValueType::smallest_storage_type(decimal_type);
                 let decimal = scalar.as_decimal();
                 let Some(value) = decimal.decimal_value() else {
                     let all_null = match_each_decimal_value_type!(size, |D| {

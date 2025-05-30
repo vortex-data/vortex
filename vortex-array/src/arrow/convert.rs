@@ -19,13 +19,14 @@ use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::{DType, DecimalDType, NativePType, PType};
 use vortex_error::{VortexExpect as _, vortex_panic};
-use vortex_scalar::i256;
+use vortex_scalar::{Scalar, i256};
 
 use crate::arrays::{
     BoolArray, DecimalArray, ListArray, NullArray, PrimitiveArray, StructArray, TemporalArray,
     VarBinArray, VarBinViewArray,
 };
 use crate::arrow::FromArrowArray;
+use crate::compute::fill_null;
 use crate::validity::Validity;
 use crate::{ArrayRef, IntoArray};
 
@@ -226,17 +227,31 @@ impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
 }
 
 impl FromArrowArray<&ArrowStructArray> for ArrayRef {
-    fn from_arrow(value: &ArrowStructArray, nullable: bool) -> Self {
+    fn from_arrow(struct_array: &ArrowStructArray, nullable: bool) -> Self {
         StructArray::try_new(
-            value.column_names().iter().map(|s| (*s).into()).collect(),
-            value
+            struct_array
+                .column_names()
+                .iter()
+                .map(|s| (*s).into())
+                .collect(),
+            struct_array
                 .columns()
                 .iter()
-                .zip(value.fields())
-                .map(|(c, field)| Self::from_arrow(c.as_ref(), field.is_nullable()))
+                .zip(struct_array.fields())
+                .map(|(c, field)| {
+                    let vtx = Self::from_arrow(c.as_ref(), true);
+                    if field.is_nullable() {
+                        vtx
+                    } else {
+                        // ASSUMPTION: Non-nullable fields of an Arrow struct array only have nulls
+                        // at positions at which the struct (or some higher-level struct) is null.
+                        fill_null(vtx.as_ref(), &Scalar::zero(vtx.dtype()))
+                            .vortex_expect("fill_null is always implemented")
+                    }
+                })
                 .collect(),
-            value.len(),
-            nulls(value.nulls(), nullable),
+            struct_array.len(),
+            nulls(struct_array.nulls(), nullable),
         )
         .vortex_expect("Failed to convert Arrow StructArray to Vortex StructArray")
         .into_array()
@@ -368,5 +383,38 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 array.data_type().clone()
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow_array::{ArrayRef as ArrowArrayRef, StructArray as ArrowStructArray, new_null_array};
+    use arrow_buffer::NullBufferBuilder;
+    use arrow_schema::{DataType, Field, Fields};
+
+    use crate::ArrayRef;
+    use crate::arrow::FromArrowArray as _;
+
+    #[test]
+    pub fn nullable_may_contain_non_nullable() {
+        let fields = Fields::from(vec![Field::new(
+            "non_nullable_inner",
+            DataType::Int32,
+            false,
+        )]);
+        let nulls = {
+            let mut builder = NullBufferBuilder::new(1);
+            builder.append_null();
+            builder.finish()
+        };
+        let array: ArrowArrayRef = Arc::from(
+            ArrowStructArray::try_new(fields, vec![new_null_array(&DataType::Int32, 1)], nulls)
+                .unwrap(),
+        );
+        println!("{:?}", array);
+
+        ArrayRef::from_arrow(array.as_ref(), true);
     }
 }

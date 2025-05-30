@@ -179,6 +179,17 @@ impl Scalar {
             DType::Extension(_ext_dtype) => self.as_extension().storage().nbytes(),
         }
     }
+
+    /// Produces a "zero" value of the given type.
+    ///
+    /// Even recursive values (i.e. structs) transitively will not contain any nulls.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if given the nullable data type.
+    pub fn zero(dtype: &DType) -> Self {
+        Scalar::new(dtype.clone(), ScalarValue::zero(dtype))
+    }
 }
 
 impl Scalar {
