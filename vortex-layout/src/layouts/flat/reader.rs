@@ -10,7 +10,7 @@ use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{EvalCtx, ExprRef, Identity};
+use vortex_expr::{EvaluationContext, ExprRef, Identity};
 use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
@@ -183,12 +183,15 @@ impl MaskEvaluation for FlatEvaluation {
         let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
             // Evaluate only the selected rows of the mask.
             array = filter(&array, &mask)?;
-            let array_mask =
-                Mask::try_from(self.expr.evaluate(&EvalCtx::new_ident(array))?.as_ref())?;
+            let array_mask = Mask::try_from(
+                self.expr
+                    .evaluate(&EvaluationContext::new_ident(array))?
+                    .as_ref(),
+            )?;
             mask.intersect_by_rank(&array_mask)
         } else {
             // Evaluate all rows, avoiding the more expensive rank intersection.
-            array = self.expr.evaluate(&EvalCtx::new_ident(array))?;
+            array = self.expr.evaluate(&EvaluationContext::new_ident(array))?;
             let array_mask = Mask::try_from(array.as_ref())?;
             mask.bitand(&array_mask)
         };
@@ -230,7 +233,7 @@ impl ArrayEvaluation for FlatEvaluation {
 
         // Evaluate the projection expression.
         if !self.expr.as_any().is::<Identity>() {
-            array = self.expr.evaluate(&EvalCtx::new_ident(array))?;
+            array = self.expr.evaluate(&EvaluationContext::new_ident(array))?;
         }
 
         Ok(array)

@@ -140,7 +140,7 @@ mod tests {
     use vortex_dtype::PType::I32;
 
     use crate::get_item::get_item;
-    use crate::{EvalCtx, ident};
+    use crate::{EvaluationContext, ident};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -155,7 +155,7 @@ mod tests {
         let st = test_array();
         let get_item = get_item("a", ident());
         let item = get_item
-            .evaluate(&EvalCtx::new_ident(st.to_array()))
+            .evaluate(&EvaluationContext::new_ident(st.to_array()))
             .unwrap();
         assert_eq!(item.dtype(), &DType::from(I32))
     }
@@ -166,7 +166,7 @@ mod tests {
         let get_item = get_item("c", ident());
         assert!(
             get_item
-                .evaluate(&EvalCtx::new_ident(st.to_array()))
+                .evaluate(&EvaluationContext::new_ident(st.to_array()))
                 .is_err()
         );
     }

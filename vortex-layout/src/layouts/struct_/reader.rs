@@ -16,7 +16,7 @@ use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, FieldName, StructDType};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
-use vortex_expr::{EvalCtx, ExprRef};
+use vortex_expr::{EvaluationContext, ExprRef};
 use vortex_mask::Mask;
 
 use crate::layouts::struct_::StructLayout;
@@ -288,7 +288,7 @@ impl MaskEvaluation for StructMaskEvaluation {
         let root_mask = Mask::try_from(
             self.partitioned
                 .root
-                .evaluate(&EvalCtx::new_ident(root_scope.to_array()))?
+                .evaluate(&EvaluationContext::new_ident(root_scope.to_array()))?
                 .as_ref(),
         )?;
         let mask = mask.bitand(&root_mask);
@@ -331,7 +331,7 @@ impl ArrayEvaluation for StructArrayEvaluation {
 
         self.partitioned
             .root
-            .evaluate(&EvalCtx::new_ident(root_scope.to_array()))
+            .evaluate(&EvaluationContext::new_ident(root_scope.to_array()))
     }
 }
 

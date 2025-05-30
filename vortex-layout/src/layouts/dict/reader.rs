@@ -12,7 +12,7 @@ use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::{EvalCtx, ExprRef, Identity};
+use vortex_expr::{EvaluationContext, ExprRef, Identity};
 use vortex_mask::Mask;
 
 use super::DictLayout;
@@ -94,7 +94,10 @@ impl DictReader {
             .entry(expr.clone())
             .or_insert_with(|| {
                 self.values_array()
-                    .map(move |array| expr.evaluate(&EvalCtx::new_ident(array?)).map_err(Arc::new))
+                    .map(move |array| {
+                        expr.evaluate(&EvaluationContext::new_ident(array?))
+                            .map_err(Arc::new)
+                    })
                     .boxed()
                     .shared()
             })

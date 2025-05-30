@@ -222,7 +222,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, Nullability};
 
-    use crate::{EvalCtx, ident, select, select_exclude, test_harness};
+    use crate::{EvaluationContext, ident, select, select_exclude, test_harness};
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
@@ -238,7 +238,7 @@ mod tests {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], ident());
         let selected = select
-            .evaluate(&EvalCtx::new_ident(st))
+            .evaluate(&EvaluationContext::new_ident(st))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -251,7 +251,7 @@ mod tests {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], ident());
         let selected = select
-            .evaluate(&EvalCtx::new_ident(st))
+            .evaluate(&EvaluationContext::new_ident(st))
             .unwrap()
             .to_struct()
             .unwrap();

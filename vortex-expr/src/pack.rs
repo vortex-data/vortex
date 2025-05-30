@@ -197,7 +197,7 @@ mod tests {
     use vortex_dtype::{FieldNames, Nullability};
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{EvalCtx, Pack, VortexExpr, col};
+    use crate::{EvaluationContext, Pack, VortexExpr, col};
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
@@ -228,7 +228,7 @@ mod tests {
 
         let test_array = test_array();
         let actual_array = expr
-            .evaluate(&EvalCtx::new_ident(test_array.clone()))
+            .evaluate(&EvaluationContext::new_ident(test_array.clone()))
             .unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(
@@ -247,7 +247,7 @@ mod tests {
         .unwrap();
 
         let actual_array = expr
-            .evaluate(&EvalCtx::new_ident(test_array()))
+            .evaluate(&EvaluationContext::new_ident(test_array()))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -294,7 +294,7 @@ mod tests {
         .unwrap();
 
         let actual_array = expr
-            .evaluate(&EvalCtx::new_ident(test_array()))
+            .evaluate(&EvaluationContext::new_ident(test_array()))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -337,7 +337,7 @@ mod tests {
         .unwrap();
 
         let actual_array = expr
-            .evaluate(&EvalCtx::new_ident(test_array()))
+            .evaluate(&EvaluationContext::new_ident(test_array()))
             .unwrap()
             .to_struct()
             .unwrap();

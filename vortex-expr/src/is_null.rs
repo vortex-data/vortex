@@ -116,7 +116,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::is_null::is_null;
-    use crate::{EvalCtx, get_item, ident, test_harness};
+    use crate::{EvaluationContext, get_item, ident, test_harness};
 
     #[test]
     fn dtype() {
@@ -141,7 +141,7 @@ mod tests {
         let expected = [false, true, false, true, false];
 
         let result = is_null(ident())
-            .evaluate(&EvalCtx::new_ident(test_array.clone()))
+            .evaluate(&EvaluationContext::new_ident(test_array.clone()))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
@@ -160,7 +160,7 @@ mod tests {
         let test_array = PrimitiveArray::from_iter(vec![1, 2, 3, 4, 5]).into_array();
 
         let result = is_null(ident())
-            .evaluate(&EvalCtx::new_ident(test_array.clone()))
+            .evaluate(&EvaluationContext::new_ident(test_array.clone()))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
@@ -177,7 +177,7 @@ mod tests {
                 .into_array();
 
         let result = is_null(ident())
-            .evaluate(&EvalCtx::new_ident(test_array.clone()))
+            .evaluate(&EvaluationContext::new_ident(test_array.clone()))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());
@@ -199,7 +199,7 @@ mod tests {
         let expected = [false, true, false, true, false];
 
         let result = is_null(get_item("a", ident()))
-            .evaluate(&EvalCtx::new_ident(test_array.clone()))
+            .evaluate(&EvaluationContext::new_ident(test_array.clone()))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());

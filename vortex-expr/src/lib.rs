@@ -78,19 +78,19 @@ pub trait ExprSerializable {}
 #[cfg(not(feature = "proto"))]
 impl<T> ExprSerializable for T {}
 
-pub struct EvalCtx {
+pub struct EvaluationContext {
     struct_array: StructArray,
 }
 
-impl EvalCtx {
-    pub fn new(ident: ArrayRef, aux: ArrayRef) -> VortexResult<EvalCtx> {
-        Ok(EvalCtx {
+impl EvaluationContext {
+    pub fn new(ident: ArrayRef, aux: ArrayRef) -> VortexResult<EvaluationContext> {
+        Ok(EvaluationContext {
             struct_array: StructArray::from_fields(&[("$", ident), ("#", aux)])?,
         })
     }
 
-    pub fn new_ident(ident: ArrayRef) -> EvalCtx {
-        EvalCtx {
+    pub fn new_ident(ident: ArrayRef) -> EvaluationContext {
+        EvaluationContext {
             struct_array: StructArray::from_fields(&[("$", ident)]).unwrap(),
         }
     }
@@ -107,7 +107,7 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSeri
 
     /// Compute result of expression on given batch producing a new batch
     ///
-    fn evaluate(&self, eval_ctx: &EvalCtx) -> VortexResult<ArrayRef> {
+    fn evaluate(&self, eval_ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
         // let batch =
         let result = self.unchecked_evaluate(eval_ctx.struct_array.as_ref())?;
         // TODO(joe): enable

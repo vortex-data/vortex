@@ -188,7 +188,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{EvalCtx, GetItem, Identity, Merge, VortexExpr};
+    use crate::{EvaluationContext, GetItem, Identity, Merge, VortexExpr};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
@@ -246,7 +246,9 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&EvalCtx::new_ident(test_array)).unwrap();
+        let actual_array = expr
+            .evaluate(&EvaluationContext::new_ident(test_array))
+            .unwrap();
 
         assert_eq!(
             actual_array.as_struct_typed().names(),
@@ -293,7 +295,7 @@ mod tests {
             .unwrap()
             .into_array();
         let actual_array = expr
-            .evaluate(&EvalCtx::new_ident(test_array.clone()))
+            .evaluate(&EvaluationContext::new_ident(test_array.clone()))
             .unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.as_struct_typed().nfields(), 0);
@@ -341,7 +343,7 @@ mod tests {
         .unwrap()
         .into_array();
         let actual_array = expr
-            .evaluate(&EvalCtx::new_ident(test_array))
+            .evaluate(&EvaluationContext::new_ident(test_array))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -393,7 +395,7 @@ mod tests {
         .unwrap()
         .into_array();
         let actual_array = expr
-            .evaluate(&EvalCtx::new_ident(test_array))
+            .evaluate(&EvaluationContext::new_ident(test_array))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -422,7 +424,9 @@ mod tests {
         )])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&EvalCtx::new_ident(test_array)).unwrap();
+        let actual_array = expr
+            .evaluate(&EvaluationContext::new_ident(test_array))
+            .unwrap();
         assert!(actual_array.dtype().is_nullable());
     }
 }

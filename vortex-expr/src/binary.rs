@@ -291,10 +291,10 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ```
 /// use vortex_array::arrays::BoolArray;
 /// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_expr::{and, ident, lit, EvalCtx};
+/// use vortex_expr::{and, ident, lit, EvaluationContext};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = and(ident(), lit(true)).evaluate(&EvalCtx::new_ident(xs.to_array())).unwrap();
+/// let result = and(ident(), lit(true)).evaluate(&EvaluationContext::new_ident(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),

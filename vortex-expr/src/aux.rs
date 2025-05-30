@@ -93,14 +93,14 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
 
-    use crate::{EvalCtx, aux, ident};
+    use crate::{EvaluationContext, aux, ident};
 
     #[test]
     fn test_aux_and_arr() {
         let aux_array = PrimitiveArray::from_iter(0i32..10).to_array();
         let arr = PrimitiveArray::from_iter(10i32..20).to_array();
 
-        let ctx = EvalCtx::new(arr, aux_array).unwrap();
+        let ctx = EvaluationContext::new(arr, aux_array).unwrap();
 
         let value = ident().evaluate(&ctx).unwrap();
         let value = value.to_primitive().unwrap();
