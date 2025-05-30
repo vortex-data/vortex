@@ -1,11 +1,10 @@
 mod reader;
 pub mod writer;
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::{DType, FieldMask};
+use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use crate::children::LayoutChildren;
@@ -56,21 +55,6 @@ impl VTable for FlatVTable {
 
     fn child_type(_layout: &Self::Layout, _idx: usize) -> LayoutChildType {
         vortex_panic!("Flat layout has no children");
-    }
-
-    fn register_splits(
-        layout: &Self::Layout,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        for path in field_mask {
-            if path.matches_root() {
-                splits.insert(row_offset + layout.row_count());
-                break;
-            }
-        }
-        Ok(())
     }
 
     fn new_reader(

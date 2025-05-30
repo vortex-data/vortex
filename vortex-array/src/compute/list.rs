@@ -82,8 +82,12 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
         }
     }
 
-    match_each_integer_ptype!(ends.ptype(), |$T| {
-        Ok(reduce_with_ends(ends.as_slice::<$T>(), &matches.boolean_buffer(), list_array.validity().clone()))
+    match_each_integer_ptype!(ends.ptype(), |T| {
+        Ok(reduce_with_ends(
+            ends.as_slice::<T>(),
+            matches.boolean_buffer(),
+            list_array.validity().clone(),
+        ))
     })
 }
 
@@ -120,10 +124,10 @@ fn list_contains_null(list_array: &ListArray) -> VortexResult<ArrayRef> {
         Mask::Values(mask) => {
             let nulls = invert(&mask.into_array())?.to_bool()?;
             let ends = list_array.offsets().to_primitive()?;
-            match_each_integer_ptype!(ends.ptype(), |$T| {
+            match_each_integer_ptype!(ends.ptype(), |T| {
                 Ok(reduce_with_ends(
-                    list_array.offsets().to_primitive()?.as_slice::<$T>(),
-                    &nulls.boolean_buffer(),
+                    list_array.offsets().to_primitive()?.as_slice::<T>(),
+                    nulls.boolean_buffer(),
                     list_array.validity().clone(),
                 ))
             })
@@ -185,8 +189,8 @@ pub fn list_elem_len(array: &dyn Array) -> VortexResult<ArrayRef> {
 
     let list_array = array.to_list()?;
     let offsets = list_array.offsets().to_primitive()?;
-    let lens_array = match_each_integer_ptype!(offsets.ptype(), |$T| {
-        element_lens(offsets.as_slice::<$T>()).into_array()
+    let lens_array = match_each_integer_ptype!(offsets.ptype(), |T| {
+        element_lens(offsets.as_slice::<T>()).into_array()
     });
 
     Ok(lens_array)

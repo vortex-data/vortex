@@ -24,7 +24,7 @@ pub(super) fn from_arrow(obj: &Bound<'_, PyAny>) -> PyResult<PyArrayRef> {
     if obj.is_instance(&pa_array)? {
         let arrow_array = ArrowArrayData::from_pyarrow_bound(obj).map(make_array)?;
         let is_nullable = arrow_array.is_nullable();
-        let enc_array = ArrayRef::from_arrow(arrow_array, is_nullable);
+        let enc_array = ArrayRef::from_arrow(arrow_array.as_ref(), is_nullable);
         Ok(PyArrayRef::from(enc_array))
     } else if obj.is_instance(&chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr("chunks")?.extract()?;
@@ -33,7 +33,7 @@ pub(super) fn from_arrow(obj: &Bound<'_, PyAny>) -> PyResult<PyArrayRef> {
             .map(|a| {
                 ArrowArrayData::from_pyarrow_bound(a)
                     .map(make_array)
-                    .map(|a| ArrayRef::from_arrow(a, false))
+                    .map(|a| ArrayRef::from_arrow(a.as_ref(), false))
             })
             .collect::<PyResult<Vec<_>>>()?;
         let dtype: DType = obj

@@ -1,4 +1,5 @@
-use std::ops::{BitAnd, Deref, Range};
+use std::collections::BTreeSet;
+use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
@@ -6,8 +7,10 @@ use dashmap::DashMap;
 use futures::{FutureExt, join};
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::{MinMaxResult, filter, min_max};
+use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
 use vortex_dict::DictArray;
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
@@ -16,7 +19,7 @@ use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, Layout, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpPruningEvaluation,
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpPruningEvaluation,
     PruningEvaluation,
 };
 
@@ -25,6 +28,8 @@ pub struct DictReader {
     #[allow(dead_code)] // Typically used for logging
     name: Arc<str>,
 
+    /// Length of the values array
+    values_len: usize,
     /// Cached dict values array
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
@@ -34,14 +39,6 @@ pub struct DictReader {
     codes: LayoutReaderRef,
 }
 
-impl Deref for DictReader {
-    type Target = dyn Layout;
-
-    fn deref(&self) -> &Self::Target {
-        self.layout.deref()
-    }
-}
-
 impl DictReader {
     pub(super) fn try_new(
         layout: DictLayout,
@@ -49,6 +46,7 @@ impl DictReader {
         segment_source: &Arc<dyn SegmentSource>,
         ctx: &ArrayContext,
     ) -> VortexResult<Self> {
+        let values_len = usize::try_from(layout.values.row_count())?;
         let values =
             layout
                 .values
@@ -61,6 +59,7 @@ impl DictReader {
         Ok(Self {
             layout,
             name,
+            values_len,
             values_array: Default::default(),
             values_evals: Default::default(),
             values,
@@ -71,21 +70,18 @@ impl DictReader {
     fn values_array(&self) -> SharedArrayFuture {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
         // different parent readers. But that's rare...
+        let values_len = self.values_len;
         self.values_array
             .get_or_init(move || {
-                let values_len = self.values.row_count();
                 let eval = self
                     .values
-                    .projection_evaluation(&(0..values_len), &Identity::new_expr())
+                    .projection_evaluation(&(0..values_len as u64), &Identity::new_expr())
                     .vortex_expect("must construct dict values array evaluation");
 
                 async move {
-                    eval.invoke(Mask::new_true(
-                        usize::try_from(values_len)
-                            .vortex_expect("dict values length must fit in u32"),
-                    ))
-                    .await
-                    .map_err(Arc::new)
+                    eval.invoke(Mask::new_true(values_len))
+                        .await
+                        .map_err(Arc::new)
                 }
                 .boxed()
                 .shared()
@@ -109,6 +105,23 @@ impl DictReader {
 impl LayoutReader for DictReader {
     fn name(&self) -> &Arc<str> {
         &self.name
+    }
+
+    fn dtype(&self) -> &DType {
+        self.layout.dtype()
+    }
+
+    fn row_count(&self) -> Precision<u64> {
+        Precision::Exact(self.layout.row_count())
+    }
+
+    fn register_splits(
+        &self,
+        field_mask: &[FieldMask],
+        row_offset: u64,
+        splits: &mut BTreeSet<u64>,
+    ) -> VortexResult<()> {
+        self.codes.register_splits(field_mask, row_offset, splits)
     }
 
     fn pruning_evaluation(

@@ -30,7 +30,7 @@ jobs:
         run: |
           cargo publish -Z package-workspace --allow-dirty --workspace \
           --exclude bench-vortex \
-          --exclude pyvortex \
+          --exclude vortex-python \
           --exclude vortex-duckdb \
           --exclude vortex-ffi \
           --exclude vortex-fuzz \
@@ -89,7 +89,7 @@ jobs:
             ${{ (matrix.target.os == 'ubuntu' && '--zig') || '' }}
             --compatibility manylinux2014
             --release
-            --manifest-path pyvortex/Cargo.toml
+            --manifest-path vortex-python/Cargo.toml
             --out dist
             --interpreter python3.11
         env:

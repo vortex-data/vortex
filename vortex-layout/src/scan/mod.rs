@@ -1,5 +1,5 @@
 use std::iter;
-use std::ops::{Deref, Range};
+use std::ops::Range;
 use std::sync::Arc;
 
 use arrow_array::RecordBatch;
@@ -121,11 +121,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    pub fn with_prune_file_on_open(mut self, stats_set: Arc<[StatsSet]>) -> Self {
-        self.file_stats = Some(stats_set);
-        self
-    }
-
     /// Map each split of the scan. The function will be run on the spawned task.
     pub fn map<B: 'static>(
         self,
@@ -178,7 +173,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .cloned()
             .chain(projection_mask.iter().cloned())
             .collect();
-        let splits = self.split_by.splits(layout_reader.deref(), &field_mask)?;
+        let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
 
         let row_masks = splits
             .into_iter()

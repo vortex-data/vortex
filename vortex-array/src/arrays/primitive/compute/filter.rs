@@ -22,14 +22,19 @@ impl FilterKernel for PrimitiveVTable {
 
         match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
             MaskIter::Indices(indices) => {
-                match_each_native_ptype!(array.ptype(), |$T| {
-                    let values = filter_primitive_indices(array.as_slice::<$T>(), indices.iter().copied());
+                match_each_native_ptype!(array.ptype(), |T| {
+                    let values =
+                        filter_primitive_indices(array.as_slice::<T>(), indices.iter().copied());
                     Ok(PrimitiveArray::new(values, validity).into_array())
                 })
             }
             MaskIter::Slices(slices) => {
-                match_each_native_ptype!(array.ptype(), |$T| {
-                    let values = filter_primitive_slices(array.as_slice::<$T>(), mask.true_count(), slices.iter().copied());
+                match_each_native_ptype!(array.ptype(), |T| {
+                    let values = filter_primitive_slices(
+                        array.as_slice::<T>(),
+                        mask.true_count(),
+                        slices.iter().copied(),
+                    );
                     Ok(PrimitiveArray::new(values, validity).into_array())
                 })
             }

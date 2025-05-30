@@ -54,7 +54,6 @@ serde_json = { workspace = true }
 similar = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
-tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-chrome = { workspace = true }

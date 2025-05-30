@@ -11,7 +11,7 @@ use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::{
     BinaryView, BoolArray, ConstantVTable, DecimalArray, ExtensionArray, ListArray, NullArray,
-    StructArray, VarBinViewArray, precision_to_storage_size,
+    StructArray, VarBinViewArray, smallest_storage_type,
 };
 use crate::builders::{ArrayBuilderExt, builder_with_capacity};
 use crate::validity::Validity;
@@ -41,11 +41,11 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 validity,
             )),
             DType::Primitive(ptype, ..) => {
-                match_each_native_ptype!(ptype, |$P| {
+                match_each_native_ptype!(ptype, |P| {
                     Canonical::Primitive(PrimitiveArray::new(
                         if scalar.is_valid() {
                             Buffer::full(
-                                $P::try_from(scalar)
+                                P::try_from(scalar)
                                     .vortex_expect("Couldn't unwrap scalar to primitive"),
                                 array.len(),
                             )
@@ -57,25 +57,17 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 })
             }
             DType::Decimal(decimal_type, ..) => {
-                let size = precision_to_storage_size(decimal_type);
+                let size = smallest_storage_type(decimal_type);
                 let decimal = scalar.as_decimal();
                 let Some(value) = decimal.decimal_value() else {
-                    let all_null = match_each_decimal_value_type!(size, |$D| {
-                       DecimalArray::new(
-                                Buffer::<$D>::zeroed(array.len()),
-                                *decimal_type,
-                                validity,
-                            )
+                    let all_null = match_each_decimal_value_type!(size, |D| {
+                        DecimalArray::new(Buffer::<D>::zeroed(array.len()), *decimal_type, validity)
                     });
                     return Ok(Canonical::Decimal(all_null));
                 };
 
-                let decimal_array = match_each_decimal_value!(value, |$V| {
-                   DecimalArray::new(
-                        Buffer::full(*$V, array.len()),
-                        *decimal_type,
-                        validity,
-                    )
+                let decimal_array = match_each_decimal_value!(value, |value| {
+                    DecimalArray::new(Buffer::full(*value, array.len()), *decimal_type, validity)
                 });
                 Canonical::Decimal(decimal_array)
             }

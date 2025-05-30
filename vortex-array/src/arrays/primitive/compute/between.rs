@@ -25,8 +25,14 @@ impl BetweenKernel for PrimitiveVTable {
         let nullability =
             arr.dtype.nullability() | lower.dtype().nullability() | upper.dtype().nullability();
 
-        Ok(Some(match_each_native_ptype!(arr.ptype(), |$P| {
-            between_impl::<$P>(arr, $P::try_from(lower)?, $P::try_from(upper)?, nullability, options)
+        Ok(Some(match_each_native_ptype!(arr.ptype(), |P| {
+            between_impl::<P>(
+                arr,
+                P::try_from(lower)?,
+                P::try_from(upper)?,
+                nullability,
+                options,
+            )
         })))
     }
 }

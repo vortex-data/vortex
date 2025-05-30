@@ -117,7 +117,7 @@ impl Selection {
 /// Find the positional range within row_indices that covers all rows in the given range.
 fn indices_range(range: &Range<u64>, row_indices: &[u64]) -> Option<Range<usize>> {
     if row_indices.first().is_some_and(|&first| first >= range.end)
-        || row_indices.last().is_some_and(|&last| range.start >= last)
+        || row_indices.last().is_some_and(|&last| range.start > last)
     {
         return None;
     }
@@ -129,4 +129,63 @@ fn indices_range(range: &Range<u64>, row_indices: &[u64]) -> Option<Range<usize>
     let end_idx = row_indices.binary_search(&range.end).unwrap_or_else(|x| x);
 
     (start_idx != end_idx).then_some(start_idx..end_idx)
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::Buffer;
+
+    #[test]
+    fn test_row_mask_all() {
+        let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
+        let range = 1..8;
+        let row_mask = selection.row_mask(&range);
+
+        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2, 4, 6]);
+    }
+
+    #[test]
+    fn test_row_mask_slice() {
+        let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
+        let range = 3..6;
+        let row_mask = selection.row_mask(&range);
+
+        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2]);
+    }
+
+    #[test]
+    fn test_row_mask_exclusive() {
+        let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
+        let range = 3..5;
+        let row_mask = selection.row_mask(&range);
+
+        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0]);
+    }
+
+    #[test]
+    fn test_row_mask_all_false() {
+        let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
+        let range = 8..10;
+        let row_mask = selection.row_mask(&range);
+
+        assert!(row_mask.mask().all_false());
+    }
+
+    #[test]
+    fn test_row_mask_all_true() {
+        let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 4, 5, 6]));
+        let range = 3..7;
+        let row_mask = selection.row_mask(&range);
+
+        assert!(row_mask.mask().all_true());
+    }
+
+    #[test]
+    fn test_row_mask_zero() {
+        let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![0]));
+        let range = 0..5;
+        let row_mask = selection.row_mask(&range);
+
+        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0]);
+    }
 }

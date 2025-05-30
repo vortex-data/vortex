@@ -25,8 +25,8 @@ impl TakeKernel for BoolVTable {
             Mask::Values(_) => fill_null(indices, &Scalar::from(0).cast(indices.dtype())?)?,
         };
         let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive()?;
-        let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |$I| {
-            take_valid_indices(array.boolean_buffer(), indices_nulls_zeroed.as_slice::<$I>())
+        let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |I| {
+            take_valid_indices(array.boolean_buffer(), indices_nulls_zeroed.as_slice::<I>())
         });
 
         Ok(BoolArray::new(buffer, array.validity().take(indices)?).to_array())

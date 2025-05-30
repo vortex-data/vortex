@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use duckdb::core::{LogicalTypeHandle, LogicalTypeId};
-use vortex_dtype::Nullability::Nullable;
-use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex_dtype::{DType, DecimalDType, ExtDType, Nullability, PType, StructDType};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex::dtype::Nullability::Nullable;
+use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
+use vortex::dtype::{DType, DecimalDType, ExtDType, Nullability, PType, StructDType};
+use vortex::error::{VortexResult, vortex_bail};
 
 pub trait FromDuckDBType<A> {
     // Nullable is inferred from the `NotNullConstraint`.

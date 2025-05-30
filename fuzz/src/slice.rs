@@ -7,6 +7,7 @@ use vortex_dtype::{
 };
 use vortex_error::VortexResult;
 
+#[allow(clippy::unnecessary_fallible_conversions)]
 pub fn slice_canonical_array(
     array: &dyn Array,
     start: usize,
@@ -27,8 +28,11 @@ pub fn slice_canonical_array(
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive()?;
-            match_each_native_ptype!(p, |$P| {
-                Ok(PrimitiveArray::new(primitive_array.buffer::<$P>().slice(start..stop), validity).into_array())
+            match_each_native_ptype!(p, |P| {
+                Ok(
+                    PrimitiveArray::new(primitive_array.buffer::<P>().slice(start..stop), validity)
+                        .into_array(),
+                )
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
@@ -61,14 +65,17 @@ pub fn slice_canonical_array(
             let offsets =
                 slice_canonical_array(list_array.offsets(), start, stop + 1)?.to_primitive()?;
 
-            let (start, end) = match_each_integer_ptype!(offsets.ptype(), |$P| {
-                let offset_slice = offsets.as_slice::<$P>();
-                (usize::try_from(offset_slice[0])?, usize::try_from(offset_slice[offsets.len() - 1])?)
+            let (start, end) = match_each_integer_ptype!(offsets.ptype(), |P| {
+                let offset_slice = offsets.as_slice::<P>();
+                (
+                    usize::try_from(offset_slice[0])?,
+                    usize::try_from(offset_slice[offsets.len() - 1])?,
+                )
             });
 
             let elements = slice_canonical_array(list_array.elements(), start, end)?;
-            let offsets = match_each_integer_ptype!(offsets.ptype(), |$P| {
-                shift_offsets(offsets.as_slice::<$P>())
+            let offsets = match_each_integer_ptype!(offsets.ptype(), |P| {
+                shift_offsets(offsets.as_slice::<P>())
             })
             .into_array();
             ListArray::try_new(elements, offsets, validity).map(|a| a.into_array())

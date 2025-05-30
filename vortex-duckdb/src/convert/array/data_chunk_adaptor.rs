@@ -1,6 +1,6 @@
 use duckdb::core::{ArrayVector, DataChunkHandle, FlatVector, ListVector, StructVector};
 use duckdb::vtab::arrow::WritableVector;
-use vortex_dtype::FieldNames;
+use vortex::dtype::FieldNames;
 
 pub struct DataChunkHandleSlice<'a> {
     chunk: &'a mut DataChunkHandle,
@@ -21,15 +21,6 @@ pub struct SizedFlatVector {
     pub vector: FlatVector,
     pub nullable: bool,
     pub len: usize,
-}
-
-impl<'a> DataChunkHandleSlice<'a> {
-    pub fn new(chunk: &'a mut DataChunkHandle, column_index: usize) -> Self {
-        Self {
-            chunk,
-            column_index,
-        }
-    }
 }
 
 impl WritableVector for DataChunkHandleSlice<'_> {

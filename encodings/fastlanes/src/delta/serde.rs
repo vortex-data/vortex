@@ -51,9 +51,8 @@ impl SerdeVTable<DeltaVTable> for DeltaVTable {
         };
 
         let ptype = PType::try_from(dtype)?;
-        let lanes = match_each_unsigned_integer_ptype!(ptype, |$T| {
-            <$T as fastlanes::FastLanes>::LANES
-        });
+        let lanes =
+            match_each_unsigned_integer_ptype!(ptype, |T| { <T as fastlanes::FastLanes>::LANES });
 
         // Compute the length of the bases array
         let deltas_len = usize::try_from(metadata.deltas_len)

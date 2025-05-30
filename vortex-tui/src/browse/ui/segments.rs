@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use humansize::DECIMAL;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::prelude::{Alignment, Line, Margin, StatefulWidget, Widget};
@@ -291,7 +292,7 @@ fn to_display_segment_tree<'a>(
                                     "Bytes: {}..{} ({})",
                                     segment.spec.offset,
                                     segment.spec.offset + segment.spec.length as u64,
-                                    segment.spec.length
+                                    humansize::format_size(segment.spec.length, DECIMAL),
                                 )),
                                 Line::raw(format!("Align: {}", segment.spec.alignment)),
                                 Line::raw(format!("Byte gap: {}", segment.byte_gap)),

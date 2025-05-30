@@ -24,15 +24,17 @@ impl OperationsVTable<FoRVTable> for FoRVTable {
         let reference = array.reference_scalar();
         let reference = reference.as_primitive();
 
-        Ok(match_each_integer_ptype!(array.ptype(), |$P| {
+        Ok(match_each_integer_ptype!(array.ptype(), |P| {
             encoded_pvalue
-                .typed_value::<$P>()
-                .map(|v|
-                     v.wrapping_add(
-                         reference
-                             .typed_value::<$P>()
-                             .vortex_expect("FoRArray Reference value cannot be null")))
-                .map(|v| Scalar::primitive::<$P>(v, array.dtype().nullability()))
+                .typed_value::<P>()
+                .map(|v| {
+                    v.wrapping_add(
+                        reference
+                            .typed_value::<P>()
+                            .vortex_expect("FoRArray Reference value cannot be null"),
+                    )
+                })
+                .map(|v| Scalar::primitive::<P>(v, array.dtype().nullability()))
                 .unwrap_or_else(|| Scalar::null(array.dtype().clone()))
         }))
     }

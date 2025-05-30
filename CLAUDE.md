@@ -1,6 +1,6 @@
 # Development Guidelines
 
-* project is a monorepo Rust workspace, java bindings in `/java`, python bindings in `/pyvortex`
+* project is a monorepo Rust workspace, java bindings in `/java`, python bindings in `/vortex-python`
 * run `cargo build -p` to build a specific crate
 * use `cargo clippy --all-targets --all-features` to make sure a project is free of lint issues
 
@@ -15,7 +15,7 @@
 * More exotic compressed encodings live in the crates inside of `/encodings/*`
 * File IO is defined in `vortex-file`. It uses the concept of a `LayoutReader` defined
   in `vortex-layout` crate.
-* `/pyvortex` contains the python bindings. rst flavored docs for the project are in `/docs`
+* `/vortex-python` contains the python bindings. rst flavored docs for the project are in `/docs`
 
 # Code Style
 
@@ -24,4 +24,3 @@
   or cheap non-zero-cost abstractions.
 * Every new public API definition must have a doc comment. Examples are nice to have but not
   strictly required.
-

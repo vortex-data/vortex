@@ -46,4 +46,10 @@ public final class NativeDTypeMethods {
     public static native byte getTimeUnit(long pointer);
 
     public static native String getTimeZone(long pointer);
+
+    public static native boolean isDecimal(long pointer);
+
+    public static native int getDecimalPrecision(long pointer);
+
+    public static native byte getDecimalScale(long pointer);
 }

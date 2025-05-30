@@ -65,6 +65,12 @@ struct FileReader {
 		return Try([&](auto err) { return vx_file_reader_scan(this->file, options, err); });
 	}
 
+	bool CanPrune(const char *filter_expression, unsigned int filter_expression_len) {
+		return Try([&](auto err) {
+			return vx_file_reader_can_prune(this->file, filter_expression, filter_expression_len, err);
+		});
+	}
+
 	uint64_t FileRowCount() {
 		return Try([&](auto err) { return vx_file_row_count(file, err); });
 	}
@@ -75,6 +81,7 @@ struct FileReader {
 
 	vx_file_reader *file;
 };
+
 
 struct Array {
 	explicit Array(vx_array *array) : array(array) {
@@ -101,12 +108,25 @@ struct Array {
 	vx_array *array;
 };
 
+
 struct ArrayIterator {
 	explicit ArrayIterator(vx_array_iterator *array_iter) : array_iter(array_iter) {
 	}
 
+	/// Releases ownership of the native array iterator ptr to the caller. The caller is then responsible for
+	/// eventually calling vx_array_iter_free.
+	///
+	/// This ArrayIterator is useless after this call.
+	vx_array_iterator* release() {
+		auto* ptr = array_iter;
+		array_iter = nullptr;  // Give up ownership
+		return ptr;
+	}
+
 	~ArrayIterator() {
-		vx_array_iter_free(array_iter);
+		if (array_iter) {
+			vx_array_iter_free(array_iter);
+		}
 	}
 
 	duckdb::unique_ptr<Array> NextArray() const {
@@ -121,6 +141,32 @@ struct ArrayIterator {
 
 	vx_array_iterator *array_iter;
 };
+
+
+struct ArrayExporter {
+	explicit ArrayExporter(vx_duckdb_exporter *exporter) : exporter(exporter) {
+	}
+
+	~ArrayExporter() {
+		if (exporter != nullptr) {
+			vx_duckdb_exporter_free(exporter);
+		}
+	}
+
+	static duckdb::unique_ptr<ArrayExporter> FromArrayIterator(duckdb::unique_ptr<ArrayIterator> array_iter) {
+		auto exporter = Try([&](auto err) {
+			return vx_duckdb_exporter_create(array_iter->release(), err);
+		});
+		return duckdb::make_uniq<ArrayExporter>(exporter);
+	}
+
+	bool ExportNext(duckdb_data_chunk output) const {
+		return Try([&](auto err) { return vx_duckdb_exporter_next(exporter, output, err); });
+	}
+
+	vx_duckdb_exporter *exporter;
+};
+
 
 struct ArrayStreamSink {
 	explicit ArrayStreamSink(vx_array_sink *sink, duckdb::unique_ptr<DType> dtype)

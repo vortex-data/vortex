@@ -1,7 +1,7 @@
 use arrow_array::array::{
-    Array as ArrowArray, ArrayRef as ArrowArrayRef, ArrowPrimitiveType,
-    BooleanArray as ArrowBooleanArray, GenericByteArray, NullArray as ArrowNullArray,
-    OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray, StructArray as ArrowStructArray,
+    Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray, GenericByteArray,
+    NullArray as ArrowNullArray, OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray,
+    StructArray as ArrowStructArray,
 };
 use arrow_array::cast::{AsArray, as_null_array};
 use arrow_array::types::{
@@ -98,16 +98,16 @@ impl_from_arrow_primitive!(Float32Type);
 impl_from_arrow_primitive!(Float64Type);
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
-    fn from_arrow(array: &ArrowPrimitiveArray<Decimal128Type>, _nullable: bool) -> Self {
+    fn from_arrow(array: &ArrowPrimitiveArray<Decimal128Type>, nullable: bool) -> Self {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
         let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
-        let validity = nulls(array.nulls(), false);
+        let validity = nulls(array.nulls(), nullable);
         DecimalArray::new(buffer, decimal_type, validity).into_array()
     }
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
-    fn from_arrow(array: &ArrowPrimitiveArray<Decimal256Type>, _nullable: bool) -> Self {
+    fn from_arrow(array: &ArrowPrimitiveArray<Decimal256Type>, nullable: bool) -> Self {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
         let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
         // SAFETY: Our i256 implementation has the same bit-pattern representation of the
@@ -115,7 +115,7 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
         //  of either type.
         let buffer =
             unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(buffer) };
-        let validity = nulls(array.nulls(), false);
+        let validity = nulls(array.nulls(), nullable);
         DecimalArray::new(buffer, decimal_type, validity).into_array()
     }
 }
@@ -233,7 +233,7 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
                 .columns()
                 .iter()
                 .zip(value.fields())
-                .map(|(c, field)| Self::from_arrow(c.clone(), field.is_nullable()))
+                .map(|(c, field)| Self::from_arrow(c.as_ref(), field.is_nullable()))
                 .collect(),
             value.len(),
             nulls(value.nulls(), nullable),
@@ -252,7 +252,7 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListArray<O>> for 
             dt => vortex_panic!("Invalid data type for ListArray: {dt}"),
         };
         ListArray::try_new(
-            Self::from_arrow(value.values().clone(), elem_nullable),
+            Self::from_arrow(value.values().as_ref(), elem_nullable),
             // offsets are always non-nullable
             value.offsets().clone().into_array(),
             nulls(value.nulls(), nullable),
@@ -286,8 +286,8 @@ fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
     }
 }
 
-impl FromArrowArray<ArrowArrayRef> for ArrayRef {
-    fn from_arrow(array: ArrowArrayRef, nullable: bool) -> Self {
+impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
+    fn from_arrow(array: &dyn ArrowArray, nullable: bool) -> Self {
         match array.data_type() {
             DataType::Boolean => Self::from_arrow(array.as_boolean(), nullable),
             DataType::UInt8 => Self::from_arrow(array.as_primitive::<UInt8Type>(), nullable),
@@ -322,7 +322,7 @@ impl FromArrowArray<ArrowArrayRef> for ArrayRef {
             DataType::Struct(_) => Self::from_arrow(array.as_struct(), nullable),
             DataType::List(_) => Self::from_arrow(array.as_list::<i32>(), nullable),
             DataType::LargeList(_) => Self::from_arrow(array.as_list::<i64>(), nullable),
-            DataType::Null => Self::from_arrow(as_null_array(&array), nullable),
+            DataType::Null => Self::from_arrow(as_null_array(array), nullable),
             DataType::Timestamp(u, _) => match u {
                 ArrowTimeUnit::Second => {
                     Self::from_arrow(array.as_primitive::<TimestampSecondType>(), nullable)

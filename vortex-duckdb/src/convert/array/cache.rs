@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use duckdb::core::FlatVector;
-use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::{Array, ArrayRef, Canonical, IntoArray};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex::aliases::hash_map::HashMap;
+use vortex::error::{VortexExpect, VortexResult};
+use vortex::{Array, ArrayRef, Canonical, IntoArray};
 
 #[derive(Default)]
 pub struct ConversionCache {

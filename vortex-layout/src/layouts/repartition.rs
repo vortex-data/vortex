@@ -98,11 +98,12 @@ impl RepartitionWriter {
 
             // Combine the chunks to and flush them to the layout.
             assert!(!chunks.is_empty());
-            let chunk = ChunkedArray::new_unchecked(chunks, self.dtype.clone())
-                .to_canonical()?
-                .into_array();
+            let chunked_array = ChunkedArray::new_unchecked(chunks, self.dtype.clone());
+            if !chunked_array.is_empty() {
+                let chunk = chunked_array.to_canonical()?.into_array();
 
-            self.writer.push_chunk(segments, chunk)?;
+                self.writer.push_chunk(segments, chunk)?;
+            }
         }
 
         Ok(())
@@ -142,10 +143,13 @@ impl LayoutWriter for RepartitionWriter {
     }
 
     fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
-        let chunk =
-            ChunkedArray::new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone())
-                .to_canonical()?
-                .into_array();
+        let chunked_array =
+            ChunkedArray::new_unchecked(self.chunks.drain(..).collect(), self.dtype.clone());
+        if chunked_array.is_empty() {
+            return Ok(());
+        }
+
+        let chunk = chunked_array.to_canonical()?.into_array();
         self.writer.push_chunk(segment_writer, chunk)?;
         self.writer.flush(segment_writer)
     }

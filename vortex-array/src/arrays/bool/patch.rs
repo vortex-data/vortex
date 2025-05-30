@@ -20,12 +20,13 @@ impl BoolArray {
                 .patch(len, offset, indices.as_ref(), values.validity())?;
 
         let (mut own_values, bit_offset) = self.into_boolean_builder();
-        match_each_integer_ptype!(indices.ptype(), |$I| {
+        match_each_integer_ptype!(indices.ptype(), |I| {
             for (idx, value) in indices
-                .as_slice::<$I>()
+                .as_slice::<I>()
                 .iter()
                 .zip_eq(values.boolean_buffer().iter())
             {
+                #[allow(clippy::cast_possible_truncation)]
                 own_values.set_bit(*idx as usize - offset + bit_offset, value);
             }
         });
