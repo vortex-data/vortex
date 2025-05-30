@@ -1,10 +1,11 @@
 mod bigcast;
 
 use std::fmt::Display;
-use std::ops::{Add, Div, Mul, Rem, Sub};
+use std::ops::{Add, BitOr, Div, Mul, Rem, Shl, Shr, Sub};
 
 pub use bigcast::*;
-use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, Zero};
+use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, WrappingAdd, WrappingSub, Zero};
+use vortex_error::VortexExpect;
 
 /// Signed 256-bit integer type.
 ///
@@ -15,6 +16,7 @@ use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, Zero};
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct i256(arrow_buffer::i256);
 
+#[allow(clippy::same_name_method)]
 impl i256 {
     pub const ZERO: Self = Self(arrow_buffer::i256::ZERO);
     pub const ONE: Self = Self(arrow_buffer::i256::ONE);
@@ -157,9 +159,57 @@ impl CheckedAdd for i256 {
     }
 }
 
+impl WrappingAdd for i256 {
+    fn wrapping_add(&self, v: &Self) -> Self {
+        Self(self.0.wrapping_add(v.0))
+    }
+}
+
 impl CheckedSub for i256 {
     fn checked_sub(&self, v: &Self) -> Option<Self> {
         self.0.checked_sub(v.0).map(Self)
+    }
+}
+
+impl WrappingSub for i256 {
+    fn wrapping_sub(&self, v: &Self) -> Self {
+        Self(self.0.wrapping_sub(v.0))
+    }
+}
+
+impl Shr<Self> for i256 {
+    type Output = Self;
+
+    fn shr(self, rhs: Self) -> Self::Output {
+        use num_traits::ToPrimitive;
+
+        Self(
+            self.0.shr(
+                rhs.0
+                    .to_u8()
+                    .vortex_expect("Can't shift more than 256 bits"),
+            ),
+        )
+    }
+}
+
+impl Shl<usize> for i256 {
+    type Output = Self;
+
+    fn shl(self, rhs: usize) -> Self::Output {
+        use num_traits::ToPrimitive;
+        Self(
+            self.0
+                .shl(rhs.to_u8().vortex_expect("Can't shift more than 256 bits")),
+        )
+    }
+}
+
+impl BitOr<Self> for i256 {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0.bitor(rhs.0))
     }
 }
 

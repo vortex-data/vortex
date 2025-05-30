@@ -1,13 +1,51 @@
-use arbitrary::{Result, Unstructured};
+use arbitrary::unstructured::Int;
+use arbitrary::{Arbitrary, Result, Unstructured};
+use num_traits::{CheckedAdd, WrappingAdd, WrappingSub};
 use vortex_dtype::{DECIMAL128_MAX_PRECISION, DecimalDType};
 use vortex_error::VortexUnwrap;
 
 use crate::{DecimalValue, InnerScalarValue, ScalarValue, i256};
 
-/// Generate an arbitrary decimal scalar that is confined to the bounds of
+#[allow(clippy::same_name_method)]
+impl Int for i256 {
+    type Unsigned = i256;
+    const ZERO: Self = i256::ZERO;
+    const ONE: Self = i256::ONE;
+    const MAX: Self = i256::MAX;
+
+    fn from_u8(b: u8) -> Self {
+        Self::from_i128(b as i128)
+    }
+
+    fn from_usize(u: usize) -> Self {
+        Self::from_i128(u as i128)
+    }
+
+    fn checked_add(self, rhs: Self) -> Option<Self> {
+        <Self as CheckedAdd>::checked_add(&self, &rhs)
+    }
+
+    fn wrapping_add(self, rhs: Self) -> Self {
+        <Self as WrappingAdd>::wrapping_add(&self, &rhs)
+    }
+
+    fn wrapping_sub(self, rhs: Self) -> Self {
+        <Self as WrappingSub>::wrapping_sub(&self, &rhs)
+    }
+
+    fn to_unsigned(self) -> Self::Unsigned {
+        self
+    }
+
+    fn from_unsigned(unsigned: Self::Unsigned) -> Self {
+        unsigned
+    }
+}
+
+/// Generate an arbitrary decimal scalar confined to the bounds of
 pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Result<ScalarValue> {
     let precision = decimal_type.precision();
-    if decimal_type.precision() <= DECIMAL128_MAX_PRECISION {
+    if precision <= DECIMAL128_MAX_PRECISION {
         Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I128(
             u.int_in_range(
                 MIN_DECIMAL128_FOR_EACH_PRECISION[precision as usize]
@@ -15,15 +53,11 @@ pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Resu
             )?,
         ))))
     } else {
-        // Generate a random i256 value in between the min/max range, inclusive
-        let min = MIN_DECIMAL256_FOR_EACH_PRECISION[precision as usize];
-        let max = MAX_DECIMAL256_FOR_EACH_PRECISION[precision as usize];
-        let delta = (max - min) + i256::ONE;
-
-        let rand_bytes = i256::from_le_bytes(u.bytes(32)?.try_into().vortex_unwrap());
-        let value = (rand_bytes % delta) + min;
         Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I256(
-            value,
+            u.int_in_range(
+                MIN_DECIMAL256_FOR_EACH_PRECISION[precision as usize]
+                    ..=MAX_DECIMAL256_FOR_EACH_PRECISION[precision as usize],
+            )?,
         ))))
     }
 }
