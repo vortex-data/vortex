@@ -1,5 +1,6 @@
 import doctest
 from pathlib import Path
+import re
 
 # Configuration file for the Sphinx documentation builder.
 #
@@ -99,3 +100,30 @@ nitpick_ignore += [
     ("c:identifier", "uint8_t"),
     ("c:identifier", "int8_t"),
 ]
+
+hawkmoth_transform_default = "c_to_rust"
+
+def _replace_rust_references(app, lines, transform, options):
+    """Replace Rust references with C equivalents in hawkmoth docstrings.
+
+    See: https://hawkmoth.readthedocs.io/en/stable/extending.html#event-hawkmoth-process-docstring
+    """
+    if transform != "c_to_rust":
+        # Not for us!
+        return
+
+    # Pattern to match [`crate::path::to::function`]
+    pattern = r'\[`([^:]+::)*?(vx_[^`]+)`\]'
+
+    def replace_match(match):
+        # Extract the function name (already starts with vx_)
+        # TODO(ngates): detect if the reference is a function or a type
+        func_name = match.group(2)
+        return f':c:func:`{func_name}`'
+
+    for i, line in enumerate(lines):
+        lines[i] = re.sub(pattern, replace_match, line)
+
+
+def setup(app):
+    app.connect("hawkmoth-process-docstring", _replace_rust_references)

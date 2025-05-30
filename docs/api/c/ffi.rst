@@ -5,13 +5,57 @@ Vortex FFI API
     This API should be considered entirely unstable. It _will_ change. Please reach out if a stable
     FFI API is important for your use-case and we can accelerate the process of stabilizing it.
 
-..
-   _TODO(ngates): we should split the header into sections and manually autodoc each function/typedef.
-    Don't worry, Sphinx will yell at us if we forget one. It just allows us to partition the functions
-    by module / usage.
+Sessions
+--------
 
-   _TODO(ngates): we should use the tips/tricks for documenting which parameters are in/out.
-    See https://hawkmoth.readthedocs.io/en/stable/tips.html.
+While not all parts of Vortex require a session, many do. A Vortex session object holds registries of extensible
+types, such as array encodings, layout encodings, extension dtypes, compute functions, and more.
 
-.. c:autodoc:: vortex.h
+.. c:autotype:: vx_session
+   :file: vortex.h
 
+.. c:autofunction:: vx_session_new
+   :file: vortex.h
+
+.. c:autofunction:: vx_session_free
+   :file: vortex.h
+
+DTypes
+------
+
+.. c:autotype:: vx_dtype
+   :file: vortex.h
+
+.. c:autofunction:: vx_dtype_new
+   :file: vortex.h
+
+.. c:autofunction:: vx_dtype_free
+    :file: vortex.h
+
+Arrays
+------
+
+.. c:autofunction:: vx_array_dtype
+   :file: vortex.h
+
+Errors
+------
+
+.. c:autotype:: vx_error
+   :file: vortex.h
+
+.. c:autofunction:: vx_error_get_message
+   :file: vortex.h
+
+.. c:autofunction:: vx_error_get_code
+   :file: vortex.h
+
+Logging
+-------
+
+.. c:autofunction:: vx_set_log_level
+   :file: vortex.h
+
+.. c:autoenum:: vx_log_level
+    :file: vortex.h
+    :members:

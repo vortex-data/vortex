@@ -17,10 +17,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 
+#pragma once
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -69,11 +67,29 @@ extern "C" {
  * Log levels for the Vortex library.
  */
 typedef enum vx_log_level {
+  /**
+   * No logging will be performed.
+   */
   LOG_LEVEL_OFF = 0,
+  /**
+   * Only error messages will be logged.
+   */
   LOG_LEVEL_ERROR = 1,
+  /**
+   * Warnings and error messages will be logged.
+   */
   LOG_LEVEL_WARN = 2,
+  /**
+   * Informational messages, warnings, and error messages will be logged.
+   */
   LOG_LEVEL_INFO = 3,
+  /**
+   * Debug messages, informational messages, warnings, and error messages will be logged.
+   */
   LOG_LEVEL_DEBUG = 4,
+  /**
+   * All messages, including trace messages, will be logged.
+   */
   LOG_LEVEL_TRACE = 5,
 } vx_log_level;
 
@@ -84,6 +100,17 @@ typedef enum vx_log_level {
  * physical ways to encode that type.
  */
 typedef struct vx_dtype vx_dtype;
+
+/**
+ * A Vortex session stores registries of extensible types, various caches, and other
+ * top-level configuration.
+ *
+ * Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
+ *
+ * Multiple sessions may be created in a single process, and individual arrays are not tied to a
+ * specific session.
+ */
+typedef struct vx_session vx_session;
 
 /**
  * The FFI interface for an [`Array`].
@@ -106,10 +133,6 @@ typedef struct vx_array_iterator vx_array_iterator;
 typedef struct vx_array_sink vx_array_sink;
 
 #if defined(ENABLE_DUCKDB_FFI)
-typedef struct vx_conversion_cache vx_conversion_cache;
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
 /**
  * A type for exporting Vortex arrays to a stream of mutable DuckDB vectors.
  */
@@ -125,12 +148,6 @@ typedef struct vx_error vx_error;
  * A file reader that can be used to read from a file.
  */
 typedef struct vx_file_reader vx_file_reader;
-
-/**
- * An object that stores registries and caches.
- * This should if possible be reused between queries in ann interactive session.
- */
-typedef struct vx_session vx_session;
 
 /**
  * Options supplied for opening a file.
@@ -201,6 +218,10 @@ typedef struct vx_file_scan_options {
 } vx_file_scan_options;
 
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
 
 /**
  * Attempt to advance the `current` pointer of the iterator.
@@ -343,33 +364,11 @@ struct vx_dtype *vx_duckdb_logical_type_to_dtype(const duckdb_logical_type *colu
 
 #if defined(ENABLE_DUCKDB_FFI)
 /**
- * Back a single chunk of the array as a duckdb data chunk.
- * The initial call should pass offset = 0.
- * The offset is returned to the caller, which can be used to request the next chunk.
- * 0 is returned when the stream is finished.
- */
-unsigned int vx_array_to_duckdb_chunk(struct vx_array *array,
-                                      unsigned int offset,
-                                      duckdb_data_chunk data_chunk_ptr,
-                                      struct vx_conversion_cache *cache,
-                                      struct vx_error **error);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-/**
  * Pushed a single duckdb chunk into a file sink.
  */
 struct vx_array *vx_duckdb_chunk_to_array(duckdb_data_chunk chunk,
                                           struct vx_dtype *dtype,
                                           struct vx_error **error);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-struct vx_conversion_cache *vx_conversion_cache_create(unsigned int id);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-void vx_conversion_cache_free(struct vx_conversion_cache *buffer);
 #endif
 
 #if defined(ENABLE_DUCKDB_FFI)
@@ -404,7 +403,7 @@ void vx_error_free(struct vx_error *error);
  * Open a file at the given path on the file system.
  */
 struct vx_file_reader *vx_file_open_reader(const struct vx_file_open_options *options,
-                                           struct vx_session *session,
+                                           vx_session *session,
                                            struct vx_error **error);
 
 void vx_file_write_array(const char *path, struct vx_array *ffi_array, struct vx_error **error);
@@ -447,17 +446,18 @@ uint64_t vx_file_row_count(struct vx_file_reader *file_reader, struct vx_error *
 void vx_file_reader_free(struct vx_file_reader *file);
 
 /**
- * Initialize native logging with the specified level.
+ * Set the stderr logger to output at the specified level.
  *
- * This function is optional, if it is not called then no runtime
- * logger will be installed.
+ * This function is optional, if it is not called then no logger will be installed.
  */
-void vx_init_logging(enum vx_log_level level);
+void vx_set_log_level(enum vx_log_level level);
 
 /**
- * Create a session to be used for the lifetime of an interactive session.
+ * Create a new Vortex session.
+ *
+ * The caller is responsible for freeing the session with [`vx_session_free`].
  */
-struct vx_session *vx_session_create(void);
+struct vx_session *vx_session_new(void);
 
 /**
  * Free a session
@@ -486,5 +486,5 @@ void vx_array_sink_push(struct vx_array_sink *sink,
 void vx_array_sink_close(struct vx_array_sink *sink, struct vx_error **error);
 
 #ifdef __cplusplus
-}
-#endif
+}  // extern "C"
+#endif  // __cplusplus
