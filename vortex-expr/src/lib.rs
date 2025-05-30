@@ -6,6 +6,7 @@ use dyn_hash::DynHash;
 
 mod binary;
 
+mod aux;
 mod between;
 pub mod datafusion;
 mod field;
@@ -26,6 +27,7 @@ mod select;
 pub mod transform;
 pub mod traversal;
 
+pub use aux::*;
 pub use between::*;
 pub use binary::*;
 pub use get_item::*;

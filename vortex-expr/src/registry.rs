@@ -5,6 +5,7 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_proto::expr;
 
+use crate::aux::proto::AuxSerde;
 use crate::between::proto::BetweenSerde;
 use crate::binary::proto::BinarySerde;
 use crate::get_item::proto::GetItemSerde;
@@ -18,6 +19,7 @@ use crate::select::proto::SelectSerde;
 use crate::{ExprDeserialize, ExprRef};
 
 const EXPRESSIONS: &[&'static dyn ExprDeserialize] = &[
+    &AuxSerde,
     &BetweenSerde,
     &BinarySerde,
     &GetItemSerde,

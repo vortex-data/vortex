@@ -21,6 +21,7 @@ message Kind {
     BinaryOp binary_op = 2;
     GetItem get_item = 3;
     Identity identity = 4;
+    Aux aux = 11;
     Merge merge = 5;
     Not not = 6;
     Pack pack = 7;
@@ -38,6 +39,10 @@ message Kind {
   }
 
   message Identity {
+
+  }
+
+  message Aux {
 
   }
 
