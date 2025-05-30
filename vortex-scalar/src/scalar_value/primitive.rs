@@ -2,8 +2,8 @@ use paste::paste;
 use vortex_dtype::half::f16;
 use vortex_error::{VortexError, vortex_err};
 
-use crate::ScalarValue;
 use crate::scalar_value::InnerScalarValue;
+use crate::{PValue, ScalarValue};
 
 macro_rules! primitive_scalar {
     ($T:ty) => {
@@ -56,6 +56,12 @@ impl TryFrom<&ScalarValue> for usize {
             .and_then(|v| v.as_u64())
             .ok_or_else(|| vortex_err!("cannot convert Null to usize"))?;
         Ok(usize::try_from(prim)?)
+    }
+}
+
+impl From<PValue> for ScalarValue {
+    fn from(value: PValue) -> Self {
+        ScalarValue(InnerScalarValue::Primitive(value))
     }
 }
 

@@ -46,21 +46,12 @@ impl SequenceArray {
             vortex_bail!("only integer ptype are supported in SequenceArray currently")
         }
 
-        match_each_integer_ptype!(ptype, |$P| {
-            let len_t = <$P>::from_usize(length)
-                .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
-
-            let base = <$P>::try_from(base)?;
-            let multiplier = <$P>::try_from(multiplier)?;
-
-            if len_t
-                .checked_mul(multiplier)
-                .and_then(|offset| offset.checked_add(base))
-                .is_none()
-            {
-                vortex_bail!("array value out of range of array type")
-            }
-        });
+        Self::try_last(base, multiplier, ptype, length).map_err(|e| {
+            e.with_context(format!(
+                "final value not expressible, base = {:?}, multiplier = {:?}, len = {} ",
+                base, multiplier, length
+            ))
+        })?;
 
         Ok(Self::unchecked_new(base, multiplier, ptype, length))
     }
@@ -92,6 +83,46 @@ impl SequenceArray {
 
     pub fn multiplier(&self) -> PValue {
         self.multiplier
+    }
+
+    fn try_last(
+        base: PValue,
+        multiplier: PValue,
+        ptype: PType,
+        length: usize,
+    ) -> VortexResult<PValue> {
+        match_each_integer_ptype!(ptype, |$P| {
+            let len_t = <$P>::from_usize(length-1)
+                .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
+
+            let base = <$P>::try_from(base)?;
+            let multiplier = <$P>::try_from(multiplier)?;
+
+            let last = len_t
+                .checked_mul(multiplier)
+                .and_then(|offset| offset.checked_add(base))
+                .ok_or_else(|| vortex_err!("last value computation overflows"))?;
+            Ok(PValue::from(last))
+        })
+    }
+
+    fn index_value(&self, idx: usize) -> VortexResult<PValue> {
+        if idx > self.length {
+            vortex_bail!("out of bounds")
+        }
+        match_each_native_ptype!(self.ptype(), |$P| {
+            let base = <$P>::try_from(self.base)?;
+            let multi = <$P>::try_from(self.multiplier)?;
+            let value = base + (multi * <$P>::from_usize(idx).vortex_expect("must fit"));
+
+            Ok(PValue::from(value))
+        })
+    }
+
+    // Return the validated final value of a sequence array
+    pub fn last(&self) -> PValue {
+        Self::try_last(self.base, self.multiplier, self.ptype(), self.length)
+            .vortex_expect("validated array")
     }
 }
 
@@ -145,28 +176,21 @@ impl CanonicalVTable<SequenceVTable> for SequenceVTable {
 
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
     fn slice(array: &SequenceArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        let sliced_len = stop - start;
-        let ptype = array.ptype();
-        let arr = match_each_native_ptype!(array.ptype(), |$P| {
-            let base = <$P>::try_from(array.base)?;
-            let multi = <$P>::try_from(array.multiplier)?;
-            let new_base = base + (multi * <$P>::from_usize(start).vortex_expect("must fit"));
-
-            SequenceArray::unchecked_new(new_base.into(), array.multiplier.clone(), ptype, sliced_len)
-        });
-
-        Ok(arr.to_array())
+        Ok(SequenceArray::unchecked_new(
+            array.index_value(start)?,
+            array.multiplier.clone(),
+            array.ptype(),
+            stop - start,
+        )
+        .to_array())
     }
 
     fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
-        let scalar_value = match_each_native_ptype!(array.ptype(), |$P| {
-            let base = <$P>::try_from(array.base)?;
-            let multi = <$P>::try_from(array.multiplier)?;
-            let scalar = base + (multi * <$P>::from_usize(index).vortex_expect("must fit"));
-            ScalarValue::from(scalar)
-        });
-
-        Ok(Scalar::new(array.dtype().clone(), scalar_value))
+        // Ok(Scalar::from(array.index_value(index)))
+        Ok(Scalar::new(
+            array.dtype().clone(),
+            ScalarValue::from(array.index_value(index)?),
+        ))
     }
 }
 
@@ -255,8 +279,14 @@ mod tests {
     }
 
     #[test]
+    fn test_sequence_min_max() {
+        assert!(SequenceArray::typed_new(-127i8, -1i8, 2).is_ok());
+        assert!(SequenceArray::typed_new(126i8, -1i8, 2).is_ok());
+    }
+
+    #[test]
     fn test_sequence_too_big() {
         assert!(SequenceArray::typed_new(127i8, 1i8, 2).is_err());
-        assert!(SequenceArray::typed_new(-127i8, -1i8, 2).is_err());
+        assert!(SequenceArray::typed_new(-128i8, -1i8, 2).is_err());
     }
 }
