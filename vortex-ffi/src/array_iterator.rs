@@ -4,7 +4,23 @@ use vortex::error::{VortexExpect, vortex_bail};
 use vortex::iter::ArrayIterator;
 
 use crate::array::vx_array;
+use crate::box_wrapper;
 use crate::error::{try_or, vx_error};
+
+box_wrapper!(
+    /// A Vortex array iterator.
+    ///
+    /// Once the iterator is finished (returns `null` from [`vx_array_iter_next`]), it may panic
+    /// on subsequent calls to [`vx_array_iter_next`].
+    ///
+    /// Even after the iterator is finished, an owned iterator must be released by calling
+    /// [`vx_array_iter_free`].
+    ///
+    /// Iterators may be passed between threads, but calls to [`vx_array_iter_next`] should be
+    /// serialized and not invoked concurrently.
+    dyn ArrayIterator,
+    vx_array_iterator
+);
 
 /// The FFI interface for an [`ArrayIterator`].
 #[allow(non_camel_case_types)]

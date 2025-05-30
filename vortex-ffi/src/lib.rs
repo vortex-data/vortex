@@ -122,9 +122,7 @@ macro_rules! arc_wrapper {
         paste::paste! {
             $(#[$meta])*
             #[allow(non_camel_case_types)]
-            pub struct $ffi_ident {
-                inner: $T
-            }
+            pub struct $ffi_ident($T);
 
             #[allow(dead_code)]
             impl $ffi_ident {
@@ -143,7 +141,7 @@ macro_rules! arc_wrapper {
                     use vortex::error::VortexExpect;
                     &unsafe { ptr.as_ref() }
                         .vortex_expect("null pointer")
-                        .inner
+                        .0
                 }
 
                 /// Extract an owned reference.
@@ -173,6 +171,109 @@ macro_rules! arc_wrapper {
                     vortex::error::vortex_panic!("null pointer");
                 }
                 unsafe { std::sync::Arc::decrement_strong_count(ptr) };
+            }
+        }
+    };
+}
+
+/// Define a native FFI type that wraps an [`Box<T>`] type with unsized T.
+///
+/// To solve the problem of dynamic traits using fat pointers, we box the `Box<T>` a second time.
+#[macro_export]
+macro_rules! box_dyn_wrapper {
+    ($(#[$meta:meta])* $T:ty, $ffi_ident:ident) => {
+        paste::paste! {
+            $(#[$meta])*
+            #[allow(non_camel_case_types)]
+            pub struct $ffi_ident(Box<$T>);
+
+            #[allow(dead_code)]
+            impl $ffi_ident {
+                /// Wrap an owned object into a raw pointer.
+                pub(crate) fn new(obj: Box<$T>) -> *mut $ffi_ident {
+                    // For unsized types, we need to box the Arc.
+                    Box::into_raw(Box::new($ffi_ident(obj)))
+                }
+
+                /// Wrap a borrowed object into a raw pointer.
+                pub(crate) fn new_ref(obj: &$T) -> *const $ffi_ident {
+                    obj as *const $T as *const $ffi_ident
+                }
+
+                /// Extract a borrowed reference from a const pointer.
+                pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a $T {
+                    use vortex::error::VortexExpect;
+                    &unsafe { ptr.as_ref() }
+                        .vortex_expect("null pointer")
+                        .0
+                }
+
+                /// Extract an owned reference from a mutable pointer.
+                pub(crate) fn into_box(ptr: *mut $ffi_ident) -> Box<$T>{
+                    if ptr.is_null() {
+                        vortex::error::vortex_panic!("null pointer");
+                    }
+                    unsafe { Box::from_raw(ptr) }.0
+                }
+            }
+
+            #[doc = r" Free an owned [`" $ffi_ident "`] object."]
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *mut $ffi_ident) {
+                if ptr.is_null() {
+                    vortex::error::vortex_panic!("null pointer");
+                }
+                drop($ffi_ident::into_box(ptr))
+            }
+        }
+    };
+}
+
+/// Define a native FFI type that uses a [`Box`] wrapper.
+#[macro_export]
+macro_rules! box_wrapper {
+    ($(#[$meta:meta])* $T:ty, $ffi_ident:ident) => {
+        paste::paste! {
+            $(#[$meta])*
+            #[allow(non_camel_case_types)]
+            pub struct $ffi_ident($T);
+
+            #[allow(dead_code)]
+            impl $ffi_ident {
+                /// Wrap an owned object into a raw pointer.
+                pub(crate) fn new(obj: Box<$T>) -> *mut $ffi_ident {
+                    Box::into_raw(obj)
+                }
+
+                /// Wrap a borrowed object into a raw pointer.
+                pub(crate) fn new_ref(obj: &$T) -> *const $ffi_ident {
+                    obj as *const $T as *const $ffi_ident
+                }
+
+                /// Extract a borrowed reference from a const pointer.
+                pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a $T {
+                    use vortex::error::VortexExpect;
+                    &unsafe { ptr.as_ref() }
+                        .vortex_expect("null pointer")
+                        .0
+                }
+
+                /// Extract an owned reference.
+                pub(crate) fn into_box(ptr: *mut $ffi_ident) -> Box<$T>{
+                    if ptr.is_null() {
+                        vortex::error::vortex_panic!("null pointer");
+                    }
+                    unsafe { Box::from_raw(ptr.cast::<$T>()) }
+                }
+            }
+
+            #[doc = r" Free an owned [`" $ffi_ident "`] object."]
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C-unwind" fn [<$ffi_ident _free>](ptr: *mut $ffi_ident) {
+                if ptr.is_null() {
+                    vortex::error::vortex_panic!("null pointer");
+                }
+                std::mem::drop(unsafe { Box::from_raw(ptr.cast::<$T>()) })
             }
         }
     };
