@@ -28,7 +28,7 @@ use crate::{EvaluationContext, ExprRef, VortexExpr};
 ///     vec![Identity::new_expr(), Identity::new_expr(), Identity::new_expr()],
 ///     Nullability::NonNullable,
 /// ).unwrap();
-/// let packed = example.evaluate(&EvalCtx::new_ident(buffer![100, 110, 200].into_array())).unwrap();
+/// let packed = example.evaluate_array(&buffer![100, 110, 200].into_array()).unwrap();
 /// let x_copy = packed
 ///     .to_struct()
 ///     .unwrap()
