@@ -121,11 +121,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    pub fn with_prune_file_on_open(mut self, stats_set: Arc<[StatsSet]>) -> Self {
-        self.file_stats = Some(stats_set);
-        self
-    }
-
     /// Map each split of the scan. The function will be run on the spawned task.
     pub fn map<B: 'static>(
         self,

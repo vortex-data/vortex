@@ -66,12 +66,8 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                     return Ok(Canonical::Decimal(all_null));
                 };
 
-                let decimal_array = match_each_decimal_value!(value, |$V| {
-                   DecimalArray::new(
-                        Buffer::full(*$V, array.len()),
-                        *decimal_type,
-                        validity,
-                    )
+                let decimal_array = match_each_decimal_value!(value, |value| {
+                    DecimalArray::new(Buffer::full(*value, array.len()), *decimal_type, validity)
                 });
                 Canonical::Decimal(decimal_array)
             }

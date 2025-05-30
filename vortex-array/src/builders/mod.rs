@@ -46,11 +46,11 @@ pub use primitive::*;
 pub use struct_::*;
 pub use varbinview::*;
 use vortex_dtype::{DType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{
-    BinaryScalar, BoolScalar, ExtScalar, ListScalar, PrimitiveScalar, Scalar, ScalarValue,
-    StructScalar, Utf8Scalar, match_each_decimal_value_type,
+    BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, PrimitiveScalar, Scalar,
+    ScalarValue, StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
 };
 
 use crate::arrays::smallest_storage_type;
@@ -210,18 +210,19 @@ pub trait ArrayBuilderExt: ArrayBuilder {
                         .append_option(PrimitiveScalar::try_from(scalar)?.typed_value::<P>())
                 })
             }
-            DType::Decimal(decimal_type, _) => {
-                match_each_decimal_value_type!(smallest_storage_type(decimal_type), |D| {
-                    self.as_any_mut()
-                        .downcast_mut::<DecimalBuilder>()
-                        .ok_or_else(|| {
-                            vortex_err!("Cannot append decimal scalar to non-decimal builder")
-                        })?
-                        .append_option(
-                            Option::<D>::try_from(scalar.as_decimal())
-                                .vortex_expect("decimal conversion failure"),
-                        )
-                })
+            DType::Decimal(..) => {
+                let builder = self
+                    .as_any_mut()
+                    .downcast_mut::<DecimalBuilder>()
+                    .ok_or_else(|| {
+                        vortex_err!("Cannot append decimal scalar to non-decimal builder")
+                    })?;
+                match scalar.as_decimal().decimal_value() {
+                    None => builder.append_null(),
+                    Some(v) => match_each_decimal_value!(v, |dec_val| {
+                        builder.append_value(*dec_val);
+                    }),
+                }
             }
             DType::Utf8(_) => self
                 .as_any_mut()
