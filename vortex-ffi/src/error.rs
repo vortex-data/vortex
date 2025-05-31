@@ -5,6 +5,8 @@ use vortex::error::VortexResult;
 use crate::string::{vx_string, vx_string_free};
 
 /// The error structure populated by fallible Vortex C functions.
+// NOTE(ngates): our errors are passed back out as opaque structs, so while we currently alias
+// `vx_string`, we could change this to a different type in the future without breaking the API.
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
 pub struct vx_error(vx_string);

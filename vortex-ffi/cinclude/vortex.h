@@ -198,6 +198,11 @@ typedef struct vx_array_sink vx_array_sink;
 typedef struct vx_dtype vx_dtype;
 
 /**
+ * The error structure populated by fallible Vortex C functions.
+ */
+typedef struct vx_error vx_error;
+
+/**
  * A file reader that can be used to read from a file.
  */
 typedef struct vx_file_reader vx_file_reader;
@@ -227,11 +232,6 @@ typedef struct vx_struct_dtype vx_struct_dtype;
  * Builder for creating a [`vx_struct_dtype`].
  */
 typedef struct vx_struct_dtype_builder vx_struct_dtype_builder;
-
-/**
- * The error structure populated by fallible Vortex C functions.
- */
-typedef vx_string vx_error;
 
 /**
  * Options supplied for opening a file.
@@ -332,16 +332,16 @@ size_t vx_array_len(const vx_array *array);
  */
 const vx_dtype *vx_array_dtype(const vx_array *array);
 
-const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, vx_error **error);
+const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, const vx_error **error);
 
 const vx_array *vx_array_slice(const vx_array *array,
                                uint32_t start,
                                uint32_t stop,
-                               vx_error **error);
+                               const vx_error **error);
 
-bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **error);
+bool vx_array_is_null(const vx_array *array, uint32_t index, const vx_error **error);
 
-uint32_t vx_array_null_count(const vx_array *array, vx_error **error);
+uint32_t vx_array_null_count(const vx_array *array, const vx_error **error);
 
 uint8_t vx_array_get_u8(const vx_array *array, uint32_t index);
 
@@ -413,7 +413,7 @@ void vx_array_iterator_free(vx_array_iterator *ptr);
  * It is an error to call this function again after the iterator is finished.
  */
 const vx_array *vx_array_iterator_next(vx_array_iterator *iter,
-                                       vx_error **error);
+                                       const vx_error **error);
 
 /**
  * Clone a borrowed [`vx_dtype`], returning an owned [`vx_dtype`].
@@ -576,15 +576,9 @@ void vx_struct_dtype_builder_add_field(vx_struct_dtype_builder *builder,
 const vx_struct_dtype *vx_struct_dtype_builder_finalize(vx_struct_dtype_builder *builder);
 
 /**
- * Return the integer error code from the given Vortex error.
+ * Returns a borrowed reference to the error message from the given Vortex error.
  */
-int vx_error_get_code(vx_error *error);
-
-/**
- * Passes out an unowned reference to the error message from the given Vortex error.
- * Return value is the length of the message string.
- */
-const char *vx_error_get_message(vx_error *error);
+const vx_string *vx_error_get_message(const vx_error *error);
 
 void vx_error_free(vx_error *error);
 
@@ -593,9 +587,9 @@ void vx_error_free(vx_error *error);
  */
 vx_file_reader *vx_file_open_reader(const vx_file_open_options *options,
                                     const vx_session *session,
-                                    vx_error **error);
+                                    const vx_error **error);
 
-void vx_file_write_array(const char *path, const vx_array *array, vx_error **error);
+void vx_file_write_array(const char *path, const vx_array *array, const vx_error **error);
 
 vx_file_statistics *vx_file_extract_statistics(vx_file_reader *file);
 
@@ -612,19 +606,19 @@ DType *vx_file_dtype(const vx_file_reader *file);
 bool vx_file_reader_can_prune(const vx_file_reader *file_reader,
                               const char *filter_expression,
                               unsigned int filter_expression_len,
-                              vx_error **error);
+                              const vx_error **error);
 
 /**
  * Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
  */
 vx_array_iterator *vx_file_reader_scan(const vx_file_reader *file_reader,
                                        const vx_file_scan_options *opts,
-                                       vx_error **error);
+                                       const vx_error **error);
 
 /**
  * Returns the row count for a given file reader.
  */
-uint64_t vx_file_row_count(vx_file_reader *file_reader, vx_error **error);
+uint64_t vx_file_row_count(vx_file_reader *file_reader, const vx_error **error);
 
 /**
  * Free the file and all associated resources.
@@ -665,18 +659,20 @@ const vx_session *vx_session_new(void);
  * Opens a writable array stream, where sink is used to push values into the stream.
  * To close the stream close the sink with `vx_array_sink_close`.
  */
-vx_array_sink *vx_array_sink_open_file(const char *path, const DType *dtype, vx_error **error);
+vx_array_sink *vx_array_sink_open_file(const char *path,
+                                       const DType *dtype,
+                                       const vx_error **error);
 
 /**
  * Pushed a single array chunk into a file sink.
  */
-void vx_array_sink_push(vx_array_sink *sink, const vx_array *array, vx_error **error);
+void vx_array_sink_push(vx_array_sink *sink, const vx_array *array, const vx_error **error);
 
 /**
  * Closes an array sink, must be called to ensure all the values pushed to the sink are written
  * to the external resource.
  */
-void vx_array_sink_close(vx_array_sink *sink, vx_error **error);
+void vx_array_sink_close(vx_array_sink *sink, const vx_error **error);
 
 /**
  * Clone a borrowed [`vx_string`], returning an owned [`vx_string`].

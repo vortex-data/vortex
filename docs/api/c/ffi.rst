@@ -127,6 +127,9 @@ Array
 .. c:autotype:: vx_array
    :file: vortex.h
 
+.. c:autofunction:: vx_array_len
+   :file: vortex.h
+
 .. c:autofunction:: vx_array_dtype
    :file: vortex.h
 
@@ -137,9 +140,6 @@ Error
    :file: vortex.h
 
 .. c:autofunction:: vx_error_get_message
-   :file: vortex.h
-
-.. c:autofunction:: vx_error_get_code
    :file: vortex.h
 
 String
