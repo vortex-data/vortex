@@ -170,7 +170,16 @@ typedef struct DType DType;
 typedef struct vx_array vx_array;
 
 /**
- * The FFI interface for an [`ArrayIterator`].
+ * A Vortex array iterator.
+ *
+ * Once the iterator is finished (returns `null` from [`vx_array_iterator_next`]), it may panic
+ * on subsequent calls to [`vx_array_iterator_next`].
+ *
+ * Even after the iterator is finished, an owned iterator must be released by calling
+ * [`vx_array_iter_free`].
+ *
+ * Iterators may be passed between threads, but calls to [`vx_array_iterator_next`] should be
+ * serialized and not invoked concurrently.
  */
 typedef struct vx_array_iterator vx_array_iterator;
 
@@ -187,11 +196,6 @@ typedef struct vx_array_sink vx_array_sink;
  * is physically stored.
  */
 typedef struct vx_dtype vx_dtype;
-
-/**
- * The error structure populated by fallible Vortex C functions.
- */
-typedef struct vx_error vx_error;
 
 /**
  * A file reader that can be used to read from a file.
@@ -223,6 +227,11 @@ typedef struct vx_struct_dtype vx_struct_dtype;
  * Builder for creating a [`vx_struct_dtype`].
  */
 typedef struct vx_struct_dtype_builder vx_struct_dtype_builder;
+
+/**
+ * The error structure populated by fallible Vortex C functions.
+ */
+typedef vx_string vx_error;
 
 /**
  * Options supplied for opening a file.
@@ -391,6 +400,11 @@ void vx_array_get_utf8(const vx_array *array, uint32_t index, void *dst, int *le
 void vx_array_get_binary(const vx_array *array, uint32_t index, void *dst, int *len);
 
 /**
+ * Free an owned [`vx_array_iterator`] object.
+ */
+void vx_array_iterator_free(vx_array_iterator *ptr);
+
+/**
  * Attempt to advance the `current` pointer of the iterator.
  *
  * A return value of `true` indicates that another element was pulled from the iterator, and a return
@@ -398,10 +412,8 @@ void vx_array_get_binary(const vx_array *array, uint32_t index, void *dst, int *
  *
  * It is an error to call this function again after the iterator is finished.
  */
-const vx_array *vx_array_iter_next(vx_array_iterator *iter,
-                                   vx_error **error);
-
-void vx_array_iter_free(vx_array_iterator *array_iter);
+const vx_array *vx_array_iterator_next(vx_array_iterator *iter,
+                                       vx_error **error);
 
 /**
  * Clone a borrowed [`vx_dtype`], returning an owned [`vx_dtype`].
@@ -409,7 +421,7 @@ void vx_array_iter_free(vx_array_iterator *array_iter);
  *
  * Must be released with [`vx_dtype_free`].
  */
-vx_dtype *vx_dtype_clone(const vx_dtype *ptr);
+const vx_dtype *vx_dtype_clone(const vx_dtype *ptr);
 
 /**
  * Free an owned [`vx_dtype`] object.
@@ -511,7 +523,7 @@ void vx_dtype_time_zone(const DType *dtype, void *dst, int *len);
  *
  * Must be released with [`vx_struct_dtype_free`].
  */
-vx_struct_dtype *vx_struct_dtype_clone(const vx_struct_dtype *ptr);
+const vx_struct_dtype *vx_struct_dtype_clone(const vx_struct_dtype *ptr);
 
 /**
  * Free an owned [`vx_struct_dtype`] object.
@@ -535,6 +547,11 @@ const vx_string *vx_struct_dtype_field_name(const vx_struct_dtype *dtype, size_t
  * which case it's not possible to return a borrowed reference to the field dtype.
  */
 const vx_dtype *vx_struct_dtype_field_dtype(const vx_struct_dtype *dtype, size_t idx);
+
+/**
+ * Free an owned [`vx_struct_dtype_builder`] object.
+ */
+void vx_struct_dtype_builder_free(vx_struct_dtype_builder *ptr);
 
 /**
  * Create a new struct dtype builder.
@@ -630,7 +647,7 @@ void vx_set_log_level(vx_log_level level);
  *
  * Must be released with [`vx_session_free`].
  */
-vx_session *vx_session_clone(const vx_session *ptr);
+const vx_session *vx_session_clone(const vx_session *ptr);
 
 /**
  * Free an owned [`vx_session`] object.

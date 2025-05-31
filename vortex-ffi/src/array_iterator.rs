@@ -30,7 +30,7 @@ box_dyn_wrapper!(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_iterator_next(
     iter: *mut vx_array_iterator,
-    error: *mut *mut vx_error,
+    error: *mut *const vx_error,
 ) -> *const vx_array {
     let iter = vx_array_iterator::as_mut(iter);
     try_or(error, ptr::null_mut(), || {

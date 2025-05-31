@@ -247,7 +247,7 @@ macro_rules! box_wrapper {
         paste::paste! {
             $(#[$meta])*
             #[allow(non_camel_case_types)]
-            pub struct $ffi_ident($T);
+            pub(crate) struct $ffi_ident($T);
 
             #[allow(dead_code)]
             impl $ffi_ident {

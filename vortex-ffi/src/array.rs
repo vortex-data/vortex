@@ -42,7 +42,7 @@ pub unsafe extern "C-unwind" fn vx_array_dtype(array: *const vx_array) -> *const
 pub unsafe extern "C-unwind" fn vx_array_get_field(
     array: *const vx_array,
     index: u32,
-    error: *mut *mut vx_error,
+    error: *mut *const vx_error,
 ) -> *const vx_array {
     try_or(error, ptr::null(), || {
         let array = vx_array::as_ref(array);
@@ -63,7 +63,7 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     array: *const vx_array,
     start: u32,
     stop: u32,
-    error: *mut *mut vx_error,
+    error: *mut *const vx_error,
 ) -> *const vx_array {
     let array = vx_array::as_ref(array);
     try_or(error, ptr::null_mut(), || {
@@ -76,7 +76,7 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
 pub unsafe extern "C-unwind" fn vx_array_is_null(
     array: *const vx_array,
     index: u32,
-    error: *mut *mut vx_error,
+    error: *mut *const vx_error,
 ) -> bool {
     let array = vx_array::as_ref(array);
     try_or(error, false, || array.is_invalid(index as usize))
@@ -85,7 +85,7 @@ pub unsafe extern "C-unwind" fn vx_array_is_null(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_null_count(
     array: *const vx_array,
-    error: *mut *mut vx_error,
+    error: *mut *const vx_error,
 ) -> u32 {
     let array = vx_array::as_ref(array);
     try_or(error, 0, || Ok(array.invalid_count()?.try_into()?))

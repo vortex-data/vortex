@@ -4,9 +4,9 @@ use std::sync::Arc;
 use vortex::dtype::{DType, StructDType};
 use vortex::error::{VortexExpect, vortex_panic};
 
-use crate::arc_wrapper;
 use crate::dtype::vx_dtype;
 use crate::string::vx_string;
+use crate::{arc_wrapper, box_wrapper};
 
 arc_wrapper!(
     /// Represents a Vortex struct data type, without top-level nullability.
@@ -52,17 +52,21 @@ pub unsafe extern "C-unwind" fn vx_struct_dtype_field_dtype(
     ))
 }
 
-/// Builder for creating a [`vx_struct_dtype`].
-#[allow(non_camel_case_types)]
-pub struct vx_struct_dtype_builder {
+pub(crate) struct StructDTypeBuilder {
     names: Vec<Arc<str>>,
     fields: Vec<DType>,
 }
 
+box_wrapper!(
+    /// Builder for creating a [`vx_struct_dtype`].
+    StructDTypeBuilder,
+    vx_struct_dtype_builder
+);
+
 /// Create a new struct dtype builder.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_dtype_builder_new() -> *mut vx_struct_dtype_builder {
-    Box::into_raw(Box::new(vx_struct_dtype_builder {
+    vx_struct_dtype_builder::new(Box::new(StructDTypeBuilder {
         names: Vec::new(),
         fields: Vec::new(),
     }))
@@ -78,7 +82,7 @@ pub unsafe extern "C-unwind" fn vx_struct_dtype_builder_add_field(
     name: *const vx_string,
     dtype: *const vx_dtype,
 ) {
-    let builder = unsafe { builder.as_mut() }.vortex_expect("null pointer");
+    let builder = vx_struct_dtype_builder::as_mut(builder);
     builder.names.push(vx_string::into_arc(name));
     builder
         .fields
@@ -92,10 +96,7 @@ pub unsafe extern "C-unwind" fn vx_struct_dtype_builder_add_field(
 pub unsafe extern "C-unwind" fn vx_struct_dtype_builder_finalize(
     builder: *mut vx_struct_dtype_builder,
 ) -> *const vx_struct_dtype {
-    if builder.is_null() {
-        vortex_panic!("null pointer");
-    }
-    let builder = unsafe { Box::from_raw(builder) };
+    let builder = vx_struct_dtype_builder::into_box(builder);
     let struct_dtype = StructDType::new(builder.names.into(), builder.fields);
     vx_struct_dtype::new(Arc::new(struct_dtype))
 }

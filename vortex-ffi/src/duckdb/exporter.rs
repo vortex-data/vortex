@@ -26,7 +26,7 @@ pub unsafe extern "C-unwind" fn vx_duckdb_exporter_create(
 pub unsafe extern "C-unwind" fn vx_duckdb_exporter_next(
     exporter: *mut vx_duckdb_exporter,
     data_chunk_ptr: duckdb_data_chunk,
-    error: *mut *mut vx_error,
+    error: *mut *const vx_error,
 ) -> bool {
     let exporter = vx_duckdb_exporter::as_mut(exporter);
     let data_chunk_handle = &mut unsafe { DataChunkHandle::new_unowned(data_chunk_ptr) };

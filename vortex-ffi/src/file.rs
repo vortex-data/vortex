@@ -128,7 +128,7 @@ impl vx_file_scan_options {
 pub unsafe extern "C-unwind" fn vx_file_open_reader(
     options: *const vx_file_open_options,
     session: *const vx_session,
-    error: *mut *mut vx_error,
+    error: *mut *const vx_error,
 ) -> *mut vx_file_reader {
     let session = vx_session::as_ref(session);
 
@@ -179,7 +179,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 pub unsafe extern "C-unwind" fn vx_file_write_array(
     path: *const c_char,
     array: *const vx_array,
-    error: *mut *mut vx_error,
+    error: *mut *const vx_error,
 ) {
     let array = vx_array::as_ref(array);
     try_or(error, (), || {
@@ -248,7 +248,7 @@ pub unsafe extern "C-unwind" fn vx_file_reader_can_prune(
     file_reader: *const vx_file_reader,
     filter_expression: *const c_char,
     filter_expression_len: c_uint,
-    error: *mut *mut vx_error,
+    error: *mut *const vx_error,
 ) -> bool {
     try_or(error, false, || {
         let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file reader") };
@@ -266,7 +266,7 @@ pub unsafe extern "C-unwind" fn vx_file_reader_can_prune(
 pub unsafe extern "C-unwind" fn vx_file_reader_scan(
     file_reader: *const vx_file_reader,
     opts: *const vx_file_scan_options,
-    error: *mut *mut vx_error,
+    error: *mut *const vx_error,
 ) -> *mut vx_array_iterator {
     try_or(error, ptr::null_mut(), || {
         let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file reader") };
@@ -307,7 +307,7 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_row_count(
     file_reader: *mut vx_file_reader,
-    error: *mut *mut vx_error,
+    error: *mut *const vx_error,
 ) -> u64 {
     try_or(error, 0, || {
         let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file_reader") };
