@@ -17,6 +17,7 @@ use arrow_array::{
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
+use itertools::Itertools;
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::{DType, DecimalDType, NativePType, PType};
@@ -227,100 +228,56 @@ impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
     }
 }
 
-fn remove_nulls_from_non_nullable_arrays(
-    array: &arrow_array::ArrayRef,
-    nullable: bool,
-) -> arrow_array::ArrayRef {
-    make_array(remove_nulls_from_non_nullable_array_datas(array, nullable))
-}
+/// Strip out the nulls from this array and return a new array without nulls.
+fn remove_nulls(data: arrow_data::ArrayData) -> arrow_data::ArrayData {
+    if data.null_count() == 0 {
+        // No nulls to remove, return the array as is
+        return data;
+    }
 
-fn replace_children(
-    array: &arrow_array::ArrayRef,
-    nullable: bool,
-    children: Vec<arrow_data::ArrayData>,
-) -> arrow_data::ArrayData {
-    let mut builder = array.to_data().into_builder().child_data(children);
-    if !nullable {
-        builder = builder.nulls(None);
+    let children = match data.data_type() {
+        DataType::Struct(fields) => Some(
+            fields
+                .iter()
+                .zip(data.child_data().iter())
+                .map(|(field, child_data)| {
+                    if field.is_nullable() {
+                        child_data.clone()
+                    } else {
+                        remove_nulls(child_data.clone())
+                    }
+                })
+                .collect_vec(),
+        ),
+        DataType::List(f)
+        | DataType::LargeList(f)
+        | DataType::ListView(f)
+        | DataType::LargeListView(f)
+        | DataType::FixedSizeList(f, _)
+            if !f.is_nullable() =>
+        {
+            // All list types only have one child
+            assert_eq!(
+                data.child_data().len(),
+                1,
+                "List types should have one child"
+            );
+            Some(vec![remove_nulls(data.child_data()[0].clone())])
+        }
+        _ => None,
+    };
+
+    let mut builder = data.into_builder().nulls(None);
+    if let Some(children) = children {
+        builder = builder.child_data(children);
     }
     builder
         .build()
-        .vortex_expect("reconstructing without nulls")
-}
-
-fn remove_nulls_from_non_nullable_array_datas(
-    array: &arrow_array::ArrayRef,
-    nullable: bool,
-) -> arrow_data::ArrayData {
-    match array.data_type() {
-        DataType::List(field) => {
-            let list = array.as_list::<i32>();
-            let new_values =
-                remove_nulls_from_non_nullable_array_datas(list.values(), field.is_nullable());
-            replace_children(array, nullable, vec![new_values])
-        }
-        DataType::LargeList(field) => {
-            let list = array.as_list::<i64>();
-            let new_values =
-                remove_nulls_from_non_nullable_array_datas(list.values(), field.is_nullable());
-            replace_children(array, nullable, vec![new_values])
-        }
-        DataType::ListView(field) => {
-            let list = array.as_list_view::<i32>();
-            let new_values =
-                remove_nulls_from_non_nullable_array_datas(list.values(), field.is_nullable());
-            replace_children(array, nullable, vec![new_values])
-        }
-        DataType::LargeListView(field) => {
-            let list = array.as_list_view::<i64>();
-            let new_values =
-                remove_nulls_from_non_nullable_array_datas(list.values(), field.is_nullable());
-            replace_children(array, nullable, vec![new_values])
-        }
-        DataType::FixedSizeList(field, _) => {
-            let list = array.as_fixed_size_list();
-            let new_values =
-                remove_nulls_from_non_nullable_array_datas(list.values(), field.is_nullable());
-            replace_children(array, nullable, vec![new_values])
-        }
-        DataType::Struct(fields) => {
-            let new_fields = fields
-                .iter()
-                .zip(array.as_struct().columns().iter())
-                .map(|(field, array)| {
-                    remove_nulls_from_non_nullable_array_datas(array, field.is_nullable())
-                })
-                .collect::<Vec<_>>();
-            replace_children(array, nullable, new_fields)
-        }
-        DataType::Dictionary(..) => {
-            if !nullable && array.null_count() > 0 {
-                vortex_panic!(
-                    "Cannot convert this non-nullable field of a nullable struct or list because there is no general & zero-copy way to remove the null buffer of an Arrow DictionaryArray"
-                );
-            }
-
-            array.to_data()
-        }
-        _ => {
-            if nullable {
-                array.to_data()
-            } else {
-                let mut builder = array.to_data().into_builder();
-                if !nullable {
-                    builder = builder.nulls(None);
-                }
-                builder
-                    .build()
-                    .vortex_expect("reconstructing array without nulls")
-            }
-        }
-    }
+        .vortex_expect("reconstructing array without nulls")
 }
 
 impl FromArrowArray<&ArrowStructArray> for ArrayRef {
     fn from_arrow(value: &ArrowStructArray, nullable: bool) -> Self {
-        let struct_has_nulls = value.null_count() > 0;
         StructArray::try_new(
             value.column_names().iter().map(|s| (*s).into()).collect(),
             value
@@ -328,9 +285,11 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
                 .iter()
                 .zip(value.fields())
                 .map(|(c, field)| {
-                    if struct_has_nulls {
-                        let array = remove_nulls_from_non_nullable_arrays(c, field.is_nullable());
-                        Self::from_arrow(array.as_ref(), field.is_nullable())
+                    // Arrow pushes down nulls, even into non-nullable fields. So we strip them
+                    // out here because Vortex is a little more strict.
+                    if c.null_count() > 0 && !field.is_nullable() {
+                        let stripped = make_array(remove_nulls(c.into_data()));
+                        Self::from_arrow(stripped.as_ref(), false)
                     } else {
                         Self::from_arrow(c.as_ref(), field.is_nullable())
                     }
