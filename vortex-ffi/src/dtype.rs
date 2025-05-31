@@ -145,7 +145,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_nullable(dtype: *const vx_dtype) -> 
 /// Return the [`vx_ptype`] of a primitive data type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_primitive_ptype(dtype: *const vx_dtype) -> vx_ptype {
-    vx_dtype::as_ref(dtype).to_ptype().into()
+    vx_dtype::as_ref(dtype).as_ptype().into()
 }
 
 /// Return the precision of a decimal data type.
