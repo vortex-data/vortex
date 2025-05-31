@@ -18,8 +18,8 @@ static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
 /// Partition an expression over the fields of the scope.
 ///
 /// This returns a partitioned expression that can be push-down over each field of the scope.
-/// The results of each partition can then be recombined to reproduce the result of the original
-/// expression.
+/// The results of each partition evaluation can then be recombined to reproduce the result of
+/// the original expression.
 ///
 /// ## Note
 ///

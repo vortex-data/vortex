@@ -87,6 +87,10 @@ impl VortexWriteOptions {
         // Then write the stream via the root layout
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
+            if chunk.is_empty() {
+                continue;
+            }
+
             layout_writer.push_chunk(&mut segment_writer, chunk)?;
             // NOTE(ngates): we could spawn this task and continue to compress the next chunk.
             segment_writer

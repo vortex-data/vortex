@@ -141,7 +141,7 @@ impl DType {
     }
 
     /// Returns this DType's `PType` if it is a primitive type, otherwise panics.
-    pub fn to_ptype(&self) -> PType {
+    pub fn as_ptype(&self) -> PType {
         match self {
             Primitive(ptype, _) => *ptype,
             _ => vortex_panic!("DType is not a primitive type"),

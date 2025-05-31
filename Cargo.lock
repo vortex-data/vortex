@@ -6380,6 +6380,7 @@ dependencies = [
  "vortex-metrics",
  "vortex-runend",
  "vortex-scalar",
+ "vortex-sequence",
  "vortex-sparse",
  "vortex-zigzag",
 ]
@@ -6606,6 +6607,26 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-proto",
+]
+
+[[package]]
+name = "vortex-sequence"
+version = "0.1.0"
+dependencies = [
+ "itertools 0.14.0",
+ "num-traits",
+ "prost",
+ "tokio",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-file",
+ "vortex-layout",
+ "vortex-mask",
+ "vortex-proto",
+ "vortex-scalar",
 ]
 
 [[package]]
