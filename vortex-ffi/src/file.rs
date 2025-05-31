@@ -35,6 +35,7 @@ pub struct vx_file_reader {
 
 /// Options supplied for opening a file.
 #[repr(C)]
+#[allow(non_camel_case_types)]
 pub struct vx_file_open_options {
     /// URI for opening the file.
     /// This must be a valid URI, even for files (file:///path/to/file)
@@ -50,6 +51,7 @@ pub struct vx_file_open_options {
 
 /// Scan options provided by an FFI client calling the `vx_file_scan` function.
 #[repr(C)]
+#[allow(non_camel_case_types)]
 pub struct vx_file_scan_options {
     /// Column names to project out in the scan. These must be null-terminated C strings.
     pub projection: *const *const c_char,
@@ -295,9 +297,9 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
             scan_builder = scan_builder.with_split_by(split_by_value);
         }
 
-        Ok(Box::into_raw(Box::new(vx_array_iterator {
-            inner: Some(Box::new(scan_builder.into_array_iter()?)),
-        })))
+        Ok(vx_array_iterator::new(Box::new(
+            scan_builder.into_array_iter()?,
+        )))
     })
 }
 

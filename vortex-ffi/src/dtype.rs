@@ -262,8 +262,8 @@ mod tests {
     use vortex::dtype::DType;
 
     use crate::dtype::{
-        vx_dtype, vx_dtype_free, vx_dtype_new_bool, vx_dtype_new_primitive, vx_dtype_new_utf8,
-        vx_dtype_variant,
+        vx_dtype, vx_dtype_free, vx_dtype_get_variant, vx_dtype_new_bool, vx_dtype_new_primitive,
+        vx_dtype_new_utf8, vx_dtype_variant,
     };
     use crate::dtype_struct::{
         vx_struct_dtype_builder_add_field, vx_struct_dtype_builder_finalize,
@@ -279,7 +279,10 @@ mod tests {
             let ffi_dtype = vx_dtype_new_bool(true);
 
             // functions check
-            assert_eq!(vx_dtype_variant(ffi_dtype), vx_dtype_variant::DTYPE_BOOL);
+            assert_eq!(
+                vx_dtype_get_variant(ffi_dtype),
+                vx_dtype_variant::DTYPE_BOOL
+            );
 
             // Field access checks.
             assert_eq!(vx_dtype::as_ref(ffi_dtype), &DType::Bool(true.into()));
@@ -313,8 +316,11 @@ mod tests {
 
             let dtype0 = vx_struct_dtype_field_dtype(person, 0);
             let dtype1 = vx_struct_dtype_field_dtype(person, 1);
-            assert_eq!(vx_dtype_variant(dtype0), vx_dtype_variant::DTYPE_UTF8);
-            assert_eq!(vx_dtype_variant(dtype1), vx_dtype_variant::DTYPE_PRIMITIVE);
+            assert_eq!(vx_dtype_get_variant(dtype0), vx_dtype_variant::DTYPE_UTF8);
+            assert_eq!(
+                vx_dtype_get_variant(dtype1),
+                vx_dtype_variant::DTYPE_PRIMITIVE
+            );
             vx_dtype_free(dtype0);
             vx_dtype_free(dtype1);
 

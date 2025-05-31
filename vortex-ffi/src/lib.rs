@@ -84,7 +84,7 @@ macro_rules! arc_dyn_wrapper {
                         .0
                 }
 
-                /// Extract an owned reference from a mutable pointer.
+                /// Extract an owned reference from a const pointer.
                 pub(crate) fn into_arc(ptr: *const $ffi_ident) -> std::sync::Arc<$T>{
                     if ptr.is_null() {
                         vortex::error::vortex_panic!("null pointer");
@@ -100,7 +100,8 @@ macro_rules! arc_dyn_wrapper {
                 if ptr.is_null() {
                     vortex::error::vortex_panic!("null pointer");
                 }
-                $ffi_ident::new($ffi_ident::into_arc(ptr.cast_mut()).clone())
+
+                $ffi_ident::new($ffi_ident::as_ref(ptr).clone())
             }
 
             #[doc = r" Free an owned [`" $ffi_ident "`] object."]
@@ -109,7 +110,7 @@ macro_rules! arc_dyn_wrapper {
                 if ptr.is_null() {
                     vortex::error::vortex_panic!("null pointer");
                 }
-                drop($ffi_ident::into_arc(ptr.cast_mut()))
+                drop($ffi_ident::into_arc(ptr))
             }
         }
     };
@@ -156,12 +157,12 @@ macro_rules! arc_wrapper {
             #[doc = r" Clone a borrowed [`" $ffi_ident "`], returning an owned [`" $ffi_ident "`].\n\n"]
             #[doc = r" Must be released with [`" $ffi_ident "_free`]."]
             #[unsafe(no_mangle)]
-            pub unsafe extern "C-unwind" fn [<$ffi_ident _clone>](ptr: *const $ffi_ident) -> *mut $ffi_ident {
+            pub unsafe extern "C-unwind" fn [<$ffi_ident _clone>](ptr: *const $ffi_ident) -> *const $ffi_ident {
                 if ptr.is_null() {
                     vortex::error::vortex_panic!("null pointer");
                 }
                 unsafe { std::sync::Arc::increment_strong_count(ptr) };
-                ptr.cast_mut()
+                ptr
             }
 
             #[doc = r" Free an owned [`" $ffi_ident "`] object."]
@@ -203,9 +204,19 @@ macro_rules! box_dyn_wrapper {
                 /// Extract a borrowed reference from a const pointer.
                 pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a $T {
                     use vortex::error::VortexExpect;
-                    &unsafe { ptr.as_ref() }
+                    unsafe { ptr.as_ref() }
                         .vortex_expect("null pointer")
                         .0
+                        .as_ref()
+                }
+
+                /// Extract a borrowed mutable reference from a mut pointer.
+                pub(crate) fn as_mut<'a>(ptr: *mut $ffi_ident) -> &'a mut $T {
+                    use vortex::error::VortexExpect;
+                    unsafe { ptr.as_mut() }
+                        .vortex_expect("null pointer")
+                        .0
+                        .as_mut()
                 }
 
                 /// Extract an owned reference from a mutable pointer.

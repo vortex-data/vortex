@@ -177,7 +177,7 @@ mod tests {
     use vortex::validity::Validity;
 
     use crate::array::{vx_array, vx_array_dtype, vx_array_free, vx_array_get_i32, vx_array_len};
-    use crate::dtype::vx_dtype_variant;
+    use crate::dtype::{vx_dtype_get_variant, vx_dtype_variant};
 
     #[test]
     fn test_simple() {
@@ -189,7 +189,7 @@ mod tests {
 
             let array_dtype = vx_array_dtype(ffi_array);
             assert_eq!(
-                vx_dtype_variant(array_dtype),
+                vx_dtype_get_variant(array_dtype),
                 vx_dtype_variant::DTYPE_PRIMITIVE
             );
 
