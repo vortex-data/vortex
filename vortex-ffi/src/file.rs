@@ -155,7 +155,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
         if let Some(footer) = session.get_footer(&FileKey {
             location: uri_str.to_string(),
         }) {
-            file = file.with_footer(footer.clone());
+            file = file.with_footer(footer);
             cache_hit = true;
         }
 

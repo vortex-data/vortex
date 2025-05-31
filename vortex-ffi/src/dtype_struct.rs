@@ -96,6 +96,6 @@ pub unsafe extern "C-unwind" fn vx_struct_dtype_builder_finalize(
         vortex_panic!("null pointer");
     }
     let builder = unsafe { Box::from_raw(builder) };
-    let struct_dtype = StructDType::new(builder.names.into(), builder.fields.into());
+    let struct_dtype = StructDType::new(builder.names.into(), builder.fields);
     vx_struct_dtype::new(Arc::new(struct_dtype))
 }

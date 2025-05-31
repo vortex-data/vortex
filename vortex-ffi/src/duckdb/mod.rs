@@ -68,9 +68,9 @@ pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_duckdb_chunk_to_array(
     chunk: duckdb_data_chunk,
-    dtype: *mut DType,
+    dtype: *const DType,
     error: *mut *mut vx_error,
-) -> *mut vx_array {
+) -> *const vx_array {
     let dtype = unsafe { dtype.as_ref().vortex_expect("null array") };
     try_or(error, ptr::null_mut(), || {
         let struct_type = dtype.as_struct().ok_or_else(|| {
@@ -88,6 +88,6 @@ pub unsafe extern "C-unwind" fn vx_duckdb_chunk_to_array(
             names: Some(struct_type.names().clone()),
         })?;
 
-        Ok(Box::into_raw(Box::new(vx_array { inner: array })))
+        Ok(vx_array::new(array))
     })
 }

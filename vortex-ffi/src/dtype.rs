@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata};
 use vortex::dtype::{DType, DecimalDType};
-use vortex::error::{VortexExpect, VortexUnwrap};
+use vortex::error::{VortexExpect, VortexUnwrap, vortex_panic};
 
 use crate::arc_wrapper;
 use crate::dtype_struct::vx_struct_dtype;
@@ -221,7 +221,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_unit(dtype: *const DType) -> u8 {
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     let DType::Extension(ext_dtype) = dtype else {
-        panic!("DType_time_unit: not a time dtype")
+        vortex_panic!("DType_time_unit: not a time dtype")
     };
 
     let metadata = ext_dtype.metadata().vortex_expect("time unit metadata");
@@ -238,7 +238,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     let DType::Extension(ext_dtype) = dtype else {
-        panic!("vx_dtype_time_unit: not a time dtype")
+        vortex_panic!("vx_dtype_time_unit: not a time dtype")
     };
 
     match TemporalMetadata::try_from(ext_dtype).vortex_expect("timestamp") {
@@ -253,7 +253,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(
                 unsafe { *len = 0 };
             }
         }
-        _ => panic!("DType_time_zone: not a timestamp metadata: {ext_dtype:?}"),
+        _ => vortex_panic!("DType_time_zone: not a timestamp metadata: {ext_dtype:?}"),
     }
 }
 

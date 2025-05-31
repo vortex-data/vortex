@@ -253,7 +253,7 @@ macro_rules! box_wrapper {
             impl $ffi_ident {
                 /// Wrap an owned object into a raw pointer.
                 pub(crate) fn new(obj: Box<$T>) -> *mut $ffi_ident {
-                    Box::into_raw(obj)
+                    Box::into_raw(obj).cast()
                 }
 
                 /// Wrap a borrowed object into a raw pointer.
@@ -265,6 +265,14 @@ macro_rules! box_wrapper {
                 pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a $T {
                     use vortex::error::VortexExpect;
                     &unsafe { ptr.as_ref() }
+                        .vortex_expect("null pointer")
+                        .0
+                }
+
+                /// Extract a borrowed mutable reference from a mut pointer.
+                pub(crate) fn as_mut<'a>(ptr: *mut $ffi_ident) -> &'a mut $T {
+                    use vortex::error::VortexExpect;
+                    &mut unsafe { ptr.as_mut() }
                         .vortex_expect("null pointer")
                         .0
                 }

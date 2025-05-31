@@ -12,6 +12,7 @@ arc_dyn_wrapper!(
 );
 
 impl vx_string {
+    #[allow(dead_code)]
     pub(crate) fn as_str<'a>(ptr: *const vx_string) -> &'a str {
         unsafe {
             str::from_utf8_unchecked(slice::from_raw_parts(
