@@ -14,7 +14,7 @@ box_wrapper!(
 
 // Create a new array exporter, taking ownership of the array iterator.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_duckdb_exporter_create(
+pub unsafe extern "C-unwind" fn vx_duckdb_exporter_new(
     iter: *mut vx_array_iterator,
 ) -> *mut vx_duckdb_exporter {
     vx_duckdb_exporter::new(Box::new(ArrayIteratorExporter::new(

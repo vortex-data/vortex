@@ -105,6 +105,7 @@ nitpick_ignore += [
 
 hawkmoth_transform_default = "c_to_rust"
 
+
 def _replace_rust_references(app, lines, transform, options):
     """Replace Rust references with C equivalents in hawkmoth docstrings.
 
@@ -122,7 +123,7 @@ def _replace_rust_references(app, lines, transform, options):
         return
 
     # Pattern to match [`crate::path::to::function`]
-    pattern = r'\[`([^:]+::)*?(vx_[^`]+)`\]'
+    pattern = r"\[`([^:]+::)*?(vx_[^`]+)`\]"
 
     def replace_match(match):
         # Extract the function name (already starts with vx_)
@@ -136,16 +137,16 @@ def _replace_rust_references(app, lines, transform, options):
         ref = refs[0]
         if isinstance(ref, hawkmoth.docstring.FunctionDocstring):
             # If it's a function, return the C identifier
-            return f':c:func:`{func_name}`'
+            return f":c:func:`{func_name}`"
         elif isinstance(ref, hawkmoth.docstring.EnumDocstring):
             # If it's an enum, return the C identifier
-            return f':c:type:`{func_name}`'
+            return f":c:type:`{func_name}`"
         elif isinstance(ref, hawkmoth.docstring.TypedefDocstring):
             # If it's a typedef, return the C identifier
-            return f':c:type:`{func_name}`'
+            return f":c:type:`{func_name}`"
         elif isinstance(ref, hawkmoth.docstring.StructDocstring):
             # If it's a typedef, return the C identifier
-            return f':c:type:`{func_name}`'
+            return f":c:type:`{func_name}`"
         else:
             return func_name
 

@@ -43,7 +43,7 @@ struct ScanBindData : public TableFunctionData {
 
 	// Used to read the schema during the bind phase and cached here to
 	// avoid having to open the same file again during the scan phase.
-	shared_ptr<FileReader> initial_file;
+	shared_ptr<VortexFile> initial_file;
 
 	// Used to create an arena for protobuf exprs, need a ptr since the bind arg is const.
 	unique_ptr<google::protobuf::Arena> arena;
@@ -112,7 +112,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	// Multi producer, multi consumer lockfree queue.
 	duckdb_moodycamel::ConcurrentQueue<ScanPartition> scan_partitions {8192};
 
-	std::vector<shared_ptr<FileReader>> file_readers;
+	std::vector<shared_ptr<VortexFile>> files;
 
 	// The column idx that must be returned by the scan.
 	vector<idx_t> column_ids;
@@ -199,15 +199,13 @@ static void PopulateProjection(ScanGlobalState &global_state, const vector<strin
 
 /// Extracts schema information from a Vortex file's data type.
 static void ExtractVortexSchema(DType &file_dtype, vector<LogicalType> &column_types, vector<string> &column_names) {
-	uint32_t field_count = vx_dtype_field_count(file_dtype.dtype);
+	auto struct_dtype = vx_dtype_struct_dtype(file_dtype.dtype);
+	uint32_t field_count = vx_struct_dtype_nfields(struct_dtype);
 	for (uint32_t idx = 0; idx < field_count; idx++) {
-		char name_buffer[512];
-		int name_len = 0;
+		auto vx_field_name = vx_struct_dtype_field_name(struct_dtype, idx);
+		std::string field_name(vx_string_ptr(vx_field_name), vx_string_len(vx_field_name));
 
-		vx_dtype_field_name(file_dtype.dtype, idx, name_buffer, &name_len);
-		std::string field_name(name_buffer, name_len);
-
-		vx_dtype *field_dtype = vx_dtype_field_dtype(file_dtype.dtype, idx);
+		const vx_dtype *field_dtype = vx_struct_dtype_field_dtype(struct_dtype, idx);
 		auto duckdb_type = Try([&](auto err) { return vx_dtype_to_duckdb_logical_type(field_dtype, err); });
 
 		column_names.push_back(field_name);
@@ -233,20 +231,20 @@ std::string EnsureFileProtocol(FileSystem &fs, const std::string &path) {
 	return prefix + absolute_path;
 }
 
-static unique_ptr<FileReader> OpenFile(const std::string &filename, VortexSession &session,
+static unique_ptr<VortexFile> OpenFile(const std::string &filename, VortexSession &session,
                                        vector<LogicalType> &column_types, vector<string> &column_names) {
 	vx_file_open_options options {
 	    .uri = filename.c_str(), .property_keys = nullptr, .property_vals = nullptr, .property_len = 0};
 
-	auto file = FileReader::Open(&options, session);
+	auto file = VortexFile::Open(&options, session);
 	if (!file) {
 		throw IOException("Failed to open Vortex file: " + filename);
 	}
 
 	// This pointer is owned by the file.
 	auto file_dtype = file->DType();
-	if (vx_dtype_get(file_dtype.dtype) != DTYPE_STRUCT) {
-		vx_file_reader_free(file->file);
+	if (vx_dtype_get_variant(file_dtype.dtype) != DTYPE_STRUCT) {
+		vx_file_free(file->file);
 		throw FatalException("Vortex file does not contain a struct array as a top-level dtype");
 	}
 
@@ -276,7 +274,7 @@ static void VerifyNewFile(const ScanBindData &bind_data, vector<LogicalType> &co
 	}
 }
 
-static unique_ptr<FileReader> OpenFileAndVerify(FileSystem &fs, VortexSession &session, const std::string &filename,
+static unique_ptr<VortexFile> OpenFileAndVerify(FileSystem &fs, VortexSession &session, const std::string &filename,
                                                 const ScanBindData &bind_data) {
 	auto new_column_names = vector<string>();
 	new_column_names.reserve(bind_data.column_names.size());
@@ -299,14 +297,14 @@ static bool PinFileToThread(ScanGlobalState &global_state) {
 }
 
 static void CreateScanPartitions(ClientContext &context, const ScanBindData &bind, ScanGlobalState &global_state,
-                                 ScanLocalState &local_state, uint64_t file_idx, FileReader &file_reader) {
+                                 ScanLocalState &local_state, uint64_t file_idx, VortexFile &file) {
 	auto filter_str = global_state.filter_expression_string(*bind.arena);
-	if (global_state.file_readers[file_idx]->CanPrune(filter_str.data(), static_cast<unsigned>(filter_str.length()))) {
+	if (global_state.files[file_idx]->CanPrune(filter_str.data(), static_cast<unsigned>(filter_str.length()))) {
 		global_state.files_partitioned += 1;
 		return;
 	}
 
-	const auto row_count = Try([&](auto err) { return vx_file_row_count(file_reader.file, err); });
+	const auto row_count = vx_file_row_count(file.file);
 
 	const auto thread_count = std::thread::hardware_concurrency();
 	const auto file_count = global_state.expanded_files.size();
@@ -345,7 +343,7 @@ static void CreateScanPartitions(ClientContext &context, const ScanBindData &bin
 }
 
 static unique_ptr<ArrayIterator> OpenArrayIter(const ScanBindData &bind, ScanGlobalState &global_state,
-                                               shared_ptr<FileReader> &file_reader, ScanPartition row_range_partition) {
+                                               shared_ptr<VortexFile> &file, ScanPartition row_range_partition) {
 	auto filter_str = global_state.filter_expression_string(*bind.arena);
 
 	const auto options = vx_file_scan_options {
@@ -358,7 +356,7 @@ static unique_ptr<ArrayIterator> OpenArrayIter(const ScanBindData &bind, ScanGlo
 	    .row_range_end = row_range_partition.end_row,
 	};
 
-	return make_uniq<ArrayIterator>(file_reader->Scan(&options));
+	return make_uniq<ArrayIterator>(file->Scan(&options));
 }
 
 // Assigns the next array exporter.
@@ -400,8 +398,8 @@ static bool GetNextExporter(ClientContext &context, const ScanBindData &bind_dat
 
 		// Layout readers are safe to share across threads for reading. Further, they
 		// are created before pushing partitions of the corresponing files into a queue.
-		auto file_reader = global_state.file_readers[partition.file_idx];
-		auto array_iter = OpenArrayIter(bind_data, global_state, file_reader, partition);
+		auto file = global_state.files[partition.file_idx];
+		auto array_iter = OpenArrayIter(bind_data, global_state, file, partition);
 		local_state.array_exporter = ArrayExporter::FromArrayIterator(std::move(array_iter));
 	}
 
@@ -430,7 +428,7 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 			if (!GetNextExporter(context, bind_data, global_state, local_state)) {
 				// Free file readers when owned by the thread.
 				if (local_state.scan_partitions.empty() && local_state.thread_local_file_idx.has_value()) {
-					global_state.file_readers[local_state.thread_local_file_idx.value()] = nullptr;
+					global_state.files[local_state.thread_local_file_idx.value()] = nullptr;
 					local_state.thread_local_file_idx.reset();
 				}
 
@@ -438,15 +436,15 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 				if (auto file_idx = global_state.next_file_idx.fetch_add(1);
 					file_idx < global_state.expanded_files.size()) {
 					if (file_idx == 0) {
-						global_state.file_readers[0] = bind_data.initial_file;
+						global_state.files[0] = bind_data.initial_file;
 					} else {
 						auto file_name = global_state.expanded_files[file_idx];
-						global_state.file_readers[file_idx] =
+						global_state.files[file_idx] =
 							OpenFileAndVerify(FileSystem::GetFileSystem(context), *bind_data.session, file_name, bind_data);
 					}
 
 					CreateScanPartitions(context, bind_data, global_state, local_state, file_idx,
-										 *global_state.file_readers[file_idx]);
+										 *global_state.files[file_idx]);
 				}
 			}
 			continue;
@@ -493,7 +491,7 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
 unique_ptr<NodeStatistics> VortexCardinality(ClientContext &context, const FunctionData *bind_data) {
 	auto &data = bind_data->Cast<ScanBindData>();
 
-	auto row_count = data.initial_file->FileRowCount();
+	auto row_count = data.initial_file->RowCount();
 	if (data.file_list->GetTotalFileCount() == 1) {
 		return make_uniq<NodeStatistics>(row_count, row_count);
 	} else {
@@ -554,7 +552,7 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 		}
 
 		// Resizing the empty vector default constructs std::shared pointers at all indices with nullptr.
-		global_state->file_readers.resize(global_state->expanded_files.size());
+		global_state->files.resize(global_state->expanded_files.size());
 
 		return std::move(global_state);
 	};

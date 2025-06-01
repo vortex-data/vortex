@@ -197,15 +197,22 @@ typedef struct vx_array_sink vx_array_sink;
  */
 typedef struct vx_dtype vx_dtype;
 
+#if defined(ENABLE_DUCKDB_FFI)
+/**
+ * A type for exporting Vortex arrays to a stream of mutable DuckDB vectors.
+ */
+typedef struct vx_duckdb_exporter vx_duckdb_exporter;
+#endif
+
 /**
  * The error structure populated by fallible Vortex C functions.
  */
 typedef struct vx_error vx_error;
 
 /**
- * A file reader that can be used to read from a file.
+ * A handle to a Vortex file encapsulating ther footer and logic for instantiating a reader.
  */
-typedef struct vx_file_reader vx_file_reader;
+typedef struct vx_file vx_file;
 
 /**
  * A Vortex session stores registries of extensible types, various caches, and other
@@ -256,16 +263,6 @@ typedef struct {
    */
   int property_len;
 } vx_file_open_options;
-
-/**
- * Whole file statistics.
- */
-typedef struct {
-  /**
-   * The exact number of rows in the file.
-   */
-  uint64_t num_rows;
-} vx_file_statistics;
 
 /**
  * Scan options provided by an FFI client calling the `vx_file_scan` function.
@@ -375,9 +372,9 @@ int64_t vx_array_get_i64(const vx_array *array, uint32_t index);
 
 int64_t vx_array_get_storage_i64(const vx_array *array, uint32_t index);
 
-f16 vx_array_get_f16(const vx_array *array, uint32_t index);
+uint16_t vx_array_get_f16(const vx_array *array, uint32_t index);
 
-f16 vx_array_get_storage_f16(const vx_array *array, uint32_t index);
+uint16_t vx_array_get_storage_f16(const vx_array *array, uint32_t index);
 
 float vx_array_get_f32(const vx_array *array, uint32_t index);
 
@@ -575,58 +572,100 @@ void vx_struct_dtype_builder_add_field(vx_struct_dtype_builder *builder,
  */
 const vx_struct_dtype *vx_struct_dtype_builder_finalize(vx_struct_dtype_builder *builder);
 
+#if defined(ENABLE_DUCKDB_FFI)
+/**
+ * Converts a DType into a duckdb
+ */
+duckdb_logical_type vx_dtype_to_duckdb_logical_type(const vx_dtype *dtype, const vx_error **error);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+/**
+ * Converts a DuckDB type into a vortex type
+ */
+const vx_dtype *vx_duckdb_logical_type_to_dtype(const duckdb_logical_type *column_types,
+                                                const unsigned char *column_nullable,
+                                                const char *const *column_names,
+                                                int column_count,
+                                                const vx_error **error);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+/**
+ * Pushed a single duckdb chunk into a file sink.
+ */
+const vx_array *vx_duckdb_chunk_to_array(duckdb_data_chunk chunk,
+                                         const vx_dtype *dtype,
+                                         const vx_error **error);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+/**
+ * Free an owned [`vx_duckdb_exporter`] object.
+ */
+void vx_duckdb_exporter_free(vx_duckdb_exporter *ptr);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+vx_duckdb_exporter *vx_duckdb_exporter_new(vx_array_iterator *iter);
+#endif
+
+#if defined(ENABLE_DUCKDB_FFI)
+bool vx_duckdb_exporter_next(vx_duckdb_exporter *exporter,
+                             duckdb_data_chunk data_chunk_ptr,
+                             const vx_error **error);
+#endif
+
 /**
  * Returns a borrowed reference to the error message from the given Vortex error.
  */
 const vx_string *vx_error_get_message(const vx_error *error);
 
-void vx_error_free(vx_error *error);
+void vx_error_free(const vx_error *error);
+
+/**
+ * Clone a borrowed [`vx_file`], returning an owned [`vx_file`].
+ *
+ *
+ * Must be released with [`vx_file_free`].
+ */
+const vx_file *vx_file_clone(const vx_file *ptr);
+
+/**
+ * Free an owned [`vx_file`] object.
+ */
+void vx_file_free(const vx_file *ptr);
 
 /**
  * Open a file at the given path on the file system.
  */
-vx_file_reader *vx_file_open_reader(const vx_file_open_options *options,
-                                    const vx_session *session,
-                                    const vx_error **error);
+const vx_file *vx_file_open_reader(const vx_file_open_options *options,
+                                   const vx_session *session,
+                                   const vx_error **error);
 
 void vx_file_write_array(const char *path, const vx_array *array, const vx_error **error);
 
-vx_file_statistics *vx_file_extract_statistics(vx_file_reader *file);
-
-void vx_file_statistics_free(vx_file_statistics *stat);
+uint64_t vx_file_row_count(const vx_file *file);
 
 /**
- * Get the DType of the data inside of the file.
+ * Return a borrowed reference to the DType of the file.
  */
-DType *vx_file_dtype(const vx_file_reader *file);
+const vx_dtype *vx_file_dtype(const vx_file *file);
 
 /**
  * Can we prune the whole file using file stats and an expression
  */
-bool vx_file_reader_can_prune(const vx_file_reader *file_reader,
-                              const char *filter_expression,
-                              unsigned int filter_expression_len,
-                              const vx_error **error);
+bool vx_file_can_prune(const vx_file *file,
+                       const char *filter_expression,
+                       unsigned int filter_expression_len,
+                       const vx_error **error);
 
 /**
  * Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
  */
-vx_array_iterator *vx_file_reader_scan(const vx_file_reader *file_reader,
-                                       const vx_file_scan_options *opts,
-                                       const vx_error **error);
-
-/**
- * Returns the row count for a given file reader.
- */
-uint64_t vx_file_row_count(vx_file_reader *file_reader, const vx_error **error);
-
-/**
- * Free the file and all associated resources.
- *
- * This function will not automatically free any :c:func:`vx_array_iterator` that were built from
- * this file.
- */
-void vx_file_reader_free(vx_file_reader *file);
+vx_array_iterator *vx_file_scan(const vx_file *file,
+                                const vx_file_scan_options *opts,
+                                const vx_error **error);
 
 /**
  * Set the stderr logger to output at the specified level.
@@ -660,7 +699,7 @@ const vx_session *vx_session_new(void);
  * To close the stream close the sink with `vx_array_sink_close`.
  */
 vx_array_sink *vx_array_sink_open_file(const char *path,
-                                       const DType *dtype,
+                                       const vx_dtype *dtype,
                                        const vx_error **error);
 
 /**

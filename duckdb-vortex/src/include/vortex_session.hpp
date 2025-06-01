@@ -7,14 +7,14 @@ namespace vortex {
 
 class VortexSession : public duckdb::ObjectCacheEntry {
 public:
-	VortexSession() : session(vx_session_create()) {
+	VortexSession() : session(vx_session_new()) {
 	}
 
 	~VortexSession() override {
 		vx_session_free(session);
 	}
 
-	vx_session *session;
+	const vx_session *session;
 
 	static std::string ObjectType() {
 		return "vortex_session_cache_metadata";

@@ -25,8 +25,8 @@ header = """
 // limitations under the License.
 """
 
-[parse.expand]
-crates = ["vortex-ffi"]
+[export.rename]
+"f16" = "uint16_t"
 
 [defines]
 "feature = duckdb" = "ENABLE_DUCKDB_FFI"
@@ -34,3 +34,7 @@ crates = ["vortex-ffi"]
 [parse]
 parse_deps = true
 include = ["vortex", "vortex-dtype"]
+
+[parse.expand]
+crates = ["vortex-ffi"]
+features = ["duckdb"]
