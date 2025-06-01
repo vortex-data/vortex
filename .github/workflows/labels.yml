@@ -17,7 +17,7 @@ jobs:
         with:
           route: GET /repos/{owner}/{repo}/pulls/{pull_number}/labels
           owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repo.name }}
+          repo: ${{ github.event.repository.name }}
           pull_number: ${{ github.event.pull_request.number }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Automatically provided token
