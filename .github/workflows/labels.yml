@@ -2,21 +2,42 @@ name: PR Labels
 
 on:
   pull_request:
-    types: [ opened, reopened, synchronize, labeled, unlabeled ]
+    types: [ opened, reopened, synchronize, labeled, unlabeled ] # Trigger on these PR activities
 
 jobs:
   check_release_label:
-    name: Missing changelog label
+    name: Validate Changelog Label
     runs-on: ubuntu-latest
     steps:
-      - if: >
-          contains(github.event.pull_request.labels.*.name, 'chore') == false &&
-          contains(github.event.pull_request.labels.*.name, 'bug') == false &&
-          contains(github.event.pull_request.labels.*.name, 'feature') == false &&
-          contains(github.event.pull_request.labels.*.name, 'fix') == false &&
-          contains(github.event.pull_request.labels.*.name, 'performance') == false &&
-          contains(github.event.pull_request.labels.*.name, 'break') == false &&
-          contains(github.event.pull_request.labels.*.name, 'wire-break') == false
+      - name: Check for required changelog label
+        id: check_label # Add an ID to easily reference the output of this step
         run: |
-          echo "${{ toJson(github.event.pull_request.labels.*.name) }}"
-          exit 1
+          # Define the allowed changelog labels
+          REQUIRED_LABELS=(
+            "chore"
+            "bug"
+            "feature"
+            "fix"
+            "performance"
+            "break"
+            "wire-break"
+          )
+
+          PR_LABELS_JSON="${{ toJson(github.event.pull_request.labels.*.name) }}"
+          echo "PR Labels: $PR_LABELS_JSON"
+
+          # Use jq to parse the JSON array of labels and check for presence
+          # If any of the required labels are found, 'found_one' will be true.
+          found_one=false
+          for label in "${REQUIRED_LABELS[@]}"; do
+            if echo "$PR_LABELS_JSON" | jq -e "contains([\"$label\"])"; then
+              echo "Found required label: $label"
+              found_one=true
+              break # Exit loop once one is found
+            fi
+          done
+
+          if [ "$found_one" = false ]; then
+            echo "::error file=.github/workflows/pr-labels.yml::Pull Request is missing a required changelog label. Please add one of: ${REQUIRED_LABELS[*]}."
+            exit 1
+          fi
