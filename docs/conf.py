@@ -1,6 +1,6 @@
 import doctest
-from pathlib import Path
 import re
+from pathlib import Path
 
 import hawkmoth.docstring
 
