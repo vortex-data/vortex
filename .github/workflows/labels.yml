@@ -47,7 +47,7 @@ jobs:
 
           found_one=false
           for label in "${REQUIRED_LABELS[@]}"; do
-            if echo "$CURRENT_PR_LABELS_JSON" | jq -e "contains([\"$label\"])"; then
+            if echo "$CURRENT_PR_LABELS_JSON" | jq -e --arg label "$label" 'contains([$label])'; then
               echo "Found required label: $label"
               found_one=true
               break
