@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::compute::list_contains;
+use vortex_array::compute::list_contains as compute_list_contains;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -13,16 +13,16 @@ use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
-pub struct IsIn {
+pub struct ListContains {
+    list: ExprRef,
     value: Scalar,
-    child: ExprRef,
 }
 
-impl IsIn {
-    pub fn new_expr(value: impl Into<Scalar>, child: ExprRef) -> ExprRef {
+impl ListContains {
+    pub fn new_expr(list: ExprRef, value: impl Into<Scalar>) -> ExprRef {
         Arc::new(Self {
+            list,
             value: value.into(),
-            child,
         })
     }
 
@@ -31,13 +31,13 @@ impl IsIn {
     }
 }
 
-pub fn is_in(value: impl Into<Scalar>, child: ExprRef) -> ExprRef {
-    IsIn::new_expr(value, child)
+pub fn list_contains(list: ExprRef, value: impl Into<Scalar>) -> ExprRef {
+    ListContains::new_expr(list, value)
 }
 
-impl Display for IsIn {
+impl Display for ListContains {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} in {}", &self.value, &self.child)
+        write!(f, "{}.contains({})", &self.list, &self.value)
     }
 }
 
@@ -48,60 +48,60 @@ pub(crate) mod proto {
     use vortex_proto::expr::kind::Kind;
     use vortex_scalar::Scalar;
 
-    use crate::is_in::IsIn;
+    use crate::list_contains::ListContains;
     use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id};
 
-    pub(crate) struct IsInSerde;
+    pub(crate) struct ListContainsSerde;
 
-    impl Id for IsInSerde {
+    impl Id for ListContainsSerde {
         fn id(&self) -> &'static str {
-            "is_in"
+            "list_contains"
         }
     }
 
-    impl ExprDeserialize for IsInSerde {
+    impl ExprDeserialize for ListContainsSerde {
         fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::IsIn(kind::IsIn { value }) = kind else {
-                vortex_bail!("wrong kind {:?}, want is_in", kind)
+            let Kind::ListContains(kind::ListContains { value }) = kind else {
+                vortex_bail!("wrong kind {:?}, want list_contains", kind)
             };
             let scalar: Scalar = value
                 .as_ref()
                 .ok_or_else(|| vortex_err!("empty literal scalar"))?
                 .try_into()?;
 
-            Ok(IsIn::new_expr(scalar, children[0].clone()))
+            Ok(ListContains::new_expr(children[0].clone(), scalar))
         }
     }
 
-    impl ExprSerializable for IsIn {
+    impl ExprSerializable for ListContains {
         fn id(&self) -> &'static str {
-            IsInSerde.id()
+            ListContainsSerde.id()
         }
 
         fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::IsIn(kind::IsIn {
+            Ok(Kind::ListContains(kind::ListContains {
                 value: Some((&self.value).into()),
             }))
         }
     }
 }
 
-impl VortexExpr for IsIn {
+impl VortexExpr for ListContains {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        list_contains(self.child.evaluate(batch)?.as_ref(), self.value.clone())
+        compute_list_contains(self.list.evaluate(batch)?.as_ref(), self.value.clone())
     }
 
     fn children(&self) -> Vec<&ExprRef> {
-        vec![&self.child]
+        vec![&self.list]
     }
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 1);
-        Self::new_expr(self.value().clone(), children[0].clone())
+        Self::new_expr(children[0].clone(), self.value().clone())
     }
 
     fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
@@ -110,9 +110,9 @@ impl VortexExpr for IsIn {
     }
 }
 
-impl PartialEq for IsIn {
-    fn eq(&self, other: &IsIn) -> bool {
-        self.value == other.value && self.child.eq(&other.child)
+impl PartialEq for ListContains {
+    fn eq(&self, other: &ListContains) -> bool {
+        self.value == other.value && self.list.eq(&other.list)
     }
 }
 
@@ -125,7 +125,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::ident;
-    use crate::is_in::is_in;
+    use crate::list_contains::list_contains;
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
@@ -138,10 +138,10 @@ mod tests {
     }
 
     #[test]
-    pub fn test_is_in_one() {
+    pub fn test_one() {
         let arr = test_array();
 
-        let expr = is_in(1, ident());
+        let expr = list_contains(ident(), 1);
         let item = expr.evaluate(arr.as_ref()).unwrap();
 
         assert_eq!(
@@ -155,10 +155,10 @@ mod tests {
     }
 
     #[test]
-    pub fn test_is_in_both() {
+    pub fn test_all() {
         let arr = test_array();
 
-        let expr = is_in(2, ident());
+        let expr = list_contains(ident(), 2);
         let item = expr.evaluate(arr.as_ref()).unwrap();
 
         assert_eq!(
@@ -172,10 +172,10 @@ mod tests {
     }
 
     #[test]
-    pub fn test_is_in_none() {
+    pub fn test_none() {
         let arr = test_array();
 
-        let expr = is_in(4, ident());
+        let expr = list_contains(ident(), 4);
         let item = expr.evaluate(arr.as_ref()).unwrap();
 
         assert_eq!(
@@ -189,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_is_in_empty() {
+    pub fn test_empty() {
         let arr = ListArray::try_new(
             PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
             PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
@@ -198,7 +198,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr = is_in(2, ident());
+        let expr = list_contains(ident(), 2);
         let item = expr.evaluate(arr.as_ref()).unwrap();
 
         assert_eq!(
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    pub fn test_is_in_nullable() {
+    pub fn test_nullable() {
         let arr = ListArray::try_new(
             PrimitiveArray::from_iter(vec![1, 1, 2, 2, 2]).into_array(),
             PrimitiveArray::from_iter(vec![0, 5, 5]).into_array(),
@@ -221,7 +221,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr = is_in(2, ident());
+        let expr = list_contains(ident(), 2);
         let item = expr.evaluate(arr.as_ref()).unwrap();
 
         assert_eq!(

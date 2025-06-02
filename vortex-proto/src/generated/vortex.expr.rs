@@ -55,7 +55,7 @@ pub mod kind {
     #[derive(Clone, Copy, PartialEq, ::prost::Message)]
     pub struct IsNull {}
     #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct IsIn {
+    pub struct ListContains {
         #[prost(message, optional, tag = "1")]
         pub value: ::core::option::Option<super::super::scalar::Scalar>,
     }
@@ -137,6 +137,6 @@ pub mod kind {
         #[prost(message, tag = "10")]
         IsNull(IsNull),
         #[prost(message, tag = "11")]
-        IsIn(IsIn),
+        ListContains(ListContains),
     }
 }

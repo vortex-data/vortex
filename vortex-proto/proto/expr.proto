@@ -27,7 +27,7 @@ message Kind {
     Between between = 8;
     Like like = 9;
     IsNull is_null = 10;
-    IsIn is_in = 11;
+    ListContains list_contains = 11;
   }
 
   message Literal {
@@ -79,7 +79,7 @@ message Kind {
 
   }
 
-  message IsIn {
+  message ListContains {
     vortex.scalar.Scalar value = 1;
   }
 }
