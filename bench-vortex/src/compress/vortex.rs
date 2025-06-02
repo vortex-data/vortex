@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::sync::Arc;
 
 use arrow_array::ArrayRef;
 use bytes::Bytes;
@@ -7,11 +8,14 @@ use tokio::runtime::Handle;
 use vortex::Array;
 use vortex::arrow::IntoArrowArray;
 use vortex::error::VortexResult;
-use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
 
 #[inline(never)]
 pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> VortexResult<u64> {
     Ok(VortexWriteOptions::default()
+        .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
+            Handle::current(),
+        )))
         .write(Cursor::new(buf), array.to_array_stream())
         .await?
         .position())

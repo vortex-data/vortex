@@ -15,6 +15,7 @@ version = { workspace = true }
 
 [dependencies]
 arcref = { workspace = true }
+async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 dashmap = { workspace = true }

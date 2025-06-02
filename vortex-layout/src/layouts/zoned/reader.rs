@@ -292,7 +292,9 @@ mod test {
 
     use arcref::ArcRef;
     use futures::executor::block_on;
+    use futures::stream;
     use rstest::{fixture, rstest};
+    use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
     use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
@@ -300,42 +302,36 @@ mod test {
     use vortex_expr::{Identity, gt, lit};
     use vortex_mask::Mask;
 
-    use crate::LayoutRef;
-    use crate::layouts::chunked::writer::ChunkedLayoutWriter;
+    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedLayoutWriter};
-    use crate::segments::{SegmentSource, TestSegments};
-    use crate::writer::LayoutWriterExt;
+    use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
+    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
     fn stats_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
-        let mut segments = TestSegments::default();
-        let layout = ZonedLayoutWriter::new(
-            ctx.clone(),
-            &DType::Primitive(PType::I32, NonNullable),
-            ChunkedLayoutWriter::new(
-                ctx.clone(),
-                DType::Primitive(PType::I32, NonNullable),
-                Default::default(),
-            )
-            .boxed(),
+        let segments = TestSegments::default();
+        let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+        let strategy = ZonedStrategy::new(
+            ArcRef::new_arc(Arc::new(ChunkedLayoutStrategy::default())),
             ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
             ZonedLayoutOptions {
                 block_size: 3,
                 ..Default::default()
             },
-        )
-        .push_all(
-            &mut segments,
-            [
-                Ok(buffer![1, 2, 3].into_array()),
-                Ok(buffer![4, 5, 6].into_array()),
-                Ok(buffer![7, 8, 9].into_array()),
-            ],
-        )
-        .unwrap();
+        );
+        let array_stream =
+            sequence_writer.new_sequential(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                DType::Primitive(PType::I32, NonNullable),
+                stream::iter([
+                    Ok(buffer![1, 2, 3].into_array()),
+                    Ok(buffer![4, 5, 6].into_array()),
+                    Ok(buffer![7, 8, 9].into_array()),
+                ]),
+            )));
+        let layout = block_on(strategy.write_stream(&ctx, sequence_writer, array_stream)).unwrap();
         (ctx, Arc::new(segments), layout)
     }
 

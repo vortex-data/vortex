@@ -22,12 +22,13 @@ use humansize::{DECIMAL, format_size};
 use regex::Regex;
 use tokio::fs::File;
 use tokio::process::Command as TokioCommand;
+use tokio::runtime::Handle;
 use tracing::{debug, info};
 use url::Url;
 use vortex::ArrayRef;
 use vortex::aliases::hash_map::HashMap;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
 use vortex::stream::ArrayStreamExt;
 use vortex_datafusion::persistent::VortexFormat;
 
@@ -334,6 +335,9 @@ impl PBIData {
             async move {
                 let vortex_file = idempotent_async(&vortex, async |output_path| {
                     VortexWriteOptions::default()
+                        .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
+                            Handle::current(),
+                        )))
                         .write(
                             File::create(output_path).await.unwrap(),
                             parquet_to_vortex(parquet).unwrap(),
