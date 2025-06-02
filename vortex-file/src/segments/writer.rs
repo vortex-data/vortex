@@ -1,7 +1,6 @@
 use futures::StreamExt;
 use futures::channel::mpsc;
 use futures::io::Cursor;
-use parking_lot::Mutex;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 use vortex_io::VortexWrite;
@@ -9,28 +8,24 @@ use vortex_layout::segments::{SegmentId, SegmentWriter};
 
 use crate::footer::SegmentSpec;
 
+/// A segment writer that enforces segment id's it receives are monotonically increasing.
+/// It does buffer segments in a flush channel.
 pub struct SerialSegmentWriter {
-    state: Mutex<State>,
-}
-
-struct State {
     flush_tx: mpsc::UnboundedSender<Vec<ByteBuffer>>,
     next_expected: SegmentId,
 }
 
 impl SegmentWriter for SerialSegmentWriter {
-    fn put(&self, segment_id: SegmentId, buffer: Vec<ByteBuffer>) -> VortexResult<()> {
-        let mut guard = self.state.lock();
-        if segment_id != guard.next_expected {
+    fn put(&mut self, segment_id: SegmentId, buffer: Vec<ByteBuffer>) -> VortexResult<()> {
+        if segment_id != self.next_expected {
             vortex_bail!(
                 "out of order segment id, expected {:?}, got {:?}",
-                guard.next_expected,
+                self.next_expected,
                 segment_id
             );
         }
-        guard.next_expected = SegmentId::from(*segment_id + 1);
-        guard
-            .flush_tx
+        self.next_expected = SegmentId::from(*segment_id + 1);
+        self.flush_tx
             .unbounded_send(buffer)
             .map_err(|_| vortex_err!("out of memory"))
             .vortex_unwrap();
@@ -39,17 +34,16 @@ impl SegmentWriter for SerialSegmentWriter {
 }
 
 impl SerialSegmentWriter {
+    /// Create a [SegmentWriter] and a [SegmentFlusher].
     pub fn create() -> (Self, SegmentFlusher) {
-        // TODO(os): make this bounded, slow I/O means we will buffer
-        // in memory unbounded. Currently tx is used in an impl Drop so
-        // we can't do a bounded async send.
+        // TODO(os): make this bounded, on slow I/O we will buffer
+        // in memory unbounded. We should make SegmentWriter::put async
+        // and do a bounded send in this implementation.
         let (flush_tx, rx) = mpsc::unbounded();
         (
             SerialSegmentWriter {
-                state: Mutex::new(State {
-                    flush_tx,
-                    next_expected: SegmentId::from(0),
-                }),
+                flush_tx,
+                next_expected: SegmentId::from(0),
             },
             SegmentFlusher {
                 rx,
@@ -65,6 +59,8 @@ pub struct SegmentFlusher {
 }
 
 impl SegmentFlusher {
+    /// Flush received Segments to the writer. Returns a future that will progress until
+    /// the sender is dropped.
     pub async fn flush<W: VortexWrite>(
         mut self,
         mut writer: Cursor<W>,
