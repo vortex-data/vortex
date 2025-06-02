@@ -38,7 +38,7 @@ jobs:
 
           # Parse the response from the API call
           # The API returns an array of label objects, we need just the 'name' property
-          API_RESPONSE="${{ steps.get_labels_api.outputs.data }}"
+          API_RESPONSE='${{ steps.get_labels_api.outputs.data }}'
           echo "API Response: $API_RESPONSE"
 
           # Extract only the label names into a JSON array
