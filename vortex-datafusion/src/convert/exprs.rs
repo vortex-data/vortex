@@ -1,5 +1,5 @@
-use datafusion_expr::Operator as DFOperator;
-use datafusion_physical_expr::{PhysicalExpr, expressions};
+use datafusion::logical_expr::Operator as DFOperator;
+use datafusion::physical_expr::{PhysicalExpr, expressions};
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{BinaryExpr, ExprRef, Like, Operator, get_item, ident, lit};
 use vortex::scalar::Scalar;

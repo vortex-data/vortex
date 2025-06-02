@@ -2,25 +2,26 @@ use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
-use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
+use datafusion::arrow::datatypes::{Schema, SchemaRef};
 use datafusion::catalog::Session;
-use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
-use datafusion::datasource::file_format::{FileFormat, FileFormatFactory, FilePushdownSupport};
-use datafusion::datasource::physical_plan::{FileScanConfig, FileSinkConfig, FileSource};
-use datafusion_common::parsers::CompressionTypeVariant;
-use datafusion_common::stats::Precision;
-use datafusion_common::{
+use datafusion::common::parsers::CompressionTypeVariant;
+use datafusion::common::stats::Precision;
+use datafusion::common::{
     ColumnStatistics, DataFusionError, GetExt, Result as DFResult, Statistics,
     config_datafusion_err, not_impl_err,
 };
-use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
-use datafusion_datasource::sink::DataSinkExec;
-use datafusion_datasource::source::DataSourceExec;
-use datafusion_expr::Expr;
-use datafusion_expr::dml::InsertOp;
-use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
-use datafusion_physical_plan::ExecutionPlan;
+use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
+use datafusion::datasource::file_format::{FileFormat, FileFormatFactory, FilePushdownSupport};
+use datafusion::datasource::physical_plan::{
+    FileScanConfig, FileScanConfigBuilder, FileSinkConfig, FileSource,
+};
+use datafusion::datasource::sink::DataSinkExec;
+use datafusion::datasource::source::DataSourceExec;
+use datafusion::logical_expr::Expr;
+use datafusion::logical_expr::dml::InsertOp;
+use datafusion::physical_expr::{LexRequirement, PhysicalExpr};
+use datafusion::physical_plan::ExecutionPlan;
 use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
@@ -387,7 +388,7 @@ pub(crate) fn make_vortex_predicate(
         .and_then(|expr| {
             // This splits expressions into conjunctions and converts them to vortex expressions.
             // Any inconvertible expressions are dropped since true /\ a == a.
-            datafusion_physical_expr::split_conjunction(expr)
+            datafusion::physical_expr::split_conjunction(expr)
                 .into_iter()
                 .filter_map(|e| ExprRef::try_from_df(e.as_ref()).ok())
                 .reduce(and)

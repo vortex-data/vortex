@@ -59,8 +59,4 @@ parquet = ["vortex-error/parquet"]
 python = ["vortex-error/python"]
 tokio = ["vortex-io/tokio", "vortex-file/tokio"]
 proto = ["vortex-expr/proto", "vortex-error/prost"]
-tracing = [
-    "vortex-file/tracing",
-    "vortex-io/tracing",
-    "vortex-layout/tracing"
-]
+tracing = ["vortex-file/tracing", "vortex-io/tracing", "vortex-layout/tracing"]

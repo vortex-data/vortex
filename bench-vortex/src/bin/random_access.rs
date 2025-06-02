@@ -74,7 +74,7 @@ fn random_access(
             &runtime,
             iterations,
             || indices.clone(),
-            |indices| async { take_vortex_tokio(&taxi_vortex, indices).await.unwrap() },
+            |indices| async { take_vortex_tokio(&taxi_vortex, indices).await },
         ),
     });
     progress.inc(1);
@@ -88,7 +88,7 @@ fn random_access(
                 &runtime,
                 iterations,
                 || indices.clone(),
-                |indices| async { take_parquet(&taxi_parquet, indices).await.unwrap() },
+                |indices| async { take_parquet(&taxi_parquet, indices).await },
             ),
         });
         progress.inc(1);

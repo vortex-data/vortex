@@ -17,7 +17,7 @@ fn register_vortex_format_factory(
 ) {
     if let Some(table_factories) = session_state_builder.table_factories() {
         table_factories.insert(
-            datafusion_common::GetExt::get_ext(&factory).to_uppercase(), // Has to be uppercase
+            datafusion::common::GetExt::get_ext(&factory).to_uppercase(), // Has to be uppercase
             std::sync::Arc::new(datafusion::datasource::provider::DefaultTableFactory::new()),
         );
     }

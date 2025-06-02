@@ -1,12 +1,10 @@
 //! Connectors to enable DataFusion to read Vortex data.
 #![deny(missing_docs)]
-#![allow(clippy::cast_possible_truncation)]
-
 use std::fmt::Debug;
 
-use arrow_schema::{DataType, Schema};
-use datafusion_common::stats::Precision as DFPrecision;
-use datafusion_expr::{Expr, Operator};
+use datafusion::arrow::datatypes::{DataType, Schema};
+use datafusion::common::stats::Precision as DFPrecision;
+use datafusion::logical_expr::{Expr, Operator};
 use vortex::stats::Precision;
 
 mod convert;

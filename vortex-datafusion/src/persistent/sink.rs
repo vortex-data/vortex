@@ -2,16 +2,16 @@ use std::any::Any;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use arrow_schema::SchemaRef;
 use async_trait::async_trait;
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::common::DataFusionError;
 use datafusion::common::runtime::SpawnedTask;
 use datafusion::datasource::file_format::write::demux::DemuxedStreamReceiver;
 use datafusion::datasource::physical_plan::{FileSink, FileSinkConfig};
-use datafusion_common::DataFusionError;
-use datafusion_datasource::sink::DataSink;
-use datafusion_execution::{SendableRecordBatchStream, TaskContext};
-use datafusion_physical_plan::metrics::MetricsSet;
-use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
+use datafusion::datasource::sink::DataSink;
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::physical_plan::metrics::MetricsSet;
+use datafusion::physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
 use object_store::ObjectStore;
 use tokio_stream::wrappers::ReceiverStream;
@@ -70,7 +70,7 @@ impl DataSink for VortexSink {
         &self,
         data: SendableRecordBatchStream,
         context: &Arc<TaskContext>,
-    ) -> datafusion_common::Result<u64> {
+    ) -> datafusion::common::Result<u64> {
         FileSink::write_all(self, data, context).await
     }
 }
@@ -84,10 +84,10 @@ impl FileSink for VortexSink {
     async fn spawn_writer_tasks_and_join(
         &self,
         _context: &Arc<TaskContext>,
-        demux_task: SpawnedTask<datafusion_common::Result<()>>,
+        demux_task: SpawnedTask<datafusion::common::Result<()>>,
         mut file_stream_rx: DemuxedStreamReceiver,
         object_store: Arc<dyn ObjectStore>,
-    ) -> datafusion_common::Result<u64> {
+    ) -> datafusion::common::Result<u64> {
         // This is a hack
         let row_counter = Arc::new(AtomicU64::new(0));
 
@@ -134,8 +134,8 @@ mod tests {
 
     use datafusion::datasource::DefaultTableSource;
     use datafusion::execution::SessionStateBuilder;
+    use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
     use datafusion::prelude::SessionContext;
-    use datafusion_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
     use tempfile::TempDir;
 
     use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
@@ -177,7 +177,7 @@ mod tests {
             LogicalPlan::Values(values.clone()),
             "my_tbl",
             Arc::new(DefaultTableSource::new(tbl_provider)),
-            datafusion_expr::dml::InsertOp::Append,
+            datafusion::logical_expr::dml::InsertOp::Append,
         )
         .unwrap()
         .build()

@@ -1,10 +1,11 @@
 use std::ops::Range;
 use std::sync::{Arc, Weak};
 
-use arrow_schema::{ArrowError, SchemaRef};
 use dashmap::{DashMap, Entry};
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::arrow::error::ArrowError;
+use datafusion::common::{DataFusionError, Result as DFResult};
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
-use datafusion_common::{DataFusionError, Result as DFResult};
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
 use object_store::path::Path;

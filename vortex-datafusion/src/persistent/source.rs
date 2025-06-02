@@ -1,11 +1,11 @@
 use std::any::Any;
 use std::sync::{Arc, Weak};
 
-use arrow_schema::SchemaRef;
 use dashmap::DashMap;
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::common::{Result as DFResult, Statistics};
 use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig, FileSource};
-use datafusion_common::{Result as DFResult, Statistics};
-use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
+use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::error::VortexExpect as _;

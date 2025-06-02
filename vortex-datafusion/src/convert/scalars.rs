@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use datafusion_common::ScalarValue;
+use datafusion::common::ScalarValue;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::datetime::arrow::make_temporal_ext_dtype;
 use vortex::dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
@@ -188,7 +188,7 @@ impl FromDataFusion<ScalarValue> for Scalar {
                     .with_nullability(Nullability::Nullable);
                 Scalar::new(
                     DType::Extension(Arc::new(ext_dtype)),
-                    v.map(|i| vortex::scalar::ScalarValue::from(i))
+                    v.map(vortex::scalar::ScalarValue::from)
                         .unwrap_or_else(vortex::scalar::ScalarValue::null),
                 )
             }
@@ -202,7 +202,7 @@ impl FromDataFusion<ScalarValue> for Scalar {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type());
                 Scalar::new(
                     DType::Extension(Arc::new(ext_dtype.with_nullability(Nullability::Nullable))),
-                    v.map(|i| vortex::scalar::ScalarValue::from(i))
+                    v.map(vortex::scalar::ScalarValue::from)
                         .unwrap_or_else(vortex::scalar::ScalarValue::null),
                 )
             }
