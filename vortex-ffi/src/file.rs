@@ -130,7 +130,7 @@ impl vx_file_scan_options {
 pub unsafe extern "C-unwind" fn vx_file_open_reader(
     options: *const vx_file_open_options,
     session: *const vx_session,
-    error: *mut *const vx_error,
+    error: *mut *mut vx_error,
 ) -> *const vx_file {
     let session = vx_session::as_ref(session);
 
@@ -181,7 +181,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 pub unsafe extern "C-unwind" fn vx_file_write_array(
     path: *const c_char,
     array: *const vx_array,
-    error: *mut *const vx_error,
+    error: *mut *mut vx_error,
 ) {
     let array = vx_array::as_ref(array);
     try_or(error, (), || {
@@ -224,7 +224,7 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
     file: *const vx_file,
     filter_expression: *const c_char,
     filter_expression_len: c_uint,
-    error: *mut *const vx_error,
+    error: *mut *mut vx_error,
 ) -> bool {
     try_or(error, false, || {
         let file = vx_file::as_ref(file);
@@ -241,7 +241,7 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
 pub unsafe extern "C-unwind" fn vx_file_scan(
     file: *const vx_file,
     opts: *const vx_file_scan_options,
-    error: *mut *const vx_error,
+    error: *mut *mut vx_error,
 ) -> *mut vx_array_iterator {
     try_or(error, ptr::null_mut(), || {
         let file = vx_file::as_ref(file);

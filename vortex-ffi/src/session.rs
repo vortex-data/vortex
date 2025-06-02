@@ -26,7 +26,7 @@ box_wrapper!(
 ///
 /// The caller is responsible for freeing the session with [`vx_session_free`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_session_new() -> *const vx_session {
+pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
     vx_session::new(Box::new(VortexSession::new()))
 }
 

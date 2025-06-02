@@ -8,7 +8,7 @@
 
 namespace vortex {
 
-inline void HandleError(const vx_error *error) {
+inline void HandleError(vx_error *error) {
 	if (error != nullptr) {
 		auto msg_str = vx_error_get_message(error);
 		auto msg = std::string(vx_string_ptr(msg_str), vx_string_len(msg_str));
@@ -19,9 +19,9 @@ inline void HandleError(const vx_error *error) {
 
 template <typename Func>
 auto Try(Func func) {
-	const vx_error *error = nullptr;
+	vx_error *error = nullptr;
 	// Handle both void and non-void return types.
-	if constexpr (std::is_void_v<std::invoke_result_t<Func, const vx_error **>>) {
+	if constexpr (std::is_void_v<std::invoke_result_t<Func, vx_error **>>) {
 		func(&error);
 		HandleError(error);
 	} else {

@@ -30,7 +30,7 @@ pub struct vx_array_sink {
 pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
     path: *const c_char,
     dtype: *const vx_dtype,
-    error: *mut *const vx_error,
+    error: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
     try_or(error, ptr::null_mut(), || {
         let path = unsafe { path.as_ref() }.vortex_expect("null path");
@@ -59,7 +59,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
 pub unsafe extern "C-unwind" fn vx_array_sink_push(
     sink: *mut vx_array_sink,
     array: *const vx_array,
-    error: *mut *const vx_error,
+    error: *mut *mut vx_error,
 ) {
     let array = vx_array::as_ref(array);
     let sink = unsafe { sink.as_ref().vortex_expect("null array stream") };
@@ -75,7 +75,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_sink_close(
     sink: *mut vx_array_sink,
-    error: *mut *const vx_error,
+    error: *mut *mut vx_error,
 ) {
     try_or(error, (), || {
         let vx_array_sink { sink, writer } = *unsafe { Box::from_raw(sink) };

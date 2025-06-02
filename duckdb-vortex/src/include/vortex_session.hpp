@@ -14,7 +14,7 @@ public:
 		vx_session_free(session);
 	}
 
-	const vx_session *session;
+	vx_session *session;
 
 	static std::string ObjectType() {
 		return "vortex_session_cache_metadata";

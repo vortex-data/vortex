@@ -21,7 +21,7 @@ use crate::to_string;
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
     dtype: *const vx_dtype,
-    error: *mut *const vx_error,
+    error: *mut *mut vx_error,
 ) -> duckdb_logical_type {
     let dtype = vx_dtype::as_ref(dtype);
     try_or(error, ptr::null_mut(), || {
@@ -36,7 +36,7 @@ pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
     column_nullable: *const c_uchar,
     column_names: *const *const c_char,
     column_count: c_int,
-    error: *mut *const vx_error,
+    error: *mut *mut vx_error,
 ) -> *const vx_dtype {
     try_or(error, ptr::null_mut(), || {
         let field_names: Vec<Arc<str>> = (0..column_count)
@@ -69,7 +69,7 @@ pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
 pub unsafe extern "C-unwind" fn vx_duckdb_chunk_to_array(
     chunk: duckdb_data_chunk,
     dtype: *const vx_dtype,
-    error: *mut *const vx_error,
+    error: *mut *mut vx_error,
 ) -> *const vx_array {
     let dtype = vx_dtype::as_ref(dtype);
     try_or(error, ptr::null_mut(), || {
