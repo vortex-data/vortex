@@ -6,7 +6,7 @@
 mod array;
 mod array_iterator;
 mod dtype;
-mod dtype_struct;
+mod struct_fields;
 #[cfg(feature = "duckdb")]
 mod duckdb;
 mod error;

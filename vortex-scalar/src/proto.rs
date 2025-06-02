@@ -266,7 +266,7 @@ mod test {
 mod tests {
     use half::f16;
     use rstest::rstest;
-    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, StructDType, half};
+    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, StructFields, half};
 
     use super::*;
     use crate::{Scalar, i256};

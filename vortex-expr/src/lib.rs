@@ -190,11 +190,11 @@ dyn_hash::hash_trait_object!(VortexExpr);
 pub mod test_harness {
     use std::sync::Arc;
 
-    use vortex_dtype::{DType, Nullability, PType, StructDType};
+    use vortex_dtype::{DType, Nullability, PType, StructFields};
 
     pub fn struct_dtype() -> DType {
         DType::Struct(
-            Arc::new(StructDType::new(
+            Arc::new(StructFields::new(
                 [
                     "a".into(),
                     "col1".into(),
@@ -218,7 +218,7 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability, PType, StructDType};
+    use vortex_dtype::{DType, Nullability, PType, StructFields};
     use vortex_scalar::Scalar;
 
     use super::*;
@@ -328,7 +328,7 @@ mod tests {
         assert_eq!(
             lit(Scalar::struct_(
                 DType::Struct(
-                    Arc::new(StructDType::new(
+                    Arc::new(StructFields::new(
                         Arc::from([Arc::from("dog"), Arc::from("cat")]),
                         vec![
                             DType::Primitive(PType::U32, Nullability::NonNullable),

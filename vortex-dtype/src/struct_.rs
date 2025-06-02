@@ -148,17 +148,16 @@ impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
     }
 }
 
-/// A struct dtype is a list of names and corresponding dtypes
-// FIXME(ngates): rename to StructFields
+/// Contains a list of names and corresponding dtypes
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct StructDType {
+pub struct StructFields {
     names: FieldNames,
     dtypes: Arc<[FieldDType]>,
 }
 
-impl StructDType {
-    /// Create a new [`StructDType`] from a list of names and dtypes
+impl StructFields {
+    /// Create a new [`StructFields`] from a list of names and dtypes
     pub fn new(names: FieldNames, dtypes: Vec<DType>) -> Self {
         if names.len() != dtypes.len() {
             vortex_panic!(
@@ -179,7 +178,7 @@ impl StructDType {
         Self { names, dtypes }
     }
 
-    /// Create a new [`StructDType`] from a  list of names and [`FieldDType`] which can be either lazily or eagerly serialized.
+    /// Create a new [`StructFields`] from a  list of names and [`FieldDType`] which can be either lazily or eagerly serialized.
     pub fn from_fields(names: FieldNames, dtypes: Vec<FieldDType>) -> Self {
         if names.len() != dtypes.len() {
             vortex_panic!(
@@ -259,11 +258,11 @@ impl StructDType {
             dtypes.push(self.dtypes[idx].clone());
         }
 
-        Ok(StructDType::from_fields(names.into(), dtypes))
+        Ok(StructFields::from_fields(names.into(), dtypes))
     }
 }
 
-impl<T, V> FromIterator<(T, V)> for StructDType
+impl<T, V> FromIterator<(T, V)> for StructFields
 where
     T: Into<FieldName>,
     V: Into<FieldDType>,
@@ -273,20 +272,20 @@ where
             .into_iter()
             .map(|(name, dtype)| (name.into(), dtype.into()))
             .unzip();
-        StructDType::from_fields(names.into(), dtypes)
+        StructFields::from_fields(names.into(), dtypes)
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::dtype::DType;
-    use crate::{Nullability, PType, StructDType};
+    use crate::{Nullability, PType, StructFields};
 
     #[test]
     fn nullability() {
         assert!(
             !DType::Struct(
-                StructDType::new(vec![].into(), Vec::new()).into(),
+                StructFields::new(vec![].into(), Vec::new()).into(),
                 Nullability::NonNullable
             )
             .is_nullable()
@@ -304,7 +303,7 @@ mod test {
         let b_type = DType::Bool(Nullability::NonNullable);
 
         let dtype = DType::Struct(
-            StructDType::from_iter([("A", a_type.clone()), ("B", b_type.clone())]).into(),
+            StructFields::from_iter([("A", a_type.clone()), ("B", b_type.clone())]).into(),
             Nullability::Nullable,
         );
         assert!(dtype.is_nullable());

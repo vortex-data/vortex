@@ -2,7 +2,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, Nullability, StructDType};
+use vortex_dtype::{DType, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
 use vortex_scalar::StructScalar;
@@ -15,14 +15,14 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,
     validity: LazyNullBufferBuilder,
-    struct_dtype: Arc<StructDType>,
+    struct_dtype: Arc<StructFields>,
     nullability: Nullability,
     dtype: DType,
 }
 
 impl StructBuilder {
     pub fn with_capacity(
-        struct_dtype: Arc<StructDType>,
+        struct_dtype: Arc<StructFields>,
         nullability: Nullability,
         capacity: usize,
     ) -> Self {
@@ -106,7 +106,7 @@ impl ArrayBuilder for StructBuilder {
             );
         }
 
-        for (a, builder) in (0..array.struct_dtype().nfields())
+        for (a, builder) in (0..array.struct_fields().nfields())
             .map(|i| &array.fields()[i])
             .zip_eq(self.builders.iter_mut())
         {
@@ -161,7 +161,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability, StructDType};
+    use vortex_dtype::{DType, Nullability, StructFields};
     use vortex_scalar::Scalar;
 
     use crate::builders::ArrayBuilder;
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn test_struct_builder() {
-        let sdt = Arc::new(StructDType::new(
+        let sdt = Arc::new(StructFields::new(
             vec![Arc::from("a"), Arc::from("b")].into(),
             vec![I32.into(), I32.into()],
         ));
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn test_append_nullable_struct() {
-        let sdt = Arc::new(StructDType::new(
+        let sdt = Arc::new(StructFields::new(
             vec![Arc::from("a"), Arc::from("b")].into(),
             vec![I32.into(), I32.into()],
         ));

@@ -75,14 +75,14 @@ impl LayoutWriter for StructLayoutWriter {
             vortex_bail!("Cannot push struct chunks with top level invalid values");
         }
         let struct_array = chunk.to_struct()?;
-        if struct_array.struct_dtype().nfields() != self.column_layout_writers.len() {
+        if struct_array.struct_fields().nfields() != self.column_layout_writers.len() {
             vortex_bail!(
                 "number of fields in struct array does not match number of column layout writers"
             );
         }
         self.row_count += struct_array.len() as u64;
 
-        for i in 0..struct_array.struct_dtype().nfields() {
+        for i in 0..struct_array.struct_fields().nfields() {
             // TODO(joe): handle struct validity
             for column_chunk in struct_array.fields()[i].to_array_iterator() {
                 let column_chunk = column_chunk?;

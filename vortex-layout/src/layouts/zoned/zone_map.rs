@@ -6,7 +6,7 @@ use vortex_array::compute::sum;
 use vortex_array::stats::{Precision, Stat, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{DType, Nullability, PType, StructDType};
+use vortex_dtype::{DType, Nullability, PType, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::layouts::zoned::builder::{
@@ -48,7 +48,7 @@ impl ZoneMap {
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
         assert!(present_stats.is_sorted(), "Stats must be sorted");
         DType::Struct(
-            Arc::new(StructDType::from_iter(
+            Arc::new(StructFields::from_iter(
                 present_stats
                     .iter()
                     .filter_map(|stat| {

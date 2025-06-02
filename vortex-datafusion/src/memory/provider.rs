@@ -25,7 +25,7 @@ use crate::memory::plans::{RowSelectorExec, TakeRowsExec};
 
 /// A [`TableProvider`] that exposes an existing Vortex Array to the DataFusion SQL engine.
 ///
-/// Only arrays that have a top-level [struct type](vortex_dtype::StructDType) can be exposed as
+/// Only arrays that have a top-level [struct type](vortex_dtype::StructFields) can be exposed as
 /// a table to DataFusion.
 #[derive(Debug, Clone)]
 pub struct VortexMemTable {
@@ -34,7 +34,7 @@ pub struct VortexMemTable {
 }
 
 impl VortexMemTable {
-    /// Build a new table provider from an existing [struct type](vortex_dtype::StructDType) array.
+    /// Build a new table provider from an existing [struct type](vortex_dtype::StructFields) array.
     ///
     /// # Panics
     ///

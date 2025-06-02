@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
+use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
@@ -77,10 +77,10 @@ impl StructArray {
     }
 
     pub fn names(&self) -> &FieldNames {
-        self.struct_dtype().names()
+        self.struct_fields().names()
     }
 
-    pub fn struct_dtype(&self) -> &Arc<StructDType> {
+    pub fn struct_fields(&self) -> &Arc<StructFields> {
         let Some(struct_dtype) = &self.dtype.as_struct() else {
             unreachable!(
                 "struct arrays must have be a DType::Struct, this is likely an internal bug."
@@ -111,7 +111,10 @@ impl StructArray {
         }
 
         let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype()).cloned().collect();
-        let dtype = DType::Struct(Arc::new(StructDType::new(names, field_dtypes)), nullability);
+        let dtype = DType::Struct(
+            Arc::new(StructFields::new(names, field_dtypes)),
+            nullability,
+        );
 
         Ok(Self {
             len: length,
@@ -124,7 +127,7 @@ impl StructArray {
 
     pub fn try_new_with_dtype(
         fields: Vec<ArrayRef>,
-        dtype: Arc<StructDType>,
+        dtype: Arc<StructFields>,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -237,7 +240,7 @@ impl OperationsVTable<StructVTable> for StructVTable {
             .try_collect()?;
         StructArray::try_new_with_dtype(
             fields,
-            array.struct_dtype().clone(),
+            array.struct_fields().clone(),
             stop - start,
             array.validity().slice(start, stop)?,
         )

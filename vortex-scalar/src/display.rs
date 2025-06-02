@@ -27,7 +27,7 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-    use vortex_dtype::{DType, ExtDType, ExtMetadata, PType, StructDType};
+    use vortex_dtype::{DType, ExtDType, ExtMetadata, PType, StructFields};
 
     use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
@@ -92,7 +92,7 @@ mod tests {
     #[test]
     fn display_empty_struct() {
         fn dtype() -> DType {
-            DType::Struct(Arc::new(StructDType::new([].into(), vec![])), Nullable)
+            DType::Struct(Arc::new(StructFields::new([].into(), vec![])), Nullable)
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -104,7 +104,7 @@ mod tests {
     fn display_one_field_struct() {
         fn dtype() -> DType {
             DType::Struct(
-                Arc::new(StructDType::new(
+                Arc::new(StructFields::new(
                     [Arc::from("foo")].into(),
                     vec![DType::Primitive(PType::U32, Nullable)],
                 )),
@@ -134,7 +134,7 @@ mod tests {
         let f1 = DType::Bool(Nullable);
         let f2 = DType::Primitive(PType::U32, Nullable);
         let dtype = DType::Struct(
-            Arc::new(StructDType::new(
+            Arc::new(StructFields::new(
                 [Arc::from("foo"), Arc::from("bar")].into(),
                 vec![f1.clone(), f2.clone()],
             )),

@@ -200,12 +200,12 @@ static void PopulateProjection(ScanGlobalState &global_state, const vector<strin
 /// Extracts schema information from a Vortex file's data type.
 static void ExtractVortexSchema(DType &file_dtype, vector<LogicalType> &column_types, vector<string> &column_names) {
 	auto struct_dtype = vx_dtype_struct_dtype(file_dtype.dtype);
-	uint32_t field_count = vx_struct_dtype_nfields(struct_dtype);
+	uint32_t field_count = vx_struct_fields_nfields(struct_dtype);
 	for (uint32_t idx = 0; idx < field_count; idx++) {
-		auto vx_field_name = vx_struct_dtype_field_name(struct_dtype, idx);
+		auto vx_field_name = vx_struct_fields_field_name(struct_dtype, idx);
 		std::string field_name(vx_string_ptr(vx_field_name), vx_string_len(vx_field_name));
 
-		const vx_dtype *field_dtype = vx_struct_dtype_field_dtype(struct_dtype, idx);
+		const vx_dtype *field_dtype = vx_struct_fields_field_dtype(struct_dtype, idx);
 		auto duckdb_type = Try([&](auto err) { return vx_dtype_to_duckdb_logical_type(field_dtype, err); });
 
 		column_names.push_back(field_name);
