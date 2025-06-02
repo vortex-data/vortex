@@ -120,7 +120,7 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::ToCanonical;
-    use crate::arrays::{ConstantArray, VarBinArray};
+    use crate::arrays::{ConstantArray, VarBinArray, VarBinViewArray};
     use crate::compute::{Operator, compare};
 
     #[test]
@@ -145,6 +145,27 @@ mod test {
         assert_eq!(
             result.boolean_buffer(),
             &BooleanBuffer::from_iter([true, false, false])
+        );
+    }
+
+    #[test]
+    fn varbinview_compare() {
+        let array = VarBinArray::from_iter(
+            [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
+            DType::Binary(Nullability::Nullable),
+        );
+        let vbv = VarBinViewArray::from_iter(
+            [None, None, Some(b"def".to_vec())],
+            DType::Binary(Nullability::Nullable),
+        );
+        let result = compare(array.as_ref(), vbv.as_ref(), Operator::Eq)
+            .unwrap()
+            .to_bool()
+            .unwrap();
+
+        assert_eq!(
+            result.boolean_buffer(),
+            &BooleanBuffer::from_iter([false, true, true])
         );
     }
 }
