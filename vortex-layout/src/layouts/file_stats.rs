@@ -1,32 +1,47 @@
+use std::future;
 use std::sync::Arc;
 
+use futures::StreamExt;
 use itertools::Itertools;
+use parking_lot::Mutex;
 use vortex_array::stats::{Stat, StatsSet};
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{ArrayRef, ToCanonical as _};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::layouts::zoned::zone_map::StatsAccumulator;
-use crate::segments::SegmentWriter;
-use crate::{LayoutRef, LayoutWriter};
+use crate::sequence::SequenceId;
+use crate::{SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt};
 
-/// A layout writer that computes aggregate statistics for all fields.
-///
-/// Note: for now this only collects top-level struct fields.
-pub struct FileStatsLayoutWriter {
-    inner: Box<dyn LayoutWriter>,
+pub fn accumulate_stats(
+    stream: SendableSequentialStream,
     stats: Arc<[Stat]>,
-    stats_accumulators: Vec<StatsAccumulator>,
+    max_variable_length_statistics_size: usize,
+) -> (FileStatsAccumulator, SendableSequentialStream) {
+    let accumulator =
+        FileStatsAccumulator::new(stream.dtype(), stats, max_variable_length_statistics_size);
+    let stream = SequentialStreamAdapter::new(
+        stream.dtype().clone(),
+        stream.scan(accumulator.clone(), |acc, item| {
+            future::ready(Some(acc.process(item)))
+        }),
+    )
+    .sendable();
+    (accumulator, stream)
 }
 
-impl FileStatsLayoutWriter {
-    pub fn new(
-        inner: Box<dyn LayoutWriter>,
-        dtype: &DType,
-        stats: Arc<[Stat]>,
-        max_variable_length_statistics_size: usize,
-    ) -> VortexResult<Self> {
-        let stats_accumulators = match dtype.as_struct() {
+/// An array stream processor that computes aggregate statistics for all fields.
+///
+/// Note: for now this only collects top-level struct fields.
+#[derive(Clone)]
+pub struct FileStatsAccumulator {
+    stats: Arc<[Stat]>,
+    accumulators: Arc<Mutex<Vec<StatsAccumulator>>>,
+}
+
+impl FileStatsAccumulator {
+    fn new(dtype: &DType, stats: Arc<[Stat]>, max_variable_length_statistics_size: usize) -> Self {
+        let accumulators = Arc::new(Mutex::new(match dtype.as_struct() {
             Some(dtype) => dtype
                 .fields()
                 .map(|field_dtype| {
@@ -39,20 +54,35 @@ impl FileStatsLayoutWriter {
                 max_variable_length_statistics_size,
             )]
             .into(),
-        };
+        }));
 
-        Ok(Self {
-            inner,
+        Self {
             stats,
-            stats_accumulators,
-        })
+            accumulators,
+        }
     }
 
-    /// Returns one [`StatsSet`] per field in the [`DType::Struct`] of the layout.
-    pub fn into_stats_sets(self) -> Vec<StatsSet> {
-        self.stats_accumulators
-            .into_iter()
-            .map(|mut acc| {
+    fn process(
+        &self,
+        chunk: VortexResult<(SequenceId, ArrayRef)>,
+    ) -> VortexResult<(SequenceId, ArrayRef)> {
+        let (sequence_id, chunk) = chunk?;
+        if chunk.dtype().is_struct() {
+            let chunk = chunk.to_struct()?;
+            for (acc, field) in self.accumulators.lock().iter_mut().zip_eq(chunk.fields()) {
+                acc.push_chunk(field)?;
+            }
+        } else {
+            self.accumulators.lock()[0].push_chunk(&chunk)?;
+        }
+        Ok((sequence_id, chunk))
+    }
+
+    pub fn stats_sets(&self) -> Vec<StatsSet> {
+        self.accumulators
+            .lock()
+            .iter_mut()
+            .map(|acc| {
                 acc.as_stats_table()
                     .map(|table| {
                         table
@@ -62,31 +92,5 @@ impl FileStatsLayoutWriter {
                     .unwrap_or_default()
             })
             .collect()
-    }
-}
-
-impl LayoutWriter for FileStatsLayoutWriter {
-    fn push_chunk(
-        &mut self,
-        segment_writer: &mut dyn SegmentWriter,
-        chunk: ArrayRef,
-    ) -> VortexResult<()> {
-        if chunk.dtype().is_struct() {
-            let chunk = chunk.to_struct()?;
-            for (acc, field) in self.stats_accumulators.iter_mut().zip_eq(chunk.fields()) {
-                acc.push_chunk(field)?;
-            }
-        } else {
-            self.stats_accumulators[0].push_chunk(&chunk)?;
-        }
-        self.inner.push_chunk(segment_writer, chunk)
-    }
-
-    fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
-        self.inner.flush(segment_writer)
-    }
-
-    fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
-        self.inner.finish(segment_writer)
     }
 }

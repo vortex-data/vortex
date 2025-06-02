@@ -330,7 +330,9 @@ impl ArrayEvaluation for StructArrayEvaluation {
 mod tests {
     use std::sync::Arc;
 
+    use arcref::ArcRef;
     use futures::executor::block_on;
+    use futures::stream;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::StructArray;
     use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
@@ -338,63 +340,56 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
-    use vortex_error::VortexUnwrap;
     use vortex_expr::{get_item, gt, ident, pack};
     use vortex_mask::Mask;
 
-    use crate::LayoutRef;
-    use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::layouts::struct_::writer::StructLayoutWriter;
-    use crate::segments::{SegmentSource, TestSegments};
-    use crate::writer::LayoutWriterExt;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::struct_::writer::StructStrategy;
+    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::sequence::SequenceId;
+    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn struct_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
-        let mut segments = TestSegments::default();
-
-        let layout = StructLayoutWriter::try_new(
-            DType::Struct(
-                Arc::new(StructFields::new(
-                    vec!["a".into(), "b".into(), "c".into()].into(),
-                    vec![I32.into(), I32.into(), I32.into()],
-                )),
-                NonNullable,
+        let segments = TestSegments::default();
+        let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+        let strategy =
+            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let layout = block_on(
+            strategy.write_stream(
+                &ctx,
+                sequence_writer,
+                SequentialStreamAdapter::new(
+                    DType::Struct(
+                        Arc::new(StructFields::new(
+                            vec!["a".into(), "b".into(), "c".into()].into(),
+                            vec![I32.into(), I32.into(), I32.into()],
+                        )),
+                        NonNullable,
+                    ),
+                    stream::once(async {
+                        Ok((
+                            SequenceId::root().downgrade(),
+                            StructArray::from_fields(
+                                [
+                                    ("a", buffer![7, 2, 3].into_array()),
+                                    ("b", buffer![4, 5, 6].into_array()),
+                                    ("c", buffer![4, 5, 6].into_array()),
+                                ]
+                                .as_slice(),
+                            )
+                            .unwrap()
+                            .into_array(),
+                        ))
+                    }),
+                )
+                .sendable(),
             ),
-            vec![
-                Box::new(FlatLayoutWriter::new(
-                    ctx.clone(),
-                    I32.into(),
-                    Default::default(),
-                )),
-                Box::new(FlatLayoutWriter::new(
-                    ctx.clone(),
-                    I32.into(),
-                    Default::default(),
-                )),
-                Box::new(FlatLayoutWriter::new(
-                    ctx.clone(),
-                    I32.into(),
-                    Default::default(),
-                )),
-            ],
-        )
-        .vortex_unwrap()
-        .push_all(
-            &mut segments,
-            [Ok(StructArray::from_fields(
-                [
-                    ("a", buffer![7, 2, 3].into_array()),
-                    ("b", buffer![4, 5, 6].into_array()),
-                    ("c", buffer![4, 5, 6].into_array()),
-                ]
-                .as_slice(),
-            )
-            .unwrap()
-            .into_array())],
         )
         .unwrap();
+
         (ctx, Arc::new(segments), layout)
     }
 
