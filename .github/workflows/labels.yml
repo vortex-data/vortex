@@ -2,21 +2,61 @@ name: PR Labels
 
 on:
   pull_request:
-    types: [ opened, reopened, synchronize, labeled, unlabeled ]
+    types: [ opened, reopened, synchronize, labeled, unlabeled ] # Trigger on these PR activities
 
 jobs:
-  check_release_label:
-    name: Missing changelog label
+  check_changelog_label:
+    name: Validate Changelog Label
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read # Grant permission to read PR information
     steps:
-      - if: >
-          contains(github.event.pull_request.labels.*.name, 'chore') == false &&
-          contains(github.event.pull_request.labels.*.name, 'bug') == false &&
-          contains(github.event.pull_request.labels.*.name, 'feature') == false &&
-          contains(github.event.pull_request.labels.*.name, 'fix') == false &&
-          contains(github.event.pull_request.labels.*.name, 'performance') == false &&
-          contains(github.event.pull_request.labels.*.name, 'break') == false &&
-          contains(github.event.pull_request.labels.*.name, 'wire-break') == false
+      - name: Get PR Labels from API
+        id: get_labels_api
+        uses: octokit/request-action@v2.2.0 # Use an action to make API requests
+        with:
+          route: GET /repos/{owner}/{repo}/issues/{pull_number}/labels
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          pull_number: ${{ github.event.pull_request.number }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Automatically provided token
+
+      - name: Extract and Check Labels
         run: |
-          echo "${{ toJson(github.event.pull_request.labels.*.name) }}"
-          exit 1
+          REQUIRED_LABELS=(
+            "chore"
+            "bug"
+            "feature"
+            "fix"
+            "performance"
+            "break"
+            "wire-break"
+          )
+          REQUIRED_LABELS_JSON=$(jq -n '$ARGS.positional' --args "${REQUIRED_LABELS[@]}")
+          echo "Required Labels: $REQUIRED_LABELS_JSON"
+
+          # Parse the response from the API call
+          # The API returns an array of label objects, we need just the 'name' property
+          API_RESPONSE='${{ steps.get_labels_api.outputs.data }}'
+          echo "API Response: $API_RESPONSE"
+
+          # Extract only the label names into a JSON array
+          CURRENT_PR_LABELS_JSON=$(echo "$API_RESPONSE" | jq '[.[] | .name]')
+          echo "Current PR Labels from API: $CURRENT_PR_LABELS_JSON"
+
+          found_one=false
+          for label in "${REQUIRED_LABELS[@]}"; do
+            if echo "$CURRENT_PR_LABELS_JSON" | jq -e --arg label "$label" 'contains([$label])'; then
+              echo "Found required label: $label"
+              found_one=true
+              break
+            fi
+          done
+
+          if [ "$found_one" = false ]; then
+            echo "::error file=.github/workflows/pr-labels.yml::Pull Request is missing a required changelog label. Please add one of: ${REQUIRED_LABELS[*]}."
+            exit 1
+          else
+            echo "Pull Request has a required changelog label."
+          fi

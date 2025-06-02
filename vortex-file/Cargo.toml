@@ -58,6 +58,7 @@ vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-zigzag = { workspace = true }
 

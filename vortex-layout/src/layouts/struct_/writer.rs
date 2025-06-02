@@ -5,12 +5,12 @@ use std::task::{Context, Poll, ready};
 
 use arcref::ArcRef;
 use futures::future::try_join_all;
-use futures::{Stream, StreamExt as _};
+use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{ArrayContext, ToCanonical};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_err};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SequenceWriter;
@@ -47,6 +47,14 @@ impl LayoutStrategy for StructStrategy {
                 Err(vortex_err!("StructLayout must have unique field names"))
             });
         }
+
+        let stream = stream.map(|chunk| {
+            let (sequence_id, chunk) = chunk?;
+            if !chunk.all_valid()? {
+                vortex_bail!("Cannot push struct chunks with top level invalid values");
+            };
+            Ok((sequence_id, chunk))
+        });
 
         // stream<struct_chunk> -> stream<vec<column_chunk>>
         let columns_vec_stream = stream.map(|chunk| {
@@ -179,12 +187,16 @@ mod tests {
     use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream;
-    use vortex_array::ArrayContext;
+    use vortex_array::arrays::{BoolArray, StructArray};
+    use vortex_array::validity::Validity;
+    use vortex_array::{ArrayContext, IntoArray as _};
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::{SequenceWriter, TestSegments};
+    use crate::sequence::SequenceId;
     use crate::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
 
     #[test]
@@ -214,5 +226,47 @@ mod tests {
             ),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn fails_on_top_level_nulls() {
+        let strategy =
+            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let res = block_on(
+            strategy.write_stream(
+                &ArrayContext::empty(),
+                SequenceWriter::new(Box::new(TestSegments::default())),
+                SequentialStreamAdapter::new(
+                    DType::Struct(
+                        Arc::new(
+                            [("a", DType::Primitive(PType::I32, Nullability::NonNullable))]
+                                .into_iter()
+                                .collect(),
+                        ),
+                        Nullability::Nullable,
+                    ),
+                    stream::once(async move {
+                        Ok((
+                            SequenceId::root().downgrade(),
+                            StructArray::try_new(
+                                ["a".into()].into(),
+                                vec![buffer![1, 2, 3].into_array()],
+                                3,
+                                Validity::Array(
+                                    BoolArray::from_iter(vec![true, true, false]).into_array(),
+                                ),
+                            )
+                            .unwrap()
+                            .into_array(),
+                        ))
+                    }),
+                )
+                .sendable(),
+            ),
+        );
+        assert!(
+            format!("{}", res.unwrap_err())
+                .starts_with("Cannot push struct chunks with top level invalid values"),
+        )
     }
 }
