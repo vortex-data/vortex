@@ -2,27 +2,29 @@ name: PR Labels
 
 on:
   pull_request:
-    types: [ opened, reopened, synchronize, labeled, unlabeled ] # Trigger on these PR activities
+    types: [ opened, reopened, synchronize, labeled, unlabeled ]  # Trigger on these PR activities
 
 jobs:
   check_changelog_label:
     name: Validate Changelog Label
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: read # Grant permission to read PR information
+      pull-requests: read  # Grant permission to read PR information
     steps:
       - name: Get PR Labels from API
         id: get_labels_api
-        uses: octokit/request-action@v2.2.0 # Use an action to make API requests
+        uses: octokit/request-action@v2.2.0  # Use an action to make API requests
         with:
           route: GET /repos/{owner}/{repo}/issues/{pull_number}/labels
           owner: ${{ github.repository_owner }}
           repo: ${{ github.event.repository.name }}
           pull_number: ${{ github.event.pull_request.number }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Automatically provided token
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Automatically provided token
 
       - name: Extract and Check Labels
+        env:
+          API_RESPONSE: ${{ steps.get_labels_api.outputs.data }}
         run: |
           REQUIRED_LABELS=(
             "chore"
@@ -38,7 +40,6 @@ jobs:
 
           # Parse the response from the API call
           # The API returns an array of label objects, we need just the 'name' property
-          API_RESPONSE='${{ steps.get_labels_api.outputs.data }}'
           echo "API Response: $API_RESPONSE"
 
           # Extract only the label names into a JSON array
