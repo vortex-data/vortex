@@ -6310,7 +6310,6 @@ name = "vortex-file"
 version = "0.1.0"
 dependencies = [
  "arcref",
- "async-stream",
  "async-trait",
  "bytes",
  "dashmap",
@@ -6322,9 +6321,6 @@ dependencies = [
  "log",
  "moka",
  "object_store",
- "parking_lot",
- "pin-project-lite",
- "rstest",
  "rustc-hash",
  "tokio",
  "tracing",
@@ -6346,7 +6342,6 @@ dependencies = [
  "vortex-fsst",
  "vortex-io",
  "vortex-layout",
- "vortex-mask",
  "vortex-metrics",
  "vortex-runend",
  "vortex-scalar",

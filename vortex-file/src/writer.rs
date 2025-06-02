@@ -69,7 +69,7 @@ impl VortexWriteOptions {
     pub async fn write_object_store<S: ArrayStream + Unpin + Send + 'static>(
         self,
         object_store: &Arc<dyn object_store::ObjectStore>,
-        path: impl AsRef<object_store::path::Path>,
+        path: &object_store::path::Path,
         stream: S,
     ) -> VortexResult<()> {
         use vortex_io::ObjectStoreWriter;

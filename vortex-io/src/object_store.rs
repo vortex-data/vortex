@@ -118,11 +118,8 @@ pub struct ObjectStoreWriter {
 const CHUNKS_SIZE: usize = 25 * 1024 * 1024;
 
 impl ObjectStoreWriter {
-    pub async fn new(
-        object_store: Arc<dyn ObjectStore>,
-        location: impl AsRef<Path>,
-    ) -> VortexResult<Self> {
-        let upload = object_store.put_multipart(location.as_ref()).await?;
+    pub async fn new(object_store: Arc<dyn ObjectStore>, location: &Path) -> VortexResult<Self> {
+        let upload = object_store.put_multipart(location).await?;
         Ok(Self {
             upload,
             buffer: BytesMut::with_capacity(CHUNKS_SIZE),

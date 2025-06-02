@@ -103,7 +103,7 @@ impl FileSink for VortexSink {
             let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
 
             VortexWriteOptions::default()
-                .write_object_store(&object_store, path.to_string(), stream_adapter)
+                .write_object_store(&object_store, &path, stream_adapter)
                 .await
                 .map_err(|e| {
                     DataFusionError::Execution(format!("Failed to write Vortex file: {e}"))
