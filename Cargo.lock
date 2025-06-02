@@ -398,23 +398,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-compression"
-version = "0.4.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06575e6a9673580f52661c92107baabffbf41e2141373441cbcdc47cb733003c"
-dependencies = [
- "bzip2",
- "flate2",
- "futures-core",
- "memchr",
- "pin-project-lite",
- "tokio",
- "xz2",
- "zstd",
- "zstd-safe",
-]
-
-[[package]]
 name = "async-lock"
 version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1581,10 +1564,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04e602dcdf2f50c2abf297cc2203c73531e6f48b29516af7695d338cf2a778b1"
 dependencies = [
  "arrow",
- "async-compression",
  "async-trait",
  "bytes",
- "bzip2",
  "chrono",
  "datafusion-common",
  "datafusion-common-runtime",
@@ -1594,7 +1575,6 @@ dependencies = [
  "datafusion-physical-expr-common",
  "datafusion-physical-plan",
  "datafusion-session",
- "flate2",
  "futures",
  "glob",
  "itertools 0.14.0",
@@ -1604,10 +1584,7 @@ dependencies = [
  "rand 0.8.5",
  "tempfile",
  "tokio",
- "tokio-util",
  "url",
- "xz2",
- "zstd",
 ]
 
 [[package]]
@@ -3372,17 +3349,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75761162ae2b0e580d7e7c390558127e5f01b4194debd6221fd8c207fc80e3f5"
 dependencies = [
  "twox-hash 1.6.3",
-]
-
-[[package]]
-name = "lzma-sys"
-version = "0.1.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fda04ab3764e6cde78b9974eec4f779acaba7c4e84b36eca3cf77c581b85d27"
-dependencies = [
- "cc",
- "libc",
- "pkg-config",
 ]
 
 [[package]]
@@ -6002,6 +5968,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-bytebool",
  "vortex-datetime-parts",
+ "vortex-decimal-byte-parts",
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
@@ -6010,13 +5977,14 @@ dependencies = [
  "vortex-file",
  "vortex-flatbuffers",
  "vortex-fsst",
- "vortex-io",
  "vortex-ipc",
  "vortex-layout",
  "vortex-mask",
+ "vortex-metrics",
  "vortex-proto",
  "vortex-runend",
  "vortex-scalar",
+ "vortex-sequence",
  "vortex-sparse",
  "vortex-zigzag",
 ]
@@ -6152,41 +6120,22 @@ name = "vortex-datafusion"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow-array",
- "arrow-schema",
  "async-trait",
  "chrono",
  "dashmap",
  "datafusion",
- "datafusion-common",
- "datafusion-datasource",
- "datafusion-execution",
- "datafusion-expr",
- "datafusion-physical-expr",
- "datafusion-physical-plan",
  "futures",
  "itertools 0.14.0",
  "log",
  "moka",
  "object_store",
- "pin-project",
- "rand 0.9.1",
  "rstest",
  "tempfile",
  "tokio",
  "tokio-stream",
  "tracing",
  "tracing-futures",
- "url",
- "vortex-array",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-expr",
- "vortex-file",
- "vortex-io",
- "vortex-layout",
- "vortex-metrics",
+ "vortex",
 ]
 
 [[package]]
@@ -6275,7 +6224,6 @@ name = "vortex-error"
 version = "0.1.0"
 dependencies = [
  "arrow-schema",
- "datafusion-common",
  "flatbuffers",
  "flexbuffers",
  "jiff",
@@ -6295,8 +6243,6 @@ dependencies = [
 name = "vortex-expr"
 version = "0.1.0"
 dependencies = [
- "datafusion-expr",
- "datafusion-physical-expr",
  "dyn-hash",
  "itertools 0.14.0",
  "prost",
@@ -6364,7 +6310,6 @@ name = "vortex-file"
 version = "0.1.0"
 dependencies = [
  "arcref",
- "async-stream",
  "async-trait",
  "bytes",
  "dashmap",
@@ -6376,9 +6321,6 @@ dependencies = [
  "log",
  "moka",
  "object_store",
- "parking_lot",
- "pin-project-lite",
- "rstest",
  "rustc-hash",
  "tokio",
  "tracing",
@@ -6400,7 +6342,6 @@ dependencies = [
  "vortex-fsst",
  "vortex-io",
  "vortex-layout",
- "vortex-mask",
  "vortex-metrics",
  "vortex-runend",
  "vortex-scalar",
@@ -6622,7 +6563,6 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "bytes",
- "datafusion-common",
  "getrandom 0.2.16",
  "itertools 0.14.0",
  "num-traits",
@@ -7463,15 +7403,6 @@ dependencies = [
  "clap",
  "prost-build",
  "xshell",
-]
-
-[[package]]
-name = "xz2"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "388c44dc09d76f1536602ead6d325eb532f5c122f17782bd57fb47baeeb767e2"
-dependencies = [
- "lzma-sys",
 ]
 
 [[package]]

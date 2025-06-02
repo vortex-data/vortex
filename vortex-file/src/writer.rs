@@ -64,6 +64,26 @@ impl VortexWriteOptions {
 }
 
 impl VortexWriteOptions {
+    /// Write to an `ObjectStore` using the provided `VortexWrite` implementation.
+    #[cfg(feature = "object_store")]
+    pub async fn write_object_store<S: ArrayStream + Unpin + Send + 'static>(
+        self,
+        object_store: &Arc<dyn object_store::ObjectStore>,
+        path: &object_store::path::Path,
+        stream: S,
+    ) -> VortexResult<()> {
+        use vortex_io::ObjectStoreWriter;
+
+        self.write(
+            ObjectStoreWriter::new(object_store.clone(), path).await?,
+            stream,
+        )
+        .await?
+        .shutdown()
+        .await?;
+        Ok(())
+    }
+
     /// Perform an async write of the provided stream of `Array`.
     pub async fn write<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
         self,

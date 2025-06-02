@@ -190,14 +190,6 @@ pub enum VortexError {
         #[backtrace]
         object_store::Error,
     ),
-    /// A wrapper for errors from DataFusion.
-    #[cfg(feature = "datafusion")]
-    #[error(transparent)]
-    DataFusion(
-        #[from]
-        #[backtrace]
-        datafusion_common::DataFusionError,
-    ),
     /// A wrapper for errors from the Jiff library.
     #[error(transparent)]
     JiffError(
@@ -456,23 +448,6 @@ macro_rules! vortex_panic {
 impl From<arrow_schema::ArrowError> for VortexError {
     fn from(value: arrow_schema::ArrowError) -> Self {
         VortexError::ArrowError(value, Backtrace::capture())
-    }
-}
-
-#[cfg(feature = "datafusion")]
-impl From<VortexError> for datafusion_common::DataFusionError {
-    fn from(value: VortexError) -> Self {
-        Self::External(Box::new(value))
-    }
-}
-
-#[cfg(feature = "datafusion")]
-impl From<VortexError> for datafusion_common::arrow::error::ArrowError {
-    fn from(value: VortexError) -> Self {
-        match value {
-            VortexError::ArrowError(e, _) => e,
-            _ => Self::from_external_error(Box::new(value)),
-        }
     }
 }
 

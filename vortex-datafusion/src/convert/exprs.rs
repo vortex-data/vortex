@@ -1,63 +1,49 @@
-#![cfg(feature = "datafusion")]
+use datafusion::logical_expr::Operator as DFOperator;
+use datafusion::physical_expr::{PhysicalExpr, expressions};
+use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::expr::{BinaryExpr, ExprRef, Like, Operator, get_item, ident, lit};
+use vortex::scalar::Scalar;
 
-use std::sync::Arc;
-
-use datafusion_expr::Operator as DFOperator;
-use datafusion_physical_expr::{PhysicalExpr, expressions};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::Scalar;
-
-use crate::{BinaryExpr, ExprRef, Like, Operator, get_item, ident, lit};
+use crate::convert::{FromDataFusion, TryFromDataFusion};
 
 // TODO(joe): Don't return an error when we have an unsupported node, bubble up "TRUE" as in keep
 //  for that node, up to any `and` or `or` node.
-pub fn convert_expr_to_vortex(physical_expr: Arc<dyn PhysicalExpr>) -> VortexResult<ExprRef> {
-    if let Some(binary_expr) = physical_expr
-        .as_any()
-        .downcast_ref::<expressions::BinaryExpr>()
-    {
-        let left = convert_expr_to_vortex(binary_expr.left().clone())?;
-        let right = convert_expr_to_vortex(binary_expr.right().clone())?;
-        let operator = *binary_expr.op();
+impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
+    fn try_from_df(df: &dyn PhysicalExpr) -> VortexResult<Self> {
+        if let Some(binary_expr) = df.as_any().downcast_ref::<expressions::BinaryExpr>() {
+            let left = ExprRef::try_from_df(binary_expr.left().as_ref())?;
+            let right = ExprRef::try_from_df(binary_expr.right().as_ref())?;
+            let operator = Operator::try_from_df(binary_expr.op())?;
 
-        return Ok(BinaryExpr::new_expr(left, operator.try_into()?, right));
+            return Ok(BinaryExpr::new_expr(left, operator, right));
+        }
+
+        if let Some(col_expr) = df.as_any().downcast_ref::<expressions::Column>() {
+            return Ok(get_item(col_expr.name().to_owned(), ident()));
+        }
+
+        if let Some(like) = df.as_any().downcast_ref::<expressions::LikeExpr>() {
+            let child = ExprRef::try_from_df(like.expr().as_ref())?;
+            let pattern = ExprRef::try_from_df(like.pattern().as_ref())?;
+            return Ok(Like::new_expr(
+                child,
+                pattern,
+                like.negated(),
+                like.case_insensitive(),
+            ));
+        }
+
+        if let Some(literal) = df.as_any().downcast_ref::<expressions::Literal>() {
+            let value = Scalar::from_df(literal.value());
+            return Ok(lit(value));
+        }
+
+        vortex_bail!("Couldn't convert DataFusion physical {df} expression to a vortex expression")
     }
-
-    if let Some(col_expr) = physical_expr.as_any().downcast_ref::<expressions::Column>() {
-        return Ok(get_item(col_expr.name().to_owned(), ident()));
-    }
-
-    if let Some(like) = physical_expr
-        .as_any()
-        .downcast_ref::<expressions::LikeExpr>()
-    {
-        let child = convert_expr_to_vortex(like.expr().clone())?;
-        let pattern = convert_expr_to_vortex(like.pattern().clone())?;
-        return Ok(Like::new_expr(
-            child,
-            pattern,
-            like.negated(),
-            like.case_insensitive(),
-        ));
-    }
-
-    if let Some(literal) = physical_expr
-        .as_any()
-        .downcast_ref::<expressions::Literal>()
-    {
-        let value = Scalar::from(literal.value().clone());
-        return Ok(lit(value));
-    }
-
-    vortex_bail!(
-        "Couldn't convert DataFusion physical {physical_expr} expression to a vortex expression"
-    )
 }
 
-impl TryFrom<DFOperator> for Operator {
-    type Error = VortexError;
-
-    fn try_from(value: DFOperator) -> Result<Self, Self::Error> {
+impl TryFromDataFusion<DFOperator> for Operator {
+    fn try_from_df(value: &DFOperator) -> VortexResult<Self> {
         match value {
             DFOperator::Eq => Ok(Operator::Eq),
             DFOperator::NotEq => Ok(Operator::NotEq),

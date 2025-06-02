@@ -18,7 +18,6 @@ use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use url::Url;
-use vortex::error::VortexResult;
 use vortex_datafusion::persistent::VortexFormatFactory;
 
 pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
@@ -50,7 +49,7 @@ pub fn get_session_context(disable_datafusion_cache: bool) -> SessionContext {
         .build_arc()
         .expect("could not build runtime environment");
 
-    let factory = VortexFormatFactory::default_config();
+    let factory = VortexFormatFactory::default();
 
     let mut session_state_builder = SessionStateBuilder::new()
         .with_config(SessionConfig::default())
@@ -109,7 +108,7 @@ pub fn make_object_store(
 pub async fn execute_query(
     ctx: &SessionContext,
     query: &str,
-) -> VortexResult<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
+) -> anyhow::Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
     let plan = ctx.sql(query).await?;
     let (state, plan) = plan.into_parts();
     let physical_plan = state.create_physical_plan(&plan).await?;

@@ -97,7 +97,7 @@ impl<T: Clone + Eq> VTableContext<T> {
 ///
 /// In the future, we will support loading encodings from shared libraries or even from within
 /// the Vortex file itself. This registry will be used to manage the available encodings.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VTableRegistry<T>(HashMap<String, T>);
 
 impl<T: Clone + Display + Eq> VTableRegistry<T> {

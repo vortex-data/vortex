@@ -2,25 +2,24 @@ use std::any::Any;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use arrow_schema::SchemaRef;
 use async_trait::async_trait;
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::common::DataFusionError;
 use datafusion::common::runtime::SpawnedTask;
 use datafusion::datasource::file_format::write::demux::DemuxedStreamReceiver;
 use datafusion::datasource::physical_plan::{FileSink, FileSinkConfig};
-use datafusion_common::DataFusionError;
-use datafusion_datasource::sink::DataSink;
-use datafusion_execution::{SendableRecordBatchStream, TaskContext};
-use datafusion_physical_plan::metrics::MetricsSet;
-use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
+use datafusion::datasource::sink::DataSink;
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
+use datafusion::physical_plan::metrics::MetricsSet;
+use datafusion::physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
 use object_store::ObjectStore;
 use tokio_stream::wrappers::ReceiverStream;
-use vortex_array::TryIntoArray;
-use vortex_array::stream::ArrayStreamAdapter;
-use vortex_dtype::DType;
-use vortex_dtype::arrow::FromArrowType;
-use vortex_file::VortexWriteOptions;
-use vortex_io::{ObjectStoreWriter, VortexWrite};
+use vortex::TryIntoArray;
+use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
+use vortex::file::VortexWriteOptions;
+use vortex::stream::ArrayStreamAdapter;
 
 pub struct VortexSink {
     config: FileSinkConfig,
@@ -70,7 +69,7 @@ impl DataSink for VortexSink {
         &self,
         data: SendableRecordBatchStream,
         context: &Arc<TaskContext>,
-    ) -> datafusion_common::Result<u64> {
+    ) -> datafusion::common::Result<u64> {
         FileSink::write_all(self, data, context).await
     }
 }
@@ -84,10 +83,10 @@ impl FileSink for VortexSink {
     async fn spawn_writer_tasks_and_join(
         &self,
         _context: &Arc<TaskContext>,
-        demux_task: SpawnedTask<datafusion_common::Result<()>>,
+        demux_task: SpawnedTask<datafusion::common::Result<()>>,
         mut file_stream_rx: DemuxedStreamReceiver,
         object_store: Arc<dyn ObjectStore>,
-    ) -> datafusion_common::Result<u64> {
+    ) -> datafusion::common::Result<u64> {
         // This is a hack
         let row_counter = Arc::new(AtomicU64::new(0));
 
@@ -95,8 +94,6 @@ impl FileSink for VortexSink {
         // 1. We only write only file at a time
         // 2. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
         while let Some((path, rx)) = file_stream_rx.recv().await {
-            let writer = ObjectStoreWriter::new(object_store.clone(), path).await?;
-
             let row_counter = row_counter.clone();
             let stream = ReceiverStream::new(rx).map(move |rb| {
                 row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
@@ -105,11 +102,12 @@ impl FileSink for VortexSink {
             let dtype = DType::from_arrow(self.config.output_schema.as_ref());
             let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
 
-            let mut writer = VortexWriteOptions::default()
-                .write(writer, stream_adapter)
-                .await?;
-
-            writer.shutdown().await?;
+            VortexWriteOptions::default()
+                .write_object_store(&object_store, &path, stream_adapter)
+                .await
+                .map_err(|e| {
+                    DataFusionError::Execution(format!("Failed to write Vortex file: {e}"))
+                })?;
         }
 
         demux_task
@@ -127,8 +125,8 @@ mod tests {
 
     use datafusion::datasource::DefaultTableSource;
     use datafusion::execution::SessionStateBuilder;
+    use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
     use datafusion::prelude::SessionContext;
-    use datafusion_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
     use tempfile::TempDir;
 
     use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
@@ -137,7 +135,7 @@ mod tests {
     async fn test_insert_into() {
         let dir = TempDir::new().unwrap();
 
-        let factory = VortexFormatFactory::default_config();
+        let factory = VortexFormatFactory::default();
         let mut session_state_builder = SessionStateBuilder::new().with_default_features();
         register_vortex_format_factory(factory, &mut session_state_builder);
         let session = SessionContext::new_with_state(session_state_builder.build());
@@ -170,7 +168,7 @@ mod tests {
             LogicalPlan::Values(values.clone()),
             "my_tbl",
             Arc::new(DefaultTableSource::new(tbl_provider)),
-            datafusion_expr::dml::InsertOp::Append,
+            datafusion::logical_expr::dml::InsertOp::Append,
         )
         .unwrap()
         .build()

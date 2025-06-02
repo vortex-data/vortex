@@ -132,7 +132,7 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
                 output_dir.to_string_lossy(),
             ));
         }
-        Format::OnDiskVortex | Format::InMemoryVortex => {
+        Format::OnDiskVortex => {
             if !is_local_duckdb {
                 command
                     .arg("-c")
