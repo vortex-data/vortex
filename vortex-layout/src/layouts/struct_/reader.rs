@@ -285,7 +285,8 @@ impl MaskEvaluation for StructMaskEvaluation {
         )?
         .into_array();
 
-        let root_mask = Mask::try_from(self.partitioned.root.evaluate(&root_scope)?.as_ref())?;
+        let root_mask =
+            Mask::try_from(self.partitioned.root.evaluate_array(&root_scope)?.as_ref())?;
         let mask = mask.bitand(&root_mask);
 
         Ok(mask)
@@ -324,7 +325,7 @@ impl ArrayEvaluation for StructArrayEvaluation {
         )?
         .into_array();
 
-        self.partitioned.root.evaluate(&root_scope)
+        self.partitioned.root.evaluate_array(&root_scope)
     }
 }
 

@@ -10,7 +10,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use crate::transform::immediate_access::{FieldAccesses, immediate_scope_accesses};
 use crate::transform::simplify_typed::simplify_typed;
 use crate::traversal::{FoldDown, FoldUp, FolderMut, MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, GetItem, Identity, get_item, ident, pack};
+use crate::{DTypeEvaluationContext, ExprRef, GetItem, get_item, ident, is_ident, pack};
 
 static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
     LazyLock::new(DefaultHashBuilder::default);
@@ -133,8 +133,9 @@ impl<'a> StructFieldExpressionSplitter<'a> {
                 )
             };
 
-            let expr = simplify_typed(expr.clone(), &field_dtype)?;
-            let expr_dtype = expr.return_dtype(&field_dtype)?;
+            let field_ctx = DTypeEvaluationContext::new_identity(field_dtype);
+            let expr = simplify_typed(expr.clone(), &field_ctx)?;
+            let expr_dtype = expr.return_dtype(&field_ctx)?;
 
             partitions.push(expr);
             partition_names.push(name);
@@ -152,8 +153,10 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             .result()
             .transform(&mut ReplaceAccessesWithChild(remove_accesses))?;
 
+        let ctx = DTypeEvaluationContext::new_identity(dtype.clone());
+
         Ok(PartitionedExpr {
-            root: simplify_typed(split.result, dtype)?,
+            root: simplify_typed(split.result, &ctx)?,
             partitions: partitions.into_boxed_slice(),
             partition_names: partition_names.into(),
             partition_dtypes: partition_dtypes.into_boxed_slice(),
@@ -200,7 +203,7 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
         };
 
         // If the expression is an identity, then we need to partition it into the fields of the scope.
-        if node.as_any().is::<Identity>() {
+        if is_ident(node) {
             let field_names = self.scope_dtype.names();
 
             let mut elements = Vec::with_capacity(field_names.len());
@@ -251,7 +254,7 @@ impl MutNodeVisitor for ScopeStepIntoFieldExpr {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<ExprRef>> {
-        if node.as_any().is::<Identity>() {
+        if is_ident(&node) {
             Ok(TransformResult::yes(pack(
                 [(self.0.clone(), ident())],
                 Nullability::NonNullable,
@@ -414,7 +417,8 @@ mod tests {
             get_item("b", get_item("a", ident())),
             select(vec!["a".into(), "b".into()], ident()),
         );
-        let expr = simplify_typed(expr, &dtype).unwrap();
+        let expr =
+            simplify_typed(expr, &DTypeEvaluationContext::new_identity(dtype.clone())).unwrap();
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // One for id.a and id.b
@@ -445,4 +449,6 @@ mod tests {
             )
         )
     }
+
+    // #[te// }
 }

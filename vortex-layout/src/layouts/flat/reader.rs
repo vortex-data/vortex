@@ -10,7 +10,7 @@ use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Identity};
+use vortex_expr::{ExprRef, is_ident};
 use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
@@ -183,11 +183,11 @@ impl MaskEvaluation for FlatEvaluation {
         let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
             // Evaluate only the selected rows of the mask.
             array = filter(&array, &mask)?;
-            let array_mask = Mask::try_from(self.expr.evaluate(&array)?.as_ref())?;
+            let array_mask = Mask::try_from(self.expr.evaluate_array(&array)?.as_ref())?;
             mask.intersect_by_rank(&array_mask)
         } else {
             // Evaluate all rows, avoiding the more expensive rank intersection.
-            array = self.expr.evaluate(&array)?;
+            array = self.expr.evaluate_array(&array)?;
             let array_mask = Mask::try_from(array.as_ref())?;
             mask.bitand(&array_mask)
         };
@@ -228,8 +228,8 @@ impl ArrayEvaluation for FlatEvaluation {
         }
 
         // Evaluate the projection expression.
-        if !self.expr.as_any().is::<Identity>() {
-            array = self.expr.evaluate(&array)?;
+        if !is_ident(&self.expr) {
+            array = self.expr.evaluate_array(&array)?;
         }
 
         Ok(array)
@@ -246,7 +246,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_expr::{Identity, gt, ident, lit};
+    use vortex_expr::{gt, ident, lit};
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutWriter;
@@ -269,7 +269,7 @@ mod test {
             let result = layout
                 .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
+                .projection_evaluation(&(0..layout.row_count()), &ident())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -294,7 +294,7 @@ mod test {
 
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
-            let expr = gt(Identity::new_expr(), lit(3i32));
+            let expr = gt(ident(), lit(3i32));
             let result = layout
                 .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()

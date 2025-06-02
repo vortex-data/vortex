@@ -3,7 +3,7 @@ use vortex_dtype::{DType, Field, FieldPath};
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::traversal::{FoldUp, Folder, Node};
-use crate::{ExprRef, GetItem, Identity, Select};
+use crate::{ExprRef, GetItem, Select, is_ident};
 
 /// Returns the field mask for the given expression.
 ///
@@ -34,7 +34,7 @@ impl<'a> Folder<'a> for FieldMaskFolder {
         children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>> {
         // The identity returns a field path covering the root.
-        if node.as_any().is::<Identity>() {
+        if is_ident(node) {
             return Ok(FoldUp::Continue([FieldPath::root()].into()));
         }
 

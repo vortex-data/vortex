@@ -7,12 +7,13 @@ use dyn_hash::DynHash;
 mod binary;
 
 mod between;
+mod context;
 pub mod datafusion;
 mod field;
 pub mod forms;
 mod get_item;
-mod identity;
 mod is_null;
+mod let_;
 mod like;
 mod literal;
 mod merge;
@@ -25,12 +26,14 @@ mod registry;
 mod select;
 pub mod transform;
 pub mod traversal;
+mod var;
 
 pub use between::*;
 pub use binary::*;
+pub use context::*;
 pub use get_item::*;
-pub use identity::*;
 pub use is_null::*;
+pub use let_::*;
 pub use like::*;
 pub use literal::*;
 pub use merge::*;
@@ -40,6 +43,7 @@ pub use pack::*;
 #[cfg(feature = "proto")]
 pub use registry::deserialize_expr;
 pub use select::*;
+pub use var::*;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldName};
@@ -74,7 +78,6 @@ pub trait ExprSerializable {
 pub trait ExprSerializable {}
 #[cfg(not(feature = "proto"))]
 impl<T> ExprSerializable for T {}
-
 /// Represents logical operation on [`ArrayRef`]s
 pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable {
     /// Convert expression reference to reference of [`Any`] type
@@ -82,17 +85,21 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSeri
 
     /// Compute result of expression on given batch producing a new batch
     ///
-    fn evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let result = self.unchecked_evaluate(batch)?;
+    fn evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
+        let result = self.unchecked_evaluate(ctx)?;
         assert_eq!(
             result.dtype(),
-            &self.return_dtype(batch.dtype())?,
+            &self.return_dtype(&ctx.into())?,
             "Expression {} returned dtype {} but declared return_dtype of {}",
             self,
             result.dtype(),
-            self.return_dtype(batch.dtype())?,
+            self.return_dtype(&ctx.into())?,
         );
         Ok(result)
+    }
+
+    fn evaluate_array(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
+        self.evaluate(&EvaluationContext::default_scope(array.to_array()))
     }
 
     /// Compute result of expression on given batch producing a new batch
@@ -100,14 +107,14 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSeri
     /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
     /// the [VortexExpr::return_dtype] method. Use instead the [VortexExpr::evaluate] function which
     /// includes such an assertion.
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef>;
+    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef>;
 
     fn children(&self) -> Vec<&ExprRef>;
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
 
     /// Compute the type of the array returned by [VortexExpr::evaluate].
-    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType>;
+    fn return_dtype(&self, ctx: &DTypeEvaluationContext) -> VortexResult<DType>;
 }
 
 pub trait VortexExprExt {
@@ -243,42 +250,42 @@ mod tests {
 
     #[test]
     fn expr_display() {
-        assert_eq!(col("a").to_string(), "$.a");
-        assert_eq!(Identity.to_string(), "$");
+        assert_eq!(col("a").to_string(), "[$].a");
+        assert_eq!(ident().to_string(), "[$]");
 
         let col1: Arc<dyn VortexExpr> = col("col1");
         let col2: Arc<dyn VortexExpr> = col("col2");
         assert_eq!(
             and(col1.clone(), col2.clone()).to_string(),
-            "($.col1 and $.col2)"
+            "([$].col1 and [$].col2)"
         );
         assert_eq!(
             or(col1.clone(), col2.clone()).to_string(),
-            "($.col1 or $.col2)"
+            "([$].col1 or [$].col2)"
         );
         assert_eq!(
             eq(col1.clone(), col2.clone()).to_string(),
-            "($.col1 = $.col2)"
+            "([$].col1 = [$].col2)"
         );
         assert_eq!(
             not_eq(col1.clone(), col2.clone()).to_string(),
-            "($.col1 != $.col2)"
+            "([$].col1 != [$].col2)"
         );
         assert_eq!(
             gt(col1.clone(), col2.clone()).to_string(),
-            "($.col1 > $.col2)"
+            "([$].col1 > [$].col2)"
         );
         assert_eq!(
             gt_eq(col1.clone(), col2.clone()).to_string(),
-            "($.col1 >= $.col2)"
+            "([$].col1 >= [$].col2)"
         );
         assert_eq!(
             lt(col1.clone(), col2.clone()).to_string(),
-            "($.col1 < $.col2)"
+            "([$].col1 < [$].col2)"
         );
         assert_eq!(
             lt_eq(col1.clone(), col2.clone()).to_string(),
-            "($.col1 <= $.col2)"
+            "([$].col1 <= [$].col2)"
         );
 
         assert_eq!(
@@ -287,14 +294,14 @@ mod tests {
                 not_eq(col1.clone(), col2.clone()),
             )
             .to_string(),
-            "(($.col1 < $.col2) or ($.col1 != $.col2))"
+            "(([$].col1 < [$].col2) or ([$].col1 != [$].col2))"
         );
 
-        assert_eq!(not(col1.clone()).to_string(), "!$.col1");
+        assert_eq!(not(col1.clone()).to_string(), "![$].col1");
 
         assert_eq!(
             select(vec![FieldName::from("col1")], ident()).to_string(),
-            "${col1}"
+            "[$]{col1}"
         );
         assert_eq!(
             select(
@@ -302,7 +309,7 @@ mod tests {
                 ident()
             )
             .to_string(),
-            "${col1, col2}"
+            "[$]{col1, col2}"
         );
         assert_eq!(
             select_exclude(
@@ -310,7 +317,7 @@ mod tests {
                 ident()
             )
             .to_string(),
-            "$~{col1, col2}"
+            "[$]~{col1, col2}"
         );
 
         assert_eq!(lit(Scalar::from(0u8)).to_string(), "0u8");

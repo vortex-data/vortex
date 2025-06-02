@@ -3,12 +3,12 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
 
+use vortex_array::ArrayRef;
 use vortex_array::compute::{Operator as ArrayOperator, and_kleene, compare, or_kleene};
-use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ExprRef, Operator, VortexExpr};
+use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, Operator, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -87,9 +87,9 @@ impl VortexExpr for BinaryExpr {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let lhs = self.lhs.evaluate(batch)?;
-        let rhs = self.rhs.evaluate(batch)?;
+    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
+        let lhs = self.lhs.unchecked_evaluate(ctx)?;
+        let rhs = self.rhs.unchecked_evaluate(ctx)?;
 
         match self.operator {
             Operator::Eq => compare(&lhs, &rhs, ArrayOperator::Eq),
@@ -112,9 +112,9 @@ impl VortexExpr for BinaryExpr {
         BinaryExpr::new_expr(children[0].clone(), self.operator, children[1].clone())
     }
 
-    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
-        let lhs = self.lhs.return_dtype(scope_dtype)?;
-        let rhs = self.rhs.return_dtype(scope_dtype)?;
+    fn return_dtype(&self, ctx: &DTypeEvaluationContext) -> VortexResult<DType> {
+        let lhs = self.lhs.return_dtype(ctx)?;
+        let rhs = self.rhs.return_dtype(ctx)?;
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 }
@@ -137,7 +137,7 @@ impl PartialEq for BinaryExpr {
 /// use vortex_expr::{eq, ident, lit};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = eq(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
+/// let result = eq(ident(), lit(3)).evaluate_array(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -160,7 +160,7 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{ident, lit, not_eq};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = not_eq(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
+/// let result = not_eq(ident(), lit(3)).evaluate_array(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -183,7 +183,7 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{gt_eq, ident, lit};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = gt_eq(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
+/// let result = gt_eq(ident(), lit(3)).evaluate_array(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -206,7 +206,7 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{gt, ident, lit};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = gt(ident(), lit(2)).evaluate(xs.as_ref()).unwrap();
+/// let result = gt(ident(), lit(2)).evaluate_array(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -229,7 +229,7 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{ident, lit, lt_eq};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = lt_eq(ident(), lit(2)).evaluate(xs.as_ref()).unwrap();
+/// let result = lt_eq(ident(), lit(2)).evaluate_array(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -252,7 +252,7 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{ident, lit, lt};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = lt(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
+/// let result = lt(ident(), lit(3)).evaluate_array(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -273,7 +273,7 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_expr::{ ident, lit, or};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = or(ident(), lit(false)).evaluate(xs.as_ref()).unwrap();
+/// let result = or(ident(), lit(false)).evaluate_array(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -291,10 +291,10 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ```
 /// use vortex_array::arrays::BoolArray;
 /// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_expr::{and, ident, lit};
+/// use vortex_expr::{and, ident, lit, EvaluationContext};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = and(ident(), lit(true)).evaluate(xs.as_ref()).unwrap();
+/// let result = and(ident(), lit(true)).evaluate_array(xs.as_ref()).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -311,7 +311,10 @@ mod tests {
 
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{VortexExpr, and, col, eq, gt, gt_eq, lt, lt_eq, not_eq, or, test_harness};
+    use crate::{
+        DTypeEvaluationContext, VortexExpr, and, col, eq, gt, gt_eq, lt, lt_eq, not_eq, or,
+        test_harness,
+    };
 
     #[test]
     fn dtype() {
@@ -320,13 +323,13 @@ mod tests {
         let bool2: Arc<dyn VortexExpr> = col("bool2");
         assert_eq!(
             and(bool1.clone(), bool2.clone())
-                .return_dtype(&dtype)
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
             or(bool1.clone(), bool2.clone())
-                .return_dtype(&dtype)
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
@@ -335,32 +338,38 @@ mod tests {
         let col2: Arc<dyn VortexExpr> = col("col2");
 
         assert_eq!(
-            eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            eq(col1.clone(), col2.clone())
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             not_eq(col1.clone(), col2.clone())
-                .return_dtype(&dtype)
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            gt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            gt(col1.clone(), col2.clone())
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             gt_eq(col1.clone(), col2.clone())
-                .return_dtype(&dtype)
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            lt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            lt(col1.clone(), col2.clone())
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             lt_eq(col1.clone(), col2.clone())
-                .return_dtype(&dtype)
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
@@ -370,7 +379,7 @@ mod tests {
                 lt(col1.clone(), col2.clone()),
                 not_eq(col1.clone(), col2.clone())
             )
-            .return_dtype(&dtype)
+            .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
             .unwrap(),
             DType::Bool(Nullability::Nullable)
         );

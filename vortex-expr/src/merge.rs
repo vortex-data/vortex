@@ -10,7 +10,7 @@ use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructDType};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
-use crate::{ExprRef, VortexExpr};
+use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, VortexExpr};
 
 /// Merge zero or more expressions that ALL return structs.
 ///
@@ -93,12 +93,12 @@ impl VortexExpr for Merge {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let len = batch.len();
+    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
+        let len = ctx.len();
         let value_arrays = self
             .values
             .iter()
-            .map(|value_expr| value_expr.evaluate(batch))
+            .map(|value_expr| value_expr.unchecked_evaluate(ctx))
             .process_results(|it| it.collect::<Vec<_>>())?;
 
         // Collect fields in order of appearance. Later fields overwrite earlier fields.
@@ -147,12 +147,12 @@ impl VortexExpr for Merge {
         Self::new_expr(children, self.nullability)
     }
 
-    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, ctx: &DTypeEvaluationContext) -> VortexResult<DType> {
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
 
         for value in self.values.iter() {
-            let dtype = value.return_dtype(scope_dtype)?;
+            let dtype = value.return_dtype(ctx)?;
             if !dtype.is_struct() {
                 vortex_bail!("merge expects non-nullable struct input");
             }
@@ -188,7 +188,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{GetItem, Identity, Merge, VortexExpr};
+    use crate::{Merge, VortexExpr, get_item, ident};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
@@ -208,9 +208,9 @@ mod tests {
     pub fn test_merge() {
         let expr = Merge::new_expr(
             vec![
-                GetItem::new_expr("0", Identity::new_expr()),
-                GetItem::new_expr("1", Identity::new_expr()),
-                GetItem::new_expr("2", Identity::new_expr()),
+                get_item("0", ident()),
+                get_item("1", ident()),
+                get_item("2", ident()),
             ],
             Nullability::NonNullable,
         );
@@ -246,7 +246,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(test_array.as_ref()).unwrap();
+        let actual_array = expr.evaluate_array(&test_array).unwrap();
 
         assert_eq!(
             actual_array.as_struct_typed().names(),
@@ -292,7 +292,7 @@ mod tests {
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
-        let actual_array = expr.evaluate(&test_array).unwrap();
+        let actual_array = expr.evaluate_array(&test_array).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.as_struct_typed().nfields(), 0);
     }
@@ -302,10 +302,7 @@ mod tests {
         // Nested structs are not merged!
 
         let expr = Merge::new_expr(
-            vec![
-                GetItem::new_expr("0", Identity::new_expr()),
-                GetItem::new_expr("1", Identity::new_expr()),
-            ],
+            vec![get_item("0", ident()), get_item("1", ident())],
             Nullability::NonNullable,
         );
 
@@ -339,7 +336,7 @@ mod tests {
         .unwrap()
         .into_array();
         let actual_array = expr
-            .evaluate(test_array.as_ref())
+            .evaluate_array(&test_array)
             .unwrap()
             .to_struct()
             .unwrap();
@@ -361,10 +358,7 @@ mod tests {
     #[test]
     pub fn test_merge_order() {
         let expr = Merge::new_expr(
-            vec![
-                GetItem::new_expr("0", Identity::new_expr()),
-                GetItem::new_expr("1", Identity::new_expr()),
-            ],
+            vec![get_item("0", ident()), get_item("1", ident())],
             Nullability::NonNullable,
         );
 
@@ -391,7 +385,7 @@ mod tests {
         .unwrap()
         .into_array();
         let actual_array = expr
-            .evaluate(test_array.as_ref())
+            .evaluate_array(&test_array)
             .unwrap()
             .to_struct()
             .unwrap();
@@ -404,10 +398,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_nullable() {
-        let expr = Merge::new_expr(
-            vec![GetItem::new_expr("0", Identity::new_expr())],
-            Nullability::Nullable,
-        );
+        let expr = Merge::new_expr(vec![get_item("0", ident())], Nullability::Nullable);
 
         let test_array = StructArray::from_fields(&[(
             "0",
@@ -420,7 +411,7 @@ mod tests {
         )])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(test_array.as_ref()).unwrap();
+        let actual_array = expr.evaluate_array(&test_array).unwrap();
         assert!(actual_array.dtype().is_nullable());
     }
 }

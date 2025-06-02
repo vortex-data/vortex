@@ -15,7 +15,7 @@ use prost::Message;
 use url::Url;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, Identity, deserialize_expr, select};
+use vortex::expr::{ExprRef, deserialize_expr, ident, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::layout::scan::ScanBuilder;
@@ -282,7 +282,7 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
         // Apply options if provided.
         if let Some(field_names) = scan_options.field_names {
             // Field names are allowed to be `Some` and empty.
-            scan_builder = scan_builder.with_projection(select(field_names, Identity::new_expr()));
+            scan_builder = scan_builder.with_projection(select(field_names, ident()));
         }
 
         if let Some(expr) = scan_options.filter_expr {

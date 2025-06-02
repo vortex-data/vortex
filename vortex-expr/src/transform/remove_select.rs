@@ -1,19 +1,16 @@
-use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, Select, get_item, pack};
+use crate::{DTypeEvaluationContext, ExprRef, Select, get_item, pack};
 
 /// Replaces [Select] with combination of [GetItem] and [Pack] expressions.
-pub(crate) fn remove_select(e: ExprRef, scope_dt: &DType) -> VortexResult<ExprRef> {
-    let mut transform = RemoveSelectTransform {
-        scope_dtype: scope_dt,
-    };
+pub(crate) fn remove_select(e: ExprRef, ctx: &DTypeEvaluationContext) -> VortexResult<ExprRef> {
+    let mut transform = RemoveSelectTransform { ctx };
     e.transform(&mut transform).map(|e| e.result)
 }
 
 struct RemoveSelectTransform<'a> {
-    scope_dtype: &'a DType,
+    ctx: &'a DTypeEvaluationContext,
 }
 
 impl MutNodeVisitor for RemoveSelectTransform<'_> {
@@ -22,7 +19,7 @@ impl MutNodeVisitor for RemoveSelectTransform<'_> {
     fn visit_up(&mut self, node: ExprRef) -> VortexResult<TransformResult<Self::NodeTy>> {
         if let Some(select) = node.as_any().downcast_ref::<Select>() {
             let child = select.child();
-            let child_dtype = child.return_dtype(self.scope_dtype)?;
+            let child_dtype = child.return_dtype(self.ctx)?;
             let child_nullability = child_dtype.nullability();
 
             let child_dtype = child_dtype.as_struct().ok_or_else(|| {
@@ -64,7 +61,7 @@ mod tests {
     use vortex_dtype::{DType, StructDType};
 
     use crate::transform::remove_select::remove_select;
-    use crate::{Pack, ident, select};
+    use crate::{DTypeEvaluationContext, Pack, ident, select};
 
     #[test]
     fn test_remove_select() {
@@ -76,9 +73,13 @@ mod tests {
             Nullable,
         );
         let e = select(["a".into(), "b".into()], ident());
-        let e = remove_select(e, &dtype).unwrap();
+        let e = remove_select(e, &DTypeEvaluationContext::new_identity(dtype.clone())).unwrap();
 
         assert!(e.as_any().is::<Pack>());
-        assert!(e.return_dtype(&dtype).unwrap().is_nullable());
+        assert!(
+            e.return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .unwrap()
+                .is_nullable()
+        );
     }
 }

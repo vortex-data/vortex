@@ -158,7 +158,7 @@ impl Stream for RowIndicesStream {
         let selection = to_arrow(
             &this
                 .conjunction_expr
-                .evaluate(vortex_struct.as_ref())
+                .evaluate_array(vortex_struct.as_ref())
                 .map_err(|e| DataFusionError::External(e.into()))?,
             &DataType::Boolean,
         )?;

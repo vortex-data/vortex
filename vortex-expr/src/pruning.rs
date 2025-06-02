@@ -15,8 +15,8 @@ use vortex_scalar::Scalar;
 
 use crate::between::Between;
 use crate::{
-    BinaryExpr, ExprRef, GetItem, Identity, Literal, Not, Operator, VortexExprExt, and, eq,
-    get_item, gt, ident, lit, not, or,
+    BinaryExpr, EvaluationContext, ExprRef, GetItem, Literal, Not, Operator, VortexExprExt, and,
+    eq, get_item, gt, ident, is_ident, lit, not, or,
 };
 
 #[derive(Debug, Clone)]
@@ -152,7 +152,9 @@ impl PruningPredicate {
             return Ok(None);
         }
 
-        Ok(Some(self.expr.evaluate(metadata)?))
+        Ok(Some(self.expr.evaluate(
+            &EvaluationContext::default_scope(metadata.to_array()),
+        )?))
     }
 }
 
@@ -168,14 +170,14 @@ fn not_prunable() -> PruningPredicateStats {
 fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
     if let Some(nexp) = expr.as_any().downcast_ref::<Not>() {
         if let Some(get_item) = nexp.child().as_any().downcast_ref::<GetItem>() {
-            if get_item.child().as_any().is::<Identity>() {
+            if is_ident(get_item.child()) {
                 return convert_access_reference(expr, true);
             }
         }
     }
 
     if let Some(get_item) = expr.as_any().downcast_ref::<GetItem>() {
-        if get_item.child().as_any().is::<Identity>() {
+        if is_ident(get_item.child()) {
             return convert_access_reference(expr, false);
         }
     }
@@ -188,7 +190,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
             let flipped_op = bexp
                 .op()
                 .logical_inverse()
-                .vortex_expect("Can not be any other operator than and / or");
+                .vortex_expect("Cannot be any other operator than and / or");
             return (
                 BinaryExpr::new_expr(rewritten_left, flipped_op, rewritten_right),
                 refs_lhs,
@@ -196,7 +198,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
         }
 
         if let Some(get_item) = bexp.lhs().as_any().downcast_ref::<GetItem>() {
-            if get_item.child().as_any().is::<Identity>() {
+            if is_ident(get_item.child()) {
                 return PruningPredicateRewriter::rewrite_binary_op(
                     FieldOrIdentity::Field(get_item.field().clone()),
                     bexp.op(),
@@ -206,7 +208,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
         };
 
         if let Some(get_item) = bexp.rhs().as_any().downcast_ref::<GetItem>() {
-            if get_item.child().as_any().is::<Identity>() {
+            if is_ident(get_item.child()) {
                 return PruningPredicateRewriter::rewrite_binary_op(
                     FieldOrIdentity::Field(get_item.field().clone()),
                     bexp.op().swap(),
@@ -215,7 +217,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
             }
         }
 
-        if bexp.lhs().as_any().is::<Identity>() {
+        if is_ident(bexp.lhs()) {
             return PruningPredicateRewriter::rewrite_binary_op(
                 FieldOrIdentity::Identity,
                 bexp.op(),
@@ -223,7 +225,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
             );
         };
 
-        if bexp.rhs().as_any().is::<Identity>() {
+        if is_ident(bexp.rhs()) {
             return PruningPredicateRewriter::rewrite_binary_op(
                 FieldOrIdentity::Identity,
                 bexp.op().swap(),
@@ -363,7 +365,7 @@ fn replace_get_item_with_stat(
     stats_to_fetch: &mut Relation<FieldOrIdentity, Stat>,
 ) -> Option<ExprRef> {
     if let Some(get_i) = expr.as_any().downcast_ref::<GetItem>() {
-        if get_i.child().as_any().is::<Identity>() {
+        if is_ident(get_i.child()) {
             let new_field = stat_field_name(get_i.field(), stat);
             stats_to_fetch.insert(FieldOrIdentity::Field(get_i.field().clone()), stat);
             return Some(get_item(new_field, ident()));
@@ -661,7 +663,7 @@ mod tests {
 
         assert_eq!(
             PruningPredicate::try_new(&not_eq_expr).unwrap().to_string(),
-            "PruningPredicate(($.a_min >= 42i32), {a: {min}})"
+            "PruningPredicate(([$].a_min >= 42i32), {a: {min}})"
         );
     }
 

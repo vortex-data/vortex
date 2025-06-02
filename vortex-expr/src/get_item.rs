@@ -3,11 +3,11 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::{ExprRef, VortexExpr, ident};
+use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, VortexExpr, ident};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -99,9 +99,9 @@ impl VortexExpr for GetItem {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
         self.child
-            .evaluate(batch)?
+            .unchecked_evaluate(ctx)?
             .to_struct()?
             .field_by_name(self.field())
             .cloned()
@@ -116,8 +116,8 @@ impl VortexExpr for GetItem {
         Self::new_expr(self.field().clone(), children[0].clone())
     }
 
-    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
-        let input = self.child.return_dtype(scope_dtype)?;
+    fn return_dtype(&self, ctx: &DTypeEvaluationContext) -> VortexResult<DType> {
+        let input = self.child.return_dtype(ctx)?;
         input
             .as_struct()
             .ok_or_else(|| vortex_err!("GetItem: child dtype is not a struct"))?
@@ -154,7 +154,7 @@ mod tests {
     pub fn get_item_by_name() {
         let st = test_array();
         let get_item = get_item("a", ident());
-        let item = get_item.evaluate(st.as_ref()).unwrap();
+        let item = get_item.evaluate_array(st.as_ref()).unwrap();
         assert_eq!(item.dtype(), &DType::from(I32))
     }
 
@@ -162,6 +162,6 @@ mod tests {
     pub fn get_item_by_name_none() {
         let st = test_array();
         let get_item = get_item("c", ident());
-        assert!(get_item.evaluate(st.as_ref()).is_err());
+        assert!(get_item.evaluate_array(st.as_ref()).is_err());
     }
 }

@@ -1,0 +1,141 @@
+use std::any::Any;
+use std::fmt::Display;
+use std::sync::{Arc, LazyLock};
+
+use vortex_array::ArrayRef;
+use vortex_dtype::DType;
+use vortex_error::VortexResult;
+
+use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, Identifier, VortexExpr};
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct Var {
+    var: Identifier,
+}
+
+impl Var {
+    pub fn new_expr(var: Identifier) -> ExprRef {
+        Arc::new(Self { var })
+    }
+
+    pub fn var(&self) -> &Identifier {
+        &self.var
+    }
+}
+
+#[cfg(feature = "proto")]
+pub(crate) mod proto {
+    use vortex_error::{VortexResult, vortex_bail};
+    use vortex_proto::expr::kind;
+    use vortex_proto::expr::kind::Kind;
+
+    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Var};
+
+    pub(crate) struct VarSerde;
+
+    impl Id for VarSerde {
+        fn id(&self) -> &'static str {
+            "let"
+        }
+    }
+
+    impl ExprDeserialize for VarSerde {
+        fn deserialize(&self, kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            let Kind::Var(op) = kind else {
+                vortex_bail!("wrong kind {:?}, wanted var", kind)
+            };
+
+            Ok(Var::new_expr(op.var.clone().into()))
+        }
+    }
+
+    impl ExprSerializable for Var {
+        fn id(&self) -> &'static str {
+            VarSerde.id()
+        }
+
+        fn serialize_kind(&self) -> VortexResult<Kind> {
+            Ok(Kind::Var(kind::Var {
+                var: self.var.to_string(),
+            }))
+        }
+    }
+}
+
+impl Display for Var {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}]", self.var)
+    }
+}
+
+impl VortexExpr for Var {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
+        ctx.values(&self.var).cloned()
+    }
+
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![]
+    }
+
+    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 0);
+        Var::new_expr(self.var.clone())
+    }
+
+    fn return_dtype(&self, dt_ctx: &DTypeEvaluationContext) -> VortexResult<DType> {
+        dt_ctx.type_(&self.var).cloned()
+    }
+}
+
+pub fn var(var: impl Into<Identifier>) -> ExprRef {
+    Var::new_expr(var.into())
+}
+
+pub const IDENTITY_IDENTIFIER: &str = "$";
+static IDENTITY: LazyLock<ExprRef> = LazyLock::new(|| Var::new_expr(IDENTITY_IDENTIFIER.into()));
+
+/// Return a global pointer to the identity token.
+/// This is the name of the data found in a vortex array or file.
+pub fn ident() -> ExprRef {
+    IDENTITY.clone()
+}
+
+pub fn is_ident(expr: &ExprRef) -> bool {
+    expr.as_any()
+        .downcast_ref::<Var>()
+        .is_some_and(|v| v.var().as_ref() == "$")
+}
+
+#[cfg(test)]
+mod tests {
+    use itertools::Itertools;
+    use vortex_array::ToCanonical;
+    use vortex_array::aliases::hash_map::HashMap;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+
+    use crate::{ValuesScope, eq, var};
+
+    #[test]
+    fn test_two_vars() {
+        let a1 = PrimitiveArray::new(buffer![5, 4, 3, 2, 1, 0], Validity::AllValid).to_array();
+        let a2 = PrimitiveArray::from_iter(1..=6).to_array();
+
+        let expr = eq(var("$"), var("row"));
+        let res = expr
+            .evaluate(
+                &ValuesScope::new(HashMap::from([("$".into(), a1), ("row".into(), a2)]))
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap();
+        let res = res.to_bool().unwrap().boolean_buffer().iter().collect_vec();
+
+        assert_eq!(res, vec![false, false, true, false, false, false])
+    }
+}

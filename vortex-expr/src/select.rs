@@ -3,12 +3,12 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::field::DisplayFieldNames;
-use crate::{ExprRef, VortexExpr};
+use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SelectField {
@@ -157,8 +157,8 @@ impl VortexExpr for Select {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let batch = self.child.evaluate(batch)?.to_struct()?;
+    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
+        let batch = self.child.unchecked_evaluate(ctx)?.to_struct()?;
         Ok(match &self.fields {
             SelectField::Include(f) => batch.project(f),
             SelectField::Exclude(names) => {
@@ -183,8 +183,8 @@ impl VortexExpr for Select {
         Self::new_expr(self.fields.clone(), children[0].clone())
     }
 
-    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
-        let child_dtype = self.child.return_dtype(scope_dtype)?;
+    fn return_dtype(&self, ctx: &DTypeEvaluationContext) -> VortexResult<DType> {
+        let child_dtype = self.child.return_dtype(ctx)?;
         let child_struct_dtype = child_dtype
             .as_struct()
             .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
@@ -222,7 +222,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, Nullability};
 
-    use crate::{ident, select, select_exclude, test_harness};
+    use crate::{DTypeEvaluationContext, ident, select, select_exclude, test_harness};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -236,7 +236,11 @@ mod tests {
     pub fn include_columns() {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], ident());
-        let selected = select.evaluate(st.as_ref()).unwrap().to_struct().unwrap();
+        let selected = select
+            .evaluate_array(st.as_ref())
+            .unwrap()
+            .to_struct()
+            .unwrap();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a".into()]);
     }
@@ -245,7 +249,11 @@ mod tests {
     pub fn exclude_columns() {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], ident());
-        let selected = select.evaluate(st.as_ref()).unwrap().to_struct().unwrap();
+        let selected = select
+            .evaluate_array(st.as_ref())
+            .unwrap()
+            .to_struct()
+            .unwrap();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b".into()]);
     }
@@ -259,7 +267,12 @@ mod tests {
             Arc::new(dtype.as_struct().unwrap().project(&["a".into()]).unwrap()),
             Nullability::NonNullable,
         );
-        assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
+        assert_eq!(
+            select_expr
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .unwrap(),
+            expected_dtype
+        );
 
         let select_expr_exclude = select_exclude(
             vec![
@@ -271,7 +284,9 @@ mod tests {
             ident(),
         );
         assert_eq!(
-            select_expr_exclude.return_dtype(&dtype).unwrap(),
+            select_expr_exclude
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .unwrap(),
             expected_dtype
         );
 
@@ -280,7 +295,9 @@ mod tests {
             ident(),
         );
         assert_eq!(
-            select_expr_exclude.return_dtype(&dtype).unwrap(),
+            select_expr_exclude
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .unwrap(),
             DType::Struct(
                 Arc::new(
                     dtype

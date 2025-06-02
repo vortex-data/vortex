@@ -233,8 +233,7 @@ mod tests {
         );
         let find = find_between(expr);
 
-        println!("{find}");
-
+        // $.y >= 10 /\ 2 < $.x <= 5
         // $.y >= 10 /\ 2 < $.x <= 5
         assert_eq!(
             &and(
@@ -260,8 +259,6 @@ mod tests {
             lt(lit(2), col("x")),
         );
         let find = find_between(expr);
-
-        println!("{find}");
 
         // $.y >= 10 /\ 2 < $.x <= 5
         assert_eq!(

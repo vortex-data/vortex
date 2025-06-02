@@ -8,20 +8,22 @@ use vortex_proto::expr;
 use crate::between::proto::BetweenSerde;
 use crate::binary::proto::BinarySerde;
 use crate::get_item::proto::GetItemSerde;
-use crate::identity::proto::IdentitySerde;
+use crate::let_::proto::LetSerde;
 use crate::like::proto::LikeSerde;
 use crate::literal::proto::LiteralSerde;
 use crate::merge::proto::MergeSerde;
 use crate::not::proto::NotSerde;
 use crate::pack::proto::PackSerde;
 use crate::select::proto::SelectSerde;
+use crate::var::proto::VarSerde;
 use crate::{ExprDeserialize, ExprRef};
 
 const EXPRESSIONS: &[&'static dyn ExprDeserialize] = &[
+    &LetSerde,
     &BetweenSerde,
     &BinarySerde,
     &GetItemSerde,
-    &IdentitySerde,
+    &VarSerde,
     &LikeSerde,
     &LiteralSerde,
     &MergeSerde,

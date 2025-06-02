@@ -12,7 +12,7 @@ use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Identity};
+use vortex_expr::{ExprRef, ident};
 use vortex_mask::Mask;
 
 use super::DictLayout;
@@ -75,7 +75,7 @@ impl DictReader {
             .get_or_init(move || {
                 let eval = self
                     .values
-                    .projection_evaluation(&(0..values_len as u64), &Identity::new_expr())
+                    .projection_evaluation(&(0..values_len as u64), &ident())
                     .vortex_expect("must construct dict values array evaluation");
 
                 async move {
@@ -94,7 +94,7 @@ impl DictReader {
             .entry(expr.clone())
             .or_insert_with(|| {
                 self.values_array()
-                    .map(move |array| expr.evaluate(&array?).map_err(Arc::new))
+                    .map(move |array| expr.evaluate_array(&array?).map_err(Arc::new))
                     .boxed()
                     .shared()
             })
@@ -146,9 +146,7 @@ impl LayoutReader for DictReader {
         // We register interest on the entire codes row_range for now, there
         // is no straightforward shift into the codes domain we can do to the expression
         // without reading values.
-        let codes_eval = self
-            .codes
-            .projection_evaluation(row_range, &Identity::new_expr())?;
+        let codes_eval = self.codes.projection_evaluation(row_range, &ident())?;
 
         Ok(Box::new(DictMaskEvaluation {
             values_eval,
@@ -162,9 +160,7 @@ impl LayoutReader for DictReader {
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         let values_eval = self.values_eval(expr.clone());
-        let codes_eval = self
-            .codes
-            .projection_evaluation(row_range, &Identity::new_expr())?;
+        let codes_eval = self.codes.projection_evaluation(row_range, &ident())?;
         Ok(Box::new(DictArrayEvaluation {
             values_eval,
             codes_eval,
