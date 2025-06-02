@@ -104,7 +104,7 @@ mod tests {
 
         assert!(e.as_any().is::<Pack>());
         assert_eq!(
-            e.return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+            e.return_dtype(&DTypeEvaluationContext::new_identity(dtype))
                 .unwrap(),
             DType::Struct(
                 Arc::new(StructFields::new(
@@ -137,7 +137,7 @@ mod tests {
 
         assert!(e.as_any().is::<Pack>());
         assert!(
-            e.return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+            e.return_dtype(&DTypeEvaluationContext::new_identity(dtype))
                 .unwrap()
                 .is_nullable()
         );

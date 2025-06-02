@@ -379,7 +379,7 @@ mod tests {
                 lt(col1.clone(), col2.clone()),
                 not_eq(col1.clone(), col2.clone())
             )
-            .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+            .return_dtype(&DTypeEvaluationContext::new_identity(dtype))
             .unwrap(),
             DType::Bool(Nullability::Nullable)
         );

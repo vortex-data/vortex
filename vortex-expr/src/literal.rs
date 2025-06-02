@@ -179,7 +179,7 @@ mod tests {
                 sdtype.clone(),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))
-            .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+            .return_dtype(&DTypeEvaluationContext::new_identity(dtype))
             .unwrap(),
             sdtype
         );

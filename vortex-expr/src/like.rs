@@ -183,7 +183,7 @@ mod tests {
         let like_expr = Like::new_expr(ident(), lit("%test%"), false, false);
         assert_eq!(
             like_expr
-                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );

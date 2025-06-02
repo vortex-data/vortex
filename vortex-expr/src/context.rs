@@ -38,7 +38,6 @@ impl EvaluationContext {
         let len = values
             .0
             .values()
-            .into_iter()
             .next()
             .ok_or_else(|| vortex_err!("cannot have any empty evaluation context"))?
             .len();
@@ -61,6 +60,7 @@ impl EvaluationContext {
             .ok_or_else(|| vortex_err!("cannot find {} in values scope", id))
     }
 
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.array_len
     }

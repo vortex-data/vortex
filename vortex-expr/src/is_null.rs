@@ -123,7 +123,7 @@ mod tests {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
             is_null(ident())
-                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );

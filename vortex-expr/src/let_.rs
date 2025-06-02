@@ -102,7 +102,7 @@ impl VortexExpr for Let {
 
 impl PartialEq for Let {
     fn eq(&self, other: &Let) -> bool {
-        self.var == self.var && self.bind.eq(&other.bind) && self.expr.eq(&other.expr)
+        self.var == other.var && self.bind.eq(&other.bind) && self.expr.eq(&other.expr)
     }
 }
 

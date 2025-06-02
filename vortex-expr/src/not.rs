@@ -133,7 +133,7 @@ mod tests {
         let dtype = DType::Bool(Nullability::NonNullable);
         assert_eq!(
             not_expr
-                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
@@ -141,7 +141,7 @@ mod tests {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
             not(col("bool1"))
-                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .return_dtype(&DTypeEvaluationContext::new_identity(dtype))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
