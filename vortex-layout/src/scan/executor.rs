@@ -67,7 +67,7 @@ impl TaskExecutor for tokio::runtime::Handle {
     }
 }
 
-pub struct LocalExecutor {}
+pub struct LocalExecutor;
 
 impl TaskExecutor for LocalExecutor {
     fn do_spawn(

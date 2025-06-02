@@ -10,7 +10,7 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{ArrayContext, ToCanonical};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SequenceWriter;
@@ -43,9 +43,7 @@ impl LayoutStrategy for StructStrategy {
             return self.child.write_stream(ctx, sequence_writer, stream);
         };
         if HashSet::from_iter(struct_dtype.names().iter()).len() != struct_dtype.names().len() {
-            return Box::pin(async {
-                Err(vortex_err!("StructLayout must have unique field names"))
-            });
+            return Box::pin(async { vortex_bail!("StructLayout must have unique field names") });
         }
 
         let stream = stream.map(|chunk| {
@@ -149,7 +147,7 @@ where
             return Poll::Ready(Some(item));
         }
 
-        // support non fused streams
+        // if we know upstream is exhausted we can skip polling it again.
         if guard.exhausted {
             return Poll::Ready(None);
         }
