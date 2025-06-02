@@ -4,7 +4,6 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use futures::TryStreamExt;
 use futures::future::try_join;
-use object_store::path::Path;
 use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt};
@@ -70,13 +69,13 @@ impl VortexWriteOptions {
     pub async fn write_object_store<S: ArrayStream + Unpin + Send + 'static>(
         self,
         object_store: &Arc<dyn object_store::ObjectStore>,
-        path: impl Into<Path>,
+        path: impl AsRef<object_store::path::Path>,
         stream: S,
     ) -> VortexResult<()> {
         use vortex_io::ObjectStoreWriter;
 
         self.write(
-            ObjectStoreWriter::new(object_store.clone(), path.into()).await?,
+            ObjectStoreWriter::new(object_store.clone(), path).await?,
             stream,
         )
         .await?
