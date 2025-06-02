@@ -4,7 +4,6 @@ use std::sync::Arc;
 use arcref::ArcRef;
 use futures::StreamExt as _;
 use futures::stream::once;
-use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
@@ -66,10 +65,9 @@ impl LayoutStrategy for ZonedStrategy {
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
     ) -> SendableLayoutWriter {
-        let present_stats: Arc<[Stat]> = self.options.stats.iter().sorted().copied().collect();
         let stats_accumulator = Arc::new(Mutex::new(StatsAccumulator::new(
             stream.dtype(),
-            &present_stats,
+            &self.options.stats,
             self.options.max_variable_length_statistics_size,
         )));
         let stream = SequentialStreamAdapter::new(

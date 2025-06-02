@@ -5,7 +5,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString};
 use vortex::buffer::ByteBuffer;
-use vortex::dtype::{DType, FieldName, FieldNames, Nullability, StructDType};
+use vortex::dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
@@ -127,7 +127,7 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
                 .map(|value| scalar_helper_inner(&value, None))
                 .try_collect()?;
             let dtype = DType::Struct(
-                Arc::new(StructDType::new(
+                Arc::new(StructFields::new(
                     names,
                     values.iter().map(|value| value.dtype().clone()).collect(),
                 )),

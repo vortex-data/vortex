@@ -1,7 +1,6 @@
-use std::future;
 use std::sync::Arc;
 
-use futures::StreamExt as _;
+use futures::TryStreamExt as _;
 use parking_lot::Mutex;
 use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::ByteBuffer;
@@ -72,13 +71,10 @@ impl SequenceWriter {
     /// on the latter stream would come after all that were associated
     /// with the former stream.
     pub fn new_sequential(&self, stream: SendableArrayStream) -> SendableSequentialStream {
-        let sequence_pointer = self.tail();
+        let mut sequence_pointer = self.tail();
         SequentialStreamAdapter::new(
             stream.dtype().clone(),
-            stream.scan(sequence_pointer, |pointer, item| match item {
-                Ok(chunk) => future::ready(Some(Ok((pointer.advance(), chunk)))),
-                Err(e) => future::ready(Some(Err(e))),
-            }),
+            stream.map_ok(move |chunk| (sequence_pointer.advance(), chunk)),
         )
         .sendable()
     }

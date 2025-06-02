@@ -72,41 +72,41 @@ PType
     :file: vortex.h
     :members:
 
-Struct DType
-------------
+Struct Fields
+-------------
 
-.. c:autotype:: vx_struct_dtype
+.. c:autotype:: vx_struct_fields
     :file: vortex.h
 
-.. c:autofunction:: vx_struct_dtype_clone
+.. c:autofunction:: vx_struct_fields_clone
     :file: vortex.h
 
-.. c:autofunction:: vx_struct_dtype_free
+.. c:autofunction:: vx_struct_fields_free
     :file: vortex.h
 
-.. c:autofunction:: vx_struct_dtype_nfields
+.. c:autofunction:: vx_struct_fields_nfields
     :file: vortex.h
 
-.. c:autofunction:: vx_struct_dtype_field_dtype
+.. c:autofunction:: vx_struct_fields_field_dtype
     :file: vortex.h
 
-.. c:autofunction:: vx_struct_dtype_field_name
+.. c:autofunction:: vx_struct_fields_field_name
     :file: vortex.h
 
-Struct DType Builder
-^^^^^^^^^^^^^^^^^^^^
+Struct Fields Builder
+^^^^^^^^^^^^^^^^^^^^^
 
-.. c:autotype:: vx_struct_dtype_builder
+.. c:autotype:: vx_struct_fields_builder
     :file: vortex.h
 
-.. c:autofunction:: vx_struct_dtype_builder_free
+.. c:autofunction:: vx_struct_fields_builder_free
     :file: vortex.h
 
-.. c:autofunction:: vx_struct_dtype_builder_new
+.. c:autofunction:: vx_struct_fields_builder_new
     :file: vortex.h
 
-.. c:autofunction:: vx_struct_dtype_builder_add_field
+.. c:autofunction:: vx_struct_fields_builder_add_field
     :file: vortex.h
 
-.. c:autofunction:: vx_struct_dtype_builder_finalize
+.. c:autofunction:: vx_struct_fields_builder_finalize
     :file: vortex.h

@@ -12,7 +12,7 @@ use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{Operator, compare};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::{DType, StructDType};
+use vortex_dtype::{DType, StructFields};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 
@@ -130,7 +130,7 @@ fn has_duplicate_field_names(dtype: &DType) -> bool {
     }
 }
 
-fn struct_has_duplicate_names(struct_dtype: &StructDType) -> bool {
+fn struct_has_duplicate_names(struct_dtype: &StructFields) -> bool {
     HashSet::from_iter(struct_dtype.names().iter()).len() != struct_dtype.names().len()
         || struct_dtype
             .fields()

@@ -12,7 +12,7 @@ impl MaskKernel for StructVTable {
 
         StructArray::try_new_with_dtype(
             array.fields().to_vec(),
-            array.struct_dtype().clone(),
+            array.struct_fields().clone(),
             array.len(),
             validity,
         )

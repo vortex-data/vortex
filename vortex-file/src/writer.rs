@@ -2,7 +2,7 @@ use std::future;
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::future::try_join;
 use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
@@ -33,7 +33,7 @@ pub struct VortexWriteOptions {
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: VortexLayoutStrategy::with_executor(Arc::new(LocalExecutor {})),
+            strategy: VortexLayoutStrategy::with_executor(Arc::new(LocalExecutor)),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
@@ -77,10 +77,8 @@ impl VortexWriteOptions {
         let (segment_writer, flusher) = SerialSegmentWriter::create();
         let sequence_writer = SequenceWriter::new(Box::new(segment_writer));
 
-        let stream = stream.filter(|item| match item {
-            Ok(chunk) => future::ready(!chunk.is_empty()),
-            Err(_) => future::ready(true),
-        });
+        let stream = stream.try_filter(|chunk| future::ready(!chunk.is_empty()));
+
         let stream = sequence_writer.new_sequential(ArrayStreamExt::boxed(
             ArrayStreamAdapter::new(dtype.clone(), stream),
         ));
@@ -95,7 +93,7 @@ impl VortexWriteOptions {
         let mut write = futures::io::Cursor::new(write);
         write.write_all(MAGIC_BYTES).await?;
 
-        let io_fut = async { flusher.flush(write).await };
+        let io_fut = flusher.flush(write);
         let compute_fut = self.strategy.write_stream(&ctx, sequence_writer, stream);
         let (layout, (mut write, segment_specs)) = try_join(compute_fut, io_fut).await?;
 

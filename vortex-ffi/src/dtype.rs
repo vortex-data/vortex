@@ -6,8 +6,8 @@ use vortex::dtype::{DType, DecimalDType};
 use vortex::error::{VortexExpect, VortexUnwrap, vortex_panic};
 
 use crate::arc_wrapper;
-use crate::dtype_struct::vx_struct_dtype;
 use crate::ptype::vx_ptype;
+use crate::struct_fields::vx_struct_fields;
 
 arc_wrapper!(
     /// A Vortex data type.
@@ -110,10 +110,10 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_list(
 /// Takes ownership of the `struct_dtype` pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_struct(
-    struct_dtype: *const vx_struct_dtype,
+    struct_dtype: *const vx_struct_fields,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    let struct_dtype = vx_struct_dtype::into_arc(struct_dtype);
+    let struct_dtype = vx_struct_fields::into_arc(struct_dtype);
     vx_dtype::new(Arc::new(DType::Struct(struct_dtype, is_nullable.into())))
 }
 
@@ -166,15 +166,15 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -
         .scale()
 }
 
-/// Return a borrowed reference to the [`vx_struct_dtype`] of a struct data type.
+/// Return a borrowed reference to the [`vx_struct_fields`] of a struct data type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     dtype: *const vx_dtype,
-) -> *const vx_struct_dtype {
+) -> *const vx_struct_fields {
     let struct_dtype = vx_dtype::as_ref(dtype)
         .as_struct()
         .vortex_expect("not a struct dtype");
-    vx_struct_dtype::new_ref(struct_dtype)
+    vx_struct_fields::new_ref(struct_dtype)
 }
 
 /// Return a borrowed reference to the `element` typee of a list data type.
@@ -265,13 +265,13 @@ mod tests {
         vx_dtype, vx_dtype_free, vx_dtype_get_variant, vx_dtype_new_bool, vx_dtype_new_primitive,
         vx_dtype_new_utf8, vx_dtype_variant,
     };
-    use crate::dtype_struct::{
-        vx_struct_dtype_builder_add_field, vx_struct_dtype_builder_finalize,
-        vx_struct_dtype_builder_new, vx_struct_dtype_field_dtype, vx_struct_dtype_field_name,
-        vx_struct_dtype_free, vx_struct_dtype_nfields,
-    };
     use crate::ptype::vx_ptype;
     use crate::string::vx_string;
+    use crate::struct_fields::{
+        vx_struct_fields_builder_add_field, vx_struct_fields_builder_finalize,
+        vx_struct_fields_builder_new, vx_struct_fields_field_dtype, vx_struct_fields_field_name,
+        vx_struct_fields_free, vx_struct_fields_nfields,
+    };
 
     #[test]
     fn test_simple() {
@@ -295,27 +295,27 @@ mod tests {
     #[test]
     fn test_struct() {
         unsafe {
-            let builder = vx_struct_dtype_builder_new();
-            vx_struct_dtype_builder_add_field(
+            let builder = vx_struct_fields_builder_new();
+            vx_struct_fields_builder_add_field(
                 builder,
                 vx_string::new("name".into()),
                 vx_dtype_new_utf8(false),
             );
-            vx_struct_dtype_builder_add_field(
+            vx_struct_fields_builder_add_field(
                 builder,
                 vx_string::new("age".into()),
                 vx_dtype_new_primitive(vx_ptype::PTYPE_U8, true),
             );
-            let person = vx_struct_dtype_builder_finalize(builder);
-            assert_eq!(vx_struct_dtype_nfields(person), 2);
+            let person = vx_struct_fields_builder_finalize(builder);
+            assert_eq!(vx_struct_fields_nfields(person), 2);
 
-            let name = vx_struct_dtype_field_name(person, 0);
+            let name = vx_struct_fields_field_name(person, 0);
             assert_eq!(vx_string::as_str(name), "name");
-            let name = vx_struct_dtype_field_name(person, 1);
+            let name = vx_struct_fields_field_name(person, 1);
             assert_eq!(vx_string::as_str(name), "age");
 
-            let dtype0 = vx_struct_dtype_field_dtype(person, 0);
-            let dtype1 = vx_struct_dtype_field_dtype(person, 1);
+            let dtype0 = vx_struct_fields_field_dtype(person, 0);
+            let dtype1 = vx_struct_fields_field_dtype(person, 1);
             assert_eq!(vx_dtype_get_variant(dtype0), vx_dtype_variant::DTYPE_UTF8);
             assert_eq!(
                 vx_dtype_get_variant(dtype1),
@@ -324,7 +324,7 @@ mod tests {
             vx_dtype_free(dtype0);
             vx_dtype_free(dtype1);
 
-            vx_struct_dtype_free(person);
+            vx_struct_fields_free(person);
         }
     }
 }

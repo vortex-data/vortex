@@ -13,7 +13,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::stats::Precision;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayContext, ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldMask, FieldName, StructDType};
+use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::ExprRef;
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
@@ -42,7 +42,7 @@ impl StructReader {
         segment_source: Arc<dyn SegmentSource>,
         ctx: ArrayContext,
     ) -> VortexResult<Self> {
-        let struct_dt = layout.struct_dtype();
+        let struct_dt = layout.struct_fields();
 
         // NOTE: This number is arbitrary and likely depends on the longest common prefix of field names
         let field_lookup = (struct_dt.nfields() > 80).then(|| {
@@ -68,9 +68,9 @@ impl StructReader {
         })
     }
 
-    /// Return the [`StructDType`] of this layout.
-    fn struct_dtype(&self) -> &StructDType {
-        self.layout.struct_dtype()
+    /// Return the [`StructFields`] of this layout.
+    fn struct_fields(&self) -> &StructFields {
+        self.layout.struct_fields()
     }
 
     /// Return the child reader for the field.
@@ -79,15 +79,15 @@ impl StructReader {
             .field_lookup
             .as_ref()
             .and_then(|lookup| lookup.get(name).copied())
-            .or_else(|| self.struct_dtype().find(name).ok())
+            .or_else(|| self.struct_fields().find(name).ok())
             .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
         self.child_by_idx(idx)
     }
 
     /// Return the child reader for the field, by index.
     fn child_by_idx(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
-        let field_dtype = self.struct_dtype().field_by_index(idx)?;
-        let name = &self.struct_dtype().names()[idx];
+        let field_dtype = self.struct_fields().field_by_index(idx)?;
+        let name = &self.struct_fields().names()[idx];
         self.lazy_children
             .get(idx, &field_dtype, &format!("{}.{}", self.name, name).into())
     }
@@ -339,7 +339,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, StructDType};
+    use vortex_dtype::{DType, StructFields};
     use vortex_expr::{get_item, gt, ident, pack};
     use vortex_mask::Mask;
 
@@ -363,7 +363,7 @@ mod tests {
                 sequence_writer,
                 SequentialStreamAdapter::new(
                     DType::Struct(
-                        Arc::new(StructDType::new(
+                        Arc::new(StructFields::new(
                             vec!["a".into(), "b".into(), "c".into()].into(),
                             vec![I32.into(), I32.into(), I32.into()],
                         )),

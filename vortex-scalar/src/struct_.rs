@@ -4,7 +4,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, FieldNames, StructDType};
+use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
 use vortex_error::{
     VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
 };
@@ -25,7 +25,7 @@ impl Display for StructScalar<'_> {
                 let formatted_fields = self
                     .names()
                     .iter()
-                    .zip_eq(self.struct_dtype().fields())
+                    .zip_eq(self.struct_fields().fields())
                     .zip_eq(fields.iter())
                     .map(|((name, dtype), value)| {
                         let val = Scalar::new(dtype, value.clone());
@@ -84,7 +84,7 @@ impl<'a> StructScalar<'a> {
     }
 
     #[inline]
-    pub fn struct_dtype(&self) -> &Arc<StructDType> {
+    pub fn struct_fields(&self) -> &Arc<StructFields> {
         let DType::Struct(sdtype, ..) = self.dtype else {
             vortex_panic!("StructScalar always has struct dtype");
         };
@@ -92,7 +92,7 @@ impl<'a> StructScalar<'a> {
     }
 
     pub fn names(&self) -> &FieldNames {
-        self.struct_dtype().names()
+        self.struct_fields().names()
     }
 
     pub fn is_null(&self) -> bool {
@@ -230,7 +230,7 @@ impl<'a> TryFrom<&'a Scalar> for StructScalar<'a> {
 #[cfg(test)]
 mod tests {
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, Nullability, StructDType};
+    use vortex_dtype::{DType, Nullability, StructFields};
 
     use super::*;
 
@@ -239,7 +239,7 @@ mod tests {
         let f1_dt = DType::Utf8(Nullability::NonNullable);
 
         let dtype = DType::Struct(
-            Arc::new(StructDType::new(
+            Arc::new(StructFields::new(
                 vec!["a".into(), "b".into()].into(),
                 vec![f0_dt.clone(), f1_dt.clone()],
             )),

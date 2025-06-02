@@ -22,7 +22,7 @@ impl TakeKernel for StructVTable {
                 .iter()
                 .map(|field| take(field, indices))
                 .try_collect()?,
-            array.struct_dtype().clone(),
+            array.struct_fields().clone(),
             indices.len(),
             array.validity().take(indices)?,
         )
@@ -72,7 +72,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructDType};
+    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
     use vortex_mask::Mask;
 
     use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
@@ -149,14 +149,14 @@ mod tests {
             .unwrap()
             .into_array();
         let non_nullable_dtype = DType::Struct(
-            Arc::from(StructDType::new([].into(), vec![])),
+            Arc::from(StructFields::new([].into(), vec![])),
             Nullability::NonNullable,
         );
         let casted = cast(&array, &non_nullable_dtype).unwrap();
         assert_eq!(casted.dtype(), &non_nullable_dtype);
 
         let nullable_dtype = DType::Struct(
-            Arc::from(StructDType::new([].into(), vec![])),
+            Arc::from(StructFields::new([].into(), vec![])),
             Nullability::Nullable,
         );
         let casted = cast(&array, &nullable_dtype).unwrap();
@@ -182,7 +182,7 @@ mod tests {
         let result = cast(
             array.as_ref(),
             &DType::Struct(
-                Arc::from(StructDType::new(
+                Arc::from(StructFields::new(
                     FieldNames::from(["ys".into(), "xs".into(), "zs".into()]),
                     vec![tu8.clone(), tu8.clone(), tu8],
                 )),
@@ -234,11 +234,11 @@ mod tests {
         assert_eq!(casted.dtype(), &top_level_non_nullable);
 
         let non_null_xs_right = DType::Struct(
-            Arc::from(StructDType::new(
+            Arc::from(StructFields::new(
                 ["xs".into(), "ys".into(), "zs".into()].into(),
                 vec![
                     DType::Struct(
-                        Arc::from(StructDType::new(
+                        Arc::from(StructFields::new(
                             ["left".into(), "right".into()].into(),
                             vec![
                                 DType::Primitive(PType::I64, Nullability::NonNullable),
@@ -257,11 +257,11 @@ mod tests {
         assert_eq!(casted.dtype(), &non_null_xs_right);
 
         let non_null_xs = DType::Struct(
-            Arc::from(StructDType::new(
+            Arc::from(StructFields::new(
                 ["xs".into(), "ys".into(), "zs".into()].into(),
                 vec![
                     DType::Struct(
-                        Arc::from(StructDType::new(
+                        Arc::from(StructFields::new(
                             ["left".into(), "right".into()].into(),
                             vec![
                                 DType::Primitive(PType::I64, Nullability::Nullable),

@@ -11,7 +11,7 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
 
 use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;
@@ -203,10 +203,8 @@ impl DictStreamState {
         labeler: &mut DictChunkLabeler,
         chunk: ArrayRef,
     ) -> Vec<VortexResult<DictionaryChunk>> {
-        match self.try_encode(labeler, chunk) {
-            Ok(chunks) => chunks,
-            Err(e) => vec![Err(e)],
-        }
+        self.try_encode(labeler, chunk)
+            .unwrap_or_else(|e| vec![Err(e)])
     }
 
     fn try_encode(
@@ -304,10 +302,9 @@ impl DictEncodedRuns {
 
         let (values_tx, values_rx) = oneshot::channel();
         let values_future = async {
-            match values_rx.await {
-                Ok(values) => values,
-                Err(_) => Err(vortex_err!("sender dropped")),
-            }
+            values_rx
+                .await
+                .unwrap_or_else(|_| vortex_bail!("sender dropped"))
         };
 
         let codes_stream = DictEncodedRunStream {

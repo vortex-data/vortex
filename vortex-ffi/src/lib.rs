@@ -6,7 +6,6 @@
 mod array;
 mod array_iterator;
 mod dtype;
-mod dtype_struct;
 #[cfg(feature = "duckdb")]
 mod duckdb;
 mod error;
@@ -17,6 +16,7 @@ mod ptype;
 mod session;
 mod sink;
 mod string;
+mod struct_fields;
 
 use std::ffi::{CStr, c_char, c_int};
 use std::sync::LazyLock;

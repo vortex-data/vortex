@@ -5,7 +5,6 @@ use async_stream::try_stream;
 use futures::{StreamExt as _, pin_mut};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
-use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::segments::SequenceWriter;
@@ -75,18 +74,27 @@ impl LayoutStrategy for RepartitionStrategy {
                     if chunks.have_enough() {
                         let output_chunks = chunks.collect_exact_blocks()?;
                         assert!(!output_chunks.is_empty());
-                        let chunked_array = to_canonical_chunked(output_chunks, &dtype_clone)?;
-                        if !chunked_array.is_empty() {
-                            yield (sequence_pointer.advance(), chunked_array)
+                        let chunked =
+                            ChunkedArray::new_unchecked(output_chunks, dtype_clone.clone());
+                        if !chunked.is_empty() {
+                            yield (
+                                sequence_pointer.advance(),
+                                chunked.to_canonical()?.into_array(),
+                            )
                         }
                     }
                 }
                 if canonical_stream.as_mut().peek().await.is_none() {
-                    let to_flush = to_canonical_chunked(chunks.data.drain(..).collect(), &dtype_clone)?;
+                    let to_flush = ChunkedArray::new_unchecked(
+                        chunks.data.drain(..).collect(),
+                        dtype_clone.clone(),
+                    );
                     if !to_flush.is_empty() {
-                        yield (sequence_pointer.advance(), to_flush)
+                        yield (
+                            sequence_pointer.advance(),
+                            to_flush.to_canonical()?.into_array(),
+                        )
                     }
-
                 }
             }
         };
@@ -97,12 +105,6 @@ impl LayoutStrategy for RepartitionStrategy {
             SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
         )
     }
-}
-
-fn to_canonical_chunked(chunks: Vec<ArrayRef>, dtype: &DType) -> VortexResult<ArrayRef> {
-    Ok(ChunkedArray::new_unchecked(chunks, dtype.clone())
-        .to_canonical()?
-        .into_array())
 }
 
 struct ChunksBuffer {

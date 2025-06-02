@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
-use vortex_dtype::{FieldName, StructDType};
+use vortex_dtype::{FieldName, StructFields};
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
@@ -18,7 +18,7 @@ pub type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
 /// by an expression.
 pub fn immediate_scope_accesses<'a>(
     expr: &'a ExprRef,
-    scope_dtype: &'a StructDType,
+    scope_dtype: &'a StructFields,
 ) -> VortexResult<FieldAccesses<'a>> {
     ImmediateScopeAccessesAnalysis::<'a>::analyze(expr, scope_dtype)
 }
@@ -26,7 +26,7 @@ pub fn immediate_scope_accesses<'a>(
 /// This returns the immediate scope_access (as explained `immediate_scope_accesses`) for `expr`.
 pub fn immediate_scope_access<'a>(
     expr: &'a ExprRef,
-    scope_dtype: &'a StructDType,
+    scope_dtype: &'a StructFields,
 ) -> VortexResult<HashSet<FieldName>> {
     ImmediateScopeAccessesAnalysis::<'a>::analyze(expr, scope_dtype)?
         .get(expr)
@@ -38,18 +38,21 @@ pub fn immediate_scope_access<'a>(
 
 struct ImmediateScopeAccessesAnalysis<'a> {
     sub_expressions: FieldAccesses<'a>,
-    scope_dtype: &'a StructDType,
+    scope_dtype: &'a StructFields,
 }
 
 impl<'a> ImmediateScopeAccessesAnalysis<'a> {
-    fn new(scope_dtype: &'a StructDType) -> Self {
+    fn new(scope_dtype: &'a StructFields) -> Self {
         Self {
             sub_expressions: HashMap::new(),
             scope_dtype,
         }
     }
 
-    fn analyze(expr: &'a ExprRef, scope_dtype: &'a StructDType) -> VortexResult<FieldAccesses<'a>> {
+    fn analyze(
+        expr: &'a ExprRef,
+        scope_dtype: &'a StructFields,
+    ) -> VortexResult<FieldAccesses<'a>> {
         let mut analysis = Self::new(scope_dtype);
         expr.accept(&mut analysis)?;
         Ok(analysis.sub_expressions)

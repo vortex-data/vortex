@@ -50,7 +50,7 @@ impl ArrayRegistry {
 #[derive(Debug, Clone)]
 pub struct VTableContext<T>(Arc<RwLock<Vec<T>>>);
 
-impl<T: Clone + Eq + Display> VTableContext<T> {
+impl<T: Clone + Eq> VTableContext<T> {
     pub fn empty() -> Self {
         Self(Arc::new(RwLock::new(Vec::new())))
     }

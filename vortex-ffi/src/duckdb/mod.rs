@@ -8,7 +8,7 @@ use duckdb::core::{DataChunkHandle, LogicalTypeHandle};
 use duckdb::ffi::{duckdb_data_chunk, duckdb_logical_type};
 use itertools::Itertools;
 use vortex::ArrayRef;
-use vortex::dtype::{DType, Nullability, StructDType};
+use vortex::dtype::{DType, Nullability, StructFields};
 use vortex::error::{VortexResult, vortex_err};
 use vortex_duckdb::{FromDuckDB, FromDuckDBType, NamedDataChunk, ToDuckDBType};
 
@@ -56,7 +56,7 @@ pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
 
         // Top level structs cannot be nullable sql/duckdb.
         let dtype = DType::Struct(
-            Arc::new(StructDType::new(field_names.into(), types)),
+            Arc::new(StructFields::new(field_names.into(), types)),
             Nullability::NonNullable,
         );
 
