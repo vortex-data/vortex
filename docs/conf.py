@@ -183,7 +183,8 @@ def _post_process(app, builder):
     """Post-process the documentation after writing."""
     global C_DOCS
     if C_DOCS:
-        log.warning("Some C references were not found: %s", ", ".join(sorted(C_DOCS)))
+        # TODO(ngates): enable this one we've cleaned up the entire C API.
+        # log.warning("Some C references were not found: %s", ", ".join(sorted(C_DOCS)))
         C_DOCS = None  # Reset for next build
 
 
