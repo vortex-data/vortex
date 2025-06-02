@@ -3,20 +3,13 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use arrow_schema::{DataType, Schema};
-use datafusion::prelude::{DataFrame, SessionContext};
-use datafusion_common::Result as DFResult;
 use datafusion_common::stats::Precision as DFPrecision;
 use datafusion_expr::{Expr, Operator};
-use vortex_array::ArrayRef;
-use vortex_array::stats::Precision;
-use vortex_error::vortex_err;
+use vortex::stats::Precision;
 
-use crate::memory::VortexMemTable;
-
-pub mod memory;
+mod convert;
 pub mod persistent;
 
 const SUPPORTED_BINARY_OPS: &[Operator] = &[
@@ -54,45 +47,6 @@ fn supported_data_types(dt: DataType) -> bool {
     is_supported
 }
 
-/// Extension function to the DataFusion [`SessionContext`] for registering Vortex tables.
-pub trait SessionContextExt {
-    /// Register an in-memory Vortex [`ArrayRef`] as a DataFusion table.
-    fn register_mem_vortex<S: AsRef<str>>(&self, name: S, array: ArrayRef) -> DFResult<()>;
-
-    /// Read an in-memory Vortex [`ArrayRef`] into a DataFusion [`DataFrame`].
-    fn read_mem_vortex(&self, array: ArrayRef) -> DFResult<DataFrame>;
-}
-
-impl SessionContextExt for SessionContext {
-    fn register_mem_vortex<S: AsRef<str>>(&self, name: S, array: ArrayRef) -> DFResult<()> {
-        if !array.dtype().is_struct() {
-            return Err(vortex_err!(
-                "Vortex arrays must have struct type, found {}",
-                array.dtype()
-            )
-            .into());
-        }
-
-        let vortex_table = VortexMemTable::new(array);
-        self.register_table(name.as_ref(), Arc::new(vortex_table))
-            .map(|_| ())
-    }
-
-    fn read_mem_vortex(&self, array: ArrayRef) -> DFResult<DataFrame> {
-        if !array.dtype().is_struct() {
-            return Err(vortex_err!(
-                "Vortex arrays must have struct type, found {}",
-                array.dtype()
-            )
-            .into());
-        }
-
-        let vortex_table = VortexMemTable::new(array);
-
-        self.read_table(Arc::new(vortex_table))
-    }
-}
-
 fn can_be_pushed_down(expr: &Expr, schema: &Schema) -> bool {
     match expr {
         Expr::BinaryExpr(expr)
@@ -116,7 +70,7 @@ fn can_be_pushed_down(expr: &Expr, schema: &Schema) -> bool {
     }
 }
 
-/// Extension trait to convert our [`Precision`](vortex_array::stats::Precision) to Datafusion's [`Precision`](datafusion_common::stats::Precision)
+/// Extension trait to convert our [`Precision`](vortex::stats::Precision) to Datafusion's [`Precision`](datafusion_common::stats::Precision)
 trait PrecisionExt<T>
 where
     T: Debug + Clone + PartialEq + Eq + PartialOrd,

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use arrow_schema::SchemaRef;
 use datafusion::datasource::physical_plan::FileScanConfig;
 use datafusion_common::{Constraints, Statistics};
-use vortex_dtype::FieldName;
-use vortex_expr::{VortexExpr, ident, select};
+use vortex::dtype::FieldName;
+use vortex::expr::{VortexExpr, ident, select};
 
 /// Vortex specific methods for [`FileScanConfig`]
 pub trait FileScanConfigExt {

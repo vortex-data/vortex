@@ -20,9 +20,10 @@ workspace = true
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
-vortex-buffer = { workspace = true }
+vortex-buffer = { workspace = true, features = ["memmap2"] }
 vortex-bytebool = { workspace = true }
 vortex-datetime-parts = { workspace = true }
+vortex-decimal-byte-parts = { workspace = true }
 vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true, default-features = true }
 vortex-error = { workspace = true }
@@ -35,9 +36,11 @@ vortex-io = { workspace = true, optional = true }
 vortex-ipc = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-metrics = { workspace = true }
 vortex-proto = { workspace = true, default-features = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-zigzag = { workspace = true }
 
@@ -56,3 +59,8 @@ parquet = ["vortex-error/parquet"]
 python = ["vortex-error/python"]
 tokio = ["vortex-io/tokio", "vortex-file/tokio"]
 proto = ["vortex-expr/proto", "vortex-error/prost"]
+tracing = [
+    "vortex-file/tracing",
+    "vortex-io/tracing",
+    "vortex-layout/tracing"
+]

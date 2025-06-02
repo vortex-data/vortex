@@ -8,11 +8,11 @@ use datafusion_common::{Result as DFResult, Statistics};
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
 use object_store::path::Path;
-use vortex_error::VortexExpect as _;
-use vortex_expr::{Identity, VortexExpr};
-use vortex_file::VORTEX_FILE_EXTENSION;
-use vortex_layout::LayoutReader;
-use vortex_metrics::VortexMetrics;
+use vortex::error::VortexExpect as _;
+use vortex::expr::{Identity, VortexExpr};
+use vortex::file::VORTEX_FILE_EXTENSION;
+use vortex::layout::LayoutReader;
+use vortex::metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;
 use super::config::{ConfigProjection, FileScanConfigExt};

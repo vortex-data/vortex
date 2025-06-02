@@ -13,7 +13,6 @@ use url::Url;
 use vortex::arrays::ChunkedArray;
 use vortex::arrow::FromArrowArray;
 use vortex::{Array, ArrayRef, IntoArray, TryIntoArray};
-use vortex_datafusion::SessionContextExt;
 
 use crate::engines::df::{get_session_context, make_object_store};
 use crate::{BenchmarkDataset, Format, datasets};
@@ -88,7 +87,6 @@ pub async fn load_datasets(
             Format::Parquet => {
                 register_parquet(&context, object_store.clone(), name, &path, schema).await?
             }
-            Format::InMemoryVortex => register_vortex(&context, name, &path, schema).await?,
             Format::OnDiskVortex => {
                 register_vortex_file(&context, object_store.clone(), name, &path, schema).await?
             }

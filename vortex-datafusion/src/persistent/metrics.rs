@@ -9,7 +9,7 @@ use datafusion_physical_plan::metrics::{
 use datafusion_physical_plan::{
     ExecutionPlan, ExecutionPlanVisitor, Metric as DatafusionMetric, accept,
 };
-use vortex_metrics::{Metric, MetricId, Tags};
+use vortex::metrics::{Metric, MetricId, Tags};
 
 use crate::persistent::source::VortexSource;
 

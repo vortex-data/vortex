@@ -15,12 +15,12 @@ use datafusion_physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
 use object_store::ObjectStore;
 use tokio_stream::wrappers::ReceiverStream;
-use vortex_array::TryIntoArray;
-use vortex_array::stream::ArrayStreamAdapter;
-use vortex_dtype::DType;
-use vortex_dtype::arrow::FromArrowType;
-use vortex_file::VortexWriteOptions;
-use vortex_io::{ObjectStoreWriter, VortexWrite};
+use vortex::TryIntoArray;
+use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
+use vortex::file::VortexWriteOptions;
+use vortex::io::{ObjectStoreWriter, VortexWrite};
+use vortex::stream::ArrayStreamAdapter;
 
 pub struct VortexSink {
     config: FileSinkConfig,
@@ -95,7 +95,11 @@ impl FileSink for VortexSink {
         // 1. We only write only file at a time
         // 2. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
         while let Some((path, rx)) = file_stream_rx.recv().await {
-            let writer = ObjectStoreWriter::new(object_store.clone(), path).await?;
+            let writer = ObjectStoreWriter::new(object_store.clone(), path)
+                .await
+                .map_err(|e| {
+                    DataFusionError::Execution(format!("Failed to create ObjectStoreWriter: {e}"))
+                })?;
 
             let row_counter = row_counter.clone();
             let stream = ReceiverStream::new(rx).map(move |rb| {
@@ -107,7 +111,10 @@ impl FileSink for VortexSink {
 
             let mut writer = VortexWriteOptions::default()
                 .write(writer, stream_adapter)
-                .await?;
+                .await
+                .map_err(|e| {
+                    DataFusionError::Execution(format!("Failed to write Vortex file: {e}"))
+                })?;
 
             writer.shutdown().await?;
         }
@@ -137,7 +144,7 @@ mod tests {
     async fn test_insert_into() {
         let dir = TempDir::new().unwrap();
 
-        let factory = VortexFormatFactory::default_config();
+        let factory = VortexFormatFactory::default();
         let mut session_state_builder = SessionStateBuilder::new().with_default_features();
         register_vortex_format_factory(factory, &mut session_state_builder);
         let session = SessionContext::new_with_state(session_state_builder.build());

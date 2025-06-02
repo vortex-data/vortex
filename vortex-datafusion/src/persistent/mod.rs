@@ -37,12 +37,12 @@ mod tests {
     use datafusion::prelude::SessionContext;
     use tempfile::tempdir;
     use tokio::fs::OpenOptions;
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::{ChunkedArray, StructArray, VarBinArray};
-    use vortex_array::validity::Validity;
-    use vortex_buffer::buffer;
-    use vortex_error::vortex_err;
-    use vortex_file::VortexWriteOptions;
+    use vortex::IntoArray;
+    use vortex::arrays::{ChunkedArray, StructArray, VarBinArray};
+    use vortex::buffer::buffer;
+    use vortex::error::vortex_err;
+    use vortex::file::VortexWriteOptions;
+    use vortex::validity::Validity;
 
     use crate::persistent::VortexFormat;
 

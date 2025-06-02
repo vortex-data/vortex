@@ -102,9 +102,6 @@ pub enum Format {
     Arrow,
     #[clap(name = "parquet")]
     Parquet,
-    #[clap(name = "in-memory-vortex")]
-    #[serde(rename = "in-memory-vortex")]
-    InMemoryVortex,
     #[clap(name = "vortex")]
     #[serde(rename = "vortex")]
     OnDiskVortex,
@@ -125,7 +122,6 @@ impl Format {
             Format::Csv => "csv",
             Format::Arrow => "arrow",
             Format::Parquet => "parquet",
-            Format::InMemoryVortex => "vortex-in-memory",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::OnDiskDuckDB => "duckdb",
         }
@@ -136,7 +132,6 @@ impl Format {
             Format::Csv => "csv",
             Format::Arrow => "arrow",
             Format::Parquet => "parquet",
-            Format::InMemoryVortex => unreachable!("no extension"),
             Format::OnDiskVortex => "vortex",
             Format::OnDiskDuckDB => "duckdb",
         }

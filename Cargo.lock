@@ -6002,6 +6002,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-bytebool",
  "vortex-datetime-parts",
+ "vortex-decimal-byte-parts",
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
@@ -6014,9 +6015,11 @@ dependencies = [
  "vortex-ipc",
  "vortex-layout",
  "vortex-mask",
+ "vortex-metrics",
  "vortex-proto",
  "vortex-runend",
  "vortex-scalar",
+ "vortex-sequence",
  "vortex-sparse",
  "vortex-zigzag",
 ]
@@ -6170,23 +6173,13 @@ dependencies = [
  "moka",
  "object_store",
  "pin-project",
- "rand 0.9.1",
  "rstest",
  "tempfile",
  "tokio",
  "tokio-stream",
  "tracing",
  "tracing-futures",
- "url",
- "vortex-array",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-expr",
- "vortex-file",
- "vortex-io",
- "vortex-layout",
- "vortex-metrics",
+ "vortex",
 ]
 
 [[package]]
@@ -6275,7 +6268,6 @@ name = "vortex-error"
 version = "0.1.0"
 dependencies = [
  "arrow-schema",
- "datafusion-common",
  "flatbuffers",
  "flexbuffers",
  "jiff",
@@ -6295,8 +6287,6 @@ dependencies = [
 name = "vortex-expr"
 version = "0.1.0"
 dependencies = [
- "datafusion-expr",
- "datafusion-physical-expr",
  "dyn-hash",
  "itertools 0.14.0",
  "prost",
@@ -6622,7 +6612,6 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "bytes",
- "datafusion-common",
  "getrandom 0.2.16",
  "itertools 0.14.0",
  "num-traits",
