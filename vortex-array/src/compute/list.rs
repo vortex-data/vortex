@@ -79,28 +79,30 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
 
     // Fast path: no elements match.
     if let Some(pred) = matches.as_constant() {
-        match pred.as_bool().value() {
+        return match pred.as_bool().value() {
             // All comparisons are invalid (result in `null`), and search is not null because
             // we already checked for null above.
-            // False, unless the list itself is null in which case we return null.
             None => {
                 assert!(
                     !rhs.scalar().is_null(),
                     "Search value must not be null here"
                 );
-                return list_false_or_null(&list_array);
+                // False, unless the list itself is null in which case we return null.
+                list_false_or_null(&list_array)
             }
             // No elements match, and all comparisons are valid (result in `false`).
-            // False, but match the nullability to the input list array.
             Some(false) => {
-                return Ok(
+                // False, but match the nullability to the input list array.
+                Ok(
                     ConstantArray::new(Scalar::bool(false, *nullability), list_array.len())
                         .into_array(),
-                );
+                )
             }
             // All elements match, and all comparisons are valid (result in `true`).
-            // True, unless the list itself is empty.
-            Some(true) => return list_is_not_empty(&list_array),
+            Some(true) => {
+                // True, unless the list itself is empty or NULL.
+                list_is_not_empty(&list_array)
+            }
         }
     }
 
@@ -118,10 +120,13 @@ fn list_contains_null(list_array: &ListArray) -> VortexResult<ArrayRef> {
     // Check element validity. We need to intersect
     match elems.validity_mask()? {
         // No NULL elements
-        Mask::AllTrue(_) => list_false_or_null(list_array),
-        // All null elements.
+        Mask::AllTrue(_) => {
+            // False, unless the list itself is NULL.
+            list_false_or_null(list_array)
+        },
+        // All NULL elements.
         Mask::AllFalse(_) => {
-            // True unless the list itself is empty.
+            // True, unless the list itself is empty or NULL.
             list_is_not_empty(list_array)
         }
         Mask::Values(mask) => {
@@ -169,17 +174,25 @@ fn list_false_or_null(list_array: &ListArray) -> VortexResult<ArrayRef> {
     }
 }
 
-/// Returns a `Bool` array with `true` for lists which are NOT empty, or `false`.
-/// IMPORTANT: A helper function that asserts the all elements are valid.
+/// Returns a `Bool` array with `true` for lists which are NOT empty, or `false` if they are empty,
+/// or `NULL` if the list itself is null.
 fn list_is_not_empty(list_array: &ListArray) -> VortexResult<ArrayRef> {
-    if !matches!(list_array.validity_mask()?, Mask::AllTrue(_)) {
-        vortex_bail!("ListArray must be non-nullable");
+    // Short-circuit for all invalid.
+    if matches!(list_array.validity(), Validity::AllInvalid) {
+        return Ok(ConstantArray::new(
+            Scalar::null(DType::Bool(Nullability::Nullable)),
+            list_array.len(),
+        )
+            .into_array());
     }
 
     let offsets = list_array.offsets().to_primitive()?;
-    Ok(match_each_integer_ptype!(offsets.ptype(), |$T| {
-        BoolArray::from(element_is_not_empty(offsets.as_slice::<$T>())).into_array()
-    }))
+    let buffer = match_each_integer_ptype!(offsets.ptype(), |$T| {
+        element_is_not_empty(offsets.as_slice::<$T>())
+    });
+
+    // Copy over the validity mask from the input.
+    Ok(BoolArray::new(buffer, list_array.validity().clone()).into_array())
 }
 
 // Reduce each boolean values into a Mask that indicates which elements in the
