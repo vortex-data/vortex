@@ -103,7 +103,7 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
                 // True, unless the list itself is empty or NULL.
                 list_is_not_empty(&list_array)
             }
-        }
+        };
     }
 
     let ends = list_array.offsets().to_primitive()?;
@@ -123,7 +123,7 @@ fn list_contains_null(list_array: &ListArray) -> VortexResult<ArrayRef> {
         Mask::AllTrue(_) => {
             // False, unless the list itself is NULL.
             list_false_or_null(list_array)
-        },
+        }
         // All NULL elements.
         Mask::AllFalse(_) => {
             // True, unless the list itself is empty or NULL.
@@ -183,7 +183,7 @@ fn list_is_not_empty(list_array: &ListArray) -> VortexResult<ArrayRef> {
             Scalar::null(DType::Bool(Nullability::Nullable)),
             list_array.len(),
         )
-            .into_array());
+        .into_array());
     }
 
     let offsets = list_array.offsets().to_primitive()?;
