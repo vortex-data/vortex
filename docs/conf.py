@@ -1,8 +1,9 @@
 import doctest
 import re
 from pathlib import Path
-from sphinx.util import logging
+
 import hawkmoth.docstring
+from sphinx.util import logging
 
 log = logging.getLogger("vortex.docs.conf")
 
@@ -110,6 +111,7 @@ hawkmoth_transform_default = "c_to_rust"
 # Track the hawkmoth references so we can warn if they are not all registered!
 C_DOCS: set[str] | None = None
 
+
 def _replace_rust_references(app, lines, transform, options):
     """Replace Rust references with C equivalents in hawkmoth docstrings.
 
@@ -128,15 +130,18 @@ def _replace_rust_references(app, lines, transform, options):
 
     global C_DOCS
     if C_DOCS is None:
-        C_DOCS = set(d._name for d in docs.walk(
-            recurse=False, # Ignore e.g. enum members
-            filter_types=(
-                hawkmoth.docstring.FunctionDocstring,
-                hawkmoth.docstring.EnumDocstring,
-                hawkmoth.docstring.UnionDocstring,
-                hawkmoth.docstring.StructDocstring,
+        C_DOCS = set(
+            d._name
+            for d in docs.walk(
+                recurse=False,  # Ignore e.g. enum members
+                filter_types=(
+                    hawkmoth.docstring.FunctionDocstring,
+                    hawkmoth.docstring.EnumDocstring,
+                    hawkmoth.docstring.UnionDocstring,
+                    hawkmoth.docstring.StructDocstring,
+                ),
             )
-        ))
+        )
 
     # Remove the current docstring from the set of C docs
     slf = stack_frame.f_locals["self"]
@@ -178,7 +183,7 @@ def _post_process(app, builder):
     """Post-process the documentation after writing."""
     global C_DOCS
     if C_DOCS:
-        log.warning("Some C references were not found: %s", ', '.join(sorted(C_DOCS)))
+        log.warning("Some C references were not found: %s", ", ".join(sorted(C_DOCS)))
         C_DOCS = None  # Reset for next build
 
 
