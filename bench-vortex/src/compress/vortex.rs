@@ -11,7 +11,7 @@ use vortex::error::VortexResult;
 use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
 
 #[inline(never)]
-pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> VortexResult<u64> {
+pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyhow::Result<u64> {
     Ok(VortexWriteOptions::default()
         .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
             Handle::current(),
@@ -22,8 +22,8 @@ pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> Vort
 }
 
 #[inline(never)]
-pub async fn vortex_decompress_read(buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
-    VortexOpenOptions::in_memory()
+pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<Vec<ArrayRef>> {
+    Ok(VortexOpenOptions::in_memory()
         .open(buf)
         .await?
         .scan()?
@@ -33,5 +33,5 @@ pub async fn vortex_decompress_read(buf: Bytes) -> VortexResult<Vec<ArrayRef>> {
         .await?
         .into_iter()
         .map(|a| a.into_arrow_preferred())
-        .collect::<VortexResult<Vec<_>>>()
+        .collect::<VortexResult<Vec<_>>>()?)
 }

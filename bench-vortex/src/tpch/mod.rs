@@ -3,7 +3,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::bail;
-use arrow_array::StructArray as ArrowStructArray;
 use arrow_schema::Schema;
 use datafusion::datasource::MemTable;
 use datafusion::prelude::{CsvReadOptions, SessionContext};
@@ -11,8 +10,7 @@ use itertools::Itertools;
 use object_store::ObjectStore;
 use url::Url;
 use vortex::arrays::ChunkedArray;
-use vortex::arrow::FromArrowArray;
-use vortex::{Array, ArrayRef, IntoArray, TryIntoArray};
+use vortex::{ArrayRef, IntoArray, TryIntoArray};
 
 use crate::engines::df::{get_session_context, make_object_store};
 use crate::{BenchmarkDataset, Format, datasets};
@@ -213,44 +211,6 @@ async fn register_vortex_file(
         BenchmarkDataset::TpcH,
     )
     .await
-}
-
-async fn register_vortex(
-    session: &SessionContext,
-    name: &str,
-    file: &Url,
-    schema: Option<Schema>,
-) -> anyhow::Result<()> {
-    let Some(schema) = schema else {
-        bail!("required schema for in mem vortex")
-    };
-    // TODO(joe): use parquet for speed?
-    let record_batches = session
-        .read_csv(
-            file.as_str(),
-            CsvReadOptions::default()
-                .delimiter(b'|')
-                .has_header(false)
-                .file_extension("csv")
-                .schema(&schema),
-        )
-        .await?
-        .collect()
-        .await?;
-
-    // Create a ChunkedArray from the set of chunks.
-    let chunks: Vec<ArrayRef> = record_batches
-        .into_iter()
-        .map(ArrowStructArray::from)
-        .map(|struct_array| ArrayRef::from_arrow(&struct_array, false))
-        .collect();
-
-    let dtype = chunks[0].dtype().clone();
-    let chunked_array = ChunkedArray::try_new(chunks, dtype)?.into_array();
-
-    session.register_mem_vortex(name, chunked_array)?;
-
-    Ok(())
 }
 
 /// Load a table as an uncompressed Vortex array.

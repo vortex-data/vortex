@@ -11,7 +11,6 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use tokio::runtime::Runtime;
 use vortex::buffer::{Buffer, buffer};
-use vortex::error::VortexUnwrap;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -75,11 +74,7 @@ fn random_access(
             &runtime,
             iterations,
             || indices.clone(),
-            |indices| async {
-                take_vortex_tokio(&taxi_vortex, indices)
-                    .await
-                    .vortex_unwrap()
-            },
+            |indices| async { take_vortex_tokio(&taxi_vortex, indices).await.unwrap() },
         ),
     });
     progress.inc(1);
@@ -93,7 +88,7 @@ fn random_access(
                 &runtime,
                 iterations,
                 || indices.clone(),
-                |indices| async { take_parquet(&taxi_parquet, indices).await.vortex_unwrap() },
+                |indices| async { take_parquet(&taxi_parquet, indices).await.unwrap() },
             ),
         });
         progress.inc(1);
