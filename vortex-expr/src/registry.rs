@@ -19,17 +19,17 @@ use crate::var::proto::VarSerde;
 use crate::{ExprDeserialize, ExprRef};
 
 const EXPRESSIONS: &[&'static dyn ExprDeserialize] = &[
-    &LetSerde,
     &BetweenSerde,
     &BinarySerde,
     &GetItemSerde,
-    &VarSerde,
+    &LetSerde,
     &LikeSerde,
     &LiteralSerde,
     &MergeSerde,
     &NotSerde,
     &PackSerde,
     &SelectSerde,
+    &VarSerde,
 ];
 
 static EXPRESSIONS_REGISTRY: LazyLock<HashMap<&'static str, &&'static dyn ExprDeserialize>> =

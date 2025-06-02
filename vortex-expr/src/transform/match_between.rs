@@ -234,7 +234,6 @@ mod tests {
         let find = find_between(expr);
 
         // $.y >= 10 /\ 2 < $.x <= 5
-        // $.y >= 10 /\ 2 < $.x <= 5
         assert_eq!(
             &and(
                 gt_eq(col("y"), lit(10)),

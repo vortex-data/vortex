@@ -35,7 +35,7 @@ pub(crate) mod proto {
 
     impl Id for VarSerde {
         fn id(&self) -> &'static str {
-            "let"
+            "var"
         }
     }
 

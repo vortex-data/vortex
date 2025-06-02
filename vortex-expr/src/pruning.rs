@@ -1,5 +1,4 @@
 // This code doesn't have usage outside of tests yet, remove once usage is added
-#![allow(dead_code)]
 
 use std::fmt::Display;
 use std::hash::Hash;

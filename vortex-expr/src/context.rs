@@ -13,10 +13,8 @@ use crate::IDENTITY_IDENTIFIER;
 pub type Identifier = Arc<str>;
 pub type ExprScope<T> = HashMap<Identifier, T>;
 
-#[allow(dead_code)]
 #[derive(Clone, Default)]
 pub struct ValuesScope(ExprScope<ArrayRef>);
-#[allow(dead_code)]
 #[derive(Clone, Default)]
 pub struct ValuesDTypeScope(ExprScope<DType>);
 #[allow(dead_code)]
@@ -26,7 +24,6 @@ pub struct VarsScope(ExprScope<Arc<dyn Any>>);
 #[derive(Clone, Default)]
 pub struct EvaluationContext {
     array_len: usize,
-    #[allow(dead_code)]
     /// A map from identifiers to arrays
     values: ValuesScope,
     #[allow(dead_code)]
@@ -37,7 +34,7 @@ pub struct EvaluationContext {
 
 impl EvaluationContext {
     pub fn new(values: ValuesScope, vars: VarsScope) -> VortexResult<Self> {
-        // This could default to len = 0?
+        // This could default to len = 0 for an empty values scope.
         let len = values
             .0
             .values()

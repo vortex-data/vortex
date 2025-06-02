@@ -37,6 +37,7 @@ pub fn partition(expr: ExprRef, dtype: &DType) -> VortexResult<PartitionedExpr> 
     StructFieldExpressionSplitter::split(expr, dtype)
 }
 
+// TODO(joe): replace with let expressions.
 /// The result of partitioning an expression.
 #[derive(Debug)]
 pub struct PartitionedExpr {
