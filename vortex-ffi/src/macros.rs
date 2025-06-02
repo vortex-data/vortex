@@ -38,7 +38,7 @@
 //! safety of the functions that use these types.
 //!
 
-/// Define a native FFI type that wraps an [`Arc<T>`] type with unsized T.
+/// Define a native FFI type that wraps an [`std::sync::Arc<T>`] type with unsized T.
 ///
 /// To solve the problem of dynamic traits using fat pointers, we box the `Arc<T>` a second time.
 #[macro_export]
