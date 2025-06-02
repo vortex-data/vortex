@@ -19,7 +19,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
 use crate::datetime::arrow::{make_arrow_temporal_dtype, make_temporal_ext_dtype};
 use crate::datetime::is_temporal_ext_type;
-use crate::{DType, DecimalDType, FieldName, Nullability, PType, StructDType};
+use crate::{DType, DecimalDType, FieldName, Nullability, PType, StructFields};
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
@@ -77,15 +77,15 @@ impl FromArrowType<SchemaRef> for DType {
 impl FromArrowType<&Schema> for DType {
     fn from_arrow(value: &Schema) -> Self {
         Self::Struct(
-            Arc::new(StructDType::from_arrow(value.fields())),
+            Arc::new(StructFields::from_arrow(value.fields())),
             Nullability::NonNullable, // Must match From<RecordBatch> for Array
         )
     }
 }
 
-impl FromArrowType<&Fields> for StructDType {
+impl FromArrowType<&Fields> for StructFields {
     fn from_arrow(value: &Fields) -> Self {
-        StructDType::from_iter(value.into_iter().map(|f| {
+        StructFields::from_iter(value.into_iter().map(|f| {
             (
                 FieldName::from(f.name().as_str()),
                 DType::from_arrow(f.as_ref()),
@@ -123,7 +123,7 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
             DataType::List(e) | DataType::LargeList(e) => {
                 List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
-            DataType::Struct(f) => Struct(Arc::new(StructDType::from_arrow(f)), nullability),
+            DataType::Struct(f) => Struct(Arc::new(StructFields::from_arrow(f)), nullability),
             _ => unimplemented!("Arrow data type not yet supported: {:?}", data_type),
         }
     }
@@ -222,7 +222,7 @@ mod test {
     use arrow_schema::{DataType, Field, FieldRef, Fields, Schema};
 
     use super::*;
-    use crate::{DType, ExtDType, ExtID, FieldName, FieldNames, Nullability, PType, StructDType};
+    use crate::{DType, ExtDType, ExtID, FieldName, FieldNames, Nullability, PType, StructFields};
 
     #[test]
     fn test_dtype_conversion_success() {
@@ -258,7 +258,7 @@ mod test {
 
         assert_eq!(
             DType::Struct(
-                Arc::new(StructDType::from_iter([
+                Arc::new(StructFields::from_iter([
                     ("field_a", DType::Bool(false.into())),
                     ("field_b", DType::Utf8(true.into()))
                 ])),
@@ -334,8 +334,8 @@ mod test {
         let _ = schema_null.to_arrow_schema().unwrap();
     }
 
-    fn the_struct() -> Arc<StructDType> {
-        Arc::new(StructDType::new(
+    fn the_struct() -> Arc<StructFields> {
+        Arc::new(StructFields::new(
             FieldNames::from([
                 FieldName::from("field_a"),
                 FieldName::from("field_b"),

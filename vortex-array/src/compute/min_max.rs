@@ -1,7 +1,7 @@
 use std::sync::{Arc, LazyLock};
 
 use arcref::ArcRef;
-use vortex_dtype::{DType, Nullability, StructDType};
+use vortex_dtype::{DType, Nullability, StructFields};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
@@ -87,7 +87,7 @@ impl ComputeFnVTable for MinMax {
         // We return a min/max struct scalar, where the overall struct is nullable in the case
         // that the array is all null or empty.
         Ok(DType::Struct(
-            Arc::new(StructDType::new(
+            Arc::new(StructFields::new(
                 ["min".into(), "max".into()].into(),
                 vec![array.dtype().clone(), array.dtype().clone()],
             )),
@@ -171,7 +171,7 @@ impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
             return Ok(None);
         };
         let dtype = DType::Struct(
-            Arc::new(StructDType::new(
+            Arc::new(StructFields::new(
                 ["min".into(), "max".into()].into(),
                 vec![array.dtype().clone(), array.dtype().clone()],
             )),

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use duckdb::core::{LogicalTypeHandle, LogicalTypeId};
 use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex::dtype::{DType, DecimalDType, ExtDType, Nullability, PType, StructDType};
+use vortex::dtype::{DType, DecimalDType, ExtDType, Nullability, PType, StructFields};
 use vortex::error::{VortexResult, vortex_bail};
 
 pub trait FromDuckDBType<A> {
@@ -87,7 +87,7 @@ fn from_duckdb_list(list: LogicalTypeHandle) -> VortexResult<DType> {
     FromDuckDBType::from_duckdb(list.child(0), Nullable)
 }
 
-fn from_duckdb_struct(struct_: LogicalTypeHandle) -> VortexResult<StructDType> {
+fn from_duckdb_struct(struct_: LogicalTypeHandle) -> VortexResult<StructFields> {
     (0..struct_.num_children())
         .map(|i| {
             // TODO: is there struct field nullability

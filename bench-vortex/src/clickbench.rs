@@ -222,10 +222,7 @@ pub async fn register_vortex_files(
     let config = if let Some(schema) = schema {
         config.with_schema(schema.into())
     } else {
-        config
-            .infer_schema(&session.state())
-            .await
-            .vortex_expect("cannot infer schema")
+        config.infer_schema(&session.state()).await?
     };
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);

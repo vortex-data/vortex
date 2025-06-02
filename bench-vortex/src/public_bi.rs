@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock};
 
+use anyhow::{anyhow, bail};
 use arrow_schema::{DataType, Field, Schema};
 use async_trait::async_trait;
 use clap::ValueEnum;
@@ -17,17 +18,18 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::SessionContext;
 use datafusion_common::{DFSchema, Result, TableReference};
-use futures::future::join_all;
+use futures::future::{join_all, try_join_all};
 use humansize::{DECIMAL, format_size};
 use regex::Regex;
 use tokio::fs::File;
 use tokio::process::Command as TokioCommand;
+use tokio::runtime::Handle;
 use tracing::{debug, info};
 use url::Url;
 use vortex::ArrayRef;
 use vortex::aliases::hash_map::HashMap;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::error::{VortexResult, vortex_err};
+use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
 use vortex::stream::ArrayStreamExt;
 use vortex_datafusion::persistent::VortexFormat;
 
@@ -92,7 +94,7 @@ pub enum PBIDataset {
     YaleLanguages,
 }
 
-pub fn fetch_schemas_and_queries() -> VortexResult<PathBuf> {
+pub fn fetch_schemas_and_queries() -> anyhow::Result<PathBuf> {
     let base_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("public_bi");
     let output = Command::new(
         base_dir
@@ -105,7 +107,7 @@ pub fn fetch_schemas_and_queries() -> VortexResult<PathBuf> {
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        vortex_bail!("public_bi fetch failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
+        bail!("public_bi fetch failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
     }
     Ok(base_dir)
 }
@@ -116,7 +118,7 @@ pub struct PBIDatasets {
 }
 
 impl PBIDatasets {
-    pub fn try_new(base_dir: PathBuf) -> VortexResult<Self> {
+    pub fn try_new(base_dir: PathBuf) -> anyhow::Result<Self> {
         let benchmark_dir = base_dir.join("benchmark");
         let benchmarks: HashMap<PBIDataset, _> = fs::read_dir(benchmark_dir)?
             .map(|path| {
@@ -160,7 +162,7 @@ pub struct Table {
 
 impl PBIBenchmark {
     /// Parse the sql files under the queries folder and return their contents with the query idx.
-    pub fn queries(&self) -> VortexResult<Vec<(usize, String)>> {
+    pub fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
         let mut queries: Vec<_> = fs::read_dir(self.base_path.join("queries"))?
             .map(|sql_file| {
                 let sql_file = sql_file?;
@@ -184,7 +186,7 @@ impl PBIBenchmark {
     }
 
     /// Return table name and Url pairs. Each Url is pointing to a csv.bz2 file for the table.
-    fn tables(&self) -> VortexResult<Vec<Table>> {
+    fn tables(&self) -> anyhow::Result<Vec<Table>> {
         fs::read_to_string(self.base_path.join("data-urls.txt"))?
             .lines()
             .map(|url_str| {
@@ -193,7 +195,7 @@ impl PBIBenchmark {
                     .path_segments()
                     .and_then(|mut path| path.next_back())
                     .and_then(|filename| filename.strip_suffix(".csv.bz2"))
-                    .ok_or_else(|| vortex_err!("invalid url {url}"))?;
+                    .ok_or_else(|| anyhow!("invalid url {url}"))?;
                 let create_table_sql = self.table_sql(table_name)?;
                 Ok(Table {
                     create_table_sql,
@@ -201,11 +203,11 @@ impl PBIBenchmark {
                     data_url: url,
                 })
             })
-            .collect::<VortexResult<Vec<Table>>>()
-            .map_err(|_| vortex_err!("invalid urls in data-urls.txt"))
+            .collect::<anyhow::Result<Vec<Table>>>()
+            .map_err(|_| anyhow!("invalid urls in data-urls.txt"))
     }
 
-    fn table_sql(&self, table_name: &str) -> VortexResult<String> {
+    fn table_sql(&self, table_name: &str) -> anyhow::Result<String> {
         Ok(fs::read_to_string(
             self.base_path
                 .join("tables")
@@ -214,7 +216,7 @@ impl PBIBenchmark {
         )?)
     }
 
-    pub fn dataset(&self) -> VortexResult<PBIData> {
+    pub fn dataset(&self) -> anyhow::Result<PBIData> {
         let tables = self.tables()?;
         Ok(PBIData {
             base_path: "PBI".to_data_path().join(&self.name),
@@ -298,7 +300,7 @@ impl PBIData {
             .collect()
     }
 
-    pub async fn write_as_parquet(&self) {
+    pub async fn write_as_parquet(&self) -> anyhow::Result<()> {
         self.download_bzips().await;
         self.unzip().await;
 
@@ -311,29 +313,31 @@ impl PBIData {
                     info!("Compressing {} to parquet", csv.to_str().unwrap());
                     public_bi_csv_to_parquet_file(table, csv, &output_path).await
                 })
-                .await
-                .vortex_expect(
-                    "failed to create parquet file, either the file or duckdb is missing",
-                );
+                .await?;
                 let pq_size = parquet_file.metadata().unwrap().size();
                 info!(
                     "Parquet size: {}, {}B",
                     format_size(pq_size, DECIMAL),
                     pq_size
                 );
+                Ok::<_, anyhow::Error>(())
             }
         });
-        join_all(to_parquet_futures).await;
+        try_join_all(to_parquet_futures).await?;
+        Ok(())
     }
 
     pub async fn write_as_vortex(&self) {
-        self.write_as_parquet().await;
+        self.write_as_parquet().await.unwrap();
         let to_vortex_futures = self.tables.iter().map(|table| {
             let parquet = self.get_file_path(&table.name, FileType::Parquet);
             let vortex = self.get_file_path(&table.name, FileType::Vortex);
             async move {
                 let vortex_file = idempotent_async(&vortex, async |output_path| {
                     VortexWriteOptions::default()
+                        .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
+                            Handle::current(),
+                        )))
                         .write(
                             File::create(output_path).await.unwrap(),
                             parquet_to_vortex(parquet).unwrap(),
@@ -465,7 +469,7 @@ pub async fn public_bi_csv_to_parquet_file(
     table: &Table,
     csv_path: PathBuf,
     parquet_path: &Path,
-) -> VortexResult<()> {
+) -> anyhow::Result<()> {
     info!("Compressing {} to parquet", csv_path.to_str().unwrap());
     let table_name = &table.name;
     let csv_path = csv_path.to_str().expect("unicode");
@@ -494,7 +498,7 @@ pub async fn public_bi_csv_to_parquet_file(
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        vortex_bail!("duckdb convert failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
+        bail!("duckdb convert failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
     }
     Ok(())
 }

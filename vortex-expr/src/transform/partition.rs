@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::{DefaultHashBuilder, HashMap};
-use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructDType};
+use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::transform::immediate_access::{FieldAccesses, immediate_scope_accesses};
@@ -18,8 +18,8 @@ static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
 /// Partition an expression over the fields of the scope.
 ///
 /// This returns a partitioned expression that can be push-down over each field of the scope.
-/// The results of each partition can then be recombined to reproduce the result of the original
-/// expression.
+/// The results of each partition evaluation can then be recombined to reproduce the result of
+/// the original expression.
 ///
 /// ## Note
 ///
@@ -80,11 +80,11 @@ impl PartitionedExpr {
 struct StructFieldExpressionSplitter<'a> {
     sub_expressions: HashMap<FieldName, Vec<ExprRef>>,
     accesses: &'a FieldAccesses<'a>,
-    scope_dtype: &'a StructDType,
+    scope_dtype: &'a StructFields,
 }
 
 impl<'a> StructFieldExpressionSplitter<'a> {
-    fn new(accesses: &'a FieldAccesses<'a>, scope_dtype: &'a StructDType) -> Self {
+    fn new(accesses: &'a FieldAccesses<'a>, scope_dtype: &'a StructFields) -> Self {
         Self {
             sub_expressions: HashMap::new(),
             accesses,
@@ -287,7 +287,7 @@ mod tests {
 
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, StructDType};
+    use vortex_dtype::{DType, StructFields};
 
     use super::*;
     use crate::transform::simplify::simplify;
@@ -296,11 +296,11 @@ mod tests {
 
     fn dtype() -> DType {
         DType::Struct(
-            Arc::new(StructDType::from_iter([
+            Arc::new(StructFields::from_iter([
                 (
                     "a",
                     DType::Struct(
-                        Arc::new(StructDType::from_iter([
+                        Arc::new(StructFields::from_iter([
                             ("a", I32.into()),
                             ("b", DType::from(I32)),
                         ])),

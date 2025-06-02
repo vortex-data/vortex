@@ -4,7 +4,7 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::FlatBuffer;
 
 use crate::field::Field;
-use crate::{DType, StructDType, flatbuffers as fb};
+use crate::{DType, StructFields, flatbuffers as fb};
 
 /// Convert name references in projection list into index references.
 ///
@@ -56,7 +56,7 @@ pub fn project_and_deserialize(
         .collect::<VortexResult<Vec<_>>>()?;
 
     Ok(DType::Struct(
-        StructDType::from_iter(struct_dtype).into(),
+        StructFields::from_iter(struct_dtype).into(),
         nullability,
     ))
 }

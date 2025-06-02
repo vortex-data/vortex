@@ -1,16 +1,22 @@
 #![allow(clippy::missing_safety_doc)]
+#![deny(missing_docs)]
 
 //! Native interface to Vortex arrays, types, files and streams.
 
 mod array;
+mod array_iterator;
 mod dtype;
 #[cfg(feature = "duckdb")]
 mod duckdb;
 mod error;
 mod file;
 mod log;
+mod macros;
+mod ptype;
 mod session;
 mod sink;
+mod string;
+mod struct_fields;
 
 use std::ffi::{CStr, c_char, c_int};
 use std::sync::LazyLock;

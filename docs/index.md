@@ -95,7 +95,7 @@ caption: API Documentation
 
 Python API <api/python/index>
 Rust API <https://docs.rs/vortex>
-C FFI API <api/c/ffi>
+C FFI API <api/c/index>
 ```
 
 ## User Guides

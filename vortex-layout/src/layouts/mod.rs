@@ -4,7 +4,9 @@ use futures::future::{BoxFuture, Shared};
 use vortex_array::ArrayRef;
 use vortex_error::SharedVortexResult;
 
+pub mod buffered;
 pub mod chunked;
+pub mod compressed;
 pub mod dict;
 pub mod file_stats;
 pub mod filter;

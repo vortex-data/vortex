@@ -7,7 +7,7 @@ use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructDType};
+use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
 use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, VortexExpr};
@@ -179,7 +179,7 @@ impl VortexExpr for Pack {
             .map(|value_expr| value_expr.return_dtype(ctx))
             .process_results(|it| it.collect())?;
         Ok(DType::Struct(
-            Arc::new(StructDType::new(self.names.clone(), value_dtypes)),
+            Arc::new(StructFields::new(self.names.clone(), value_dtypes)),
             self.nullability,
         ))
     }
@@ -230,7 +230,7 @@ mod tests {
         let actual_array = expr.evaluate_array(&test_array).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(
-            actual_array.to_struct().unwrap().struct_dtype().nfields(),
+            actual_array.to_struct().unwrap().struct_fields().nfields(),
             0
         );
     }

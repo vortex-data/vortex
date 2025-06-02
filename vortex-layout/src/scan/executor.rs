@@ -66,3 +66,14 @@ impl TaskExecutor for tokio::runtime::Handle {
             .boxed()
     }
 }
+
+pub struct LocalExecutor;
+
+impl TaskExecutor for LocalExecutor {
+    fn do_spawn(
+        &self,
+        fut: BoxFuture<'static, VortexResult<()>>,
+    ) -> BoxFuture<'static, VortexResult<()>> {
+        fut
+    }
+}

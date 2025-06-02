@@ -1,0 +1,78 @@
+Vortex FFI API
+==============
+
+.. warning::
+    This API should be considered entirely unstable. It _will_ change. Please reach out if a stable
+    FFI API is important for your use-case and we can accelerate the process of stabilizing it.
+
+.. toctree::
+   :maxdepth: 1
+
+   dtypes
+   arrays
+
+Session
+-------
+
+While not all parts of Vortex require a session, many do. A Vortex session object holds registries of extensible
+types, such as array encodings, layout encodings, extension dtypes, compute functions, and more.
+
+.. c:autotype:: vx_session
+   :file: vortex.h
+
+.. c:autofunction:: vx_session_free
+   :file: vortex.h
+
+.. c:autofunction:: vx_session_new
+   :file: vortex.h
+
+Logging
+-------
+
+.. c:autofunction:: vx_set_log_level
+   :file: vortex.h
+
+.. c:autoenum:: vx_log_level
+    :file: vortex.h
+    :members:
+
+Errors
+------
+
+Errors are passed out of many function in the Vortex C API. Each time they will be heap-allocated and the caller is
+responsible for freeing them.
+
+.. c:autotype:: vx_error
+   :file: vortex.h
+
+.. c:autofunction:: vx_error_free
+   :file: vortex.h
+
+.. c:autofunction:: vx_error_get_message
+   :file: vortex.h
+
+Strings
+-------
+
+Vortex strings wrap a Rust `Arc<str>`, and therefore are reference-counted, UTF-8 encoded, and not null-terminated.
+
+.. c:autotype:: vx_string
+   :file: vortex.h
+
+.. c:autofunction:: vx_string_clone
+   :file: vortex.h
+
+.. c:autofunction:: vx_string_free
+   :file: vortex.h
+
+.. c:autofunction:: vx_string_new
+   :file: vortex.h
+
+.. c:autofunction:: vx_string_new_from_cstr
+   :file: vortex.h
+
+.. c:autofunction:: vx_string_len
+    :file: vortex.h
+
+.. c:autofunction:: vx_string_ptr
+    :file: vortex.h

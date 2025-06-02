@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::{DType, Field, FieldMask, StructDType};
+use vortex_dtype::{DType, Field, FieldMask, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
@@ -46,19 +46,19 @@ impl VTable for StructVTable {
     }
 
     fn nchildren(layout: &Self::Layout) -> usize {
-        layout.struct_dtype().nfields()
+        layout.struct_fields().nfields()
     }
 
     fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
         layout
             .children
-            .child(idx, &layout.struct_dtype().field_by_index(idx)?)
+            .child(idx, &layout.struct_fields().field_by_index(idx)?)
     }
 
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType {
         LayoutChildType::Field(
             layout
-                .struct_dtype()
+                .struct_fields()
                 .field_name(idx)
                 .vortex_expect("Field index out of bounds")
                 .clone(),
@@ -124,7 +124,7 @@ impl StructLayout {
         }
     }
 
-    pub fn struct_dtype(&self) -> &Arc<StructDType> {
+    pub fn struct_fields(&self) -> &Arc<StructFields> {
         let DType::Struct(dtype, _) = self.dtype() else {
             vortex_panic!("Mismatched dtype {} for struct layout", self.dtype());
         };
@@ -137,7 +137,7 @@ impl StructLayout {
     {
         // If the field mask contains an `All` fields, then enumerate all fields.
         if field_mask.iter().any(|mask| mask.matches_all()) {
-            for idx in 0..self.struct_dtype().nfields() {
+            for idx in 0..self.struct_fields().nfields() {
                 per_child(FieldMask::All, idx)?;
             }
             return Ok(());
@@ -152,7 +152,7 @@ impl StructLayout {
             let Field::Name(field_name) = field else {
                 vortex_bail!("Expected field name, got {:?}", field);
             };
-            let idx = self.struct_dtype().find(field_name)?;
+            let idx = self.struct_fields().find(field_name)?;
 
             per_child(path.clone().step_into()?, idx)?;
         }

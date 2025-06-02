@@ -1,26 +1,23 @@
-#![cfg(feature = "datafusion")]
-
 use std::sync::Arc;
 
-use datafusion_common::ScalarValue;
-use vortex_buffer::ByteBuffer;
-use vortex_dtype::datetime::arrow::make_temporal_ext_dtype;
-use vortex_dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
-use vortex_dtype::half::f16;
-use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, DecimalDType, Nullability, PType};
-use vortex_error::{VortexError, vortex_bail};
+use datafusion::common::ScalarValue;
+use vortex::buffer::ByteBuffer;
+use vortex::dtype::datetime::arrow::make_temporal_ext_dtype;
+use vortex::dtype::datetime::{TemporalMetadata, TimeUnit, is_temporal_ext_type};
+use vortex::dtype::half::f16;
+use vortex::dtype::{DECIMAL128_MAX_PRECISION, DType, DecimalDType, Nullability, PType};
+use vortex::error::{VortexResult, vortex_bail};
+use vortex::scalar::{DecimalValue, Scalar, i256};
 
-use crate::{DecimalValue, InnerScalarValue, PValue, Scalar, i256};
+use crate::convert::{FromDataFusion, TryToDataFusion};
 
-impl TryFrom<Scalar> for ScalarValue {
-    type Error = VortexError;
-
-    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
-        Ok(match scalar.dtype() {
+impl TryToDataFusion<ScalarValue> for Scalar {
+    fn try_to_df(&self) -> VortexResult<ScalarValue> {
+        Ok(match self.dtype() {
             DType::Null => ScalarValue::Null,
-            DType::Bool(_) => ScalarValue::Boolean(scalar.as_bool().value()),
+            DType::Bool(_) => ScalarValue::Boolean(self.as_bool().value()),
             DType::Primitive(ptype, _) => {
-                let pscalar = scalar.as_primitive();
+                let pscalar = self.as_primitive();
                 match ptype {
                     PType::U8 => ScalarValue::UInt8(pscalar.typed_value::<u8>()),
                     PType::U16 => ScalarValue::UInt16(pscalar.typed_value::<u16>()),
@@ -36,7 +33,7 @@ impl TryFrom<Scalar> for ScalarValue {
                 }
             }
             DType::Decimal(decimal_type, _) => {
-                let dscalar = scalar.as_decimal();
+                let dscalar = self.as_decimal();
                 let precision = decimal_type.precision();
                 let scale = decimal_type.scale();
 
@@ -65,12 +62,11 @@ impl TryFrom<Scalar> for ScalarValue {
                 }
             }
             // SAFETY: By construction Utf8 scalar values are utf8
-            DType::Utf8(_) => ScalarValue::Utf8(scalar.as_utf8().value().map(|s| unsafe {
+            DType::Utf8(_) => ScalarValue::Utf8(self.as_utf8().value().map(|s| unsafe {
                 String::from_utf8_unchecked(Vec::<u8>::from(s.into_inner().into_inner()))
             })),
             DType::Binary(_) => ScalarValue::Binary(
-                scalar
-                    .as_binary()
+                self.as_binary()
                     .value()
                     .map(|b| Vec::<u8>::from(b.into_inner())),
             ),
@@ -81,7 +77,7 @@ impl TryFrom<Scalar> for ScalarValue {
                 todo!("list scalar conversion")
             }
             DType::Extension(ext) => {
-                let storage_scalar = scalar.as_extension().storage();
+                let storage_scalar = self.as_extension().storage();
 
                 // Special handling: temporal extension types in Vortex correspond to Arrow's
                 // temporal physical types.
@@ -127,15 +123,15 @@ impl TryFrom<Scalar> for ScalarValue {
                 } else {
                     // Unknown extension type: perform scalar conversion using the canonical
                     // scalar DType.
-                    ScalarValue::try_from(storage_scalar)?
+                    storage_scalar.try_to_df()?
                 }
             }
         })
     }
 }
 
-impl From<ScalarValue> for Scalar {
-    fn from(value: ScalarValue) -> Scalar {
+impl FromDataFusion<ScalarValue> for Scalar {
+    fn from_df(value: &ScalarValue) -> Scalar {
         match value {
             ScalarValue::Null => Scalar::null(DType::Null),
             ScalarValue::Boolean(b) => b
@@ -192,8 +188,8 @@ impl From<ScalarValue> for Scalar {
                     .with_nullability(Nullability::Nullable);
                 Scalar::new(
                     DType::Extension(Arc::new(ext_dtype)),
-                    v.map(|i| crate::ScalarValue(InnerScalarValue::Primitive(PValue::I32(i))))
-                        .unwrap_or_else(crate::ScalarValue::null),
+                    v.map(vortex::scalar::ScalarValue::from)
+                        .unwrap_or_else(vortex::scalar::ScalarValue::null),
                 )
             }
             ScalarValue::Date64(v)
@@ -206,16 +202,16 @@ impl From<ScalarValue> for Scalar {
                 let ext_dtype = make_temporal_ext_dtype(&value.data_type());
                 Scalar::new(
                     DType::Extension(Arc::new(ext_dtype.with_nullability(Nullability::Nullable))),
-                    v.map(|i| crate::ScalarValue(InnerScalarValue::Primitive(PValue::I64(i))))
-                        .unwrap_or_else(crate::ScalarValue::null),
+                    v.map(vortex::scalar::ScalarValue::from)
+                        .unwrap_or_else(vortex::scalar::ScalarValue::null),
                 )
             }
             ScalarValue::Decimal128(decimal, precision, scale) => {
-                let decimal_dtype = DecimalDType::new(precision, scale);
+                let decimal_dtype = DecimalDType::new(*precision, *scale);
                 let nullable = Nullability::Nullable;
                 if let Some(value) = decimal {
                     Scalar::decimal(
-                        DecimalValue::I128(value),
+                        DecimalValue::I128(*value),
                         decimal_dtype,
                         Nullability::Nullable,
                     )
@@ -224,11 +220,11 @@ impl From<ScalarValue> for Scalar {
                 }
             }
             ScalarValue::Decimal256(decimal, precision, scale) => {
-                let decimal_dtype = DecimalDType::new(precision, scale);
+                let decimal_dtype = DecimalDType::new(*precision, *scale);
                 let nullable = Nullability::Nullable;
                 if let Some(value) = decimal {
                     Scalar::decimal(
-                        DecimalValue::I256(i256::from(value)),
+                        DecimalValue::I256(i256::from_le_bytes(value.to_le_bytes())),
                         decimal_dtype,
                         Nullability::Nullable,
                     )

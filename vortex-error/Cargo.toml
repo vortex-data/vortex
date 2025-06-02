@@ -14,14 +14,12 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
-datafusion = ["datafusion-common"]
 flatbuffers = ["dep:flatbuffers"]
 python = ["dep:pyo3"]
 serde = ["dep:serde_json"]
 
 [dependencies]
 arrow-schema = { workspace = true }
-datafusion-common = { workspace = true, optional = true }
 flatbuffers = { workspace = true, optional = true }
 flexbuffers = { workspace = true, optional = true }
 jiff = { workspace = true }

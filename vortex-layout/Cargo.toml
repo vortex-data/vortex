@@ -18,6 +18,7 @@ arcref = { workspace = true }
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
+async-stream = { workspace = true }
 async-trait = { workspace = true }
 bit-vec = { workspace = true }
 bytes = { workspace = true }
@@ -29,6 +30,7 @@ itertools = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
+pin-project-lite = { workspace = true }
 prost = { workspace = true }
 roaring = { workspace = true, optional = true }
 sketches-ddsketch = { workspace = true }

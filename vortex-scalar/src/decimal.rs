@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 
 use vortex_dtype::{DType, DecimalDType, Nullability};
@@ -148,20 +148,7 @@ impl Hash for DecimalValue {
 
 /// Type of decimal scalar values.
 pub trait NativeDecimalType:
-    Copy
-    + Eq
-    + Ord
-    + Default
-    + Send
-    + Sync
-    + BigCast
-    // + AsPrimitive<i8>
-    // + AsPrimitive<i16>
-    // + AsPrimitive<i32>
-    // + AsPrimitive<i64>
-    // + AsPrimitive<i128>
-    // + AsPrimitive<i256>
-    + 'static
+    Copy + Eq + Ord + Default + Send + Sync + BigCast + Debug + Display + 'static
 {
     const VALUES_TYPE: DecimalValueType;
 

@@ -15,22 +15,21 @@ use stream::StreamExt;
 use tokio::runtime::Handle;
 use vortex::aliases::hash_map::HashMap;
 use vortex::buffer::Buffer;
-use vortex::error::VortexResult;
 use vortex::file::VortexOpenOptions;
 use vortex::stream::ArrayStreamExt;
 use vortex::{Array, ArrayRef, IntoArray};
 
-pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> VortexResult<ArrayRef> {
+pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
     take_vortex(path, indices).await
 }
 
-pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> VortexResult<RecordBatch> {
+pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> anyhow::Result<RecordBatch> {
     let file = tokio::fs::File::open(path).await?;
     parquet_take_from_stream(file, indices).await
 }
 
-async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> VortexResult<ArrayRef> {
-    VortexOpenOptions::file()
+async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
+    Ok(VortexOpenOptions::file()
         .open(reader)
         .await?
         .scan()?
@@ -41,13 +40,13 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> VortexRe
         .await?
         // For equivalence.... we decompress to make sure we're not cheating too much.
         .to_canonical()
-        .map(|a| a.into_array())
+        .map(|a| a.into_array())?)
 }
 
 async fn parquet_take_from_stream<T: AsyncFileReader + Unpin + Send + 'static>(
     async_reader: T,
     indices: Buffer<u64>,
-) -> VortexResult<RecordBatch> {
+) -> anyhow::Result<RecordBatch> {
     let builder = ParquetRecordBatchStreamBuilder::new_with_options(
         async_reader,
         ArrowReaderOptions::new().with_page_index(true),

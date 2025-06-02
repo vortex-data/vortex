@@ -58,7 +58,7 @@ mod tests {
 
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, StructDType};
+    use vortex_dtype::{DType, StructFields};
 
     use crate::transform::remove_select::remove_select;
     use crate::{DTypeEvaluationContext, Pack, ident, select};
@@ -66,7 +66,7 @@ mod tests {
     #[test]
     fn test_remove_select() {
         let dtype = DType::Struct(
-            Arc::new(StructDType::new(
+            Arc::new(StructFields::new(
                 ["a".into(), "b".into()].into(),
                 vec![I32.into(), I32.into()],
             )),
