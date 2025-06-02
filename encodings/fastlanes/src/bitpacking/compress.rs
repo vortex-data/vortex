@@ -27,6 +27,7 @@ pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPack
     bitpack_encode(array, best_bit_width, Some(&bit_width_freq))
 }
 
+#[allow(unused_comparisons, clippy::absurd_extreme_comparisons)]
 pub fn bitpack_encode(
     array: &PrimitiveArray,
     bit_width: u8,
@@ -39,8 +40,8 @@ pub fn bitpack_encode(
 
     // Check array contains no negative values.
     if array.ptype().is_signed_int() {
-        let has_negative_values = match_each_integer_ptype!(array.ptype(), |$P| {
-            array.statistics().compute_min::<$P>().unwrap_or_default() < 0
+        let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
+            array.statistics().compute_min::<P>().unwrap_or_default() < 0
         });
         if has_negative_values {
             vortex_bail!("cannot bitpack_encode array containing negative integers")
@@ -120,8 +121,8 @@ pub unsafe fn bitpack_unchecked(
     bit_width: u8,
 ) -> VortexResult<ByteBuffer> {
     let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
-    let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |$P| {
-        bitpack_primitive(parray.as_slice::<$P>(), bit_width).into_byte_buffer()
+    let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |P| {
+        bitpack_primitive(parray.as_slice::<P>(), bit_width).into_byte_buffer()
     });
     Ok(packed)
 }
@@ -197,20 +198,44 @@ pub fn gather_patches(
     let validity_mask = parray.validity_mask()?;
 
     let patches = if array_len < u8::MAX as usize {
-        match_each_integer_ptype!(parray.ptype(), |$T| {
-            gather_patches_impl::<$T, u8>(parray.as_slice::<$T>(), bit_width, num_exceptions_hint, patch_validity, validity_mask)
+        match_each_integer_ptype!(parray.ptype(), |T| {
+            gather_patches_impl::<T, u8>(
+                parray.as_slice::<T>(),
+                bit_width,
+                num_exceptions_hint,
+                patch_validity,
+                validity_mask,
+            )
         })
     } else if array_len < u16::MAX as usize {
-        match_each_integer_ptype!(parray.ptype(), |$T| {
-            gather_patches_impl::<$T, u16>(parray.as_slice::<$T>(), bit_width, num_exceptions_hint, patch_validity, validity_mask)
+        match_each_integer_ptype!(parray.ptype(), |T| {
+            gather_patches_impl::<T, u16>(
+                parray.as_slice::<T>(),
+                bit_width,
+                num_exceptions_hint,
+                patch_validity,
+                validity_mask,
+            )
         })
     } else if array_len < u32::MAX as usize {
-        match_each_integer_ptype!(parray.ptype(), |$T| {
-            gather_patches_impl::<$T, u32>(parray.as_slice::<$T>(), bit_width, num_exceptions_hint, patch_validity, validity_mask)
+        match_each_integer_ptype!(parray.ptype(), |T| {
+            gather_patches_impl::<T, u32>(
+                parray.as_slice::<T>(),
+                bit_width,
+                num_exceptions_hint,
+                patch_validity,
+                validity_mask,
+            )
         })
     } else {
-        match_each_integer_ptype!(parray.ptype(), |$T| {
-            gather_patches_impl::<$T, u64>(parray.as_slice::<$T>(), bit_width, num_exceptions_hint, patch_validity, validity_mask)
+        match_each_integer_ptype!(parray.ptype(), |T| {
+            gather_patches_impl::<T, u64>(
+                parray.as_slice::<T>(),
+                bit_width,
+                num_exceptions_hint,
+                patch_validity,
+                validity_mask,
+            )
         })
     };
 
@@ -251,9 +276,7 @@ where
 }
 
 pub fn unpack(array: &BitPackedArray) -> VortexResult<PrimitiveArray> {
-    match_each_integer_ptype!(array.ptype(), |$P| {
-        unpack_primitive::<$P>(array)
-    })
+    match_each_integer_ptype!(array.ptype(), |P| { unpack_primitive::<P>(array) })
 }
 
 pub fn unpack_primitive<T: BitPacked>(array: &BitPackedArray) -> VortexResult<PrimitiveArray> {
@@ -301,10 +324,10 @@ fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) ->
     let values = values.to_primitive()?;
     let validity = values.validity_mask()?;
     let values = values.as_slice::<T>();
-    match_each_unsigned_integer_ptype!(indices.ptype(), |$P| {
+    match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
         insert_values_and_validity_at_indices(
             dst,
-            indices.as_slice::<$P>(),
+            indices.as_slice::<P>(),
             values,
             validity,
             indices_offset,
@@ -349,8 +372,11 @@ pub fn unpack_single(array: &BitPackedArray, index: usize) -> VortexResult<Scala
     let ptype = array.ptype();
     // let packed = array.packed().into_primitive()?;
     let index_in_encoded = index + array.offset() as usize;
-    let scalar: Scalar = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |$P| unsafe {
-        unpack_single_primitive::<$P>(array.packed_slice::<$P>(), bit_width, index_in_encoded).into()
+    let scalar: Scalar = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |P| {
+        unsafe {
+            unpack_single_primitive::<P>(array.packed_slice::<P>(), bit_width, index_in_encoded)
+                .into()
+        }
     });
     // Cast to fix signedness and nullability
     scalar.cast(array.dtype())
@@ -421,9 +447,7 @@ pub fn count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize {
 }
 
 pub fn bit_width_histogram(array: &PrimitiveArray) -> VortexResult<Vec<usize>> {
-    match_each_integer_ptype!(array.ptype(), |$P| {
-        bit_width_histogram_typed::<$P>(array)
-    })
+    match_each_integer_ptype!(array.ptype(), |P| { bit_width_histogram_typed::<P>(array) })
 }
 
 fn bit_width_histogram_typed<T: NativePType + PrimInt>(

@@ -165,7 +165,7 @@ impl BitPackedArray {
     }
 
     pub fn ptype(&self) -> PType {
-        self.dtype.to_ptype()
+        self.dtype.as_ptype()
     }
 
     /// Underlying bit packed values as byte array
@@ -280,8 +280,8 @@ impl CanonicalVTable<BitPackedVTable> for BitPackedVTable {
         array: &BitPackedArray,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
-        match_each_integer_ptype!(array.ptype(), |$T| {
-            unpack_into::<$T>(
+        match_each_integer_ptype!(array.ptype(), |T| {
+            unpack_into::<T>(
                 array,
                 builder
                     .as_any_mut()

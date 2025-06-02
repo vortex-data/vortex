@@ -32,14 +32,15 @@ impl FilterKernel for RunEndVTable {
                     // This strategy ends up being close to fixed cost based on the number of runs,
                     // rather than the number of indices.
                     let primitive_run_ends = array.ends().to_primitive()?;
-                    let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
-                        filter_run_end_primitive(
-                            primitive_run_ends.as_slice::<$P>(),
-                            array.offset() as u64,
-                            array.len() as u64,
-                            mask_values.boolean_buffer(),
-                        )?
-                    });
+                    let (run_ends, values_mask) =
+                        match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
+                            filter_run_end_primitive(
+                                primitive_run_ends.as_slice::<P>(),
+                                array.offset() as u64,
+                                array.len() as u64,
+                                mask_values.boolean_buffer(),
+                            )?
+                        });
                     let values = filter(array.values(), &values_mask)?;
 
                     RunEndArray::try_new(run_ends.into_array(), values).map(|a| a.into_array())
@@ -54,14 +55,17 @@ register_kernel!(FilterKernelAdapter(RunEndVTable).lift());
 // We expose this function to our benchmarks.
 pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
     let primitive_run_ends = array.ends().to_primitive()?;
-    let (run_ends, values_mask) = match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |$P| {
-        filter_run_end_primitive(
-            primitive_run_ends.as_slice::<$P>(),
-            array.offset() as u64,
-            array.len() as u64,
-            mask.values().vortex_expect("AllTrue and AllFalse handled by filter fn").boolean_buffer(),
-        )?
-    });
+    let (run_ends, values_mask) =
+        match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
+            filter_run_end_primitive(
+                primitive_run_ends.as_slice::<P>(),
+                array.offset() as u64,
+                array.len() as u64,
+                mask.values()
+                    .vortex_expect("AllTrue and AllFalse handled by filter fn")
+                    .boolean_buffer(),
+            )?
+        });
     let values = filter(array.values(), &values_mask)?;
 
     RunEndArray::try_new(run_ends.into_array(), values).map(|a| a.into_array())

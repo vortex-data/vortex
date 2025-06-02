@@ -169,12 +169,10 @@ fn decimal_value_to_py(
     let m = py.import("decimal")?;
     let decimal_class = m.getattr("Decimal")?;
 
-    match_each_decimal_value!(decimal_value, |$V| {
-       {
-            let (whole, decimal) = $V.decimal_parts(scale);
-            let repr = format!("{}.{:0>width$}", whole, decimal, width = scale as usize)
-                .into_pyobject(py)?;
-            decimal_class.call1((repr,))
-        }
+    match_each_decimal_value!(decimal_value, |value| {
+        let (whole, decimal) = value.decimal_parts(scale);
+        let repr =
+            format!("{}.{:0>width$}", whole, decimal, width = scale as usize).into_pyobject(py)?;
+        decimal_class.call1((repr,))
     })
 }

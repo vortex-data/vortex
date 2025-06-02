@@ -257,6 +257,7 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
         array.patches().values().all_invalid()
     }
 
+    #[allow(clippy::unnecessary_fallible_conversions)]
     fn validity_mask(array: &SparseArray) -> VortexResult<Mask> {
         let indices = array.patches().indices().to_primitive()?;
 
@@ -266,9 +267,13 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
             // TODO(ngates): use vortex-buffer::BitBufferMut when it exists.
             buffer.append_n(array.len(), false);
 
-            match_each_integer_ptype!(indices.ptype(), |$I| {
-                indices.as_slice::<$I>().into_iter().for_each(|&index| {
-                    buffer.set_bit(usize::try_from(index).vortex_expect("Failed to cast to usize") - array.patches().offset(), true);
+            match_each_integer_ptype!(indices.ptype(), |I| {
+                indices.as_slice::<I>().iter().for_each(|&index| {
+                    buffer.set_bit(
+                        usize::try_from(index).vortex_expect("Failed to cast to usize")
+                            - array.patches().offset(),
+                        true,
+                    );
                 });
             });
 
@@ -281,12 +286,17 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
         buffer.append_n(array.len(), true);
 
         let values_validity = array.patches().values().validity_mask()?;
-        match_each_integer_ptype!(indices.ptype(), |$I| {
-            indices.as_slice::<$I>()
-                .into_iter()
+        match_each_integer_ptype!(indices.ptype(), |I| {
+            indices
+                .as_slice::<I>()
+                .iter()
                 .enumerate()
                 .for_each(|(patch_idx, &index)| {
-                    buffer.set_bit(usize::try_from(index).vortex_expect("Failed to cast to usize") - array.patches().offset(), values_validity.value(patch_idx));
+                    buffer.set_bit(
+                        usize::try_from(index).vortex_expect("Failed to cast to usize")
+                            - array.patches().offset(),
+                        values_validity.value(patch_idx),
+                    );
                 })
         });
 

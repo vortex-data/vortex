@@ -174,138 +174,291 @@ native_float_ptype!(f64, F64);
 /// Macro to match over each PType, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_native_ptype {
-    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
+    (
+        $self:expr,integral: |
+        $integral_enc:ident |
+        $intbody:block,floating_point: |
+        $floating_point_enc:ident |
+        $floatbody:block
+    ) => {{
         use $crate::PType;
         use $crate::half::f16;
         match $self {
-            PType::I8 => __with__! { i8 },
-            PType::I16 => __with__! { i16 },
-            PType::I32 => __with__! { i32 },
-            PType::I64 => __with__! { i64 },
-            PType::U8 => __with__! { u8 },
-            PType::U16 => __with__! { u16 },
-            PType::U32 => __with__! { u32 },
-            PType::U64 => __with__! { u64 },
-            PType::F16 => __with__! { f16 },
-            PType::F32 => __with__! { f32 },
-            PType::F64 => __with__! { f64 },
+            PType::I8 => {
+                type $integral_enc = i8;
+                $intbody
+            }
+            PType::I16 => {
+                type $integral_enc = i16;
+                $intbody
+            }
+            PType::I32 => {
+                type $integral_enc = i32;
+                $intbody
+            }
+            PType::I64 => {
+                type $integral_enc = i64;
+                $intbody
+            }
+            PType::U8 => {
+                type $integral_enc = u8;
+                $intbody
+            }
+            PType::U16 => {
+                type $integral_enc = u16;
+                $intbody
+            }
+            PType::U32 => {
+                type $integral_enc = u32;
+                $intbody
+            }
+            PType::U64 => {
+                type $integral_enc = u64;
+                $intbody
+            }
+            PType::F16 => {
+                type $floating_point_enc = f16;
+                $floatbody
+            }
+            PType::F32 => {
+                type $floating_point_enc = f32;
+                $floatbody
+            }
+            PType::F64 => {
+                type $floating_point_enc = f64;
+                $floatbody
+            }
         }
-    });
-    ($self:expr,
-     integral: | $_:tt $integral_enc:ident | { $($integral_body:tt)* }
-     floating_point: | $_2:tt $floating_point_enc:ident | { $($floating_point_body:tt)* }
-    ) => ({
-        macro_rules! __with_integer__ {( $_ $integral_enc:ident ) => ( { $($integral_body)* } )}
-        macro_rules! __with_floating_point__ {( $_ $floating_point_enc:ident ) => ( { $($floating_point_body)* } )}
+    }};
+    (
+        $self:expr,unsigned: |
+        $unsigned_enc:ident |
+        $unsigned_body:block,signed: |
+        $signed_enc:ident |
+        $signed_body:block,floating: |
+        $floating_point_enc:ident |
+        $floating_point_body:block
+    ) => {{
         use $crate::PType;
         use $crate::half::f16;
         match $self {
-            PType::I8 => __with_integer__! { i8 },
-            PType::I16 => __with_integer__! { i16 },
-            PType::I32 => __with_integer__! { i32 },
-            PType::I64 => __with_integer__! { i64 },
-            PType::U8 => __with_integer__! { u8 },
-            PType::U16 => __with_integer__! { u16 },
-            PType::U32 => __with_integer__! { u32 },
-            PType::U64 => __with_integer__! { u64 },
-            PType::F16 => __with_floating_point__! { f16 },
-            PType::F32 => __with_floating_point__! { f32 },
-            PType::F64 => __with_floating_point__! { f64 },
+            PType::U8 => {
+                type $unsigned_enc = u8;
+                $unsigned_body
+            }
+            PType::U16 => {
+                type $unsigned_enc = u16;
+                $unsigned_body
+            }
+            PType::U32 => {
+                type $unsigned_enc = u32;
+                $unsigned_body
+            }
+            PType::U64 => {
+                type $unsigned_enc = u64;
+                $unsigned_body
+            }
+            PType::I8 => {
+                type $signed_enc = i8;
+                $signed_body
+            }
+            PType::I16 => {
+                type $signed_enc = i16;
+                $signed_body
+            }
+            PType::I32 => {
+                type $signed_enc = i32;
+                $signed_body
+            }
+            PType::I64 => {
+                type $signed_enc = i64;
+                $signed_body
+            }
+            PType::F16 => {
+                type $floating_point_enc = f16;
+                $floating_point_body
+            }
+            PType::F32 => {
+                type $floating_point_enc = f32;
+                $floating_point_body
+            }
+            PType::F64 => {
+                type $floating_point_enc = f64;
+                $floating_point_body
+            }
         }
-    });
-    ($self:expr,
-     unsigned: | $_:tt $unsigned_enc:ident | { $($unsigned_body:tt)* }
-     signed: | $_1:tt $signed_enc:ident | { $($signed_body:tt)* }
-     floating: | $_2:tt $floating_point_enc:ident | { $($floating_point_body:tt)* }
-    ) => ({
-        macro_rules! __with_unsigned__ {( $_ $unsigned_enc:ident ) => ( { $($unsigned_body)* } )}
-        macro_rules! __with_signed__ {( $_ $signed_enc:ident ) => ( { $($signed_body)* } )}
-        macro_rules! __with_floating_point__ {( $_ $floating_point_enc:ident ) => ( { $($floating_point_body)* } )}
+    }};
+    ($self:expr, | $tname:ident | $body:block) => {{
         use $crate::PType;
         use $crate::half::f16;
         match $self {
-            PType::U8 => __with_unsigned__! { u8 },
-            PType::U16 => __with_unsigned__! { u16 },
-            PType::U32 => __with_unsigned__! { u32 },
-            PType::U64 => __with_unsigned__! { u64 },
-            PType::I8 => __with_signed__! { i8 },
-            PType::I16 => __with_signed__! { i16 },
-            PType::I32 => __with_signed__! { i32 },
-            PType::I64 => __with_signed__! { i64 },
-            PType::F16 => __with_floating_point__! { f16 },
-            PType::F32 => __with_floating_point__! { f32 },
-            PType::F64 => __with_floating_point__! { f64 },
+            PType::I8 => {
+                type $tname = i8;
+                $body
+            }
+            PType::I16 => {
+                type $tname = i16;
+                $body
+            }
+            PType::I32 => {
+                type $tname = i32;
+                $body
+            }
+            PType::I64 => {
+                type $tname = i64;
+                $body
+            }
+            PType::U8 => {
+                type $tname = u8;
+                $body
+            }
+            PType::U16 => {
+                type $tname = u16;
+                $body
+            }
+            PType::U32 => {
+                type $tname = u32;
+                $body
+            }
+            PType::U64 => {
+                type $tname = u64;
+                $body
+            }
+            PType::F16 => {
+                type $tname = f16;
+                $body
+            }
+            PType::F32 => {
+                type $tname = f32;
+                $body
+            }
+            PType::F64 => {
+                type $tname = f64;
+                $body
+            }
         }
-    })
+    }};
 }
 
 /// Macro to match over each integer PType, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_integer_ptype {
-    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
+    ($self:expr, | $enc:ident | $body:block) => {{
         use $crate::PType;
         match $self {
-            PType::I8 => __with__! { i8 },
-            PType::I16 => __with__! { i16 },
-            PType::I32 => __with__! { i32 },
-            PType::I64 => __with__! { i64 },
-            PType::U8 => __with__! { u8 },
-            PType::U16 => __with__! { u16 },
-            PType::U32 => __with__! { u32 },
-            PType::U64 => __with__! { u64 },
-            other => panic!("Unsupported ptype {other}")
+            PType::I8 => {
+                type $enc = i8;
+                $body
+            }
+            PType::I16 => {
+                type $enc = i16;
+                $body
+            }
+            PType::I32 => {
+                type $enc = i32;
+                $body
+            }
+            PType::I64 => {
+                type $enc = i64;
+                $body
+            }
+            PType::U8 => {
+                type $enc = u8;
+                $body
+            }
+            PType::U16 => {
+                type $enc = u16;
+                $body
+            }
+            PType::U32 => {
+                type $enc = u32;
+                $body
+            }
+            PType::U64 => {
+                type $enc = u64;
+                $body
+            }
+            other => panic!("Unsupported ptype {other}"),
         }
-    })
+    }};
 }
 
 /// Macro to match over each unsigned integer type, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_unsigned_integer_ptype {
-    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
+    ($self:expr, | $enc:ident | $body:block) => {{
         use $crate::PType;
         match $self {
-            PType::U8 => __with__! { u8 },
-            PType::U16 => __with__! { u16 },
-            PType::U32 => __with__! { u32 },
-            PType::U64 => __with__! { u64 },
+            PType::U8 => {
+                type $enc = u8;
+                $body
+            }
+            PType::U16 => {
+                type $enc = u16;
+                $body
+            }
+            PType::U32 => {
+                type $enc = u32;
+                $body
+            }
+            PType::U64 => {
+                type $enc = u64;
+                $body
+            }
             other => panic!("Unsupported ptype {other}"),
         }
-    })
+    }};
 }
 
 /// Macro to match over each signed integer type, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_signed_integer_ptype {
-    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
+    ($self:expr, | $enc:ident | $body:block) => {{
         use $crate::PType;
         match $self {
-            PType::I8 => __with__! { i8 },
-            PType::I16 => __with__! { i16 },
-            PType::I32 => __with__! { i32 },
-            PType::I64 => __with__! { i64 },
+            PType::I8 => {
+                type $enc = i8;
+                $body
+            }
+            PType::I16 => {
+                type $enc = i16;
+                $body
+            }
+            PType::I32 => {
+                type $enc = i32;
+                $body
+            }
+            PType::I64 => {
+                type $enc = i64;
+                $body
+            }
             other => panic!("Unsupported ptype {other}"),
         }
-    })
+    }};
 }
 
 /// Macro to match over each floating point type, binding the corresponding native type (from `NativePType`)
 #[macro_export]
 macro_rules! match_each_float_ptype {
-    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
-        use $crate::PType;
+    ($self:expr, | $enc:ident | $body:block) => {{
         use vortex_dtype::half::f16;
+        use $crate::PType;
         match $self {
-            PType::F16 => __with__! { f16 },
-            PType::F32 => __with__! { f32 },
-            PType::F64 => __with__! { f64 },
+            PType::F16 => {
+                type $enc = f16;
+                $body
+            }
+            PType::F32 => {
+                type $enc = f32;
+                $body
+            }
+            PType::F64 => {
+                type $enc = f64;
+                $body
+            }
             other => panic!("Unsupported ptype {other}"),
         }
-    })
+    }};
 }
 
 /// Macro to match over each SIMD capable `PType`, binding the corresponding native type (from `NativePType`)
@@ -313,23 +466,52 @@ macro_rules! match_each_float_ptype {
 /// Note: The match will panic in case of `PType::F16`.
 #[macro_export]
 macro_rules! match_each_native_simd_ptype {
-    ($self:expr, | $_:tt $enc:ident | $($body:tt)*) => ({
-        macro_rules! __with__ {( $_ $enc:ident ) => ( $($body)* )}
+    ($self:expr, | $enc:ident | $body:block) => {{
         use $crate::PType;
         match $self {
-            PType::I8 => __with__! { i8 },
-            PType::I16 => __with__! { i16 },
-            PType::I32 => __with__! { i32 },
-            PType::I64 => __with__! { i64 },
-            PType::U8 => __with__! { u8 },
-            PType::U16 => __with__! { u16 },
-            PType::U32 => __with__! { u32 },
-            PType::U64 => __with__! { u64 },
+            PType::I8 => {
+                type $enc = i8;
+                $body
+            }
+            PType::I16 => {
+                type $enc = i16;
+                $body
+            }
+            PType::I32 => {
+                type $enc = i32;
+                $body
+            }
+            PType::I64 => {
+                type $enc = i64;
+                $body
+            }
+            PType::U8 => {
+                type $enc = u8;
+                $body
+            }
+            PType::U16 => {
+                type $enc = u16;
+                $body
+            }
+            PType::U32 => {
+                type $enc = u32;
+                $body
+            }
+            PType::U64 => {
+                type $enc = u64;
+                $body
+            }
             PType::F16 => panic!("f16 does not implement simd::SimdElement"),
-            PType::F32 => __with__! { f32 },
-            PType::F64 => __with__! { f64 },
+            PType::F32 => {
+                type $enc = f32;
+                $body
+            }
+            PType::F64 => {
+                type $enc = f64;
+                $body
+            }
         }
-    })
+    }};
 }
 
 impl PType {
@@ -356,7 +538,7 @@ impl PType {
 
     /// Returns the number of bytes in this PType
     pub const fn byte_width(&self) -> usize {
-        match_each_native_ptype!(self, |$T| std::mem::size_of::<$T>())
+        match_each_native_ptype!(self, |T| { size_of::<T>() })
     }
 
     /// Returns the number of bits in this PType
@@ -367,7 +549,11 @@ impl PType {
     /// Returns the maximum value of this PType if it is an integer type
     /// Returns `u64::MAX` if the value is too large to fit in a `u64`
     pub fn max_value_as_u64(&self) -> u64 {
-        match_each_native_ptype!(self, |$T| <$T as UpperBounded>::max_value().to_u64().unwrap_or(u64::MAX))
+        match_each_native_ptype!(self, |T| {
+            <T as UpperBounded>::max_value()
+                .to_u64()
+                .unwrap_or(u64::MAX)
+        })
     }
 
     /// Returns the PType that corresponds to the signed version of this PType

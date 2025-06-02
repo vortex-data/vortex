@@ -56,8 +56,8 @@ impl SerdeVTable<PrimitiveVTable> for PrimitiveVTable {
             );
         }
 
-        match_each_native_ptype!(ptype, |$P| {
-            let buffer = Buffer::<$P>::from_byte_buffer(buffer);
+        match_each_native_ptype!(ptype, |P| {
+            let buffer = Buffer::<P>::from_byte_buffer(buffer);
             Ok(PrimitiveArray::new(buffer, validity))
         })
     }

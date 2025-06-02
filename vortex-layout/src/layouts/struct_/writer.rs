@@ -12,7 +12,7 @@ use crate::{IntoLayout, LayoutRef};
 
 /// A [`LayoutWriter`] that splits a StructArray batch into child layout writers
 pub struct StructLayoutWriter {
-    column_strategies: Vec<Box<dyn LayoutWriter>>,
+    column_layout_writers: Vec<Box<dyn LayoutWriter>>,
     dtype: DType,
     row_count: u64,
 }
@@ -34,7 +34,7 @@ impl StructLayoutWriter {
             );
         }
         Ok(Self {
-            column_strategies: column_layout_writers,
+            column_layout_writers,
             dtype,
             row_count: 0,
         })
@@ -71,8 +71,11 @@ impl LayoutWriter for StructLayoutWriter {
             chunk.dtype(),
             self.dtype
         );
+        if !chunk.all_valid()? {
+            vortex_bail!("Cannot push struct chunks with top level invalid values");
+        }
         let struct_array = chunk.to_struct()?;
-        if struct_array.struct_dtype().nfields() != self.column_strategies.len() {
+        if struct_array.struct_dtype().nfields() != self.column_layout_writers.len() {
             vortex_bail!(
                 "number of fields in struct array does not match number of column layout writers"
             );
@@ -83,7 +86,7 @@ impl LayoutWriter for StructLayoutWriter {
             // TODO(joe): handle struct validity
             for column_chunk in struct_array.fields()[i].to_array_iterator() {
                 let column_chunk = column_chunk?;
-                self.column_strategies[i].push_chunk(segment_writer, column_chunk)?;
+                self.column_layout_writers[i].push_chunk(segment_writer, column_chunk)?;
             }
         }
 
@@ -91,7 +94,7 @@ impl LayoutWriter for StructLayoutWriter {
     }
 
     fn flush(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
-        for writer in self.column_strategies.iter_mut() {
+        for writer in self.column_layout_writers.iter_mut() {
             writer.flush(segment_writer)?;
         }
         Ok(())
@@ -99,7 +102,7 @@ impl LayoutWriter for StructLayoutWriter {
 
     fn finish(&mut self, segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
         let mut column_layouts = vec![];
-        for writer in self.column_strategies.iter_mut() {
+        for writer in self.column_layout_writers.iter_mut() {
             column_layouts.push(writer.finish(segment_writer)?);
         }
         Ok(StructLayout::new(self.row_count, self.dtype.clone(), column_layouts).into_layout())
@@ -110,12 +113,16 @@ impl LayoutWriter for StructLayoutWriter {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::ArrayContext;
+    use vortex_array::arrays::{BoolArray, StructArray};
+    use vortex_array::validity::Validity;
+    use vortex_array::{ArrayContext, IntoArray};
+    use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::LayoutWriterExt;
     use crate::layouts::flat::writer::{FlatLayoutStrategy, FlatLayoutWriter};
     use crate::layouts::struct_::writer::StructLayoutWriter;
+    use crate::segments::TestSegments;
+    use crate::{LayoutWriter, LayoutWriterExt};
 
     #[test]
     #[should_panic]
@@ -148,5 +155,43 @@ mod tests {
             ],
         )
         .unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn fails_on_top_level_nulls() {
+        let mut writer = StructLayoutWriter::try_new(
+            DType::Struct(
+                Arc::new(
+                    [("a", DType::Primitive(PType::I32, Nullability::NonNullable))]
+                        .into_iter()
+                        .collect(),
+                ),
+                Nullability::Nullable,
+            ),
+            vec![
+                FlatLayoutWriter::new(
+                    ArrayContext::empty(),
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    FlatLayoutStrategy::default(),
+                )
+                .boxed(),
+            ],
+        )
+        .unwrap();
+        let mut segment_writer = TestSegments::default();
+        writer
+            .push_chunk(
+                &mut segment_writer,
+                StructArray::try_new(
+                    ["a".into()].into(),
+                    vec![buffer![1, 2, 3].into_array()],
+                    3,
+                    Validity::Array(BoolArray::from_iter(vec![true, true, false]).into_array()),
+                )
+                .unwrap()
+                .into_array(),
+            )
+            .unwrap();
     }
 }

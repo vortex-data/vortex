@@ -66,7 +66,7 @@ impl ZigZagArray {
     }
 
     pub fn ptype(&self) -> PType {
-        self.dtype().to_ptype()
+        self.dtype().as_ptype()
     }
 
     pub fn encoded(&self) -> &ArrayRef {
@@ -106,15 +106,17 @@ impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
         }
 
         let pscalar = PrimitiveScalar::try_from(&scalar)?;
-        match_each_unsigned_integer_ptype!(pscalar.ptype(), |$P| {
+        match_each_unsigned_integer_ptype!(pscalar.ptype(), |P| {
             Ok(Scalar::primitive(
-                <<$P as ZigZagEncoded>::Int>::decode(pscalar.typed_value::<$P>().ok_or_else(|| {
-                    vortex_err!(
-                        "Cannot decode provided scalar: expected {}, got ptype {}",
-                        std::any::type_name::<$P>(),
-                        pscalar.ptype()
-                    )
-                })?),
+                <<P as ZigZagEncoded>::Int>::decode(pscalar.typed_value::<P>().ok_or_else(
+                    || {
+                        vortex_err!(
+                            "Cannot decode provided scalar: expected {}, got ptype {}",
+                            std::any::type_name::<P>(),
+                            pscalar.ptype()
+                        )
+                    },
+                )?),
                 array.dtype().nullability(),
             ))
         })

@@ -88,8 +88,8 @@ impl PrimitiveArray {
     }
 
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
-        match_each_native_ptype!(ptype, |$T| {
-            Self::new::<$T>(Buffer::from_byte_buffer(buffer), validity)
+        match_each_native_ptype!(ptype, |T| {
+            Self::new::<T>(Buffer::from_byte_buffer(buffer), validity)
         })
     }
 
@@ -116,7 +116,7 @@ impl PrimitiveArray {
     }
 
     pub fn ptype(&self) -> PType {
-        self.dtype().to_ptype()
+        self.dtype().as_ptype()
     }
 
     pub fn byte_buffer(&self) -> &ByteBuffer {

@@ -42,11 +42,8 @@ impl CastKernel for PrimitiveVTable {
         }
 
         // Otherwise, we need to cast the values one-by-one
-        match_each_native_ptype!(new_ptype, |$T| {
-            Ok(PrimitiveArray::new(
-                cast::<$T>(array)?,
-                new_validity,
-            ).into_array())
+        match_each_native_ptype!(new_ptype, |T| {
+            Ok(PrimitiveArray::new(cast::<T>(array)?, new_validity).into_array())
         })
     }
 }
@@ -55,8 +52,8 @@ register_kernel!(CastKernelAdapter(PrimitiveVTable).lift());
 
 fn cast<T: NativePType>(array: &PrimitiveArray) -> VortexResult<Buffer<T>> {
     let mut buffer = BufferMut::with_capacity(array.len());
-    match_each_native_ptype!(array.ptype(), |$P| {
-        for item in array.as_slice::<$P>() {
+    match_each_native_ptype!(array.ptype(), |P| {
+        for item in array.as_slice::<P>() {
             let item = T::from(*item).ok_or_else(
                 || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
             )?;

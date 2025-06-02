@@ -19,9 +19,9 @@ impl FilterKernel for ListVTable {
 
         match array.validity_mask()? {
             Mask::AllTrue(_) => {
-                match_each_integer_ptype!(offsets.ptype(), |$I| {
-                    filter_all_valid::<$I>(
-                        offsets.as_slice::<$I>(),
+                match_each_integer_ptype!(offsets.ptype(), |I| {
+                    filter_all_valid::<I>(
+                        offsets.as_slice::<I>(),
                         array.elements().as_ref(),
                         mask,
                         array.dtype().nullability(),

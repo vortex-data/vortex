@@ -1,6 +1,6 @@
 use jni::JNIEnv;
 use jni::objects::{JClass, JObject, JValue};
-use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyte, jlong, jobject, jstring};
+use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyte, jint, jlong, jobject, jstring};
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 use vortex::dtype::{DType, PType};
 
@@ -87,9 +87,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_isNullable(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldNames<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldNames(
+    mut env: JNIEnv,
+    _class: JClass,
     dtype_ptr: jlong,
 ) -> jobject {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
@@ -111,9 +111,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldNames<'loc
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldTypes<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFieldTypes(
+    mut env: JNIEnv,
+    _class: JClass,
     dtype_ptr: jlong,
 ) -> jobject {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
@@ -247,9 +247,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeUnit(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeZone<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeZone(
+    mut env: JNIEnv,
+    _class: JClass,
     dtype_ptr: jlong,
 ) -> jstring {
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
@@ -270,5 +270,51 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeZone<'local
         } else {
             Ok(JObject::null().into_raw())
         }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_isDecimal(
+    _env: JNIEnv,
+    _class: JClass,
+    dtype_ptr: jlong,
+) -> jboolean {
+    let dtype = unsafe { &*(dtype_ptr as *const DType) };
+    match dtype {
+        DType::Decimal(..) => JNI_TRUE,
+        _ => JNI_FALSE,
+    }
+}
+
+// Decimal-related access methods
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getDecimalPrecision(
+    mut env: JNIEnv,
+    _class: JClass,
+    dtype_ptr: jlong,
+) -> jint {
+    let dtype = unsafe { &*(dtype_ptr as *const DType) };
+    try_or_throw(&mut env, |_| {
+        let DType::Decimal(decimal_dtype, ..) = dtype else {
+            throw_runtime!("DType should be a DECIMAL, was {dtype}");
+        };
+
+        Ok(decimal_dtype.precision() as jint)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getDecimalScale(
+    mut env: JNIEnv,
+    _class: JClass,
+    dtype_ptr: jlong,
+) -> jbyte {
+    let dtype = unsafe { &*(dtype_ptr as *const DType) };
+    try_or_throw(&mut env, |_| {
+        let DType::Decimal(decimal_dtype, ..) = dtype else {
+            throw_runtime!("DType should a DECIMAL, was {dtype}");
+        };
+
+        Ok(decimal_dtype.scale())
     })
 }

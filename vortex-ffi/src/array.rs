@@ -61,7 +61,12 @@ pub unsafe extern "C-unwind" fn vx_array_iter_next(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_iter_free(array_iter: *mut vx_array_iterator) {
     assert!(!array_iter.is_null());
-    drop(unsafe { Box::from_raw(array_iter) });
+    let iter = unsafe { Box::from_raw(array_iter) };
+    assert!(
+        iter.inner.is_none(),
+        "vx_array_iter_free called before finish"
+    );
+    drop(iter);
 }
 
 /// Get the length of the array.

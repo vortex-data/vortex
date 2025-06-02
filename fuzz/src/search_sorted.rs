@@ -64,15 +64,15 @@ pub fn search_sorted_canonical_array(
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive()?;
             let validity = primitive_array.validity_mask()?.to_boolean_buffer();
-            match_each_native_ptype!(p, |$P| {
+            match_each_native_ptype!(p, |P| {
                 let opt_values = primitive_array
-                    .as_slice::<$P>()
+                    .as_slice::<P>()
                     .iter()
                     .copied()
                     .zip(validity.iter())
                     .map(|(b, v)| v.then_some(b))
                     .collect::<Vec<_>>();
-                let to_find: $P = scalar.try_into()?;
+                let to_find: P = scalar.try_into()?;
                 Ok(SearchPrimitiveSlice(opt_values).search_sorted(&Some(to_find), side))
             })
         }

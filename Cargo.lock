@@ -522,7 +522,6 @@ dependencies = [
  "similar",
  "tabled",
  "tar",
- "tempfile",
  "tokio",
  "tracing",
  "tracing-chrome",
@@ -6030,6 +6029,7 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-cast",
+ "arrow-data",
  "arrow-ord",
  "arrow-schema",
  "arrow-select",
@@ -6245,15 +6245,7 @@ dependencies = [
  "duckdb",
  "itertools 0.14.0",
  "num-traits",
- "vortex-array",
- "vortex-buffer",
- "vortex-dict",
- "vortex-dtype",
- "vortex-error",
- "vortex-fsst",
- "vortex-mask",
- "vortex-runend",
- "vortex-scalar",
+ "vortex",
 ]
 
 [[package]]
@@ -6389,6 +6381,7 @@ dependencies = [
  "vortex-metrics",
  "vortex-runend",
  "vortex-scalar",
+ "vortex-sequence",
  "vortex-sparse",
  "vortex-zigzag",
 ]
@@ -6615,6 +6608,26 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-proto",
+]
+
+[[package]]
+name = "vortex-sequence"
+version = "0.1.0"
+dependencies = [
+ "itertools 0.14.0",
+ "num-traits",
+ "prost",
+ "tokio",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-file",
+ "vortex-layout",
+ "vortex-mask",
+ "vortex-proto",
+ "vortex-scalar",
 ]
 
 [[package]]

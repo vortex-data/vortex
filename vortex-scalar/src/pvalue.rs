@@ -65,7 +65,17 @@ impl PartialOrd for PValue {
 
 impl Hash for PValue {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.to_le_bytes().hash(state);
+        match self {
+            PValue::U8(_) | PValue::U16(_) | PValue::U32(_) | PValue::U64(_) => {
+                self.as_u64().vortex_expect("upcast").hash(state)
+            }
+            PValue::I8(_) | PValue::I16(_) | PValue::I32(_) | PValue::I64(_) => {
+                self.as_i64().vortex_expect("upcast").hash(state)
+            }
+            PValue::F16(v) => v.to_le_bytes().hash(state),
+            PValue::F32(v) => v.to_le_bytes().hash(state),
+            PValue::F64(v) => v.to_le_bytes().hash(state),
+        }
     }
 }
 
@@ -373,8 +383,10 @@ impl Display for PValue {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_types)]
 mod test {
     use std::cmp::Ordering;
+    use std::collections::HashSet;
 
     use vortex_dtype::PType;
     use vortex_dtype::half::f16;
@@ -409,5 +421,24 @@ mod test {
             PValue::I8(4).partial_cmp(&PValue::I64(5)),
             Some(Ordering::Less)
         );
+    }
+
+    #[test]
+    fn test_hash() {
+        let set = HashSet::from([
+            PValue::U8(1),
+            PValue::U16(1),
+            PValue::U32(1),
+            PValue::U64(1),
+            PValue::I8(1),
+            PValue::I16(1),
+            PValue::I32(1),
+            PValue::I64(1),
+            PValue::I8(-1),
+            PValue::I16(-1),
+            PValue::I32(-1),
+            PValue::I64(-1),
+        ]);
+        assert_eq!(set.len(), 2);
     }
 }

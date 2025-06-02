@@ -17,9 +17,9 @@ impl SumKernel for ChunkedVTable {
 
         let scalar_value = match_each_native_ptype!(
             sum_ptype,
-            unsigned: |$T| { sum_int::<u64>(array.chunks())?.into() }
-            signed: |$T| { sum_int::<i64>(array.chunks())?.into() }
-            floating: |$T| { sum_float(array.chunks())?.into() }
+            unsigned: |T| { sum_int::<u64>(array.chunks())?.into() },
+            signed: |T| { sum_int::<i64>(array.chunks())?.into() },
+            floating: |T| { sum_float(array.chunks())?.into() }
         );
 
         Ok(Scalar::new(sum_dtype, scalar_value))

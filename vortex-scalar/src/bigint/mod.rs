@@ -1,7 +1,11 @@
-use std::fmt::Display;
-use std::ops::{Add, Div, Mul, Rem, Sub};
+mod bigcast;
 
-use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, ToPrimitive, Zero};
+use std::fmt::Display;
+use std::ops::{Add, BitOr, Div, Mul, Rem, Shl, Shr, Sub};
+
+pub use bigcast::*;
+use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, WrappingAdd, WrappingSub, Zero};
+use vortex_error::VortexExpect;
 
 /// Signed 256-bit integer type.
 ///
@@ -12,17 +16,20 @@ use num_traits::{CheckedAdd, CheckedSub, ConstZero, One, ToPrimitive, Zero};
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct i256(arrow_buffer::i256);
 
+#[allow(clippy::same_name_method)]
 impl i256 {
     pub const ZERO: Self = Self(arrow_buffer::i256::ZERO);
     pub const ONE: Self = Self(arrow_buffer::i256::ONE);
+    pub const MAX: Self = Self(arrow_buffer::i256::MAX);
+    pub const MIN: Self = Self(arrow_buffer::i256::MIN);
 
     /// Construct a new `i256` from an unsigned `lower` bits and a signed `upper` bits.
-    pub fn from_parts(lower: u128, upper: i128) -> Self {
+    pub const fn from_parts(lower: u128, upper: i128) -> Self {
         Self(arrow_buffer::i256::from_parts(lower, upper))
     }
 
     /// Create an `i256` value from a signed 128-bit value.
-    pub fn from_i128(i: i128) -> Self {
+    pub const fn from_i128(i: i128) -> Self {
         Self(arrow_buffer::i256::from_i128(i))
     }
 
@@ -35,20 +42,15 @@ impl i256 {
         Self(arrow_buffer::i256::from_le_bytes(bytes))
     }
 
-    /// Return the memory representation of this integer as a byte array in little-endian byte order.
-    pub fn to_le_bytes(&self) -> [u8; 32] {
-        self.0.to_le_bytes()
-    }
-
     /// Split the 256-bit signed integer value into an unsigned lower bits and a signed upper bits.
     ///
     /// This versions gives us ownership of the value.
-    pub fn into_parts(self) -> (u128, i128) {
+    pub const fn into_parts(self) -> (u128, i128) {
         self.0.to_parts()
     }
 
     /// Split the 256-bit signed integer value into an unsigned lower bits and a signed upper bits.
-    pub fn to_parts(&self) -> (u128, i128) {
+    pub const fn to_parts(&self) -> (u128, i128) {
         self.0.to_parts()
     }
 
@@ -58,6 +60,18 @@ impl i256 {
 
     pub fn wrapping_add(&self, other: Self) -> Self {
         Self(self.0.wrapping_add(other.0))
+    }
+
+    /// Return the memory representation of this integer as a byte array in little-endian byte order.
+    #[inline]
+    pub const fn to_le_bytes(&self) -> [u8; 32] {
+        self.0.to_le_bytes()
+    }
+
+    /// Return the memory representation of this integer as a byte array in big-endian byte order.
+    #[inline]
+    pub const fn to_be_bytes(&self) -> [u8; 32] {
+        self.0.to_be_bytes()
     }
 }
 
@@ -145,23 +159,71 @@ impl CheckedAdd for i256 {
     }
 }
 
+impl WrappingAdd for i256 {
+    fn wrapping_add(&self, v: &Self) -> Self {
+        Self(self.0.wrapping_add(v.0))
+    }
+}
+
 impl CheckedSub for i256 {
     fn checked_sub(&self, v: &Self) -> Option<Self> {
         self.0.checked_sub(v.0).map(Self)
     }
 }
 
-impl ToPrimitive for i256 {
+impl WrappingSub for i256 {
+    fn wrapping_sub(&self, v: &Self) -> Self {
+        Self(self.0.wrapping_sub(v.0))
+    }
+}
+
+impl Shr<Self> for i256 {
+    type Output = Self;
+
+    fn shr(self, rhs: Self) -> Self::Output {
+        use num_traits::ToPrimitive;
+
+        Self(
+            self.0.shr(
+                rhs.0
+                    .to_u8()
+                    .vortex_expect("Can't shift more than 256 bits"),
+            ),
+        )
+    }
+}
+
+impl Shl<usize> for i256 {
+    type Output = Self;
+
+    fn shl(self, rhs: usize) -> Self::Output {
+        use num_traits::ToPrimitive;
+        Self(
+            self.0
+                .shl(rhs.to_u8().vortex_expect("Can't shift more than 256 bits")),
+        )
+    }
+}
+
+impl BitOr<Self> for i256 {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0.bitor(rhs.0))
+    }
+}
+
+impl num_traits::ToPrimitive for i256 {
     fn to_i64(&self) -> Option<i64> {
         self.maybe_i128().and_then(|v| v.to_i64())
     }
 
-    fn to_u64(&self) -> Option<u64> {
-        self.maybe_i128().and_then(|v| v.to_u64())
-    }
-
     fn to_i128(&self) -> Option<i128> {
         self.maybe_i128()
+    }
+
+    fn to_u64(&self) -> Option<u64> {
+        self.maybe_i128().and_then(|v| v.to_u64())
     }
 
     fn to_u128(&self) -> Option<u128> {

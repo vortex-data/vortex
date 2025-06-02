@@ -4,7 +4,7 @@ use std::iter;
 use std::sync::Arc;
 
 use arbitrary::{Result, Unstructured};
-use decimal::random_decimal;
+pub use decimal::random_decimal;
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, PType};

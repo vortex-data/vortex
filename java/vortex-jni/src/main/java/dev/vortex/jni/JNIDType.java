@@ -85,6 +85,21 @@ public final class JNIDType implements DType {
     }
 
     @Override
+    public boolean isDecimal() {
+        return NativeDTypeMethods.isDecimal(pointer.getAsLong());
+    }
+
+    @Override
+    public int getPrecision() {
+        return NativeDTypeMethods.getDecimalPrecision(pointer.getAsLong());
+    }
+
+    @Override
+    public byte getScale() {
+        return NativeDTypeMethods.getDecimalScale(pointer.getAsLong());
+    }
+
+    @Override
     public void close() {
         if (shouldFree) {
             NativeDTypeMethods.free(pointer.getAsLong());

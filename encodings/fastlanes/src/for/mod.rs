@@ -68,7 +68,7 @@ impl FoRArray {
 
     #[inline]
     pub fn ptype(&self) -> PType {
-        self.dtype().to_ptype()
+        self.dtype().as_ptype()
     }
 
     #[inline]

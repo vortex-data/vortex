@@ -44,8 +44,8 @@ impl VTable for DecimalVTable {
 #[derive(Clone, Debug)]
 pub struct DecimalEncoding;
 
-/// Maps a decimal precision into the small type that can represent it.
-pub fn precision_to_storage_size(decimal_dtype: &DecimalDType) -> DecimalValueType {
+/// Maps a decimal precision into the smallest type that can represent it.
+pub fn smallest_storage_type(decimal_dtype: &DecimalDType) -> DecimalValueType {
     match decimal_dtype.precision() {
         1..=2 => DecimalValueType::I8,
         3..=4 => DecimalValueType::I16,

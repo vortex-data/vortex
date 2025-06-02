@@ -13,11 +13,12 @@ impl TakeKernel for DecimalVTable {
     fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
 
-        let decimal = match_each_decimal_value_type!(array.values_type(), |$D| {
-                match_each_integer_ptype!(indices.ptype(), |$I| {
-                    let buffer = take_to_buffer::<$I, $D>(indices.as_slice::<$I>(), array.buffer::<$D>().as_slice());
-                    DecimalArray::new(buffer, array.decimal_dtype(), array.validity().clone())
-                })
+        let decimal = match_each_decimal_value_type!(array.values_type(), |D| {
+            match_each_integer_ptype!(indices.ptype(), |I| {
+                let buffer =
+                    take_to_buffer::<I, D>(indices.as_slice::<I>(), array.buffer::<D>().as_slice());
+                DecimalArray::new(buffer, array.decimal_dtype(), array.validity().clone())
+            })
         });
 
         Ok(decimal.to_array())
