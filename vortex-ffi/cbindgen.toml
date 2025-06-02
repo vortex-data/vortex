@@ -1,4 +1,8 @@
 language = "C"
+pragma_once = true
+cpp_compat = true
+usize_is_size_t = true
+style = "type"
 
 header = """
 //
@@ -19,20 +23,10 @@ header = """
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-"""
-
-trailer = """
-#ifdef __cplusplus
-}
-#endif
 """
 
 [export.rename]
-"DType" = "vx_dtype"
+"f16" = "uint16_t"
 
 [defines]
 "feature = duckdb" = "ENABLE_DUCKDB_FFI"
@@ -41,3 +35,6 @@ trailer = """
 parse_deps = true
 include = ["vortex", "vortex-dtype"]
 
+[parse.expand]
+crates = ["vortex-ffi"]
+features = ["duckdb"]

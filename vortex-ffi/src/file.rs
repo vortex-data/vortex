@@ -13,7 +13,6 @@ use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
-use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, Identity, deserialize_expr, select};
 use vortex::file::scan::SplitBy;
@@ -21,19 +20,23 @@ use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 
-use crate::array::{vx_array, vx_array_iterator};
+use crate::array::vx_array;
+use crate::array_iterator::vx_array_iterator;
+use crate::dtype::vx_dtype;
 use crate::error::{try_or, vx_error};
 use crate::session::{FileKey, vx_session};
-use crate::{RUNTIME, to_string, to_string_vec};
+use crate::{RUNTIME, arc_wrapper, to_string, to_string_vec};
 
-/// A file reader that can be used to read from a file.
-#[allow(non_camel_case_types)]
-pub struct vx_file_reader {
-    pub inner: VortexFile,
-}
+arc_wrapper!(
+    /// A handle to a Vortex file encapsulating ther footer and logic for instantiating a reader.
+    VortexFile,
+    vx_file
+);
 
 /// Options supplied for opening a file.
 #[repr(C)]
+#[allow(non_camel_case_types)]
+// FIXME(ngates): we cannot have transparent structs in FFI since we cannot break them.
 pub struct vx_file_open_options {
     /// URI for opening the file.
     /// This must be a valid URI, even for files (file:///path/to/file)
@@ -49,6 +52,8 @@ pub struct vx_file_open_options {
 
 /// Scan options provided by an FFI client calling the `vx_file_scan` function.
 #[repr(C)]
+#[allow(non_camel_case_types)]
+// FIXME(ngates): we cannot have transparent structs in FFI since we cannot break them.
 pub struct vx_file_scan_options {
     /// Column names to project out in the scan. These must be null-terminated C strings.
     pub projection: *const *const c_char,
@@ -124,9 +129,11 @@ impl vx_file_scan_options {
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_open_reader(
     options: *const vx_file_open_options,
-    session: *mut vx_session,
+    session: *const vx_session,
     error: *mut *mut vx_error,
-) -> *mut vx_file_reader {
+) -> *const vx_file {
+    let session = vx_session::as_ref(session);
+
     try_or(error, ptr::null_mut(), || {
         let options = unsafe {
             options
@@ -145,51 +152,46 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
-        let file = VortexOpenOptions::file();
-        let (file, cache_hit) = if let Some(footer) = unsafe { session.as_ref() }.and_then(|s| {
-            s.inner.get_footer(&FileKey {
-                location: uri_str.to_string(),
-            })
+        let mut file = VortexOpenOptions::file();
+        let mut cache_hit = false;
+        if let Some(footer) = session.get_footer(&FileKey {
+            location: uri_str.to_string(),
         }) {
-            (file.with_footer(footer), true)
-        } else {
-            (file, false)
-        };
+            file = file.with_footer(footer);
+            cache_hit = true;
+        }
 
-        let inner = RUNTIME
+        let vxf = RUNTIME
             .block_on(async move { file.open_object_store(&object_store, uri.path()).await })?;
 
         if !cache_hit {
-            let _ = unsafe { session.as_ref() }.is_some_and(|s| {
-                s.inner.put_footer(
-                    FileKey {
-                        location: uri_str.to_string(),
-                    },
-                    inner.footer().clone(),
-                );
-                true
-            });
+            session.put_footer(
+                FileKey {
+                    location: uri_str.to_string(),
+                },
+                vxf.footer().clone(),
+            );
         }
 
-        Ok(Box::into_raw(Box::new(vx_file_reader { inner })))
+        Ok(vx_file::new(Arc::new(vxf)))
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_file_write_array(
     path: *const c_char,
-    ffi_array: *mut vx_array,
+    array: *const vx_array,
     error: *mut *mut vx_error,
 ) {
+    let array = vx_array::as_ref(array);
     try_or(error, (), || {
-        let array = unsafe { ffi_array.as_ref().vortex_expect("null array") };
         let path = unsafe { CStr::from_ptr(path).to_str()? };
 
         RUNTIME.block_on(async {
             VortexWriteOptions::default()
                 .write(
                     &mut tokio::fs::File::create(path).await?,
-                    array.inner.to_array_stream(),
+                    array.to_array_stream(),
                 )
                 .await?;
             Ok(())
@@ -197,29 +199,9 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
     });
 }
 
-/// Whole file statistics.
-#[repr(C)]
-pub struct vx_file_statistics {
-    /// The exact number of rows in the file.
-    pub num_rows: u64,
-}
-
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_extract_statistics(
-    file: *mut vx_file_reader,
-) -> *mut vx_file_statistics {
-    Box::into_raw(Box::new(vx_file_statistics {
-        num_rows: unsafe { file.as_ref() }
-            .vortex_expect("null file ptr")
-            .inner
-            .row_count(),
-    }))
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_statistics_free(stat: *mut vx_file_statistics) {
-    assert!(!stat.is_null());
-    drop(unsafe { Box::from_raw(stat) });
+pub unsafe extern "C-unwind" fn vx_file_row_count(file: *const vx_file) -> u64 {
+    vx_file::as_ref(file).row_count()
 }
 
 #[derive(Default)]
@@ -230,32 +212,25 @@ struct ScanOptions {
     row_range: Option<std::ops::Range<u64>>,
 }
 
-/// Get the DType of the data inside of the file.
+/// Return a borrowed reference to the DType of the file.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file_reader) -> *mut DType {
-    Box::into_raw(Box::new(
-        unsafe { file.as_ref() }
-            .vortex_expect("null file")
-            .inner
-            .dtype()
-            .clone(),
-    ))
+pub unsafe extern "C-unwind" fn vx_file_dtype(file: *const vx_file) -> *const vx_dtype {
+    vx_dtype::new_ref(vx_file::as_ref(file).dtype())
 }
 
 /// Can we prune the whole file using file stats and an expression
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_reader_can_prune(
-    file_reader: *const vx_file_reader,
+pub unsafe extern "C-unwind" fn vx_file_can_prune(
+    file: *const vx_file,
     filter_expression: *const c_char,
     filter_expression_len: c_uint,
     error: *mut *mut vx_error,
 ) -> bool {
     try_or(error, false, || {
-        let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file reader") };
-
+        let file = vx_file::as_ref(file);
         let filter_expr = extract_filter_expression(filter_expression, filter_expression_len)?;
         Ok(filter_expr
-            .map(|expr| file_reader.inner.can_prune(&expr))
+            .map(|expr| file.can_prune(&expr))
             .transpose()?
             .unwrap_or(false))
     })
@@ -263,20 +238,20 @@ pub unsafe extern "C-unwind" fn vx_file_reader_can_prune(
 
 /// Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_reader_scan(
-    file_reader: *const vx_file_reader,
+pub unsafe extern "C-unwind" fn vx_file_scan(
+    file: *const vx_file,
     opts: *const vx_file_scan_options,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_iterator {
     try_or(error, ptr::null_mut(), || {
-        let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file reader") };
+        let file = vx_file::as_ref(file);
 
         let scan_options = unsafe { opts.as_ref() }.map_or_else(
             || Ok(ScanOptions::default()),
             |options| options.process_scan_options(),
         )?;
 
-        let layout_reader = file_reader.inner.layout_reader()?;
+        let layout_reader = file.layout_reader()?;
         let mut scan_builder = ScanBuilder::new(layout_reader.clone());
 
         // Apply options if provided.
@@ -297,31 +272,10 @@ pub unsafe extern "C-unwind" fn vx_file_reader_scan(
             scan_builder = scan_builder.with_split_by(split_by_value);
         }
 
-        Ok(Box::into_raw(Box::new(vx_array_iterator {
-            inner: Some(Box::new(scan_builder.into_array_iter()?)),
-        })))
+        Ok(vx_array_iterator::new(Box::new(
+            scan_builder.into_array_iter()?,
+        )))
     })
-}
-
-/// Returns the row count for a given file reader.
-#[unsafe(no_mangle)]
-pub extern "C-unwind" fn vx_file_row_count(
-    file_reader: *mut vx_file_reader,
-    error: *mut *mut vx_error,
-) -> u64 {
-    try_or(error, 0, || {
-        let file_reader = unsafe { file_reader.as_ref().vortex_expect("null file_reader") };
-        Ok(file_reader.inner.row_count())
-    })
-}
-
-/// Free the file and all associated resources.
-///
-/// This function will not automatically free any :c:func:`vx_array_iterator` that were built from
-/// this file.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_file_reader_free(file: *mut vx_file_reader) {
-    drop(unsafe { Box::from_raw(file) });
 }
 
 fn make_object_store(

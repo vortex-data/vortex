@@ -222,9 +222,9 @@ impl DType {
     }
 
     /// Get the inner dtype if `self` is a `ListDType`, otherwise `None`
-    pub fn as_list_element(&self) -> Option<&DType> {
+    pub fn as_list_element(&self) -> Option<&Arc<DType>> {
         match self {
-            List(s, _) => Some(s.as_ref()),
+            List(s, _) => Some(s),
             _ => None,
         }
     }

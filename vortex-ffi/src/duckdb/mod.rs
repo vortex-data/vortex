@@ -9,21 +9,21 @@ use duckdb::ffi::{duckdb_data_chunk, duckdb_logical_type};
 use itertools::Itertools;
 use vortex::ArrayRef;
 use vortex::dtype::{DType, Nullability, StructDType};
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::error::{VortexResult, vortex_err};
 use vortex_duckdb::{FromDuckDB, FromDuckDBType, NamedDataChunk, ToDuckDBType};
 
 use crate::array::vx_array;
+use crate::dtype::vx_dtype;
 use crate::error::{try_or, vx_error};
 use crate::to_string;
 
 /// Converts a DType into a duckdb
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_to_duckdb_logical_type(
-    dtype: *mut DType,
+    dtype: *const vx_dtype,
     error: *mut *mut vx_error,
 ) -> duckdb_logical_type {
-    let dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
-
+    let dtype = vx_dtype::as_ref(dtype);
     try_or(error, ptr::null_mut(), || {
         Ok(dtype.to_duckdb_type()?.into_owning_ptr())
     })
@@ -37,7 +37,7 @@ pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
     column_names: *const *const c_char,
     column_count: c_int,
     error: *mut *mut vx_error,
-) -> *mut DType {
+) -> *const vx_dtype {
     try_or(error, ptr::null_mut(), || {
         let field_names: Vec<Arc<str>> = (0..column_count)
             .map(|idx| unsafe { to_string(*column_names.offset(idx as isize)) })
@@ -55,12 +55,12 @@ pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
             .collect::<VortexResult<Vec<DType>>>()?;
 
         // Top level structs cannot be nullable sql/duckdb.
-        let dtype = Box::new(DType::Struct(
+        let dtype = DType::Struct(
             Arc::new(StructDType::new(field_names.into(), types)),
             Nullability::NonNullable,
-        ));
+        );
 
-        Ok(Box::into_raw(dtype))
+        Ok(vx_dtype::new(Arc::new(dtype)))
     })
 }
 
@@ -68,10 +68,10 @@ pub unsafe extern "C-unwind" fn vx_duckdb_logical_type_to_dtype(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_duckdb_chunk_to_array(
     chunk: duckdb_data_chunk,
-    dtype: *mut DType,
+    dtype: *const vx_dtype,
     error: *mut *mut vx_error,
-) -> *mut vx_array {
-    let dtype = unsafe { dtype.as_ref().vortex_expect("null array") };
+) -> *const vx_array {
+    let dtype = vx_dtype::as_ref(dtype);
     try_or(error, ptr::null_mut(), || {
         let struct_type = dtype.as_struct().ok_or_else(|| {
             vortex_err!("cannot push a duckdb to an array stream which is not a top level struct")
@@ -88,6 +88,6 @@ pub unsafe extern "C-unwind" fn vx_duckdb_chunk_to_array(
             names: Some(struct_type.names().clone()),
         })?;
 
-        Ok(Box::into_raw(Box::new(vx_array { inner: array })))
+        Ok(vx_array::new(array))
     })
 }

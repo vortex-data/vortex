@@ -116,7 +116,7 @@ fn has_nullable_struct(dtype: &DType) -> bool {
             .unwrap_or(false)
         || dtype
             .as_list_element()
-            .map(has_nullable_struct)
+            .map(|e| has_nullable_struct(e.as_ref()))
             .unwrap_or(false)
 }
 
