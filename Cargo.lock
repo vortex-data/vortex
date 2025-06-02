@@ -5977,7 +5977,6 @@ dependencies = [
  "vortex-file",
  "vortex-flatbuffers",
  "vortex-fsst",
- "vortex-io",
  "vortex-ipc",
  "vortex-layout",
  "vortex-mask",

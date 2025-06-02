@@ -19,7 +19,6 @@ use vortex::TryIntoArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::file::VortexWriteOptions;
-use vortex::io::{ObjectStoreWriter, VortexWrite};
 use vortex::stream::ArrayStreamAdapter;
 
 pub struct VortexSink {
@@ -95,12 +94,6 @@ impl FileSink for VortexSink {
         // 1. We only write only file at a time
         // 2. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
         while let Some((path, rx)) = file_stream_rx.recv().await {
-            let writer = ObjectStoreWriter::new(object_store.clone(), path)
-                .await
-                .map_err(|e| {
-                    DataFusionError::Execution(format!("Failed to create ObjectStoreWriter: {e}"))
-                })?;
-
             let row_counter = row_counter.clone();
             let stream = ReceiverStream::new(rx).map(move |rb| {
                 row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
@@ -109,14 +102,12 @@ impl FileSink for VortexSink {
             let dtype = DType::from_arrow(self.config.output_schema.as_ref());
             let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
 
-            let mut writer = VortexWriteOptions::default()
-                .write(writer, stream_adapter)
+            VortexWriteOptions::default()
+                .write_object_store(&object_store, path.as_ref(), stream_adapter)
                 .await
                 .map_err(|e| {
                     DataFusionError::Execution(format!("Failed to write Vortex file: {e}"))
                 })?;
-
-            writer.shutdown().await?;
         }
 
         demux_task
