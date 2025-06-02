@@ -20,7 +20,7 @@ workspace = true
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
-vortex-buffer = { workspace = true, features = ["memmap2"] }
+vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
@@ -53,6 +53,7 @@ vortex = { path = ".", features = ["parquet", "tokio"] }
 [features]
 default = ["files"]
 files = ["dep:vortex-file"]
+memmap2 = ["vortex-buffer/memmap2"]
 object_store = ["vortex-file/object_store"]
 parquet = ["vortex-error/parquet"]
 python = ["vortex-error/python"]
