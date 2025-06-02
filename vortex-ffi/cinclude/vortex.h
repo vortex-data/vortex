@@ -621,6 +621,9 @@ bool vx_duckdb_exporter_next(vx_duckdb_exporter *exporter,
  */
 const vx_string *vx_error_get_message(const vx_error *error);
 
+/**
+ * Free an owned [`vx_error`] object.
+ */
 void vx_error_free(const vx_error *error);
 
 /**

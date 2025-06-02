@@ -1,8 +1,10 @@
 import doctest
 import re
 from pathlib import Path
-
+from sphinx.util import logging
 import hawkmoth.docstring
+
+log = logging.getLogger("vortex.docs.conf")
 
 # Configuration file for the Sphinx documentation builder.
 #
@@ -105,12 +107,18 @@ nitpick_ignore += [
 
 hawkmoth_transform_default = "c_to_rust"
 
+# Track the hawkmoth references so we can warn if they are not all registered!
+C_DOCS: set[str] | None = None
 
 def _replace_rust_references(app, lines, transform, options):
     """Replace Rust references with C equivalents in hawkmoth docstrings.
 
     See: https://hawkmoth.readthedocs.io/en/stable/extending.html#event-hawkmoth-process-docstring
     """
+    if transform != "c_to_rust":
+        # Not for us!
+        return
+
     import sys
 
     # This is one of my finest hacks...
@@ -118,9 +126,21 @@ def _replace_rust_references(app, lines, transform, options):
     stack_frame = sys._getframe(6)
     docs: hawkmoth.docstring.RootDocstring = stack_frame.f_locals["root"]
 
-    if transform != "c_to_rust":
-        # Not for us!
-        return
+    global C_DOCS
+    if C_DOCS is None:
+        C_DOCS = set(d._name for d in docs.walk(
+            recurse=False, # Ignore e.g. enum members
+            filter_types=(
+                hawkmoth.docstring.FunctionDocstring,
+                hawkmoth.docstring.EnumDocstring,
+                hawkmoth.docstring.UnionDocstring,
+                hawkmoth.docstring.StructDocstring,
+            )
+        ))
+
+    # Remove the current docstring from the set of C docs
+    slf = stack_frame.f_locals["self"]
+    C_DOCS.discard(slf.arguments[0])
 
     # Pattern to match [`crate::path::to::function`]
     pattern = r"\[`([^:]+::)*?(vx_[^`]+)`\]"
@@ -154,5 +174,14 @@ def _replace_rust_references(app, lines, transform, options):
         lines[i] = re.sub(pattern, replace_match, line)
 
 
+def _post_process(app, builder):
+    """Post-process the documentation after writing."""
+    global C_DOCS
+    if C_DOCS:
+        log.warning("Some C references were not found: %s", ', '.join(sorted(C_DOCS)))
+        C_DOCS = None  # Reset for next build
+
+
 def setup(app):
     app.connect("hawkmoth-process-docstring", _replace_rust_references)
+    app.connect("write-started", _post_process)

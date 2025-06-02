@@ -8,9 +8,9 @@ use vortex::layout::segments::SegmentId;
 use vortex::scalar::ScalarValue;
 use vortex::stats::{Precision, Stat};
 
-use crate::arc_wrapper;
+use crate::box_wrapper;
 
-arc_wrapper!(
+box_wrapper!(
     /// A Vortex session stores registries of extensible types, various caches, and other
     /// top-level configuration.
     ///
@@ -27,7 +27,7 @@ arc_wrapper!(
 /// The caller is responsible for freeing the session with [`vx_session_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_session_new() -> *const vx_session {
-    vx_session::new(Arc::new(VortexSession::new()))
+    vx_session::new(Box::new(VortexSession::new()))
 }
 
 pub struct VortexSession {

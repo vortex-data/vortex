@@ -36,6 +36,7 @@ pub unsafe extern "C-unwind" fn vx_error_get_message(error: *const vx_error) -> 
     error.cast()
 }
 
+/// Free an owned [`vx_error`] object.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_error_free(error: *const vx_error) {
     unsafe { vx_string_free(error.cast::<vx_string>()) };
