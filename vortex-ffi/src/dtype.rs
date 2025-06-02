@@ -6,8 +6,8 @@ use vortex::dtype::{DType, DecimalDType};
 use vortex::error::{VortexExpect, VortexUnwrap, vortex_panic};
 
 use crate::arc_wrapper;
-use crate::struct_fields::vx_struct_fields;
 use crate::ptype::vx_ptype;
+use crate::struct_fields::vx_struct_fields;
 
 arc_wrapper!(
     /// A Vortex data type.
@@ -265,13 +265,13 @@ mod tests {
         vx_dtype, vx_dtype_free, vx_dtype_get_variant, vx_dtype_new_bool, vx_dtype_new_primitive,
         vx_dtype_new_utf8, vx_dtype_variant,
     };
+    use crate::ptype::vx_ptype;
+    use crate::string::vx_string;
     use crate::struct_fields::{
         vx_struct_fields_builder_add_field, vx_struct_fields_builder_finalize,
         vx_struct_fields_builder_new, vx_struct_fields_field_dtype, vx_struct_fields_field_name,
         vx_struct_fields_free, vx_struct_fields_nfields,
     };
-    use crate::ptype::vx_ptype;
-    use crate::string::vx_string;
 
     #[test]
     fn test_simple() {
