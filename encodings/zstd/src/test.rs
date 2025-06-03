@@ -1,6 +1,6 @@
+use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_array::{IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 
 use crate::ZstdArray;
@@ -18,11 +18,10 @@ fn test_zstd_compress_decompress() {
         data.iter().cloned().collect::<Buffer<_>>(),
         Validity::NonNullable,
     );
-    let array_ref = array.into_array();
 
-    let compressed = ZstdArray::try_from_array_with_level(array_ref.clone(), 3).unwrap();
+    let compressed = ZstdArray::from_primitive(&array, 3).unwrap();
     // this data should be compressible
-    assert!(compressed.compressed_data().len() < array_ref.nbytes());
+    assert!(compressed.compressed_data().len() < array.nbytes());
 
     // check slicing works
     let slice = compressed.slice(100, 110).unwrap();

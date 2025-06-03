@@ -1,5 +1,5 @@
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable::{SerdeVTable, VisitorVTable};
+use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -49,6 +49,18 @@ impl SerdeVTable<ZstdVTable> for ZstdVTable {
             dtype.clone(),
             metadata.uncompressed_len as usize,
         ))
+    }
+}
+
+impl EncodeVTable<ZstdVTable> for ZstdVTable {
+    fn encode(
+        _encoding: &<ZstdVTable as vortex_array::vtable::VTable>::Encoding,
+        canonical: &vortex_array::Canonical,
+        _like: Option<&ZstdArray>,
+    ) -> VortexResult<Option<ZstdArray>> {
+        let parray = canonical.clone().into_primitive()?;
+
+        Ok(Some(ZstdArray::from_primitive(&parray, 3)?))
     }
 }
 

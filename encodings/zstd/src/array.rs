@@ -25,7 +25,7 @@ impl VTable for ZstdVTable {
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
+    type EncodeVTable = Self;
     type SerdeVTable = Self;
 
     fn id(_encoding: &Self::Encoding) -> EncodingId {
@@ -63,18 +63,22 @@ impl ZstdArray {
         }
     }
 
-    pub fn try_from_array_with_level(array: ArrayRef, level: i32) -> VortexResult<Self> {
+    pub fn from_primitive(parray: &PrimitiveArray, level: i32) -> VortexResult<Self> {
+        let buffer = parray.byte_buffer();
+
+        let compressed = zstd::bulk::compress(buffer.inner(), level)
+            .map_err(|e| vortex_err!("Failed to compress array with zstd: {}", e))?;
+
+        let compressed_buffer = ByteBuffer::from(compressed);
+        let dtype = parray.dtype().clone();
+        let uncompressed_len = parray.nbytes();
+
+        Ok(ZstdArray::new(compressed_buffer, dtype, uncompressed_len))
+    }
+
+    pub fn try_from_array(array: ArrayRef, level: i32) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            let buffer = parray.byte_buffer();
-
-            let compressed = zstd::bulk::compress(buffer.inner(), level)
-                .map_err(|e| vortex_err!("Failed to compress array with zstd: {}", e))?;
-
-            let compressed_buffer = ByteBuffer::from(compressed);
-            let dtype = parray.dtype().clone();
-            let uncompressed_len = parray.nbytes();
-
-            Ok(ZstdArray::new(compressed_buffer, dtype, uncompressed_len))
+            Self::from_primitive(parray, level)
         } else {
             Err(vortex_err!("Zstd can only encode primitive arrays"))
         }
