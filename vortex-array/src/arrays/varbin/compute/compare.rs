@@ -143,6 +143,10 @@ mod test {
         .unwrap();
 
         assert_eq!(
+            &result.validity_mask().unwrap().to_boolean_buffer(),
+            &BooleanBuffer::from_iter([true, false, true])
+        );
+        assert_eq!(
             result.boolean_buffer(),
             &BooleanBuffer::from_iter([true, false, false])
         );
@@ -163,6 +167,10 @@ mod test {
             .to_bool()
             .unwrap();
 
+        assert_eq!(
+            &result.validity_mask().unwrap().to_boolean_buffer(),
+            &BooleanBuffer::from_iter([false, false, true])
+        );
         assert_eq!(
             result.boolean_buffer(),
             &BooleanBuffer::from_iter([false, true, true])
