@@ -5987,6 +5987,7 @@ dependencies = [
  "vortex-sequence",
  "vortex-sparse",
  "vortex-zigzag",
+ "vortex-zstd",
 ]
 
 [[package]]
@@ -6641,6 +6642,20 @@ dependencies = [
  "vortex-mask",
  "vortex-scalar",
  "zigzag",
+]
+
+[[package]]
+name = "vortex-zstd"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dict",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-scalar",
+ "zstd",
 ]
 
 [[package]]

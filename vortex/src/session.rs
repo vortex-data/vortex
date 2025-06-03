@@ -14,6 +14,7 @@ use vortex_runend::RunEndEncoding;
 use vortex_sequence::SequenceEncoding;
 use vortex_sparse::SparseEncoding;
 use vortex_zigzag::ZigZagEncoding;
+use vortex_zstd::ZstdEncoding;
 
 /// A Vortex session encapsulates the set of extensible arrays, layouts, compute functions, dtypes,
 /// etc. that are available for use in a given context.
@@ -45,6 +46,7 @@ impl Default for VortexSession {
             EncodingRef::new_ref(SequenceEncoding.as_ref()),
             EncodingRef::new_ref(SparseEncoding.as_ref()),
             EncodingRef::new_ref(ZigZagEncoding.as_ref()),
+            EncodingRef::new_ref(ZstdEncoding.as_ref()),
         ]);
 
         // Register the layout encodings that Vortex ships with.

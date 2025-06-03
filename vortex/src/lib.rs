@@ -19,6 +19,7 @@ pub mod encodings {
         vortex_decimal_byte_parts as decimal_byte_parts, vortex_dict as dict,
         vortex_fastlanes as fastlanes, vortex_fsst as fsst, vortex_runend as runend,
         vortex_sequence as sequence, vortex_sparse as sparse, vortex_zigzag as zigzag,
+        vortex_zstd as zstd,
     };
 }
 

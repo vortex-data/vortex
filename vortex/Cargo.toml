@@ -42,6 +42,7 @@ vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-zigzag = { workspace = true }
+vortex-zstd = { workspace = true }
 
 [dev-dependencies]
 arrow = { workspace = true }
