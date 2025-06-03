@@ -129,18 +129,19 @@ impl LayoutStrategy for FlatLayoutStrategy {
 mod tests {
     use std::sync::Arc;
 
+    use arrow_buffer::BooleanBufferBuilder;
     use futures::executor::block_on;
     use futures::stream;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_array::stats::{Precision, Stat};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayContext, ArrayRef};
+    use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
     use vortex_expr::ident;
-    use vortex_mask::Mask;
+    use vortex_mask::{AllOr, Mask};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
@@ -234,6 +235,49 @@ mod tests {
                 Some(Precision::Inexact(
                     "Long value to test that the statistics are actually truncated, j".to_string()
                 ))
+            );
+        })
+    }
+
+    #[test]
+    fn struct_array_round_trip() {
+        block_on(async {
+            let ctx = ArrayContext::empty();
+            let segments = TestSegments::default();
+            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+
+            let mut validity_builder = BooleanBufferBuilder::new(2);
+            validity_builder.append(true);
+            validity_builder.append(false);
+            let validity_boolean_buffer = validity_builder.finish();
+            let validity = Validity::Array(
+                BoolArray::new(validity_boolean_buffer.clone(), Validity::NonNullable).into_array(),
+            );
+            let array = StructArray::try_new(
+                FieldNames::from([FieldName::from("a"), FieldName::from("b")]),
+                vec![buffer![1, 2].into_array(), buffer![1, 2].into_array()],
+                2,
+                validity,
+            )
+            .unwrap();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
+                .await
+                .unwrap();
+            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
+
+            let result: ArrayRef = layout
+                .new_reader(&"".into(), &segments, &ctx)
+                .unwrap()
+                .projection_evaluation(&(0..layout.row_count()), &ident())
+                .unwrap()
+                .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
+                .await
+                .unwrap();
+
+            assert_eq!(
+                result.validity_mask().unwrap().boolean_buffer(),
+                AllOr::Some(&validity_boolean_buffer)
             );
         })
     }
