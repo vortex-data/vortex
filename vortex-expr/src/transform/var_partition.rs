@@ -17,7 +17,7 @@ static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
     LazyLock::new(DefaultHashBuilder::default);
 
 /// Partition an expression over the variables.
-pub fn partition_var(expr: ExprRef) -> VortexResult<VarPartitionedExpr> {
+pub fn var_partitions(expr: ExprRef) -> VortexResult<VarPartitionedExpr> {
     VariableExpressionSplitter::split(expr)
 }
 

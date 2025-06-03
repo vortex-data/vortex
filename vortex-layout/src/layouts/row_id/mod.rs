@@ -5,9 +5,9 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::VortexResult;
-use vortex_expr::ExprRef;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
+use vortex_expr::{ExactExpr, ExprRef};
 
 use crate::layouts::struct_::StructLayout;
 use crate::{
@@ -15,15 +15,8 @@ use crate::{
     MaskEvaluation, PruningEvaluation,
 };
 
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct RowIdLayout {
-    row_count: u64,
-    child: LayoutReaderRef,
-}
-
 pub struct RowIdLayoutReader {
-    layout: RowIdLayout,
+    child: LayoutReaderRef,
     name: Arc<str>,
     partitioned_expr_cache: DashMap<ExactExpr, Arc<PartitionedExpr>>,
 }
@@ -36,7 +29,7 @@ impl RowIdLayoutReader {
             .or_insert_with(|| {
                 // Partition the expression into expressions that can be evaluated over individual fields
                 Arc::new(
-                    partition(expr, self.dtype()).vortex_expect(
+                    var_partition(expr, self.dtype()).vortex_expect(
                         "We should not fail to partition expression over struct fields",
                     ),
                 )
@@ -51,11 +44,11 @@ impl LayoutReader for RowIdLayoutReader {
     }
 
     fn dtype(&self) -> &DType {
-        self.layout.child.dtype()
+        self.child.dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {
-        Precision::Exact(self.layout.row_count)
+        self.child.row_count()
     }
 
     fn register_splits(
@@ -64,9 +57,7 @@ impl LayoutReader for RowIdLayoutReader {
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        self.layout
-            .child
-            .register_splits(field_mask, row_offset, splits)
+        self.child.register_splits(field_mask, row_offset, splits)
     }
 
     fn pruning_evaluation(
@@ -74,7 +65,7 @@ impl LayoutReader for RowIdLayoutReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
-        todo!()
+        let 
     }
 
     fn filter_evaluation(
