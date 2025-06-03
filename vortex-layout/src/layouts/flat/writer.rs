@@ -136,7 +136,7 @@ mod tests {
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_array::stats::{Precision, Stat};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
+    use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
     use vortex_error::VortexUnwrap;
@@ -242,10 +242,6 @@ mod tests {
     #[test]
     fn struct_array_round_trip() {
         block_on(async {
-            let ctx = ArrayContext::empty();
-            let segments = TestSegments::default();
-            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
-
             let mut validity_builder = BooleanBufferBuilder::new(2);
             validity_builder.append(true);
             validity_builder.append(false);
@@ -255,17 +251,30 @@ mod tests {
             );
             let array = StructArray::try_new(
                 FieldNames::from([FieldName::from("a"), FieldName::from("b")]),
-                vec![buffer![1, 2].into_array(), buffer![1, 2].into_array()],
+                vec![
+                    buffer![1_u64, 2].into_array(),
+                    buffer![3_u64, 4].into_array(),
+                ],
                 2,
                 validity,
             )
             .unwrap();
-            let layout = FlatLayoutStrategy::default()
-                .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
-                .await
-                .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
+            let ctx = ArrayContext::empty();
+
+            // Write the array into a byte buffer.
+            let (layout, segments) = {
+                let segments = TestSegments::default();
+                let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+                let layout = FlatLayoutStrategy::default()
+                    .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
+                    .await
+                    .unwrap();
+
+                (layout, Arc::new(segments) as Arc<dyn SegmentSource>)
+            };
+
+            // We should be able to read the array we just wrote.
             let result: ArrayRef = layout
                 .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
@@ -278,6 +287,28 @@ mod tests {
             assert_eq!(
                 result.validity_mask().unwrap().boolean_buffer(),
                 AllOr::Some(&validity_boolean_buffer)
+            );
+            assert_eq!(
+                result
+                    .to_struct()
+                    .unwrap()
+                    .field_by_name("a")
+                    .unwrap()
+                    .to_primitive()
+                    .unwrap()
+                    .as_slice::<u64>(),
+                &[1, 2]
+            );
+            assert_eq!(
+                result
+                    .to_struct()
+                    .unwrap()
+                    .field_by_name("b")
+                    .unwrap()
+                    .to_primitive()
+                    .unwrap()
+                    .as_slice::<u64>(),
+                &[3, 4]
             );
         })
     }
