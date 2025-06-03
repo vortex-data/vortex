@@ -4,7 +4,7 @@ use arbitrary::{Arbitrary, Result, Unstructured};
 
 use crate::{
     DECIMAL256_MAX_PRECISION, DECIMAL256_MAX_SCALE, DType, DecimalDType, FieldName, FieldNames,
-    Nullability, PType, StructDType,
+    Nullability, PType, StructFields,
 };
 
 impl<'a> Arbitrary<'a> for DType {
@@ -81,13 +81,13 @@ impl<'a> Arbitrary<'a> for DecimalDType {
     }
 }
 
-impl<'a> Arbitrary<'a> for StructDType {
+impl<'a> Arbitrary<'a> for StructFields {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         random_struct_dtype(u, 1)
     }
 }
 
-fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructDType> {
+fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructFields> {
     let field_count = u.choose_index(3)?;
     let names: FieldNames = (0..field_count)
         .map(|_| FieldName::arbitrary(u))
@@ -95,5 +95,5 @@ fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructDTyp
     let dtypes = (0..names.len())
         .map(|_| random_dtype(u, depth))
         .collect::<Result<Vec<_>>>()?;
-    Ok(StructDType::new(names, dtypes))
+    Ok(StructFields::new(names, dtypes))
 }

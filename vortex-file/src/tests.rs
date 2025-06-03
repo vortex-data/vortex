@@ -16,7 +16,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dtype::PType::I32;
-use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructDType};
+use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
 use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
 
@@ -229,7 +229,7 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            Arc::new(StructDType::new(
+            Arc::new(StructFields::new(
                 vec!["strings".into()].into(),
                 vec![strings_dtype.clone()]
             )),
@@ -260,7 +260,7 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            Arc::new(StructDType::new(
+            Arc::new(StructFields::new(
                 vec!["numbers".into()].into(),
                 vec![numbers_dtype.clone()]
             )),

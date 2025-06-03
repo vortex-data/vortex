@@ -11,7 +11,7 @@
 namespace vortex {
 
 struct DType {
-	explicit DType(vx_dtype *dtype) : dtype(dtype) {
+	explicit DType(const vx_dtype *dtype) : dtype(dtype) {
 	}
 
 	static duckdb::unique_ptr<DType> FromDuckDBTable(const std::vector<duckdb_logical_type> &column_types,
@@ -34,57 +34,46 @@ struct DType {
 		}
 	}
 
-	vx_dtype *dtype;
+	const vx_dtype *dtype;
 };
 
-struct ConversionCache {
-	explicit ConversionCache(const unsigned long cache_id) : cache(vx_conversion_cache_create(cache_id)) {
+struct VortexFile {
+	explicit VortexFile(const vx_file *file) : file(file) {
 	}
 
-	~ConversionCache() {
-		vx_conversion_cache_free(cache);
+	~VortexFile() {
+		vx_file_free(file);
 	}
 
-	vx_conversion_cache *cache;
-};
-
-struct FileReader {
-	explicit FileReader(vx_file_reader *file) : file(file) {
-	}
-
-	~FileReader() {
-		vx_file_reader_free(file);
-	}
-
-	static duckdb::unique_ptr<FileReader> Open(const vx_file_open_options *options, VortexSession &session) {
+	static duckdb::unique_ptr<VortexFile> Open(const vx_file_open_options *options, VortexSession &session) {
 		auto file = Try([&](auto err) { return vx_file_open_reader(options, session.session, err); });
-		return duckdb::make_uniq<FileReader>(file);
+		return duckdb::make_uniq<VortexFile>(file);
 	}
 
 	vx_array_iterator *Scan(const vx_file_scan_options *options) {
-		return Try([&](auto err) { return vx_file_reader_scan(this->file, options, err); });
+		return Try([&](auto err) { return vx_file_scan(this->file, options, err); });
 	}
 
 	bool CanPrune(const char *filter_expression, unsigned int filter_expression_len) {
 		return Try([&](auto err) {
-			return vx_file_reader_can_prune(this->file, filter_expression, filter_expression_len, err);
+			return vx_file_can_prune(this->file, filter_expression, filter_expression_len, err);
 		});
 	}
 
-	uint64_t FileRowCount() {
-		return Try([&](auto err) { return vx_file_row_count(file, err); });
+	uint64_t RowCount() {
+		return vx_file_row_count(file);
 	}
 
 	struct DType DType() {
-		return vortex::DType(vx_file_dtype(file));
+		return vortex::DType(vx_dtype_clone(vx_file_dtype(file)));
 	}
 
-	vx_file_reader *file;
+	const vx_file *file;
 };
 
 
 struct Array {
-	explicit Array(vx_array *array) : array(array) {
+	explicit Array(const vx_array *array) : array(array) {
 	}
 
 	~Array() {
@@ -101,11 +90,7 @@ struct Array {
 		return duckdb::make_uniq<Array>(array);
 	}
 
-	idx_t ToDuckDBVector(idx_t current_row, duckdb_data_chunk output, const ConversionCache *cache) const {
-		return Try([&](auto err) { return vx_array_to_duckdb_chunk(array, current_row, output, cache->cache, err); });
-	}
-
-	vx_array *array;
+	const vx_array *array;
 };
 
 
@@ -125,12 +110,12 @@ struct ArrayIterator {
 
 	~ArrayIterator() {
 		if (array_iter) {
-			vx_array_iter_free(array_iter);
+			vx_array_iterator_free(array_iter);
 		}
 	}
 
 	duckdb::unique_ptr<Array> NextArray() const {
-		auto array = Try([&](auto err) { return vx_array_iter_next(array_iter, err); });
+		auto array = Try([&](auto err) { return vx_array_iterator_next(array_iter, err); });
 
 		if (array == nullptr) {
 			return nullptr;
@@ -154,9 +139,7 @@ struct ArrayExporter {
 	}
 
 	static duckdb::unique_ptr<ArrayExporter> FromArrayIterator(duckdb::unique_ptr<ArrayIterator> array_iter) {
-		auto exporter = Try([&](auto err) {
-			return vx_duckdb_exporter_create(array_iter->release(), err);
-		});
+		auto exporter = vx_duckdb_exporter_new(array_iter->release());
 		return duckdb::make_uniq<ArrayExporter>(exporter);
 	}
 

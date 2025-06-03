@@ -2,49 +2,50 @@ use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
-use arrow_schema::{Schema, SchemaRef};
 use async_trait::async_trait;
+use datafusion::arrow::datatypes::{Schema, SchemaRef};
 use datafusion::catalog::Session;
-use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
-use datafusion::datasource::file_format::{FileFormat, FileFormatFactory, FilePushdownSupport};
-use datafusion::datasource::physical_plan::{FileScanConfig, FileSinkConfig, FileSource};
-use datafusion_common::parsers::CompressionTypeVariant;
-use datafusion_common::stats::Precision;
-use datafusion_common::{
-    ColumnStatistics, DataFusionError, GetExt, Result as DFResult, ScalarValue, Statistics,
+use datafusion::common::parsers::CompressionTypeVariant;
+use datafusion::common::stats::Precision;
+use datafusion::common::{
+    ColumnStatistics, DataFusionError, GetExt, Result as DFResult, Statistics,
     config_datafusion_err, not_impl_err,
 };
-use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
-use datafusion_datasource::sink::DataSinkExec;
-use datafusion_datasource::source::DataSourceExec;
-use datafusion_expr::Expr;
-use datafusion_expr::dml::InsertOp;
-use datafusion_physical_expr::{LexRequirement, PhysicalExpr};
-use datafusion_physical_plan::ExecutionPlan;
+use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
+use datafusion::datasource::file_format::{FileFormat, FileFormatFactory, FilePushdownSupport};
+use datafusion::datasource::physical_plan::{
+    FileScanConfig, FileScanConfigBuilder, FileSinkConfig, FileSource,
+};
+use datafusion::datasource::sink::DataSinkExec;
+use datafusion::datasource::source::DataSourceExec;
+use datafusion::logical_expr::Expr;
+use datafusion::logical_expr::dml::InsertOp;
+use datafusion::physical_expr::{LexRequirement, PhysicalExpr};
+use datafusion::physical_plan::ExecutionPlan;
 use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
 use object_store::{ObjectMeta, ObjectStore};
-use vortex_array::stats::{Stat, StatsProviderExt, StatsSet};
-use vortex_array::{ArrayRegistry, stats};
-use vortex_dtype::DType;
-use vortex_dtype::arrow::FromArrowType;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_expr::datafusion::convert_expr_to_vortex;
-use vortex_expr::{VortexExpr, and};
-use vortex_file::{DEFAULT_REGISTRY, VORTEX_FILE_EXTENSION};
-use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
-use vortex_metrics::VortexMetrics;
+use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
+use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::expr::{ExprRef, VortexExpr, and};
+use vortex::file::VORTEX_FILE_EXTENSION;
+use vortex::metrics::VortexMetrics;
+use vortex::session::VortexSession;
+use vortex::stats;
+use vortex::stats::{Stat, StatsProviderExt, StatsSet};
 
 use super::cache::VortexFileCache;
 use super::sink::VortexSink;
 use super::source::VortexSource;
+use crate::convert::{TryFromDataFusion, TryToDataFusion};
 use crate::{PrecisionExt as _, can_be_pushed_down};
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 pub struct VortexFormat {
+    session: Arc<VortexSession>,
     file_cache: VortexFileCache,
     opts: VortexFormatOptions,
-    metrics: VortexMetrics,
 }
 
 impl Debug for VortexFormat {
@@ -58,7 +59,7 @@ impl Debug for VortexFormat {
 /// Options to configure the [`VortexFormat`].
 #[derive(Debug)]
 pub struct VortexFormatOptions {
-    /// The size of the in-memory [`vortex_file::Footer`] cache.
+    /// The size of the in-memory [`vortex::file::Footer`] cache.
     pub footer_cache_size_mb: usize,
     /// The size of the in-memory segment cache.
     pub segment_cache_size_mb: usize,
@@ -74,23 +75,9 @@ impl Default for VortexFormatOptions {
 }
 
 /// Minimal factory to create [`VortexFormat`] instances.
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct VortexFormatFactory {
-    array_registry: Arc<ArrayRegistry>,
-    layout_registry: Arc<LayoutRegistry>,
-    metrics: VortexMetrics,
-}
-
-impl VortexFormatFactory {
-    // Because FileFormatFactory has a default method
-    /// Create a new [`VortexFormatFactory`] with the default encoding context.
-    pub fn default_config() -> Self {
-        Self {
-            array_registry: DEFAULT_REGISTRY.clone(),
-            layout_registry: Arc::new(LayoutRegistry::default()),
-            metrics: VortexMetrics::default(),
-        }
-    }
+    session: Arc<VortexSession>,
 }
 
 impl GetExt for VortexFormatFactory {
@@ -112,11 +99,7 @@ impl FileFormatFactory for VortexFormatFactory {
             ));
         }
 
-        Ok(Arc::new(VortexFormat::new(
-            self.array_registry.clone(),
-            self.layout_registry.clone(),
-            self.metrics.clone(),
-        )))
+        Ok(Arc::new(VortexFormat::new(self.session.clone())))
     }
 
     fn default(&self) -> Arc<dyn FileFormat> {
@@ -130,32 +113,22 @@ impl FileFormatFactory for VortexFormatFactory {
 
 impl Default for VortexFormat {
     fn default() -> Self {
-        Self::new(
-            DEFAULT_REGISTRY.clone(),
-            Arc::new(LayoutRegistry::default()),
-            VortexMetrics::default(),
-        )
+        Self::new(Arc::new(VortexSession::default()))
     }
 }
 
 impl VortexFormat {
     /// Create a new instance of the [`VortexFormat`].
-    pub fn new(
-        array_registry: Arc<ArrayRegistry>,
-        layout_registry: Arc<LayoutRegistry>,
-        metrics: VortexMetrics,
-    ) -> Self {
+    pub fn new(session: Arc<VortexSession>) -> Self {
         let opts = VortexFormatOptions::default();
         Self {
+            session: session.clone(),
             file_cache: VortexFileCache::new(
                 opts.footer_cache_size_mb,
                 opts.segment_cache_size_mb,
-                array_registry,
-                layout_registry,
-                metrics.clone(),
+                session,
             ),
             opts,
-            metrics,
         }
     }
 
@@ -206,7 +179,8 @@ impl FileFormat for VortexFormat {
             })
             .buffer_unordered(state.config_options().execution.meta_fetch_concurrency)
             .try_collect::<Vec<_>>()
-            .await?;
+            .await
+            .map_err(|e| DataFusionError::Execution(format!("Failed to infer schema: {e}")))?;
 
         // Get consistent order of schemas for `Schema::try_merge`, as some filesystems don't have deterministic listing orders
         file_schemas.sort_by(|(l1, _), (l2, _)| l1.cmp(l2));
@@ -215,7 +189,8 @@ impl FileFormat for VortexFormat {
         Ok(Arc::new(Schema::try_merge(file_schemas)?))
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref())))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(location = object.location.as_ref()
+    )))]
     async fn infer_stats(
         &self,
         _state: &dyn Session,
@@ -227,7 +202,12 @@ impl FileFormat for VortexFormat {
         let store = store.clone();
         let cache = self.file_cache.clone();
         tokio::task::spawn(async move {
-            let vxf = cache.try_get(&object, store.clone()).await?;
+            let vxf = cache.try_get(&object, store.clone()).await.map_err(|e| {
+                DataFusionError::Execution(format!(
+                    "Failed to open Vortex file {}: {e}",
+                    object.location
+                ))
+            })?;
 
             let struct_dtype = vxf
                 .dtype()
@@ -279,11 +259,11 @@ impl FileFormat for VortexFormat {
                     let null_count = stats_set.get_as::<usize>(Stat::NullCount);
                     let min = stats_set
                         .get_scalar(Stat::Min, &DType::from_arrow(field.as_ref()))
-                        .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
+                        .and_then(|n| n.map(|n| n.try_to_df().ok()).transpose());
 
                     let max = stats_set
                         .get_scalar(Stat::Max, &DType::from_arrow(field.as_ref()))
-                        .and_then(|n| n.map(|n| ScalarValue::try_from(n).ok()).transpose());
+                        .and_then(|n| n.map(|n| n.try_to_df().ok()).transpose());
 
                     ColumnStatistics {
                         null_count: null_count.to_df(),
@@ -341,7 +321,7 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Vortex doesn't support output ordering");
         }
 
-        let mut source = VortexSource::new(self.file_cache.clone(), self.metrics.clone());
+        let mut source = VortexSource::new(self.file_cache.clone(), self.session.metrics().clone());
         if let Some(predicate) = make_vortex_predicate(filters) {
             source = source.with_predicate(predicate);
         }
@@ -408,9 +388,9 @@ pub(crate) fn make_vortex_predicate(
         .and_then(|expr| {
             // This splits expressions into conjunctions and converts them to vortex expressions.
             // Any inconvertible expressions are dropped since true /\ a == a.
-            datafusion_physical_expr::split_conjunction(expr)
+            datafusion::physical_expr::split_conjunction(expr)
                 .into_iter()
-                .filter_map(|e| convert_expr_to_vortex(e.clone()).ok())
+                .filter_map(|e| ExprRef::try_from_df(e.as_ref()).ok())
                 .reduce(and)
         })
 }
@@ -428,7 +408,7 @@ mod tests {
     async fn create_table() {
         let dir = TempDir::new().unwrap();
 
-        let factory = VortexFormatFactory::default_config();
+        let factory: VortexFormatFactory = Default::default();
         let mut session_state_builder = SessionStateBuilder::new().with_default_features();
         register_vortex_format_factory(factory, &mut session_state_builder);
         let session = SessionContext::new_with_state(session_state_builder.build());
@@ -451,7 +431,7 @@ mod tests {
     async fn fail_table_config() {
         let dir = TempDir::new().unwrap();
 
-        let factory = VortexFormatFactory::default_config();
+        let factory: VortexFormatFactory = Default::default();
         let mut session_state_builder = SessionStateBuilder::new().with_default_features();
         register_vortex_format_factory(factory, &mut session_state_builder);
         let session = SessionContext::new_with_state(session_state_builder.build());

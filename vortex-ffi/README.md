@@ -19,36 +19,10 @@ The FFI is designed to be very simple and follows a very object-oriented approac
 
 Constructors will generally allocate rust memory, and destructors free that memory.
 
-For example:
+## Documentation
 
-```c
-// DType is an opaque pointer to the Rust DType enum.
-// typedef void* DType;
-
-
-// Pointer to memory allocated by Rust (via `Box::new()`)
-DType d_i32 = DType_new(DTYPE_PRIMITIVE_I32, false);
-
-printf("nullable = %d\n", DType_nullable(d_i32));
-// "nullable = 1"
-
-// Rust memory is freed, d_i32 is now a dangling pointer.
-DType_free(d_i32);
-```
-
-## C Strings
-
-C strings are null-terminated, while Rust's are not. This means that unfortunately, we cannot simply return a pointer
-to a `&str` or `&String` but instead need to copy the data into a new allocation. Instead, methods that return a string
-should instead receive two arguments:
-a `*mut c_void` which is a pointer to the start of a buffer that is large enough to hold the largest string, and a
-`*mut c_int` to store the length of the buffer after writing.
-
-This means that we can actually request a pointer instead
-
-Because C and Rust have different string representations, functions that return Strings must instead receive
-a pointer to a buffer, and a pointer to an integer. Any `str` or `String` from Rust will be copied into the output
-buffer,
+The FFI API is documented in `docs/api/c` with explicit inclusion of types, enums, and functions, etc. Note that an
+item cannot be referenced in the documentation if it does not have a documentation comment.
 
 ## Updating
 

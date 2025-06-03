@@ -9,7 +9,7 @@ use vortex_error::vortex_panic;
 
 use crate::decimal::DecimalDType;
 use crate::nullability::Nullability;
-use crate::{ExtDType, PType, StructDType};
+use crate::{ExtDType, PType, StructFields};
 
 /// A name for a field in a struct
 pub type FieldName = Arc<str>;
@@ -36,7 +36,7 @@ pub enum DType {
     /// Binary data
     Binary(Nullability),
     /// A struct is composed of an ordered list of fields, each with a corresponding name and DType
-    Struct(Arc<StructDType>, Nullability),
+    Struct(Arc<StructFields>, Nullability),
     /// A variable-length list type, parameterized by a single element DType
     List(Arc<DType>, Nullability),
     /// User-defined extension types
@@ -214,7 +214,7 @@ impl DType {
     }
 
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
-    pub fn as_struct(&self) -> Option<&Arc<StructDType>> {
+    pub fn as_struct(&self) -> Option<&Arc<StructFields>> {
         match self {
             Struct(s, _) => Some(s),
             _ => None,
@@ -222,9 +222,9 @@ impl DType {
     }
 
     /// Get the inner dtype if `self` is a `ListDType`, otherwise `None`
-    pub fn as_list_element(&self) -> Option<&DType> {
+    pub fn as_list_element(&self) -> Option<&Arc<DType>> {
         match self {
-            List(s, _) => Some(s.as_ref()),
+            List(s, _) => Some(s),
             _ => None,
         }
     }

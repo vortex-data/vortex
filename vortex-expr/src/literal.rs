@@ -130,7 +130,7 @@ pub fn lit(value: impl Into<Scalar>) -> ExprRef {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::{DType, Nullability, PType, StructDType};
+    use vortex_dtype::{DType, Nullability, PType, StructFields};
     use vortex_scalar::Scalar;
 
     use crate::{lit, test_harness};
@@ -167,7 +167,7 @@ mod tests {
         );
 
         let sdtype = DType::Struct(
-            Arc::new(StructDType::new(
+            Arc::new(StructFields::new(
                 Arc::from([Arc::from("dog"), Arc::from("cat")]),
                 vec![
                     DType::Primitive(PType::U32, Nullability::NonNullable),

@@ -20,7 +20,7 @@ impl FilterKernel for StructVTable {
             .map(|a| a.len())
             .unwrap_or_else(|| mask.true_count());
 
-        StructArray::try_new_with_dtype(fields, array.struct_dtype().clone(), length, validity)
+        StructArray::try_new_with_dtype(fields, array.struct_fields().clone(), length, validity)
             .map(|a| a.into_array())
     }
 }

@@ -7,7 +7,7 @@ namespace vortex {
 
 class VortexSession : public duckdb::ObjectCacheEntry {
 public:
-	VortexSession() : session(vx_session_create()) {
+	VortexSession() : session(vx_session_new()) {
 	}
 
 	~VortexSession() override {

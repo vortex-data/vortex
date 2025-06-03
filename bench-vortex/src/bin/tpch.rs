@@ -142,6 +142,7 @@ fn main() -> anyhow::Result<()> {
                     format
                 };
                 let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, format)
+                    .with_scale_factor(args.scale_factor)
                     .with_duckdb_path(duckdb_resolved_path.clone());
                 generate_tpc(opts)?;
             }

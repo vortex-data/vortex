@@ -8,25 +8,26 @@ use vortex::layout::segments::SegmentId;
 use vortex::scalar::ScalarValue;
 use vortex::stats::{Precision, Stat};
 
-/// An object that stores registries and caches.
-/// This should if possible be reused between queries in ann interactive session.
-#[allow(non_camel_case_types)]
-pub struct vx_session {
-    pub inner: Arc<VortexSession>,
-}
+use crate::box_wrapper;
 
-/// Create a session to be used for the lifetime of an interactive session.
-#[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_session_create() -> *mut vx_session {
-    Box::into_raw(Box::new(vx_session {
-        inner: Arc::new(VortexSession::new()),
-    }))
-}
+box_wrapper!(
+    /// A Vortex session stores registries of extensible types, various caches, and other
+    /// top-level configuration.
+    ///
+    /// Extensible types include array encodings, layouts, extension dtypes, compute functions, etc.
+    ///
+    /// Multiple sessions may be created in a single process, and individual arrays are not tied to a
+    /// specific session.
+    VortexSession,
+    vx_session
+);
 
-/// Free a session
+/// Create a new Vortex session.
+///
+/// The caller is responsible for freeing the session with [`vx_session_free`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_session_free(session: *mut vx_session) {
-    drop(unsafe { Box::from_raw(session) })
+pub unsafe extern "C-unwind" fn vx_session_new() -> *mut vx_session {
+    vx_session::new(Box::new(VortexSession::new()))
 }
 
 pub struct VortexSession {

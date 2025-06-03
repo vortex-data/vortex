@@ -6,7 +6,7 @@ use crate::field::{Field, FieldPath};
 use crate::proto::dtype as pb;
 use crate::proto::dtype::d_type::DtypeType;
 use crate::proto::dtype::field::FieldType;
-use crate::{DType, DecimalDType, ExtDType, ExtID, ExtMetadata, PType, StructDType};
+use crate::{DType, DecimalDType, ExtDType, ExtID, ExtMetadata, PType, StructFields};
 
 impl TryFrom<&pb::DType> for DType {
     type Error = VortexError;
@@ -28,7 +28,7 @@ impl TryFrom<&pb::DType> for DType {
             DtypeType::Utf8(u) => Ok(Self::Utf8(u.nullable.into())),
             DtypeType::Binary(b) => Ok(Self::Binary(b.nullable.into())),
             DtypeType::Struct(s) => Ok(Self::Struct(
-                StructDType::new(
+                StructFields::new(
                     s.names.iter().map(|s| s.as_str().into()).collect(),
                     s.dtypes
                         .iter()

@@ -6,7 +6,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, dtype as fbd};
 
 use crate::{
-    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, StructDType,
+    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldDType, PType, StructFields,
     flatbuffers as fb,
 };
 
@@ -42,7 +42,7 @@ impl ViewedDType {
     }
 }
 
-impl StructDType {
+impl StructFields {
     /// Creates a new instance from a flatbuffer-defined object and its underlying buffer.
     fn from_fb(fb_struct: fbd::Struct_<'_>, buffer: FlatBuffer) -> VortexResult<Self> {
         let names = fb_struct
@@ -59,7 +59,7 @@ impl StructDType {
             .map(|dt| FieldDType::from(ViewedDType::from_fb_loc(dt._tab.loc(), buffer.clone())))
             .collect::<Vec<_>>();
 
-        Ok(StructDType::from_fields(names, dtypes))
+        Ok(StructFields::from_fields(names, dtypes))
     }
 }
 
@@ -135,7 +135,7 @@ impl TryFrom<ViewedDType> for DType {
                 let fb_struct = fb
                     .type__as_struct_()
                     .ok_or_else(|| vortex_err!("failed to parse struct from flatbuffer"))?;
-                let struct_dtype = StructDType::from_fb(fb_struct, vfdt.buffer().clone())?;
+                let struct_dtype = StructFields::from_fb(fb_struct, vfdt.buffer().clone())?;
 
                 Ok(Self::Struct(
                     struct_dtype.into(),
@@ -344,7 +344,7 @@ mod test {
 
     use crate::nullability::Nullability;
     use crate::serde::flatbuffers::ViewedDType;
-    use crate::{DType, PType, StructDType, flatbuffers as fb};
+    use crate::{DType, PType, StructFields, flatbuffers as fb};
 
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes();
@@ -377,7 +377,7 @@ mod test {
             Nullability::NonNullable,
         ));
         roundtrip_dtype(DType::Struct(
-            StructDType::new(
+            StructFields::new(
                 ["strings".into(), "ints".into()].into(),
                 vec![
                     DType::Utf8(Nullability::NonNullable),

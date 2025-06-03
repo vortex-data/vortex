@@ -266,7 +266,7 @@ mod test {
 mod tests {
     use half::f16;
     use rstest::rstest;
-    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, StructDType, half};
+    use vortex_dtype::{DType, DecimalDType, FieldDType, Nullability, PType, StructFields, half};
 
     use super::*;
     use crate::{Scalar, i256};
@@ -282,7 +282,7 @@ mod tests {
     #[case(Scalar::list(Arc::new(PType::U8.into()), vec![Scalar::primitive(1u8, Nullability::NonNullable)], Nullability::NonNullable
     ))]
     #[case(Scalar::struct_(DType::Struct(
-        Arc::new(StructDType::from_iter([
+        Arc::new(StructFields::from_iter([
             ("a", FieldDType::from(DType::Primitive(PType::U32, Nullability::NonNullable))),
             ("b", FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable))),
         ])),
@@ -293,7 +293,7 @@ mod tests {
         ],
     ))]
     #[case(Scalar::struct_(DType::Struct(
-        Arc::new(StructDType::from_iter([
+        Arc::new(StructFields::from_iter([
             ("a", FieldDType::from(DType::Primitive(PType::U64, Nullability::NonNullable))),
             ("b", FieldDType::from(DType::Primitive(PType::F32, Nullability::NonNullable))),
             ("c", FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable))),

@@ -1,15 +1,17 @@
 //! Vortex table provider metrics.
 use std::sync::Arc;
 
+use datafusion::arrow::datatypes::ArrowNativeType;
 use datafusion::datasource::physical_plan::FileScanConfig;
 use datafusion::datasource::source::DataSourceExec;
-use datafusion_physical_plan::metrics::{
+use datafusion::physical_plan::metrics::{
     Count, Gauge, Label as DatafusionLabel, MetricValue as DatafusionMetricValue, MetricsSet,
 };
-use datafusion_physical_plan::{
+use datafusion::physical_plan::{
     ExecutionPlan, ExecutionPlanVisitor, Metric as DatafusionMetric, accept,
 };
-use vortex_metrics::{Metric, MetricId, Tags};
+use vortex::error::VortexExpect;
+use vortex::metrics::{Metric, MetricId, Tags};
 
 use crate::persistent::source::VortexSource;
 
@@ -158,5 +160,9 @@ fn df_gauge(name: String, value: usize) -> DatafusionMetricValue {
 }
 
 fn f_to_u(f: f64) -> Option<usize> {
-    (f.is_finite() && f >= usize::MIN as f64 && f <= usize::MAX as f64).then(|| f.trunc() as usize)
+    (f.is_finite() && f >= usize::MIN as f64 && f <= usize::MAX as f64).then(|| {
+        f.trunc()
+            .to_usize()
+            .vortex_expect("f64 to usize conversion failed")
+    })
 }

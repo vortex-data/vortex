@@ -8,11 +8,11 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex::TryIntoArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::{VortexError, VortexResult};
+use vortex::error::VortexError;
 use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::stream::ArrayStream;
 
-pub fn parquet_to_vortex(parquet_path: PathBuf) -> VortexResult<impl ArrayStream> {
+pub fn parquet_to_vortex(parquet_path: PathBuf) -> anyhow::Result<impl ArrayStream> {
     let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(parquet_path)?)?.build()?;
 
     let array_iter = ArrayIteratorAdapter::new(
@@ -31,7 +31,7 @@ pub async fn csv_to_parquet_file(
     options: CsvReadOptions<'_>,
     csv_path: &str,
     parquet_path: &str,
-) -> VortexResult<()> {
+) -> anyhow::Result<()> {
     let df = session.read_csv(csv_path, options).await?;
 
     df.write_parquet(parquet_path, DataFrameWriteOptions::default(), None)

@@ -20,6 +20,7 @@ mod layout;
 mod reader;
 pub mod scan;
 pub mod segments;
+pub mod sequence;
 mod strategy;
 pub mod vtable;
 mod writer;

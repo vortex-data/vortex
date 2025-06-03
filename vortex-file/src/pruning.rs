@@ -4,7 +4,7 @@ use vortex_array::ArrayRef;
 use vortex_array::arrays::{ConstantArray, StructArray};
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::validity::Validity;
-use vortex_dtype::StructDType;
+use vortex_dtype::StructFields;
 use vortex_error::VortexResult;
 use vortex_expr::pruning::{FieldOrIdentity, PruningPredicate, stat_field_name};
 use vortex_scalar::Scalar;
@@ -12,7 +12,7 @@ use vortex_scalar::Scalar;
 pub fn extract_relevant_stat_as_struct_row(
     predicate: &PruningPredicate,
     stats_set: &Arc<[StatsSet]>,
-    struct_dtype: &Arc<StructDType>,
+    struct_dtype: &Arc<StructFields>,
 ) -> VortexResult<Option<ArrayRef>> {
     if predicate.required_stats().is_empty() {
         return StructArray::try_new([].into(), vec![], 1, Validity::NonNullable)

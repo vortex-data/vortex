@@ -5,7 +5,7 @@ use pyo3::prelude::PyAnyMethods;
 use pyo3::types::PyDict;
 use pyo3::{Bound, PyResult, Python, pyfunction};
 use vortex::dtype::{
-    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldName, PType, StructDType,
+    DType, DecimalDType, ExtDType, ExtID, ExtMetadata, FieldName, PType, StructFields,
 };
 
 use crate::dtype::PyDType;
@@ -317,7 +317,7 @@ pub(super) fn dtype_struct<'py>(
         PyDType::init(
             py,
             DType::Struct(
-                StructDType::new(names.into(), dtypes).into(),
+                StructFields::new(names.into(), dtypes).into(),
                 nullable.into(),
             ),
         )
@@ -325,7 +325,7 @@ pub(super) fn dtype_struct<'py>(
         PyDType::init(
             py,
             DType::Struct(
-                StructDType::new(vec![].into(), vec![]).into(),
+                StructFields::new(vec![].into(), vec![]).into(),
                 nullable.into(),
             ),
         )

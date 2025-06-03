@@ -7,7 +7,7 @@ use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
-use vortex_dtype::{DType, FieldNames, Nullability, StructDType};
+use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 use crate::{ExprRef, VortexExpr};
@@ -174,7 +174,7 @@ impl VortexExpr for Merge {
         }
 
         Ok(DType::Struct(
-            Arc::new(StructDType::new(FieldNames::from(field_names), arrays)),
+            Arc::new(StructFields::new(FieldNames::from(field_names), arrays)),
             self.nullability,
         ))
     }

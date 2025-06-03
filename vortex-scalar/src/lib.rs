@@ -12,7 +12,6 @@ mod arrow;
 mod bigint;
 mod binary;
 mod bool;
-mod datafusion;
 mod decimal;
 mod display;
 mod extension;

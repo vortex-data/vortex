@@ -17,8 +17,6 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-datafusion-expr = { workspace = true, optional = true }
-datafusion-physical-expr = { workspace = true, optional = true }
 dyn-hash = { workspace = true }
 itertools = { workspace = true }
 prost = { workspace = true, optional = true }
@@ -37,11 +35,6 @@ vortex-scalar = { workspace = true }
 vortex-expr = { path = ".", features = ["test-harness"] }
 
 [features]
-datafusion = [
-    "dep:datafusion-expr",
-    "dep:datafusion-physical-expr",
-    "vortex-scalar/datafusion",
-]
 serde = [
     "dep:serde",
     "dep:serde_json",

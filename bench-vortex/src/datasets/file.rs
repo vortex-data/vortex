@@ -13,7 +13,6 @@ use object_store::path::Path as ObjectStorePath;
 use tokio::fs::OpenOptions;
 use tracing::info;
 use url::Url;
-use vortex::error::VortexExpect;
 use vortex::file::VortexWriteOptions;
 use vortex_datafusion::persistent::VortexFormat;
 
@@ -73,10 +72,7 @@ pub async fn register_parquet_files(
             let config = if let Some(schema) = schema {
                 config.with_schema(schema.into())
             } else {
-                config
-                    .infer_schema(&session.state())
-                    .await
-                    .vortex_expect("cannot infer schema")
+                config.infer_schema(&session.state()).await?
             };
 
             let listing_table = Arc::new(ListingTable::try_new(config)?);

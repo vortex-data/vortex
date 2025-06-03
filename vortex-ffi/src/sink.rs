@@ -7,13 +7,13 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
-use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
 use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
 
 use crate::RUNTIME;
 use crate::array::vx_array;
+use crate::dtype::vx_dtype;
 use crate::error::{try_or, vx_error};
 
 #[allow(non_camel_case_types)]
@@ -29,7 +29,7 @@ pub struct vx_array_sink {
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
     path: *const c_char,
-    dtype: *const DType,
+    dtype: *const vx_dtype,
     error: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
     try_or(error, ptr::null_mut(), || {
@@ -38,7 +38,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
             .to_string_lossy()
             .to_string();
 
-        let file_dtype = unsafe { dtype.as_ref().vortex_expect("null dtype") };
+        let file_dtype = vx_dtype::as_ref(dtype);
         // The channel size 32 was chosen arbitrarily.
         let (sink, rx) = mpsc::channel(32);
         let array_stream = ArrayStreamAdapter::new(file_dtype.clone(), ReceiverStream::new(rx));
@@ -61,11 +61,11 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
     array: *const vx_array,
     error: *mut *mut vx_error,
 ) {
-    let array = unsafe { array.as_ref().vortex_expect("null array") };
+    let array = vx_array::as_ref(array);
     let sink = unsafe { sink.as_ref().vortex_expect("null array stream") };
     try_or(error, (), || {
         sink.sink
-            .blocking_send(Ok(array.inner.clone()))
+            .blocking_send(Ok(array.clone()))
             .map_err(|e| vortex_err!("send error {}", e.to_string()))
     })
 }

@@ -93,7 +93,7 @@ impl SegmentSource for InMemorySegmentReader {
         async move {
             let segment: &SegmentSpec = segment_map
                 .get(*id as usize)
-                .ok_or_else(|| vortex_err!("segment not found"))?;
+                .ok_or_else(|| vortex_err!("segment not found {id}"))?;
 
             let start =
                 usize::try_from(segment.offset).vortex_expect("segment offset larger than usize");

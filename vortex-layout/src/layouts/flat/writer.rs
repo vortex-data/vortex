@@ -1,15 +1,15 @@
+use futures::StreamExt;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
-use vortex_array::{Array, ArrayContext, ArrayRef};
+use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::vortex_bail;
 use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
-use crate::segments::SegmentWriter;
-use crate::writer::LayoutWriter;
-use crate::{IntoLayout, LayoutRef, LayoutStrategy, LayoutWriterExt};
+use crate::segments::SequenceWriter;
+use crate::{IntoLayout, LayoutStrategy, SendableLayoutWriter, SendableSequentialStream};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -29,134 +29,99 @@ impl Default for FlatLayoutStrategy {
 }
 
 impl LayoutStrategy for FlatLayoutStrategy {
-    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        Ok(FlatLayoutWriter::new(ctx.clone(), dtype.clone(), self.clone()).boxed())
-    }
-}
+    fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        sequence_writer: SequenceWriter,
+        mut stream: SendableSequentialStream,
+    ) -> SendableLayoutWriter {
+        let ctx = ctx.clone();
+        let options = self.clone();
+        Box::pin(async move {
+            let Some(chunk) = stream.next().await else {
+                vortex_bail!("flat layout needs a single chunk");
+            };
+            let (sequence_id, chunk) = chunk?;
 
-/// Writer for a [`FlatLayout`].
-pub struct FlatLayoutWriter {
-    ctx: ArrayContext,
-    dtype: DType,
-    options: FlatLayoutStrategy,
-    layout: Option<LayoutRef>,
-}
+            let row_count = chunk.len() as u64;
 
-impl FlatLayoutWriter {
-    pub fn new(ctx: ArrayContext, dtype: DType, options: FlatLayoutStrategy) -> Self {
-        Self {
-            ctx,
-            dtype,
-            options,
-            layout: None,
-        }
-    }
-}
-
-impl LayoutWriter for FlatLayoutWriter {
-    fn push_chunk(
-        &mut self,
-        segment_writer: &mut dyn SegmentWriter,
-        chunk: ArrayRef,
-    ) -> VortexResult<()> {
-        assert_eq!(
-            chunk.dtype(),
-            &self.dtype,
-            "Can't push chunks of the wrong dtype into a LayoutWriter. Pushed {} but expected {}.",
-            chunk.dtype(),
-            self.dtype
-        );
-
-        if self.layout.is_some() {
-            vortex_bail!("FlatLayoutStrategy::push_batch called after finish");
-        }
-        let row_count = chunk.len() as u64;
-
-        match chunk.dtype() {
-            DType::Utf8(_) => {
-                if let Some(sv) = chunk.statistics().get(Stat::Min) {
-                    let (value, truncated) = lower_bound::<Utf8Scalar>(
-                        chunk.dtype(),
-                        sv.into_inner(),
-                        self.options.max_variable_length_statistics_size,
-                    )?;
-                    if truncated {
-                        chunk.statistics().set(Stat::Min, Precision::Inexact(value));
-                    }
-                }
-
-                if let Some(sv) = chunk.statistics().get(Stat::Max) {
-                    let (value, truncated) = upper_bound::<Utf8Scalar>(
-                        chunk.dtype(),
-                        sv.into_inner(),
-                        self.options.max_variable_length_statistics_size,
-                    )?;
-                    if let Some(upper_bound) = value {
+            match chunk.dtype() {
+                DType::Utf8(_) => {
+                    if let Some(sv) = chunk.statistics().get(Stat::Min) {
+                        let (value, truncated) = lower_bound::<Utf8Scalar>(
+                            chunk.dtype(),
+                            sv.into_inner(),
+                            options.max_variable_length_statistics_size,
+                        )?;
                         if truncated {
-                            chunk
-                                .statistics()
-                                .set(Stat::Max, Precision::Inexact(upper_bound));
+                            chunk.statistics().set(Stat::Min, Precision::Inexact(value));
                         }
-                    } else {
-                        chunk.statistics().clear(Stat::Max)
                     }
-                }
-            }
-            DType::Binary(_) => {
-                if let Some(sv) = chunk.statistics().get(Stat::Min) {
-                    let (value, truncated) = lower_bound::<BinaryScalar>(
-                        chunk.dtype(),
-                        sv.into_inner(),
-                        self.options.max_variable_length_statistics_size,
-                    )?;
-                    if truncated {
-                        chunk.statistics().set(Stat::Min, Precision::Inexact(value));
-                    }
-                }
 
-                if let Some(sv) = chunk.statistics().get(Stat::Max) {
-                    let (value, truncated) = upper_bound::<BinaryScalar>(
-                        chunk.dtype(),
-                        sv.into_inner(),
-                        self.options.max_variable_length_statistics_size,
-                    )?;
-                    if let Some(upper_bound) = value {
+                    if let Some(sv) = chunk.statistics().get(Stat::Max) {
+                        let (value, truncated) = upper_bound::<Utf8Scalar>(
+                            chunk.dtype(),
+                            sv.into_inner(),
+                            options.max_variable_length_statistics_size,
+                        )?;
+                        if let Some(upper_bound) = value {
+                            if truncated {
+                                chunk
+                                    .statistics()
+                                    .set(Stat::Max, Precision::Inexact(upper_bound));
+                            }
+                        } else {
+                            chunk.statistics().clear(Stat::Max)
+                        }
+                    }
+                }
+                DType::Binary(_) => {
+                    if let Some(sv) = chunk.statistics().get(Stat::Min) {
+                        let (value, truncated) = lower_bound::<BinaryScalar>(
+                            chunk.dtype(),
+                            sv.into_inner(),
+                            options.max_variable_length_statistics_size,
+                        )?;
                         if truncated {
-                            chunk
-                                .statistics()
-                                .set(Stat::Max, Precision::Inexact(upper_bound));
+                            chunk.statistics().set(Stat::Min, Precision::Inexact(value));
                         }
-                    } else {
-                        chunk.statistics().clear(Stat::Max)
+                    }
+
+                    if let Some(sv) = chunk.statistics().get(Stat::Max) {
+                        let (value, truncated) = upper_bound::<BinaryScalar>(
+                            chunk.dtype(),
+                            sv.into_inner(),
+                            options.max_variable_length_statistics_size,
+                        )?;
+                        if let Some(upper_bound) = value {
+                            if truncated {
+                                chunk
+                                    .statistics()
+                                    .set(Stat::Max, Precision::Inexact(upper_bound));
+                            }
+                        } else {
+                            chunk.statistics().clear(Stat::Max)
+                        }
                     }
                 }
+                _ => {}
             }
-            _ => {}
-        }
 
-        let buffers = chunk.serialize(
-            &self.ctx,
-            &SerializeOptions {
-                offset: 0,
-                include_padding: self.options.include_padding,
-            },
-        )?;
-        let segment_id = segment_writer.put(&buffers);
+            // TODO(os): spawn serialization
+            let buffers = chunk.serialize(
+                &ctx,
+                &SerializeOptions {
+                    offset: 0,
+                    include_padding: options.include_padding,
+                },
+            )?;
+            let segment_id = sequence_writer.put(sequence_id, buffers).await?;
 
-        self.layout =
-            Some(FlatLayout::new(row_count, self.dtype.clone(), segment_id).into_layout());
-
-        Ok(())
-    }
-
-    fn flush(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<()> {
-        Ok(())
-    }
-
-    fn finish(&mut self, _segment_writer: &mut dyn SegmentWriter) -> VortexResult<LayoutRef> {
-        self.layout
-            .take()
-            .ok_or_else(|| vortex_err!("FlatLayoutStrategy::finish called without push_batch"))
+            let None = stream.next().await else {
+                vortex_bail!("flat layout received stream with more than a single chunk");
+            };
+            Ok(FlatLayout::new(row_count, stream.dtype().clone(), segment_id).into_layout())
+        })
     }
 }
 
@@ -165,20 +130,32 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
+    use futures::stream;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_array::stats::{Precision, Stat};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ArrayContext};
+    use vortex_array::{Array, ArrayContext, ArrayRef};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability};
     use vortex_error::VortexUnwrap;
     use vortex_expr::ident;
     use vortex_mask::Mask;
 
-    use crate::layouts::flat::writer::FlatLayoutWriter;
-    use crate::segments::{SegmentSource, TestSegments};
-    use crate::writer::LayoutWriterExt;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::sequence::SequenceId;
+    use crate::{
+        LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt as _,
+    };
+
+    fn stream_only(array: ArrayRef) -> SendableSequentialStream {
+        SequentialStreamAdapter::new(
+            array.dtype().clone(),
+            stream::once(async move { Ok((SequenceId::root().downgrade(), array)) }),
+        )
+        .sendable()
+    }
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.
@@ -187,12 +164,13 @@ mod tests {
     fn flat_stats() {
         block_on(async {
             let ctx = ArrayContext::empty();
-            let mut segments = TestSegments::default();
+            let segments = TestSegments::default();
+            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
-            let layout =
-                FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
-                    .push_one(&mut segments, array.to_array())
-                    .unwrap();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
+                .await
+                .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
@@ -215,7 +193,8 @@ mod tests {
     fn truncates_variable_size_stats() {
         block_on(async {
             let ctx = ArrayContext::empty();
-            let mut segments = TestSegments::default();
+            let segments = TestSegments::default();
+            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
             let mut builder =
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 2);
             builder.append_value("Long value to test that the statistics are actually truncated, it needs a bit of extra padding though");
@@ -229,10 +208,10 @@ mod tests {
                     .into_iter(),
             );
 
-            let layout =
-                FlatLayoutWriter::new(ctx.clone(), array.dtype().clone(), Default::default())
-                    .push_one(&mut segments, array.to_array())
-                    .unwrap();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
+                .await
+                .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout

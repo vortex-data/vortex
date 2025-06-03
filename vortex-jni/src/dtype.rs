@@ -155,7 +155,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getElementType(
             throw_runtime!("DType should be LIST, was {dtype}");
         };
 
-        Ok(element_type as *const DType as jlong)
+        Ok(element_type.as_ref() as *const DType as jlong)
     })
 }
 

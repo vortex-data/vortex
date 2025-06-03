@@ -64,14 +64,14 @@ mod test {
 
     use itertools::Itertools;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, FieldPath, PType, StructDType};
+    use vortex_dtype::{DType, FieldPath, PType, StructFields};
 
     use crate::transform::field_mask::field_mask;
     use crate::{get_item, ident};
 
     fn dtype() -> DType {
         DType::Struct(
-            Arc::new(StructDType::new(
+            Arc::new(StructFields::new(
                 ["A".into(), "B".into(), "C".into()].into(),
                 iter::repeat_n(DType::Primitive(PType::I32, NonNullable), 3).collect(),
             )),

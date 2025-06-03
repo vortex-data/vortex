@@ -204,7 +204,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         //  explicitly polls a segment, it jumps to the front of the queue so this shouldn't
         //  impact the time-to-first-chunk latency.
 
-        // If a filter expression is provided, then we setup pruning and filter evaluations.
+        // If a filter expression is provided, then we set up pruning and filter evaluations.
         let row_masks = if let Some(filter) = &filter {
             // Map the row masks through the pruning evaluation
             let row_masks: Vec<_> = row_masks

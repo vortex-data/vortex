@@ -69,7 +69,7 @@ mod tests {
 
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::PType::{I32, I64, U32, U64};
-    use vortex_dtype::{DType, StructDType};
+    use vortex_dtype::{DType, StructFields};
 
     use crate::transform::remove_merge::remove_merge;
     use crate::{Pack, get_item, ident, merge};
@@ -77,18 +77,18 @@ mod tests {
     #[test]
     fn test_remove_merge() {
         let dtype = DType::Struct(
-            Arc::new(StructDType::new(
+            Arc::new(StructFields::new(
                 ["0".into(), "1".into()].into(),
                 vec![
                     DType::Struct(
-                        Arc::new(StructDType::new(
+                        Arc::new(StructFields::new(
                             ["a".into(), "b".into()].into(),
                             vec![I32.into(), I64.into()],
                         )),
                         NonNullable,
                     ),
                     DType::Struct(
-                        Arc::new(StructDType::new(
+                        Arc::new(StructFields::new(
                             ["b".into(), "c".into()].into(),
                             vec![U32.into(), U64.into()],
                         )),
@@ -109,7 +109,7 @@ mod tests {
         assert_eq!(
             e.return_dtype(&dtype).unwrap(),
             DType::Struct(
-                Arc::new(StructDType::new(
+                Arc::new(StructFields::new(
                     ["a".into(), "b".into(), "c".into()].into(),
                     vec![I32.into(), U32.into(), U64.into()],
                 )),
@@ -121,10 +121,10 @@ mod tests {
     #[test]
     fn test_remove_merge_nullable() {
         let dtype = DType::Struct(
-            Arc::new(StructDType::new(
+            Arc::new(StructFields::new(
                 ["0".into()].into(),
                 vec![DType::Struct(
-                    Arc::new(StructDType::new(
+                    Arc::new(StructFields::new(
                         ["a".into(), "b".into()].into(),
                         vec![I32.into(), I64.into()],
                     )),

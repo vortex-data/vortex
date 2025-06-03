@@ -3,29 +3,98 @@
 //! otherwise manipulate the chunks of data enabling experimentation with different strategies
 //! all while remaining independent of the read code.
 
-use vortex_array::ArrayContext;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
+use futures::Stream;
+use pin_project_lite::pin_project;
+use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::layouts::flat::writer::FlatLayoutWriter;
-use crate::layouts::struct_::writer::StructLayoutWriter;
-use crate::writer::{LayoutWriter, LayoutWriterExt};
+use crate::SendableLayoutWriter;
+use crate::segments::SequenceWriter;
+use crate::sequence::SequenceId;
 
-/// A trait for creating new layout writers given a DType.
-pub trait LayoutStrategy: 'static + Send + Sync {
-    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>>;
+pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
+    fn dtype(&self) -> &DType;
 }
 
-/// A layout strategy that preserves struct arrays and writes everything else as flat.
-pub struct StructStrategy;
+pub type SendableSequentialStream = Pin<Box<dyn SequentialStream + Send>>;
 
-impl LayoutStrategy for StructStrategy {
-    fn new_writer(&self, ctx: &ArrayContext, dtype: &DType) -> VortexResult<Box<dyn LayoutWriter>> {
-        if let DType::Struct(..) = dtype {
-            StructLayoutWriter::try_new_with_strategy(ctx, dtype, &StructStrategy)
-                .map(|w| w.boxed())
-        } else {
-            Ok(FlatLayoutWriter::new(ctx.clone(), dtype.clone(), Default::default()).boxed())
+impl SequentialStream for SendableSequentialStream {
+    fn dtype(&self) -> &DType {
+        (**self).dtype()
+    }
+}
+
+pub trait LayoutStrategy: 'static + Send + Sync {
+    fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
+    ) -> SendableLayoutWriter;
+}
+
+pub trait SequentialStreamExt: SequentialStream {
+    // not named boxed to prevent clashing with StreamExt
+    fn sendable(self) -> SendableSequentialStream
+    where
+        Self: Sized + Send + 'static,
+    {
+        Box::pin(self)
+    }
+}
+
+impl<S: SequentialStream> SequentialStreamExt for S {}
+
+pin_project! {
+    pub struct SequentialStreamAdapter<S> {
+        dtype: DType,
+        #[pin]
+        inner: S,
+    }
+}
+
+impl<S> SequentialStreamAdapter<S> {
+    pub fn new(dtype: DType, inner: S) -> Self {
+        Self { dtype, inner }
+    }
+}
+
+impl<S> SequentialStream for SequentialStreamAdapter<S>
+where
+    S: Stream<Item = VortexResult<(SequenceId, ArrayRef)>>,
+{
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+}
+
+impl<S> Stream for SequentialStreamAdapter<S>
+where
+    S: Stream<Item = VortexResult<(SequenceId, ArrayRef)>>,
+{
+    type Item = VortexResult<(SequenceId, ArrayRef)>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+        let array = futures::ready!(this.inner.poll_next(cx));
+        if let Some(Ok((_, array))) = array.as_ref() {
+            assert_eq!(
+                array.dtype(),
+                this.dtype,
+                "Sequential stream of {} got chunk of {}.",
+                array.dtype(),
+                this.dtype
+            );
         }
+
+        Poll::Ready(array)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
     }
 }
