@@ -12,7 +12,7 @@ pub struct Expr {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Kind {
     /// This enum is very unstable, and will likely be replaced with something more extensible.
-    #[prost(oneof = "kind::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
+    #[prost(oneof = "kind::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
     pub kind: ::core::option::Option<kind::Kind>,
 }
 /// Nested message and enum types in `Kind`.
@@ -54,6 +54,11 @@ pub mod kind {
     }
     #[derive(Clone, Copy, PartialEq, ::prost::Message)]
     pub struct IsNull {}
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Cast {
+        #[prost(message, optional, tag = "1")]
+        pub target: ::core::option::Option<super::super::dtype::DType>,
+    }
     #[derive(
         Clone,
         Copy,
@@ -131,5 +136,7 @@ pub mod kind {
         Like(Like),
         #[prost(message, tag = "10")]
         IsNull(IsNull),
+        #[prost(message, tag = "11")]
+        Cast(Cast),
     }
 }

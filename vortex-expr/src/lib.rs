@@ -7,6 +7,7 @@ use dyn_hash::DynHash;
 mod binary;
 
 mod between;
+mod cast;
 mod field;
 pub mod forms;
 mod get_item;
@@ -27,6 +28,7 @@ pub mod traversal;
 
 pub use between::*;
 pub use binary::*;
+pub use cast::*;
 pub use get_item::*;
 pub use identity::*;
 pub use is_null::*;

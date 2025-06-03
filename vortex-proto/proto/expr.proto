@@ -3,6 +3,7 @@ syntax = "proto3";
 package vortex.expr;
 
 import "scalar.proto";
+import "dtype.proto";
 
 option java_package = "dev.vortex.proto";
 option java_outer_classname = "ExprProtos";
@@ -27,6 +28,7 @@ message Kind {
     Between between = 8;
     Like like = 9;
     IsNull is_null = 10;
+    Cast cast = 11;
   }
 
   message Literal {
@@ -76,6 +78,10 @@ message Kind {
 
   message IsNull {
 
+  }
+
+  message Cast {
+    vortex.dtype.DType target = 1;
   }
 }
 
