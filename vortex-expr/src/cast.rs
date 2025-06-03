@@ -10,6 +10,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use crate::{ExprRef, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 pub struct Cast {
     target: DType,
     child: ExprRef,
