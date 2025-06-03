@@ -5,7 +5,7 @@ use itertools::Itertools;
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
-use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinVTable, VarBinViewVTable};
+use crate::arrays::{BoolArray, PrimitiveArray, VarBinArray, VarBinVTable};
 use crate::arrow::{Datum, from_arrow_array_with_len};
 use crate::compute::{
     CompareKernel, CompareKernelAdapter, Operator, compare, compare_lengths_to_empty,
@@ -87,7 +87,8 @@ impl CompareKernel for VarBinVTable {
             .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
             Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
-        } else if rhs.is::<VarBinViewVTable>() {
+        } else if !rhs.is::<VarBinVTable>() {
+            // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
             return Ok(Some(compare(lhs.to_varbinview()?.as_ref(), rhs, operator)?));
@@ -119,7 +120,7 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::ToCanonical;
-    use crate::arrays::{ConstantArray, VarBinArray};
+    use crate::arrays::{ConstantArray, VarBinArray, VarBinViewArray};
     use crate::compute::{Operator, compare};
 
     #[test]
@@ -144,6 +145,27 @@ mod test {
         assert_eq!(
             result.boolean_buffer(),
             &BooleanBuffer::from_iter([true, false, false])
+        );
+    }
+
+    #[test]
+    fn varbinview_compare() {
+        let array = VarBinArray::from_iter(
+            [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
+            DType::Binary(Nullability::Nullable),
+        );
+        let vbv = VarBinViewArray::from_iter(
+            [None, None, Some(b"def".to_vec())],
+            DType::Binary(Nullability::Nullable),
+        );
+        let result = compare(array.as_ref(), vbv.as_ref(), Operator::Eq)
+            .unwrap()
+            .to_bool()
+            .unwrap();
+
+        assert_eq!(
+            result.boolean_buffer(),
+            &BooleanBuffer::from_iter([false, true, true])
         );
     }
 }
