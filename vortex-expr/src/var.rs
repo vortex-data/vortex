@@ -6,7 +6,7 @@ use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, Identifier, VortexExpr};
+use crate::{ExprRef, Identifier, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Var {
@@ -64,7 +64,7 @@ pub(crate) mod proto {
 
 impl Display for Var {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}]", self.var)
+        write!(f, "${}", self.var)
     }
 }
 
@@ -73,7 +73,7 @@ impl VortexExpr for Var {
         self
     }
 
-    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
         ctx.values(&self.var).cloned()
     }
 
@@ -86,8 +86,8 @@ impl VortexExpr for Var {
         Var::new_expr(self.var.clone())
     }
 
-    fn return_dtype(&self, dt_ctx: &DTypeEvaluationContext) -> VortexResult<DType> {
-        dt_ctx.type_(&self.var).cloned()
+    fn return_dtype(&self, dt_ctx: &ScopeDType) -> VortexResult<DType> {
+        dt_ctx.dtype(&self.var).cloned()
     }
 }
 
@@ -95,44 +95,39 @@ pub fn var(var: impl Into<Identifier>) -> ExprRef {
     Var::new_expr(var.into())
 }
 
-pub const IDENTITY_IDENTIFIER: &str = "$";
+pub const IDENTITY_IDENTIFIER: &str = "";
 static IDENTITY: LazyLock<ExprRef> = LazyLock::new(|| Var::new_expr(IDENTITY_IDENTIFIER.into()));
 
 /// Return a global pointer to the identity token.
 /// This is the name of the data found in a vortex array or file.
-pub fn ident() -> ExprRef {
+pub fn root() -> ExprRef {
     IDENTITY.clone()
 }
 
-pub fn is_ident(expr: &ExprRef) -> bool {
+pub fn is_root(expr: &ExprRef) -> bool {
     expr.as_any()
         .downcast_ref::<Var>()
-        .is_some_and(|v| v.var().as_ref() == "$")
+        .is_some_and(|v| v.var().as_ref() == "")
 }
 
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
     use vortex_array::ToCanonical;
-    use vortex_array::aliases::hash_map::HashMap;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
-    use crate::{ValuesScope, eq, var};
+    use crate::{Scope, eq, var};
 
     #[test]
     fn test_two_vars() {
         let a1 = PrimitiveArray::new(buffer![5, 4, 3, 2, 1, 0], Validity::AllValid).to_array();
         let a2 = PrimitiveArray::from_iter(1..=6).to_array();
 
-        let expr = eq(var("$"), var("row"));
+        let expr = eq(var(""), var("row"));
         let res = expr
-            .evaluate(
-                &ValuesScope::new(HashMap::from([("$".into(), a1), ("row".into(), a2)]))
-                    .try_into()
-                    .unwrap(),
-            )
+            .evaluate(&Scope::new(a1).with_value("row", a2))
             .unwrap();
         let res = res.to_bool().unwrap().boolean_buffer().iter().collect_vec();
 

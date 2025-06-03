@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
-use vortex::expr::{ExprRef, Select, ident};
+use vortex::expr::{ExprRef, Select, root};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::stream::{ArrayStreamExt, SendableArrayStream};
 use vortex::{ArrayRef, ToCanonical};
@@ -65,14 +65,14 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRe
     }
 
     Ok(match columns {
-        None => ident(),
+        None => root(),
         Some(columns) => {
             let fields = columns
                 .iter()
                 .map(field_from_pyany)
                 .collect::<PyResult<Arc<[FieldName]>>>()?;
 
-            Select::include_expr(fields, ident())
+            Select::include_expr(fields, root())
         }
     })
 }

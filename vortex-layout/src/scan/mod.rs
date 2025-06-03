@@ -21,7 +21,7 @@ use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{DTypeEvaluationContext, ExprRef, ident};
+use vortex_expr::{ExprRef, ScopeDType, root};
 use vortex_metrics::VortexMetrics;
 
 use crate::LayoutReader;
@@ -145,9 +145,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Returns the output [`DType`] of the scan.
     pub fn dtype(&self) -> VortexResult<DType> {
         self.projection
-            .return_dtype(&DTypeEvaluationContext::new_identity(
-                self.layout_reader.dtype().clone(),
-            ))
+            .return_dtype(&ScopeDType::new(self.layout_reader.dtype().clone()))
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
@@ -159,7 +157,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         if self.filter.is_some() {
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
         }
-        let ctx = DTypeEvaluationContext::new_identity(layout_reader.dtype().clone());
+        let ctx = ScopeDType::new(layout_reader.dtype().clone());
 
         // Normalize and simplify the expressions.
         let projection = simplify_typed(self.projection.clone(), &ctx)?;
@@ -286,7 +284,7 @@ impl ScanBuilder<ArrayRef> {
     pub fn new(layout_reader: Arc<dyn LayoutReader>) -> Self {
         Self {
             layout_reader,
-            projection: ident(),
+            projection: root(),
             filter: None,
             row_range: None,
             selection: Default::default(),

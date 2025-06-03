@@ -85,7 +85,7 @@ mod tests {
     use arcref::ArcRef;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::stream::ArrayStreamExt;
-    use vortex_expr::{get_item, ident};
+    use vortex_expr::{get_item, root};
     use vortex_file::{VortexOpenOptions, VortexWriteOptions};
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 
@@ -107,7 +107,7 @@ mod tests {
         let array = file
             .scan()
             .unwrap()
-            .with_projection(get_item("a", ident()))
+            .with_projection(get_item("a", root()))
             .into_array_stream()
             .unwrap()
             .read_all()

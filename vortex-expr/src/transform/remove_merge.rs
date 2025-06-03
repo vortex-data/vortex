@@ -1,16 +1,16 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
-use crate::{DTypeEvaluationContext, ExprRef, Merge, VortexExpr, get_item, pack};
+use crate::{ExprRef, Merge, ScopeDType, VortexExpr, get_item, pack};
 
 /// Replaces [Merge] with combination of [GetItem] and [Pack] expressions.
-pub(crate) fn remove_merge(e: ExprRef, ctx: &DTypeEvaluationContext) -> VortexResult<ExprRef> {
+pub(crate) fn remove_merge(e: ExprRef, ctx: &ScopeDType) -> VortexResult<ExprRef> {
     let mut transform = RemoveMergeTransform { ctx };
     e.transform(&mut transform).map(|e| e.result)
 }
 
 struct RemoveMergeTransform<'a> {
-    ctx: &'a DTypeEvaluationContext,
+    ctx: &'a ScopeDType,
 }
 
 impl MutNodeVisitor for RemoveMergeTransform<'_> {
@@ -69,7 +69,7 @@ mod tests {
     use vortex_dtype::{DType, StructFields};
 
     use crate::transform::remove_merge::remove_merge;
-    use crate::{DTypeEvaluationContext, Pack, get_item, ident, merge};
+    use crate::{Pack, ScopeDType, get_item, merge, root};
 
     #[test]
     fn test_remove_merge() {
@@ -96,16 +96,12 @@ mod tests {
             NonNullable,
         );
 
-        let e = merge(
-            [get_item("0", ident()), get_item("1", ident())],
-            NonNullable,
-        );
-        let e = remove_merge(e, &DTypeEvaluationContext::new_identity(dtype.clone())).unwrap();
+        let e = merge([get_item("0", root()), get_item("1", root())], NonNullable);
+        let e = remove_merge(e, &ScopeDType::new(dtype.clone())).unwrap();
 
         assert!(e.as_any().is::<Pack>());
         assert_eq!(
-            e.return_dtype(&DTypeEvaluationContext::new_identity(dtype))
-                .unwrap(),
+            e.return_dtype(&ScopeDType::new(dtype)).unwrap(),
             DType::Struct(
                 Arc::new(StructFields::new(
                     ["a".into(), "b".into(), "c".into()].into(),
@@ -132,12 +128,12 @@ mod tests {
             NonNullable,
         );
 
-        let e = merge([get_item("0", ident())], Nullable);
-        let e = remove_merge(e, &DTypeEvaluationContext::new_identity(dtype.clone())).unwrap();
+        let e = merge([get_item("0", root())], Nullable);
+        let e = remove_merge(e, &ScopeDType::new(dtype.clone())).unwrap();
 
         assert!(e.as_any().is::<Pack>());
         assert!(
-            e.return_dtype(&DTypeEvaluationContext::new_identity(dtype))
+            e.return_dtype(&ScopeDType::new(dtype))
                 .unwrap()
                 .is_nullable()
         );

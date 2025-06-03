@@ -1,16 +1,16 @@
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
-use crate::{DTypeEvaluationContext, ExprRef, Select, get_item, pack};
+use crate::{ExprRef, ScopeDType, Select, get_item, pack};
 
 /// Replaces [Select] with combination of [GetItem] and [Pack] expressions.
-pub(crate) fn remove_select(e: ExprRef, ctx: &DTypeEvaluationContext) -> VortexResult<ExprRef> {
+pub(crate) fn remove_select(e: ExprRef, ctx: &ScopeDType) -> VortexResult<ExprRef> {
     let mut transform = RemoveSelectTransform { ctx };
     e.transform(&mut transform).map(|e| e.result)
 }
 
 struct RemoveSelectTransform<'a> {
-    ctx: &'a DTypeEvaluationContext,
+    ctx: &'a ScopeDType,
 }
 
 impl MutNodeVisitor for RemoveSelectTransform<'_> {
@@ -61,7 +61,7 @@ mod tests {
     use vortex_dtype::{DType, StructFields};
 
     use crate::transform::remove_select::remove_select;
-    use crate::{DTypeEvaluationContext, Pack, ident, select};
+    use crate::{Pack, ScopeDType, root, select};
 
     #[test]
     fn test_remove_select() {
@@ -72,12 +72,12 @@ mod tests {
             )),
             Nullable,
         );
-        let e = select(["a".into(), "b".into()], ident());
-        let e = remove_select(e, &DTypeEvaluationContext::new_identity(dtype.clone())).unwrap();
+        let e = select(["a".into(), "b".into()], root());
+        let e = remove_select(e, &ScopeDType::new(dtype.clone())).unwrap();
 
         assert!(e.as_any().is::<Pack>());
         assert!(
-            e.return_dtype(&DTypeEvaluationContext::new_identity(dtype))
+            e.return_dtype(&ScopeDType::new(dtype))
                 .unwrap()
                 .is_nullable()
         );

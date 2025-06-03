@@ -9,7 +9,7 @@ use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::error::VortexExpect as _;
-use vortex::expr::{VortexExpr, ident};
+use vortex::expr::{VortexExpr, root};
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
@@ -78,7 +78,7 @@ impl FileSource for VortexSource {
 
         let opener = VortexFileOpener::new(
             object_store,
-            self.projection.clone().unwrap_or_else(ident),
+            self.projection.clone().unwrap_or_else(root),
             self.predicate.clone(),
             self.file_cache.clone(),
             self.arrow_schema

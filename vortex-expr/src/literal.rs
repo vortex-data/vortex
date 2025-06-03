@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, VortexExpr};
+use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Literal {
@@ -86,7 +86,7 @@ impl VortexExpr for Literal {
         self
     }
 
-    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(self.value.clone(), ctx.len()).into_array())
     }
 
@@ -99,7 +99,7 @@ impl VortexExpr for Literal {
         self
     }
 
-    fn return_dtype(&self, _ctx: &DTypeEvaluationContext) -> VortexResult<DType> {
+    fn return_dtype(&self, _ctx: &ScopeDType) -> VortexResult<DType> {
         Ok(self.value.dtype().clone())
     }
 }
@@ -133,7 +133,7 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType, StructFields};
     use vortex_scalar::Scalar;
 
-    use crate::{DTypeEvaluationContext, lit, test_harness};
+    use crate::{ScopeDType, lit, test_harness};
 
     #[test]
     fn dtype() {
@@ -141,25 +141,25 @@ mod tests {
 
         assert_eq!(
             lit(10)
-                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .return_dtype(&ScopeDType::new(dtype.clone()))
                 .unwrap(),
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         assert_eq!(
             lit(i64::MAX)
-                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .return_dtype(&ScopeDType::new(dtype.clone()))
                 .unwrap(),
             DType::Primitive(PType::I64, Nullability::NonNullable)
         );
         assert_eq!(
             lit(true)
-                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .return_dtype(&ScopeDType::new(dtype.clone()))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
             lit(Scalar::null(DType::Bool(Nullability::Nullable)))
-                .return_dtype(&DTypeEvaluationContext::new_identity(dtype.clone()))
+                .return_dtype(&ScopeDType::new(dtype.clone()))
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
@@ -179,7 +179,7 @@ mod tests {
                 sdtype.clone(),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))
-            .return_dtype(&DTypeEvaluationContext::new_identity(dtype))
+            .return_dtype(&ScopeDType::new(dtype))
             .unwrap(),
             sdtype
         );

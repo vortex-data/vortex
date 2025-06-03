@@ -6,7 +6,7 @@ use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, Identifier, VortexExpr};
+use crate::{ExprRef, Identifier, Scope, ScopeDType, VortexExpr};
 
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Debug, Eq, Hash)]
@@ -76,9 +76,9 @@ impl VortexExpr for Let {
         self
     }
 
-    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
-        let v = self.bind.unchecked_evaluate(ctx)?;
-        let ctx_p = ctx.with(self.var.clone(), v);
+    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
+        let v = self.bind.unchecked_evaluate(scope)?;
+        let ctx_p = scope.copy_with_value(self.var.clone(), v);
         self.expr.unchecked_evaluate(&ctx_p)
     }
 
@@ -93,9 +93,9 @@ impl VortexExpr for Let {
         Let::new_expr(self.var.clone(), bind, expr)
     }
 
-    fn return_dtype(&self, ctx: &DTypeEvaluationContext) -> VortexResult<DType> {
-        let v = self.bind.return_dtype(ctx)?;
-        let ctx_p = ctx.with(self.var.clone(), v);
+    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType> {
+        let v = self.bind.return_dtype(scope)?;
+        let ctx_p = scope.copy_with_value(self.var.clone(), v);
         self.expr.return_dtype(&ctx_p)
     }
 }
@@ -118,7 +118,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
-    use crate::{ValuesScope, eq, get_item_scope, let_, var};
+    use crate::{Scope, eq, get_item_scope, let_, var};
 
     #[test]
     fn test_two_vars() {
@@ -134,9 +134,7 @@ mod tests {
             get_item_scope("a1"),
             let_("y", get_item_scope("a2"), eq(var("x"), var("y"))),
         );
-        let res = expr
-            .evaluate(&ValuesScope::default_array(struct_arr).try_into().unwrap())
-            .unwrap();
+        let res = expr.evaluate(&Scope::new(struct_arr)).unwrap();
         let res = res.to_bool().unwrap().boolean_buffer().iter().collect_vec();
 
         assert_eq!(res, vec![false, false, true, false, false, false])

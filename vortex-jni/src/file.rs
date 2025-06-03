@@ -17,7 +17,7 @@ use vortex::aliases::hash_map::HashMap;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{deserialize_expr, ident, select};
+use vortex::expr::{deserialize_expr, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
 
@@ -141,7 +141,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
                     let field_name: String = env.get_string(field.as_ref().into())?.into();
                     projection.push(field_name.into());
                 }
-                let project_expr = select(projection, ident());
+                let project_expr = select(projection, root());
                 scan_builder = scan_builder.with_projection(project_expr);
             }
         }

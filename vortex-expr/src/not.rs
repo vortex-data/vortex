@@ -8,7 +8,7 @@ use vortex_array::compute::invert;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, VortexExpr};
+use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 // We cannot auto derive PartialEq because ExprRef, since its a Arc<..> and derive doesn't work
@@ -73,8 +73,8 @@ impl VortexExpr for Not {
         self
     }
 
-    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
-        let child_result = self.child.unchecked_evaluate(ctx)?;
+    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
+        let child_result = self.child.unchecked_evaluate(scope)?;
         invert(&child_result)
     }
 
@@ -87,8 +87,8 @@ impl VortexExpr for Not {
         Self::new_expr(children.remove(0))
     }
 
-    fn return_dtype(&self, ctx: &DTypeEvaluationContext) -> VortexResult<DType> {
-        self.child.return_dtype(ctx)
+    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType> {
+        self.child.return_dtype(scope)
     }
 }
 
@@ -108,15 +108,15 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{DTypeEvaluationContext, col, ident, not, test_harness};
+    use crate::{Scope, ScopeDType, col, not, root, test_harness};
 
     #[test]
     fn invert_booleans() {
-        let not_expr = not(ident());
+        let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
-                .evaluate_array(bools.as_ref())
+                .evaluate(&Scope::new(bools.to_array()))
                 .unwrap()
                 .to_bool()
                 .unwrap()
@@ -129,19 +129,17 @@ mod tests {
 
     #[test]
     fn dtype() {
-        let not_expr = not(ident());
+        let not_expr = not(root());
         let dtype = DType::Bool(Nullability::NonNullable);
         assert_eq!(
-            not_expr
-                .return_dtype(&DTypeEvaluationContext::new_identity(dtype))
-                .unwrap(),
+            not_expr.return_dtype(&ScopeDType::new(dtype)).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
 
         let dtype = test_harness::struct_dtype();
         assert_eq!(
             not(col("bool1"))
-                .return_dtype(&DTypeEvaluationContext::new_identity(dtype))
+                .return_dtype(&ScopeDType::new(dtype))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );

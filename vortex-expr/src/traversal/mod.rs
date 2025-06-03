@@ -295,7 +295,7 @@ mod tests {
     use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
     use crate::{
         BinaryExpr, ExprRef, FieldName, GetItem, Literal, Operator, VortexExpr, VortexExprExt, col,
-        ident, is_ident,
+        is_root, root,
     };
 
     #[derive(Default)]
@@ -345,7 +345,7 @@ mod tests {
         }
 
         fn visit_up(&mut self, _node: Self::NodeTy) -> VortexResult<TransformResult<Self::NodeTy>> {
-            Ok(TransformResult::yes(ident()))
+            Ok(TransformResult::yes(root()))
         }
     }
 
@@ -453,6 +453,6 @@ mod tests {
         let result = col.transform(&mut visitor).unwrap();
 
         assert!(result.changed);
-        assert!(is_ident(&result.result));
+        assert!(is_root(&result.result));
     }
 }

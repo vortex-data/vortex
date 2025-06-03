@@ -10,7 +10,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use crate::transform::immediate_access::{FieldAccesses, immediate_scope_accesses};
 use crate::transform::simplify_typed::simplify_typed;
 use crate::traversal::{FoldDown, FoldUp, FolderMut, MutNodeVisitor, Node, TransformResult};
-use crate::{DTypeEvaluationContext, ExprRef, GetItem, get_item, ident, is_ident, pack};
+use crate::{ExprRef, GetItem, ScopeDType, get_item, is_root, pack, root};
 
 static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
     LazyLock::new(DefaultHashBuilder::default);
@@ -134,7 +134,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
                 )
             };
 
-            let field_ctx = DTypeEvaluationContext::new_identity(field_dtype);
+            let field_ctx = ScopeDType::new(field_dtype);
             let expr = simplify_typed(expr.clone(), &field_ctx)?;
             let expr_dtype = expr.return_dtype(&field_ctx)?;
 
@@ -154,7 +154,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             .result()
             .transform(&mut ReplaceAccessesWithChild(remove_accesses))?;
 
-        let ctx = DTypeEvaluationContext::new_identity(dtype.clone());
+        let ctx = ScopeDType::new(dtype.clone());
 
         Ok(PartitionedExpr {
             root: simplify_typed(split.result, &ctx)?,
@@ -197,14 +197,14 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
 
             let access = get_item(
                 Self::field_idx_name(field_name, idx),
-                get_item(field_name.clone(), ident()),
+                get_item(field_name.clone(), root()),
             );
 
             return Ok(FoldDown::SkipChildren(access));
         };
 
         // If the expression is an identity, then we need to partition it into the fields of the scope.
-        if is_ident(node) {
+        if is_root(node) {
             let field_names = self.scope_dtype.names();
 
             let mut elements = Vec::with_capacity(field_names.len());
@@ -217,14 +217,14 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
 
                 let idx = sub_exprs.len();
 
-                sub_exprs.push(ident());
+                sub_exprs.push(root());
 
                 elements.push((
                     field_name.clone(),
                     // Partitions are packed into a struct of field name -> occurrence idx -> array
                     get_item(
                         Self::field_idx_name(field_name, idx),
-                        get_item(field_name.clone(), ident()),
+                        get_item(field_name.clone(), root()),
                     ),
                 ));
             }
@@ -255,9 +255,9 @@ impl MutNodeVisitor for ScopeStepIntoFieldExpr {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<ExprRef>> {
-        if is_ident(&node) {
+        if is_root(&node) {
             Ok(TransformResult::yes(pack(
-                [(self.0.clone(), ident())],
+                [(self.0.clone(), root())],
                 Nullability::NonNullable,
             )))
         } else {
@@ -292,7 +292,7 @@ mod tests {
     use super::*;
     use crate::transform::simplify::simplify;
     use crate::transform::simplify_typed::simplify_typed;
-    use crate::{Pack, and, get_item, ident, lit, pack, select};
+    use crate::{Pack, and, get_item, lit, pack, root, select};
 
     fn dtype() -> DType {
         DType::Struct(
@@ -318,7 +318,7 @@ mod tests {
     fn test_expr_top_level_ref() {
         let dtype = dtype();
 
-        let expr = ident();
+        let expr = root();
 
         let split = StructFieldExpressionSplitter::split(expr, &dtype);
 
@@ -338,15 +338,15 @@ mod tests {
     fn test_expr_top_level_ref_get_item_and_split() {
         let dtype = dtype();
 
-        let expr = get_item("b", get_item("a", ident()));
+        let expr = get_item("b", get_item("a", root()));
 
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
         let split_a = partitioned.find_partition(&"a".into());
         assert!(split_a.is_some());
         let split_a = split_a.unwrap();
 
-        assert_eq!(&partitioned.root, &get_item("a", ident()));
-        assert_eq!(&simplify(split_a.clone()).unwrap(), &get_item("b", ident()));
+        assert_eq!(&partitioned.root, &get_item("a", root()));
+        assert_eq!(&simplify(split_a.clone()).unwrap(), &get_item("b", root()));
     }
 
     #[test]
@@ -355,9 +355,9 @@ mod tests {
 
         let expr = pack(
             [
-                ("a", get_item("a", get_item("a", ident()))),
-                ("b", get_item("b", get_item("a", ident()))),
-                ("c", get_item("c", ident())),
+                ("a", get_item("a", get_item("a", root()))),
+                ("b", get_item("b", get_item("a", root()))),
+                ("c", get_item("c", root())),
             ],
             NonNullable,
         );
@@ -370,25 +370,25 @@ mod tests {
                 [
                     (
                         StructFieldExpressionSplitter::field_idx_name(&"a".into(), 0),
-                        get_item("a", ident())
+                        get_item("a", root())
                     ),
                     (
                         StructFieldExpressionSplitter::field_idx_name(&"a".into(), 1),
-                        get_item("b", ident())
+                        get_item("b", root())
                     )
                 ],
                 NonNullable
             )
         );
         let split_c = partitioned.find_partition(&"c".into()).unwrap();
-        assert_eq!(&simplify(split_c.clone()).unwrap(), &ident())
+        assert_eq!(&simplify(split_c.clone()).unwrap(), &root())
     }
 
     #[test]
     fn test_expr_top_level_ref_get_item_add() {
         let dtype = dtype();
 
-        let expr = and(get_item("b", get_item("a", ident())), lit(1));
+        let expr = and(get_item("b", get_item("a", root())), lit(1));
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // Whole expr is a single split
@@ -399,10 +399,7 @@ mod tests {
     fn test_expr_top_level_ref_get_item_add_cannot_split() {
         let dtype = dtype();
 
-        let expr = and(
-            get_item("b", get_item("a", ident())),
-            get_item("b", ident()),
-        );
+        let expr = and(get_item("b", get_item("a", root())), get_item("b", root()));
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // One for id.a and id.b
@@ -415,11 +412,10 @@ mod tests {
         let dtype = dtype();
 
         let expr = and(
-            get_item("b", get_item("a", ident())),
-            select(vec!["a".into(), "b".into()], ident()),
+            get_item("b", get_item("a", root())),
+            select(vec!["a".into(), "b".into()], root()),
         );
-        let expr =
-            simplify_typed(expr, &DTypeEvaluationContext::new_identity(dtype.clone())).unwrap();
+        let expr = simplify_typed(expr, &ScopeDType::new(dtype.clone())).unwrap();
         let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
 
         // One for id.a and id.b
@@ -432,7 +428,7 @@ mod tests {
             &and(
                 get_item(
                     StructFieldExpressionSplitter::field_idx_name(&"a".into(), 0),
-                    get_item("a", ident())
+                    get_item("a", root())
                 ),
                 pack(
                     [
@@ -440,16 +436,14 @@ mod tests {
                             "a",
                             get_item(
                                 StructFieldExpressionSplitter::field_idx_name(&"a".into(), 1),
-                                get_item("a", ident())
+                                get_item("a", root())
                             )
                         ),
-                        ("b", get_item("b", ident()))
+                        ("b", get_item("b", root()))
                     ],
                     NonNullable
                 )
             )
         )
     }
-
-    // #[te// }
 }

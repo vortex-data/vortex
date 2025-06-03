@@ -9,7 +9,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, VortexExpr};
+use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -78,7 +78,7 @@ impl VortexExpr for IsNull {
         self
     }
 
-    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
         let array = self.child.unchecked_evaluate(ctx)?;
         match array.validity_mask()? {
             Mask::AllTrue(len) => Ok(ConstantArray::new(false, len).into_array()),
@@ -99,7 +99,7 @@ impl VortexExpr for IsNull {
         )
     }
 
-    fn return_dtype(&self, _ctx: &DTypeEvaluationContext) -> VortexResult<DType> {
+    fn return_dtype(&self, _ctx: &ScopeDType) -> VortexResult<DType> {
         Ok(DType::Bool(Nullability::NonNullable))
     }
 }
@@ -116,14 +116,14 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::is_null::is_null;
-    use crate::{DTypeEvaluationContext, get_item, ident, test_harness};
+    use crate::{Scope, ScopeDType, get_item, root, test_harness};
 
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            is_null(ident())
-                .return_dtype(&DTypeEvaluationContext::new_identity(dtype))
+            is_null(root())
+                .return_dtype(&ScopeDType::new(dtype))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
@@ -131,8 +131,8 @@ mod tests {
 
     #[test]
     fn replace_children() {
-        let expr = is_null(ident());
-        let _ = expr.replacing_children(vec![ident()]);
+        let expr = is_null(root());
+        let _ = expr.replacing_children(vec![root()]);
     }
 
     #[test]
@@ -142,7 +142,9 @@ mod tests {
                 .into_array();
         let expected = [false, true, false, true, false];
 
-        let result = is_null(ident()).evaluate_array(&test_array).unwrap();
+        let result = is_null(root())
+            .evaluate(&Scope::new(test_array.clone()))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
@@ -159,7 +161,9 @@ mod tests {
     fn evaluate_all_false() {
         let test_array = PrimitiveArray::from_iter(vec![1, 2, 3, 4, 5]).into_array();
 
-        let result = is_null(ident()).evaluate_array(&test_array).unwrap();
+        let result = is_null(root())
+            .evaluate(&Scope::new(test_array.clone()))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(
@@ -174,7 +178,9 @@ mod tests {
             PrimitiveArray::from_option_iter(vec![None::<i32>, None, None, None, None])
                 .into_array();
 
-        let result = is_null(ident()).evaluate_array(&test_array).unwrap();
+        let result = is_null(root())
+            .evaluate(&Scope::new(test_array.clone()))
+            .unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(
@@ -194,8 +200,8 @@ mod tests {
         .into_array();
         let expected = [false, true, false, true, false];
 
-        let result = is_null(get_item("a", ident()))
-            .evaluate_array(&test_array)
+        let result = is_null(get_item("a", root()))
+            .evaluate(&Scope::new(test_array.clone()))
             .unwrap();
 
         assert_eq!(result.len(), test_array.len());

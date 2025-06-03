@@ -14,8 +14,8 @@ use vortex_scalar::Scalar;
 
 use crate::between::Between;
 use crate::{
-    BinaryExpr, EvaluationContext, ExprRef, GetItem, Literal, Not, Operator, VortexExprExt, and,
-    eq, get_item, gt, ident, is_ident, lit, not, or,
+    BinaryExpr, ExprRef, GetItem, Literal, Not, Operator, Scope, VortexExprExt, and, eq, get_item,
+    gt, is_root, lit, not, or, root,
 };
 
 #[derive(Debug, Clone)]
@@ -151,9 +151,7 @@ impl PruningPredicate {
             return Ok(None);
         }
 
-        Ok(Some(self.expr.evaluate(
-            &EvaluationContext::default_scope(metadata.to_array()),
-        )?))
+        Ok(Some(self.expr.evaluate(&Scope::new(metadata.to_array()))?))
     }
 }
 
@@ -169,14 +167,14 @@ fn not_prunable() -> PruningPredicateStats {
 fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
     if let Some(nexp) = expr.as_any().downcast_ref::<Not>() {
         if let Some(get_item) = nexp.child().as_any().downcast_ref::<GetItem>() {
-            if is_ident(get_item.child()) {
+            if is_root(get_item.child()) {
                 return convert_access_reference(expr, true);
             }
         }
     }
 
     if let Some(get_item) = expr.as_any().downcast_ref::<GetItem>() {
-        if is_ident(get_item.child()) {
+        if is_root(get_item.child()) {
             return convert_access_reference(expr, false);
         }
     }
@@ -197,7 +195,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
         }
 
         if let Some(get_item) = bexp.lhs().as_any().downcast_ref::<GetItem>() {
-            if is_ident(get_item.child()) {
+            if is_root(get_item.child()) {
                 return PruningPredicateRewriter::rewrite_binary_op(
                     FieldOrIdentity::Field(get_item.field().clone()),
                     bexp.op(),
@@ -207,7 +205,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
         };
 
         if let Some(get_item) = bexp.rhs().as_any().downcast_ref::<GetItem>() {
-            if is_ident(get_item.child()) {
+            if is_root(get_item.child()) {
                 return PruningPredicateRewriter::rewrite_binary_op(
                     FieldOrIdentity::Field(get_item.field().clone()),
                     bexp.op().swap(),
@@ -216,7 +214,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
             }
         }
 
-        if is_ident(bexp.lhs()) {
+        if is_root(bexp.lhs()) {
             return PruningPredicateRewriter::rewrite_binary_op(
                 FieldOrIdentity::Identity,
                 bexp.op(),
@@ -224,7 +222,7 @@ fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
             );
         };
 
-        if is_ident(bexp.rhs()) {
+        if is_root(bexp.rhs()) {
             return PruningPredicateRewriter::rewrite_binary_op(
                 FieldOrIdentity::Identity,
                 bexp.op().swap(),
@@ -313,23 +311,23 @@ impl<'a> PruningPredicateRewriter<'a> {
     fn rewrite(mut self) -> Option<PruningPredicateStats> {
         let expr: Option<ExprRef> = match self.operator {
             Operator::Eq => {
-                let min_col = get_item(self.add_stat_reference(Stat::Min), ident());
-                let max_col = get_item(self.add_stat_reference(Stat::Max), ident());
+                let min_col = get_item(self.add_stat_reference(Stat::Min), root());
+                let max_col = get_item(self.add_stat_reference(Stat::Max), root());
                 let replaced_max = self.rewrite_other_exp(Stat::Max);
                 let replaced_min = self.rewrite_other_exp(Stat::Min);
 
                 Some(or(gt(min_col, replaced_max), gt(replaced_min, max_col)))
             }
             Operator::NotEq => {
-                let min_col = get_item(self.add_stat_reference(Stat::Min), ident());
-                let max_col = get_item(self.add_stat_reference(Stat::Max), ident());
+                let min_col = get_item(self.add_stat_reference(Stat::Min), root());
+                let max_col = get_item(self.add_stat_reference(Stat::Max), root());
                 let replaced_max = self.rewrite_other_exp(Stat::Max);
                 let replaced_min = self.rewrite_other_exp(Stat::Min);
 
                 Some(and(eq(min_col, replaced_max), eq(max_col, replaced_min)))
             }
             Operator::Gt | Operator::Gte => {
-                let max_col = get_item(self.add_stat_reference(Stat::Max), ident());
+                let max_col = get_item(self.add_stat_reference(Stat::Max), root());
                 let replaced_min = self.rewrite_other_exp(Stat::Min);
 
                 Some(BinaryExpr::new_expr(
@@ -341,7 +339,7 @@ impl<'a> PruningPredicateRewriter<'a> {
                 ))
             }
             Operator::Lt | Operator::Lte => {
-                let min_col = get_item(self.add_stat_reference(Stat::Min), ident());
+                let min_col = get_item(self.add_stat_reference(Stat::Min), root());
                 let replaced_max = self.rewrite_other_exp(Stat::Max);
 
                 Some(BinaryExpr::new_expr(
@@ -364,10 +362,10 @@ fn replace_get_item_with_stat(
     stats_to_fetch: &mut Relation<FieldOrIdentity, Stat>,
 ) -> Option<ExprRef> {
     if let Some(get_i) = expr.as_any().downcast_ref::<GetItem>() {
-        if is_ident(get_i.child()) {
+        if is_root(get_i.child()) {
             let new_field = stat_field_name(get_i.field(), stat);
             stats_to_fetch.insert(FieldOrIdentity::Field(get_i.field().clone()), stat);
-            return Some(get_item(new_field, ident()));
+            return Some(get_item(new_field, root()));
         }
     }
 
@@ -448,14 +446,14 @@ mod tests {
         FieldOrIdentity, PruningPredicate, convert_to_pruning_expression, stat_field_name,
     };
     use crate::{
-        and, eq, get_item, get_item_scope, gt, gt_eq, ident, lit, lt, lt_eq, not, not_eq, or,
+        and, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq, not, not_eq, or, root,
     };
 
     #[test]
     pub fn pruning_equals() {
         let name = FieldName::from("a");
         let literal_eq = lit(42);
-        let eq_expr = eq(get_item("a", ident()), literal_eq.clone());
+        let eq_expr = eq(get_item("a", root()), literal_eq.clone());
         let (converted, refs) = convert_to_pruning_expression(&eq_expr);
         assert_eq!(
             refs.into_map(),
@@ -466,7 +464,7 @@ mod tests {
         );
         let expected_expr = or(
             gt(
-                get_item(stat_field_name(&name, Stat::Min), ident()),
+                get_item(stat_field_name(&name, Stat::Min), root()),
                 literal_eq.clone(),
             ),
             gt(
@@ -662,7 +660,7 @@ mod tests {
 
         assert_eq!(
             PruningPredicate::try_new(&not_eq_expr).unwrap().to_string(),
-            "PruningPredicate(([$].a_min >= 42i32), {a: {min}})"
+            "PruningPredicate(($.a_min >= 42i32), {a: {min}})"
         );
     }
 
@@ -700,7 +698,7 @@ mod tests {
 
     #[test]
     fn pruning_identity() {
-        let expr = ident();
+        let expr = root();
         let expr = or(lt(expr.clone(), lit(10)), gt(expr.clone(), lit(50)));
 
         let expected = HashMap::from([(

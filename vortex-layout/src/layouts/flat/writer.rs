@@ -139,7 +139,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability};
     use vortex_error::VortexUnwrap;
-    use vortex_expr::ident;
+    use vortex_expr::root;
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -176,7 +176,7 @@ mod tests {
             let result = layout
                 .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &ident())
+                .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -217,7 +217,7 @@ mod tests {
             let result = layout
                 .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &ident())
+                .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await

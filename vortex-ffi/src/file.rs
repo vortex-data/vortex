@@ -14,7 +14,7 @@ use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, deserialize_expr, ident, select};
+use vortex::expr::{ExprRef, deserialize_expr, root, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::layout::scan::ScanBuilder;
@@ -257,7 +257,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         // Apply options if provided.
         if let Some(field_names) = scan_options.field_names {
             // Field names are allowed to be `Some` and empty.
-            scan_builder = scan_builder.with_projection(select(field_names, ident()));
+            scan_builder = scan_builder.with_projection(select(field_names, root()));
         }
 
         if let Some(expr) = scan_options.filter_expr {

@@ -63,7 +63,7 @@ mod tests {
     use vortex_proto::expr::Expr;
 
     use crate::{
-        Between, ExprRef, VortexExprExt, and, deserialize_expr, eq, get_item, ident, lit, or,
+        Between, ExprRef, VortexExprExt, and, deserialize_expr, eq, get_item, lit, or, root,
     };
 
     #[test]
@@ -72,8 +72,8 @@ mod tests {
             and(
                 Between::between(
                     lit(1),
-                    ident(),
-                    get_item("a", ident()),
+                    root(),
+                    get_item("a", root()),
                     BetweenOptions {
                         lower_strict: StrictComparison::Strict,
                         upper_strict: StrictComparison::Strict,
@@ -81,7 +81,7 @@ mod tests {
                 ),
                 lit(1),
             ),
-            eq(lit(1), ident()),
+            eq(lit(1), root()),
         );
 
         let s_expr = expr.serialize().unwrap();

@@ -8,7 +8,7 @@ use vortex_array::compute::{LikeOptions, like};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, VortexExpr};
+use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -107,9 +107,9 @@ impl VortexExpr for Like {
         self
     }
 
-    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
-        let child = self.child().unchecked_evaluate(ctx)?;
-        let pattern = self.pattern().unchecked_evaluate(ctx)?;
+    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
+        let child = self.child().unchecked_evaluate(scope)?;
+        let pattern = self.pattern().unchecked_evaluate(scope)?;
         like(
             &child,
             &pattern,
@@ -134,7 +134,7 @@ impl VortexExpr for Like {
         )
     }
 
-    fn return_dtype(&self, ctx: &DTypeEvaluationContext) -> VortexResult<DType> {
+    fn return_dtype(&self, ctx: &ScopeDType) -> VortexResult<DType> {
         let input = self.child().return_dtype(ctx)?;
         let pattern = self.pattern().return_dtype(ctx)?;
         Ok(DType::Bool(
@@ -158,15 +158,15 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{DTypeEvaluationContext, Like, ident, lit, not};
+    use crate::{Like, Scope, ScopeDType, lit, not, root};
 
     #[test]
     fn invert_booleans() {
-        let not_expr = not(ident());
+        let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             not_expr
-                .evaluate_array(bools.as_ref())
+                .evaluate(&Scope::new(bools.to_array()))
                 .unwrap()
                 .to_bool()
                 .unwrap()
@@ -180,11 +180,9 @@ mod tests {
     #[test]
     fn dtype() {
         let dtype = DType::Utf8(Nullability::NonNullable);
-        let like_expr = Like::new_expr(ident(), lit("%test%"), false, false);
+        let like_expr = Like::new_expr(root(), lit("%test%"), false, false);
         assert_eq!(
-            like_expr
-                .return_dtype(&DTypeEvaluationContext::new_identity(dtype))
-                .unwrap(),
+            like_expr.return_dtype(&ScopeDType::new(dtype)).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
     }

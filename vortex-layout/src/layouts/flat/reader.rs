@@ -10,7 +10,7 @@ use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, is_ident};
+use vortex_expr::{ExprRef, Scope, is_root};
 use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
@@ -183,11 +183,11 @@ impl MaskEvaluation for FlatEvaluation {
         let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
             // Evaluate only the selected rows of the mask.
             array = filter(&array, &mask)?;
-            let array_mask = Mask::try_from(self.expr.evaluate_array(&array)?.as_ref())?;
+            let array_mask = Mask::try_from(self.expr.evaluate(&Scope::new(array))?.as_ref())?;
             mask.intersect_by_rank(&array_mask)
         } else {
             // Evaluate all rows, avoiding the more expensive rank intersection.
-            array = self.expr.evaluate_array(&array)?;
+            array = self.expr.evaluate(&Scope::new(array))?;
             let array_mask = Mask::try_from(array.as_ref())?;
             mask.bitand(&array_mask)
         };
@@ -228,8 +228,8 @@ impl ArrayEvaluation for FlatEvaluation {
         }
 
         // Evaluate the projection expression.
-        if !is_ident(&self.expr) {
-            array = self.expr.evaluate_array(&array)?;
+        if !is_root(&self.expr) {
+            array = self.expr.evaluate(&Scope::new(array))?;
         }
 
         Ok(array)
@@ -247,7 +247,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, ToCanonical};
     use vortex_buffer::buffer;
-    use vortex_expr::{gt, ident, lit};
+    use vortex_expr::{gt, lit, root};
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -280,7 +280,7 @@ mod test {
             let result = layout
                 .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &ident())
+                .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -317,7 +317,7 @@ mod test {
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
-            let expr = gt(ident(), lit(3i32));
+            let expr = gt(root(), lit(3i32));
             let result = layout
                 .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
@@ -361,7 +361,7 @@ mod test {
             let result = layout
                 .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(2..4), &ident())
+                .projection_evaluation(&(2..4), &root())
                 .unwrap()
                 .invoke(Mask::new_true(2))
                 .await

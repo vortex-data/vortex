@@ -204,7 +204,7 @@ pub fn literal<'py>(
 #[pyfunction]
 pub fn ident() -> PyExpr {
     PyExpr {
-        inner: vortex::expr::ident(),
+        inner: vortex::expr::root(),
     }
 }
 
@@ -232,7 +232,7 @@ pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> 
     Bound::new(
         py,
         PyExpr {
-            inner: vortex::expr::get_item(name, vortex::expr::ident()),
+            inner: vortex::expr::get_item(name, vortex::expr::root()),
         },
     )
 }

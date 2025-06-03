@@ -5,7 +5,7 @@ use vortex_dtype::{FieldName, StructFields};
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
-use crate::{ExprRef, GetItem, Select, is_ident};
+use crate::{ExprRef, GetItem, Select, is_root};
 
 pub type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
 
@@ -68,13 +68,13 @@ impl<'a> NodeVisitor<'a> for ImmediateScopeAccessesAnalysis<'a> {
             "cannot analyse select, simply the expression"
         );
         if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
-            if is_ident(get_item.child()) {
+            if is_root(get_item.child()) {
                 self.sub_expressions
                     .insert(node, HashSet::from_iter(vec![get_item.field().clone()]));
 
                 return Ok(TraversalOrder::Skip);
             }
-        } else if is_ident(node) {
+        } else if is_root(node) {
             let st_dtype = &self.scope_dtype;
             self.sub_expressions
                 .insert(node, st_dtype.names().iter().cloned().collect());

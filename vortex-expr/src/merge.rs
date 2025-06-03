@@ -10,7 +10,7 @@ use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
-use crate::{DTypeEvaluationContext, EvaluationContext, ExprRef, VortexExpr};
+use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
 /// Merge zero or more expressions that ALL return structs.
 ///
@@ -93,7 +93,7 @@ impl VortexExpr for Merge {
         self
     }
 
-    fn unchecked_evaluate(&self, ctx: &EvaluationContext) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
         let len = ctx.len();
         let value_arrays = self
             .values
@@ -147,7 +147,7 @@ impl VortexExpr for Merge {
         Self::new_expr(children, self.nullability)
     }
 
-    fn return_dtype(&self, ctx: &DTypeEvaluationContext) -> VortexResult<DType> {
+    fn return_dtype(&self, ctx: &ScopeDType) -> VortexResult<DType> {
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
 
@@ -188,7 +188,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{Merge, VortexExpr, get_item, ident};
+    use crate::{Merge, Scope, VortexExpr, get_item, root};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
@@ -208,9 +208,9 @@ mod tests {
     pub fn test_merge() {
         let expr = Merge::new_expr(
             vec![
-                get_item("0", ident()),
-                get_item("1", ident()),
-                get_item("2", ident()),
+                get_item("0", root()),
+                get_item("1", root()),
+                get_item("2", root()),
             ],
             Nullability::NonNullable,
         );
@@ -246,7 +246,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate_array(&test_array).unwrap();
+        let actual_array = expr.evaluate(&Scope::new(test_array)).unwrap();
 
         assert_eq!(
             actual_array.as_struct_typed().names(),
@@ -292,7 +292,7 @@ mod tests {
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
-        let actual_array = expr.evaluate_array(&test_array).unwrap();
+        let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.as_struct_typed().nfields(), 0);
     }
@@ -302,7 +302,7 @@ mod tests {
         // Nested structs are not merged!
 
         let expr = Merge::new_expr(
-            vec![get_item("0", ident()), get_item("1", ident())],
+            vec![get_item("0", root()), get_item("1", root())],
             Nullability::NonNullable,
         );
 
@@ -336,7 +336,7 @@ mod tests {
         .unwrap()
         .into_array();
         let actual_array = expr
-            .evaluate_array(&test_array)
+            .evaluate(&Scope::new(test_array.clone()))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -358,7 +358,7 @@ mod tests {
     #[test]
     pub fn test_merge_order() {
         let expr = Merge::new_expr(
-            vec![get_item("0", ident()), get_item("1", ident())],
+            vec![get_item("0", root()), get_item("1", root())],
             Nullability::NonNullable,
         );
 
@@ -385,7 +385,7 @@ mod tests {
         .unwrap()
         .into_array();
         let actual_array = expr
-            .evaluate_array(&test_array)
+            .evaluate(&Scope::new(test_array.clone()))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -398,7 +398,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_nullable() {
-        let expr = Merge::new_expr(vec![get_item("0", ident())], Nullability::Nullable);
+        let expr = Merge::new_expr(vec![get_item("0", root())], Nullability::Nullable);
 
         let test_array = StructArray::from_fields(&[(
             "0",
@@ -411,7 +411,7 @@ mod tests {
         )])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate_array(&test_array).unwrap();
+        let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
         assert!(actual_array.dtype().is_nullable());
     }
 }
