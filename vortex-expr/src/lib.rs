@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt::{Debug, Display};
+use std::hash::Hash;
 use std::sync::Arc;
 
 use dyn_hash::DynHash;
@@ -191,6 +192,25 @@ impl PartialEq for dyn VortexExpr {
 impl Eq for dyn VortexExpr {}
 
 dyn_hash::hash_trait_object!(VortexExpr);
+
+/// An expression wrapper that performs pointer equality.
+/// NOTE(ngates): we should consider if this shoud live in vortex-expr crate?
+#[derive(Clone)]
+pub struct ExactExpr(pub ExprRef);
+
+impl PartialEq for ExactExpr {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ExactExpr {}
+
+impl Hash for ExactExpr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.0).hash(state)
+    }
+}
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {

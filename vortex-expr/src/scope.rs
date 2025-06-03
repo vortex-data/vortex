@@ -114,6 +114,10 @@ impl ScopeDType {
         }
     }
 
+    pub fn value_size(&self) -> usize {
+        self.types.keys().count() + self.root.as_ref().map(|_| 1).unwrap_or(0)
+    }
+
     pub fn dtype(&self, id: &Identifier) -> VortexResult<&DType> {
         if id.as_ref() == IDENTITY_IDENTIFIER {
             return self

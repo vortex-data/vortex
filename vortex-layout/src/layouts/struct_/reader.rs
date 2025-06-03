@@ -16,7 +16,7 @@ use vortex_array::{ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
-use vortex_expr::{ExprRef, Scope};
+use vortex_expr::{ExactExpr, ExprRef, Scope};
 use vortex_mask::Mask;
 
 use crate::layouts::struct_::StructLayout;
@@ -105,25 +105,6 @@ impl StructReader {
                 )
             })
             .clone()
-    }
-}
-
-/// An expression wrapper that performs pointer equality.
-/// NOTE(ngates): we should consider if this shoud live in vortex-expr crate?
-#[derive(Clone)]
-struct ExactExpr(ExprRef);
-
-impl PartialEq for ExactExpr {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl Eq for ExactExpr {}
-
-impl Hash for ExactExpr {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        Arc::as_ptr(&self.0).hash(state)
     }
 }
 
