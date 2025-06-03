@@ -76,7 +76,7 @@ impl ZstdArray {
 
             Ok(ZstdArray::new(compressed_buffer, dtype, uncompressed_len))
         } else {
-            return Err(vortex_err!("Zstd can only encode primitive arrays"));
+            Err(vortex_err!("Zstd can only encode primitive arrays"))
         }
     }
 

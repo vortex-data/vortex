@@ -19,7 +19,7 @@ impl SerdeVTable<ZstdVTable> for ZstdVTable {
 
     fn metadata(array: &ZstdArray) -> VortexResult<Option<Self::Metadata>> {
         Ok(Some(ProstMetadata(ZstdMetadata {
-            uncompressed_len: array.uncompressed_len as u32,
+            uncompressed_len: u32::try_from(array.uncompressed_len)?,
         })))
     }
 
