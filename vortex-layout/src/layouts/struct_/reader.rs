@@ -487,7 +487,6 @@ mod tests {
     ) {
         let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
 
-        //  select * from hits where (row_id > 0 and row_id2 > 0) is null ;
         let filt = is_null(and(
             eq(get_item_scope("a"), lit(0)),
             eq(get_item_scope("b"), lit(0)),
