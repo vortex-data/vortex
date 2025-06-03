@@ -333,14 +333,15 @@ mod tests {
     use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream;
+    use itertools::Itertools;
     use rstest::{fixture, rstest};
-    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{DType, StructFields};
-    use vortex_expr::{get_item, gt, ident, pack};
+    use vortex_dtype::{DType, Nullability, StructFields};
+    use vortex_expr::{and, eq, get_item, get_item_scope, gt, ident, is_null, lit, pack};
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -392,6 +393,61 @@ mod tests {
 
         (ctx, Arc::new(segments), layout)
     }
+    #[fixture]
+    /// Create a chunked layout with three chunks of primitive arrays.
+    fn nullable_struct_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
+        let ctx = ArrayContext::empty();
+        let segments = TestSegments::default();
+        let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+        let strategy =
+            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let layout = block_on(
+            strategy.write_stream(
+                &ctx,
+                sequence_writer,
+                SequentialStreamAdapter::new(
+                    DType::Struct(
+                        Arc::new(StructFields::new(
+                            vec!["a".into(), "b".into(), "c".into()].into(),
+                            vec![
+                                DType::Primitive(I32, Nullability::Nullable),
+                                I32.into(),
+                                I32.into(),
+                            ],
+                        )),
+                        NonNullable,
+                    ),
+                    stream::once(async {
+                        Ok((
+                            SequenceId::root().downgrade(),
+                            StructArray::from_fields(
+                                [
+                                    (
+                                        "a",
+                                        PrimitiveArray::from_option_iter([
+                                            Option::<i32>::None,
+                                            None,
+                                            None,
+                                        ])
+                                        .to_array(),
+                                    ),
+                                    ("b", buffer![4, 5, 6].into_array()),
+                                    ("c", buffer![4, 5, 6].into_array()),
+                                ]
+                                .as_slice(),
+                            )
+                            .unwrap()
+                            .into_array(),
+                        ))
+                    }),
+                )
+                .sendable(),
+            ),
+        )
+        .unwrap();
+
+        (ctx, Arc::new(segments), layout)
+    }
 
     #[rstest]
     fn test_struct_layout(
@@ -418,6 +474,47 @@ mod tests {
                 .boolean_buffer()
                 .iter()
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[rstest]
+    fn test_struct_layout_or(
+        #[from(nullable_struct_layout)] (ctx, segments, layout): (
+            ArrayContext,
+            Arc<dyn SegmentSource>,
+            LayoutRef,
+        ),
+    ) {
+        let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
+
+        //  select * from hits where (row_id > 0 and row_id2 > 0) is null ;
+        let filt = is_null(and(
+            eq(get_item_scope("a"), lit(0)),
+            eq(get_item_scope("b"), lit(0)),
+        ));
+        let result = block_on(
+            reader
+                .filter_evaluation(&(0..3), &filt)
+                .unwrap()
+                .invoke(Mask::new_true(3)),
+        )
+        .unwrap();
+
+        let proj = block_on(
+            reader
+                .projection_evaluation(&(0..3), &lit(true))
+                .unwrap()
+                .invoke(result.clone()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            vec![true, true, true],
+            proj.to_bool()
+                .unwrap()
+                .boolean_buffer()
+                .iter()
+                .collect_vec()
         );
     }
 
