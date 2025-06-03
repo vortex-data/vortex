@@ -117,7 +117,7 @@ impl ArrayExporter {
 /// Exporter for a single column of a DuckDB data chunk.
 ///
 /// NOTE(ngates): we could actually convert this into a Vortex compute function that takes
-///  the offset, len and [`WritableVector`] as options. Not sure what it should return though?
+///  the offset, len and `WritableVector` as options. Not sure what it should return though?
 ///  This would allow Vortex extension authors to plug into the DuckDB exporter system.
 pub trait ColumnExporter {
     /// Export the given range of data from the Vortex array to the DuckDB vector.
