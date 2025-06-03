@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::hash::Hash;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
@@ -319,6 +318,7 @@ mod tests {
     use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream;
+    use itertools::Itertools;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::StructArray;
     use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
@@ -326,7 +326,7 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
-    use vortex_expr::{get_item, gt, pack, root};
+    use vortex_expr::{eq, get_item, get_item_scope, gt, lit, or, pack, root};
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -377,6 +377,35 @@ mod tests {
         .unwrap();
 
         (ctx, Arc::new(segments), layout)
+    }
+
+    #[rstest]
+    fn test_struct_layout_or(
+        #[from(struct_layout)] (ctx, segments, layout): (
+            ArrayContext,
+            Arc<dyn SegmentSource>,
+            LayoutRef,
+        ),
+    ) {
+        let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
+        let filt = or(
+            eq(get_item_scope("a"), lit(7)),
+            or(
+                eq(get_item_scope("b"), lit(5)),
+                eq(get_item_scope("a"), lit(3)),
+            ),
+        );
+        let result = block_on(
+            reader
+                .filter_evaluation(&(0..3), &filt)
+                .unwrap()
+                .invoke(Mask::new_true(3)),
+        )
+        .unwrap();
+        assert_eq!(
+            vec![true, true, true],
+            result.to_boolean_buffer().iter().collect_vec()
+        );
     }
 
     #[rstest]

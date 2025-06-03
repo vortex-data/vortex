@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use itertools::Itertools;
 use vortex_array::aliases::hash_map::{DefaultHashBuilder, HashMap};
-use vortex_dtype::{FieldName, FieldNames, Nullability};
+use vortex_dtype::{FieldName, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::transform::access_analysis::{Accesses, variable_scope_accesses};
@@ -17,8 +17,8 @@ static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
     LazyLock::new(DefaultHashBuilder::default);
 
 /// Partition an expression over the variables.
-pub fn var_partitions(expr: ExprRef) -> VortexResult<VarPartitionedExpr> {
-    VariableExpressionSplitter::split(expr)
+pub fn var_partitions(expr: &ExprRef) -> VortexResult<VarPartitionedExpr> {
+    VariableExpressionSplitter::split(&expr)
 }
 
 // TODO(joe): replace with let expressions.
@@ -30,7 +30,7 @@ pub struct VarPartitionedExpr {
     /// The partitions of the expression.
     pub partitions: Box<[ExprRef]>,
     /// The field names for the partitions
-    pub partition_names: FieldNames,
+    pub partition_names: Box<[Identifier]>,
 }
 
 impl Display for VarPartitionedExpr {
@@ -50,7 +50,7 @@ impl Display for VarPartitionedExpr {
 
 impl VarPartitionedExpr {
     /// Return the partition for a given field, if it exists.
-    pub fn find_partition(&self, field: &FieldName) -> Option<&ExprRef> {
+    pub fn find_partition(&self, field: &Identifier) -> Option<&ExprRef> {
         self.partition_names
             .iter()
             .position(|name| name == field)
@@ -79,7 +79,7 @@ impl<'a> VariableExpressionSplitter<'a> {
         hasher.finish().to_string().into()
     }
 
-    fn split(expr: ExprRef) -> VortexResult<VarPartitionedExpr> {
+    fn split(expr: &ExprRef) -> VortexResult<VarPartitionedExpr> {
         let field_accesses = variable_scope_accesses(&expr)?;
 
         let mut splitter = VariableExpressionSplitter::new(&field_accesses);
@@ -193,7 +193,7 @@ mod tests {
 
         let expr = root();
 
-        let split = VariableExpressionSplitter::split(expr);
+        let split = VariableExpressionSplitter::split(&expr);
 
         assert!(split.is_ok());
 
@@ -212,7 +212,7 @@ mod tests {
 
         let expr = pack([("root", root()), ("x", var("x"))], NonNullable);
 
-        let partitioned = VariableExpressionSplitter::split(expr).unwrap();
+        let partitioned = VariableExpressionSplitter::split(&expr).unwrap();
         println!("{}", partitioned);
         println!("{:?}", partitioned);
 
@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn test_expr_top_level_ref_get_item_and_split_pack() {
         let expr = and(and(var("x"), root()), var("x"));
-        let partitioned = VariableExpressionSplitter::split(expr).unwrap();
+        let partitioned = VariableExpressionSplitter::split(&expr).unwrap();
         println!("{}", partitioned);
         println!("{:?}", partitioned);
 
