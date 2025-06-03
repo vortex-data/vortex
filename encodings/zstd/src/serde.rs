@@ -1,34 +1,44 @@
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
-use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, ProstMetadata};
+use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, ProstMetadata};
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{ZstdArray, ZstdEncoding, ZstdVTable};
 
-/// Metadata for zstd arrays - stores the uncompressed length and original dtype
+#[derive(Clone, prost::Message)]
+pub struct ZstdBufferMetadata {
+    #[prost(uint64, tag = "1")]
+    pub compressed_size: u64,
+    #[prost(uint64, tag = "2")]
+    pub uncompressed_size: u64,
+}
+
 #[derive(Clone, prost::Message)]
 pub struct ZstdMetadata {
+    // optional, will be 0 if there's no dictionary
     #[prost(uint32, tag = "1")]
-    pub uncompressed_len: u32,
+    pub dictionary_size: u32,
+    #[prost(message, repeated, tag = "2")]
+    pub buffers: Vec<ZstdBufferMetadata>,
+    #[prost(uint32, tag = "3")]
+    pub rows_per_buffer: u32,
 }
 
 impl SerdeVTable<ZstdVTable> for ZstdVTable {
     type Metadata = ProstMetadata<ZstdMetadata>;
 
     fn metadata(array: &ZstdArray) -> VortexResult<Option<Self::Metadata>> {
-        Ok(Some(ProstMetadata(ZstdMetadata {
-            uncompressed_len: u32::try_from(array.uncompressed_len)?,
-        })))
+        Ok(Some(ProstMetadata(array.metadata.clone())))
     }
 
     fn build(
         _encoding: &ZstdEncoding,
         dtype: &DType,
         len: usize,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &ZstdMetadata,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ZstdArray> {
@@ -41,19 +51,20 @@ impl SerdeVTable<ZstdVTable> for ZstdVTable {
             vortex_bail!("ZstdArray expected 0 or 1 child, got {}", children.len());
         };
 
-        if buffers.len() != 1 {
-            vortex_bail!(
-                "ZstdArray should have exactly 1 buffer, got {}",
-                buffers.len()
-            );
-        }
-
-        let compressed_data = buffers[0].clone();
+        let (dictionary_buffer, compressed_buffers) = if metadata.dictionary_size == 0 {
+            // no dictionary
+            (ByteBuffer::empty(), buffers.to_vec())
+        } else {
+            // with dictionary
+            (buffers[0].clone(), buffers[1..].to_vec())
+        };
 
         Ok(ZstdArray::new(
-            compressed_data,
+            dictionary_buffer,
+            compressed_buffers,
             dtype.clone(),
-            metadata.uncompressed_len as usize,
+            metadata.clone(),
+            len,
             validity,
         ))
     }
@@ -67,13 +78,15 @@ impl EncodeVTable<ZstdVTable> for ZstdVTable {
     ) -> VortexResult<Option<ZstdArray>> {
         let parray = canonical.clone().into_primitive()?;
 
-        Ok(Some(ZstdArray::from_primitive(&parray, 3)?))
+        Ok(Some(ZstdArray::from_primitive(&parray, 3, 0)?))
     }
 }
 
 impl VisitorVTable<ZstdVTable> for ZstdVTable {
     fn visit_buffers(array: &ZstdArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(array.compressed_data());
+        for buffer in &array.compressed_buffers {
+            visitor.visit_buffer(buffer);
+        }
     }
 
     fn visit_children(array: &ZstdArray, visitor: &mut dyn ArrayChildVisitor) {

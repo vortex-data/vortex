@@ -1,3 +1,5 @@
+use std::io::Read;
+
 use vortex_array::ToCanonical;
 use vortex_array::arrays::{BoolArray, PrimitiveArray};
 use vortex_array::validity::Validity;
