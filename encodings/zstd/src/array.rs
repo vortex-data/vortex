@@ -46,6 +46,7 @@ pub struct ZstdArray {
     dtype: DType,
     compressed_data: ByteBuffer,
     pub(crate) uncompressed_len: usize,
+    pub(crate) validity: Validity,
     stats_set: ArrayStats,
 }
 
@@ -54,11 +55,17 @@ impl ZstdArray {
         &self.compressed_data
     }
 
-    pub fn new(compressed_data: ByteBuffer, dtype: DType, uncompressed_len: usize) -> Self {
+    pub fn new(
+        compressed_data: ByteBuffer,
+        dtype: DType,
+        uncompressed_len: usize,
+        validity: Validity,
+    ) -> Self {
         Self {
             dtype,
             compressed_data,
             uncompressed_len,
+            validity,
             stats_set: Default::default(),
         }
     }
@@ -73,7 +80,12 @@ impl ZstdArray {
         let dtype = parray.dtype().clone();
         let uncompressed_len = parray.nbytes();
 
-        Ok(ZstdArray::new(compressed_buffer, dtype, uncompressed_len))
+        Ok(ZstdArray::new(
+            compressed_buffer,
+            dtype,
+            uncompressed_len,
+            parray.validity().clone(),
+        ))
     }
 
     pub fn try_from_array(array: ArrayRef, level: i32) -> VortexResult<Self> {
@@ -92,7 +104,7 @@ impl ZstdArray {
         let buffer = ByteBuffer::from(decompressed);
 
         let primitive =
-            PrimitiveArray::from_byte_buffer(buffer, self.dtype.as_ptype(), Validity::NonNullable);
+            PrimitiveArray::from_byte_buffer(buffer, self.dtype.as_ptype(), self.validity.clone());
 
         Ok(primitive.into_array())
     }
@@ -100,7 +112,7 @@ impl ZstdArray {
 
 impl ValidityHelper for ZstdArray {
     fn validity(&self) -> &Validity {
-        &Validity::NonNullable
+        &self.validity
     }
 }
 

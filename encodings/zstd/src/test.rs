@@ -1,6 +1,7 @@
 use vortex_array::ToCanonical;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::{BoolArray, PrimitiveArray};
 use vortex_array::validity::Validity;
+use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 
 use crate::ZstdArray;
@@ -13,7 +14,7 @@ macro_rules! assert_nth_scalar {
 
 #[test]
 fn test_zstd_compress_decompress() {
-    let data: Vec<i32> = (0..1000).collect();
+    let data: Vec<i32> = (0..200).collect();
     let array = PrimitiveArray::new(
         data.iter().cloned().collect::<Buffer<_>>(),
         Validity::NonNullable,
@@ -32,4 +33,26 @@ fn test_zstd_compress_decompress() {
     // check full decompression works
     let decompressed = compressed.decompress().unwrap().to_primitive().unwrap();
     assert_eq!(decompressed.as_slice::<i32>(), &data);
+}
+
+#[test]
+fn test_zstd_with_validity() {
+    let data: Vec<i32> = (0..200).collect();
+    let mut validity: Vec<bool> = vec![false; 200];
+    validity[3] = true;
+    validity[177] = true;
+    let array = PrimitiveArray::new(
+        data.iter().cloned().collect::<Buffer<_>>(),
+        Validity::Array(BoolArray::from_iter(validity).to_array()),
+    );
+
+    let compressed = ZstdArray::from_primitive(&array, 0).unwrap();
+    assert_nth_scalar!(compressed, 0, None::<i32>);
+    assert_nth_scalar!(compressed, 3, 3);
+    assert_nth_scalar!(compressed, 10, None::<i32>);
+    assert_nth_scalar!(compressed, 177, 177);
+
+    let decompressed = compressed.decompress().unwrap().to_primitive().unwrap();
+    assert_eq!(decompressed.as_slice::<i32>(), &data);
+    assert_eq!(decompressed.validity(), array.validity());
 }

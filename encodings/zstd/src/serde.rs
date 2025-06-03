@@ -1,4 +1,5 @@
 use vortex_array::serde::ArrayChildren;
+use vortex_array::validity::Validity;
 use vortex_array::vtable::{EncodeVTable, SerdeVTable, VisitorVTable};
 use vortex_array::{ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, ProstMetadata};
 use vortex_buffer::ByteBuffer;
@@ -26,14 +27,19 @@ impl SerdeVTable<ZstdVTable> for ZstdVTable {
     fn build(
         _encoding: &ZstdEncoding,
         dtype: &DType,
-        _len: usize,
+        len: usize,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         buffers: &[ByteBuffer],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ZstdArray> {
-        if !children.is_empty() {
-            vortex_bail!("ZstdArray should have no children, got {}", children.len());
-        }
+        let validity = if children.is_empty() {
+            Validity::from(dtype.nullability())
+        } else if children.len() == 1 {
+            let validity = children.get(0, &Validity::DTYPE, len)?;
+            Validity::Array(validity)
+        } else {
+            vortex_bail!("ZstdArray expected 0 or 1 child, got {}", children.len());
+        };
 
         if buffers.len() != 1 {
             vortex_bail!(
@@ -48,6 +54,7 @@ impl SerdeVTable<ZstdVTable> for ZstdVTable {
             compressed_data,
             dtype.clone(),
             metadata.uncompressed_len as usize,
+            validity,
         ))
     }
 }
@@ -69,7 +76,7 @@ impl VisitorVTable<ZstdVTable> for ZstdVTable {
         visitor.visit_buffer(array.compressed_data());
     }
 
-    fn visit_children(_array: &ZstdArray, _visitor: &mut dyn ArrayChildVisitor) {
-        // ZstdArray has no children
+    fn visit_children(array: &ZstdArray, visitor: &mut dyn ArrayChildVisitor) {
+        visitor.visit_validity(&array.validity, array.len());
     }
 }
