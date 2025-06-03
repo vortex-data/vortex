@@ -24,7 +24,7 @@ pub struct RowIdLayoutReader {
 static ROW_ID: LazyLock<Identifier> = LazyLock::new(|| Arc::from("row_id"));
 
 impl RowIdLayoutReader {
-    fn new(child: LayoutReaderRef) -> Self {
+    pub fn new(child: LayoutReaderRef) -> Self {
         Self {
             child,
             name: Arc::from("row_id_layout_reader"),

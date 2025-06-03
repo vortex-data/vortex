@@ -21,11 +21,13 @@ use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ExprRef, ScopeDType, root};
+use vortex_expr::{ExprRef, ScopeDType, VortexExprExt, root};
 use vortex_metrics::VortexMetrics;
 
 use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
+use crate::layouts::row_id::RowIdLayoutReader;
+
 mod executor;
 pub mod row_mask;
 mod selection;
@@ -151,10 +153,13 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Constructs a task per row split of the scan, returned as a vector of futures.
     #[allow(clippy::unused_enumerate_index)]
     pub fn build(self) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<A>>>>> {
+        let mut layout_reader = self.layout_reader;
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let mut layout_reader = self.layout_reader;
-        if self.filter.is_some() {
+        if let Some(filter) = &self.filter {
+            if filter.vars().contains("row_id") {
+                layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
+            }
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
         }
         let ctx = ScopeDType::new(layout_reader.dtype().clone());

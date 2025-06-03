@@ -1,7 +1,9 @@
 mod references;
+mod vars;
 mod visitor;
 
 pub use references::ReferenceCollector;
+pub use vars::VarsCollector;
 pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
 
@@ -406,7 +408,7 @@ mod tests {
         assert_eq!(
             nodes
                 .into_iter()
-                .map(|x| x.references())
+                .map(|x| x.root_references())
                 .fold(HashSet::new(), |acc, x| acc.union(&x).cloned().collect()),
             HashSet::from_iter(vec![FieldName::from("col3"), FieldName::from("col4")])
         );
@@ -439,7 +441,7 @@ mod tests {
         assert_eq!(
             nodes
                 .into_iter()
-                .map(|x| x.references())
+                .map(|x| x.root_references())
                 .fold(HashSet::new(), |acc, x| acc.union(&x).cloned().collect()),
             HashSet::from_iter(vec![])
         );

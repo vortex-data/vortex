@@ -57,7 +57,7 @@ use vortex_proto::expr;
 #[cfg(feature = "proto")]
 use vortex_proto::expr::{Expr, kind};
 
-use crate::traversal::{Node, ReferenceCollector};
+use crate::traversal::{Node, ReferenceCollector, VarsCollector};
 
 pub type ExprRef = Arc<dyn VortexExpr>;
 
@@ -119,18 +119,27 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSeri
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
-    fn references(&self) -> HashSet<FieldName>;
+    fn root_references(&self) -> HashSet<FieldName>;
+
+    fn vars(&self) -> HashSet<Identifier>;
 
     #[cfg(feature = "proto")]
     fn serialize(&self) -> VortexResult<Expr>;
 }
 
 impl VortexExprExt for ExprRef {
-    fn references(&self) -> HashSet<FieldName> {
+    fn root_references(&self) -> HashSet<FieldName> {
         let mut collector = ReferenceCollector::new();
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
         collector.into_fields()
+    }
+
+    fn vars(&self) -> HashSet<Identifier> {
+        let mut collector = VarsCollector::new();
+        // The collector is infallible, so we can unwrap the result
+        self.accept(&mut collector).vortex_unwrap();
+        collector.into_vars()
     }
 
     #[cfg(feature = "proto")]

@@ -274,7 +274,7 @@ impl<'a> PruningPredicateRewriter<'a> {
         // TODO(robert): Simplify expression to guarantee that each column is not compared to itself
         //  For majority of cases self column references are likely not prunable
         if let FieldOrIdentity::Field(field) = &access {
-            if other_exp.references().contains(field) {
+            if other_exp.root_references().contains(field) {
                 return None;
             }
         };
