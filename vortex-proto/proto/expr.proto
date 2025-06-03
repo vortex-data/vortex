@@ -29,6 +29,7 @@ message Kind {
     Like like = 9;
     IsNull is_null = 10;
     Cast cast = 11;
+    ListContains list_contains = 12;
   }
 
   message Literal {
@@ -82,6 +83,10 @@ message Kind {
 
   message Cast {
     vortex.dtype.DType target = 1;
+  }
+
+  message ListContains {
+    vortex.scalar.Scalar value = 1;
   }
 }
 

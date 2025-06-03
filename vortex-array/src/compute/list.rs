@@ -46,7 +46,7 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 /// assert_eq!(to_vec, vec![false, true, false]);
 /// ```
 pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef> {
-    let DType::List(elem_dtype, _nullability) = array.dtype() else {
+    let DType::List(elem_dtype, nullability) = array.dtype() else {
         vortex_bail!("Array must be of List type");
     };
     if &**elem_dtype != value.dtype() {
@@ -68,7 +68,10 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
     }
 
     let elems = list_array.elements();
-    let ends = list_array.offsets().to_primitive()?;
+    if elems.is_empty() {
+        // Must return false when a list is empty (but valid), or null when the list itself is null.
+        return list_false_or_null(&list_array);
+    }
 
     let rhs = ConstantArray::new(value, elems.len());
     let matching_elements = compare(elems, rhs.as_ref(), Operator::Eq)?;
@@ -76,12 +79,34 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
 
     // Fast path: no elements match.
     if let Some(pred) = matches.as_constant() {
-        if matches!(pred.as_bool().value(), None | Some(false)) {
-            // TODO(aduffy): how do we handle null?
-            return Ok(ConstantArray::new::<bool>(false, list_array.len()).into_array());
-        }
+        return match pred.as_bool().value() {
+            // All comparisons are invalid (result in `null`), and search is not null because
+            // we already checked for null above.
+            None => {
+                assert!(
+                    !rhs.scalar().is_null(),
+                    "Search value must not be null here"
+                );
+                // False, unless the list itself is null in which case we return null.
+                list_false_or_null(&list_array)
+            }
+            // No elements match, and all comparisons are valid (result in `false`).
+            Some(false) => {
+                // False, but match the nullability to the input list array.
+                Ok(
+                    ConstantArray::new(Scalar::bool(false, *nullability), list_array.len())
+                        .into_array(),
+                )
+            }
+            // All elements match, and all comparisons are valid (result in `true`).
+            Some(true) => {
+                // True, unless the list itself is empty or NULL.
+                list_is_not_empty(&list_array)
+            }
+        };
     }
 
+    let ends = list_array.offsets().to_primitive()?;
     match_each_integer_ptype!(ends.ptype(), |T| {
         Ok(reduce_with_ends(
             ends.as_slice::<T>(),
@@ -99,28 +124,15 @@ fn list_contains_null(list_array: &ListArray) -> VortexResult<ArrayRef> {
     // Check element validity. We need to intersect
     match elems.validity_mask()? {
         // No NULL elements
-        Mask::AllTrue(_) => match list_array.validity() {
-            Validity::NonNullable => {
-                Ok(ConstantArray::new::<bool>(false, list_array.len()).into_array())
-            }
-            Validity::AllValid => Ok(ConstantArray::new(
-                Scalar::bool(true, Nullability::Nullable),
-                list_array.len(),
-            )
-            .into_array()),
-            Validity::AllInvalid => Ok(ConstantArray::new(
-                Scalar::null(DType::Bool(Nullability::Nullable)),
-                list_array.len(),
-            )
-            .into_array()),
-            Validity::Array(list_mask) => {
-                // Create a new bool array with false, and the provided nulls
-                let buffer = BooleanBuffer::new_unset(list_array.len());
-                Ok(BoolArray::new(buffer, Validity::Array(list_mask.clone())).into_array())
-            }
-        },
-        // All null elements
-        Mask::AllFalse(_) => Ok(ConstantArray::new::<bool>(true, list_array.len()).into_array()),
+        Mask::AllTrue(_) => {
+            // False, unless the list itself is NULL.
+            list_false_or_null(list_array)
+        }
+        // All NULL elements.
+        Mask::AllFalse(_) => {
+            // True, unless the list itself is empty or NULL.
+            list_is_not_empty(list_array)
+        }
         Mask::Values(mask) => {
             let nulls = invert(&mask.into_array())?.to_bool()?;
             let ends = list_array.offsets().to_primitive()?;
@@ -133,6 +145,58 @@ fn list_contains_null(list_array: &ListArray) -> VortexResult<ArrayRef> {
             })
         }
     }
+}
+
+/// Returns a `Bool` array with `false` for lists that are valid,
+/// or `NULL` if the list itself is null.
+fn list_false_or_null(list_array: &ListArray) -> VortexResult<ArrayRef> {
+    match list_array.validity() {
+        Validity::NonNullable => {
+            // All false.
+            Ok(ConstantArray::new::<bool>(false, list_array.len()).into_array())
+        }
+        Validity::AllValid => {
+            // All false, but nullable.
+            Ok(
+                ConstantArray::new(Scalar::bool(false, Nullability::Nullable), list_array.len())
+                    .into_array(),
+            )
+        }
+        Validity::AllInvalid => {
+            // All nulls, must be nullable result.
+            Ok(ConstantArray::new(
+                Scalar::null(DType::Bool(Nullability::Nullable)),
+                list_array.len(),
+            )
+            .into_array())
+        }
+        Validity::Array(validity_array) => {
+            // Create a new bool array with false, and the provided nulls
+            let buffer = BooleanBuffer::new_unset(list_array.len());
+            Ok(BoolArray::new(buffer, Validity::Array(validity_array.clone())).into_array())
+        }
+    }
+}
+
+/// Returns a `Bool` array with `true` for lists which are NOT empty, or `false` if they are empty,
+/// or `NULL` if the list itself is null.
+fn list_is_not_empty(list_array: &ListArray) -> VortexResult<ArrayRef> {
+    // Short-circuit for all invalid.
+    if matches!(list_array.validity(), Validity::AllInvalid) {
+        return Ok(ConstantArray::new(
+            Scalar::null(DType::Bool(Nullability::Nullable)),
+            list_array.len(),
+        )
+        .into_array());
+    }
+
+    let offsets = list_array.offsets().to_primitive()?;
+    let buffer = match_each_integer_ptype!(offsets.ptype(), |T| {
+        element_is_not_empty(offsets.as_slice::<T>())
+    });
+
+    // Copy over the validity mask from the input.
+    Ok(BoolArray::new(buffer, list_array.validity().clone()).into_array())
 }
 
 // Reduce each boolean values into a Mask that indicates which elements in the
@@ -201,6 +265,10 @@ fn element_lens<T: NativePType>(values: &[T]) -> Buffer<T> {
         .windows(2)
         .map(|window| window[1] - window[0])
         .collect()
+}
+
+fn element_is_not_empty<T: NativePType>(values: &[T]) -> BooleanBuffer {
+    BooleanBuffer::from_iter(values.windows(2).map(|window| window[1] != window[0]))
 }
 
 #[cfg(test)]
@@ -285,6 +353,18 @@ mod tests {
         Some("a"),
         bool_array(vec![false, false, false], None)
     )]
+    // Case 6: list(utf8?) with empty + NULL elements and NULL search
+    #[case(
+        null_strings(vec![vec![], vec![None, None], vec![None, None, None]]),
+        None,
+        bool_array(vec![false, true, true], None)
+    )]
+    // Case 7: list(utf8?) with empty + NULL elements and search scalar
+    #[case(
+        null_strings(vec![vec![], vec![None, None], vec![None, None, None]]),
+        Some("a"),
+        bool_array(vec![false, false, false], None)
+    )]
     fn test_contains_nullable(
         #[case] list_array: ArrayRef,
         #[case] value: Option<&str>,
@@ -326,6 +406,27 @@ mod tests {
                 .iter()
                 .collect_vec(),
             vec![true, true],
+        );
+    }
+
+    #[test]
+    fn test_all_nulls() {
+        let list_array = ConstantArray::new(
+            Scalar::null(DType::List(
+                Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+                Nullability::Nullable,
+            )),
+            5,
+        )
+        .into_array();
+
+        let contains = list_contains(&list_array, 2i32.into()).unwrap();
+        assert!(contains.is::<ConstantVTable>(), "Expected constant result");
+
+        assert_eq!(contains.len(), 5);
+        assert_eq!(
+            contains.to_bool().unwrap().validity(),
+            &Validity::AllInvalid
         );
     }
 }
