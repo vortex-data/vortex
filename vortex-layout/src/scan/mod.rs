@@ -22,6 +22,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
+use vortex_mask::Mask;
 use vortex_metrics::VortexMetrics;
 
 use crate::LayoutReader;
@@ -195,7 +196,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .filter(|mask| !mask.mask().all_false())
             .map(|row_mask| {
                 let row_range = row_mask.row_range();
-                (row_range, ok(row_mask.mask().clone()).boxed())
+                (
+                    row_range,
+                    ok::<Mask, VortexError>(row_mask.mask().clone()).boxed(),
+                )
             })
             .collect_vec();
 
@@ -228,13 +232,15 @@ impl<A: 'static + Send> ScanBuilder<A> {
             row_masks
                 .into_iter()
                 .map(|(row_range, mask_fut)| {
-                    let eval = layout_reader.filter_evaluation(&row_range, filter)?;
+                    let _eval = layout_reader.projection_evaluation(&row_range, filter)?;
                     let mask_fut = async move {
                         let mask = mask_fut.await?;
                         if mask.all_false() {
                             Ok(mask)
                         } else {
-                            eval.invoke(mask).await
+                            // merge mask mapping null -> false
+                            // Mask::try_from(eval.invoke(mask).await?.to_bool()?)
+                            todo!()
                         }
                     }
                     .boxed();
