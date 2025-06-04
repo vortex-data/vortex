@@ -22,13 +22,12 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 ///
 /// ## Null scalar handling
 ///
-/// When the value or list is `NULL` the result is `NULL`.
+/// When the value or list is `NULL` the result is `NULL` otherwise is will be a non-nullable value.
 ///
 /// ## Format semantics
 ///
-/// list_contains(list, elem) ==>
-///    exists elem_i in list. elem_i = elem  ==>
-///    false or elem_0 = elem or elem_1 = elem ... elem_n = elem
+/// list_contains(list, elem)
+///   ==> (!is_null(list) or NULL) and (!is_null(elem) or NULL) and any({elem = elem_i | elem_i in list}),
 ///
 /// ## Example
 ///
@@ -55,6 +54,7 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
     if &**elem_dtype != value.dtype() {
         vortex_bail!("Element type of ListArray does not match search value");
     }
+    let value_nullability = value.dtype().nullability();
 
     if value.is_null() || array.all_invalid()? {
         return Ok(ConstantArray::new(
@@ -121,7 +121,7 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
             list_array
                 .validity()
                 .clone()
-                .union_nullability(list_array.elements().dtype().nullability()),
+                .union_nullability(value_nullability),
         ))
     })
 }
@@ -348,7 +348,7 @@ mod tests {
     #[case(
         null_strings(vec![vec![], vec![Some("a"), None], vec![Some("b"), None, None]]),
         Some("a"),
-        bool_array(vec![false, false, false], Some(vec![true, true, false]))
+        bool_array(vec![false, true, false], Some(vec![true, true, true]))
     )]
     fn test_contains_nullable(
         #[case] list_array: ArrayRef,
@@ -362,12 +362,11 @@ mod tests {
         };
         let result = list_contains(&list_array, scalar).expect("list_contains failed");
         let bool_result = result.to_bool().expect("to_bool failed");
-        assert_eq!(bool_result.validity(), expected.validity());
-
         assert_eq!(
             bool_result.opt_iter().unwrap().into_iter().collect_vec(),
             expected.opt_iter().unwrap().into_iter().collect_vec()
-        )
+        );
+        assert_eq!(bool_result.validity(), expected.validity());
     }
 
     #[test]
