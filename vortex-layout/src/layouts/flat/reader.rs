@@ -117,23 +117,23 @@ impl LayoutReader for FlatReader {
         Ok(Box::new(NoOpPruningEvaluation))
     }
 
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let row_range = usize::try_from(row_range.start)
-            .vortex_expect("Row range begin must fit within FlatLayout size")
-            ..usize::try_from(row_range.end)
-                .vortex_expect("Row range end must fit within FlatLayout size");
-
-        Ok(Box::new(FlatEvaluation {
-            name: self.name.clone(),
-            array: self.array_future()?,
-            row_range,
-            expr: expr.clone(),
-        }))
-    }
+    // fn filter_evaluation(
+    //     &self,
+    //     row_range: &Range<u64>,
+    //     expr: &ExprRef,
+    // ) -> VortexResult<Box<dyn MaskEvaluation>> {
+    //     let row_range = usize::try_from(row_range.start)
+    //         .vortex_expect("Row range begin must fit within FlatLayout size")
+    //         ..usize::try_from(row_range.end)
+    //             .vortex_expect("Row range end must fit within FlatLayout size");
+    //
+    //     Ok(Box::new(FlatEvaluation {
+    //         name: self.name.clone(),
+    //         array: self.array_future()?,
+    //         row_range,
+    //         expr: expr.clone(),
+    //     }))
+    // }
 
     fn projection_evaluation(
         &self,

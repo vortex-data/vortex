@@ -136,25 +136,25 @@ impl LayoutReader for DictReader {
         Ok(Box::new(NoOpPruningEvaluation))
     }
 
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let values_eval = self.values_eval(expr.clone());
-
-        // We register interest on the entire codes row_range for now, there
-        // is no straightforward shift into the codes domain we can do to the expression
-        // without reading values.
-        let codes_eval = self
-            .codes
-            .projection_evaluation(row_range, &Identity::new_expr())?;
-
-        Ok(Box::new(DictMaskEvaluation {
-            values_eval,
-            codes_eval,
-        }))
-    }
+    // fn filter_evaluation(
+    //     &self,
+    //     row_range: &Range<u64>,
+    //     expr: &ExprRef,
+    // ) -> VortexResult<Box<dyn MaskEvaluation>> {
+    //     let values_eval = self.values_eval(expr.clone());
+    //
+    //     // We register interest on the entire codes row_range for now, there
+    //     // is no straightforward shift into the codes domain we can do to the expression
+    //     // without reading values.
+    //     let codes_eval = self
+    //         .codes
+    //         .projection_evaluation(row_range, &Identity::new_expr())?;
+    //
+    //     Ok(Box::new(DictMaskEvaluation {
+    //         values_eval,
+    //         codes_eval,
+    //     }))
+    // }
 
     fn projection_evaluation(
         &self,

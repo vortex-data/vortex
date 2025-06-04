@@ -164,27 +164,27 @@ impl LayoutReader for ChunkedReader {
         }))
     }
 
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let mut chunk_evals = vec![];
-        let mut mask_ranges = vec![];
-
-        for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
-            let chunk_reader = self.chunk_reader(chunk_idx)?;
-            let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr)?;
-            chunk_evals.push(chunk_eval);
-            mask_ranges.push(mask_range);
-        }
-
-        Ok(Box::new(ChunkedMaskEvaluation {
-            name: self.name.clone(),
-            chunk_evals,
-            mask_ranges,
-        }))
-    }
+    // fn filter_evaluation(
+    //     &self,
+    //     row_range: &Range<u64>,
+    //     expr: &ExprRef,
+    // ) -> VortexResult<Box<dyn MaskEvaluation>> {
+    //     let mut chunk_evals = vec![];
+    //     let mut mask_ranges = vec![];
+    //
+    //     for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
+    //         let chunk_reader = self.chunk_reader(chunk_idx)?;
+    //         let chunk_eval = chunk_reader.filter_evaluation(&chunk_range, expr)?;
+    //         chunk_evals.push(chunk_eval);
+    //         mask_ranges.push(mask_range);
+    //     }
+    //
+    //     Ok(Box::new(ChunkedMaskEvaluation {
+    //         name: self.name.clone(),
+    //         chunk_evals,
+    //         mask_ranges,
+    //     }))
+    // }
 
     fn projection_evaluation(
         &self,

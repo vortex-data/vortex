@@ -213,13 +213,13 @@ impl LayoutReader for ZonedReader {
         }))
     }
 
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        self.data_child.filter_evaluation(row_range, expr)
-    }
+    // fn filter_evaluation(
+    //     &self,
+    //     row_range: &Range<u64>,
+    //     expr: &ExprRef,
+    // ) -> VortexResult<Box<dyn MaskEvaluation>> {
+    //     self.data_child.filter_evaluation(row_range, expr)
+    // }
 
     fn projection_evaluation(
         &self,

@@ -49,11 +49,11 @@ pub trait LayoutReader: 'static + Send + Sync {
     ) -> VortexResult<Box<dyn PruningEvaluation>>;
 
     /// Performs an exact evaluation of the expression against the layout reader.
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>>;
+    // fn filter_evaluation(
+    //     &self,
+    //     row_range: &Range<u64>,
+    //     expr: &ExprRef,
+    // ) -> VortexResult<Box<dyn MaskEvaluation>>;
 
     /// Evaluates the expression against the layout.
     fn projection_evaluation(

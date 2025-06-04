@@ -86,30 +86,30 @@ impl LayoutReader for FilterLayoutReader {
         Ok(Box::new(FilterPruningEvaluation { conjunct_evals }))
     }
 
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let filter_expr = self
-            .cache
-            .entry(expr.clone())
-            .or_insert_with(|| Arc::new(FilterExpr::new(expr.clone())))
-            .clone();
-
-        // Otherwise, we create a new evaluation of the filter expression for this particular
-        // row range.
-        let conjunct_evals: Vec<_> = filter_expr
-            .conjuncts
-            .iter()
-            .map(|expr| self.child.filter_evaluation(row_range, expr))
-            .try_collect()?;
-
-        Ok(Box::new(FilterEvaluation {
-            filter_expr,
-            conjunct_evals,
-        }))
-    }
+    // fn filter_evaluation(
+    //     &self,
+    //     row_range: &Range<u64>,
+    //     expr: &ExprRef,
+    // ) -> VortexResult<Box<dyn MaskEvaluation>> {
+    //     let filter_expr = self
+    //         .cache
+    //         .entry(expr.clone())
+    //         .or_insert_with(|| Arc::new(FilterExpr::new(expr.clone())))
+    //         .clone();
+    //
+    //     // Otherwise, we create a new evaluation of the filter expression for this particular
+    //     // row range.
+    //     let conjunct_evals: Vec<_> = filter_expr
+    //         .conjuncts
+    //         .iter()
+    //         .map(|expr| self.child.filter_evaluation(row_range, expr))
+    //         .try_collect()?;
+    //
+    //     Ok(Box::new(FilterEvaluation {
+    //         filter_expr,
+    //         conjunct_evals,
+    //     }))
+    // }
 
     fn projection_evaluation(
         &self,

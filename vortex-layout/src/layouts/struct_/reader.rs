@@ -174,49 +174,49 @@ impl LayoutReader for StructReader {
         Ok(Box::new(NoOpPruningEvaluation))
     }
 
-    fn filter_evaluation(
-        &self,
-        row_range: &Range<u64>,
-        expr: &ExprRef,
-    ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        // Partition the expression into expressions that can be evaluated over individual fields
-        let partitioned = self.partition_expr(expr.clone());
-
-        // Short-circuit if there is only one partition
-        if partitioned.partition_names.len() == 1 {
-            return self
-                .child(&partitioned.partition_names[0])?
-                .filter_evaluation(row_range, &partitioned.partitions[0]);
-        }
-
-        // TODO(ngates): for any partition that returns a boolean, we can use a mask evaluation.
-
-        // Construct evaluations for each child.
-        let field_evals: Vec<_> = partitioned
-            .partition_names
-            .iter()
-            .zip_eq(partitioned.partitions.iter())
-            .zip_eq(partitioned.partition_dtypes.iter())
-            .map(|((name, expr), dtype)| {
-                let reader = self.child(name)?;
-                Ok::<_, VortexError>(if matches!(dtype, DType::Bool(_)) {
-                    // If the partition evaluates to a boolean, we can evaluate it as a mask which
-                    // can often be more efficient since nulls are turned into `false` early on,
-                    // and layouts can perform predicate pruning / indexing.
-                    FieldEval::Mask(reader.filter_evaluation(row_range, expr)?)
-                } else {
-                    // Otherwise, we evaluate the projection as an array, and combine the results
-                    // at the end.
-                    FieldEval::Array(reader.projection_evaluation(row_range, expr)?)
-                })
-            })
-            .try_collect()?;
-
-        Ok(Box::new(StructMaskEvaluation {
-            partitioned,
-            field_evals,
-        }))
-    }
+    // fn filter_evaluation(
+    //     &self,
+    //     row_range: &Range<u64>,
+    //     expr: &ExprRef,
+    // ) -> VortexResult<Box<dyn MaskEvaluation>> {
+    //     // Partition the expression into expressions that can be evaluated over individual fields
+    //     let partitioned = self.partition_expr(expr.clone());
+    //
+    //     // Short-circuit if there is only one partition
+    //     if partitioned.partition_names.len() == 1 {
+    //         return self
+    //             .child(&partitioned.partition_names[0])?
+    //             .filter_evaluation(row_range, &partitioned.partitions[0]);
+    //     }
+    //
+    //     // TODO(ngates): for any partition that returns a boolean, we can use a mask evaluation.
+    //
+    //     // Construct evaluations for each child.
+    //     let field_evals: Vec<_> = partitioned
+    //         .partition_names
+    //         .iter()
+    //         .zip_eq(partitioned.partitions.iter())
+    //         .zip_eq(partitioned.partition_dtypes.iter())
+    //         .map(|((name, expr), dtype)| {
+    //             let reader = self.child(name)?;
+    //             Ok::<_, VortexError>(if matches!(dtype, DType::Bool(_)) {
+    //                 // If the partition evaluates to a boolean, we can evaluate it as a mask which
+    //                 // can often be more efficient since nulls are turned into `false` early on,
+    //                 // and layouts can perform predicate pruning / indexing.
+    //                 FieldEval::Mask(reader.filter_evaluation(row_range, expr)?)
+    //             } else {
+    //                 // Otherwise, we evaluate the projection as an array, and combine the results
+    //                 // at the end.
+    //                 FieldEval::Array(reader.projection_evaluation(row_range, expr)?)
+    //             })
+    //         })
+    //         .try_collect()?;
+    //
+    //     Ok(Box::new(StructMaskEvaluation {
+    //         partitioned,
+    //         field_evals,
+    //     }))
+    // }
 
     fn projection_evaluation(
         &self,
