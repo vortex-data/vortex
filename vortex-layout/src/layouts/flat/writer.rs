@@ -278,7 +278,7 @@ mod tests {
             let result: ArrayRef = layout
                 .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &ident())
+                .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
