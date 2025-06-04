@@ -16,6 +16,13 @@ use vortex_scalar::Scalar;
 
 use crate::serde::{ZstdBufferMetadata, ZstdMetadata};
 
+// Overall approach here:
+// Zstd can be used on the whole array (rows_per_buffer = 0), resulting in a single Zstd
+// frame, or it can be used with a dictionary (rows_per_buffer < # rows), resulting in
+// multiple Zstd frames sharing a common dictionary. This latter case is helpful if you
+// want somewhat faster access to slices or individual rows, allowing us to only
+// decompress the necessary frames.
+
 vtable!(Zstd);
 
 impl VTable for ZstdVTable {
@@ -168,6 +175,8 @@ impl ZstdArray {
     }
 
     pub fn decompress(&self) -> VortexResult<ArrayRef> {
+        // To start, we figure out which buffers we need to decompress, and with
+        // what byte offset into the first such buffer.
         let type_size = self.dtype.as_ptype().byte_width();
         let byte_start = self.slice_start * type_size;
         let byte_stop = self.slice_stop * type_size;
@@ -187,6 +196,7 @@ impl ZstdArray {
             buf_start = buf_stop;
         }
 
+        // then we actually decompress those buffers
         let buffer_metas = &self.metadata.compressed_buffers[buffer_idx_lb..buffer_idx_ub];
         let total_uncompressed_size = buffer_metas
             .iter()
@@ -209,8 +219,9 @@ impl ZstdArray {
             decompressor.decompress_to_buffer(buffer.as_slice(), &mut decompressed[start..stop])?;
             start = stop;
         }
-        // Here we need to copy since the decompressed buffer start/end might not align
-        // with our slice.
+
+        // Last, we apply our byte offset. We need to copy since the
+        // decompressed buffer start/end might not align with our slice.
         let decompressed_buffer = ByteBuffer::from(
             decompressed[byte_offset..byte_offset + byte_stop - byte_start].to_vec(),
         );
