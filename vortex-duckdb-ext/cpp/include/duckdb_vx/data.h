@@ -18,3 +18,4 @@ duckdb_vx_data duckdb_vx_data_create(
 #ifdef __cplusplus  /* End C ABI */
 }
 #endif
+

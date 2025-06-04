@@ -10,3 +10,4 @@ typedef struct duckdb_vx_func_info_ *duckdb_vx_func_info;
 #ifdef __cplusplus  /* End C ABI */
 }
 #endif
+
