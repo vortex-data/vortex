@@ -36,6 +36,11 @@ For profiling, you can open in Instruments using the following invocation:
 cargo instruments -p bench-vortex --bin tpch --template Time --profile bench
 ```
 
+### Data directory
+
+There is a data directory at `vortex/bench-vortex/data` where parquet and vortex files used for the benchmark runs
+can be found.
+
 ## Memory allocators
 
 If you don't want to use the default system allocator, there are `"jemalloc"` and `"mimalloc"` features available that
