@@ -3,13 +3,13 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
+use vortex_array::ArrayRef;
 use vortex_array::compute::list_contains as compute_list_contains;
-use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::{ExprRef, VortexExpr};
+use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -91,8 +91,8 @@ impl VortexExpr for ListContains {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        compute_list_contains(self.list.evaluate(batch)?.as_ref(), self.value.clone())
+    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
+        compute_list_contains(self.list.evaluate(scope)?.as_ref(), self.value.clone())
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -104,9 +104,10 @@ impl VortexExpr for ListContains {
         Self::new_expr(children[0].clone(), self.value().clone())
     }
 
-    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
-        // If input is nullable, the output is nullable.
-        Ok(DType::Bool(scope_dtype.nullability()))
+    fn return_dtype(&self, scope_dtype: &ScopeDType) -> VortexResult<DType> {
+        Ok(DType::Bool(
+            self.list.return_dtype(scope_dtype)?.nullability() | self.value.dtype().nullability(),
+        ))
     }
 }
 
@@ -124,8 +125,8 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
 
-    use crate::ident;
     use crate::list_contains::list_contains;
+    use crate::{Scope, root};
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
@@ -141,8 +142,8 @@ mod tests {
     pub fn test_one() {
         let arr = test_array();
 
-        let expr = list_contains(ident(), 1);
-        let item = expr.evaluate(arr.as_ref()).unwrap();
+        let expr = list_contains(root(), 1);
+        let item = expr.evaluate(&Scope::new(arr)).unwrap();
 
         assert_eq!(
             item.scalar_at(0).unwrap(),
@@ -158,8 +159,8 @@ mod tests {
     pub fn test_all() {
         let arr = test_array();
 
-        let expr = list_contains(ident(), 2);
-        let item = expr.evaluate(arr.as_ref()).unwrap();
+        let expr = list_contains(root(), 2);
+        let item = expr.evaluate(&Scope::new(arr)).unwrap();
 
         assert_eq!(
             item.scalar_at(0).unwrap(),
@@ -175,8 +176,8 @@ mod tests {
     pub fn test_none() {
         let arr = test_array();
 
-        let expr = list_contains(ident(), 4);
-        let item = expr.evaluate(arr.as_ref()).unwrap();
+        let expr = list_contains(root(), 4);
+        let item = expr.evaluate(&Scope::new(arr)).unwrap();
 
         assert_eq!(
             item.scalar_at(0).unwrap(),
@@ -198,8 +199,8 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr = list_contains(ident(), 2);
-        let item = expr.evaluate(arr.as_ref()).unwrap();
+        let expr = list_contains(root(), 2);
+        let item = expr.evaluate(&Scope::new(arr)).unwrap();
 
         assert_eq!(
             item.scalar_at(0).unwrap(),
@@ -221,8 +222,8 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr = list_contains(ident(), 2);
-        let item = expr.evaluate(arr.as_ref()).unwrap();
+        let expr = list_contains(root(), 2);
+        let item = expr.evaluate(&Scope::new(arr)).unwrap();
 
         assert_eq!(
             item.scalar_at(0).unwrap(),
