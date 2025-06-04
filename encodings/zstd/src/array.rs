@@ -185,7 +185,7 @@ impl ZstdArray {
         let mut buffer_idx_ub = 0;
         let mut byte_offset = 0;
         for (i, buffer_meta) in self.metadata.compressed_buffers.iter().enumerate() {
-            let buf_stop = buf_start + buffer_meta.uncompressed_size as usize;
+            let buf_stop = buf_start + usize::try_from(buffer_meta.uncompressed_size)?;
             if buf_start < byte_start {
                 buffer_idx_lb = i;
                 byte_offset = byte_start - buf_start
@@ -198,13 +198,14 @@ impl ZstdArray {
 
         // then we actually decompress those buffers
         let buffer_metas = &self.metadata.compressed_buffers[buffer_idx_lb..buffer_idx_ub];
-        let total_uncompressed_size = buffer_metas
+        let total_uncompressed_size: usize = buffer_metas
             .iter()
             .map(|meta| meta.uncompressed_size)
-            .sum::<u64>() as usize;
+            .sum::<u64>()
+            .try_into()?;
 
         let mut decompressor = if let Some(dictionary_buffer) = &self.dictionary_buffer {
-            zstd::bulk::Decompressor::with_dictionary(&dictionary_buffer)
+            zstd::bulk::Decompressor::with_dictionary(dictionary_buffer)
         } else {
             zstd::bulk::Decompressor::new()
         }?;
@@ -216,7 +217,7 @@ impl ZstdArray {
             .iter()
             .zip(buffer_metas)
         {
-            let stop = start + meta.uncompressed_size as usize;
+            let stop = start + usize::try_from(meta.uncompressed_size)?;
             decompressor.decompress_to_buffer(buffer.as_slice(), &mut decompressed[start..stop])?;
             start = stop;
         }
