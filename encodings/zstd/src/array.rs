@@ -271,6 +271,7 @@ impl OperationsVTable<ZstdVTable> for ZstdVTable {
         let sliced = ZstdArray {
             slice_start: array.slice_start + start,
             slice_stop: array.slice_start + stop,
+            validity: array.validity.slice(start, stop)?,
             ..array.clone()
         };
         Ok(sliced.into_array())
