@@ -260,6 +260,9 @@ jobs:
         with:
           submodules: "recursive"
       - uses: rui314/setup-mold@v1
+      - uses: taiki-e/install-action@cargo-machete
+      - uses: taiki-e/install-action@taplo
+
       - name: Rust Lint - Format
         run: cargo fmt --all --check
       - name: Rustc check
@@ -268,6 +271,10 @@ jobs:
         run: cargo clippy --locked --all-features --all-targets
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets
+      - name: Rust Lint - Unused dependencies
+        run: cargo machete
+      - name: Rust Lint Cargo.toml sortedness
+        run: taplo fmt --check
 
   rust-lint-no-default:
     name: "Rust (lint, no default)"
