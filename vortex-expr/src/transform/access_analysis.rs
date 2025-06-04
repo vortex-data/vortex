@@ -5,9 +5,8 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_error::VortexResult;
 
-use crate::transform::immediate_access::FieldAccesses;
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
-use crate::{ExprRef, Var};
+use crate::{ExprRef, Identifier, Var};
 
 pub type Accesses<'a, T> = HashMap<&'a ExprRef, HashSet<T>>;
 
@@ -65,10 +64,13 @@ where
     }
 }
 
-pub fn variable_scope_accesses<'a>(expr: &'a ExprRef) -> VortexResult<FieldAccesses<'a>> {
+pub fn variable_scope_accesses<'a, T: Clone + Hash + Eq>(
+    expr: &'a ExprRef,
+    f: impl Fn(&Identifier) -> T,
+) -> VortexResult<Accesses<'a, T>> {
     AccessesAnalysis::analyze(expr, move |node| {
         if let Some(variable) = node.as_any().downcast_ref::<Var>() {
-            return (TraversalOrder::Skip, vec![variable.var().clone()]);
+            return (TraversalOrder::Skip, vec![f(variable.var())]);
         }
 
         (TraversalOrder::Continue, vec![])

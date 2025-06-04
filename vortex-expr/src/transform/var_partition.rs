@@ -18,7 +18,14 @@ static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
 
 /// Partition an expression over the variables.
 pub fn var_partitions(expr: &ExprRef) -> VortexResult<VarPartitionedExpr> {
-    VariableExpressionSplitter::split(&expr)
+    VariableExpressionSplitter::split_all(&expr)
+}
+
+pub fn var_partitions_with_map(
+    expr: &ExprRef,
+    f: impl Fn(&Identifier) -> Identifier,
+) -> VortexResult<VarPartitionedExpr> {
+    VariableExpressionSplitter::split(&expr, f)
 }
 
 // TODO(joe): replace with let expressions.
@@ -79,8 +86,15 @@ impl<'a> VariableExpressionSplitter<'a> {
         hasher.finish().to_string().into()
     }
 
-    fn split(expr: &ExprRef) -> VortexResult<VarPartitionedExpr> {
-        let field_accesses = variable_scope_accesses(&expr)?;
+    fn split_all(expr: &ExprRef) -> VortexResult<VarPartitionedExpr> {
+        Self::split(expr, |f| f.clone())
+    }
+
+    fn split(
+        expr: &ExprRef,
+        f: impl Fn(&Identifier) -> Identifier,
+    ) -> VortexResult<VarPartitionedExpr> {
+        let field_accesses = variable_scope_accesses(&expr, f)?;
 
         let mut splitter = VariableExpressionSplitter::new(&field_accesses);
         let split = expr.clone().transform_with_context(&mut splitter, ())?;
@@ -175,146 +189,68 @@ impl FolderMut for VariableExpressionSplitter<'_> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType::{I32, U64};
 
     use super::*;
-    use crate::{Pack, ScopeDType, and, root, var};
-
-    fn dtype() -> ScopeDType {
-        ScopeDType::new(DType::Primitive(I32, NonNullable))
-            .with_value("x".into(), DType::Primitive(U64, Nullability::Nullable))
-    }
+    use crate::{Pack, Var, and, root, var};
 
     #[test]
     fn test_expr_top_level_ref() {
-        let dtype = dtype();
-
         let expr = root();
 
-        let split = VariableExpressionSplitter::split(&expr);
+        let split = VariableExpressionSplitter::split_all(&expr);
 
         assert!(split.is_ok());
 
         let partitioned = split.unwrap();
-        println!("{}", partitioned);
-        println!("{:?}", partitioned);
 
-        assert!(partitioned.root.as_any().is::<Pack>());
+        assert!(partitioned.root.as_any().is::<Var>());
         // Have a single top level pack with all fields in dtype
-        assert_eq!(partitioned.partitions.len(), dtype.value_size())
+        assert_eq!(partitioned.partitions.len(), 1)
     }
 
     #[test]
     fn test_expr_top_level_ref_get_item_and_split() {
-        let dtype = dtype();
-
         let expr = pack([("root", root()), ("x", var("x"))], NonNullable);
 
-        let partitioned = VariableExpressionSplitter::split(&expr).unwrap();
-        println!("{}", partitioned);
-        println!("{:?}", partitioned);
+        let partitioned = VariableExpressionSplitter::split_all(&expr).unwrap();
 
-        assert_eq!(partitioned.partitions.len(), dtype.value_size());
+        assert_eq!(partitioned.partitions.len(), 2);
+        assert_eq!(partitioned.find_partition(&"".into()), Some(&root()));
+        assert_eq!(partitioned.find_partition(&"x".into()), Some(&var("x")));
+    }
 
-        let split_a = partitioned.find_partition(&"a".into());
-        assert!(split_a.is_some());
+    #[test]
+    fn test_partition_var_split_with() {
+        let expr = pack(
+            [("root", root()), ("x", var("x")), ("y", var("y"))],
+            NonNullable,
+        );
 
-        assert_eq!(&partitioned.root, &get_item("a", root()));
+        let partitioned = VariableExpressionSplitter::split(&expr, |id| {
+            if id.as_ref() == "x" {
+                return id.clone();
+            } else {
+                "".into()
+            }
+        })
+        .unwrap();
 
-        // let split_a = split_a.unwrap();
-        // assert_eq!(&simplify(split_a.clone()).unwrap(), &get_item("b", root()));
+        assert_eq!(partitioned.partitions.len(), 2);
+        assert!(
+            partitioned
+                .find_partition(&"".into())
+                .unwrap()
+                .as_any()
+                .is::<Pack>()
+        );
+        assert_eq!(partitioned.find_partition(&"x".into()), Some(&var("x")));
     }
 
     #[test]
     fn test_expr_top_level_ref_get_item_and_split_pack() {
         let expr = and(and(var("x"), root()), var("x"));
-        let partitioned = VariableExpressionSplitter::split(&expr).unwrap();
-        println!("{}", partitioned);
-        println!("{:?}", partitioned);
-
-        // let split_a = partitioned.find_partition(&"a".into()).unwrap();
-        // assert_eq!(
-        //     &simplify(split_a.clone()).unwrap(),
-        //     &pack(
-        //         [
-        //             (
-        //                 StructFieldExpressionSplitter::field_idx_name(&"a".into(), 0),
-        //                 get_item("a", root())
-        //             ),
-        //             (
-        //                 StructFieldExpressionSplitter::field_idx_name(&"a".into(), 1),
-        //                 get_item("b", root())
-        //             )
-        //         ],
-        //         NonNullable
-        //     )
-        // );
-        // let split_c = partitioned.find_partition(&"c".into()).unwrap();
-        // assert_eq!(&simplify(split_c.clone()).unwrap(), &root())
+        let partitioned = VariableExpressionSplitter::split_all(&expr).unwrap();
+        assert_eq!(partitioned.partitions.len(), 2);
     }
-    //
-    // #[test]
-    // fn test_expr_top_level_ref_get_item_add() {
-    //     let dtype = dtype();
-    //
-    //     let expr = and(get_item("b", get_item("a", root())), lit(1));
-    //     let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
-    //
-    //     // Whole expr is a single split
-    //     assert_eq!(partitioned.partitions.len(), 1);
-    // }
-    //
-    // #[test]
-    // fn test_expr_top_level_ref_get_item_add_cannot_split() {
-    //     let dtype = dtype();
-    //
-    //     let expr = and(get_item("b", get_item("a", root())), get_item("b", root()));
-    //     let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
-    //
-    //     // One for id.a and id.b
-    //     assert_eq!(partitioned.partitions.len(), 2);
-    // }
-    //
-    // // Test that typed_simplify removes select and partition precise
-    // #[test]
-    // fn test_expr_partition_many_occurrences_of_field() {
-    //     let dtype = dtype();
-    //
-    //     let expr = and(
-    //         get_item("b", get_item("a", root())),
-    //         select(vec!["a".into(), "b".into()], root()),
-    //     );
-    //     let expr = simplify_typed(expr, &ScopeDType::new(dtype.clone())).unwrap();
-    //     let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
-    //
-    //     // One for id.a and id.b
-    //     assert_eq!(partitioned.partitions.len(), 2);
-    //
-    //     // This fetches [].$c which is unused, however a previous optimisation should replace select
-    //     // with get_item and pack removing this field.
-    //     assert_eq!(
-    //         &partitioned.root,
-    //         &and(
-    //             get_item(
-    //                 StructFieldExpressionSplitter::field_idx_name(&"a".into(), 0),
-    //                 get_item("a", root())
-    //             ),
-    //             pack(
-    //                 [
-    //                     (
-    //                         "a",
-    //                         get_item(
-    //                             StructFieldExpressionSplitter::field_idx_name(&"a".into(), 1),
-    //                             get_item("a", root())
-    //                         )
-    //                     ),
-    //                     ("b", get_item("b", root()))
-    //                 ],
-    //                 NonNullable
-    //             )
-    //         )
-    //     )
-    // }
 }
