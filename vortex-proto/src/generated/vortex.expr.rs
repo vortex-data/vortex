@@ -12,7 +12,7 @@ pub struct Expr {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Kind {
     /// This enum is very unstable, and will likely be replaced with something more extensible.
-    #[prost(oneof = "kind::Kind", tags = "1, 2, 3, 4, 12, 13, 5, 6, 7, 8, 9, 10, 11")]
+    #[prost(oneof = "kind::Kind", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12")]
     pub kind: ::core::option::Option<kind::Kind>,
 }
 /// Nested message and enum types in `Kind`.
@@ -26,16 +26,6 @@ pub mod kind {
     pub struct Not {}
     #[derive(Clone, Copy, PartialEq, ::prost::Message)]
     pub struct Identity {}
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Let {
-        #[prost(string, tag = "1")]
-        pub var: ::prost::alloc::string::String,
-    }
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Var {
-        #[prost(string, tag = "1")]
-        pub var: ::prost::alloc::string::String,
-    }
     #[derive(Clone, Copy, PartialEq, ::prost::Message)]
     pub struct Merge {}
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -68,6 +58,11 @@ pub mod kind {
     pub struct Cast {
         #[prost(message, optional, tag = "1")]
         pub target: ::core::option::Option<super::super::dtype::DType>,
+    }
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct ListContains {
+        #[prost(message, optional, tag = "1")]
+        pub value: ::core::option::Option<super::super::scalar::Scalar>,
     }
     #[derive(
         Clone,
@@ -134,10 +129,6 @@ pub mod kind {
         GetItem(GetItem),
         #[prost(message, tag = "4")]
         Identity(Identity),
-        #[prost(message, tag = "12")]
-        Let(Let),
-        #[prost(message, tag = "13")]
-        Var(Var),
         #[prost(message, tag = "5")]
         Merge(Merge),
         #[prost(message, tag = "6")]
@@ -152,5 +143,7 @@ pub mod kind {
         IsNull(IsNull),
         #[prost(message, tag = "11")]
         Cast(Cast),
+        #[prost(message, tag = "12")]
+        ListContains(ListContains),
     }
 }
