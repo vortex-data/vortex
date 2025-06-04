@@ -18,14 +18,14 @@ static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
 
 /// Partition an expression over the variables.
 pub fn var_partitions(expr: &ExprRef) -> VortexResult<VarPartitionedExpr> {
-    VariableExpressionSplitter::split_all(&expr)
+    VariableExpressionSplitter::split_all(expr)
 }
 
 pub fn var_partitions_with_map(
     expr: &ExprRef,
     f: impl Fn(&Identifier) -> Identifier,
 ) -> VortexResult<VarPartitionedExpr> {
-    VariableExpressionSplitter::split(&expr, f)
+    VariableExpressionSplitter::split(expr, f)
 }
 
 // TODO(joe): replace with let expressions.
@@ -94,7 +94,7 @@ impl<'a> VariableExpressionSplitter<'a> {
         expr: &ExprRef,
         f: impl Fn(&Identifier) -> Identifier,
     ) -> VortexResult<VarPartitionedExpr> {
-        let field_accesses = variable_scope_accesses(&expr, f)?;
+        let field_accesses = variable_scope_accesses(expr, f)?;
 
         let mut splitter = VariableExpressionSplitter::new(&field_accesses);
         let split = expr.clone().transform_with_context(&mut splitter, ())?;
@@ -229,7 +229,7 @@ mod tests {
 
         let partitioned = VariableExpressionSplitter::split(&expr, |id| {
             if id.as_ref() == "x" {
-                return id.clone();
+                id.clone()
             } else {
                 "".into()
             }
