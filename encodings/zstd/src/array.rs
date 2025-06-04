@@ -9,7 +9,7 @@ use vortex_array::vtable::{
     ValidityVTableFromValidityHelper,
 };
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
-use vortex_buffer::ByteBuffer;
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
@@ -110,7 +110,7 @@ impl ZstdArray {
                 (
                     None,
                     zstd::bulk::Compressor::new(level)?,
-                    parray.len() * type_size,
+                    cmp::max(1, parray.len()) * type_size,
                 )
             } else {
                 // multi buffer, with dictionary
@@ -208,6 +208,7 @@ impl ZstdArray {
         } else {
             zstd::bulk::Decompressor::new()
         }?;
+
         // we could make this empty initialized for better performance
         let mut decompressed = vec![0; total_uncompressed_size];
         let mut start = 0;
@@ -222,9 +223,10 @@ impl ZstdArray {
 
         // Last, we apply our byte offset. We need to copy since the
         // decompressed buffer start/end might not align with our slice.
-        let decompressed_buffer = ByteBuffer::from(
-            decompressed[byte_offset..byte_offset + byte_stop - byte_start].to_vec(),
-        );
+        // And we need to align the data to our (dynamic) dtype.
+        let slice_len = byte_stop - byte_start;
+        let bytes = decompressed[byte_offset..byte_offset + slice_len].to_vec();
+        let decompressed_buffer = ByteBuffer::from(bytes).aligned(Alignment::new(type_size));
 
         let primitive = PrimitiveArray::from_byte_buffer(
             decompressed_buffer,

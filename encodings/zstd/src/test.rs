@@ -15,10 +15,7 @@ macro_rules! assert_nth_scalar {
 #[test]
 fn test_zstd_compress_decompress() {
     let data: Vec<i32> = (0..200).collect();
-    let array = PrimitiveArray::new(
-        data.iter().cloned().collect::<Buffer<_>>(),
-        Validity::NonNullable,
-    );
+    let array = PrimitiveArray::from_iter(data.clone());
 
     let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
     // this data should be compressible
@@ -42,9 +39,27 @@ fn test_zstd_compress_decompress() {
     }
 
     let slice = compressed.slice(200, 200).unwrap();
-    match slice.to_canonical() {
-        Ok(Canonical::Primitive(primitive)) => {
+    match slice.to_canonical().unwrap() {
+        Canonical::Primitive(primitive) => {
             assert_eq!(primitive.as_slice::<i32>(), &[]);
+        }
+        _ => panic!("unexpected canonicalization"),
+    }
+}
+
+#[test]
+fn test_zstd_empty() {
+    let data: Vec<i32> = vec![];
+    let array = PrimitiveArray::new(
+        data.iter().cloned().collect::<Buffer<_>>(),
+        Validity::NonNullable,
+    );
+
+    let compressed = ZstdArray::from_primitive(&array, 3, 100).unwrap();
+
+    match compressed.to_canonical().unwrap() {
+        Canonical::Primitive(primitive) => {
+            assert_eq!(primitive.as_slice::<i32>(), &data);
         }
         _ => panic!("unexpected canonicalization"),
     }
