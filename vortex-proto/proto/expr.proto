@@ -88,7 +88,6 @@ message Kind {
   }
 
   message IsNull {
-
   }
 
   message Cast {
@@ -96,7 +95,6 @@ message Kind {
   }
 
   message ListContains {
-    vortex.scalar.Scalar value = 1;
   }
 }
 

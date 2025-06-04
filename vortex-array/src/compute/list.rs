@@ -6,26 +6,29 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{BoolArray, ConstantArray, ListArray};
-use crate::compute::{Operator, compare, invert};
+use crate::compute::{Operator, compare};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-/// Compute a `Bool`-typed array the same length as `array` where elements are `true` if the list
-/// item contains the `value`, or `false` otherwise.
+/// Compute a `Bool`-typed array the same length as `array` where elements is `true` if the list
+/// item contains the `value`, `false` otherwise.
 ///
-/// If the ListArray is nullable, then the result will contain nulls matching the null mask
-/// of the original array.
+/// If the ListArray or Element is nullable, then the result will contain nulls matching the union
+/// of null masks.
 ///
 /// ## Null scalar handling
 ///
-/// When the search scalar is `NULL`, then the resulting array will be a `BoolArray` containing
-/// `true` if the list contains any nulls, and `false` if the list does not contain any nulls,
-/// or `NULL` for null lists.
+/// When the value or list is `NULL` the result is `NULL`.
+///
+/// ## Format semantics
+///
+/// list_contains(list, elem) ==>
+///    exists elem_i in list. elem_i = elem  ==>
+///    false or elem_0 = elem or elem_1 = elem ... elem_n = elem
 ///
 /// ## Example
 ///
@@ -53,6 +56,14 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
         vortex_bail!("Element type of ListArray does not match search value");
     }
 
+    if value.is_null() || array.all_invalid()? {
+        return Ok(ConstantArray::new(
+            Scalar::null(DType::Bool(Nullability::Nullable)),
+            array.len(),
+        )
+        .to_array());
+    }
+
     // If the list array is constant, we perform a single comparison.
     if array.is_constant() && array.len() > 1 {
         let contains = list_contains(&array.slice(0, 1)?, value)?;
@@ -62,10 +73,6 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
     // Canonicalize to a list array.
     // NOTE(ngates): we may wish to add elements and offsets accessors to the ListArrayTrait.
     let list_array = array.to_list()?;
-
-    if value.is_null() {
-        return list_contains_null(&list_array);
-    }
 
     let elems = list_array.elements();
     if elems.is_empty() {
@@ -111,40 +118,12 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
         Ok(reduce_with_ends(
             ends.as_slice::<T>(),
             matches.boolean_buffer(),
-            list_array.validity().clone(),
+            list_array
+                .validity()
+                .clone()
+                .union_nullability(list_array.elements().dtype().nullability()),
         ))
     })
-}
-
-/// Returns a `Bool` array with `true` for lists which contains NULL and `false` if not, or
-/// NULL if the list itself is null.
-fn list_contains_null(list_array: &ListArray) -> VortexResult<ArrayRef> {
-    let elems = list_array.elements();
-
-    // Check element validity. We need to intersect
-    match elems.validity_mask()? {
-        // No NULL elements
-        Mask::AllTrue(_) => {
-            // False, unless the list itself is NULL.
-            list_false_or_null(list_array)
-        }
-        // All NULL elements.
-        Mask::AllFalse(_) => {
-            // True, unless the list itself is empty or NULL.
-            list_is_not_empty(list_array)
-        }
-        Mask::Values(mask) => {
-            let nulls = invert(&mask.into_array())?.to_bool()?;
-            let ends = list_array.offsets().to_primitive()?;
-            match_each_integer_ptype!(ends.ptype(), |T| {
-                Ok(reduce_with_ends(
-                    list_array.offsets().to_primitive()?.as_slice::<T>(),
-                    nulls.boolean_buffer(),
-                    list_array.validity().clone(),
-                ))
-            })
-        }
-    }
 }
 
 /// Returns a `Bool` array with `false` for lists that are valid,
@@ -332,8 +311,8 @@ mod tests {
     // Case 2: list(utf8?) with NULL search scalar
     #[case(
         null_strings(vec![vec![], vec![Some("a"), None], vec![Some("a"), None, Some("b")]]),
-        None,
-        bool_array(vec![false, true, true], None)
+        Some("a"),
+        bool_array(vec![false, true, true], Some(vec![true, true, true]))
     )]
     // Case 3: list(utf8) with all elements matching, but some empty lists
     #[case(
@@ -357,13 +336,19 @@ mod tests {
     #[case(
         null_strings(vec![vec![], vec![None, None], vec![None, None, None]]),
         None,
-        bool_array(vec![false, true, true], None)
+        bool_array(vec![false, true, true], Some(vec![false, false, false]))
     )]
     // Case 7: list(utf8?) with empty + NULL elements and search scalar
     #[case(
         null_strings(vec![vec![], vec![None, None], vec![None, None, None]]),
         Some("a"),
         bool_array(vec![false, false, false], None)
+    )]
+    // Case 8: list(utf8?) with null and some match
+    #[case(
+        null_strings(vec![vec![], vec![Some("a"), None], vec![Some("b"), None, None]]),
+        Some("a"),
+        bool_array(vec![false, false, false], Some(vec![true, true, false]))
     )]
     fn test_contains_nullable(
         #[case] list_array: ArrayRef,
@@ -377,11 +362,12 @@ mod tests {
         };
         let result = list_contains(&list_array, scalar).expect("list_contains failed");
         let bool_result = result.to_bool().expect("to_bool failed");
-        assert_eq!(
-            bool_result.boolean_buffer().iter().collect_vec(),
-            expected.boolean_buffer().iter().collect_vec()
-        );
         assert_eq!(bool_result.validity(), expected.validity());
+
+        assert_eq!(
+            bool_result.opt_iter().unwrap().into_iter().collect_vec(),
+            expected.opt_iter().unwrap().into_iter().collect_vec()
+        )
     }
 
     #[test]
