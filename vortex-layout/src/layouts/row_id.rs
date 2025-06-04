@@ -8,7 +8,7 @@ use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::transform::var_partition::{VarPartitionedExpr, var_partitions};
+use vortex_expr::transform::var_partition::{VarPartitionedExpr, var_partitions_with_map};
 use vortex_expr::{ExactExpr, ExprRef, IDENTITY_IDENTIFIER, Identifier, Scope, ScopeDType};
 use vortex_mask::Mask;
 use vortex_sequence::SequenceArray;
@@ -39,9 +39,17 @@ impl RowIdLayoutReader {
         self.partitioned_expr_cache
             .entry(ExactExpr(expr.clone()))
             .or_insert_with(|| {
-                // Partition the expression into expressions that can be evaluated over individual fields
+                // Partition the expression into expressions that can be evaluated over the row_id field
+                // and all other fields that a delegated to their children.
                 Arc::new(
-                    var_partitions(expr).vortex_expect("We should not fail to partition variables"),
+                    var_partitions_with_map(expr, |id| {
+                        if *id == *ROW_ID {
+                            ROW_ID.clone()
+                        } else {
+                            "".into()
+                        }
+                    })
+                    .vortex_expect("We should not fail to partition variables"),
                 )
             })
             .clone()
