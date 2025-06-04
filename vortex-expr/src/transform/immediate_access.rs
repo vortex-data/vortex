@@ -4,7 +4,7 @@ use vortex_dtype::{FieldName, StructFields};
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::transform::access_analysis::AccessesAnalysis;
-use crate::traversal::TraversalOrder;
+use crate::traversal::{Node, NodeVisitor, TraversalOrder};
 use crate::{ExprRef, GetItem, Select, is_root};
 
 pub type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
