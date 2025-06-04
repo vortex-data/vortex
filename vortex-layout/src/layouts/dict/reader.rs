@@ -43,18 +43,18 @@ impl DictReader {
     pub(super) fn try_new(
         layout: DictLayout,
         name: Arc<str>,
-        segment_source: &Arc<dyn SegmentSource>,
-        ctx: &ArrayContext,
+        segment_source: Arc<dyn SegmentSource>,
+        ctx: ArrayContext,
     ) -> VortexResult<Self> {
         let values_len = usize::try_from(layout.values.row_count())?;
-        let values =
-            layout
-                .values
-                .new_reader(&format!("{name}.values").into(), segment_source, ctx)?;
-        let codes =
-            layout
-                .codes
-                .new_reader(&format!("{name}.codes").into(), segment_source, ctx)?;
+        let values = layout.values.new_reader(
+            format!("{name}.values").into(),
+            segment_source.clone(),
+            ctx.clone(),
+        )?;
+        let codes = layout
+            .codes
+            .new_reader(format!("{name}.codes").into(), segment_source, ctx)?;
 
         Ok(Self {
             layout,

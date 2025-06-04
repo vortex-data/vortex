@@ -384,7 +384,7 @@ mod test {
     ) {
         block_on(async {
             let result = layout
-                .new_reader(&"".into(), &segments, &ctx)
+                .new_reader("".into(), segments, ctx)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()

@@ -406,7 +406,7 @@ mod tests {
             LayoutRef,
         ),
     ) {
-        let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
         let result = block_on(
             reader
@@ -434,7 +434,7 @@ mod tests {
             LayoutRef,
         ),
     ) {
-        let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
         let result = block_on(
             reader
@@ -465,7 +465,7 @@ mod tests {
             LayoutRef,
         ),
     ) {
-        let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
         let expr = pack(
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             NonNullable,
