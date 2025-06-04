@@ -1,9 +1,7 @@
-use std::io::Read;
-
-use vortex_array::ToCanonical;
 use vortex_array::arrays::{BoolArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
+use vortex_array::{Canonical, ToCanonical};
 use vortex_buffer::Buffer;
 
 use crate::ZstdArray;
@@ -22,23 +20,30 @@ fn test_zstd_compress_decompress() {
         Validity::NonNullable,
     );
 
-    let compressed = ZstdArray::from_primitive(&array, 3).unwrap();
+    let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
     // this data should be compressible
-    assert!(compressed.compressed_data().len() < array.nbytes());
-
-    // check slicing works
-    let slice = compressed.slice(100, 110).unwrap();
-    for i in 0..10 {
-        assert_nth_scalar!(slice, i, 100 + i as i32);
-    }
+    assert!(compressed.compressed_buffers.len() < array.nbytes());
+    assert!(compressed.dictionary_buffer.is_none());
 
     // check full decompression works
     let decompressed = compressed.decompress().unwrap().to_primitive().unwrap();
     assert_eq!(decompressed.as_slice::<i32>(), &data);
+
+    // check slicing works
+    let slice = compressed.slice(100, 105).unwrap();
+    for i in 0..5 {
+        assert_nth_scalar!(slice, i, 100 + i as i32);
+    }
+    match slice.to_canonical() {
+        Ok(Canonical::Primitive(primitive)) => {
+            assert_eq!(primitive.as_slice::<i32>(), &[100, 101, 102, 103, 104]);
+        }
+        _ => panic!("unexpected canonicalization"),
+    }
 }
 
 #[test]
-fn test_zstd_with_validity() {
+fn test_zstd_with_validity_and_dict() {
     let data: Vec<i32> = (0..200).collect();
     let mut validity: Vec<bool> = vec![false; 200];
     validity[3] = true;
@@ -48,7 +53,8 @@ fn test_zstd_with_validity() {
         Validity::Array(BoolArray::from_iter(validity).to_array()),
     );
 
-    let compressed = ZstdArray::from_primitive(&array, 0).unwrap();
+    let compressed = ZstdArray::from_primitive(&array, 0, 30).unwrap();
+    assert!(compressed.dictionary_buffer.is_some());
     assert_nth_scalar!(compressed, 0, None::<i32>);
     assert_nth_scalar!(compressed, 3, 3);
     assert_nth_scalar!(compressed, 10, None::<i32>);

@@ -22,7 +22,7 @@ pub struct ZstdMetadata {
     #[prost(uint32, tag = "1")]
     pub dictionary_size: u32,
     #[prost(message, repeated, tag = "2")]
-    pub buffers: Vec<ZstdBufferMetadata>,
+    pub compressed_buffers: Vec<ZstdBufferMetadata>,
     #[prost(uint32, tag = "3")]
     pub rows_per_buffer: u32,
 }
@@ -53,10 +53,10 @@ impl SerdeVTable<ZstdVTable> for ZstdVTable {
 
         let (dictionary_buffer, compressed_buffers) = if metadata.dictionary_size == 0 {
             // no dictionary
-            (ByteBuffer::empty(), buffers.to_vec())
+            (None, buffers.to_vec())
         } else {
             // with dictionary
-            (buffers[0].clone(), buffers[1..].to_vec())
+            (Some(buffers[0].clone()), buffers[1..].to_vec())
         };
 
         Ok(ZstdArray::new(
