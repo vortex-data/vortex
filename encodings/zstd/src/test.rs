@@ -40,6 +40,14 @@ fn test_zstd_compress_decompress() {
         }
         _ => panic!("unexpected canonicalization"),
     }
+
+    let slice = compressed.slice(200, 200).unwrap();
+    match slice.to_canonical() {
+        Ok(Canonical::Primitive(primitive)) => {
+            assert_eq!(primitive.as_slice::<i32>(), &[]);
+        }
+        _ => panic!("unexpected canonicalization"),
+    }
 }
 
 #[test]
@@ -63,4 +71,17 @@ fn test_zstd_with_validity_and_dict() {
     let decompressed = compressed.decompress().unwrap().to_primitive().unwrap();
     assert_eq!(decompressed.as_slice::<i32>(), &data);
     assert_eq!(decompressed.validity(), array.validity());
+
+    // check slicing works
+    let slice = compressed.slice(176, 179).unwrap();
+    match slice.to_canonical() {
+        Ok(Canonical::Primitive(primitive)) => {
+            assert_eq!(primitive.as_slice::<i32>()[1], 177);
+            assert_eq!(
+                primitive.validity(),
+                &Validity::Array(BoolArray::from_iter(vec![false, true, false]).to_array())
+            )
+        }
+        _ => panic!("unexpected canonicalization"),
+    }
 }
