@@ -10,10 +10,10 @@ use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ToCanonical};
-use vortex_dtype::{DType, FieldMask};
+use vortex_dtype::FieldMask;
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::{ExprRef, ScopeDType, root};
 use vortex_mask::Mask;
 
 use crate::layouts::zoned::ZonedLayout;
@@ -156,8 +156,8 @@ impl LayoutReader for ZonedReader {
         &self.name
     }
 
-    fn dtype(&self) -> &DType {
-        self.data_child.dtype()
+    fn scope_dtype(&self) -> &ScopeDType {
+        self.data_child.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {

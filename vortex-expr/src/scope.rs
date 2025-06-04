@@ -40,7 +40,7 @@ impl Scope {
     }
 
     pub fn values(&self, id: &Identifier) -> VortexResult<&ArrayRef> {
-        if id.as_ref() == IDENTITY_IDENTIFIER {
+        if *id == *IDENTITY_IDENTIFIER {
             return self
                 .root_scope
                 .as_ref()
@@ -73,7 +73,7 @@ impl Scope {
         assert_eq!(value.len(), self.len());
         let ident = ident.into();
 
-        if ident.as_ref() == IDENTITY_IDENTIFIER {
+        if ident == *IDENTITY_IDENTIFIER {
             self.root_scope = Some(value);
         } else {
             self.values.insert(ident, value);
@@ -87,7 +87,7 @@ impl Scope {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct ScopeDType {
     root: Option<DType>,
     types: ExprScope<DType>,
@@ -119,7 +119,7 @@ impl ScopeDType {
     }
 
     pub fn dtype(&self, id: &Identifier) -> VortexResult<&DType> {
-        if id.as_ref() == IDENTITY_IDENTIFIER {
+        if *id == *IDENTITY_IDENTIFIER {
             return self
                 .root
                 .as_ref()
@@ -135,7 +135,7 @@ impl ScopeDType {
     }
 
     pub fn with_value(mut self, ident: Identifier, dtype: DType) -> Self {
-        if ident.as_ref() == IDENTITY_IDENTIFIER {
+        if ident == *IDENTITY_IDENTIFIER {
             self.root = Some(dtype);
         } else {
             self.types.insert(ident, dtype);

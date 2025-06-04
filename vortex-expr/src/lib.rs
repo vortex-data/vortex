@@ -140,6 +140,7 @@ impl VortexExprExt for ExprRef {
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
         collector.into_vars()
+        // println!("vars{:?}", va);
     }
 
     #[cfg(feature = "proto")]
@@ -381,7 +382,6 @@ mod tests {
 
     #[cfg(feature = "proto")]
     mod tests_proto {
-
         use crate::{VortexExprExt, deserialize_expr, eq, lit, root};
 
         #[test]

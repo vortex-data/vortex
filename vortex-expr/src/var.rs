@@ -1,4 +1,6 @@
 use std::any::Any;
+use std::clone::Clone;
+use std::convert::Into;
 use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 
@@ -95,8 +97,8 @@ pub fn var(var: impl Into<Identifier>) -> ExprRef {
     Var::new_expr(var.into())
 }
 
-pub const IDENTITY_IDENTIFIER: &str = "";
-static IDENTITY: LazyLock<ExprRef> = LazyLock::new(|| Var::new_expr(IDENTITY_IDENTIFIER.into()));
+pub static IDENTITY_IDENTIFIER: LazyLock<Identifier> = LazyLock::new(|| Arc::from(""));
+static IDENTITY: LazyLock<ExprRef> = LazyLock::new(|| Var::new_expr(IDENTITY_IDENTIFIER.clone()));
 
 /// Return a global pointer to the identity token.
 /// This is the name of the data found in a vortex array or file.

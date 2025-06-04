@@ -22,7 +22,8 @@ pub use segment::*;
 use vortex_array::stats::StatsSet;
 use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex_expr::IDENTITY_IDENTIFIER;
 use vortex_flatbuffers::{FlatBuffer, footer as fb};
 use vortex_layout::{LayoutContext, LayoutRef, LayoutRegistry, layout_from_flatbuffer};
 
@@ -114,7 +115,10 @@ impl Footer {
 
     /// Returns the [`DType`] of the file.
     pub fn dtype(&self) -> &DType {
-        self.root_layout.dtype()
+        self.root_layout
+            .scope_dtype()
+            .dtype(&IDENTITY_IDENTIFIER)
+            .vortex_unwrap()
     }
 
     /// Returns the number of rows in the file.

@@ -13,10 +13,12 @@ use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
+use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, deserialize_expr, root, select};
+use vortex::expr::{ExprRef, deserialize_expr, get_item_scope, pack, var};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::layout::layouts::row_id::RowIdLayoutReader;
 use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 
@@ -252,15 +254,32 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         )?;
 
         let layout_reader = file.layout_reader()?;
-        let mut scan_builder = ScanBuilder::new(layout_reader.clone());
+        let layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
+        let mut scan_builder = ScanBuilder::new(layout_reader);
+
+        // println!("scan");
 
         // Apply options if provided.
         if let Some(field_names) = scan_options.field_names {
             // Field names are allowed to be `Some` and empty.
-            scan_builder = scan_builder.with_projection(select(field_names, root()));
+            let expr = pack(
+                field_names.into_iter().map(|f| {
+                    if f.as_ref() != "file_row_number" {
+                        (f.clone(), get_item_scope(f))
+                    } else {
+                        (f, var("row_id"))
+                    }
+                }),
+                Nullability::NonNullable,
+            );
+
+            // println!("proj {}", expr);
+
+            scan_builder = scan_builder.with_projection(expr);
         }
 
         if let Some(expr) = scan_options.filter_expr {
+            // println!("filter_expr {}", expr);
             scan_builder = scan_builder.with_filter(expr);
         }
 

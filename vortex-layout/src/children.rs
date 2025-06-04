@@ -4,7 +4,8 @@ use std::sync::Arc;
 use flatbuffers::Follow;
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err, vortex_panic};
+use vortex_expr::IDENTITY_IDENTIFIER;
 use vortex_flatbuffers::{FlatBuffer, layout as fbl};
 
 use crate::segments::SegmentId;
@@ -72,9 +73,19 @@ impl LayoutChildren for OwnedLayoutChildren {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.0.len());
         }
         let child = &self.0[idx];
-        if child.dtype() != dtype {
-            vortex_panic!("Child dtype mismatch: {} != {}", child.dtype(), dtype);
+        let child_dtype = child
+            .scope_dtype()
+            .dtype(&IDENTITY_IDENTIFIER)
+            .vortex_unwrap();
+        if child_dtype != dtype {
+            vortex_panic!("Child dtype mismatch: {} != {}", child_dtype, dtype);
         }
+
+        // let $"" = FILE_VALUES in let $row_id = ROW_ID in `e`
+
+        // let $"" = FILES_VALUES in var("") (get_item("row_id" ident()))
+        // let $"" = FILES_VALUES  let $row_id = ROW_ID in var("row_id")  != get_item("row_id", var(""))
+
         Ok(child.clone())
     }
 

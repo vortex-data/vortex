@@ -15,7 +15,7 @@ use vortex_array::{ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
-use vortex_expr::{ExactExpr, ExprRef, Scope};
+use vortex_expr::{ExactExpr, ExprRef, Scope, ScopeDType};
 use vortex_mask::Mask;
 
 use crate::layouts::struct_::StructLayout;
@@ -105,6 +105,10 @@ impl StructReader {
             })
             .clone()
     }
+
+    fn dtype(&self) -> &DType {
+        &self.layout.dtype
+    }
 }
 
 impl LayoutReader for StructReader {
@@ -112,8 +116,8 @@ impl LayoutReader for StructReader {
         &self.name
     }
 
-    fn dtype(&self) -> &DType {
-        self.layout.dtype()
+    fn scope_dtype(&self) -> &ScopeDType {
+        self.layout.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {

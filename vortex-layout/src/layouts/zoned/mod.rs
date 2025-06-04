@@ -9,7 +9,8 @@ pub use builder::{MAX_IS_TRUNCATED, MIN_IS_TRUNCATED, lower_bound, upper_bound};
 use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::{DType, TryFromBytes};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
+use vortex_expr::{IDENTITY_IDENTIFIER, ScopeDType};
 
 use crate::children::LayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
@@ -38,8 +39,8 @@ impl VTable for ZonedVTable {
         layout.data.row_count()
     }
 
-    fn dtype(layout: &Self::Layout) -> &DType {
-        layout.data.dtype()
+    fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {
+        layout.data.scope_dtype()
     }
 
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
@@ -97,7 +98,12 @@ impl VTable for ZonedVTable {
     ) -> VortexResult<Self::Layout> {
         let data = children.child(0, dtype)?;
 
-        let zones_dtype = ZoneMap::dtype_for_stats_table(data.dtype(), &metadata.present_stats);
+        let zones_dtype = ZoneMap::dtype_for_stats_table(
+            data.scope_dtype()
+                .dtype(&IDENTITY_IDENTIFIER)
+                .vortex_expect(""),
+            &metadata.present_stats,
+        );
         let zones = children.child(1, &zones_dtype)?;
 
         Ok(ZonedLayout::new(
@@ -127,8 +133,18 @@ impl ZonedLayout {
         zone_len: usize,
         present_stats: Arc<[Stat]>,
     ) -> Self {
-        let expected_dtype = ZoneMap::dtype_for_stats_table(data.dtype(), &present_stats);
-        if zones.dtype() != &expected_dtype {
+        let expected_dtype = ZoneMap::dtype_for_stats_table(
+            data.scope_dtype()
+                .dtype(&IDENTITY_IDENTIFIER)
+                .vortex_unwrap(),
+            &present_stats,
+        );
+        if zones
+            .scope_dtype()
+            .dtype(&IDENTITY_IDENTIFIER)
+            .vortex_unwrap()
+            != &expected_dtype
+        {
             vortex_panic!("Invalid zone map layout: zones dtype does not match expected dtype");
         }
         Self {

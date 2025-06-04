@@ -18,15 +18,14 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ExprRef, ScopeDType, VortexExprExt, root};
+use vortex_expr::{ExprRef, IDENTITY_IDENTIFIER, ScopeDType, root};
 use vortex_metrics::VortexMetrics;
 
 use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
-use crate::layouts::row_id::RowIdLayoutReader;
 
 mod executor;
 pub mod row_mask;
@@ -41,6 +40,7 @@ pub struct ScanBuilder<A> {
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
     /// The selection mask to apply to the selected row range.
+    // TODO(joe): remove me!
     selection: Selection,
     /// How to split the file for concurrent processing.
     split_by: SplitBy,
@@ -147,7 +147,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     /// Returns the output [`DType`] of the scan.
     pub fn dtype(&self) -> VortexResult<DType> {
         self.projection
-            .return_dtype(&ScopeDType::new(self.layout_reader.dtype().clone()))
+            .return_dtype(self.layout_reader.scope_dtype())
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
@@ -156,25 +156,39 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let mut layout_reader = self.layout_reader;
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        if let Some(filter) = &self.filter {
-            if filter.vars().contains("row_id") {
-                layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
-            }
+
+        // if true {
+        //     println!("build");
+        //     println!("pro {:?}", self.projection);
+        //     println!("filt {:?}", self.filter);
+        // }
+
+        // if self
+        //     .filter
+        //     .as_ref()
+        //     .is_some_and(|f| f.vars().contains("row_id"))
+        //     || self.projection.vars().contains("row_id")
+        // {
+        //     println!("has row id");
+        //     // layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
+        // }
+
+        if self.filter.is_some() {
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
         }
-        let ctx = ScopeDType::new(layout_reader.dtype().clone());
+        let ctx = layout_reader.scope_dtype();
 
         // Normalize and simplify the expressions.
-        let projection = simplify_typed(self.projection.clone(), &ctx)?;
+        let projection = simplify_typed(self.projection.clone(), ctx)?;
         let filter = self
             .filter
             .clone()
-            .map(|f| simplify_typed(f, &ctx))
+            .map(|f| simplify_typed(f, ctx))
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.
         let (filter_mask, projection_mask) =
-            filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
+            filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.scope_dtype())?;
         let field_mask: Vec<_> = filter_mask
             .iter()
             .cloned()
@@ -355,9 +369,13 @@ impl ScanBuilder<ArrayRef> {
 fn filter_and_projection_masks(
     projection: &ExprRef,
     filter: Option<&ExprRef>,
-    dtype: &DType,
+    scope_dtype: &ScopeDType,
 ) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
-    let Some(struct_dtype) = dtype.as_struct() else {
+    let Some(struct_dtype) = scope_dtype
+        .dtype(&IDENTITY_IDENTIFIER)
+        .vortex_unwrap()
+        .as_struct()
+    else {
         return Ok(match filter {
             Some(_) => (vec![FieldMask::All], vec![FieldMask::All]),
             None => (Vec::new(), vec![FieldMask::All]),

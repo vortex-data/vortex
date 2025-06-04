@@ -4,8 +4,11 @@ use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
+use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
+use vortex_dtype::Nullability::NonNullable;
+use vortex_dtype::PType::U64;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::var_partition::{VarPartitionedExpr, var_partitions_with_map};
@@ -18,6 +21,7 @@ use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, Prun
 pub struct RowIdLayoutReader {
     child: LayoutReaderRef,
     name: Arc<str>,
+    scope_dtype: ScopeDType,
     partitioned_expr_cache: DashMap<ExactExpr, Arc<VarPartitionedExpr>>,
 }
 
@@ -25,9 +29,14 @@ static ROW_ID: LazyLock<Identifier> = LazyLock::new(|| Arc::from("row_id"));
 
 impl RowIdLayoutReader {
     pub fn new(child: LayoutReaderRef) -> Self {
+        let scope_dtype = child
+            .scope_dtype()
+            .clone()
+            .with_value(ROW_ID.clone(), DType::Primitive(U64, NonNullable));
         Self {
             child,
             name: Arc::from("row_id_layout_reader"),
+            scope_dtype,
             partitioned_expr_cache: Default::default(),
         }
     }
@@ -61,8 +70,8 @@ impl LayoutReader for RowIdLayoutReader {
         &self.name
     }
 
-    fn dtype(&self) -> &DType {
-        self.child.dtype()
+    fn scope_dtype(&self) -> &ScopeDType {
+        &self.scope_dtype
     }
 
     fn row_count(&self) -> Precision<u64> {
@@ -97,7 +106,7 @@ impl LayoutReader for RowIdLayoutReader {
         let Some(row_id) = partitioned.find_partition(&ROW_ID) else {
             return self.child.filter_evaluation(row_range, expr);
         };
-        let rest = partitioned.find_partition(&Arc::from(IDENTITY_IDENTIFIER));
+        let rest = partitioned.find_partition(&IDENTITY_IDENTIFIER);
 
         let row_id_scope = Scope::empty(arr_len).with_value(
             ROW_ID.clone(),
@@ -107,7 +116,7 @@ impl LayoutReader for RowIdLayoutReader {
         );
 
         let rest_eval = if let Some(rest) = &rest {
-            let dtype = rest.return_dtype(&ScopeDType::new(self.child.dtype().clone()))?;
+            let dtype = rest.return_dtype(self.scope_dtype())?;
             Some(if matches!(dtype, DType::Bool(_)) {
                 // If the partition evaluates to a boolean, we can evaluate it as a mask which
                 // can often be more efficient since nulls are turned into `false` early on,
@@ -140,7 +149,9 @@ impl LayoutReader for RowIdLayoutReader {
         let Some(row_id) = partitioned.find_partition(&ROW_ID) else {
             return self.child.projection_evaluation(row_range, expr);
         };
-        let rest = partitioned.find_partition(&Arc::from(IDENTITY_IDENTIFIER));
+        let rest = partitioned.find_partition(&IDENTITY_IDENTIFIER);
+
+        // println!("projection_evaluation row id {:?}", rest);
 
         let row_id_scope = Scope::empty(arr_len).with_value(
             ROW_ID.clone(),
@@ -150,6 +161,8 @@ impl LayoutReader for RowIdLayoutReader {
         );
 
         let res = row_id.evaluate(&row_id_scope)?;
+
+        // println!("res {:?}", res);
 
         let rest_eval = rest
             .map(|r| self.child.projection_evaluation(row_range, r))
@@ -215,7 +228,9 @@ impl ArrayEvaluation for RowIdArrayEvaluation {
             Scope::empty(mask.len())
         };
 
-        let root_scope = root_scope.with_value(ROW_ID.clone(), self.row_id_partition.clone());
+        let filtered = filter(&self.row_id_partition, &mask)?;
+
+        let root_scope = root_scope.with_value(ROW_ID.clone(), filtered.clone());
 
         self.root.evaluate(&root_scope)
     }
