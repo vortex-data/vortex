@@ -282,8 +282,8 @@ void set_column(const string &s, expr::Expr *column) {
 	get_item->mutable_path()->assign(s);
 
 	auto id = column->add_children();
-	id->mutable_kind()->mutable_identity();
-	id->set_id(IDENTITY_ID);
+	id->mutable_kind()->mutable_var()->set_var("");
+	id->set_id(VAR_ID);
 }
 
 void set_literal(Arena &arena, const Value &value, bool nullable, expr::Expr *constant) {

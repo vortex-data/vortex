@@ -18,7 +18,7 @@ use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
-use vortex_expr::{and, eq, get_item, gt, gt_eq, ident, lit, lt, lt_eq, or, select};
+use vortex_expr::{and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
 
 use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
 
@@ -219,7 +219,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(select(["strings".into()], ident()))
+        .with_projection(select(["strings".into()], root()))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -250,7 +250,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(select(["numbers".into()], ident()))
+        .with_projection(select(["numbers".into()], root()))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -403,7 +403,7 @@ async fn filter_string() {
         .unwrap()
         .scan()
         .unwrap()
-        .with_filter(eq(get_item("name", ident()), lit("Joseph")))
+        .with_filter(eq(get_item("name", root()), lit("Joseph")))
         .into_array_stream()
         .unwrap()
         .try_collect::<Vec<_>>()
@@ -456,10 +456,10 @@ async fn filter_or() {
         .scan()
         .unwrap()
         .with_filter(or(
-            eq(get_item("name", ident()), lit("Angela")),
+            eq(get_item("name", root()), lit("Angela")),
             and(
-                gt_eq(get_item("age", ident()), lit(20)),
-                lt_eq(get_item("age", ident()), lit(30)),
+                gt_eq(get_item("age", root()), lit(20)),
+                lt_eq(get_item("age", root()), lit(30)),
             ),
         ))
         .into_array_stream()
@@ -520,8 +520,8 @@ async fn filter_and() {
         .scan()
         .unwrap()
         .with_filter(and(
-            gt(get_item("age", ident()), lit(21)),
-            lt_eq(get_item("age", ident()), lit(33)),
+            gt(get_item("age", root()), lit(21)),
+            lt_eq(get_item("age", root()), lit(33)),
         ))
         .into_array_stream()
         .unwrap()
@@ -720,7 +720,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
+        .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
         .with_row_indices(Buffer::empty())
         .into_array_stream()
         .unwrap()
@@ -738,7 +738,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_kept_array = file
         .scan()
         .unwrap()
-        .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
+        .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
         .with_row_indices(Buffer::from_iter(kept_indices))
         .into_array_stream()
         .unwrap()
@@ -763,7 +763,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(gt(get_item("numbers", ident()), lit(50_i16)))
+        .with_filter(gt(get_item("numbers", root()), lit(50_i16)))
         .with_row_indices((0..500).collect::<Buffer<_>>())
         .into_array_stream()
         .unwrap()
@@ -825,7 +825,7 @@ async fn filter_string_chunked() {
     let actual_array = file
         .scan()
         .unwrap()
-        .with_filter(eq(get_item("name", ident()), lit("Joseph")))
+        .with_filter(eq(get_item("name", root()), lit("Joseph")))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -918,8 +918,8 @@ async fn test_pruning_with_or() {
         .scan()
         .unwrap()
         .with_filter(or(
-            lt_eq(get_item("letter", ident()), lit("J")),
-            lt(get_item("number", ident()), lit(25)),
+            lt_eq(get_item("letter", root()), lit("J")),
+            lt(get_item("number", root()), lit(25)),
         ))
         .into_array_stream()
         .unwrap()
@@ -1007,7 +1007,7 @@ async fn test_repeated_projection() {
     let actual = file
         .scan()
         .unwrap()
-        .with_projection(select(["strings".into(), "strings".into()], ident()))
+        .with_projection(select(["strings".into(), "strings".into()], root()))
         .into_array_stream()
         .unwrap()
         .read_all()

@@ -15,8 +15,8 @@ use vortex_array::validity::Validity;
 use vortex_array::{ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
-use vortex_expr::ExprRef;
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
+use vortex_expr::{ExprRef, Scope};
 use vortex_mask::Mask;
 
 use crate::layouts::struct_::StructLayout;
@@ -283,7 +283,12 @@ impl MaskEvaluation for StructMaskEvaluation {
         )?
         .into_array();
 
-        let root_mask = Mask::try_from(self.partitioned.root.evaluate(&root_scope)?.as_ref())?;
+        let root_mask = Mask::try_from(
+            self.partitioned
+                .root
+                .evaluate(&Scope::new(root_scope))?
+                .as_ref(),
+        )?;
         let mask = mask.bitand(&root_mask);
 
         Ok(mask)
@@ -322,7 +327,7 @@ impl ArrayEvaluation for StructArrayEvaluation {
         )?
         .into_array();
 
-        self.partitioned.root.evaluate(&root_scope)
+        self.partitioned.root.evaluate(&Scope::new(root_scope))
     }
 }
 
@@ -340,7 +345,7 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
-    use vortex_expr::{get_item, gt, ident, pack};
+    use vortex_expr::{get_item, gt, pack, root};
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -402,7 +407,7 @@ mod tests {
         ),
     ) {
         let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
-        let expr = gt(get_item("a", ident()), get_item("b", ident()));
+        let expr = gt(get_item("a", root()), get_item("b", root()));
         let result = block_on(
             reader
                 .projection_evaluation(&(0..3), &expr)
@@ -430,7 +435,7 @@ mod tests {
         ),
     ) {
         let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
-        let expr = gt(get_item("a", ident()), get_item("b", ident()));
+        let expr = gt(get_item("a", root()), get_item("b", root()));
         let result = block_on(
             reader
                 .projection_evaluation(&(0..3), &expr)
@@ -462,7 +467,7 @@ mod tests {
     ) {
         let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
         let expr = pack(
-            [("a", get_item("a", ident())), ("b", get_item("b", ident()))],
+            [("a", get_item("a", root())), ("b", get_item("b", root()))],
             NonNullable,
         );
         let result = block_on(

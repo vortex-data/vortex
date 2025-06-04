@@ -3,7 +3,7 @@ use vortex_dtype::{DType, Field, FieldPath};
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::traversal::{FoldUp, Folder, Node};
-use crate::{ExprRef, GetItem, Identity, Select};
+use crate::{ExprRef, GetItem, Select, is_root};
 
 /// Returns the field mask for the given expression.
 ///
@@ -34,7 +34,7 @@ impl<'a> Folder<'a> for FieldMaskFolder {
         children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>> {
         // The identity returns a field path covering the root.
-        if node.as_any().is::<Identity>() {
+        if is_root(node) {
             return Ok(FoldUp::Continue([FieldPath::root()].into()));
         }
 
@@ -67,7 +67,7 @@ mod test {
     use vortex_dtype::{DType, FieldPath, PType, StructFields};
 
     use crate::transform::field_mask::field_mask;
-    use crate::{get_item, ident};
+    use crate::{get_item, root};
 
     fn dtype() -> DType {
         DType::Struct(
@@ -81,7 +81,7 @@ mod test {
 
     #[test]
     fn field_mask_ident() {
-        let mask = field_mask(&ident(), &dtype())
+        let mask = field_mask(&root(), &dtype())
             .unwrap()
             .into_iter()
             .collect_vec();
@@ -90,7 +90,7 @@ mod test {
 
     #[test]
     fn field_mask_get_item() {
-        let mask = field_mask(&get_item("A", ident()), &dtype())
+        let mask = field_mask(&get_item("A", root()), &dtype())
             .unwrap()
             .into_iter()
             .collect_vec();
@@ -99,7 +99,7 @@ mod test {
 
     #[test]
     fn field_mask_get_item_nested() {
-        let mask = field_mask(&get_item("B", get_item("A", ident())), &dtype())
+        let mask = field_mask(&get_item("B", get_item("A", root())), &dtype())
             .unwrap()
             .into_iter()
             .collect_vec();

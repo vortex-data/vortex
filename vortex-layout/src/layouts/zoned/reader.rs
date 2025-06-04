@@ -13,7 +13,7 @@ use vortex_array::{ArrayContext, ToCanonical};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
-use vortex_expr::{ExprRef, Identity};
+use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
 
 use crate::layouts::zoned::ZonedLayout;
@@ -89,7 +89,7 @@ impl ZonedReader {
 
                 let zones_eval = self
                     .zones_child
-                    .projection_evaluation(&(0..nzones as u64), &Identity::new_expr())
+                    .projection_evaluation(&(0..nzones as u64), &root())
                     .vortex_expect("Failed construct stats table evaluation");
 
                 async move {
@@ -299,7 +299,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, PType};
-    use vortex_expr::{Identity, gt, lit};
+    use vortex_expr::{gt, lit, root};
     use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -347,7 +347,7 @@ mod test {
             let result = layout
                 .new_reader(&"".into(), &segments, &ctx)
                 .unwrap()
-                .projection_evaluation(&(0..layout.row_count()), &Identity::new_expr())
+                .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
                 .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
                 .await
@@ -373,7 +373,7 @@ mod test {
             let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
 
             // Choose a prune-able expression
-            let expr = gt(Identity::new_expr(), lit(7));
+            let expr = gt(root(), lit(7));
 
             let result = reader
                 .pruning_evaluation(&(0..row_count), &expr)

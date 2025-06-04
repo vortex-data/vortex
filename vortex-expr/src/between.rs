@@ -2,13 +2,13 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
+use vortex_array::ArrayRef;
 use vortex_array::compute::{BetweenOptions, between};
-use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
 use vortex_error::VortexResult;
 
-use crate::{BinaryExpr, ExprRef, VortexExpr};
+use crate::{BinaryExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -135,10 +135,10 @@ impl VortexExpr for Between {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let arr_val = self.arr.evaluate(batch)?;
-        let lower_arr_val = self.lower.evaluate(batch)?;
-        let upper_arr_val = self.upper.evaluate(batch)?;
+    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
+        let arr_val = self.arr.unchecked_evaluate(scope)?;
+        let lower_arr_val = self.lower.unchecked_evaluate(scope)?;
+        let upper_arr_val = self.upper.unchecked_evaluate(scope)?;
 
         between(&arr_val, &lower_arr_val, &upper_arr_val, &self.options)
     }
@@ -156,10 +156,10 @@ impl VortexExpr for Between {
         })
     }
 
-    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
-        let arr_dt = self.arr.return_dtype(scope_dtype)?;
-        let lower_dt = self.lower.return_dtype(scope_dtype)?;
-        let upper_dt = self.upper.return_dtype(scope_dtype)?;
+    fn return_dtype(&self, ctx: &ScopeDType) -> VortexResult<DType> {
+        let arr_dt = self.arr.return_dtype(ctx)?;
+        let lower_dt = self.lower.return_dtype(ctx)?;
+        let upper_dt = self.upper.return_dtype(ctx)?;
 
         assert!(arr_dt.eq_ignore_nullability(&lower_dt));
         assert!(arr_dt.eq_ignore_nullability(&upper_dt));

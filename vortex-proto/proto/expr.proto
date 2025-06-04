@@ -22,6 +22,8 @@ message Kind {
     BinaryOp binary_op = 2;
     GetItem get_item = 3;
     Identity identity = 4;
+    Let let = 14;
+    Var var = 13;
     Merge merge = 5;
     Not not = 6;
     Pack pack = 7;
@@ -42,6 +44,14 @@ message Kind {
 
   message Identity {
 
+  }
+
+  message Let {
+    string var = 1;
+  }
+
+  message Var {
+    string var = 1;
   }
 
   message Merge {

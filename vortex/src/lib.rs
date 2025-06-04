@@ -34,7 +34,7 @@ mod test {
     use vortex_array::{IntoArray, TryIntoArray};
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_expr::{gt, ident, lit};
+    use vortex_expr::{gt, lit, root};
     use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 
     use crate as vortex;
@@ -102,7 +102,7 @@ mod test {
             .open("example.vortex")
             .await?
             .scan()?
-            .with_filter(gt(ident(), lit(2u64)))
+            .with_filter(gt(root(), lit(2u64)))
             .into_array_stream()?
             .read_all()
             .await?;
