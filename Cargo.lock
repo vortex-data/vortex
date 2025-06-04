@@ -505,7 +505,6 @@ dependencies = [
  "datafusion-common",
  "datafusion-physical-plan",
  "futures",
- "governor",
  "homedir",
  "humansize",
  "indicatif",
@@ -518,7 +517,6 @@ dependencies = [
  "opentelemetry_sdk",
  "parquet",
  "rand 0.9.1",
- "rand_distr",
  "rayon",
  "regex",
  "reqwest",
@@ -536,7 +534,6 @@ dependencies = [
  "uuid",
  "vortex",
  "vortex-datafusion",
- "vortex-io",
  "xshell",
 ]
 
@@ -2545,29 +2542,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "governor"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3cbe789d04bf14543f03c4b60cd494148aa79438c8440ae7d81a7778147745c3"
-dependencies = [
- "cfg-if",
- "dashmap",
- "futures-sink",
- "futures-timer",
- "futures-util",
- "getrandom 0.3.3",
- "hashbrown 0.15.3",
- "nonzero_ext",
- "parking_lot",
- "portable-atomic",
- "quanta",
- "rand 0.9.1",
- "smallvec",
- "spinning_top",
- "web-time",
-]
-
-[[package]]
 name = "grid"
 version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3583,12 +3557,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nonzero_ext"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38bf9645c8b145698bb0b18a4637dcacbc421ea49bef2317e4fd8065a387cf21"
-
-[[package]]
 name = "nougat"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4388,21 +4356,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "quanta"
-version = "0.12.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bd1fe6824cea6538803de3ff1bc0cf3949024db3d43c9643024bfb33a807c0e"
-dependencies = [
- "crossbeam-utils",
- "libc",
- "once_cell",
- "raw-cpuid",
- "wasi 0.11.0+wasi-snapshot-preview1",
- "web-sys",
- "winapi",
-]
-
-[[package]]
 name = "quick-xml"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4567,16 +4520,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rand_distr"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a8615d50dcf34fa31f7ab52692afec947c4dd0ab803cc87cb3b0b4570ff7463"
-dependencies = [
- "num-traits",
- "rand 0.9.1",
-]
-
-[[package]]
 name = "ratatui"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4595,15 +4538,6 @@ dependencies = [
  "unicode-segmentation",
  "unicode-truncate",
  "unicode-width 0.2.0",
-]
-
-[[package]]
-name = "raw-cpuid"
-version = "11.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6df7ab838ed27997ba19a4664507e6f82b41fe6e20be42929332156e5e85146"
-dependencies = [
- "bitflags 2.9.1",
 ]
 
 [[package]]
@@ -5297,15 +5231,6 @@ name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
-dependencies = [
- "lock_api",
-]
-
-[[package]]
-name = "spinning_top"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d96d2d1d716fb500937168cc09353ffdc7a012be8475ac7308e1bdf0e3923300"
 dependencies = [
  "lock_api",
 ]
@@ -6199,7 +6124,7 @@ dependencies = [
  "arrow-buffer",
  "codspeed-divan-compat",
  "env_logger",
- "getrandom 0.2.16",
+ "getrandom 0.3.3",
  "itertools 0.14.0",
  "log",
  "num-traits",
@@ -6269,7 +6194,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "tracing-futures",
  "vortex",
 ]
 
@@ -6277,7 +6201,6 @@ dependencies = [
 name = "vortex-datetime-parts"
 version = "0.1.0"
 dependencies = [
- "getrandom 0.2.16",
  "prost",
  "rstest",
  "vortex-array",
@@ -6396,9 +6319,7 @@ dependencies = [
  "dyn-hash",
  "itertools 0.14.0",
  "prost",
- "prost-types",
  "serde",
- "serde_json",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -6422,8 +6343,6 @@ dependencies = [
  "num-traits",
  "prost",
  "rand 0.9.1",
- "rstest",
- "rstest_reuse",
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
@@ -6478,7 +6397,6 @@ dependencies = [
  "uuid",
  "vortex-alp",
  "vortex-array",
- "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
  "vortex-datetime-parts",
@@ -6588,7 +6506,6 @@ name = "vortex-jni"
 version = "0.1.0"
 dependencies = [
  "arrow",
- "futures",
  "jni",
  "log",
  "object_store",
@@ -6612,7 +6529,6 @@ dependencies = [
  "async-stream",
  "async-trait",
  "bit-vec",
- "bytes",
  "dashmap",
  "flatbuffers",
  "futures",
@@ -6657,7 +6573,6 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.3.3",
  "parking_lot",
- "vortex-error",
  "witchcraft-metrics",
 ]
 
@@ -6713,7 +6628,6 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "bytes",
- "getrandom 0.2.16",
  "itertools 0.14.0",
  "num-traits",
  "paste",
@@ -6730,7 +6644,6 @@ name = "vortex-sequence"
 version = "0.1.0"
 dependencies = [
  "arcref",
- "itertools 0.14.0",
  "num-traits",
  "prost",
  "tokio",

@@ -20,9 +20,7 @@ workspace = true
 dyn-hash = { workspace = true }
 itertools = { workspace = true }
 prost = { workspace = true, optional = true }
-prost-types = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
-serde_json = { workspace = true, optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -35,17 +33,6 @@ vortex-scalar = { workspace = true }
 vortex-expr = { path = ".", features = ["test-harness"] }
 
 [features]
-serde = [
-    "dep:serde",
-    "dep:serde_json",
-    "vortex-dtype/serde",
-    "vortex-error/serde",
-]
-proto = [
-    "vortex-proto/expr",
-    "vortex-error/prost",
-    "dep:prost",
-    "dep:prost-types",
-    "serde",
-]
+serde = ["dep:serde", "vortex-dtype/serde", "vortex-error/serde"]
+proto = ["vortex-proto/expr", "vortex-error/prost", "dep:prost", "serde"]
 test-harness = []
