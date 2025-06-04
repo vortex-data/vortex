@@ -64,10 +64,10 @@ where
     }
 }
 
-pub fn variable_scope_accesses<'a, T: Clone + Hash + Eq>(
-    expr: &'a ExprRef,
+pub fn variable_scope_accesses<T: Clone + Hash + Eq>(
+    expr: &ExprRef,
     f: impl Fn(&Identifier) -> T,
-) -> VortexResult<Accesses<'a, T>> {
+) -> VortexResult<Accesses<'_, T>> {
     AccessesAnalysis::analyze(expr, move |node| {
         if let Some(variable) = node.as_any().downcast_ref::<Var>() {
             return (TraversalOrder::Skip, vec![f(variable.var())]);
