@@ -10,6 +10,7 @@ use crate::binary::proto::BinarySerde;
 use crate::get_item::proto::GetItemSerde;
 use crate::let_::proto::LetSerde;
 use crate::like::proto::LikeSerde;
+use crate::list_contains::proto::ListContainsSerde;
 use crate::literal::proto::LiteralSerde;
 use crate::merge::proto::MergeSerde;
 use crate::not::proto::NotSerde;
@@ -25,6 +26,7 @@ const EXPRESSIONS: &[&'static dyn ExprDeserialize] = &[
     &LetSerde,
     &LikeSerde,
     &LiteralSerde,
+    &ListContainsSerde,
     &MergeSerde,
     &NotSerde,
     &PackSerde,
