@@ -10,6 +10,8 @@
 
 using namespace duckdb;
 
+namespace vortex {
+
 struct CTableFunctionInfo final : TableFunctionInfo {
 	explicit CTableFunctionInfo(const duckdb_vx_tfunc_vtab_t &vtab) : vtab(vtab) {
 	}
@@ -18,26 +20,26 @@ struct CTableFunctionInfo final : TableFunctionInfo {
 };
 
 struct CTableBindData final : TableFunctionData {
-	CTableBindData(unique_ptr<CTableFunctionInfo> info_p, optional_ptr<CData> ffi_data_p)
+	CTableBindData(unique_ptr<CTableFunctionInfo> info_p, optional_ptr<vortex::CData> ffi_data_p)
 	    : info(std::move(info_p)), ffi_data(ffi_data_p) {
 	}
 
 	unique_ptr<CTableFunctionInfo> info;
-	optional_ptr<CData> ffi_data;
+	optional_ptr<vortex::CData> ffi_data;
 };
 
 struct CTableGlobalData final : GlobalTableFunctionState {
-	explicit CTableGlobalData(optional_ptr<CData> ffi_data_p) : ffi_data(ffi_data_p) {
+	explicit CTableGlobalData(optional_ptr<vortex::CData> ffi_data_p) : ffi_data(ffi_data_p) {
 	}
 
-	optional_ptr<CData> ffi_data;
+	optional_ptr<vortex::CData> ffi_data;
 };
 
 struct CTableLocalData final : LocalTableFunctionState {
-	explicit CTableLocalData(optional_ptr<CData> ffi_data_p) : ffi_data(ffi_data_p) {
+	explicit CTableLocalData(optional_ptr<vortex::CData> ffi_data_p) : ffi_data(ffi_data_p) {
 	}
 
-	optional_ptr<CData> ffi_data;
+	optional_ptr<vortex::CData> ffi_data;
 };
 
 /**
@@ -66,7 +68,7 @@ unique_ptr<FunctionData> c_bind(ClientContext &context, TableFunctionBindInput &
 	}
 
 	return make_uniq<CTableBindData>(make_uniq<CTableFunctionInfo>(info.vtab),
-	                                 optional_ptr(reinterpret_cast<CData *>(ffi_bind_data)));
+	                                 optional_ptr(reinterpret_cast<vortex::CData *>(ffi_bind_data)));
 }
 
 unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, TableFunctionInitInput &input) {
@@ -87,7 +89,7 @@ unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, Table
 		throw BinderException(IntoErrString(error_out));
 	}
 
-	return make_uniq<CTableGlobalData>(optional_ptr(reinterpret_cast<CData *>(ffi_global_data)));
+	return make_uniq<CTableGlobalData>(optional_ptr(reinterpret_cast<vortex::CData *>(ffi_global_data)));
 }
 
 unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, TableFunctionInitInput &input,
@@ -110,7 +112,7 @@ unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, Tabl
 		throw BinderException(IntoErrString(error_out));
 	}
 
-	return make_uniq<CTableLocalData>(optional_ptr(reinterpret_cast<CData *>(ffi_local_data)));
+	return make_uniq<CTableLocalData>(optional_ptr(reinterpret_cast<vortex::CData *>(ffi_local_data)));
 }
 
 void c_function(ClientContext &context, TableFunctionInput &input, DataChunk &output) {
@@ -241,3 +243,5 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
 	}
 	return DuckDBSuccess;
 }
+
+} // namespace vortex
