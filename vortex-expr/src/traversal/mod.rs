@@ -15,23 +15,22 @@ use crate::ExprRef;
 /// - `Skip`: Skip visiting the children of the current node.
 /// - `Stop`: Stop visiting any more nodes in the traversal.
 /// - `Continue`: Continue with the traversal as expected.
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TraversalOrder {
-    // In a top-down traversal, skip visiting the children of the current node.
-    // In the bottom-up phase of the traversal this does nothing (for now).
+    /// In a top-down traversal, skip visiting the children of the current node.
+    /// In the bottom-up phase of the traversal this does nothing (for now).
     Skip,
 
-    // Stop visiting any more nodes in the traversal.
+    /// Stop visiting any more nodes in the traversal.
     Stop,
 
-    // Continue with the traversal as expected.
+    /// Continue with the traversal as expected.
     Continue,
 }
 
 #[derive(Debug, Clone)]
 pub struct TransformResult<T> {
-    pub result: T,
+    result: T,
     order: TraversalOrder,
     changed: bool,
 }
@@ -51,6 +50,10 @@ impl<T> TransformResult<T> {
             order: TraversalOrder::Continue,
             changed: false,
         }
+    }
+
+    pub fn into_inner(self) -> T {
+        self.result
     }
 }
 
@@ -169,7 +172,7 @@ pub trait Node: Sized {
 }
 
 impl Node for ExprRef {
-    // A pre-order traversal.
+    /// A pre-order traversal.
     fn accept<'a, V: NodeVisitor<'a, NodeTy = ExprRef>>(
         &'a self,
         visitor: &mut V,
@@ -216,7 +219,7 @@ impl Node for ExprRef {
         visitor.visit_up(self, context, children)
     }
 
-    // A post-order transform, with an option to ignore sub-tress (using visit_down).
+    /// A post-order transform, with an option to ignore sub-tress (using visit_down).
     fn transform<V: MutNodeVisitor<NodeTy = Self>>(
         self,
         visitor: &mut V,

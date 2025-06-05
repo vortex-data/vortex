@@ -157,7 +157,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
         let ctx = ScopeDType::new(dtype.clone());
 
         Ok(PartitionedExpr {
-            root: simplify_typed(split.result, &ctx)?,
+            root: simplify_typed(split.into_inner(), &ctx)?,
             partitions: partitions.into_boxed_slice(),
             partition_names: partition_names.into(),
             partition_dtypes: partition_dtypes.into_boxed_slice(),
@@ -193,7 +193,7 @@ impl FolderMut for StructFieldExpressionSplitter<'_> {
             let replaced = node
                 .clone()
                 .transform(&mut ScopeStepIntoFieldExpr(field_name.clone()))?;
-            sub_exprs.push(replaced.result);
+            sub_exprs.push(replaced.into_inner());
 
             let access = get_item(
                 Self::field_idx_name(field_name, idx),

@@ -6,7 +6,7 @@ use crate::{ExprRef, Merge, ScopeDType, VortexExpr, get_item, pack};
 /// Replaces [Merge] with combination of [GetItem] and [Pack] expressions.
 pub(crate) fn remove_merge(e: ExprRef, ctx: &ScopeDType) -> VortexResult<ExprRef> {
     let mut transform = RemoveMergeTransform { ctx };
-    e.transform(&mut transform).map(|e| e.result)
+    e.transform(&mut transform).map(|e| e.into_inner())
 }
 
 struct RemoveMergeTransform<'a> {
