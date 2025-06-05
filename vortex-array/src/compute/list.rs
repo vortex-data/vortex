@@ -54,6 +54,15 @@ pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<Array
     if elem_dtype.as_ref() != value.dtype() {
         vortex_bail!("Element type of ListArray does not match search value");
     }
+    let value_nullability = value.dtype().nullability();
+
+    if value.is_null() || array.all_invalid()? {
+        return Ok(ConstantArray::new(
+            Scalar::null(DType::Bool(Nullability::Nullable)),
+            array.len(),
+        )
+        .to_array());
+    }
 
     if value.all_invalid()? || array.all_invalid()? {
         return Ok(ConstantArray::new(
@@ -349,36 +358,43 @@ mod tests {
         Some("a"),
         bool_array(vec![false, true, true], None)
     )]
+    // Cast 2: valid scalar search over nullable list, with all nulls matched
     #[case(
         null_strings(vec![vec![], vec![Some("a"), None], vec![Some("a"), None, Some("b")]]),
         Some("a"),
         bool_array(vec![false, true, true], Some(vec![true, true, true]))
     )]
+    // Cast 3: valid scalar search over nullable list, with some nulls not matched (return no nulls)
     #[case(
         null_strings(vec![vec![], vec![Some("a"), None], vec![Some("b"), None, None]]),
         Some("a"),
         bool_array(vec![false, true, false], Some(vec![true, true, true]))
     )]
+    // Case 4: list(utf8) with all elements matching, but some empty lists
     #[case(
         nonnull_strings(vec![vec![], vec!["a"], vec!["a"]]),
         Some("a"),
         bool_array(vec![false, true, true], None)
     )]
+    // Case 5: list(utf8) all lists empty.
     #[case(
         nonnull_strings(vec![vec![], vec![], vec![]]),
         Some("a"),
         bool_array(vec![false, false, false], None)
     )]
+    // Case 6: list(utf8) no elements matching.
     #[case(
         nonnull_strings(vec![vec!["b"], vec![], vec!["b"]]),
         Some("a"),
         bool_array(vec![false, false, false], None)
     )]
+    // Case 7: list(utf8?) with empty + NULL elements and NULL search
     #[case(
         null_strings(vec![vec![], vec![None, None], vec![None, None, None]]),
         None,
         bool_array(vec![false, true, true], Some(vec![false, false, false]))
     )]
+    // Case 8: list(utf8?) with empty + NULL elements and search scalar
     #[case(
         null_strings(vec![vec![], vec![None, None], vec![None, None, None]]),
         Some("a"),

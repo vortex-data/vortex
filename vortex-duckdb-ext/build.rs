@@ -61,8 +61,9 @@ fn main() {
     cbindgen::Builder::new()
         .with_config(cbindgen::Config::from_file(crate_dir.join("cbindgen.toml")).unwrap())
         .with_crate(&crate_dir)
+        .with_no_includes()
         .generate()
-        .expect("Unable to generate bindings")
+        .expect("error: Unable to generate bindings for vortex.h")
         .write_to_file(crate_dir.join("include/vortex.h"));
 
     for entry in WalkDir::new("cpp/") {

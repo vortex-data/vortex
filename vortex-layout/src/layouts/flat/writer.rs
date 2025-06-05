@@ -175,7 +175,7 @@ mod tests {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader(&"".into(), &segments, &ctx)
+                .new_reader("".into(), segments, ctx)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -216,7 +216,7 @@ mod tests {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader(&"".into(), &segments, &ctx)
+                .new_reader("".into(), segments, ctx)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -276,7 +276,7 @@ mod tests {
 
             // We should be able to read the array we just wrote.
             let result: ArrayRef = layout
-                .new_reader(&"".into(), &segments, &ctx)
+                .new_reader("".into(), segments, ctx)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()

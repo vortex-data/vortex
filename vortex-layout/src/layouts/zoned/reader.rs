@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::ops::{BitAnd, Range, Sub};
+use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::BooleanBufferBuilder;
@@ -51,11 +51,14 @@ impl ZonedReader {
         segment_source: Arc<dyn SegmentSource>,
         ctx: ArrayContext,
     ) -> VortexResult<Self> {
-        let data_child = layout.data.new_reader(&name, &segment_source, &ctx)?;
+        let data_child =
+            layout
+                .data
+                .new_reader(name.clone(), segment_source.clone(), ctx.clone())?;
         let zones_child =
             layout
                 .zones
-                .new_reader(&format!("{name}.zones").into(), &segment_source, &ctx)?;
+                .new_reader(format!("{name}.zones").into(), segment_source, ctx)?;
 
         Ok(Self {
             layout,
@@ -136,18 +139,16 @@ impl ZonedReader {
             .clone()
     }
 
-    /// Return the zone range covered by a row range.
-    pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<usize> {
-        let zone_start = usize::try_from(row_range.start / self.layout.zone_len as u64)
-            .vortex_expect("Invalid zone start");
-        let zone_end = usize::try_from(row_range.end.div_ceil(self.layout.zone_len as u64))
-            .vortex_expect("Invalid zone end");
+    /// Get the range of zone IDs containing a row range.
+    pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<u64> {
+        let zone_start = row_range.start / self.layout.zone_len as u64;
+        let zone_end = row_range.end.div_ceil(self.layout.zone_len as u64);
         zone_start..zone_end
     }
 
-    /// Return the row offset of a given zone.
-    pub(crate) fn zone_offset(&self, zone_idx: usize) -> u64 {
-        (zone_idx as u64 * self.layout.zone_len as u64).min(self.layout.row_count())
+    /// Get the row index for the first row in a zone with the given `zone_index`.
+    pub(crate) fn first_row_offset(&self, zone_idx: u64) -> u64 {
+        (zone_idx * self.layout.zone_len as u64).min(self.layout.row_count())
     }
 }
 
@@ -187,23 +188,26 @@ impl LayoutReader for ZonedReader {
             return Ok(data_eval);
         };
 
+        let row_count = row_range.end - row_range.start;
         let zone_range = self.zone_range(row_range);
         let zone_lengths = zone_range
             .clone()
             .map(|zone_idx| {
                 // Figure out the range in the mask that corresponds to the zone
-                let start =
-                    usize::try_from(self.zone_offset(zone_idx).saturating_sub(row_range.start))?;
+                let start = usize::try_from(
+                    self.first_row_offset(zone_idx)
+                        .saturating_sub(row_range.start),
+                )?;
                 let end = usize::try_from(
-                    self.zone_offset(zone_idx + 1)
-                        .sub(row_range.start)
-                        .min(row_range.end - row_range.start),
+                    self.first_row_offset(zone_idx + 1)
+                        .saturating_sub(row_range.start)
+                        .min(row_count),
                 )?;
                 Ok::<_, VortexError>(end - start)
             })
             .try_collect()?;
 
-        Ok(Box::new(StatsPruningEvaluation {
+        Ok(Box::new(ZoneMapPruningEvaluation {
             name: self.name.clone(),
             expr: expr.clone(),
             pruning_mask_future,
@@ -232,12 +236,12 @@ impl LayoutReader for ZonedReader {
     }
 }
 
-struct StatsPruningEvaluation {
+struct ZoneMapPruningEvaluation {
     name: Arc<str>,
     expr: ExprRef,
     pruning_mask_future: SharedPruningResult,
-    // The range of zones that cover the evaluation's row range.
-    zone_range: Range<usize>,
+    // The set of zone IDs that are available to the evaluation.
+    zone_range: Range<u64>,
     // The lengths of each zone in the zone_range.
     zone_lengths: Vec<usize>,
     // The evaluation of the data child.
@@ -245,7 +249,7 @@ struct StatsPruningEvaluation {
 }
 
 #[async_trait]
-impl PruningEvaluation for StatsPruningEvaluation {
+impl PruningEvaluation for ZoneMapPruningEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         log::debug!(
             "Invoking stats pruning evaluation {}: {}",
@@ -258,8 +262,8 @@ impl PruningEvaluation for StatsPruningEvaluation {
         };
 
         let mut builder = BooleanBufferBuilder::new(mask.len());
-        for (zone_idx, zone_length) in self.zone_range.clone().zip_eq(&self.zone_lengths) {
-            builder.append_n(*zone_length, !pruning_mask.value(zone_idx));
+        for (zone_idx, &zone_length) in self.zone_range.clone().zip_eq(&self.zone_lengths) {
+            builder.append_n(zone_length, !pruning_mask.value(usize::try_from(zone_idx)?));
         }
 
         let stats_mask = Mask::from(builder.finish());
@@ -345,7 +349,7 @@ mod test {
     ) {
         block_on(async {
             let result = layout
-                .new_reader(&"".into(), &segments, &ctx)
+                .new_reader("".into(), segments, ctx)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -370,7 +374,7 @@ mod test {
     ) {
         block_on(async {
             let row_count = layout.row_count();
-            let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
+            let reader = layout.new_reader("".into(), segments, ctx).unwrap();
 
             // Choose a prune-able expression
             let expr = gt(root(), lit(7));
