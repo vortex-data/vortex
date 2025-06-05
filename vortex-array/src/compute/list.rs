@@ -17,12 +17,9 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 /// Compute a `Bool`-typed array the same length as `array` where elements is `true` if the list
 /// item contains the `value`, `false` otherwise.
 ///
-/// If the `array` or `value` is nullable, then the result will contain nulls matching the union
-/// of their null masks.
-///
 /// ## Null scalar handling
 ///
-/// When the value or list is `NULL` the result is `NULL` otherwise is will be a non-nullable value.
+/// If the `value` or `array` is `null` at any index the result at that index is `null`.
 ///
 /// ## Format semantics
 /// ```txt
