@@ -84,10 +84,10 @@ impl VortexExpr for ListContains {
     }
 
     fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        let Some(scalar) = self.value.evaluate(scope)?.as_constant() else {
-            todo!("not implemented list contains of a value array")
-        };
-        compute_list_contains(self.list.evaluate(scope)?.as_ref(), scalar)
+        compute_list_contains(
+            self.list.evaluate(scope)?.as_ref(),
+            self.value.evaluate(scope)?.as_ref(),
+        )
     }
 
     fn children(&self) -> Vec<&ExprRef> {
