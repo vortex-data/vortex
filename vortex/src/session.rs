@@ -15,7 +15,7 @@ pub struct VortexSession {
     layouts: LayoutRegistry,
     metrics: VortexMetrics,
     #[cfg(feature = "files")]
-    file_cache: crate::file::FileCache,
+    pub(crate) footer_cache: crate::file::FooterCache,
 }
 
 impl Default for VortexSession {
@@ -25,7 +25,7 @@ impl Default for VortexSession {
             layouts: LayoutRegistry::full(),
             metrics: VortexMetrics::default(),
             #[cfg(feature = "files")]
-            file_cache: crate::file::FileCache::new(),
+            footer_cache: crate::file::FooterCache::new(),
         }
     }
 }

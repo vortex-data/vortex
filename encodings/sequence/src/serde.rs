@@ -83,11 +83,13 @@ mod tests {
     use std::sync::Arc;
 
     use arcref::ArcRef;
+    use vortex_array::ArrayRegistry;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::stream::ArrayStreamExt;
     use vortex_expr::{get_item, root};
     use vortex_file::{VortexOpenOptions, VortexWriteOptions};
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+    use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 
     use crate::SequenceArray;
 
@@ -103,7 +105,10 @@ mod tests {
             .await
             .unwrap();
 
-        let file = VortexOpenOptions::file().open("/tmp/abc.vx").await.unwrap();
+        let file = VortexOpenOptions::file(ArrayRegistry::canonical(), LayoutRegistry::full())
+            .open("/tmp/abc.vx")
+            .await
+            .unwrap();
         let array = file
             .scan()
             .unwrap()

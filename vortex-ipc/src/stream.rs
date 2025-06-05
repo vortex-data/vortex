@@ -201,10 +201,9 @@ mod test {
             .await
             .unwrap();
 
-        let reader =
-            AsyncIPCReader::try_new(Cursor::new(ipc_buffer), ArrayRegistry::canonical_only())
-                .await
-                .unwrap();
+        let reader = AsyncIPCReader::try_new(Cursor::new(ipc_buffer), ArrayRegistry::canonical())
+            .await
+            .unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
         let result = reader.read_all().await.unwrap().to_primitive().unwrap();

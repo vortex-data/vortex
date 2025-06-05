@@ -151,9 +151,9 @@ impl Iterator for ArrayIteratorIPCBytes {
 mod test {
     use std::io::Cursor;
 
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
-    use vortex_array::{ArrayRegistryBuilder, ToCanonical};
 
     use super::*;
 
@@ -166,11 +166,8 @@ mod test {
             .collect_to_buffer()
             .unwrap();
 
-        let reader = SyncIPCReader::try_new(
-            Cursor::new(ipc_buffer),
-            ArrayRegistryBuilder::register_canonical().build(),
-        )
-        .unwrap();
+        let reader =
+            SyncIPCReader::try_new(Cursor::new(ipc_buffer), ArrayRegistry::canonical()).unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
         let result = reader.read_all().unwrap().to_primitive().unwrap();

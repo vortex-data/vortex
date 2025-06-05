@@ -19,11 +19,19 @@ pub type ArrayContext = VTableContext<EncodingRef>;
 pub type ArrayRegistry = VTableRegistry<EncodingRef>;
 pub type ArrayRegistryBuilder = RegistryBuilder<EncodingRef>;
 
-impl ArrayRegistryBuilder {
+impl ArrayRegistry {
     /// Build a new ArrayRegistry with only the [canonical][crate::Canonical] encodings.
     ///
     /// This ArrayRegistry can encode any Apache Arrow-compatible arrays, but is unaware
     /// of the compressed encodings.
+    pub fn canonical() -> Self {
+        ArrayRegistryBuilder::new().register_canonical().build()
+    }
+}
+
+impl ArrayRegistryBuilder {
+    /// Make a new ArrayRegistryBuilder with only the [canonical][crate::Canonical] encodings
+    /// registered to begin with.
     pub fn register_canonical(self) -> Self {
         // Register the canonical encodings
         self.register_many([

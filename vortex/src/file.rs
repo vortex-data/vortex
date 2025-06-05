@@ -19,16 +19,31 @@ pub struct FileKey {
     pub location: String,
 }
 
-/// Long-lived cache of [`VortexFile`]s.
-///
-/// The cache is associated with a [`VortexSession`], and all file handles
-/// created by a session will be cached.
+#[cfg(feature = "object_store")]
+impl From<object_store::path::Path> for FileKey {
+    fn from(path: object_store::path::Path) -> Self {
+        Self {
+            location: path.to_string(),
+        }
+    }
+}
+
+/// Cache of Vortex file [`Footer`]s. When reading the same file from multiple threads
+/// or the same file multiple times, the cache will save footer contents the first time a file
+/// is read to avoid unnecessary refetching.
 #[derive(Debug)]
-pub struct FileCache {
+pub struct FooterCache {
     inner: Cache<FileKey, Footer, DefaultHashBuilder>,
 }
 
-impl FileCache {
+impl Default for FooterCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FooterCache {
+    /// Construct a new empty footer cache with default 64MiB of space reserved for footers
     pub fn new() -> Self {
         let inner = Cache::builder()
             .max_capacity(64u64 * (1 << 20))
@@ -78,7 +93,8 @@ impl VortexSession {
     /// Open a Vortex file on the local file system, blocking the current thread
     /// until it completes.
     pub fn open_blocking(&self, path: impl AsRef<Path>) -> VortexResult<VortexFile> {
-        VortexOpenOptions::file(self.arrays().clone(), self.layouts().clone()).open_blocking(path)
+        let mut opener = VortexOpenOptions::file(self.arrays().clone(), self.layouts().clone());
+        opener.open_blocking(path)
     }
 
     pub async fn open(&self, path: impl AsRef<Path>) -> VortexResult<VortexFile> {
@@ -88,12 +104,13 @@ impl VortexSession {
     }
 
     #[cfg(feature = "object_store")]
-    pub async fn open_object_store<Store: object_store::ObjectStore>(
+    pub async fn open_object_store(
         &self,
-        store: &Store,
+        store: &Arc<dyn object_store::ObjectStore>,
         path: &str,
     ) -> VortexResult<VortexFile> {
         VortexOpenOptions::file(self.arrays().clone(), self.layouts().clone())
-            .open_object_store(path)
+            .open_object_store(store, path)
+            .await
     }
 }

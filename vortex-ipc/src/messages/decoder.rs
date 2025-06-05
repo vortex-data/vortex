@@ -154,7 +154,7 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::{Array, IntoArray};
+    use vortex_array::{Array, ArrayRegistryBuilder, IntoArray};
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 
@@ -168,7 +168,8 @@ mod test {
             ipc_bytes.extend_from_slice(buf.as_ref());
         }
 
-        let mut decoder = MessageDecoder::new(ArrayRegistry::canonical_only());
+        let mut decoder =
+            MessageDecoder::new(ArrayRegistryBuilder::new().register_canonical().build());
 
         // Since we provide all bytes up-front, we should never hit a NeedMore.
         let mut buffer = BytesMut::from(ipc_bytes.as_ref());
