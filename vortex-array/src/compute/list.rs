@@ -64,7 +64,7 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
     }
 
     // If the list array is constant, we perform a single comparison.
-    if array.is_constant() && array.len() > 1 {
+    if array.len() > 1 && array.is_constant() {
         let contains = list_contains(&array.slice(0, 1)?, value)?;
         return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
     }
@@ -301,7 +301,6 @@ mod tests {
     }
 
     #[rstest]
-    // Case 1: list(utf8)
     #[case(
         nonnull_strings(vec![vec![], vec!["a"], vec!["a", "b"]]),
         Some("a"),
@@ -312,40 +311,35 @@ mod tests {
         Some("a"),
         bool_array(vec![false, true, true], Some(vec![true, true, true]))
     )]
-    // Case 3: list(utf8) with all elements matching, but some empty lists
+    #[case(
+        null_strings(vec![vec![], vec![Some("a"), None], vec![Some("b"), None, None]]),
+        Some("a"),
+        bool_array(vec![false, true, false], Some(vec![true, true, true]))
+    )]
     #[case(
         nonnull_strings(vec![vec![], vec!["a"], vec!["a"]]),
         Some("a"),
         bool_array(vec![false, true, true], None)
     )]
-    // Case 4: list(utf8) all lists empty.
     #[case(
         nonnull_strings(vec![vec![], vec![], vec![]]),
         Some("a"),
         bool_array(vec![false, false, false], None)
     )]
-    // Case 5: list(utf8) no elements matching.
     #[case(
         nonnull_strings(vec![vec!["b"], vec![], vec!["b"]]),
         Some("a"),
         bool_array(vec![false, false, false], None)
     )]
-    // Case 6: list(utf8?) with empty + NULL elements and NULL search
     #[case(
         null_strings(vec![vec![], vec![None, None], vec![None, None, None]]),
         None,
         bool_array(vec![false, true, true], Some(vec![false, false, false]))
     )]
-    // Case 7: list(utf8?) with empty + NULL elements and search scalar
     #[case(
         null_strings(vec![vec![], vec![None, None], vec![None, None, None]]),
         Some("a"),
         bool_array(vec![false, false, false], None)
-    )]
-    #[case(
-        null_strings(vec![vec![], vec![Some("a"), None], vec![Some("b"), None, None]]),
-        Some("a"),
-        bool_array(vec![false, true, false], Some(vec![true, true, true]))
     )]
     fn test_contains_nullable(
         #[case] list_array: ArrayRef,
