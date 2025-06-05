@@ -6,7 +6,7 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_scalar::Scalar;
+use vortex_scalar::{ListScalar, Scalar};
 
 use crate::arrays::{BoolArray, ConstantArray, ListArray};
 use crate::compute::{Operator, compare};
@@ -46,16 +46,15 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 /// assert_eq!(to_vec, vec![false, true, false]);
 /// ```
 // TODO(joe): promote to compute fn.
-pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef> {
+pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<ArrayRef> {
     let DType::List(elem_dtype, nullability) = array.dtype() else {
         vortex_bail!("Array must be of List type");
     };
-    if &**elem_dtype != value.dtype() {
+    if elem_dtype.as_ref() != value.dtype() {
         vortex_bail!("Element type of ListArray does not match search value");
     }
-    let value_nullability = value.dtype().nullability();
 
-    if value.is_null() || array.all_invalid()? {
+    if value.all_invalid()? || array.all_invalid()? {
         return Ok(ConstantArray::new(
             Scalar::null(DType::Bool(Nullability::Nullable)),
             array.len(),
@@ -63,6 +62,23 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
         .to_array());
     }
 
+    if let Some(value_scalar) = value.as_constant() {
+        list_contains_scalar(array, &value_scalar)
+    } else if let Some(list_scalar) = array.as_constant() {
+        list_scalar_contains_array(&list_scalar.as_list(), array)
+    } else {
+        todo!("unsupported list contains with list and element as arrays")
+    }
+}
+
+fn list_scalar_contains_array(
+    list_scalar: &ListScalar,
+    values: &dyn Array,
+) -> VortexResult<ArrayRef> {
+}
+
+fn list_contains_scalar(array: &dyn Array, value: &Scalar) -> VortexResult<ArrayRef> {
+    let value_nullability = value.dtype().nullability();
     // If the list array is constant, we perform a single comparison.
     if array.len() > 1 && array.is_constant() {
         let contains = list_contains(&array.slice(0, 1)?, value)?;
@@ -79,7 +95,7 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
         return list_false_or_null(&list_array);
     }
 
-    let rhs = ConstantArray::new(value, elems.len());
+    let rhs = ConstantArray::new(value.clone(), elems.len());
     let matching_elements = compare(elems, rhs.as_ref(), Operator::Eq)?;
     let matches = matching_elements.to_bool()?;
 
@@ -99,10 +115,11 @@ pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef>
             // No elements match, and all comparisons are valid (result in `false`).
             Some(false) => {
                 // False, but match the nullability to the input list array.
-                Ok(
-                    ConstantArray::new(Scalar::bool(false, *nullability), list_array.len())
-                        .into_array(),
+                Ok(ConstantArray::new(
+                    Scalar::bool(false, array.dtype().nullability()),
+                    list_array.len(),
                 )
+                .into_array())
             }
             // All elements match, and all comparisons are valid (result in `true`).
             Some(true) => {
