@@ -181,13 +181,10 @@ void ExtractFilterExpression(google::protobuf::Arena &arena, ScanBindData &data,
 	if (filter_set == nullptr) {
 		return;
 	}
-	std::cout << "ExtractFilterExpression" << std::endl;
 
 	for (const auto &[col_id, value] : filter_set->filters) {
-		std::cout << "ExtractFilterExpression col id: " << col_id << std::endl;
 		auto column_name = data.ColumnName(column_ids[col_id]);
 		std::cout << "ExtractFilterExpression col name: " << column_name << std::endl;
-
 		std::cout << "ExtractFilterExpression col_id: " << value->DebugToString() << std::endl;
 
 		// Extract the optional dynamic filter, this seems like the only way that
