@@ -485,7 +485,7 @@ fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow:
     let db_path = format!("{tmp_dir}/tpch_results_sf.db");
 
     let executor = DuckDBExecutor::new(duckdb_path, &db_path);
-    ddb::execute_tpch_query(&[format!("CALL dbgen(sf={})", scale_factor)], &executor)?;
+    ddb::execute_tpch_query(&[format!("CALL dbgen(sf={scale_factor})")], &executor)?;
 
     let query_files = fs::read_dir(query_dir)?
         .filter_map(Result::ok)
@@ -524,7 +524,7 @@ fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow:
                     ChangeTag::Insert => "+",
                     ChangeTag::Equal => " ",
                 };
-                print!("{}{}", sign, change);
+                print!("{sign}{change}");
             }
 
             return Err(anyhow!(format!(
