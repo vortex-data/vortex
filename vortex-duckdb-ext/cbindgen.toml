@@ -1,11 +1,9 @@
 language = "C"
-pragma_once = true
 
 header = """
 //
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
 //
-
 
 // (c) Copyright 2025 SpiralDB Inc. All rights reserved.
 //
@@ -21,20 +19,18 @@ header = """
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <stdarg.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdlib.h>
-
-#include "duckdb.h"
+// clang-format off
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-"""
 
+#include "duckdb.h"
+"""
 trailer = """
 #ifdef __cplusplus
 }
 #endif
+
+// clang-format on
 """

@@ -245,8 +245,6 @@ typedef struct {
 
 void duckdb_vx_expr_get_bound_function(duckdb_vx_expr expr, duckdb_vx_expr_bound_function *out);
 
-
-#ifdef __cplusplus  /* End C ABI */
+#ifdef __cplusplus /* End C ABI */
 }
 #endif
-

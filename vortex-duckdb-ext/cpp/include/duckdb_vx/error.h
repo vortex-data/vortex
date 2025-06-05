@@ -10,6 +10,6 @@ typedef struct duckdb_vx_error_ *duckdb_vx_error;
 
 duckdb_vx_error duckdb_vx_error_create(const char *message, size_t message_length);
 
-#ifdef __cplusplus  /* End C ABI */
+#ifdef __cplusplus /* End C ABI */
 }
 #endif

@@ -10,12 +10,8 @@ extern "C" {
 typedef struct duckdb_vx_data_ *duckdb_vx_data;
 
 // Create an opaque data object with a delete callback.
-duckdb_vx_data duckdb_vx_data_create(
-    void *data_ptr,
-    duckdb_delete_callback_t delete_callback
-);
+duckdb_vx_data duckdb_vx_data_create(void *data_ptr, duckdb_delete_callback_t delete_callback);
 
-#ifdef __cplusplus  /* End C ABI */
+#ifdef __cplusplus /* End C ABI */
 }
 #endif
-
