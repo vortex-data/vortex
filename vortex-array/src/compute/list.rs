@@ -54,15 +54,6 @@ pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<Array
     if elem_dtype.as_ref() != value.dtype() {
         vortex_bail!("Element type of ListArray does not match search value");
     }
-    let value_nullability = value.dtype().nullability();
-
-    if value.is_null() || array.all_invalid()? {
-        return Ok(ConstantArray::new(
-            Scalar::null(DType::Bool(Nullability::Nullable)),
-            array.len(),
-        )
-        .to_array());
-    }
 
     if value.all_invalid()? || array.all_invalid()? {
         return Ok(ConstantArray::new(
@@ -108,7 +99,7 @@ fn list_scalar_contains_array(
             result = Some(res);
         }
     }
-    Ok(result.unwrap_or(ConstantArray::new(false_scalar, len).to_array()))
+    Ok(result.unwrap_or_else(|| ConstantArray::new(false_scalar, len).to_array()))
 }
 
 fn list_contains_scalar(
