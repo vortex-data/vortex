@@ -17,17 +17,18 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 /// Compute a `Bool`-typed array the same length as `array` where elements is `true` if the list
 /// item contains the `value`, `false` otherwise.
 ///
-/// If the ListArray or Element is nullable, then the result will contain nulls matching the union
-/// of null masks.
+/// If the `array` or `value` is nullable, then the result will contain nulls matching the union
+/// of their null masks.
 ///
 /// ## Null scalar handling
 ///
 /// When the value or list is `NULL` the result is `NULL` otherwise is will be a non-nullable value.
 ///
 /// ## Format semantics
-///
+/// ```txt
 /// list_contains(list, elem)
 ///   ==> (!is_null(list) or NULL) and (!is_null(elem) or NULL) and any({elem = elem_i | elem_i in list}),
+/// ```
 ///
 /// ## Example
 ///
@@ -308,7 +309,6 @@ mod tests {
         Some("a"),
         bool_array(vec![false, true, true], None)
     )]
-    // Case 2: list(utf8?) with NULL search scalar
     #[case(
         null_strings(vec![vec![], vec![Some("a"), None], vec![Some("a"), None, Some("b")]]),
         Some("a"),
@@ -344,7 +344,6 @@ mod tests {
         Some("a"),
         bool_array(vec![false, false, false], None)
     )]
-    // Case 8: list(utf8?) with null and some match
     #[case(
         null_strings(vec![vec![], vec![Some("a"), None], vec![Some("b"), None, None]]),
         Some("a"),

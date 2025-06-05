@@ -6,7 +6,7 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_array::compute::list_contains as compute_list_contains;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 
 use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
@@ -18,11 +18,8 @@ pub struct ListContains {
 }
 
 impl ListContains {
-    pub fn new_expr(list: ExprRef, value: impl Into<ExprRef>) -> ExprRef {
-        Arc::new(Self {
-            list,
-            value: value.into(),
-        })
+    pub fn new_expr(list: ExprRef, value: ExprRef) -> ExprRef {
+        Arc::new(Self { list, value })
     }
 
     pub fn value(&self) -> &ExprRef {
@@ -30,7 +27,7 @@ impl ListContains {
     }
 }
 
-pub fn list_contains(list: ExprRef, value: impl Into<ExprRef>) -> ExprRef {
+pub fn list_contains(list: ExprRef, value: ExprRef) -> ExprRef {
     ListContains::new_expr(list, value)
 }
 
@@ -88,7 +85,7 @@ impl VortexExpr for ListContains {
 
     fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
         let Some(scalar) = self.value.evaluate(scope)?.as_constant() else {
-            vortex_bail!("not implemented list contains of a value array")
+            todo!("not implemented list contains of a value array")
         };
         compute_list_contains(self.list.evaluate(scope)?.as_ref(), scalar)
     }
