@@ -6,7 +6,7 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 
 #[derive(Debug, Clone)]
-pub struct Relation<K, V> {
+pub(super) struct Relation<K, V> {
     map: HashMap<K, HashSet<V>>,
 }
 

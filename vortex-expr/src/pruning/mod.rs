@@ -5,7 +5,6 @@ mod relation;
 
 pub use field_or_identity::{FieldOrIdentity, stat_field_name};
 pub use pruning_predicate::PruningPredicate;
-pub use pruning_predicate_rewriter::{convert_to_pruning_expression, not_prunable};
 
 #[cfg(test)]
 mod tests {
@@ -14,9 +13,8 @@ mod tests {
     use vortex_array::stats::Stat;
     use vortex_dtype::FieldName;
 
-    use crate::pruning::{
-        FieldOrIdentity, PruningPredicate, convert_to_pruning_expression, stat_field_name,
-    };
+    use super::pruning_predicate_rewriter::convert_to_pruning_expression;
+    use super::{FieldOrIdentity, PruningPredicate, stat_field_name};
     use crate::{
         and, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq, not, not_eq, or, root,
     };

@@ -13,7 +13,7 @@ use crate::{
 
 type PruningPredicateStats = (ExprRef, Relation<FieldOrIdentity, Stat>);
 
-pub fn not_prunable() -> PruningPredicateStats {
+pub(super) fn not_prunable() -> PruningPredicateStats {
     (
         lit(Scalar::bool(false, Nullability::NonNullable)),
         Relation::new(),
@@ -22,7 +22,7 @@ pub fn not_prunable() -> PruningPredicateStats {
 
 // Anything that can't be translated has to be represented as
 // boolean true expression, i.e. the value might be in that chunk
-pub fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
+pub(super) fn convert_to_pruning_expression(expr: &ExprRef) -> PruningPredicateStats {
     if let Some(nexp) = expr.as_any().downcast_ref::<Not>() {
         if let Some(get_item) = nexp.child().as_any().downcast_ref::<GetItem>() {
             if is_root(get_item.child()) {
