@@ -26,8 +26,8 @@ mod tests {
         let eq_expr = eq(get_item("a", root()), literal_eq.clone());
         let (converted, refs) = convert_to_pruning_expression(&eq_expr);
         assert_eq!(
-            refs.into_map(),
-            HashMap::from_iter([(
+            refs.map(),
+            &HashMap::from_iter([(
                 FieldOrIdentity::Field(name.clone()),
                 HashSet::from_iter([Stat::Min, Stat::Max])
             )])
@@ -56,8 +56,8 @@ mod tests {
 
         let (converted, refs) = convert_to_pruning_expression(&eq_expr);
         assert_eq!(
-            refs.into_map(),
-            HashMap::from_iter([
+            refs.map(),
+            &HashMap::from_iter([
                 (
                     FieldOrIdentity::Field(column.clone()),
                     HashSet::from_iter([Stat::Min, Stat::Max])
@@ -92,8 +92,8 @@ mod tests {
 
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
-            refs.into_map(),
-            HashMap::from_iter([
+            refs.map(),
+            &HashMap::from_iter([
                 (
                     FieldOrIdentity::Field(column.clone()),
                     HashSet::from_iter([Stat::Min, Stat::Max])
@@ -127,8 +127,8 @@ mod tests {
 
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
-            refs.into_map(),
-            HashMap::from_iter([
+            refs.map(),
+            &HashMap::from_iter([
                 (
                     FieldOrIdentity::Field(column.clone()),
                     HashSet::from_iter([Stat::Max])
@@ -154,8 +154,8 @@ mod tests {
 
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
-            refs.into_map(),
-            HashMap::from_iter([(
+            refs.map(),
+            &HashMap::from_iter([(
                 FieldOrIdentity::Field(column.clone()),
                 HashSet::from_iter([Stat::Max])
             ),])
@@ -176,8 +176,8 @@ mod tests {
 
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
-            refs.into_map(),
-            HashMap::from_iter([
+            refs.map(),
+            &HashMap::from_iter([
                 (
                     FieldOrIdentity::Field(column.clone()),
                     HashSet::from_iter([Stat::Min])
@@ -203,8 +203,8 @@ mod tests {
 
         let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
         assert_eq!(
-            refs.into_map(),
-            HashMap::from_iter([(
+            refs.map(),
+            &HashMap::from_iter([(
                 FieldOrIdentity::Field(column.clone()),
                 HashSet::from_iter([Stat::Min])
             )])
@@ -220,18 +220,6 @@ mod tests {
     fn unprojectable_expr() {
         let or_expr = not(lt(get_item_scope("a"), get_item_scope("b")));
         assert!(PruningPredicate::try_new(&or_expr).is_none());
-    }
-
-    #[test]
-    fn display_pruning_predicate() {
-        let column = FieldName::from("a");
-        let other_col = lit(42);
-        let not_eq_expr = lt(get_item_scope(column), other_col);
-
-        assert_eq!(
-            PruningPredicate::try_new(&not_eq_expr).unwrap().to_string(),
-            "PruningPredicate(($.a_min >= 42i32), {a: {min}})"
-        );
     }
 
     #[test]
