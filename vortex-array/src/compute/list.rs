@@ -47,7 +47,7 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 /// ```
 // TODO(joe): promote to compute fn.
 pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<ArrayRef> {
-    let DType::List(elem_dtype, nullability) = array.dtype() else {
+    let DType::List(elem_dtype, _) = array.dtype() else {
         vortex_bail!("Array must be of List type");
     };
     if elem_dtype.as_ref() != value.dtype() {
@@ -72,8 +72,8 @@ pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<Array
 }
 
 fn list_scalar_contains_array(
-    list_scalar: &ListScalar,
-    values: &dyn Array,
+    _list_scalar: &ListScalar,
+    _values: &dyn Array,
 ) -> VortexResult<ArrayRef> {
 }
 
@@ -81,7 +81,7 @@ fn list_contains_scalar(array: &dyn Array, value: &Scalar) -> VortexResult<Array
     let value_nullability = value.dtype().nullability();
     // If the list array is constant, we perform a single comparison.
     if array.len() > 1 && array.is_constant() {
-        let contains = list_contains(&array.slice(0, 1)?, value)?;
+        let contains = list_contains_scalar(&array.slice(0, 1)?, value)?;
         return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
     }
 
@@ -281,7 +281,7 @@ mod tests {
     use crate::compute::list_contains;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
-    use crate::{ArrayRef, IntoArray};
+    use crate::{Array, ArrayRef, IntoArray};
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
         ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
@@ -368,7 +368,8 @@ mod tests {
             None => Scalar::null(DType::Utf8(Nullability::Nullable)),
             Some(v) => Scalar::utf8(v, element_nullability),
         };
-        let result = list_contains(&list_array, scalar).expect("list_contains failed");
+        let elem = ConstantArray::new(scalar, list_array.len());
+        let result = list_contains(&list_array, elem.as_ref()).expect("list_contains failed");
         let bool_result = result.to_bool().expect("to_bool failed");
         assert_eq!(
             bool_result.opt_iter().unwrap().into_iter().collect_vec(),
@@ -389,7 +390,11 @@ mod tests {
         )
         .into_array();
 
-        let contains = list_contains(&list_array, 2i32.into()).unwrap();
+        let contains = list_contains(
+            &list_array,
+            ConstantArray::new(Scalar::from(2i32), list_array.len()).as_ref(),
+        )
+        .unwrap();
         assert!(contains.is::<ConstantVTable>(), "Expected constant result");
         assert_eq!(
             contains
@@ -413,7 +418,11 @@ mod tests {
         )
         .into_array();
 
-        let contains = list_contains(&list_array, 2i32.into()).unwrap();
+        let contains = list_contains(
+            &list_array,
+            ConstantArray::new(Scalar::from(2i32), list_array.len()).as_ref(),
+        )
+        .unwrap();
         assert!(contains.is::<ConstantVTable>(), "Expected constant result");
 
         assert_eq!(contains.len(), 5);
