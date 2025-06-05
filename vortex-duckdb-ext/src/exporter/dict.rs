@@ -56,7 +56,7 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         vector.reference(&self.values_vector);
 
         // Slice with a selection vector from the codes.
-        let sel_vec = SelectionVector::with_capacity(len);
+        let mut sel_vec = SelectionVector::with_capacity(len);
         let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
         for (dst, src) in mut_sel_vec.iter_mut().zip(
             self.codes.as_slice::<I>()[offset..offset + len]

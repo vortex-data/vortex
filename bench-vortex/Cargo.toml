@@ -32,7 +32,6 @@ datafusion = { workspace = true, features = [
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 futures = { workspace = true }
-governor = { workspace = true }
 homedir = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true }
@@ -45,7 +44,6 @@ opentelemetry-otlp = { workspace = true, features = ["trace"] }
 opentelemetry_sdk = { workspace = true }
 parquet = { workspace = true, features = ["async"] }
 rand = { workspace = true }
-rand_distr = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
@@ -66,7 +64,6 @@ url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = ["object_store", "parquet", "files"] }
 vortex-datafusion = { workspace = true }
-vortex-io = { workspace = true, features = ["tokio"] }
 xshell = { workspace = true }
 
 [features]

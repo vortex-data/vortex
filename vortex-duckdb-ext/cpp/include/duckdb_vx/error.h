@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cstddef>
+#include <stddef.h>
 
 #ifdef __cplusplus /* If compiled as C++, use C ABI */
 extern "C" {

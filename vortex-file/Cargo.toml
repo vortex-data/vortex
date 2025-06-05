@@ -37,7 +37,6 @@ tracing-futures = { workspace = true, features = [
 uuid = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
-vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
 vortex-datetime-parts = { workspace = true }
