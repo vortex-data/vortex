@@ -10,7 +10,7 @@ impl BoolArray {
         Ok(mask
             .into_iter()
             .zip(values.iter())
-            .map(|(valid, value)| if valid { Some(value) } else { None })
+            .map(|(valid, value)| valid.then_some(value))
             .collect_vec())
     }
 }
