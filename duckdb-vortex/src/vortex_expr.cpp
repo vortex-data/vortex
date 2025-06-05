@@ -18,6 +18,8 @@
 
 #include "vortex_expr.hpp"
 
+#include "duckdb/planner/filter/in_filter.hpp"
+
 using duckdb::ConjunctionAndFilter;
 using duckdb::ConstantFilter;
 using duckdb::Exception;
@@ -194,50 +196,48 @@ scalar::Scalar *into_null_scalar(Arena &arena, LogicalType &logical_type) {
 	return scalar;
 }
 
-scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullable) {
-	auto scalar = Arena::Create<scalar::Scalar>(&arena);
-	auto dtype = into_vortex_dtype(arena, value.type(), nullable);
-	scalar->set_allocated_dtype(dtype);
+scalar::ScalarValue *into_vortex_scalar_value(Arena &arena, const Value &value) {
+	auto scalar = Arena::Create<scalar::ScalarValue>(&arena);
 
 	switch (value.type().id()) {
 	case LogicalTypeId::INVALID:
 	case LogicalTypeId::SQLNULL: {
-		scalar->mutable_value()->set_null_value(google::protobuf::NULL_VALUE);
+		scalar->set_null_value(google::protobuf::NULL_VALUE);
 		return scalar;
 	}
 	case LogicalTypeId::BOOLEAN: {
-		scalar->mutable_value()->set_bool_value(value.GetValue<bool>());
+		scalar->set_bool_value(value.GetValue<bool>());
 		return scalar;
 	}
 	case LogicalTypeId::TINYINT:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int8_t>());
+		scalar->set_int64_value(value.GetValue<int8_t>());
 		return scalar;
 	case LogicalTypeId::SMALLINT:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int16_t>());
+		scalar->set_int64_value(value.GetValue<int16_t>());
 		return scalar;
 	case LogicalTypeId::INTEGER:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int32_t>());
+		scalar->set_int64_value(value.GetValue<int32_t>());
 		return scalar;
 	case LogicalTypeId::BIGINT:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		scalar->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	case LogicalTypeId::UTINYINT:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<uint8_t>());
+		scalar->set_uint64_value(value.GetValue<uint8_t>());
 		return scalar;
 	case LogicalTypeId::USMALLINT:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<uint16_t>());
+		scalar->set_uint64_value(value.GetValue<uint16_t>());
 		return scalar;
 	case LogicalTypeId::UINTEGER:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<uint32_t>());
+		scalar->set_uint64_value(value.GetValue<uint32_t>());
 		return scalar;
 	case LogicalTypeId::UBIGINT:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<uint64_t>());
+		scalar->set_uint64_value(value.GetValue<uint64_t>());
 		return scalar;
 	case LogicalTypeId::FLOAT:
-		scalar->mutable_value()->set_f32_value(value.GetValue<float_t>());
+		scalar->set_f32_value(value.GetValue<float_t>());
 		return scalar;
 	case LogicalTypeId::DOUBLE:
-		scalar->mutable_value()->set_f64_value(value.GetValue<double_t>());
+		scalar->set_f64_value(value.GetValue<double_t>());
 		return scalar;
 	case LogicalTypeId::DECIMAL: {
 		auto huge = value.GetValue<duckdb::hugeint_t>();
@@ -246,33 +246,43 @@ scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullab
 		out[1] = static_cast<uint32_t>(huge >> 32);
 		out[2] = static_cast<uint32_t>(huge >> 64);
 		out[3] = static_cast<uint32_t>(huge >> 96);
-		scalar->mutable_value()->set_bytes_value(std::string(reinterpret_cast<char *>(out), 8));
+		scalar->set_bytes_value(std::string(reinterpret_cast<char *>(out), 8));
 		return scalar;
 	}
 	case LogicalTypeId::VARCHAR:
-		scalar->mutable_value()->set_string_value(value.GetValue<string>());
+		scalar->set_string_value(value.GetValue<string>());
 		return scalar;
 	case LogicalTypeId::DATE:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int32_t>());
+		scalar->set_int64_value(value.GetValue<int32_t>());
 		return scalar;
 	case LogicalTypeId::TIME:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int32_t>());
+		scalar->set_int64_value(value.GetValue<int32_t>());
 		return scalar;
 	case LogicalTypeId::TIMESTAMP_SEC:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		scalar->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	case LogicalTypeId::TIMESTAMP_MS:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		scalar->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	case LogicalTypeId::TIMESTAMP:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		scalar->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	case LogicalTypeId::TIMESTAMP_NS:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		scalar->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	default:
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_scalar", {{"id", value.ToString()}});
 	}
+}
+
+scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullable) {
+	auto scalar = Arena::Create<scalar::Scalar>(&arena);
+	auto dtype = into_vortex_dtype(arena, value.type(), nullable);
+	scalar->set_allocated_dtype(dtype);
+
+	auto scalar_value = into_vortex_scalar_value(arena, value);
+	scalar->mutable_value()->Swap(scalar_value);
+	return scalar;
 }
 
 void set_column(const string &s, expr::Expr *column) {
@@ -449,6 +459,20 @@ expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expression &
 	}
 }
 
+void set_list_element(Arena &arena, expr::Expr *list, duckdb::vector<Value> &values) {
+	list->set_id(LITERAL_ID);
+	auto ll = list->mutable_kind()->mutable_literal();
+	auto scalar = ll->mutable_value();
+	auto elem_type = into_vortex_dtype(arena, values[0].GetTypeMutable(), false);
+	auto list_type = scalar->mutable_dtype()->mutable_list();
+	list_type->mutable_element_type()->Swap(elem_type);
+	list_type->set_nullable(false);
+	auto list_scalar_value = scalar->mutable_value()->mutable_list_value();
+	for (auto &elem : values) {
+		list_scalar_value->mutable_values()->Add(std::move(*into_vortex_scalar_value(arena, elem)));
+	}
+}
+
 expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const string &column_name) {
 	auto expr = Arena::Create<expr::Expr>(&arena);
 	switch (filter.filter_type) {
@@ -473,6 +497,11 @@ expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const 
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "null checks");
 	}
 	case TableFilterType::OPTIONAL_FILTER: {
+		auto *expr_o =
+		    table_expression_into_expr(arena, *filter.Cast<duckdb::OptionalFilter>().child_filter, column_name);
+		if (expr_o != nullptr) {
+			return expr_o;
+		}
 		expr->set_id(LITERAL_ID);
 		auto lit = expr->mutable_kind()->mutable_literal();
 		lit->mutable_value()->mutable_value()->set_bool_value(true);
@@ -480,9 +509,13 @@ expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const 
 		return expr;
 	}
 	case TableFilterType::IN_FILTER: {
+		auto &in_list_filter = filter.Cast<duckdb::InFilter>();
 		expr->set_id(LIST_CONTAINS_ID);
-		auto list = expr->mutable_kind()->mutable_list_contains();
-		list->
+		expr->mutable_kind()->mutable_list_contains();
+		auto list = expr->add_children();
+		set_list_element(arena, list, in_list_filter.values);
+		set_column(column_name, expr->add_children());
+		return expr;
 	}
 	default:
 		break;
