@@ -95,8 +95,8 @@ impl VortexExpr for ListContains {
     }
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), 1);
-        Self::new_expr(children[0].clone(), self.value().clone())
+        assert_eq!(children.len(), 2);
+        Self::new_expr(children[0].clone(), children[1].clone())
     }
 
     fn return_dtype(&self, scope_dtype: &ScopeDType) -> VortexResult<DType> {
