@@ -15,6 +15,7 @@ use vortex_error::VortexError;
 /// The identifier for a single segment.
 // TODO(ngates): should this be a `[u8]` instead? Allowing for arbitrary segment identifiers?
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
 pub struct SegmentId(u32);
 
 impl From<u32> for SegmentId {

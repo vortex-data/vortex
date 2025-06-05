@@ -1,19 +1,9 @@
 use std::fmt::Debug;
 
-use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::{ArrayRegistry, EncodingRef};
-use vortex_bytebool::ByteBoolEncoding;
-use vortex_datetime_parts::DateTimePartsEncoding;
-use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
-use vortex_dict::DictEncoding;
-use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
-use vortex_fsst::FSSTEncoding;
+use vortex_array::ArrayRegistry;
+use vortex_file::ArrayRegistryExt;
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
-use vortex_runend::RunEndEncoding;
-use vortex_sequence::SequenceEncoding;
-use vortex_sparse::SparseEncoding;
-use vortex_zigzag::ZigZagEncoding;
 
 /// A Vortex session encapsulates the set of extensible arrays, layouts, compute functions, dtypes,
 /// etc. that are available for use in a given context.
@@ -24,36 +14,18 @@ pub struct VortexSession {
     arrays: ArrayRegistry,
     layouts: LayoutRegistry,
     metrics: VortexMetrics,
+    #[cfg(feature = "files")]
+    file_cache: crate::file::FileCache,
 }
 
 impl Default for VortexSession {
     fn default() -> Self {
-        // Register the compressed encodings that Vortex ships with.
-        let mut arrays = ArrayRegistry::canonical_only();
-        arrays.register_many([
-            EncodingRef::new_ref(ALPEncoding.as_ref()),
-            EncodingRef::new_ref(ALPRDEncoding.as_ref()),
-            EncodingRef::new_ref(BitPackedEncoding.as_ref()),
-            EncodingRef::new_ref(ByteBoolEncoding.as_ref()),
-            EncodingRef::new_ref(DateTimePartsEncoding.as_ref()),
-            EncodingRef::new_ref(DecimalBytePartsEncoding.as_ref()),
-            EncodingRef::new_ref(DeltaEncoding.as_ref()),
-            EncodingRef::new_ref(DictEncoding.as_ref()),
-            EncodingRef::new_ref(FSSTEncoding.as_ref()),
-            EncodingRef::new_ref(FoREncoding.as_ref()),
-            EncodingRef::new_ref(RunEndEncoding.as_ref()),
-            EncodingRef::new_ref(SequenceEncoding.as_ref()),
-            EncodingRef::new_ref(SparseEncoding.as_ref()),
-            EncodingRef::new_ref(ZigZagEncoding.as_ref()),
-        ]);
-
-        // Register the layout encodings that Vortex ships with.
-        let layouts = LayoutRegistry::default();
-
         Self {
-            arrays,
-            layouts,
+            arrays: ArrayRegistry::full(),
+            layouts: LayoutRegistry::full(),
             metrics: VortexMetrics::default(),
+            #[cfg(feature = "files")]
+            file_cache: crate::file::FileCache::new(),
         }
     }
 }

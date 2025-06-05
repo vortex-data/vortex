@@ -2,6 +2,8 @@
 //!
 //! The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading
 //! data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
+
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
@@ -31,6 +33,15 @@ pub struct VortexFile {
     pub(crate) segment_source_factory: Arc<dyn SegmentSourceFactory>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
+}
+
+impl Debug for VortexFile {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VortexFile")
+            .field("footer", &self.footer)
+            .field("metrics", &self.metrics)
+            .finish_non_exhaustive()
+    }
 }
 
 impl VortexFile {

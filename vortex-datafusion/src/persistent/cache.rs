@@ -82,21 +82,21 @@ impl VortexFileCache {
         self.file_cache
             .try_get_with(
                 file_key.clone(),
-                VortexOpenOptions::file()
-                    // FIXME(ngates): we don't really want to clone on every open...
-                    .with_array_registry(Arc::new(self.session.arrays().clone()))
-                    .with_layout_registry(Arc::new(self.session.layouts().clone()))
-                    .with_metrics(
-                        self.session
-                            .metrics()
-                            .child_with_tags([("filename", object.location.to_string())]),
-                    )
-                    .with_file_size(object.size)
-                    .with_segment_cache(Arc::new(VortexFileSegmentCache {
-                        file_key,
-                        segment_cache: self.segment_cache.clone(),
-                    }))
-                    .open_object_store(&object_store, object.location.as_ref()),
+                VortexOpenOptions::file(
+                    self.session.arrays().clone(),
+                    self.session.layouts().clone(),
+                )
+                .with_metrics(
+                    self.session
+                        .metrics()
+                        .child_with_tags([("filename", object.location.to_string())]),
+                )
+                .with_known_file_size(object.size)
+                .with_segment_cache(Arc::new(VortexFileSegmentCache {
+                    file_key,
+                    segment_cache: self.segment_cache.clone(),
+                }))
+                .open_object_store(&object_store, object.location.as_ref()),
             )
             .await
             .map_err(|e: Arc<VortexError>| {

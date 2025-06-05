@@ -3,9 +3,11 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use futures::{StreamExt, pin_mut};
+use vortex_array::ArrayRegistry;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
+use vortex_layout::LayoutRegistry;
 use vortex_layout::segments::{SegmentEvents, SegmentId, SegmentSource};
 use vortex_metrics::VortexMetrics;
 
@@ -37,8 +39,8 @@ impl VortexOpenOptions<GenericVortexFile> {
     const INITIAL_READ_SIZE: u64 = 1 << 20; // 1 MB
 
     /// Open a file using the provided [`VortexReadAt`] implementation.
-    pub fn file() -> Self {
-        Self::new(Default::default())
+    pub fn file(array_registry: ArrayRegistry, layout_registry: LayoutRegistry) -> Self {
+        Self::new(Default::default(), array_registry, layout_registry)
             // Start with an initial in-memory cache of 256MB.
             // TODO(ngates): would it be better to default to a home directory disk cache?
             .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
@@ -124,7 +126,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         read: Arc<R>,
     ) -> VortexResult<Footer> {
         // Fetch the file size and perform the initial read.
-        let file_size = match self.file_size {
+        let file_size = match self.file_size_bytes {
             None => self.dispatched_size(read.clone()).await?,
             Some(file_size) => file_size,
         };

@@ -1,11 +1,11 @@
 // https://github.com/rust-lang/cargo/pull/11645#issuecomment-1536905941
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
+#[cfg(feature = "files")]
+pub mod file;
 pub mod session;
 
 pub use vortex_array::*;
-#[cfg(feature = "files")]
-pub use vortex_file as file;
 pub use {
     vortex_btrblocks as compressor, vortex_buffer as buffer, vortex_dtype as dtype,
     vortex_error as error, vortex_expr as expr, vortex_flatbuffers as flatbuffers,

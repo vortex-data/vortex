@@ -17,13 +17,16 @@ use crate::arrays::{
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
 pub type ArrayContext = VTableContext<EncodingRef>;
 pub type ArrayRegistry = VTableRegistry<EncodingRef>;
+pub type ArrayRegistryBuilder = RegistryBuilder<EncodingRef>;
 
-impl ArrayRegistry {
-    pub fn canonical_only() -> Self {
-        let mut this = Self::empty();
-
+impl ArrayRegistryBuilder {
+    /// Build a new ArrayRegistry with only the [canonical][crate::Canonical] encodings.
+    ///
+    /// This ArrayRegistry can encode any Apache Arrow-compatible arrays, but is unaware
+    /// of the compressed encodings.
+    pub fn register_canonical(self) -> Self {
         // Register the canonical encodings
-        this.register_many([
+        self.register_many([
             EncodingRef::new_ref(NullEncoding.as_ref()) as EncodingRef,
             EncodingRef::new_ref(BoolEncoding.as_ref()),
             EncodingRef::new_ref(PrimitiveEncoding.as_ref()),
@@ -33,15 +36,12 @@ impl ArrayRegistry {
             EncodingRef::new_ref(VarBinEncoding.as_ref()),
             EncodingRef::new_ref(VarBinViewEncoding.as_ref()),
             EncodingRef::new_ref(ExtensionEncoding.as_ref()),
-        ]);
-
+        ])
         // Register the utility encodings
-        this.register_many([
+        .register_many([
             EncodingRef::new_ref(ConstantEncoding.as_ref()) as EncodingRef,
             EncodingRef::new_ref(ChunkedEncoding.as_ref()),
-        ]);
-
-        this
+        ])
     }
 }
 
@@ -93,12 +93,45 @@ impl<T: Clone + Eq> VTableContext<T> {
     }
 }
 
-/// A registry of encodings that can be used to construct a context for serde.
+/// An immutable registry of encodings that can be used to construct a context for serde.
 ///
 /// In the future, we will support loading encodings from shared libraries or even from within
 /// the Vortex file itself. This registry will be used to manage the available encodings.
 #[derive(Clone, Debug)]
-pub struct VTableRegistry<T>(HashMap<String, T>);
+pub struct VTableRegistry<T>(Arc<HashMap<String, T>>);
+
+/// Builder for [`VTableRegistry`].
+///
+/// Users should construct one of these, call the `register` or `register_many` methods, and then
+/// `build` to get the final registry.
+#[derive(Debug, Default)]
+pub struct RegistryBuilder<T>(HashMap<String, T>);
+
+impl<T: Clone + Display + Eq> RegistryBuilder<T> {
+    /// Create a new empty registry builder.
+    pub fn new() -> Self {
+        Self(Default::default())
+    }
+
+    /// Register a new item in the registry.
+    ///
+    /// The item must have some sort of string-based name as well.
+    pub fn register(mut self, item: T) -> Self {
+        self.0.insert(item.to_string(), item);
+        self
+    }
+
+    /// Register a new encoding, replacing any existing encoding with the same ID.
+    pub fn register_many<I: IntoIterator<Item = T>>(mut self, encodings: I) -> Self {
+        self.0
+            .extend(encodings.into_iter().map(|e| (e.to_string(), e)));
+        self
+    }
+
+    pub fn build(self) -> VTableRegistry<T> {
+        VTableRegistry(Arc::new(self.0))
+    }
+}
 
 impl<T: Clone + Display + Eq> VTableRegistry<T> {
     pub fn empty() -> Self {
@@ -127,16 +160,5 @@ impl<T: Clone + Display + Eq> VTableRegistry<T> {
     /// List the vtables in the registry.
     pub fn vtables(&self) -> impl Iterator<Item = &T> + '_ {
         self.0.values()
-    }
-
-    /// Register a new encoding, replacing any existing encoding with the same ID.
-    pub fn register(&mut self, encoding: T) {
-        self.0.insert(encoding.to_string(), encoding);
-    }
-
-    /// Register a new encoding, replacing any existing encoding with the same ID.
-    pub fn register_many<I: IntoIterator<Item = T>>(&mut self, encodings: I) {
-        self.0
-            .extend(encodings.into_iter().map(|e| (e.to_string(), e)));
     }
 }

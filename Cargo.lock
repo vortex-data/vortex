@@ -6019,6 +6019,9 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "itertools 0.14.0",
+ "log",
+ "moka",
+ "object_store",
  "parquet",
  "tokio",
  "vortex",
@@ -6364,7 +6367,6 @@ name = "vortex-ffi"
 version = "0.1.0"
 dependencies = [
  "duckdb",
- "futures",
  "itertools 0.14.0",
  "log",
  "mimalloc",

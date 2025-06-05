@@ -17,6 +17,9 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+log = { workspace = true }
+moka = { workspace = true, features = ["sync"], optional = true }
+object_store = { workspace = true, optional = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
@@ -53,9 +56,9 @@ vortex = { path = ".", features = ["parquet", "tokio"] }
 
 [features]
 default = ["files"]
-files = ["dep:vortex-file"]
+files = ["dep:vortex-file", "dep:moka"]
 memmap2 = ["vortex-buffer/memmap2"]
-object_store = ["vortex-file/object_store"]
+object_store = ["dep:object_store", "vortex-file/object_store"]
 parquet = ["vortex-error/parquet"]
 python = ["vortex-error/python"]
 tokio = ["vortex-file/tokio"]

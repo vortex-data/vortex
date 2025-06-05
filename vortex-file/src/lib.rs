@@ -103,8 +103,6 @@ mod strategy;
 mod tests;
 mod writer;
 
-use std::sync::{Arc, LazyLock};
-
 pub use file::*;
 pub use footer::{Footer, SegmentSpec};
 pub use forever_constant::*;
@@ -113,7 +111,7 @@ pub use memory::*;
 pub use open::*;
 pub use strategy::*;
 use vortex_alp::{ALPEncoding, ALPRDEncoding};
-use vortex_array::{ArrayRegistry, EncodingRef};
+use vortex_array::{ArrayRegistry, ArrayRegistryBuilder, EncodingRef};
 use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
@@ -159,25 +157,37 @@ mod forever_constant {
     }
 }
 
-/// A default registry containing the built-in Vortex encodings and layouts.
-pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
-    // Register the compressed encodings that Vortex ships with.
-    let mut registry = ArrayRegistry::canonical_only();
-    registry.register_many([
-        EncodingRef::new_ref(ALPEncoding.as_ref()),
-        EncodingRef::new_ref(ALPRDEncoding.as_ref()),
-        EncodingRef::new_ref(BitPackedEncoding.as_ref()),
-        EncodingRef::new_ref(ByteBoolEncoding.as_ref()),
-        EncodingRef::new_ref(DateTimePartsEncoding.as_ref()),
-        EncodingRef::new_ref(DecimalBytePartsEncoding.as_ref()),
-        EncodingRef::new_ref(DeltaEncoding.as_ref()),
-        EncodingRef::new_ref(DictEncoding.as_ref()),
-        EncodingRef::new_ref(FSSTEncoding.as_ref()),
-        EncodingRef::new_ref(FoREncoding.as_ref()),
-        EncodingRef::new_ref(RunEndEncoding.as_ref()),
-        EncodingRef::new_ref(SequenceEncoding.as_ref()),
-        EncodingRef::new_ref(SparseEncoding.as_ref()),
-        EncodingRef::new_ref(ZigZagEncoding.as_ref()),
-    ]);
-    Arc::new(registry)
-});
+pub trait ArrayRegistryExt {
+    /// Create a new registry with all out of the box encodings shipped by Vortex pre-registered.
+    fn full() -> Self;
+}
+
+impl ArrayRegistryExt for ArrayRegistryBuilder {
+    fn full() -> Self {
+        ArrayRegistryBuilder::new()
+            .register_canonical()
+            .register_many([
+                EncodingRef::new_ref(ALPEncoding.as_ref()),
+                EncodingRef::new_ref(ALPRDEncoding.as_ref()),
+                EncodingRef::new_ref(BitPackedEncoding.as_ref()),
+                EncodingRef::new_ref(ByteBoolEncoding.as_ref()),
+                EncodingRef::new_ref(DateTimePartsEncoding.as_ref()),
+                EncodingRef::new_ref(DecimalBytePartsEncoding.as_ref()),
+                EncodingRef::new_ref(DeltaEncoding.as_ref()),
+                EncodingRef::new_ref(DictEncoding.as_ref()),
+                EncodingRef::new_ref(FSSTEncoding.as_ref()),
+                EncodingRef::new_ref(FoREncoding.as_ref()),
+                EncodingRef::new_ref(RunEndEncoding.as_ref()),
+                EncodingRef::new_ref(SequenceEncoding.as_ref()),
+                EncodingRef::new_ref(SparseEncoding.as_ref()),
+                EncodingRef::new_ref(ZigZagEncoding.as_ref()),
+            ])
+    }
+}
+
+impl ArrayRegistryExt for ArrayRegistry {
+    /// Construct a new registry with the full set of Vortex encodings shipped.
+    fn full() -> Self {
+        ArrayRegistryBuilder::full().build()
+    }
+}

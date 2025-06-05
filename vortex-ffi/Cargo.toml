@@ -18,7 +18,6 @@ categories = { workspace = true }
 
 [dependencies]
 duckdb = { workspace = true, optional = true }
-futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 mimalloc = { workspace = true, optional = true }

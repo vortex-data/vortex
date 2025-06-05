@@ -1,15 +1,13 @@
-use std::sync::Arc;
-
 use flatbuffers::root;
 use vortex_array::ArrayRegistry;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
-use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
+use vortex_layout::LayoutRegistry;
 use vortex_metrics::VortexMetrics;
 
 use crate::footer::{FileStatistics, Footer, Postscript, PostscriptSegment};
-use crate::{DEFAULT_REGISTRY, EOF_SIZE, MAGIC_BYTES, VERSION};
+use crate::{EOF_SIZE, MAGIC_BYTES, VERSION};
 
 pub trait FileType: Sized {
     type Options;
@@ -20,11 +18,11 @@ pub struct VortexOpenOptions<F: FileType> {
     /// File-specific options
     pub(crate) options: F::Options,
     /// The registry of array encodings.
-    pub(crate) registry: Arc<ArrayRegistry>,
+    pub(crate) array_registry: ArrayRegistry,
     /// The registry of layouts.
-    pub(crate) layout_registry: Arc<LayoutRegistry>,
-    /// An optional, externally provided, file size.
-    pub(crate) file_size: Option<u64>,
+    pub(crate) layout_registry: LayoutRegistry,
+    /// An optional, externally provided, file size in bytes.
+    pub(crate) file_size_bytes: Option<u64>,
     /// An optional, externally provided, DType.
     pub(crate) dtype: Option<DType>,
     /// An optional, externally provided, file layout.
@@ -39,36 +37,28 @@ impl<F: FileType> VortexOpenOptions<F> {
     ///
     /// This should not be used directly, instead public API clients are expected to
     /// access either `VortexOpenOptions::file()` or `VortexOpenOptions::memory()`
-    pub(crate) fn new(options: F::Options) -> Self {
+    pub(crate) fn new(
+        options: F::Options,
+        array_registry: ArrayRegistry,
+        layout_registry: LayoutRegistry,
+    ) -> Self {
         Self {
             options,
-            registry: DEFAULT_REGISTRY.clone(),
-            layout_registry: Arc::new(LayoutRegistry::default()),
-            file_size: None,
+            array_registry,
+            layout_registry,
+            file_size_bytes: None,
             dtype: None,
             footer: None,
             metrics: VortexMetrics::default(),
         }
     }
 
-    /// Configure a Vortex array registry.
-    pub fn with_array_registry(mut self, registry: Arc<ArrayRegistry>) -> Self {
-        self.registry = registry;
-        self
-    }
-
-    /// Configure a Vortex array registry.
-    pub fn with_layout_registry(mut self, registry: Arc<LayoutRegistry>) -> Self {
-        self.layout_registry = registry;
-        self
-    }
-
     /// Configure a known file size.
     ///
     /// This helps to prevent an I/O request to discover the size of the file.
     /// Of course, all bets are off if you pass an incorrect value.
-    pub fn with_file_size(mut self, file_size: u64) -> Self {
-        self.file_size = Some(file_size);
+    pub fn with_known_file_size(mut self, byte_size: u64) -> Self {
+        self.file_size_bytes = Some(byte_size);
         self
     }
 
@@ -194,7 +184,7 @@ impl<F: FileType> VortexOpenOptions<F> {
             layout_bytes,
             dtype,
             file_stats,
-            &self.registry,
+            &self.array_registry,
             &self.layout_registry,
         )
     }

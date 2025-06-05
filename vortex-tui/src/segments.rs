@@ -3,11 +3,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use vortex::error::{VortexExpect, VortexResult};
-use vortex::file::VortexOpenOptions;
-use vortex_layout::LayoutRef;
+use vortex::file::{DEFAULT_REGISTRY, VortexOpenOptions};
+use vortex_layout::{LayoutRef, LayoutRegistry, LayoutRegistryExt};
 
 pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
-    let vxf = VortexOpenOptions::file().open(file).await?;
+    let vxf = VortexOpenOptions::file(DEFAULT_REGISTRY.clone(), Arc::new(LayoutRegistry::full()))
+        .open(file)
+        .await?;
 
     let segment_map = vxf.footer().segment_map();
 

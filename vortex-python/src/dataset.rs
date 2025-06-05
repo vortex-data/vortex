@@ -9,9 +9,10 @@ use pyo3::types::PyString;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, Select, root};
-use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::file::{ArrayRegistryExt, VortexFile, VortexOpenOptions};
+use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex::stream::{ArrayStreamExt, SendableArrayStream};
-use vortex::{ArrayRef, ToCanonical};
+use vortex::{ArrayRef, ArrayRegistry, ToCanonical};
 
 use crate::arrays::PyArrayRef;
 use crate::expr::PyExpr;
@@ -96,7 +97,8 @@ impl PyVortexDataset {
     pub async fn from_url(url: &str) -> VortexResult<Self> {
         let (_scheme, object_store, path) = object_store_from_url(url)?;
         PyVortexDataset::try_new(
-            VortexOpenOptions::file()
+            // TODO(aduffy): pass in custom registry from Session
+            VortexOpenOptions::file(ArrayRegistry::full(), LayoutRegistry::full())
                 .open_object_store(&object_store, path.as_ref())
                 .await?,
         )

@@ -2,12 +2,17 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use vortex_array::ArrayRegistry;
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_layout::segments::{SegmentId, SegmentSource};
+use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
 
-use crate::{FileType, Footer, SegmentSourceFactory, SegmentSpec, VortexFile, VortexOpenOptions};
+use crate::{
+    ArrayRegistryExt, FileType, Footer, SegmentSourceFactory, SegmentSpec, VortexFile,
+    VortexOpenOptions,
+};
 
 /// A Vortex file that is backed by an in-memory buffer.
 ///
@@ -22,7 +27,7 @@ impl FileType for InMemoryFileType {
 impl VortexOpenOptions<InMemoryFileType> {
     /// Create open options for an in-memory Vortex file.
     pub fn in_memory() -> Self {
-        Self::new(())
+        Self::new((), ArrayRegistry::full(), LayoutRegistry::full())
     }
 
     /// Open an in-memory file contained in the provided buffer.
