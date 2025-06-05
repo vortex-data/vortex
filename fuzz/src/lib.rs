@@ -1,5 +1,5 @@
 #![feature(error_generic_member_access)]
-
+#[allow(clippy::result_large_err)]
 mod compare;
 pub mod error;
 mod filter;

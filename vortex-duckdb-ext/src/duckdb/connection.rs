@@ -16,7 +16,7 @@ impl Connection {
     pub fn connect(db: &Database) -> VortexResult<Self> {
         let mut ptr: cpp::duckdb_connection = ptr::null_mut();
         duckdb_try!(
-            unsafe { cpp::duckdb_connect(db.as_ptr(), &mut ptr) },
+            unsafe { cpp::duckdb_connect(db.as_ptr(), &raw mut ptr) },
             "Failed to connect to DuckDB database"
         );
         Ok(unsafe { Self::from_owned(ptr) })
