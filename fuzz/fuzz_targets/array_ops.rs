@@ -1,5 +1,6 @@
 #![no_main]
 #![allow(clippy::unwrap_used)]
+#![allow(clippy::result_large_err)]
 
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::aliases::hash_set::HashSet;

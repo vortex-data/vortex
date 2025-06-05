@@ -41,7 +41,9 @@ impl Expression {
                         right: ptr::null_mut(),
                         type_: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
                     };
-                    unsafe { cpp::duckdb_vx_expr_get_bound_comparison(self.as_ptr(), &raw mut out) };
+                    unsafe {
+                        cpp::duckdb_vx_expr_get_bound_comparison(self.as_ptr(), &raw mut out)
+                    };
 
                     ExpressionClass::BoundComparison(BoundComparison {
                         left: unsafe { Expression::from_ptr(out.left) },
