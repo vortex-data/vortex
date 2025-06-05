@@ -472,15 +472,14 @@ mod tests {
             vec![1.into(), 3.into(), 6.into()],
             Nullability::NonNullable,
         );
-        let len = 7;
 
         let contains = list_contains(
-            ConstantArray::new(list_scalar, 6).as_ref(),
-            (0..len as i32).collect::<PrimitiveArray>().as_ref(),
+            ConstantArray::new(list_scalar, 7).as_ref(),
+            (0..7).collect::<PrimitiveArray>().as_ref(),
         )
         .unwrap();
 
-        assert_eq!(contains.len(), len);
+        assert_eq!(contains.len(), 7);
         assert_eq!(
             contains.to_bool().unwrap().opt_bool_vec().unwrap(),
             vec![
