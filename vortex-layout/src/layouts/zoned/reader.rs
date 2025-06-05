@@ -120,7 +120,7 @@ impl ZonedReader {
                     None
                 }
                 Some(pred) => {
-                    log::debug!("Constructed pruning predicate for expr: {expr}: {pred}");
+                    log::debug!("Constructed pruning predicate for expr: {expr}: {pred:?}");
                     Some(
                         self.stats_table()
                             .map(move |stats_table| {
