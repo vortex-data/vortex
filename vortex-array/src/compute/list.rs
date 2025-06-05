@@ -48,6 +48,7 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 /// let to_vec: Vec<bool> = matches.to_bool().unwrap().boolean_buffer().iter().collect();
 /// assert_eq!(to_vec, vec![false, true, false]);
 /// ```
+// TODO(joe): promote to compute fn.
 pub fn list_contains(array: &dyn Array, value: Scalar) -> VortexResult<ArrayRef> {
     let DType::List(elem_dtype, nullability) = array.dtype() else {
         vortex_bail!("Array must be of List type");
