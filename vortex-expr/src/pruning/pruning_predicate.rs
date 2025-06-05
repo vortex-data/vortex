@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
@@ -15,16 +13,6 @@ use crate::{ExprRef, Literal, Scope};
 pub struct PruningPredicate {
     expr: ExprRef,
     required_stats: Relation<FieldOrIdentity, Stat>,
-}
-
-impl Display for PruningPredicate {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "PruningPredicate({}, {{{}}})",
-            self.expr, self.required_stats
-        )
-    }
 }
 
 impl PruningPredicate {

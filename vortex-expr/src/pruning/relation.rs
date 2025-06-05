@@ -1,25 +1,11 @@
-use std::fmt::Display;
 use std::hash::Hash;
 
-use itertools::Itertools as _;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 
 #[derive(Debug, Clone)]
 pub(super) struct Relation<K, V> {
     map: HashMap<K, HashSet<V>>,
-}
-
-impl<K: Display, V: Display> Display for Relation<K, V> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.map.iter().format_with(",", |(k, v), fmt| {
-                fmt(&format_args!("{k}: {{{}}}", v.iter().format(",")))
-            })
-        )
-    }
 }
 
 impl<K: Hash + Eq, V: Hash + Eq> Default for Relation<K, V> {
