@@ -69,6 +69,7 @@ struct ScanBindData : public TableFunctionData {
 		result->columns_types = columns_types;
 		result->column_names = column_names;
 		result->initial_file = initial_file;
+		result->virtual_col = virtual_col;
 		return std::move(result);
 	}
 
@@ -137,7 +138,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 
 	// This is the max number threads that the extension might use.
 	idx_t MaxThreads() const override {
-		constexpr uint32_t MAX_THREAD_COUNT = 1;
+		constexpr uint32_t MAX_THREAD_COUNT = 192;
 		return MAX_THREAD_COUNT;
 	}
 
@@ -185,6 +186,7 @@ void ExtractFilterExpression(google::protobuf::Arena &arena, ScanBindData &data,
 	for (const auto &[col_id, value] : filter_set->filters) {
 		std::cout << "ExtractFilterExpression col id: " << col_id << std::endl;
 		auto column_name = data.ColumnName(column_ids[col_id]);
+		std::cout << "ExtractFilterExpression col name: " << column_name << std::endl;
 
 		std::cout << "ExtractFilterExpression col_id: " << value->DebugToString() << std::endl;
 
@@ -194,11 +196,11 @@ void ExtractFilterExpression(google::protobuf::Arena &arena, ScanBindData &data,
 			auto &opt_filter = value->Cast<OptionalFilter>().child_filter;
 			if (opt_filter->filter_type == TableFilterType::DYNAMIC_FILTER) {
 				dyn_filters.emplace(column_name, opt_filter->Cast<DynamicFilter>().filter_data);
+				continue;
 			}
-		} else {
-			auto conj = table_expression_into_expr(arena, *value, column_name);
-			conjuncts.push_back(conj);
 		}
+		auto conj = table_expression_into_expr(arena, *value, column_name);
+		conjuncts.push_back(conj);
 	}
 }
 
@@ -530,6 +532,7 @@ void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData
 
 	// Delete filters here so they are not given to used the create global state callback.
 	for (auto iter = filters.begin(); iter != filters.end();) {
+		std::cout << "coxp filter: " << (*iter)->ToString() << std::endl;
 		auto expr = expression_into_vortex_expr(*bind.arena, *iter->get());
 		if (expr != nullptr) {
 			bind.conjuncts.push_back(expr);

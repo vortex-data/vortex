@@ -98,6 +98,8 @@ impl VortexFile {
             return Ok(false);
         };
 
+        println!("filt {} pred {:?}", filter, predicate);
+
         let Some(struct_row) =
             extract_relevant_stat_as_struct_row(&predicate, file_stats, struct_dtype)?
         else {

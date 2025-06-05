@@ -479,6 +479,11 @@ expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const 
 		lit->mutable_value()->mutable_dtype()->mutable_bool_()->set_nullable(false);
 		return expr;
 	}
+	case TableFilterType::IN_FILTER: {
+		expr->set_id(LIST_CONTAINS_ID);
+		auto list = expr->mutable_kind()->mutable_list_contains();
+		list->
+	}
 	default:
 		break;
 	}

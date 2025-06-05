@@ -14,6 +14,7 @@ const std::string VAR_ID = "var";
 const std::string LIKE_ID = "like";
 const std::string LITERAL_ID = "literal";
 const std::string NOT_ID = "not";
+const std::string LIST_CONTAINS_ID = "list_contains";
 
 vortex::expr::Expr *table_expression_into_expr(google::protobuf::Arena &arena, duckdb::TableFilter &filter,
                                                const std::string &column_name);

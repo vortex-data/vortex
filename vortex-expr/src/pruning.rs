@@ -92,6 +92,10 @@ impl Display for PruningPredicate {
 
 impl PruningPredicate {
     pub fn try_new(original_expr: &ExprRef) -> Option<Self> {
+        if original_expr.vars().len() != 1 {
+            return None;
+        }
+
         let (expr, required_stats) = convert_to_pruning_expression(original_expr);
         if let Some(lexp) = expr.as_any().downcast_ref::<Literal>() {
             // Is the expression constant false, i.e. prune nothing
