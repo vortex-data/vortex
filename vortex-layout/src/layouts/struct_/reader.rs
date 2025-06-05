@@ -391,7 +391,7 @@ mod tests {
             LayoutRef,
         ),
     ) {
-        let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
         let filt = or(
             eq(get_item_scope("a"), lit(7)),
             or(

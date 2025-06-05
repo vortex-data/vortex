@@ -1,6 +1,7 @@
 //! FFI interface for Vortex File I/O.
 
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
+use std::ops::Range;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{ptr, slice};
@@ -15,7 +16,7 @@ use prost::Message;
 use url::Url;
 use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, deserialize_expr, get_item_scope, pack, var};
+use vortex::expr::{ExprRef, deserialize_expr, get_item, get_item_scope, pack, var};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::layout::layouts::row_id::RowIdLayoutReader;
@@ -77,6 +78,9 @@ pub struct vx_file_scan_options {
 
     /// Last row of a range to scan.
     pub row_range_end: c_ulong,
+
+    /// The index of the file in a multi-file scan.
+    pub file_index: c_ulong,
 }
 
 fn extract_filter_expression(
@@ -123,6 +127,7 @@ impl vx_file_scan_options {
             filter_expr,
             split_by,
             row_range,
+            file_index: self.file_index as u64,
         })
     }
 }
@@ -206,12 +211,13 @@ pub unsafe extern "C-unwind" fn vx_file_row_count(file: *const vx_file) -> u64 {
     vx_file::as_ref(file).row_count()
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct ScanOptions {
     field_names: Option<Vec<Arc<str>>>,
     filter_expr: Option<ExprRef>,
     split_by: Option<SplitBy>,
-    row_range: Option<std::ops::Range<u64>>,
+    row_range: Option<Range<u64>>,
+    file_index: u64,
 }
 
 /// Return a borrowed reference to the DType of the file.
@@ -252,9 +258,13 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
             || Ok(ScanOptions::default()),
             |options| options.process_scan_options(),
         )?;
+        //         println!("scan options {:?}", scan_options);
 
         let layout_reader = file.layout_reader()?;
-        let layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
+        let layout_reader = Arc::new(RowIdLayoutReader::new_with_file_index(
+            layout_reader,
+            scan_options.file_index,
+        ));
         let mut scan_builder = ScanBuilder::new(layout_reader);
 
         // println!("scan");
@@ -264,10 +274,10 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
             // Field names are allowed to be `Some` and empty.
             let expr = pack(
                 field_names.into_iter().map(|f| {
-                    if f.as_ref() != "file_row_number" {
-                        (f.clone(), get_item_scope(f))
+                    if f.as_ref() == "file_row_number" || f.as_ref() == "file_index" {
+                        (f.clone(), get_item(f, var("row_id")))
                     } else {
-                        (f, var("row_id"))
+                        (f.clone(), get_item_scope(f))
                     }
                 }),
                 Nullability::NonNullable,
@@ -279,7 +289,6 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         }
 
         if let Some(expr) = scan_options.filter_expr {
-            // println!("filter_expr {}", expr);
             scan_builder = scan_builder.with_filter(expr);
         }
 

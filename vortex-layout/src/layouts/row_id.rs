@@ -4,12 +4,11 @@ use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
+use vortex_array::arrays::{ConstantArray, StructArray};
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::PType::U64;
-use vortex_dtype::{DType, FieldMask};
+use vortex_dtype::{DType, FieldMask, FieldName, Nullability, PType, StructFields};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::var_partition::{VarPartitionedExpr, var_partitions_with_map};
 use vortex_expr::{ExactExpr, ExprRef, IDENTITY_IDENTIFIER, Identifier, Scope, ScopeDType};
@@ -23,21 +22,27 @@ pub struct RowIdLayoutReader {
     name: Arc<str>,
     scope_dtype: ScopeDType,
     partitioned_expr_cache: DashMap<ExactExpr, Arc<VarPartitionedExpr>>,
+    file_index: u64,
 }
 
 static ROW_ID: LazyLock<Identifier> = LazyLock::new(|| Arc::from("row_id"));
 
 impl RowIdLayoutReader {
     pub fn new(child: LayoutReaderRef) -> Self {
+        Self::new_with_file_index(child, 0)
+    }
+
+    pub fn new_with_file_index(child: LayoutReaderRef, file_index: u64) -> Self {
         let scope_dtype = child
             .scope_dtype()
             .clone()
-            .with_value(ROW_ID.clone(), DType::Primitive(U64, NonNullable));
+            .with_value(ROW_ID.clone(), Self::row_id_scope_dtype());
         Self {
             child,
             name: Arc::from("row_id_layout_reader"),
             scope_dtype,
             partitioned_expr_cache: Default::default(),
+            file_index,
         }
     }
 }
@@ -62,6 +67,38 @@ impl RowIdLayoutReader {
                 )
             })
             .clone()
+    }
+
+    fn row_id_scope(&self, row_range: &Range<u64>) -> ArrayRef {
+        let arr_len = row_range.clone().count();
+
+        StructArray::from_fields(&[
+            (
+                "file_row_number",
+                SequenceArray::typed_new(row_range.start, 1, arr_len)
+                    .vortex_expect("cannot be out of bounds")
+                    .to_array(),
+            ),
+            (
+                "file_index",
+                ConstantArray::new(self.file_index, arr_len).to_array(),
+            ),
+        ])
+        .vortex_expect("valid struct array")
+        .to_array()
+    }
+
+    fn row_id_scope_dtype() -> DType {
+        DType::Struct(
+            Arc::new(StructFields::from_iter([
+                (
+                    FieldName::from("file_row_number"),
+                    DType::Primitive(PType::I64, Nullability::NonNullable),
+                ),
+                ("file_index".into(), PType::I64.into()),
+            ])),
+            Nullability::NonNullable,
+        )
     }
 }
 
@@ -108,12 +145,8 @@ impl LayoutReader for RowIdLayoutReader {
         };
         let rest = partitioned.find_partition(&IDENTITY_IDENTIFIER);
 
-        let row_id_scope = Scope::empty(arr_len).with_value(
-            ROW_ID.clone(),
-            SequenceArray::typed_new(row_range.start, 1, arr_len)
-                .vortex_expect("cannot be out of bounds")
-                .to_array(),
-        );
+        let row_id_scope =
+            Scope::empty(arr_len).with_value(ROW_ID.clone(), self.row_id_scope(row_range));
 
         let rest_eval = if let Some(rest) = &rest {
             let dtype = rest.return_dtype(self.scope_dtype())?;
@@ -151,18 +184,10 @@ impl LayoutReader for RowIdLayoutReader {
         };
         let rest = partitioned.find_partition(&IDENTITY_IDENTIFIER);
 
-        // println!("projection_evaluation row id {:?}", rest);
-
-        let row_id_scope = Scope::empty(arr_len).with_value(
-            ROW_ID.clone(),
-            SequenceArray::typed_new(row_range.start, 1, arr_len)
-                .vortex_expect("cannot be out of bounds")
-                .to_array(),
-        );
+        let row_id_scope =
+            Scope::empty(arr_len).with_value(ROW_ID.clone(), self.row_id_scope(row_range));
 
         let res = row_id.evaluate(&row_id_scope)?;
-
-        // println!("res {:?}", res);
 
         let rest_eval = rest
             .map(|r| self.child.projection_evaluation(row_range, r))
@@ -246,7 +271,7 @@ mod tests {
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::{ArrayContext, ToCanonical};
-    use vortex_expr::{eq, gt, lit, or, root, var};
+    use vortex_expr::{eq, get_item, gt, lit, or, root, var};
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -279,7 +304,7 @@ mod tests {
 
             let expr = eq(root(), lit(3i32));
             let result =
-                RowIdLayoutReader::new(layout.new_reader(&"".into(), &segments, &ctx).unwrap())
+                RowIdLayoutReader::new(layout.new_reader("".into(), segments, ctx).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
@@ -317,9 +342,9 @@ mod tests {
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
-            let expr = gt(var("row_id"), lit(3u64));
+            let expr = gt(get_item("file_row_number", var("row_id")), lit(3u64));
             let result =
-                RowIdLayoutReader::new(layout.new_reader(&"".into(), &segments, &ctx).unwrap())
+                RowIdLayoutReader::new(layout.new_reader("".into(), segments, ctx).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
@@ -359,11 +384,14 @@ mod tests {
 
             let expr = or(
                 eq(root(), lit(3i32)),
-                or(gt(var("row_id"), lit(3u64)), eq(root(), lit(1i32))),
+                or(
+                    gt(get_item("file_row_number", var("row_id")), lit(3u64)),
+                    eq(root(), lit(1i32)),
+                ),
             );
 
             let result =
-                RowIdLayoutReader::new(layout.new_reader(&"".into(), &segments, &ctx).unwrap())
+                RowIdLayoutReader::new(layout.new_reader("".into(), segments, ctx).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))

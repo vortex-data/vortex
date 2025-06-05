@@ -57,10 +57,6 @@ struct ScanBindData : public TableFunctionData {
 		       columns_types == other.columns_types;
 	}
 
-	~ScanBindData() {
-		std::cout << "~ScanBindData()" << std::endl;
-	}
-
 	unique_ptr<FunctionData> Copy() const override {
 		auto result = make_uniq<ScanBindData>();
 		result->arena = make_uniq<google::protobuf::Arena>();
@@ -184,8 +180,6 @@ void ExtractFilterExpression(google::protobuf::Arena &arena, ScanBindData &data,
 
 	for (const auto &[col_id, value] : filter_set->filters) {
 		auto column_name = data.ColumnName(column_ids[col_id]);
-		std::cout << "ExtractFilterExpression col name: " << column_name << std::endl;
-		std::cout << "ExtractFilterExpression col_id: " << value->DebugToString() << std::endl;
 
 		// Extract the optional dynamic filter, this seems like the only way that
 		// duckdb will use dynamic filters.
@@ -362,15 +356,15 @@ static unique_ptr<ArrayIterator> OpenArrayIter(const ScanBindData &bind, ScanGlo
                                                shared_ptr<VortexFile> &file, ScanPartition row_range_partition) {
 	auto filter_str = global_state.filter_expression_string(*bind.arena);
 
-	const auto options = vx_file_scan_options {
-	    .projection = global_state.projected_column_names.data(),
-	    .projection_len = static_cast<unsigned>(global_state.projected_column_names.size()),
-	    .filter_expression = filter_str.data(),
-	    .filter_expression_len = static_cast<unsigned>(filter_str.length()),
-	    .split_by_row_count = 0,
-	    .row_range_start = row_range_partition.start_row,
-	    .row_range_end = row_range_partition.end_row,
-	};
+	const auto options =
+	    vx_file_scan_options {.projection = global_state.projected_column_names.data(),
+	                          .projection_len = static_cast<unsigned>(global_state.projected_column_names.size()),
+	                          .filter_expression = filter_str.data(),
+	                          .filter_expression_len = static_cast<unsigned>(filter_str.length()),
+	                          .split_by_row_count = 0,
+	                          .row_range_start = row_range_partition.start_row,
+	                          .row_range_end = row_range_partition.end_row,
+	                          .file_index = row_range_partition.file_idx};
 
 	return make_uniq<ArrayIterator>(file->Scan(&options));
 }
@@ -481,7 +475,6 @@ static unique_ptr<FunctionData> VortexBind(ClientContext &context, TableFunction
                                            vector<LogicalType> &column_types, vector<string> &column_names) {
 	auto result = make_uniq<ScanBindData>();
 	result->arena = make_uniq<google::protobuf::Arena>();
-	std::cout << "bind enter arena\n";
 
 	const static string VortexExtensionKey = std::string("vortex_extension:vortex_session");
 	auto session = ObjectCache::GetObjectCache(context).Get<VortexSession>(VortexExtensionKey);
@@ -529,7 +522,6 @@ void PushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData
 
 	// Delete filters here so they are not given to used the create global state callback.
 	for (auto iter = filters.begin(); iter != filters.end();) {
-		std::cout << "coxp filter: " << (*iter)->ToString() << std::endl;
 		auto expr = expression_into_vortex_expr(*bind.arena, *iter->get());
 		if (expr != nullptr) {
 			bind.conjuncts.push_back(expr);
@@ -548,10 +540,7 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 	vortex_scan.init_global = [](ClientContext &context,
 	                             TableFunctionInitInput &input) -> unique_ptr<GlobalTableFunctionState> {
 		auto &nonbind = input.bind_data->Cast<ScanBindData>();
-		std::cout << "non bind arena: " << nonbind.arena.get() << ", " << (nonbind.arena.get() == nullptr) << std::endl;
 		auto &bind = input.bind_data->CastNoConst<ScanBindData>();
-		std::cout << "bind input: " << input.bind_data << ", " << (input.bind_data == nullptr) << std::endl;
-		std::cout << "bind arena: " << bind.arena.get() << ", " << (bind.arena.get() == nullptr) << std::endl;
 		auto global_state = make_uniq<ScanGlobalState>();
 
 		// TODO(joe): do this expansion gradually in the scan to avoid a slower start.
@@ -563,28 +552,13 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 		global_state->filter = input.filters;
 		global_state->column_ids = input.column_ids;
 
-		// std::cout << "--col_id--\n";
-		// for (auto &col_id : input.column_ids) {
-		// 	std::cout << "col_id: " << col_id << '\n';
-		// }
-		// std::cout << "--projection_ids--\n";
-		// for (auto &col_id : input.projection_ids) {
-		// 	std::cout << "projection_ids: " << col_id << '\n';
-		// }
-
-		std::cout << "pre PopulateProjection" << std::endl;
-
 		PopulateProjection(bind, *global_state, input);
-
-		std::cout << "pre filter" << std::endl;
-		std::cout << "binnd areana: " << bind.arena.get() << ", " << (bind.arena.get() == nullptr) << std::endl;
 
 		// Most expressions are extracted from `PushdownComplexFilter`, the final filters come from `input.filters`.
 		ExtractFilterExpression(*bind.arena, bind, input.filters, input.column_ids, bind.conjuncts,
 		                        global_state->dynamic_filters);
 
-		std::cout << "post filter" << std::endl;
-		;
+
 		// Create the static filter expression
 		global_state->static_filter_expr = flatten_exprs(*bind.arena, bind.conjuncts);
 		if (global_state->static_filter_expr != nullptr) {
@@ -619,6 +593,7 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 	                                    optional_ptr<FunctionData> bind_data) -> vector<column_t> {
 		vector<column_t> result;
 		result.emplace_back(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER);
+		result.emplace_back(MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX);
 		return result;
 	};
 	vortex_scan.get_virtual_columns = [](ClientContext &context,
@@ -628,8 +603,11 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 
 		result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER,
 		                        TableColumn("file_row_number", LogicalType::UBIGINT)));
+		result.insert(
+		    make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX, TableColumn("file_index", LogicalType::UBIGINT)));
 
 		scan_bind_data.virtual_col[MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER] = "file_row_number";
+		scan_bind_data.virtual_col[MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX] = "file_index";
 
 		return result;
 	};

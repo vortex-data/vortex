@@ -286,20 +286,19 @@ scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullab
 }
 
 void set_column(const string &s, expr::Expr *column) {
-	if (s == "file_row_number") {
-		auto kind = column->mutable_kind();
-		kind->mutable_var()->set_var("row_id");
-		column->set_id(VAR_ID);
-		return;
-	}
+
 	column->set_id(GET_ITEM_ID);
 	auto kind = column->mutable_kind();
 	auto get_item = kind->mutable_get_item();
 	get_item->mutable_path()->assign(s);
 
 	auto id = column->add_children();
-	id->mutable_kind()->mutable_var()->set_var("");
 	id->set_id(VAR_ID);
+	if (s == "file_row_number" || s == "file_index") {
+		id->mutable_kind()->mutable_var()->set_var("row_id");
+	} else {
+		id->mutable_kind()->mutable_var()->set_var("");
+	}
 }
 
 void set_literal(Arena &arena, const Value &value, bool nullable, expr::Expr *constant) {
