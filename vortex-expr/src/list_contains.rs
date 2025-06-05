@@ -33,7 +33,7 @@ pub fn list_contains(list: ExprRef, value: ExprRef) -> ExprRef {
 
 impl Display for ListContains {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.contains({})", &self.list, &self.value)
+        write!(f, "contains({}, {})", &self.list, &self.value)
     }
 }
 
