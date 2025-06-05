@@ -21,12 +21,6 @@ impl<K: Hash + Eq, V: Hash + Eq> Relation<K, V> {
         }
     }
 
-    pub fn extend(&mut self, other: Relation<K, V>) {
-        for (l, rs) in other.map.into_iter() {
-            self.map.entry(l).or_default().extend(rs.into_iter())
-        }
-    }
-
     pub fn insert(&mut self, k: K, v: V) {
         self.map.entry(k).or_default().insert(v);
     }

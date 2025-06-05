@@ -10,7 +10,7 @@ use vortex_scalar::Scalar;
 
 use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Literal {
     value: Scalar,
 }

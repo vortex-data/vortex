@@ -5,30 +5,19 @@ use vortex_array::{Array, ArrayRef};
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::field_or_identity::FieldOrIdentity;
-use super::pruning_predicate_rewriter::convert_to_pruning_expression;
+use super::pruning_predicate_builder::PruningPredicateBuilder;
 use super::relation::Relation;
-use crate::{ExprRef, Literal, Scope};
+use crate::{ExprRef, Scope};
 
 #[derive(Debug, Clone)]
 pub struct PruningPredicate {
-    expr: ExprRef,
-    required_stats: Relation<FieldOrIdentity, Stat>,
+    pub(super) expr: ExprRef,
+    pub(super) required_stats: Relation<FieldOrIdentity, Stat>,
 }
 
 impl PruningPredicate {
     pub fn try_new(original_expr: &ExprRef) -> Option<Self> {
-        let (expr, required_stats) = convert_to_pruning_expression(original_expr);
-        if let Some(lexp) = expr.as_any().downcast_ref::<Literal>() {
-            // Is the expression constant false, i.e. prune nothing
-            if lexp.value().as_bool_opt().and_then(|b| b.value()) == Some(false) {
-                return None;
-            }
-        }
-
-        Some(Self {
-            expr,
-            required_stats,
-        })
+        PruningPredicateBuilder::default().build(original_expr)
     }
 
     pub fn expr(&self) -> &ExprRef {
