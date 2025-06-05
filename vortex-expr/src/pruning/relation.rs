@@ -21,32 +21,8 @@ impl<K: Hash + Eq, V: Hash + Eq> Relation<K, V> {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn union(mut iter: impl Iterator<Item = Relation<K, V>>) -> Relation<K, V> {
-        if let Some(mut x) = iter.next() {
-            for y in iter {
-                x.extend(y)
-            }
-            x
-        } else {
-            Relation::new()
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn extend(&mut self, other: Relation<K, V>) {
-        for (l, rs) in other.map.into_iter() {
-            self.map.entry(l).or_default().extend(rs.into_iter())
-        }
-    }
-
     pub fn insert(&mut self, k: K, v: V) {
         self.map.entry(k).or_default().insert(v);
-    }
-
-    #[allow(dead_code)]
-    pub fn into_map(self) -> HashMap<K, HashSet<V>> {
-        self.map
     }
 
     pub fn map(&self) -> &HashMap<K, HashSet<V>> {
