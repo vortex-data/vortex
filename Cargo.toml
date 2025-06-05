@@ -67,10 +67,8 @@ arrow-ord = "55"
 arrow-schema = "55"
 arrow-select = "55"
 arrow-string = "55"
-async-once-cell = "0.5.4"
 async-stream = "0.3.6"
 async-trait = "0.1.88"
-backtrace = "0.3.74"
 bindgen = "0.71.1"
 bit-vec = "0.8.0"
 bitvec = "1.0.1"
@@ -86,10 +84,6 @@ crossterm = "0.28"
 dashmap = "6.1.0"
 datafusion = { version = "47", default-features = false }
 datafusion-common = { version = "47" }
-datafusion-datasource = { version = "47" }
-datafusion-execution = { version = "47" }
-datafusion-expr = { version = "47" }
-datafusion-physical-expr = { version = "47" }
 datafusion-physical-plan = { version = "47" }
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 duckdb = { path = "duckdb-vortex/duckdb-rs/crates/duckdb", features = [
@@ -105,9 +99,7 @@ flume = "0.11"
 fsst-rs = "0.5.2"
 futures = { version = "0.3.31", default-features = false }
 futures-util = "0.3.31"
-getrandom = "0.3"
 goldenfile = "1"
-governor = "0.10"
 half = { version = "2.5", features = ["std", "num-traits"] }
 hashbrown = "0.15.1"
 homedir = "0.3.3"

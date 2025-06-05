@@ -2,7 +2,6 @@
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
 //
 
-
 // (c) Copyright 2025 SpiralDB Inc. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,24 +16,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <stdarg.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdlib.h>
-
-#include "duckdb.h"
+// clang-format off
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#include "duckdb.h"
 
-#pragma once
-
-#include <stdarg.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdlib.h>
 
 #define DUCKDB_STANDARD_VECTOR_SIZE 2048
 
@@ -57,3 +46,5 @@ const char *vortex_extension_version(void);
 #ifdef __cplusplus
 }
 #endif
+
+// clang-format on

@@ -278,7 +278,7 @@ mod test {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader(&"".into(), &segments, &ctx)
+                .new_reader("".into(), segments, ctx)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -319,7 +319,7 @@ mod test {
 
             let expr = gt(root(), lit(3i32));
             let result = layout
-                .new_reader(&"".into(), &segments, &ctx)
+                .new_reader("".into(), segments, ctx)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &expr)
                 .unwrap()
@@ -359,7 +359,7 @@ mod test {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader(&"".into(), &segments, &ctx)
+                .new_reader("".into(), segments, ctx)
                 .unwrap()
                 .projection_evaluation(&(2..4), &root())
                 .unwrap()

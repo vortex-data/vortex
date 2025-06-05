@@ -6,6 +6,7 @@ use crate::LayoutRef;
 
 /// A future created by a strategy to yield a layout. It is its own
 /// trait to be potentially extended with new methods.
+// Tag for Python docs:
 // [layout writer]
 pub trait LayoutWriter: Future<Output = VortexResult<LayoutRef>> {}
 // [layout writer]

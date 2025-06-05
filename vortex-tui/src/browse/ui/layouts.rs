@@ -92,9 +92,9 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
         .cursor
         .layout()
         .new_reader(
-            &"".into(),
-            &app.vxf.segment_source(),
-            app.vxf.footer().ctx(),
+            "".into(),
+            app.vxf.segment_source(),
+            app.vxf.footer().ctx().clone(),
         )
         .vortex_expect("Failed to create reader");
 

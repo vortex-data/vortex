@@ -12,6 +12,6 @@ const char *duckdb_vx_sfunc_name(duckdb_vx_sfunc ffi_func);
 
 duckdb_logical_type duckdb_vx_sfunc_return_type(duckdb_vx_sfunc ffi_func);
 
-#ifdef __cplusplus  /* End C ABI */
+#ifdef __cplusplus /* End C ABI */
 }
 #endif

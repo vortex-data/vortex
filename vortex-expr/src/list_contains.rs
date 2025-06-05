@@ -33,7 +33,7 @@ pub fn list_contains(list: ExprRef, value: ExprRef) -> ExprRef {
 
 impl Display for ListContains {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.contains({})", &self.list, &self.value)
+        write!(f, "contains({}, {})", &self.list, &self.value)
     }
 }
 
@@ -84,10 +84,10 @@ impl VortexExpr for ListContains {
     }
 
     fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        let Some(scalar) = self.value.evaluate(scope)?.as_constant() else {
-            todo!("not implemented list contains of a value array")
-        };
-        compute_list_contains(self.list.evaluate(scope)?.as_ref(), scalar)
+        compute_list_contains(
+            self.list.evaluate(scope)?.as_ref(),
+            self.value.evaluate(scope)?.as_ref(),
+        )
     }
 
     fn children(&self) -> Vec<&ExprRef> {
