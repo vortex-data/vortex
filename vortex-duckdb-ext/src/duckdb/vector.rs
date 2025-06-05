@@ -43,7 +43,7 @@ impl Vector {
 
     // NOTE(ngates): vector doesn't hold its own length. Which makes writing a safe
     //  Rust API annoying...
-    pub unsafe fn as_slice_mut<T>(&self, length: usize) -> &mut [T] {
+    pub unsafe fn as_slice_mut<T>(&mut self, length: usize) -> &mut [T] {
         let ptr = unsafe { cpp::duckdb_vector_get_data(self.as_ptr()) };
         unsafe { std::slice::from_raw_parts_mut(ptr.cast::<T>(), length) }
     }
@@ -63,6 +63,7 @@ impl Vector {
         unsafe { LogicalType::from_ptr(cpp::duckdb_vector_get_column_type(self.as_ptr())) }
     }
 
+    #[allow(clippy::expect_used)]
     pub fn ensure_validity_slice(&mut self) -> &mut BitSlice<u64> {
         unsafe { cpp::duckdb_vector_ensure_validity_writable(self.as_ptr()) };
         self.validity_slice_mut()

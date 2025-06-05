@@ -21,7 +21,6 @@ arrow-schema = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bit-vec = { workspace = true }
-bytes = { workspace = true }
 dashmap = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }

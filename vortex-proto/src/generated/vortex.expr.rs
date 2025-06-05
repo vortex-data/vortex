@@ -72,11 +72,8 @@ pub mod kind {
         #[prost(message, optional, tag = "1")]
         pub target: ::core::option::Option<super::super::dtype::DType>,
     }
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct ListContains {
-        #[prost(message, optional, tag = "1")]
-        pub value: ::core::option::Option<super::super::scalar::Scalar>,
-    }
+    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    pub struct ListContains {}
     #[derive(
         Clone,
         Copy,
