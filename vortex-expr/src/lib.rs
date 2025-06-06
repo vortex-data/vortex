@@ -93,7 +93,6 @@ pub trait VortexExpr:
     fn as_any(&self) -> &dyn Any;
 
     /// Compute result of expression on given batch producing a new batch
-    ///
     fn evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
         let result = self.unchecked_evaluate(scope)?;
         assert_eq!(

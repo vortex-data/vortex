@@ -47,7 +47,7 @@ pub(crate) mod proto {
             };
 
             Ok(Let::new_expr(
-                op.var.clone().into(),
+                op.var.clone().parse()?,
                 children[0].clone(),
                 children[1].clone(),
             ))
@@ -108,8 +108,8 @@ impl PartialEq for Let {
     }
 }
 
-pub fn let_(var: impl Into<Identifier>, bind: ExprRef, expr: ExprRef) -> ExprRef {
-    Let::new_expr(var.into(), bind, expr)
+pub fn let_(ident: Identifier, bind: ExprRef, expr: ExprRef) -> ExprRef {
+    Let::new_expr(ident, bind, expr)
 }
 
 #[cfg(test)]
@@ -132,9 +132,13 @@ mod tests {
             .to_array();
 
         let expr = let_(
-            "x",
+            "x".parse().unwrap(),
             get_item_scope("a1"),
-            let_("y", get_item_scope("a2"), eq(var("x"), var("y"))),
+            let_(
+                "y".parse().unwrap(),
+                get_item_scope("a2"),
+                eq(var("x".parse().unwrap()), var("y".parse().unwrap())),
+            ),
         );
         let res = expr.evaluate(&Scope::new(struct_arr)).unwrap();
         let res = res.to_bool().unwrap().boolean_buffer().iter().collect_vec();

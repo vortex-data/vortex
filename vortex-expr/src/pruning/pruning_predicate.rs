@@ -132,8 +132,8 @@ mod tests {
     use crate::pruning::pruning_predicate::{HashMap, pruning_expr};
     use crate::pruning::{PruningPredicate, stat_field_name};
     use crate::{
-        HashSet, IDENTITY_IDENTIFIER, and, col, eq, get_item, get_item_scope, gt, gt_eq, lit, lt,
-        lt_eq, not_eq, or, root,
+        HashSet, Identifier, and, col, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq,
+        not_eq, or, root,
     };
 
     #[test]
@@ -169,11 +169,11 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                    (Identifier::Identity, FieldPath::from_name(&column)),
                     HashSet::from_iter([Stat::Min, Stat::Max])
                 ),
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&other_col)),
+                    (Identifier::Identity, FieldPath::from_name(&other_col)),
                     HashSet::from_iter([Stat::Max, Stat::Min])
                 )
             ])
@@ -205,11 +205,11 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                    (Identifier::Identity, FieldPath::from_name(&column)),
                     HashSet::from_iter([Stat::Min, Stat::Max])
                 ),
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&other_col)),
+                    (Identifier::Identity, FieldPath::from_name(&other_col)),
                     HashSet::from_iter([Stat::Max, Stat::Min])
                 )
             ])
@@ -240,11 +240,11 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                    (Identifier::Identity, FieldPath::from_name(&column)),
                     HashSet::from_iter([Stat::Max])
                 ),
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&other_col)),
+                    (Identifier::Identity, FieldPath::from_name(&other_col)),
                     HashSet::from_iter([Stat::Min])
                 )
             ])
@@ -266,7 +266,7 @@ mod tests {
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(
-                (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                (Identifier::Identity, FieldPath::from_name(&column)),
                 HashSet::from_iter([Stat::Max])
             ),])
         );
@@ -289,11 +289,11 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                    (Identifier::Identity, FieldPath::from_name(&column)),
                     HashSet::from_iter([Stat::Min])
                 ),
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&other_col)),
+                    (Identifier::Identity, FieldPath::from_name(&other_col)),
                     HashSet::from_iter([Stat::Max])
                 )
             ])
@@ -315,7 +315,7 @@ mod tests {
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(
-                (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                (Identifier::Identity, FieldPath::from_name(&column)),
                 HashSet::from_iter([Stat::Min])
             )])
         );
