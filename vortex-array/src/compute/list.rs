@@ -9,7 +9,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{ListScalar, Scalar};
 
 use crate::arrays::{BoolArray, ConstantArray, ListArray};
-use crate::compute::{BooleanOperator, Operator, boolean, compare, fill_null, or};
+use crate::compute::{Operator, compare, fill_null, or};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
