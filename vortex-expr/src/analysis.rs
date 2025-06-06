@@ -11,6 +11,8 @@ pub trait StatsCatalog {
     }
 }
 
+/// This can be used by expression to plug into vortex expression analysis, such as
+/// pruning or expression simplification
 pub trait AnalysisExpr {
     /// Tries to find an expression over zone-statistics which is true if-and-only-if `expr` is
     /// false for all records in the zone.
