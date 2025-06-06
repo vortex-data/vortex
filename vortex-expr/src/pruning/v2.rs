@@ -33,16 +33,12 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<ExprRef> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::aliases::hash_map::HashMap;
-    use vortex_array::aliases::hash_set::HashSet;
     use vortex_array::stats::Stat;
     use vortex_dtype::FieldName;
 
+    use crate::pruning::stat_field_name;
     use crate::pruning::v2::pruning_expr;
-    use crate::pruning::{FieldOrIdentity, PruningPredicate, stat_field_name};
-    use crate::{
-        and, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq, not, not_eq, or, root,
-    };
+    use crate::{and, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq, not_eq, or, root};
 
     #[test]
     pub fn pruning_equals() {
@@ -245,60 +241,25 @@ mod tests {
 
     #[test]
     fn unprojectable_expr() {
-        let or_expr = not(lt(get_item_scope("a"), get_item_scope("b")));
-        assert!(PruningPredicate::try_new(&or_expr).is_none());
-    }
-
-    #[test]
-    fn or_required_stats_from_both_arms() {
-        let item = get_item_scope(FieldName::from("a"));
-        let expr = or(lt(item.clone(), lit(10)), gt(item, lit(50)));
-
-        let expected = HashMap::from([(
-            FieldOrIdentity::from("a"),
-            HashSet::from([Stat::Min, Stat::Max]),
-        )]);
+        let or_expr = lt(get_item_scope("a"), get_item_scope("b"));
 
         assert_eq!(
-            PruningPredicate::try_new(&expr).unwrap().required_stats(),
-            &expected
-        );
-    }
-
-    #[test]
-    fn and_required_stats_from_both_arms() {
-        let item = get_item_scope(FieldName::from("a"));
-        let expr = and(gt(item.clone(), lit(50)), lt(item, lit(10)));
-
-        let expected = HashMap::from([(
-            FieldOrIdentity::from("a"),
-            HashSet::from([Stat::Min, Stat::Max]),
-        )]);
-
-        assert_eq!(
-            PruningPredicate::try_new(&expr).unwrap().required_stats(),
-            &expected
-        );
+            pruning_expr(&or_expr),
+            Some(gt_eq(get_item_scope("a_min"), get_item_scope("b_max")))
+        )
     }
 
     #[test]
     fn pruning_identity() {
-        let expr = root();
-        let expr = or(lt(expr.clone(), lit(10)), gt(expr.clone(), lit(50)));
+        let expr = or(lt(root().clone(), lit(10)), gt(root().clone(), lit(50)));
 
-        let expected = HashMap::from([(
-            FieldOrIdentity::Identity,
-            HashSet::from([Stat::Min, Stat::Max]),
-        )]);
-
-        let predicate = PruningPredicate::try_new(&expr).unwrap();
-        assert_eq!(predicate.required_stats(), &expected);
+        let predicate = pruning_expr(&expr);
 
         let expected_expr = and(
             gt_eq(get_item_scope(FieldName::from("min")), lit(10)),
             lt_eq(get_item_scope(FieldName::from("max")), lit(50)),
         );
-        assert_eq!(predicate.expr(), &expected_expr)
+        assert_eq!(predicate, Some(expected_expr))
     }
     #[test]
     pub fn pruning_and_or_operators() {
@@ -308,15 +269,15 @@ mod tests {
             gt(get_item_scope(column.clone()), lit(10)),
             lt(get_item_scope(column), lit(50)),
         );
-        let pruned = PruningPredicate::try_new(&and_expr).unwrap();
+        let pruned = pruning_expr(&and_expr);
 
         // Expected: a_max <= 10 OR a_min >= 50
         assert_eq!(
-            pruned.expr(),
-            &or(
+            pruned,
+            Some(or(
                 lt_eq(get_item_scope(FieldName::from("a_max")), lit(10)),
                 gt_eq(get_item_scope(FieldName::from("a_min")), lit(50))
-            ),
+            )),
         );
     }
 }
