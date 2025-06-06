@@ -39,8 +39,8 @@ impl Scope {
         }
     }
 
-    pub fn values(&self, id: &Identifier) -> VortexResult<&ArrayRef> {
-        if id.as_ref() == IDENTITY_IDENTIFIER {
+    pub fn values(&self, id: &str) -> VortexResult<&ArrayRef> {
+        if id == IDENTITY_IDENTIFIER {
             return self
                 .root_scope
                 .as_ref()
@@ -51,9 +51,9 @@ impl Scope {
             .ok_or_else(|| vortex_err!("cannot find {} in values scope", id))
     }
 
-    pub fn vars(&self, id: Identifier) -> VortexResult<&Arc<dyn Any + Send + Sync>> {
+    pub fn vars(&self, id: &str) -> VortexResult<&Arc<dyn Any + Send + Sync>> {
         self.vars
-            .get(&id)
+            .get(id)
             .ok_or_else(|| vortex_err!("cannot find {} in var scope", id))
     }
 
