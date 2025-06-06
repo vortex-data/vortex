@@ -8,6 +8,7 @@ use vortex_array::compute::invert;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
+use crate::pruning::AnalysisExpr;
 use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
@@ -67,6 +68,8 @@ pub(crate) mod proto {
         }
     }
 }
+
+impl AnalysisExpr for Not {}
 
 impl VortexExpr for Not {
     fn as_any(&self) -> &dyn Any {

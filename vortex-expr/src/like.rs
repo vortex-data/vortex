@@ -8,6 +8,7 @@ use vortex_array::compute::{LikeOptions, like};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
+use crate::pruning::AnalysisExpr;
 use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
@@ -101,6 +102,8 @@ pub(crate) mod proto {
         }
     }
 }
+
+impl AnalysisExpr for Like {}
 
 impl VortexExpr for Like {
     fn as_any(&self) -> &dyn Any {

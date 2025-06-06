@@ -3,9 +3,11 @@ use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 
 use vortex_array::ArrayRef;
-use vortex_dtype::DType;
+use vortex_array::stats::Stat;
+use vortex_dtype::{DType, FieldPath};
 use vortex_error::VortexResult;
 
+use crate::pruning::AnalysisExpr;
 use crate::{ExprRef, Identifier, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -65,6 +67,20 @@ pub(crate) mod proto {
 impl Display for Var {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "${}", self.var)
+    }
+}
+
+impl AnalysisExpr for Var {
+    fn max(&self, catalog: &dyn crate::pruning::StatsCatalog) -> Option<ExprRef> {
+        catalog.stats_ref(self.var(), &FieldPath::root(), Stat::Max)
+    }
+
+    fn min(&self, catalog: &dyn crate::pruning::StatsCatalog) -> Option<ExprRef> {
+        catalog.stats_ref(self.var(), &FieldPath::root(), Stat::Min)
+    }
+
+    fn field_path(&self) -> Option<(Identifier, FieldPath)> {
+        Some((self.var.clone(), FieldPath::root()))
     }
 }
 

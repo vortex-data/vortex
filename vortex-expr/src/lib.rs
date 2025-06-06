@@ -1,3 +1,5 @@
+#![feature(option_zip)]
+
 use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
@@ -56,6 +58,7 @@ use vortex_proto::expr;
 #[cfg(feature = "proto")]
 use vortex_proto::expr::{Expr, kind};
 
+use crate::pruning::AnalysisExpr;
 use crate::traversal::{Node, ReferenceCollector};
 
 pub type ExprRef = Arc<dyn VortexExpr>;
@@ -82,7 +85,9 @@ pub trait ExprSerializable {}
 #[cfg(not(feature = "proto"))]
 impl<T> ExprSerializable for T {}
 /// Represents logical operation on [`ArrayRef`]s
-pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable {
+pub trait VortexExpr:
+    Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable + AnalysisExpr
+{
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 

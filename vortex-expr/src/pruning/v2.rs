@@ -1,43 +1,34 @@
-mod field_or_identity;
-mod pruning_predicate;
-mod pruning_predicate_rewriter;
-mod relation;
-pub mod v2;
+use std::iter;
 
-pub use field_or_identity::{FieldOrIdentity, stat_field_name};
-pub use pruning_predicate::PruningPredicate;
+use itertools::Itertools;
 use vortex_array::stats::Stat;
-use vortex_dtype::FieldPath;
+use vortex_dtype::{Field, FieldPath};
 
-use crate::{ExprRef, Identifier};
+use crate::pruning::StatsCatalog;
+use crate::{ExprRef, Identifier, get_item, var};
 
-pub trait StatsCatalog {
-    // Given an id, field and stat return an expression that when evaluated will return that stat
-    // this would be a column reference or a literal value, if the value is known at planning time.
-    // TODO(joe): replace field with a field path, once implemented.
-    fn stats_ref(&self, _id: &Identifier, _field: &FieldPath, _stat: Stat) -> Option<ExprRef> {
-        None
+struct FileStatsCatalog;
+
+impl StatsCatalog for FileStatsCatalog {
+    fn stats_ref(&self, id: &Identifier, field: &FieldPath, stat: Stat) -> Option<ExprRef> {
+        let mut expr = var(id.clone());
+        let name = field
+            .path()
+            .iter()
+            .map(|f| match f {
+                Field::Name(n) => n.as_ref(),
+                Field::ElementType => todo!("element type not currently handled"),
+            })
+            .chain(iter::once(stat.name()))
+            .join("_");
+        expr = get_item(name, expr);
+        Some(expr)
     }
 }
 
-pub trait AnalysisExpr {
-    fn prune_expr(&self, _catalog: &dyn StatsCatalog) -> Option<ExprRef> {
-        None
-    }
-
-    fn max(&self, _catalog: &dyn StatsCatalog) -> Option<ExprRef> {
-        None
-    }
-
-    fn min(&self, _catalog: &dyn StatsCatalog) -> Option<ExprRef> {
-        None
-    }
-
-    fn field_path(&self) -> Option<(Identifier, FieldPath)> {
-        None
-    }
-
-    // TODO: add containment
+pub fn pruning_expr(expr: &ExprRef) -> Option<ExprRef> {
+    let catalog = FileStatsCatalog;
+    expr.prune_expr(&catalog)
 }
 
 #[cfg(test)]
@@ -47,8 +38,8 @@ mod tests {
     use vortex_array::stats::Stat;
     use vortex_dtype::FieldName;
 
-    use super::pruning_predicate_rewriter::convert_to_pruning_expression;
-    use super::{FieldOrIdentity, PruningPredicate, stat_field_name};
+    use crate::pruning::v2::pruning_expr;
+    use crate::pruning::{FieldOrIdentity, PruningPredicate, stat_field_name};
     use crate::{
         and, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq, not, not_eq, or, root,
     };
@@ -58,14 +49,14 @@ mod tests {
         let name = FieldName::from("a");
         let literal_eq = lit(42);
         let eq_expr = eq(get_item("a", root()), literal_eq.clone());
-        let (converted, refs) = convert_to_pruning_expression(&eq_expr);
-        assert_eq!(
-            refs.map(),
-            &HashMap::from_iter([(
-                FieldOrIdentity::Field(name.clone()),
-                HashSet::from_iter([Stat::Min, Stat::Max])
-            )])
-        );
+        let converted = pruning_expr(&eq_expr);
+        // assert_eq!(
+        //     refs.map(),
+        //     &HashMap::from_iter([(
+        //         FieldOrIdentity::Field(name.clone()),
+        //         HashSet::from_iter([Stat::Min, Stat::Max])
+        //     )])
+        // );
         let expected_expr = or(
             gt(
                 get_item(stat_field_name(&name, Stat::Min), root()),
@@ -76,7 +67,9 @@ mod tests {
                 get_item_scope(stat_field_name(&name, Stat::Max)),
             ),
         );
-        assert_eq!(&converted, &expected_expr);
+        println!("{}", converted.clone().unwrap());
+        println!("{}", expected_expr);
+        assert_eq!(&converted, &Some(expected_expr));
     }
 
     #[test]
@@ -88,20 +81,20 @@ mod tests {
             get_item_scope(other_col.clone()),
         );
 
-        let (converted, refs) = convert_to_pruning_expression(&eq_expr);
-        assert_eq!(
-            refs.map(),
-            &HashMap::from_iter([
-                (
-                    FieldOrIdentity::Field(column.clone()),
-                    HashSet::from_iter([Stat::Min, Stat::Max])
-                ),
-                (
-                    FieldOrIdentity::Field(other_col.clone()),
-                    HashSet::from_iter([Stat::Max, Stat::Min])
-                )
-            ])
-        );
+        let converted = pruning_expr(&eq_expr);
+        // assert_eq!(
+        //     refs.map(),
+        //     &HashMap::from_iter([
+        //         (
+        //             FieldOrIdentity::Field(column.clone()),
+        //             HashSet::from_iter([Stat::Min, Stat::Max])
+        //         ),
+        //         (
+        //             FieldOrIdentity::Field(other_col.clone()),
+        //             HashSet::from_iter([Stat::Max, Stat::Min])
+        //         )
+        //     ])
+        // );
         let expected_expr = or(
             gt(
                 get_item_scope(stat_field_name(&column, Stat::Min)),
@@ -112,7 +105,7 @@ mod tests {
                 get_item_scope(stat_field_name(&column, Stat::Max)),
             ),
         );
-        assert_eq!(&converted, &expected_expr);
+        assert_eq!(&converted, &Some(expected_expr));
     }
 
     #[test]
@@ -124,20 +117,20 @@ mod tests {
             get_item_scope(other_col.clone()),
         );
 
-        let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
-        assert_eq!(
-            refs.map(),
-            &HashMap::from_iter([
-                (
-                    FieldOrIdentity::Field(column.clone()),
-                    HashSet::from_iter([Stat::Min, Stat::Max])
-                ),
-                (
-                    FieldOrIdentity::Field(other_col.clone()),
-                    HashSet::from_iter([Stat::Max, Stat::Min])
-                )
-            ])
-        );
+        let converted = pruning_expr(&not_eq_expr);
+        // assert_eq!(
+        //     refs.map(),
+        //     &HashMap::from_iter([
+        //         (
+        //             FieldOrIdentity::Field(column.clone()),
+        //             HashSet::from_iter([Stat::Min, Stat::Max])
+        //         ),
+        //         (
+        //             FieldOrIdentity::Field(other_col.clone()),
+        //             HashSet::from_iter([Stat::Max, Stat::Min])
+        //         )
+        //     ])
+        // );
         let expected_expr = and(
             eq(
                 get_item_scope(stat_field_name(&column, Stat::Min)),
@@ -149,7 +142,7 @@ mod tests {
             ),
         );
 
-        assert_eq!(&converted, &expected_expr);
+        assert_eq!(&converted, &Some(expected_expr));
     }
 
     #[test]
@@ -159,25 +152,25 @@ mod tests {
         let other_expr = get_item_scope(other_col.clone());
         let not_eq_expr = gt(get_item_scope(column.clone()), other_expr.clone());
 
-        let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
-        assert_eq!(
-            refs.map(),
-            &HashMap::from_iter([
-                (
-                    FieldOrIdentity::Field(column.clone()),
-                    HashSet::from_iter([Stat::Max])
-                ),
-                (
-                    FieldOrIdentity::Field(other_col.clone()),
-                    HashSet::from_iter([Stat::Min])
-                )
-            ])
-        );
+        let converted = pruning_expr(&not_eq_expr);
+        // assert_eq!(
+        //     refs.map(),
+        //     &HashMap::from_iter([
+        //         (
+        //             FieldOrIdentity::Field(column.clone()),
+        //             HashSet::from_iter([Stat::Max])
+        //         ),
+        //         (
+        //             FieldOrIdentity::Field(other_col.clone()),
+        //             HashSet::from_iter([Stat::Min])
+        //         )
+        //     ])
+        // );
         let expected_expr = lt_eq(
             get_item_scope(stat_field_name(&column, Stat::Max)),
             get_item_scope(stat_field_name(&other_col, Stat::Min)),
         );
-        assert_eq!(&converted, &expected_expr);
+        assert_eq!(&converted, &Some(expected_expr));
     }
 
     #[test]
@@ -186,19 +179,19 @@ mod tests {
         let other_col = lit(42);
         let not_eq_expr = gt(get_item_scope(column.clone()), other_col.clone());
 
-        let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
-        assert_eq!(
-            refs.map(),
-            &HashMap::from_iter([(
-                FieldOrIdentity::Field(column.clone()),
-                HashSet::from_iter([Stat::Max])
-            ),])
-        );
+        let converted = pruning_expr(&not_eq_expr);
+        // assert_eq!(
+        //     refs.map(),
+        //     &HashMap::from_iter([(
+        //         FieldOrIdentity::Field(column.clone()),
+        //         HashSet::from_iter([Stat::Max])
+        //     ),])
+        // );
         let expected_expr = lt_eq(
             get_item_scope(stat_field_name(&column, Stat::Max)),
             other_col.clone(),
         );
-        assert_eq!(&converted, &expected_expr);
+        assert_eq!(&converted, &Some(expected_expr));
     }
 
     #[test]
@@ -208,25 +201,25 @@ mod tests {
         let other_expr = get_item_scope(other_col.clone());
         let not_eq_expr = lt(get_item_scope(column.clone()), other_expr.clone());
 
-        let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
-        assert_eq!(
-            refs.map(),
-            &HashMap::from_iter([
-                (
-                    FieldOrIdentity::Field(column.clone()),
-                    HashSet::from_iter([Stat::Min])
-                ),
-                (
-                    FieldOrIdentity::Field(other_col.clone()),
-                    HashSet::from_iter([Stat::Max])
-                )
-            ])
-        );
+        let converted = pruning_expr(&not_eq_expr);
+        // assert_eq!(
+        //     refs.map(),
+        //     &HashMap::from_iter([
+        //         (
+        //             FieldOrIdentity::Field(column.clone()),
+        //             HashSet::from_iter([Stat::Min])
+        //         ),
+        //         (
+        //             FieldOrIdentity::Field(other_col.clone()),
+        //             HashSet::from_iter([Stat::Max])
+        //         )
+        //     ])
+        // );
         let expected_expr = gt_eq(
             get_item_scope(stat_field_name(&column, Stat::Min)),
             get_item_scope(stat_field_name(&other_col, Stat::Max)),
         );
-        assert_eq!(&converted, &expected_expr);
+        assert_eq!(&converted, &Some(expected_expr));
     }
 
     #[test]
@@ -235,19 +228,19 @@ mod tests {
         let other_col = lit(42);
         let not_eq_expr = lt(get_item_scope(column.clone()), other_col.clone());
 
-        let (converted, refs) = convert_to_pruning_expression(&not_eq_expr);
-        assert_eq!(
-            refs.map(),
-            &HashMap::from_iter([(
-                FieldOrIdentity::Field(column.clone()),
-                HashSet::from_iter([Stat::Min])
-            )])
-        );
+        let converted = pruning_expr(&not_eq_expr);
+        // assert_eq!(
+        //     refs.map(),
+        //     &HashMap::from_iter([(
+        //         FieldOrIdentity::Field(column.clone()),
+        //         HashSet::from_iter([Stat::Min])
+        //     )])
+        // );
         let expected_expr = gt_eq(
             get_item_scope(stat_field_name(&column, Stat::Min)),
             other_col.clone(),
         );
-        assert_eq!(&converted, &expected_expr);
+        assert_eq!(&converted, &Some(expected_expr));
     }
 
     #[test]

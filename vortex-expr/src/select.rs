@@ -8,6 +8,7 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::field::DisplayFieldNames;
+use crate::pruning::AnalysisExpr;
 use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -151,6 +152,8 @@ pub(crate) mod proto {
         }
     }
 }
+
+impl AnalysisExpr for Select {}
 
 impl VortexExpr for Select {
     fn as_any(&self) -> &dyn Any {

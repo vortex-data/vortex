@@ -10,6 +10,7 @@ use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
+use crate::pruning::AnalysisExpr;
 use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
 /// Pack zero or more expressions into a structure with named fields.
@@ -142,6 +143,8 @@ pub(crate) mod proto {
         }
     }
 }
+
+impl AnalysisExpr for Pack {}
 
 impl VortexExpr for Pack {
     fn as_any(&self) -> &dyn Any {
