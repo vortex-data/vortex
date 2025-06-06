@@ -6,7 +6,7 @@ use crate::{ExprRef, ScopeDType, Select, get_item, pack};
 /// Replaces [Select] with combination of [GetItem] and [Pack] expressions.
 pub(crate) fn remove_select(e: ExprRef, ctx: &ScopeDType) -> VortexResult<ExprRef> {
     let mut transform = RemoveSelectTransform { ctx };
-    e.transform(&mut transform).map(|e| e.result)
+    e.transform(&mut transform).map(|e| e.into_inner())
 }
 
 struct RemoveSelectTransform<'a> {

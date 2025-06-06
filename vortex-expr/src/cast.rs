@@ -7,6 +7,7 @@ use vortex_array::compute::cast as compute_cast;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
+use crate::pruning::AnalysisExpr;
 use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
@@ -78,6 +79,8 @@ pub(crate) mod proto {
         }
     }
 }
+
+impl AnalysisExpr for Cast {}
 
 impl VortexExpr for Cast {
     fn as_any(&self) -> &dyn Any {

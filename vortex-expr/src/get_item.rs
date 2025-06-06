@@ -3,11 +3,13 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
+use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, ToCanonical};
-use vortex_dtype::{DType, FieldName};
+use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::{ExprRef, Scope, ScopeDType, VortexExpr, root};
+use crate::pruning::{AnalysisExpr, StatsCatalog};
+use crate::{ExprRef, Identifier, Scope, ScopeDType, VortexExpr, root};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -91,6 +93,24 @@ pub(crate) mod proto {
                 path: self.field.to_string(),
             }))
         }
+    }
+}
+
+impl AnalysisExpr for GetItem {
+    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        let (var, path) = self.field_path()?;
+        catalog.stats_ref(&var, &path, Stat::Max)
+    }
+
+    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        let (var, path) = self.field_path()?;
+        catalog.stats_ref(&var, &path, Stat::Min)
+    }
+
+    fn field_path(&self) -> Option<(Identifier, FieldPath)> {
+        self.child()
+            .field_path()
+            .map(|(var, fp)| (var, fp.push(self.field())))
     }
 }
 
