@@ -95,7 +95,7 @@ impl AnalysisExpr for BinaryExpr {
 
                 let left = min_lhs.zip_with(max_rhs, gt);
                 let right = min_rhs.zip_with(max_lhs, gt);
-                left.into_iter().chain(right.into_iter()).reduce(or)
+                left.into_iter().chain(right).reduce(or)
             }
             Operator::NotEq => {
                 let min_lhs = self.lhs.min(catalog);
@@ -106,7 +106,7 @@ impl AnalysisExpr for BinaryExpr {
 
                 let left = min_lhs.zip_with(max_rhs, eq);
                 let right = max_lhs.zip_with(min_rhs, eq);
-                left.into_iter().chain(right.into_iter()).reduce(and)
+                left.into_iter().chain(right).reduce(and)
             }
             Operator::Gt | Operator::Gte => self.lhs.max(catalog).and_then(|max| {
                 self.rhs.min(catalog).map(|min| {
@@ -131,7 +131,7 @@ impl AnalysisExpr for BinaryExpr {
                 .lhs
                 .prune_expr(catalog)
                 .into_iter()
-                .chain(self.rhs.prune_expr(catalog).into_iter())
+                .chain(self.rhs.prune_expr(catalog))
                 .reduce(or),
             Operator::Or => {
                 let lhs = self.lhs.prune_expr(catalog);
