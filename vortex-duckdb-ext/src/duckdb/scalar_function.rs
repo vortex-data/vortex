@@ -16,6 +16,6 @@ impl ScalarFunction {
     }
 
     pub fn return_type(&self) -> LogicalType {
-        unsafe { LogicalType::from_ptr(cpp::duckdb_vx_sfunc_return_type(self.as_ptr())) }
+        unsafe { LogicalType::borrow(cpp::duckdb_vx_sfunc_return_type(self.as_ptr())) }
     }
 }

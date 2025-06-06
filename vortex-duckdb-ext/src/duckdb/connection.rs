@@ -19,6 +19,6 @@ impl Connection {
             unsafe { cpp::duckdb_connect(db.as_ptr(), &mut ptr) },
             "Failed to connect to DuckDB database"
         );
-        Ok(unsafe { Self::from_owned(ptr) })
+        Ok(unsafe { Self::own(ptr) })
     }
 }

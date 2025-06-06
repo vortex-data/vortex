@@ -14,6 +14,6 @@ pub(super) unsafe extern "C" fn pushdown_complex_filter_callback<T: TableFunctio
 ) -> bool {
     let bind_data =
         unsafe { bind_data.cast::<T::BindData>().as_mut() }.vortex_expect("bind_data null pointer");
-    let expr = unsafe { Expression::from_ptr(expr) };
+    let expr = unsafe { Expression::borrow(expr) };
     try_or(error_out, || T::pushdown_complex_filter(bind_data, &expr))
 }
