@@ -97,14 +97,14 @@ pub(crate) mod proto {
 }
 
 impl AnalysisExpr for GetItem {
-    fn max(&self, catalog: &dyn StatsCatalog) -> Option<ExprRef> {
+    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         let Some((var, path)) = self.field_path() else {
             return None;
         };
         catalog.stats_ref(&var, &path, Stat::Max)
     }
 
-    fn min(&self, catalog: &dyn StatsCatalog) -> Option<ExprRef> {
+    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         let Some((var, path)) = self.field_path() else {
             return None;
         };

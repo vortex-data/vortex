@@ -2,11 +2,12 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayRef};
+use vortex_dtype::Field;
 use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::field_or_identity::FieldOrIdentity;
-use super::pruning_predicate_rewriter::convert_to_pruning_expression;
 use super::relation::Relation;
+use crate::pruning::v2::pruning_expr;
 use crate::{ExprRef, Literal, Scope};
 
 #[derive(Debug, Clone)]
@@ -17,13 +18,33 @@ pub struct PruningPredicate {
 
 impl PruningPredicate {
     pub fn try_new(original_expr: &ExprRef) -> Option<Self> {
-        let (expr, required_stats) = convert_to_pruning_expression(original_expr);
+        let Some((expr, required_stats)) = pruning_expr(original_expr) else {
+            return None;
+        };
         if let Some(lexp) = expr.as_any().downcast_ref::<Literal>() {
             // Is the expression constant false, i.e. prune nothing
             if lexp.value().as_bool_opt().and_then(|b| b.value()) == Some(false) {
                 return None;
             }
         }
+
+        let required_stats = Relation::from(
+            required_stats
+                .into_iter()
+                .map(|((_id, path), v)| {
+                    let key = if path.is_root() {
+                        FieldOrIdentity::Identity
+                    } else {
+                        assert!(path.path().is_empty());
+                        let Field::Name(n) = &path.path()[0] else {
+                            todo!("cannot have list")
+                        };
+                        FieldOrIdentity::Field(n.clone())
+                    };
+                    (key, v)
+                })
+                .collect::<HashMap<_, _>>(),
+        );
 
         Some(Self {
             expr,

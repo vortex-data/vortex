@@ -35,3 +35,9 @@ impl<K: Hash + Eq, V: Hash + Eq> Relation<K, V> {
         &self.map
     }
 }
+
+impl<K, V> From<HashMap<K, HashSet<V>>> for Relation<K, V> {
+    fn from(value: HashMap<K, HashSet<V>>) -> Self {
+        Self { map: value }
+    }
+}

@@ -84,7 +84,7 @@ pub(crate) mod proto {
 }
 
 impl AnalysisExpr for BinaryExpr {
-    fn prune_expr(&self, catalog: &dyn StatsCatalog) -> Option<ExprRef> {
+    fn prune_expr(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         match self.operator {
             Operator::Eq => {
                 let min_lhs = self.lhs.min(catalog);

@@ -7,7 +7,7 @@ use vortex_array::stats::Stat;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::VortexResult;
 
-use crate::pruning::AnalysisExpr;
+use crate::pruning::{AnalysisExpr, StatsCatalog};
 use crate::{ExprRef, Identifier, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -71,11 +71,11 @@ impl Display for Var {
 }
 
 impl AnalysisExpr for Var {
-    fn max(&self, catalog: &dyn crate::pruning::StatsCatalog) -> Option<ExprRef> {
+    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(self.var(), &FieldPath::root(), Stat::Max)
     }
 
-    fn min(&self, catalog: &dyn crate::pruning::StatsCatalog) -> Option<ExprRef> {
+    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(self.var(), &FieldPath::root(), Stat::Min)
     }
 

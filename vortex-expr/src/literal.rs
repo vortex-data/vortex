@@ -83,11 +83,11 @@ pub(crate) mod proto {
 }
 
 impl AnalysisExpr for Literal {
-    fn max(&self, _catalog: &dyn StatsCatalog) -> Option<ExprRef> {
+    fn max(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         Some(lit(self.value.clone()))
     }
 
-    fn min(&self, _catalog: &dyn StatsCatalog) -> Option<ExprRef> {
+    fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         Some(lit(self.value.clone()))
     }
 }

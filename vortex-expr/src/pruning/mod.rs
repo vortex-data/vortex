@@ -1,5 +1,6 @@
 mod field_or_identity;
 mod pruning_predicate;
+#[allow(dead_code)]
 mod pruning_predicate_rewriter;
 mod relation;
 pub mod v2;
@@ -15,21 +16,21 @@ pub trait StatsCatalog {
     // Given an id, field and stat return an expression that when evaluated will return that stat
     // this would be a column reference or a literal value, if the value is known at planning time.
     // TODO(joe): replace field with a field path, once implemented.
-    fn stats_ref(&self, _id: &Identifier, _field: &FieldPath, _stat: Stat) -> Option<ExprRef> {
+    fn stats_ref(&mut self, _id: &Identifier, _field: &FieldPath, _stat: Stat) -> Option<ExprRef> {
         None
     }
 }
 
 pub trait AnalysisExpr {
-    fn prune_expr(&self, _catalog: &dyn StatsCatalog) -> Option<ExprRef> {
+    fn prune_expr(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         None
     }
 
-    fn max(&self, _catalog: &dyn StatsCatalog) -> Option<ExprRef> {
+    fn max(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         None
     }
 
-    fn min(&self, _catalog: &dyn StatsCatalog) -> Option<ExprRef> {
+    fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         None
     }
 
