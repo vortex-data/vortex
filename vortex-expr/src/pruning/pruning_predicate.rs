@@ -10,8 +10,7 @@ use vortex_error::{VortexExpect as _, VortexResult};
 
 use super::field_or_identity::FieldOrIdentity;
 use super::relation::Relation;
-use crate::pruning::StatsCatalog;
-use crate::{ExprRef, Identifier, Literal, Scope, get_item, var};
+use crate::{ExprRef, Identifier, Scope, StatsCatalog, get_item, var};
 
 #[derive(Debug, Clone)]
 pub struct PruningPredicate {
@@ -22,13 +21,6 @@ pub struct PruningPredicate {
 impl PruningPredicate {
     pub fn try_new(original_expr: &ExprRef) -> Option<Self> {
         let (expr, required_stats) = pruning_expr(original_expr)?;
-
-        if let Some(lexp) = expr.as_any().downcast_ref::<Literal>() {
-            // Is the expression constant false, i.e. prune nothing
-            if lexp.value().as_bool_opt().and_then(|b| b.value()) == Some(false) {
-                return None;
-            }
-        }
 
         let required_stats = Relation::from(
             required_stats
@@ -121,7 +113,7 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, Relation<(Identifier, Fi
     let mut catalog = FileStatsCatalog {
         ..Default::default()
     };
-    let expr = expr.prune_expr(&mut catalog)?;
+    let expr = expr.stat_falsification(&mut catalog)?;
 
     let mut relation: Relation<(Identifier, FieldPath), Stat> = Relation::new();
     for (k, v, s) in catalog.usage.keys() {
@@ -138,10 +130,10 @@ mod tests {
     use vortex_dtype::{FieldName, FieldPath};
 
     use crate::pruning::pruning_predicate::{HashMap, pruning_expr};
-    use crate::pruning::stat_field_name;
+    use crate::pruning::{PruningPredicate, stat_field_name};
     use crate::{
-        HashSet, IDENTITY_IDENTIFIER, and, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq,
-        not_eq, or, root,
+        HashSet, IDENTITY_IDENTIFIER, and, col, eq, get_item, get_item_scope, gt, gt_eq, lit, lt,
+        lt_eq, not_eq, or, root,
     };
 
     #[test]
@@ -364,5 +356,48 @@ mod tests {
                 gt_eq(get_item_scope(FieldName::from("a_min")), lit(50))
             ),
         );
+    }
+
+    #[test]
+    fn test_gt_eq_with_booleans() {
+        // Consider this unusual, but valid (in Arrow, BooleanArray implements ArrayOrd), filter expression:
+        //
+        // x > (y > z)
+        //
+        // The x column is a Boolean-valued column. The y and z columns are numeric. True > False.
+        // Suppose we had a Vortex zone whose min/max statistics for each column were:
+        //
+        // x: [True, True]
+        // y: [1, 2]
+        // z: [0, 2]
+        //
+        // The pruning predicate will convert the aforementioned expression into:
+        //
+        // x_max <= (y_min > z_min)
+        //
+        // If we evaluate that pruning expression on our zone we get:
+        //
+        // x_max <= (y_min > z_min)
+        // x_max <= (1     > 0    )
+        // x_max <= True
+        // True <= True
+        // True
+        //
+        // If a pruning predicate evaluates to true then, as stated in PruningPredicate::evaluate:
+        //
+        // > a true value means the chunk can be pruned.
+        //
+        // But, the following record lies within the above intervals and *passes* the filter expression! We
+        // cannot prune this zone because we need this record!
+        //
+        // {x: True, y: 1, z: 2}
+        //
+        // x > (y > z)
+        // True > (1 > 2)
+        // True > False
+        // True
+        let expr = gt_eq(col("x"), gt(col("y"), col("z")));
+        assert!(PruningPredicate::try_new(&expr).is_none());
+        // TODO(DK): a sufficiently complex pruner would produce: `x_max <= (y_max > z_min)`
     }
 }

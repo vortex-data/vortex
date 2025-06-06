@@ -6,10 +6,9 @@ use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_array::compute::{Operator as ArrayOperator, and_kleene, compare, or_kleene};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 
-use crate::pruning::{AnalysisExpr, StatsCatalog};
-use crate::{ExprRef, Operator, Scope, ScopeDType, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Operator, Scope, ScopeDType, StatsCatalog, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -84,7 +83,7 @@ pub(crate) mod proto {
 }
 
 impl AnalysisExpr for BinaryExpr {
-    fn prune_expr(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         match self.operator {
             Operator::Eq => {
                 let min_lhs = self.lhs.min(catalog);
@@ -98,47 +97,29 @@ impl AnalysisExpr for BinaryExpr {
                 left.into_iter().chain(right).reduce(or)
             }
             Operator::NotEq => {
-                let min_lhs = self.lhs.min(catalog);
-                let max_lhs = self.lhs.max(catalog);
+                let min_lhs = self.lhs.min(catalog)?;
+                let max_lhs = self.lhs.max(catalog)?;
 
-                let min_rhs = self.rhs.min(catalog);
-                let max_rhs = self.rhs.max(catalog);
+                let min_rhs = self.rhs.min(catalog)?;
+                let max_rhs = self.rhs.max(catalog)?;
 
-                let left = min_lhs.zip_with(max_rhs, eq);
-                let right = max_lhs.zip_with(min_rhs, eq);
-                left.into_iter().chain(right).reduce(and)
+                Some(and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs)))
             }
-            Operator::Gt | Operator::Gte => self.lhs.max(catalog).and_then(|max| {
-                self.rhs.min(catalog).map(|min| {
-                    let inverse = self
-                        .operator
-                        .inverse()
-                        .vortex_expect("inverse of gt & gt_eq defined");
-                    BinaryExpr::new_expr(max, inverse, min)
-                })
-            }),
-            Operator::Lt | Operator::Lte => self.lhs.min(catalog).and_then(|min| {
-                self.rhs.max(catalog).map(|max| {
-                    let inverse = self
-                        .operator
-                        .inverse()
-                        .vortex_expect("inverse of le & lte defined");
-                    BinaryExpr::new_expr(min, inverse, max)
-                })
-            }),
+            Operator::Gt => Some(lt_eq(self.lhs.max(catalog)?, self.rhs.min(catalog)?)),
+            Operator::Gte => Some(lt(self.lhs.max(catalog)?, self.rhs.min(catalog)?)),
+            Operator::Lt => Some(gt_eq(self.lhs.min(catalog)?, self.rhs.max(catalog)?)),
+            Operator::Lte => Some(gt(self.lhs.min(catalog)?, self.rhs.max(catalog)?)),
             // We can short circuit pruning expr for and
             Operator::And => self
                 .lhs
-                .prune_expr(catalog)
+                .stat_falsification(catalog)
                 .into_iter()
-                .chain(self.rhs.prune_expr(catalog))
+                .chain(self.rhs.stat_falsification(catalog))
                 .reduce(or),
-            Operator::Or => {
-                let lhs = self.lhs.prune_expr(catalog);
-                let rhs = self.rhs.prune_expr(catalog);
-                // Cannot short circuit
-                lhs.zip_with(rhs, and)
-            }
+            Operator::Or => Some(and(
+                self.lhs.stat_falsification(catalog)?,
+                self.rhs.stat_falsification(catalog)?,
+            )),
         }
     }
 }

@@ -8,8 +8,7 @@ use vortex_array::compute::invert;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::pruning::AnalysisExpr;
-use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 // We cannot auto derive PartialEq because ExprRef, since its a Arc<..> and derive doesn't work

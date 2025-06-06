@@ -8,6 +8,7 @@ use dyn_hash::DynHash;
 
 mod binary;
 
+mod analysis;
 mod between;
 mod cast;
 mod field;
@@ -31,6 +32,7 @@ pub mod transform;
 pub mod traversal;
 mod var;
 
+pub use analysis::*;
 pub use between::*;
 pub use binary::*;
 pub use cast::*;
@@ -58,7 +60,6 @@ use vortex_proto::expr;
 #[cfg(feature = "proto")]
 use vortex_proto::expr::{Expr, kind};
 
-use crate::pruning::AnalysisExpr;
 use crate::traversal::{Node, ReferenceCollector};
 
 pub type ExprRef = Arc<dyn VortexExpr>;

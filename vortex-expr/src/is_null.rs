@@ -9,8 +9,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::pruning::AnalysisExpr;
-use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]

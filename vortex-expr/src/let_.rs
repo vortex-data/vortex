@@ -6,8 +6,7 @@ use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::pruning::AnalysisExpr;
-use crate::{ExprRef, Identifier, Scope, ScopeDType, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Identifier, Scope, ScopeDType, VortexExpr};
 
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Debug, Eq, Hash)]

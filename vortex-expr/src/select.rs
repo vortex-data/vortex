@@ -8,8 +8,7 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::field::DisplayFieldNames;
-use crate::pruning::AnalysisExpr;
-use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SelectField {

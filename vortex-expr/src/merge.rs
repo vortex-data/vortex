@@ -10,8 +10,7 @@ use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
-use crate::pruning::AnalysisExpr;
-use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 
 /// Merge zero or more expressions that ALL return structs.
 ///

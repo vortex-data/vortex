@@ -8,8 +8,7 @@ use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::pruning::{AnalysisExpr, StatsCatalog};
-use crate::{ExprRef, Identifier, Scope, ScopeDType, VortexExpr, root};
+use crate::{AnalysisExpr, ExprRef, Identifier, Scope, ScopeDType, StatsCatalog, VortexExpr, root};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]

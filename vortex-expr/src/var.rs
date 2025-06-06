@@ -7,8 +7,7 @@ use vortex_array::stats::Stat;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::VortexResult;
 
-use crate::pruning::{AnalysisExpr, StatsCatalog};
-use crate::{ExprRef, Identifier, Scope, ScopeDType, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Identifier, Scope, ScopeDType, StatsCatalog, VortexExpr};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Var {
