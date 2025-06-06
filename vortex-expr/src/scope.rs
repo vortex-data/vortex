@@ -6,7 +6,7 @@ use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::IDENTITY_IDENTIFIER;
+use crate::{IDENTITY_IDENTIFIER, IDENTITY_IDENTIFIER_ARC};
 
 pub type Identifier = Arc<str>;
 type ExprScope<T> = HashMap<Identifier, T>;
@@ -84,6 +84,16 @@ impl Scope {
     pub fn with_var(mut self, ident: Identifier, var: Arc<dyn Any>) -> Self {
         self.vars.insert(ident, var);
         self
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&Identifier, &ArrayRef)> {
+        let values = self.values.iter();
+
+        self.root_scope
+            .as_ref()
+            .iter()
+            .map(|s| (&IDENTITY_IDENTIFIER_ARC.clone(), s.clone()))
+            .chain(values)
     }
 }
 

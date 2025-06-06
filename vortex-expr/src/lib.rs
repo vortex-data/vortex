@@ -186,15 +186,6 @@ impl AccessPath {
     }
 }
 
-impl Default for AccessPath {
-    fn default() -> Self {
-        Self {
-            field_path: Default::default(),
-            identifier: IDENTITY_IDENTIFIER.into(),
-        }
-    }
-}
-
 /// Splits top level and operations into separate expressions
 pub fn split_conjunction(expr: &ExprRef) -> Vec<ExprRef> {
     let mut conjunctions = vec![];

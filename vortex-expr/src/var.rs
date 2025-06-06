@@ -113,6 +113,7 @@ pub fn var(var: impl Into<Identifier>) -> ExprRef {
 }
 
 pub const IDENTITY_IDENTIFIER: &str = "";
+pub const IDENTITY_IDENTIFIER_ARC: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from(""));
 static IDENTITY: LazyLock<ExprRef> = LazyLock::new(|| Var::new_expr(IDENTITY_IDENTIFIER.into()));
 
 /// Return a global pointer to the identity token.

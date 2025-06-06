@@ -9,7 +9,7 @@ use vortex_dtype::{Field, FieldName};
 use vortex_error::{VortexExpect, VortexResult};
 
 use super::relation::Relation;
-use crate::{AccessPath, ExprRef, IDENTITY_IDENTIFIER, Scope, StatsCatalog, get_item, var};
+use crate::{AccessPath, ExprRef, Scope, StatsCatalog, get_item, var};
 
 #[derive(Debug, Clone)]
 pub struct PruningPredicate {
@@ -42,7 +42,7 @@ impl PruningPredicate {
     /// metadata, and a true value means the chunk _can_ be pruned.
     pub fn evaluate(&self, metadata: &Scope) -> VortexResult<Option<ArrayRef>> {
         let known_stats = metadata
-            .values(&IDENTITY_IDENTIFIER.into())
+            .iter()
             .vortex_expect("must have identity scope")
             .dtype()
             .as_struct()
@@ -54,8 +54,8 @@ impl PruningPredicate {
         let required_stats = self
             .required_stats()
             .iter()
-            .flat_map(|(path, stats)| stats.iter().map(|stat| access_path_field_name(path, *stat)))
-            .collect::<HashSet<FieldName>>();
+            .flat_map(|(path, stats)| stats.iter().map(|s| (path.clone(), *s)))
+            .collect::<HashSet<(AccessPath, Stat)>>();
 
         let missing_stats = required_stats.difference(&known_stats).collect::<Vec<_>>();
 
@@ -83,18 +83,15 @@ impl StatsCatalog for FileStatsCatalog {
 }
 
 pub fn access_path_field_name(access_path: &AccessPath, stat: Stat) -> FieldName {
-    iter::once(access_path.identifier.as_ref())
-        .chain(
-            access_path
-                .field_path
-                .path()
-                .iter()
-                .map(|f| match f {
-                    Field::Name(n) => n.as_ref(),
-                    Field::ElementType => todo!("element type not currently handled"),
-                })
-                .chain(iter::once(stat.name())),
-        )
+    access_path
+        .field_path
+        .path()
+        .iter()
+        .map(|f| match f {
+            Field::Name(n) => n.as_ref(),
+            Field::ElementType => todo!("element type not currently handled"),
+        })
+        .chain(iter::once(stat.name()))
         .join("_")
         .into()
 }
