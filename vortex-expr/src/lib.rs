@@ -1,3 +1,5 @@
+#![feature(option_zip)]
+
 use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
@@ -6,6 +8,7 @@ use dyn_hash::DynHash;
 
 mod binary;
 
+mod analysis;
 mod between;
 mod cast;
 mod field;
@@ -29,6 +32,7 @@ pub mod transform;
 pub mod traversal;
 mod var;
 
+pub use analysis::*;
 pub use between::*;
 pub use binary::*;
 pub use cast::*;
@@ -82,7 +86,9 @@ pub trait ExprSerializable {}
 #[cfg(not(feature = "proto"))]
 impl<T> ExprSerializable for T {}
 /// Represents logical operation on [`ArrayRef`]s
-pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable {
+pub trait VortexExpr:
+    Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable + AnalysisExpr
+{
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 

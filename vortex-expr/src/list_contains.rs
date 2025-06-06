@@ -8,7 +8,7 @@ use vortex_array::compute::list_contains as compute_list_contains;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -77,6 +77,8 @@ pub(crate) mod proto {
         }
     }
 }
+
+impl AnalysisExpr for ListContains {}
 
 impl VortexExpr for ListContains {
     fn as_any(&self) -> &dyn Any {

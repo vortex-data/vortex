@@ -8,7 +8,7 @@ use vortex_array::compute::invert;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 // We cannot auto derive PartialEq because ExprRef, since its a Arc<..> and derive doesn't work
@@ -67,6 +67,8 @@ pub(crate) mod proto {
         }
     }
 }
+
+impl AnalysisExpr for Not {}
 
 impl VortexExpr for Not {
     fn as_any(&self) -> &dyn Any {

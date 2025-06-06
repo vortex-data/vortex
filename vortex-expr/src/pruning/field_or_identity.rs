@@ -18,10 +18,6 @@ pub(crate) fn stat_field_name_string(field: &FieldName, stat: Stat) -> String {
 }
 
 impl FieldOrIdentity {
-    pub(crate) fn stat_field_name(&self, stat: Stat) -> FieldName {
-        FieldName::from(self.stat_field_name_string(stat))
-    }
-
     pub(crate) fn stat_field_name_string(&self, stat: Stat) -> String {
         match self {
             FieldOrIdentity::Field(field) => stat_field_name_string(field, stat),
