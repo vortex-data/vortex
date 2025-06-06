@@ -20,7 +20,7 @@ pub struct Scope {
     #[allow(dead_code)]
     /// A map identifiers to opaque values used by expressions, but
     /// cannot affect the result type/shape.
-    vars: ExprScope<Arc<dyn Any>>,
+    vars: ExprScope<Arc<dyn Any + Send + Sync>>,
 }
 
 impl Scope {
@@ -51,7 +51,7 @@ impl Scope {
             .ok_or_else(|| vortex_err!("cannot find {} in values scope", id))
     }
 
-    pub fn vars(&self, id: Identifier) -> VortexResult<&Arc<dyn Any>> {
+    pub fn vars(&self, id: Identifier) -> VortexResult<&Arc<dyn Any + Send + Sync>> {
         self.vars
             .get(&id)
             .ok_or_else(|| vortex_err!("cannot find {} in var scope", id))
@@ -81,7 +81,7 @@ impl Scope {
         self
     }
 
-    pub fn with_var(mut self, ident: Identifier, var: Arc<dyn Any>) -> Self {
+    pub fn with_var(mut self, ident: Identifier, var: Arc<dyn Any + Send + Sync>) -> Self {
         self.vars.insert(ident, var);
         self
     }
