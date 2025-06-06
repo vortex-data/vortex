@@ -21,9 +21,8 @@ pub struct PruningPredicate {
 
 impl PruningPredicate {
     pub fn try_new(original_expr: &ExprRef) -> Option<Self> {
-        let Some((expr, required_stats)) = pruning_expr(original_expr) else {
-            return None;
-        };
+        let (expr, required_stats) = pruning_expr(original_expr)?;
+
         if let Some(lexp) = expr.as_any().downcast_ref::<Literal>() {
             // Is the expression constant false, i.e. prune nothing
             if lexp.value().as_bool_opt().and_then(|b| b.value()) == Some(false) {
@@ -116,13 +115,13 @@ impl StatsCatalog for FileStatsCatalog {
     }
 }
 
+#[allow(clippy::type_complexity)]
+// TODO: remove (Id, FieldPath) when updating FieldPath
 pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, Relation<(Identifier, FieldPath), Stat>)> {
     let mut catalog = FileStatsCatalog {
         ..Default::default()
     };
-    let Some(expr) = expr.prune_expr(&mut catalog) else {
-        return None;
-    };
+    let expr = expr.prune_expr(&mut catalog)?;
 
     let mut relation: Relation<(Identifier, FieldPath), Stat> = Relation::new();
     for (k, v, s) in catalog.usage.keys() {
