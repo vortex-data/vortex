@@ -177,11 +177,14 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                    (IDENTITY_IDENTIFIER.clone(), FieldPath::from_name(&column)),
                     HashSet::from_iter([Stat::Min, Stat::Max])
                 ),
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&other_col)),
+                    (
+                        IDENTITY_IDENTIFIER.clone(),
+                        FieldPath::from_name(&other_col)
+                    ),
                     HashSet::from_iter([Stat::Max, Stat::Min])
                 )
             ])
@@ -213,11 +216,14 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                    (IDENTITY_IDENTIFIER.clone(), FieldPath::from_name(&column)),
                     HashSet::from_iter([Stat::Min, Stat::Max])
                 ),
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&other_col)),
+                    (
+                        IDENTITY_IDENTIFIER.clone(),
+                        FieldPath::from_name(&other_col)
+                    ),
                     HashSet::from_iter([Stat::Max, Stat::Min])
                 )
             ])
@@ -248,11 +254,14 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                    (IDENTITY_IDENTIFIER.clone(), FieldPath::from_name(&column)),
                     HashSet::from_iter([Stat::Max])
                 ),
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&other_col)),
+                    (
+                        IDENTITY_IDENTIFIER.clone(),
+                        FieldPath::from_name(&other_col)
+                    ),
                     HashSet::from_iter([Stat::Min])
                 )
             ])
@@ -274,7 +283,7 @@ mod tests {
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(
-                (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                (IDENTITY_IDENTIFIER.clone(), FieldPath::from_name(&column)),
                 HashSet::from_iter([Stat::Max])
             ),])
         );
@@ -297,11 +306,14 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                    (IDENTITY_IDENTIFIER.clone(), FieldPath::from_name(&column)),
                     HashSet::from_iter([Stat::Min])
                 ),
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&other_col)),
+                    (
+                        IDENTITY_IDENTIFIER.clone(),
+                        FieldPath::from_name(&other_col)
+                    ),
                     HashSet::from_iter([Stat::Max])
                 )
             ])
@@ -323,7 +335,7 @@ mod tests {
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(
-                (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                (IDENTITY_IDENTIFIER.clone(), FieldPath::from_name(&column)),
                 HashSet::from_iter([Stat::Min])
             )])
         );

@@ -134,7 +134,7 @@ impl<'a> VariableExpressionSplitter<'a> {
             .transform(&mut ReplaceAccessesWithChild::new(remove_accesses))?;
 
         Ok(VarPartitionedExpr {
-            root: split.result,
+            root: split.into_inner(),
             partitions: partitions.into_boxed_slice(),
             partition_names: partition_names.into(),
         })
