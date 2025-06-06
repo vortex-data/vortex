@@ -1,15 +1,15 @@
 use std::iter;
 
 use itertools::Itertools;
+use vortex_array::ArrayRef;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
-use vortex_array::ArrayRef;
-use vortex_dtype::{Field, FieldName, FieldPath};
+use vortex_dtype::{Field, FieldName};
 use vortex_error::{VortexExpect, VortexResult};
 
 use super::relation::Relation;
-use crate::{get_item, var, AccessPath, ExprRef, Identifier, Scope, StatsCatalog, IDENTITY_IDENTIFIER};
+use crate::{AccessPath, ExprRef, IDENTITY_IDENTIFIER, Scope, StatsCatalog, get_item, var};
 
 #[derive(Debug, Clone)]
 pub struct PruningPredicate {
@@ -69,29 +69,20 @@ impl PruningPredicate {
 
 #[derive(Default)]
 struct FileStatsCatalog {
-    usage: HashMap<(Identifier, FieldPath, Stat), ExprRef>,
-}
-
-pub fn stat_field_name(field: &FieldName, stat: Stat) -> FieldName {
-    FieldName::from(stat_field_name_string(field, stat))
-}
-
-pub(crate) fn stat_field_name_string(field: &FieldName, stat: Stat) -> String {
-    format!("{field}_{stat}")
+    usage: HashMap<(AccessPath, Stat), ExprRef>,
 }
 
 impl StatsCatalog for FileStatsCatalog {
-    fn stats_ref(&mut self, id: &Identifier, field: &FieldPath, stat: Stat) -> Option<ExprRef> {
-        let mut expr = var(id.clone());
-        let name = access_path_field_name(&AccessPath::new(field.clone(), id.clone()), stat);
+    fn stats_ref(&mut self, access_path: &AccessPath, stat: Stat) -> Option<ExprRef> {
+        let mut expr = var(access_path.identifier().clone());
+        let name = access_path_field_name(access_path, stat);
         expr = get_item(name, expr);
-        self.usage
-            .insert((id.clone(), field.clone(), stat), expr.clone());
+        self.usage.insert((access_path.clone(), stat), expr.clone());
         Some(expr)
     }
 }
 
-fn access_path_field_name(access_path: &AccessPath, stat: Stat) -> FieldName {
+pub fn access_path_field_name(access_path: &AccessPath, stat: Stat) -> FieldName {
     iter::once(access_path.identifier.as_ref())
         .chain(
             access_path
@@ -117,8 +108,8 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, Relation<AccessPath, Sta
     let expr = expr.stat_falsification(&mut catalog)?;
 
     let mut relation: Relation<AccessPath, Stat> = Relation::new();
-    for (k, v, s) in catalog.usage.keys() {
-        relation.insert(AccessPath::new(v.clone(), k.clone()), *s)
+    for ((field_path, stat), _) in catalog.usage.into_iter() {
+        relation.insert(field_path, stat)
     }
 
     Some((expr, relation))
@@ -129,14 +120,12 @@ mod tests {
     use vortex_array::stats::Stat;
     use vortex_dtype::FieldName;
 
-    use crate::pruning::pruning_predicate::{pruning_expr, HashMap};
-    use crate::pruning::{stat_field_name, PruningPredicate};
+    use crate::pruning::pruning_predicate::{HashMap, pruning_expr};
+    use crate::pruning::{PruningPredicate, access_path_field_name};
     use crate::{
-        and, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq, not_eq,
-        or, root, HashSet,
+        AccessPath, HashSet, and, col, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq,
+        not_eq, or, root,
     };
-        AccessPath, HashSet, and, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq, not_eq,
-        or, root,
 
     #[test]
     pub fn pruning_equals() {
@@ -146,12 +135,18 @@ mod tests {
         let (converted, _refs) = pruning_expr(&eq_expr).unwrap();
         let expected_expr = or(
             gt(
-                get_item(stat_field_name(&name, Stat::Min), root()),
+                get_item(
+                    access_path_field_name(&AccessPath::root_field(name.clone()), Stat::Min),
+                    root(),
+                ),
                 literal_eq.clone(),
             ),
             gt(
                 literal_eq,
-                get_item_scope(stat_field_name(&name, Stat::Max)),
+                get_item_scope(access_path_field_name(
+                    &AccessPath::root_field(name),
+                    Stat::Max,
+                )),
             ),
         );
         assert_eq!(&converted, &expected_expr);
@@ -182,12 +177,24 @@ mod tests {
         );
         let expected_expr = or(
             gt(
-                get_item_scope(stat_field_name(&column, Stat::Min)),
-                get_item_scope(stat_field_name(&other_col, Stat::Max)),
+                get_item_scope(access_path_field_name(
+                    &AccessPath::root_field(column.clone()),
+                    Stat::Min,
+                )),
+                get_item_scope(access_path_field_name(
+                    &AccessPath::root_field(other_col.clone()),
+                    Stat::Max,
+                )),
             ),
             gt(
-                get_item_scope(stat_field_name(&other_col, Stat::Min)),
-                get_item_scope(stat_field_name(&column, Stat::Max)),
+                get_item_scope(access_path_field_name(
+                    &AccessPath::root_field(other_col.clone()),
+                    Stat::Min,
+                )),
+                get_item_scope(access_path_field_name(
+                    &AccessPath::root_field(column.clone()),
+                    Stat::Max,
+                )),
             ),
         );
         assert_eq!(&converted, &expected_expr);
@@ -218,12 +225,24 @@ mod tests {
         );
         let expected_expr = and(
             eq(
-                get_item_scope(stat_field_name(&column, Stat::Min)),
-                get_item_scope(stat_field_name(&other_col, Stat::Max)),
+                get_item_scope(access_path_field_name(
+                    &AccessPath::root_field(column.clone()),
+                    Stat::Min,
+                )),
+                get_item_scope(access_path_field_name(
+                    &AccessPath::root_field(other_col.clone()),
+                    Stat::Max,
+                )),
             ),
             eq(
-                get_item_scope(stat_field_name(&column, Stat::Max)),
-                get_item_scope(stat_field_name(&other_col, Stat::Min)),
+                get_item_scope(access_path_field_name(
+                    &AccessPath::root_field(column),
+                    Stat::Max,
+                )),
+                get_item_scope(access_path_field_name(
+                    &AccessPath::root_field(other_col),
+                    Stat::Min,
+                )),
             ),
         );
 
@@ -252,8 +271,14 @@ mod tests {
             ])
         );
         let expected_expr = lt_eq(
-            get_item_scope(stat_field_name(&column, Stat::Max)),
-            get_item_scope(stat_field_name(&other_col, Stat::Min)),
+            get_item_scope(access_path_field_name(
+                &AccessPath::root_field(column),
+                Stat::Max,
+            )),
+            get_item_scope(access_path_field_name(
+                &AccessPath::root_field(other_col),
+                Stat::Min,
+            )),
         );
         assert_eq!(&converted, &expected_expr);
     }
@@ -273,7 +298,10 @@ mod tests {
             ),])
         );
         let expected_expr = lt_eq(
-            get_item_scope(stat_field_name(&column, Stat::Max)),
+            get_item_scope(access_path_field_name(
+                &AccessPath::root_field(column),
+                Stat::Max,
+            )),
             other_col.clone(),
         );
         assert_eq!(&converted, &(expected_expr));
@@ -301,8 +329,14 @@ mod tests {
             ])
         );
         let expected_expr = gt_eq(
-            get_item_scope(stat_field_name(&column, Stat::Min)),
-            get_item_scope(stat_field_name(&other_col, Stat::Max)),
+            get_item_scope(access_path_field_name(
+                &AccessPath::root_field(column),
+                Stat::Min,
+            )),
+            get_item_scope(access_path_field_name(
+                &AccessPath::root_field(other_col),
+                Stat::Max,
+            )),
         );
         assert_eq!(&converted, &expected_expr);
     }
@@ -322,7 +356,10 @@ mod tests {
             )])
         );
         let expected_expr = gt_eq(
-            get_item_scope(stat_field_name(&column, Stat::Min)),
+            get_item_scope(access_path_field_name(
+                &AccessPath::root_field(column),
+                Stat::Min,
+            )),
             other_col.clone(),
         );
         assert_eq!(&converted, &expected_expr);
@@ -335,8 +372,8 @@ mod tests {
         let (predicate, _) = pruning_expr(&expr).unwrap();
 
         let expected_expr = and(
-            gt_eq(get_item_scope(FieldName::from("min")), lit(10)),
-            lt_eq(get_item_scope(FieldName::from("max")), lit(50)),
+            gt_eq(get_item_scope(FieldName::from("_min")), lit(10)),
+            lt_eq(get_item_scope(FieldName::from("_max")), lit(50)),
         );
         assert_eq!(&predicate, &expected_expr)
     }
@@ -354,8 +391,8 @@ mod tests {
         assert_eq!(
             &predicate,
             &or(
-                lt_eq(get_item_scope(FieldName::from("a_max")), lit(10)),
-                gt_eq(get_item_scope(FieldName::from("a_min")), lit(50))
+                lt_eq(get_item_scope(FieldName::from("_a_max")), lit(10)),
+                gt_eq(get_item_scope(FieldName::from("_a_min")), lit(50))
             ),
         );
     }

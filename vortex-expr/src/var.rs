@@ -7,7 +7,9 @@ use vortex_array::stats::Stat;
 use vortex_dtype::{DType, FieldPath};
 use vortex_error::VortexResult;
 
-use crate::{AnalysisExpr, ExprRef, Identifier, Scope, ScopeDType, StatsCatalog, VortexExpr};
+use crate::{
+    AccessPath, AnalysisExpr, ExprRef, Identifier, Scope, ScopeDType, StatsCatalog, VortexExpr,
+};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Var {
@@ -71,15 +73,15 @@ impl Display for Var {
 
 impl AnalysisExpr for Var {
     fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
-        catalog.stats_ref(self.var(), &FieldPath::root(), Stat::Max)
+        catalog.stats_ref(&self.field_path()?, Stat::Max)
     }
 
     fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
-        catalog.stats_ref(self.var(), &FieldPath::root(), Stat::Min)
+        catalog.stats_ref(&self.field_path()?, Stat::Min)
     }
 
-    fn field_path(&self) -> Option<(Identifier, FieldPath)> {
-        Some((self.var.clone(), FieldPath::root()))
+    fn field_path(&self) -> Option<AccessPath> {
+        Some(AccessPath::new(FieldPath::root(), self.var.clone()))
     }
 }
 
