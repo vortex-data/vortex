@@ -1,10 +1,10 @@
 use std::hash::Hash;
 
-use vortex_array::aliases::hash_map::HashMap;
+use vortex_array::aliases::hash_map::{HashMap, IntoIter};
 use vortex_array::aliases::hash_set::HashSet;
 
 #[derive(Debug, Clone)]
-pub(super) struct Relation<K, V> {
+pub struct Relation<K, V> {
     map: HashMap<K, HashSet<V>>,
 }
 
@@ -21,12 +21,6 @@ impl<K: Hash + Eq, V: Hash + Eq> Relation<K, V> {
         }
     }
 
-    pub fn extend(&mut self, other: Relation<K, V>) {
-        for (l, rs) in other.map.into_iter() {
-            self.map.entry(l).or_default().extend(rs.into_iter())
-        }
-    }
-
     pub fn insert(&mut self, k: K, v: V) {
         self.map.entry(k).or_default().insert(v);
     }
@@ -39,5 +33,14 @@ impl<K: Hash + Eq, V: Hash + Eq> Relation<K, V> {
 impl<K, V> From<HashMap<K, HashSet<V>>> for Relation<K, V> {
     fn from(value: HashMap<K, HashSet<V>>) -> Self {
         Self { map: value }
+    }
+}
+
+impl<K, V> IntoIterator for Relation<K, V> {
+    type Item = (K, HashSet<V>);
+    type IntoIter = IntoIter<K, HashSet<V>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.map.into_iter()
     }
 }
