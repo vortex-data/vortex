@@ -6,18 +6,49 @@ use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::IDENTITY_IDENTIFIER;
-
-pub type Identifier = Arc<str>;
 type ExprScope<T> = HashMap<Identifier, T>;
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub enum Identifier {
+    Identity,
+    Other(Arc<str>),
+}
+
+impl From<String> for Identifier {
+    fn from(value: String) -> Self {
+        Self::Other(value.into())
+    }
+}
+
+impl From<&str> for Identifier {
+    fn from(value: &str) -> Self {
+        Self::Other(value.into())
+    }
+}
+
+impl Identifier {
+    pub fn is_identity(&self) -> bool {
+        matches!(self, Self::Identity)
+    }
+}
+
+impl std::fmt::Display for Identifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Identifier::Identity => write!(f, "$"),
+            Identifier::Other(v) => write!(f, "{}", v),
+        }
+    }
+}
+
+/// The evaluation scope for an expression, all variables are evaluated relatively to the data it contains.
+/// It allows for expressions to access fields and previously defined data by [`Identifier`].
 #[derive(Clone, Default)]
 pub struct Scope {
     array_len: usize,
     root_scope: Option<ArrayRef>,
     /// A map from identifiers to arrays
-    values: ExprScope<ArrayRef>,
-    #[allow(dead_code)]
+    arrays: ExprScope<ArrayRef>,
     /// A map identifiers to opaque values used by expressions, but
     /// cannot affect the result type/shape.
     vars: ExprScope<Arc<dyn Any + Send + Sync>>,
@@ -39,16 +70,12 @@ impl Scope {
         }
     }
 
-    pub fn values(&self, id: &Identifier) -> VortexResult<&ArrayRef> {
-        if id.as_ref() == IDENTITY_IDENTIFIER {
-            return self
-                .root_scope
-                .as_ref()
-                .ok_or_else(|| vortex_err!("no root scope"));
+    /// Get a value out of the scope by its [`Identifier`]
+    pub fn array(&self, id: &Identifier) -> Option<&ArrayRef> {
+        if id.is_identity() {
+            return self.root_scope.as_ref();
         }
-        self.values
-            .get(id)
-            .ok_or_else(|| vortex_err!("cannot find {} in values scope", id))
+        self.arrays.get(id)
     }
 
     pub fn vars(&self, id: Identifier) -> VortexResult<&Arc<dyn Any + Send + Sync>> {
@@ -66,17 +93,18 @@ impl Scope {
     }
 
     pub fn copy_with_value(&self, ident: Identifier, value: ArrayRef) -> Self {
-        self.clone().with_value(ident, value)
+        self.clone().with_array(ident, value)
     }
 
-    pub fn with_value(mut self, ident: impl Into<Identifier>, value: ArrayRef) -> Self {
+    /// Register an array with an identifier in the scope, overriding any existing value stored in it.
+    pub fn with_array(mut self, ident: impl Into<Identifier>, value: ArrayRef) -> Self {
         assert_eq!(value.len(), self.len());
         let ident = ident.into();
 
-        if ident.as_ref() == IDENTITY_IDENTIFIER {
+        if ident.is_identity() {
             self.root_scope = Some(value);
         } else {
-            self.values.insert(ident, value);
+            self.arrays.insert(ident, value);
         }
         self
     }
@@ -84,6 +112,12 @@ impl Scope {
     pub fn with_var(mut self, ident: Identifier, var: Arc<dyn Any + Send + Sync>) -> Self {
         self.vars.insert(ident, var);
         self
+    }
+}
+
+impl From<ArrayRef> for Scope {
+    fn from(value: ArrayRef) -> Self {
+        Self::new(value)
     }
 }
 
@@ -98,7 +132,7 @@ impl From<&Scope> for ScopeDType {
         Self {
             root: ctx.root_scope.as_ref().map(|s| s.dtype().clone()),
             types: HashMap::from_iter(
-                ctx.values
+                ctx.arrays
                     .iter()
                     .map(|(k, v)| (k.clone(), v.dtype().clone())),
             ),
@@ -114,16 +148,11 @@ impl ScopeDType {
         }
     }
 
-    pub fn dtype(&self, id: &Identifier) -> VortexResult<&DType> {
-        if id.as_ref() == IDENTITY_IDENTIFIER {
-            return self
-                .root
-                .as_ref()
-                .ok_or_else(|| vortex_err!("missing root type"));
+    pub fn dtype(&self, id: &Identifier) -> Option<&DType> {
+        if id.is_identity() {
+            return self.root.as_ref();
         }
-        self.types
-            .get(id)
-            .ok_or_else(|| vortex_err!("cannot find {} in values scope", id))
+        self.types.get(id)
     }
 
     pub fn copy_with_value(&self, ident: Identifier, dtype: DType) -> Self {
@@ -131,7 +160,7 @@ impl ScopeDType {
     }
 
     pub fn with_value(mut self, ident: Identifier, dtype: DType) -> Self {
-        if ident.as_ref() == IDENTITY_IDENTIFIER {
+        if ident.is_identity() {
             self.root = Some(dtype);
         } else {
             self.types.insert(ident, dtype);

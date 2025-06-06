@@ -1,11 +1,11 @@
 use std::any::Any;
 use std::fmt::Display;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_array::stats::Stat;
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_err};
 
 use crate::{AnalysisExpr, ExprRef, Identifier, Scope, ScopeDType, StatsCatalog, VortexExpr};
 
@@ -89,7 +89,9 @@ impl VortexExpr for Var {
     }
 
     fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
-        ctx.values(&self.var).cloned()
+        ctx.array(&self.var)
+            .cloned()
+            .ok_or_else(|| vortex_err!("cannot find '{}' in arrays scope", self.var))
     }
 
     fn children(&self) -> Vec<&ExprRef> {
@@ -102,7 +104,10 @@ impl VortexExpr for Var {
     }
 
     fn return_dtype(&self, dt_ctx: &ScopeDType) -> VortexResult<DType> {
-        dt_ctx.dtype(&self.var).cloned()
+        dt_ctx
+            .dtype(&self.var)
+            .cloned()
+            .ok_or_else(|| vortex_err!("cannot find '{}' in dtype scope", self.var))
     }
 }
 
@@ -111,18 +116,17 @@ pub fn var(var: impl Into<Identifier>) -> ExprRef {
 }
 
 pub const IDENTITY_IDENTIFIER: &str = "";
-static IDENTITY: LazyLock<ExprRef> = LazyLock::new(|| Var::new_expr(IDENTITY_IDENTIFIER.into()));
 
 /// Return a global pointer to the identity token.
 /// This is the name of the data found in a vortex array or file.
 pub fn root() -> ExprRef {
-    IDENTITY.clone()
+    Var::new_expr(Identifier::Identity)
 }
 
 pub fn is_root(expr: &ExprRef) -> bool {
     expr.as_any()
         .downcast_ref::<Var>()
-        .is_some_and(|v| v.var().as_ref() == "")
+        .is_some_and(|v| v.var().is_identity())
 }
 
 #[cfg(test)]
@@ -142,7 +146,7 @@ mod tests {
 
         let expr = eq(var(""), var("row"));
         let res = expr
-            .evaluate(&Scope::new(a1).with_value("row", a2))
+            .evaluate(&Scope::new(a1).with_array("row", a2))
             .unwrap();
         let res = res.to_bool().unwrap().boolean_buffer().iter().collect_vec();
 
