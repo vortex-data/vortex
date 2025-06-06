@@ -126,21 +126,20 @@ impl AnalysisExpr for BinaryExpr {
                     BinaryExpr::new_expr(min, inverse, max)
                 })
             }),
-            _ => None,
+            // We can short circuit pruning expr for and
+            Operator::And => self
+                .lhs
+                .prune_expr(catalog)
+                .into_iter()
+                .chain(self.rhs.prune_expr(catalog).into_iter())
+                .reduce(or),
+            Operator::Or => {
+                let lhs = self.lhs.prune_expr(catalog);
+                let rhs = self.rhs.prune_expr(catalog);
+                // Cannot short circuit
+                lhs.zip_with(rhs, and)
+            }
         }
-        // if self.operator == Operator::Gt | Operator::Gte {
-        //     println!(
-        //         "l {:?} r {:?}",
-        //         self.lhs.max(catalog),
-        //         self.rhs.min(catalog)
-        //     );
-        //     return self
-        //         .lhs
-        //         .max(catalog)
-        //         .and_then(|max| self.rhs.min(catalog).map(|min| lt_eq(max, min)));
-        // }
-        //
-        // None
     }
 }
 
