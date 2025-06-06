@@ -125,30 +125,10 @@ impl ZonedReader {
                         self.stats_table()
                             .map(move |stats_table| {
                                 stats_table.and_then(move |stats_table| {
-                                    println!("stats table {}", stats_table.array().dtype());
-                                    println!("stats table {:?}", stats_table.array());
-                                    println!(
-                                        "stats table {:?}",
-                                        stats_table.array().field_by_name("max")
-                                    );
-                                    println!("pred {}", pred.expr());
-                                    println!("pred {:?}", pred.required_stats());
-                                    let res = pred
-                                        .evaluate(&Scope::new(stats_table.array().to_array()))?
+                                    pred.evaluate(&Scope::new(stats_table.array().to_array()))?
                                         .map(|a| Mask::try_from(a.as_ref()))
                                         .transpose()
-                                        .map_err(Arc::new);
-
-                                    println!(
-                                        "res {:?}",
-                                        res.clone()
-                                            .unwrap()
-                                            .unwrap()
-                                            .to_boolean_buffer()
-                                            .iter()
-                                            .collect_vec()
-                                    );
-                                    res
+                                        .map_err(Arc::new)
                                 })
                             })
                             .boxed()

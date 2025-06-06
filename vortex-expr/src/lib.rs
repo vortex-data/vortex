@@ -165,7 +165,7 @@ impl AccessPath {
     pub fn root_field(path: FieldName) -> Self {
         Self {
             field_path: FieldPath::from_name(path),
-            identifier: IDENTITY_IDENTIFIER.into(),
+            identifier: Identifier::Identity,
         }
     }
 

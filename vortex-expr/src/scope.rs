@@ -115,12 +115,11 @@ impl Scope {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&Identifier, &ArrayRef)> {
-        let values = self.values.iter();
+        let values = self.arrays.iter();
 
         self.root_scope
-            .as_ref()
             .iter()
-            .map(|s| (&IDENTITY_IDENTIFIER_ARC.clone(), s.clone()))
+            .map(|s| (&Identifier::Identity, s))
             .chain(values)
     }
 }

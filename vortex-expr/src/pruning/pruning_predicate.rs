@@ -1,11 +1,11 @@
 use std::iter;
 
 use itertools::Itertools;
-use vortex_array::ArrayRef;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
-use vortex_dtype::{Field, FieldName};
+use vortex_array::{Array, ArrayRef};
+use vortex_dtype::{Field, FieldName, FieldPath};
 use vortex_error::{VortexExpect, VortexResult};
 
 use super::relation::Relation;
@@ -43,19 +43,25 @@ impl PruningPredicate {
     pub fn evaluate(&self, metadata: &Scope) -> VortexResult<Option<ArrayRef>> {
         let known_stats = metadata
             .iter()
-            .vortex_expect("must have identity scope")
-            .dtype()
-            .as_struct()
-            .vortex_expect("metadata must be struct array")
-            .names()
-            .iter()
-            .cloned()
-            .collect::<HashSet<FieldName>>();
+            .flat_map(|(access_path, stat)| {
+                stat.dtype()
+                    .as_struct()
+                    .vortex_expect("metadata must be struct array")
+                    .names()
+                    .iter()
+                    .map(|n| {
+                        (
+                            AccessPath::new(FieldPath::root(), access_path.clone()),
+                            n.clone(),
+                        )
+                    })
+            })
+            .collect::<HashSet<(AccessPath, FieldName)>>();
         let required_stats = self
             .required_stats()
             .iter()
-            .flat_map(|(path, stats)| stats.iter().map(|s| (path.clone(), *s)))
-            .collect::<HashSet<(AccessPath, Stat)>>();
+            .flat_map(|(path, stats)| stats.iter().map(|s| (path.clone(), s.name().into())))
+            .collect::<HashSet<(AccessPath, FieldName)>>();
 
         let missing_stats = required_stats.difference(&known_stats).collect::<Vec<_>>();
 
@@ -369,8 +375,8 @@ mod tests {
         let (predicate, _) = pruning_expr(&expr).unwrap();
 
         let expected_expr = and(
-            gt_eq(get_item_scope(FieldName::from("_min")), lit(10)),
-            lt_eq(get_item_scope(FieldName::from("_max")), lit(50)),
+            gt_eq(get_item_scope(FieldName::from("min")), lit(10)),
+            lt_eq(get_item_scope(FieldName::from("max")), lit(50)),
         );
         assert_eq!(&predicate, &expected_expr)
     }
@@ -388,8 +394,8 @@ mod tests {
         assert_eq!(
             &predicate,
             &or(
-                lt_eq(get_item_scope(FieldName::from("_a_max")), lit(10)),
-                gt_eq(get_item_scope(FieldName::from("_a_min")), lit(50))
+                lt_eq(get_item_scope(FieldName::from("a_max")), lit(10)),
+                gt_eq(get_item_scope(FieldName::from("a_min")), lit(50))
             ),
         );
     }
