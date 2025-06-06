@@ -68,14 +68,14 @@ pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<Array
     if let Some(value_scalar) = value.as_constant() {
         list_contains_scalar(array, &value_scalar, nullability)
     } else if let Some(list_scalar) = array.as_constant() {
-        list_scalar_contains_constant_array(&list_scalar.as_list(), value, nullability)
+        constant_list_scalar_contains(&list_scalar.as_list(), value, nullability)
     } else {
         todo!("unsupported list contains with list and element as arrays")
     }
 }
 
 // Then there is a constant list scalar (haystack) being compared to an array of needles.
-fn list_scalar_contains_constant_array(
+fn constant_list_scalar_contains(
     list_scalar: &ListScalar,
     values: &dyn Array,
     nullability: Nullability,
