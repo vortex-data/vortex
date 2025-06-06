@@ -1,10 +1,11 @@
 use std::any::Any;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 type ExprScope<T> = HashMap<Identifier, T>;
 
@@ -14,15 +15,15 @@ pub enum Identifier {
     Other(Arc<str>),
 }
 
-impl From<String> for Identifier {
-    fn from(value: String) -> Self {
-        Self::Other(value.into())
-    }
-}
+impl FromStr for Identifier {
+    type Err = VortexError;
 
-impl From<&str> for Identifier {
-    fn from(value: &str) -> Self {
-        Self::Other(value.into())
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            vortex_bail!("Empty strings aren't allowed in identifiers")
+        } else {
+            Ok(Identifier::Other(s.into()))
+        }
     }
 }
 
@@ -35,7 +36,7 @@ impl Identifier {
 impl std::fmt::Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Identifier::Identity => write!(f, "$"),
+            Identifier::Identity => write!(f, ""),
             Identifier::Other(v) => write!(f, "{}", v),
         }
     }
@@ -97,9 +98,8 @@ impl Scope {
     }
 
     /// Register an array with an identifier in the scope, overriding any existing value stored in it.
-    pub fn with_array(mut self, ident: impl Into<Identifier>, value: ArrayRef) -> Self {
+    pub fn with_array(mut self, ident: Identifier, value: ArrayRef) -> Self {
         assert_eq!(value.len(), self.len());
-        let ident = ident.into();
 
         if ident.is_identity() {
             self.root_scope = Some(value);

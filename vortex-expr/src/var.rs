@@ -27,8 +27,7 @@ impl Var {
 #[cfg(feature = "proto")]
 pub(crate) mod proto {
     use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::kind;
-    use vortex_proto::expr::kind::Kind;
+    use vortex_proto::expr::kind::{Kind, Var as ProtoVar};
 
     use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Var};
 
@@ -46,7 +45,10 @@ pub(crate) mod proto {
                 vortex_bail!("wrong kind {:?}, wanted var", kind)
             };
 
-            Ok(Var::new_expr(op.var.clone().into()))
+            match op.var.as_str() {
+                "" => Ok(Var::new_expr(crate::Identifier::Identity)),
+                other => Ok(Var::new_expr(other.parse()?)),
+            }
         }
     }
 
@@ -56,7 +58,7 @@ pub(crate) mod proto {
         }
 
         fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::Var(kind::Var {
+            Ok(Kind::Var(ProtoVar {
                 var: self.var.to_string(),
             }))
         }
@@ -111,11 +113,9 @@ impl VortexExpr for Var {
     }
 }
 
-pub fn var(var: impl Into<Identifier>) -> ExprRef {
-    Var::new_expr(var.into())
+pub fn var(ident: Identifier) -> ExprRef {
+    Var::new_expr(ident)
 }
-
-pub const IDENTITY_IDENTIFIER: &str = "";
 
 /// Return a global pointer to the identity token.
 /// This is the name of the data found in a vortex array or file.
@@ -131,25 +131,32 @@ pub fn is_root(expr: &ExprRef) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use itertools::Itertools;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
-    use crate::{Scope, eq, var};
+    use crate::{Identifier, Scope, eq, var};
 
     #[test]
     fn test_two_vars() {
         let a1 = PrimitiveArray::new(buffer![5, 4, 3, 2, 1, 0], Validity::AllValid).to_array();
         let a2 = PrimitiveArray::from_iter(1..=6).to_array();
 
-        let expr = eq(var(""), var("row"));
+        let expr = eq(var(Identifier::Identity), var("row".parse().unwrap()));
         let res = expr
-            .evaluate(&Scope::new(a1).with_array("row", a2))
+            .evaluate(&Scope::new(a1).with_array("row".parse().unwrap(), a2))
             .unwrap();
         let res = res.to_bool().unwrap().boolean_buffer().iter().collect_vec();
 
         assert_eq!(res, vec![false, false, true, false, false, false])
+    }
+
+    #[test]
+    fn test_empty_string_ident_not_allowed() {
+        assert!(Identifier::from_str("").is_err());
     }
 }
