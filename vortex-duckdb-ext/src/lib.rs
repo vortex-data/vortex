@@ -32,7 +32,7 @@ pub fn init(conn: &Connection) -> VortexResult<()> {
 /// The DuckDB extension ABI initialization function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vortex_init(db: cpp::duckdb_database) {
-    let conn = unsafe { Database::from_ptr(db) }
+    let conn = unsafe { Database::borrow(db) }
         .connect()
         .vortex_expect("Failed to connect to DuckDB database");
     init(&conn).vortex_expect("Failed to initialize Vortex extension");

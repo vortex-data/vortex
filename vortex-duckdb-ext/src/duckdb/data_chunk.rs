@@ -25,7 +25,7 @@ impl DataChunk {
 
     /// Returns the vector at the specified column index.
     pub fn get_vector(&self, idx: usize) -> Vector {
-        unsafe { Vector::from_ptr(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
+        unsafe { Vector::borrow(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
     }
 }
 
