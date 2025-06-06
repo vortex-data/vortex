@@ -188,11 +188,11 @@ mod tests {
             ),
             gt(
                 get_item_scope(access_path_field_name(
-                    &AccessPath::root_field(other_col.clone()),
+                    &AccessPath::root_field(other_col),
                     Stat::Min,
                 )),
                 get_item_scope(access_path_field_name(
-                    &AccessPath::root_field(column.clone()),
+                    &AccessPath::root_field(column),
                     Stat::Max,
                 )),
             ),
