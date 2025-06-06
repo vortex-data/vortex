@@ -41,7 +41,7 @@ fn test_zstd_compress_decompress() {
     let slice = compressed.slice(200, 200).unwrap();
     match slice.to_canonical().unwrap() {
         Canonical::Primitive(primitive) => {
-            assert_eq!(primitive.as_slice::<i32>(), &[]);
+            assert_eq!(primitive.as_slice::<i32>(), &Vec::<i32>::new());
         }
         _ => panic!("unexpected canonicalization"),
     }
