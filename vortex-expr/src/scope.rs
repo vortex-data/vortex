@@ -130,12 +130,6 @@ impl From<ArrayRef> for Scope {
     }
 }
 
-impl From<ArrayRef> for Scope {
-    fn from(value: ArrayRef) -> Self {
-        Self::new(value)
-    }
-}
-
 #[derive(Clone, Default)]
 pub struct ScopeDType {
     root: Option<DType>,
