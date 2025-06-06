@@ -4,41 +4,22 @@ use itertools::Itertools;
 use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::stats::Stat;
-use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{Field, FieldPath};
-use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_array::ArrayRef;
+use vortex_dtype::{Field, FieldName, FieldPath};
+use vortex_error::{VortexExpect, VortexResult};
 
-use super::field_or_identity::FieldOrIdentity;
 use super::relation::Relation;
-use crate::{ExprRef, Identifier, Scope, StatsCatalog, get_item, var};
+use crate::{get_item, var, AccessPath, ExprRef, Identifier, Scope, StatsCatalog, IDENTITY_IDENTIFIER};
 
 #[derive(Debug, Clone)]
 pub struct PruningPredicate {
     expr: ExprRef,
-    required_stats: Relation<FieldOrIdentity, Stat>,
+    required_stats: Relation<AccessPath, Stat>,
 }
 
 impl PruningPredicate {
     pub fn try_new(original_expr: &ExprRef) -> Option<Self> {
         let (expr, required_stats) = pruning_expr(original_expr)?;
-
-        let required_stats = Relation::from(
-            required_stats
-                .into_iter()
-                .map(|((_id, path), v)| {
-                    let key = if path.is_root() {
-                        FieldOrIdentity::Identity
-                    } else {
-                        assert_eq!(path.path().len(), 1);
-                        let Field::Name(n) = &path.path()[0] else {
-                            todo!("cannot have list")
-                        };
-                        FieldOrIdentity::Field(n.clone())
-                    };
-                    (key, v)
-                })
-                .collect::<HashMap<_, _>>(),
-        );
 
         Some(Self {
             expr,
@@ -50,7 +31,7 @@ impl PruningPredicate {
         &self.expr
     }
 
-    pub fn required_stats(&self) -> &HashMap<FieldOrIdentity, HashSet<Stat>> {
+    pub fn required_stats(&self) -> &HashMap<AccessPath, HashSet<Stat>> {
         self.required_stats.map()
     }
 
@@ -59,27 +40,30 @@ impl PruningPredicate {
     /// Returns Ok(None) if any of the required statistics are not present in metadata.
     /// If it returns Ok(Some(array)), the array is a boolean array with the same length as the
     /// metadata, and a true value means the chunk _can_ be pruned.
-    pub fn evaluate(&self, metadata: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+    pub fn evaluate(&self, metadata: &Scope) -> VortexResult<Option<ArrayRef>> {
         let known_stats = metadata
+            .values(&IDENTITY_IDENTIFIER.into())
+            .vortex_expect("must have identity scope")
             .dtype()
             .as_struct()
             .vortex_expect("metadata must be struct array")
             .names()
             .iter()
-            .map(|x| x.to_string())
-            .collect::<HashSet<_>>();
+            .cloned()
+            .collect::<HashSet<FieldName>>();
         let required_stats = self
             .required_stats()
             .iter()
-            .flat_map(|(key, value)| value.iter().map(|stat| key.stat_field_name_string(*stat)))
-            .collect::<HashSet<_>>();
+            .flat_map(|(path, stats)| stats.iter().map(|stat| access_path_field_name(path, *stat)))
+            .collect::<HashSet<FieldName>>();
+
         let missing_stats = required_stats.difference(&known_stats).collect::<Vec<_>>();
 
         if !missing_stats.is_empty() {
             return Ok(None);
         }
 
-        Ok(Some(self.expr.evaluate(&Scope::new(metadata.to_array()))?))
+        self.expr.evaluate(metadata).map(Some)
     }
 }
 
@@ -88,18 +72,18 @@ struct FileStatsCatalog {
     usage: HashMap<(Identifier, FieldPath, Stat), ExprRef>,
 }
 
+pub fn stat_field_name(field: &FieldName, stat: Stat) -> FieldName {
+    FieldName::from(stat_field_name_string(field, stat))
+}
+
+pub(crate) fn stat_field_name_string(field: &FieldName, stat: Stat) -> String {
+    format!("{field}_{stat}")
+}
+
 impl StatsCatalog for FileStatsCatalog {
     fn stats_ref(&mut self, id: &Identifier, field: &FieldPath, stat: Stat) -> Option<ExprRef> {
         let mut expr = var(id.clone());
-        let name = field
-            .path()
-            .iter()
-            .map(|f| match f {
-                Field::Name(n) => n.as_ref(),
-                Field::ElementType => todo!("element type not currently handled"),
-            })
-            .chain(iter::once(stat.name()))
-            .join("_");
+        let name = access_path_field_name(&AccessPath::new(field.clone(), id.clone()), stat);
         expr = get_item(name, expr);
         self.usage
             .insert((id.clone(), field.clone(), stat), expr.clone());
@@ -107,17 +91,34 @@ impl StatsCatalog for FileStatsCatalog {
     }
 }
 
+fn access_path_field_name(access_path: &AccessPath, stat: Stat) -> FieldName {
+    iter::once(access_path.identifier.as_ref())
+        .chain(
+            access_path
+                .field_path
+                .path()
+                .iter()
+                .map(|f| match f {
+                    Field::Name(n) => n.as_ref(),
+                    Field::ElementType => todo!("element type not currently handled"),
+                })
+                .chain(iter::once(stat.name())),
+        )
+        .join("_")
+        .into()
+}
+
 #[allow(clippy::type_complexity)]
 // TODO: remove (Id, FieldPath) when updating FieldPath
-pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, Relation<(Identifier, FieldPath), Stat>)> {
+pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, Relation<AccessPath, Stat>)> {
     let mut catalog = FileStatsCatalog {
         ..Default::default()
     };
     let expr = expr.stat_falsification(&mut catalog)?;
 
-    let mut relation: Relation<(Identifier, FieldPath), Stat> = Relation::new();
+    let mut relation: Relation<AccessPath, Stat> = Relation::new();
     for (k, v, s) in catalog.usage.keys() {
-        relation.insert((k.clone(), v.clone()), *s)
+        relation.insert(AccessPath::new(v.clone(), k.clone()), *s)
     }
 
     Some((expr, relation))
@@ -125,16 +126,17 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, Relation<(Identifier, Fi
 
 #[cfg(test)]
 mod tests {
-
     use vortex_array::stats::Stat;
-    use vortex_dtype::{FieldName, FieldPath};
+    use vortex_dtype::FieldName;
 
-    use crate::pruning::pruning_predicate::{HashMap, pruning_expr};
-    use crate::pruning::{PruningPredicate, stat_field_name};
+    use crate::pruning::pruning_predicate::{pruning_expr, HashMap};
+    use crate::pruning::{stat_field_name, PruningPredicate};
     use crate::{
-        HashSet, IDENTITY_IDENTIFIER, and, col, eq, get_item, get_item_scope, gt, gt_eq, lit, lt,
-        lt_eq, not_eq, or, root,
+        and, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq, not_eq,
+        or, root, HashSet,
     };
+        AccessPath, HashSet, and, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq, not_eq,
+        or, root,
 
     #[test]
     pub fn pruning_equals() {
@@ -169,11 +171,11 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                    AccessPath::root_field(column.clone()),
                     HashSet::from_iter([Stat::Min, Stat::Max])
                 ),
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&other_col)),
+                    AccessPath::root_field(other_col.clone()),
                     HashSet::from_iter([Stat::Max, Stat::Min])
                 )
             ])
@@ -205,11 +207,11 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                    AccessPath::root_field(column.clone()),
                     HashSet::from_iter([Stat::Min, Stat::Max])
                 ),
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&other_col)),
+                    AccessPath::root_field(other_col.clone()),
                     HashSet::from_iter([Stat::Max, Stat::Min])
                 )
             ])
@@ -240,11 +242,11 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                    AccessPath::root_field(column.clone()),
                     HashSet::from_iter([Stat::Max])
                 ),
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&other_col)),
+                    AccessPath::root_field(other_col.clone()),
                     HashSet::from_iter([Stat::Min])
                 )
             ])
@@ -266,7 +268,7 @@ mod tests {
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(
-                (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                AccessPath::root_field(column.clone()),
                 HashSet::from_iter([Stat::Max])
             ),])
         );
@@ -289,11 +291,11 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                    AccessPath::root_field(column.clone()),
                     HashSet::from_iter([Stat::Min])
                 ),
                 (
-                    (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&other_col)),
+                    AccessPath::root_field(other_col.clone()),
                     HashSet::from_iter([Stat::Max])
                 )
             ])
@@ -315,7 +317,7 @@ mod tests {
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(
-                (IDENTITY_IDENTIFIER.into(), FieldPath::from_name(&column)),
+                AccessPath::root_field(column.clone()),
                 HashSet::from_iter([Stat::Min])
             )])
         );

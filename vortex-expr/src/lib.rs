@@ -53,7 +53,7 @@ pub use select::*;
 pub use var::*;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{DType, FieldName};
+use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexResult, VortexUnwrap};
 #[cfg(feature = "proto")]
 use vortex_proto::expr;
@@ -153,6 +153,45 @@ impl VortexExprExt for ExprRef {
                 kind: Some(self.serialize_kind()?),
             }),
         })
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct AccessPath {
+    field_path: FieldPath,
+    identifier: Identifier,
+}
+
+impl AccessPath {
+    pub fn root_field(path: FieldName) -> Self {
+        Self {
+            field_path: FieldPath::from_name(path),
+            identifier: IDENTITY_IDENTIFIER.into(),
+        }
+    }
+
+    fn new(path: FieldPath, identifier: Identifier) -> Self {
+        Self {
+            field_path: path,
+            identifier,
+        }
+    }
+
+    pub fn identifier(&self) -> &Identifier {
+        &self.identifier
+    }
+
+    pub fn field_path(&self) -> &FieldPath {
+        &self.field_path
+    }
+}
+
+impl Default for AccessPath {
+    fn default() -> Self {
+        Self {
+            field_path: Default::default(),
+            identifier: IDENTITY_IDENTIFIER.into(),
+        }
     }
 }
 

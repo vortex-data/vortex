@@ -62,14 +62,14 @@ impl Field {
 /// A path through a (possibly nested) struct, composed of a sequence of field selectors
 // TODO(ngates): we should probably reverse the path. Or better yet, store a Arc<[Field]> along
 //  with a positional index to allow cheap step_into.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FieldPath(Vec<Field>);
 
 impl FieldPath {
     /// The selector for the root (i.e., the top-level struct itself)
     pub fn root() -> Self {
-        Self(vec![])
+        Self::default()
     }
 
     /// Constructs a new `FieldPath` from a single field selector (i.e., a direct child field of the top-level struct)

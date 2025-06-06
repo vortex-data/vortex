@@ -8,8 +8,8 @@ use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_expr::ExprRef;
 use vortex_expr::pruning::PruningPredicate;
+use vortex_expr::{ExprRef, Scope};
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
@@ -105,7 +105,7 @@ impl VortexFile {
         };
 
         Ok(predicate
-            .evaluate(&struct_row)?
+            .evaluate(&Scope::new(struct_row))?
             .and_then(|p| p.as_constant())
             .is_some_and(|result| result.as_bool().value() == Some(true)))
     }

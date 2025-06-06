@@ -13,7 +13,7 @@ use vortex_array::{ArrayContext, ToCanonical};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
-use vortex_expr::{ExprRef, root};
+use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
 
 use crate::layouts::zoned::ZonedLayout;
@@ -125,7 +125,7 @@ impl ZonedReader {
                         self.stats_table()
                             .map(move |stats_table| {
                                 stats_table.and_then(move |stats_table| {
-                                    pred.evaluate(stats_table.array().as_ref())?
+                                    pred.evaluate(&Scope::new(stats_table.array().to_array()))?
                                         .map(|a| Mask::try_from(a.as_ref()))
                                         .transpose()
                                         .map_err(Arc::new)
