@@ -346,11 +346,12 @@ fn build_left_parts_dictionary<T: ALPRDFloat>(
     );
 
     // Count the number of occurrences of each left bit pattern
-    let counts = samples
+    let mut counts = HashMap::new();
+    samples
         .iter()
         .copied()
         .map(|v| <T as ALPRDFloat>::to_u16(T::to_bits(v).shr(right_bw as _)))
-        .counts();
+        .for_each(|item| *counts.entry(item).or_default() += 1);
 
     // Sorted counts: sort by negative count so that heavy hitters sort first.
     let mut sorted_bit_counts: Vec<(u16, usize)> = counts.into_iter().collect_vec();

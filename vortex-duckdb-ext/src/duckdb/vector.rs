@@ -14,7 +14,7 @@ impl Vector {
     /// Create a new vector with the given type and capacity.
     /// Takes logical_type by ownership.
     pub fn with_capacity(logical_type: LogicalType, len: usize) -> Self {
-        unsafe { Self::from_owned(cpp::duckdb_create_vector(logical_type.into_ptr(), len as _)) }
+        unsafe { Self::own(cpp::duckdb_create_vector(logical_type.into_ptr(), len as _)) }
     }
 
     /// Converts the vector to a constant value.
@@ -60,7 +60,7 @@ impl Vector {
     }
 
     pub fn logical_type(&self) -> LogicalType {
-        unsafe { LogicalType::from_ptr(cpp::duckdb_vector_get_column_type(self.as_ptr())) }
+        unsafe { LogicalType::borrow(cpp::duckdb_vector_get_column_type(self.as_ptr())) }
     }
 
     #[allow(clippy::expect_used)]
@@ -84,6 +84,6 @@ impl Vector {
 impl Clone for Vector {
     fn clone(&self) -> Self {
         // Return an unowned copy of the vector
-        unsafe { Vector::from_ptr(self.as_ptr()) }
+        unsafe { Vector::borrow(self.as_ptr()) }
     }
 }

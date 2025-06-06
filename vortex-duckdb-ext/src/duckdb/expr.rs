@@ -31,7 +31,7 @@ impl Expression {
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CONSTANT => {
                     let value = unsafe {
-                        Value::from_ptr(cpp::duckdb_vx_expr_bound_constant_get_value(self.as_ptr()))
+                        Value::borrow(cpp::duckdb_vx_expr_bound_constant_get_value(self.as_ptr()))
                     };
                     ExpressionClass::BoundConstant(BoundConstant { value })
                 }
@@ -44,8 +44,8 @@ impl Expression {
                     unsafe { cpp::duckdb_vx_expr_get_bound_comparison(self.as_ptr(), &mut out) };
 
                     ExpressionClass::BoundComparison(BoundComparison {
-                        left: unsafe { Expression::from_ptr(out.left) },
-                        right: unsafe { Expression::from_ptr(out.right) },
+                        left: unsafe { Expression::borrow(out.left) },
+                        right: unsafe { Expression::borrow(out.right) },
                         op: out.type_,
                     })
                 }
@@ -62,9 +62,9 @@ impl Expression {
                     }
 
                     ExpressionClass::BoundBetween(BoundBetween {
-                        input: unsafe { Expression::from_ptr(out.input) },
-                        lower: unsafe { Expression::from_ptr(out.lower) },
-                        upper: unsafe { Expression::from_ptr(out.upper) },
+                        input: unsafe { Expression::borrow(out.input) },
+                        lower: unsafe { Expression::borrow(out.lower) },
+                        upper: unsafe { Expression::borrow(out.upper) },
                         lower_inclusive: out.lower_inclusive,
                         upper_inclusive: out.upper_inclusive,
                     })
@@ -99,7 +99,7 @@ impl Expression {
 
                     ExpressionClass::BoundFunction(BoundFunction {
                         children,
-                        scalar_function: unsafe { ScalarFunction::from_ptr(out.scalar_function) },
+                        scalar_function: unsafe { ScalarFunction::borrow(out.scalar_function) },
                         bind_info: out.bind_info,
                     })
                 }
@@ -152,7 +152,7 @@ impl BoundOperator<'_> {
     pub fn children(&self) -> impl Iterator<Item = Expression> {
         self.children
             .iter()
-            .map(|&child| unsafe { Expression::from_ptr(child) })
+            .map(|&child| unsafe { Expression::borrow(child) })
     }
 }
 
@@ -167,6 +167,6 @@ impl BoundFunction<'_> {
     pub fn children(&self) -> impl Iterator<Item = Expression> {
         self.children
             .iter()
-            .map(|&child| unsafe { Expression::from_ptr(child) })
+            .map(|&child| unsafe { Expression::borrow(child) })
     }
 }

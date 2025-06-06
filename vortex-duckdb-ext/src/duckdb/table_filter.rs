@@ -13,7 +13,7 @@ impl TableFilterSet {
         if ptr.is_null() {
             None
         } else {
-            Some(unsafe { TableFilter::from_ptr(ptr) })
+            Some(unsafe { TableFilter::borrow(ptr) })
         }
     }
 }
@@ -32,7 +32,7 @@ impl TableFilter {
                     unsafe { cpp::duckdb_vx_table_filter_get_constant(self.as_ptr(), &mut out) };
 
                     TableFilterClass::ConstantComparison(ConstantComparison {
-                        value: unsafe { Value::from_ptr(out.value) },
+                        value: unsafe { Value::borrow(out.value) },
                         operator: out.comparison_type,
                     })
                 },
@@ -83,7 +83,7 @@ impl TableFilter {
                     let filter_data = unsafe {
                         cpp::duckdb_vx_table_filter_get_dynamic(self.as_ptr())
                     };
-                    TableFilterClass::Dynamic(unsafe { DynamicFilterData::from_ptr(filter_data) })
+                    TableFilterClass::Dynamic(unsafe { DynamicFilterData::borrow(filter_data) })
 
                 },
                 cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_EXPRESSION_FILTER => {
@@ -126,7 +126,7 @@ impl Conjunction<'_> {
     pub fn children(&self) -> impl Iterator<Item = TableFilter> {
         self.children
             .iter()
-            .map(|&child| unsafe { TableFilter::from_ptr(child) })
+            .map(|&child| unsafe { TableFilter::borrow(child) })
     }
 }
 
