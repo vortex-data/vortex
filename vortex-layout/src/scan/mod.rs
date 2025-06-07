@@ -53,6 +53,8 @@ pub struct ScanBuilder<A> {
     metrics: VortexMetrics,
     /// Should we try to prune the file (using stats) on open.
     file_stats: Option<Arc<[StatsSet]>>,
+    /// Maximal number of rows to read (after filtering)
+    limit: Option<usize>,
 }
 
 impl<A: 'static + Send + Sync> ScanBuilder<A> {
@@ -118,6 +120,11 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         self
     }
 
+    pub fn with_limit(mut self, limit: usize) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
     /// Map each split of the scan. The function will be run on the spawned task.
     pub fn map<B: 'static>(
         self,
@@ -136,6 +143,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             executor: self.executor,
             metrics: self.metrics,
             file_stats: self.file_stats,
+            limit: self.limit,
         }
     }
 
@@ -222,6 +230,7 @@ impl ScanBuilder<ArrayRef> {
             executor: None,
             metrics: Default::default(),
             file_stats: None,
+            limit: None,
         }
     }
 

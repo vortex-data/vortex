@@ -35,6 +35,7 @@ mod tests {
         ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
     };
     use datafusion::prelude::SessionContext;
+    use rstest::rstest;
     use tempfile::tempdir;
     use tokio::fs::OpenOptions;
     use vortex::IntoArray;
@@ -46,8 +47,11 @@ mod tests {
 
     use crate::persistent::VortexFormat;
 
+    #[rstest]
+    #[case(Some(1))]
+    #[case(None)]
     #[tokio::test]
-    async fn query_file() -> anyhow::Result<()> {
+    async fn query_file(#[case] limit: Option<usize>) -> anyhow::Result<()> {
         let temp_dir = tempdir()?;
         let strings = ChunkedArray::from_iter([
             VarBinArray::from(vec!["ab", "foo", "bar", "baz"]).into_array(),
@@ -99,8 +103,17 @@ mod tests {
         let listing_table = Arc::new(ListingTable::try_new(config)?);
 
         ctx.register_table("vortex_tbl", listing_table as _)?;
-        let row_count = ctx.table("vortex_tbl").await?.count().await?;
-        assert_eq!(row_count, 8);
+        let total_row_count = ctx.table("vortex_tbl").await?.count().await?;
+        assert_eq!(total_row_count, 8);
+
+        let row_count = ctx
+            .table("vortex_tbl")
+            .await?
+            .limit(0, limit)?
+            .count()
+            .await?;
+
+        assert_eq!(row_count, limit.unwrap_or(total_row_count));
 
         Ok(())
     }

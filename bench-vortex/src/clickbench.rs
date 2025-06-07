@@ -21,7 +21,7 @@ use tracing::{debug, info, warn};
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
-use vortex_datafusion::persistent::VortexFormat;
+use vortex_datafusion::VortexFormat;
 
 use crate::Format;
 use crate::conversions::parquet_to_vortex;

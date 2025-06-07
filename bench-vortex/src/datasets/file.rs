@@ -14,7 +14,7 @@ use tokio::fs::OpenOptions;
 use tracing::info;
 use url::Url;
 use vortex::file::VortexWriteOptions;
-use vortex_datafusion::persistent::VortexFormat;
+use vortex_datafusion::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::BenchmarkDataset;

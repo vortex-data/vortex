@@ -13,7 +13,7 @@ use itertools::Itertools;
 use tracing::info_span;
 use tracing_futures::Instrument;
 use vortex::error::{VortexExpect, vortex_panic};
-use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
+use vortex_datafusion::metrics::VortexMetricsFinder;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
