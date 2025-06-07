@@ -5,7 +5,7 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{Field, FieldPath};
 
-/// Represents a field mask, which is a projection of fields under a layout.
+/// A projection of fields under a layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldMask {
     /// Select all fields in the layout

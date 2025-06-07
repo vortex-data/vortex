@@ -510,7 +510,7 @@ impl Mask {
         }
     }
 
-    /// Limit the mast to the first `limit` true values
+    /// Limit the mask to the first `limit` true values
     pub fn limit(self, limit: usize) -> Self {
         if self.len() <= limit {
             return self;
@@ -521,20 +521,18 @@ impl Mask {
                 Self::from_iter([Self::new_true(limit), Self::new_false(len - limit)])
             }
             Mask::AllFalse(_) => self,
-            Mask::Values(mask_values) => {
+            Mask::Values(ref mask_values) => {
+                if limit >= mask_values.true_count() {
+                    return self;
+                }
+
                 let existing_buffer = mask_values.boolean_buffer();
-                let mut limit = limit;
+
                 let mut new_buffer_builder = BooleanBufferBuilder::new(mask_values.len());
                 new_buffer_builder.append_n(existing_buffer.len(), false);
 
-                for index in existing_buffer.set_indices() {
-                    match limit {
-                        0 => break,
-                        _ => {
-                            limit -= 1;
-                            new_buffer_builder.set_bit(index, true);
-                        }
-                    }
+                for index in existing_buffer.set_indices().take(limit) {
+                    new_buffer_builder.set_bit(index, true);
                 }
 
                 Self::from(new_buffer_builder.finish())
