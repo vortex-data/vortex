@@ -219,8 +219,8 @@ fn list_is_not_empty(list_array: &ListArray) -> VortexResult<ArrayRef> {
     Ok(BoolArray::new(buffer, list_array.validity().clone()).into_array())
 }
 
-// Reduce each boolean values into a Mask that indicates which elements in the
-// ListArray contain the matching value.
+/// Reduces each boolean values into a Mask that indicates which elements in the
+/// ListArray contain the matching value.
 fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
     ends: &[T],
     matches: &BooleanBuffer,

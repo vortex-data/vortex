@@ -35,7 +35,7 @@ impl SequenceArray {
         Self::new(base.into(), multiplier.into(), T::PTYPE, length)
     }
 
-    // Constructs a sequence array using two integer values (with the same ptype).
+    /// Constructs a sequence array using two integer values (with the same ptype).
     pub fn new(
         base: PValue,
         multiplier: PValue,
@@ -119,7 +119,7 @@ impl SequenceArray {
         })
     }
 
-    // Return the validated final value of a sequence array
+    /// Returns the validated final value of a sequence array
     pub fn last(&self) -> PValue {
         Self::try_last(self.base, self.multiplier, self.ptype(), self.length)
             .vortex_expect("validated array")

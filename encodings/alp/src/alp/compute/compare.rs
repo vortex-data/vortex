@@ -48,9 +48,9 @@ impl CompareKernel for ALPVTable {
 
 register_kernel!(CompareKernelAdapter(ALPVTable).lift());
 
-// We can compare a scalar to an ALPArray by encoding the scalar into the ALP domain and comparing
-// the encoded value to the encoded values in the ALPArray. There are fixups when the value doesn't
-// encode into the ALP domain.
+/// We can compare a scalar to an ALPArray by encoding the scalar into the ALP domain and comparing
+/// the encoded value to the encoded values in the ALPArray. There are fixups when the value doesn't
+/// encode into the ALP domain.
 fn alp_scalar_compare<F: ALPFloat + Into<Scalar>>(
     alp: &ALPArray,
     value: F,

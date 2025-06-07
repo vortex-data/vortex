@@ -50,7 +50,6 @@ impl<T: PartialOrd + Clone> StatBound<T> for LowerBound<T> {
         Self(value)
     }
 
-    // The meet or tightest covering bound
     fn union(&self, other: &Self) -> Option<LowerBound<T>> {
         Some(LowerBound(match (&self.0, &other.0) {
             (Exact(lhs), Exact(rhs)) => Exact(partial_min(lhs, rhs)?.clone()),

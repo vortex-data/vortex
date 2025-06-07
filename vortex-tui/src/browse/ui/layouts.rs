@@ -85,7 +85,7 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
     Widget::render(List::new(rows), inner_area, buf);
 }
 
-// Render the inner Array for a FlatLayout
+/// Render the inner Array for a FlatLayout
 fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
     let row_count = app.cursor.layout().row_count();
     let reader = app
