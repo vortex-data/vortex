@@ -52,7 +52,7 @@ arrow = { workspace = true }
 itertools = { workspace = true }
 parquet = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-vortex = { path = ".", features = ["parquet", "tokio"] }
+vortex = { path = ".", features = ["parquet", "tokio", "files"] }
 
 [features]
 default = ["files"]

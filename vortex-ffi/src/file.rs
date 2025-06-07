@@ -13,11 +13,13 @@ use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
+use vortex::ArrayRegistry;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, deserialize_expr, root, select};
 use vortex::file::scan::SplitBy;
-use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{ArrayRegistryExt, VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::layout::scan::ScanBuilder;
+use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex::proto::expr::Expr;
 
 use crate::array::vx_array;
@@ -152,7 +154,8 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
-        let mut file = VortexOpenOptions::file();
+        // TODO(aduffy): Make FFI session wrap Rust VortexSession so we can propagate arrays/layouts.
+        let mut file = VortexOpenOptions::file(ArrayRegistry::full(), LayoutRegistry::full());
         let mut cache_hit = false;
         if let Some(footer) = session.get_footer(&FileKey {
             location: uri_str.to_string(),

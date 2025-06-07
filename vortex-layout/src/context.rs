@@ -1,4 +1,4 @@
-use vortex_array::{RegistryBuilder, VTableContext, VTableRegistry};
+use vortex_array::{Context, Registry, RegistryBuilder};
 
 use crate::LayoutEncodingRef;
 use crate::layouts::chunked::ChunkedLayoutEncoding;
@@ -7,8 +7,8 @@ use crate::layouts::flat::FlatLayoutEncoding;
 use crate::layouts::struct_::StructLayoutEncoding;
 use crate::layouts::zoned::ZonedLayoutEncoding;
 
-pub type LayoutContext = VTableContext<LayoutEncodingRef>;
-pub type LayoutRegistry = VTableRegistry<LayoutEncodingRef>;
+pub type LayoutContext = Context<LayoutEncodingRef>;
+pub type LayoutRegistry = Registry<LayoutEncodingRef>;
 pub type LayoutRegistryBuilder = RegistryBuilder<LayoutEncodingRef>;
 
 pub trait LayoutRegistryExt {

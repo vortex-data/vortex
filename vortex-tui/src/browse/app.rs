@@ -3,13 +3,15 @@ use std::sync::Arc;
 
 use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
+use vortex::ArrayRegistryBuilder;
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult};
-use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
-use vortex_layout::LayoutRef;
+use vortex::file::{ArrayRegistryExt, Footer, SegmentSpec, VortexFile};
+use vortex::session::VortexSessionBuilder;
 use vortex_layout::layouts::flat::FlatVTable;
 use vortex_layout::layouts::zoned::ZonedVTable;
 use vortex_layout::segments::SegmentId;
+use vortex_layout::{LayoutRef, LayoutRegistryBuilder, LayoutRegistryExt};
 
 use crate::browse::ui::SegmentGridState;
 
@@ -162,7 +164,12 @@ impl AppState<'_> {
 
 /// Create an app backed from a file path.
 pub async fn create_file_app<'a>(path: impl AsRef<Path>) -> VortexResult<AppState<'a>> {
-    let vxf = VortexOpenOptions::file().open(path).await?;
+    let session = VortexSessionBuilder::new()
+        .with_encodings(ArrayRegistryBuilder::full())
+        .with_layouts(LayoutRegistryBuilder::full())
+        .build();
+
+    let vxf = session.open(path).await?;
 
     let cursor = LayoutCursor::new(vxf.footer().clone());
 

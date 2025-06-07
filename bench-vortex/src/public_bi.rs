@@ -26,11 +26,12 @@ use tokio::process::Command as TokioCommand;
 use tokio::runtime::Handle;
 use tracing::{debug, info};
 use url::Url;
-use vortex::ArrayRef;
 use vortex::error::{VortexResult, vortex_err};
-use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
+use vortex::file::{ArrayRegistryExt, VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
+use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex::{ArrayRef, ArrayRegistry};
 use vortex_datafusion::persistent::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
@@ -421,7 +422,7 @@ impl Dataset for PBIBenchmark {
             .clone();
 
         async move {
-            VortexOpenOptions::file()
+            VortexOpenOptions::file(ArrayRegistry::full(), LayoutRegistry::full())
                 .open(&path)
                 .await?
                 .scan()?

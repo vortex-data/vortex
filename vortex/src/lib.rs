@@ -28,14 +28,14 @@ pub mod encodings {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_array::TryIntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, TryIntoArray};
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_expr::{gt, lit, root};
-    use vortex_file::{VortexOpenOptions, VortexWriteOptions};
+    use vortex_file::VortexWriteOptions;
 
     use crate as vortex;
 
@@ -60,7 +60,7 @@ mod test {
         let chunks = reader
             .map(|record_batch| record_batch?.try_into_array())
             .try_collect()?;
-        let vortex_array = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        let vortex_array = ChunkedArray::try_new(chunks, dtype)?.to_array();
         // [convert]
 
         assert_eq!(vortex_array.len(), 1000);
@@ -98,7 +98,16 @@ mod test {
         // [write]
 
         // [read]
-        let array = VortexOpenOptions::file()
+        use vortex::ArrayRegistryBuilder;
+        use vortex::file::ArrayRegistryExt;
+        use vortex::layout::{LayoutRegistryBuilder, LayoutRegistryExt};
+        use vortex::session::VortexSessionBuilder;
+
+        let session = VortexSessionBuilder::new()
+            .with_encodings(ArrayRegistryBuilder::full())
+            .with_layouts(LayoutRegistryBuilder::full())
+            .build();
+        let array = session
             .open("example.vortex")
             .await?
             .scan()?

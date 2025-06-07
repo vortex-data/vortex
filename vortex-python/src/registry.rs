@@ -4,9 +4,8 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, Python};
-use vortex::file::DEFAULT_REGISTRY;
-use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
-use vortex::{ArrayRegistry, ArrayRegistryBuilder};
+use vortex::ArrayRegistryBuilder;
+use vortex::file::ArrayRegistryExt;
 
 use crate::arrays::py::PythonEncoding;
 use crate::install_module;
@@ -35,21 +34,15 @@ pub(crate) fn default_registry(py: Python) -> PyResult<Bound<PyRegistry>> {
 /// A register of known array and layout encodings.
 #[pyclass(name = "Registry", module = "vortex", frozen)]
 pub(crate) struct PyRegistry {
-    array_registry: Arc<RwLock<ArrayRegistry>>,
-    #[allow(dead_code)]
-    layout_registry: Arc<RwLock<LayoutRegistry>>,
+    array_registry: Arc<RwLock<ArrayRegistryBuilder>>,
 }
 
 #[pymethods]
 impl PyRegistry {
     #[new]
     fn new() -> Self {
-        let mut arrays = ArrayRegistryBuilder::register_canonical()
-            .register_many(DEFAULT_REGISTRY.vtables().cloned());
-        let layout = LayoutRegistry::full();
         Self {
-            array_registry: Arc::new(RwLock::new(arrays.build())),
-            layout_registry: Arc::new(RwLock::new(layout)),
+            array_registry: Arc::new(RwLock::new(ArrayRegistryBuilder::full())),
         }
     }
 
@@ -58,7 +51,11 @@ impl PyRegistry {
     /// It's not currently possible to register a layout encoding from Python.
     pub(crate) fn register(&self, cls: PythonEncoding) -> PyResult<()> {
         let encoding = cls.to_encoding();
-        self.array_registry.write().register(encoding);
+        let mut handle = self.array_registry.write();
+        let x = &mut *handle;
+        let mut builder = std::mem::take(&mut *handle);
+        let builder = builder.register(encoding);
+
         Ok(())
     }
 

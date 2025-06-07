@@ -15,8 +15,8 @@ use crate::arrays::{
 
 /// A collection of array encodings.
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
-pub type ArrayContext = VTableContext<EncodingRef>;
-pub type ArrayRegistry = VTableRegistry<EncodingRef>;
+pub type ArrayContext = Context<EncodingRef>;
+pub type ArrayRegistry = Registry<EncodingRef>;
 pub type ArrayRegistryBuilder = RegistryBuilder<EncodingRef>;
 
 impl ArrayRegistry {
@@ -56,9 +56,9 @@ impl ArrayRegistryBuilder {
 /// A collection of encodings that can be addressed by a u16 positional index.
 /// This is used to map array encodings and layout encodings when reading from a file.
 #[derive(Debug, Clone)]
-pub struct VTableContext<T>(Arc<RwLock<Vec<T>>>);
+pub struct Context<T>(Arc<RwLock<Vec<T>>>);
 
-impl<T: Clone + Eq> VTableContext<T> {
+impl<T: Clone + Eq> Context<T> {
     pub fn empty() -> Self {
         Self(Arc::new(RwLock::new(Vec::new())))
     }
@@ -106,13 +106,13 @@ impl<T: Clone + Eq> VTableContext<T> {
 /// In the future, we will support loading encodings from shared libraries or even from within
 /// the Vortex file itself. This registry will be used to manage the available encodings.
 #[derive(Clone, Debug)]
-pub struct VTableRegistry<T>(Arc<HashMap<String, T>>);
+pub struct Registry<T>(Arc<HashMap<String, T>>);
 
-/// Builder for [`VTableRegistry`].
+/// Builder for [`Registry`].
 ///
 /// Users should construct one of these, call the `register` or `register_many` methods, and then
 /// `build` to get the final registry.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct RegistryBuilder<T>(HashMap<String, T>);
 
 impl<T: Clone + Display + Eq> RegistryBuilder<T> {
@@ -136,22 +136,22 @@ impl<T: Clone + Display + Eq> RegistryBuilder<T> {
         self
     }
 
-    pub fn build(self) -> VTableRegistry<T> {
-        VTableRegistry(Arc::new(self.0))
+    pub fn build(self) -> Registry<T> {
+        Registry(Arc::new(self.0))
     }
 }
 
-impl<T: Clone + Display + Eq> VTableRegistry<T> {
+impl<T: Clone + Display + Eq> Registry<T> {
     pub fn empty() -> Self {
         Self(Default::default())
     }
 
-    /// Create a new [`VTableContext`] with the provided encodings.
+    /// Create a new [`Context`] with the provided encodings.
     pub fn new_context<'a>(
         &self,
         encoding_ids: impl Iterator<Item = &'a str>,
-    ) -> VortexResult<VTableContext<T>> {
-        let mut ctx = VTableContext::<T>::empty();
+    ) -> VortexResult<Context<T>> {
+        let mut ctx = Context::<T>::empty();
         for id in encoding_ids {
             let encoding = self.0.get(id).ok_or_else(|| {
                 vortex_err!(

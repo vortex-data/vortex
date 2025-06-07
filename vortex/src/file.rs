@@ -2,7 +2,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use moka::sync::Cache;
-use vortex_array::aliases::DefaultHashBuilder;
 use vortex_array::stats::{Precision, Stat};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -11,6 +10,7 @@ use vortex_layout::segments::SegmentId;
 use vortex_scalar::ScalarValue;
 
 use crate::session::VortexSession;
+use crate::utils::aliases::DefaultHashBuilder;
 
 /// Cache key for a [`VortexFile`].
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
@@ -36,17 +36,33 @@ pub struct FooterCache {
     inner: Cache<FileKey, Footer, DefaultHashBuilder>,
 }
 
+macro_rules! assert_send_sync_static {
+    ($typ:ty) => {
+        const _: () = {
+            const fn check_send_sync_static<T: Send + Sync + 'static>() {}
+            check_send_sync_static::<$typ>();
+        };
+    };
+}
+
+assert_send_sync_static!(FooterCache);
+
+/// Default maximum size of the footer cache in bytes.
+///
+/// Defaults to 64MiB
+pub const MAX_FOOTER_CACHE_BYTES: usize = 64 << 20;
+
 impl Default for FooterCache {
     fn default() -> Self {
-        Self::new()
+        Self::new(MAX_FOOTER_CACHE_BYTES)
     }
 }
 
 impl FooterCache {
     /// Construct a new empty footer cache with default 64MiB of space reserved for footers
-    pub fn new() -> Self {
+    pub fn new(max_bytes: usize) -> Self {
         let inner = Cache::builder()
-            .max_capacity(64u64 * (1 << 20))
+            .max_capacity(max_bytes as u64)
             .eviction_listener(|k: Arc<FileKey>, _v: Footer, cause| {
                 log::trace!("Removed {k:?} due to {cause:?}");
             })
@@ -87,14 +103,22 @@ fn estimate_layout_size(footer: &Footer) -> usize {
     segments_size + stats_size + layout_size
 }
 
+// Provide an accessor for the footer cache so that spawned files are able to have access to it.
+impl VortexSession {
+    /// The footer cache for the attached session. The cache can be cloned and owned handles can
+    /// be shared across threads safely.
+    pub fn footer_cache(&self) -> &FooterCache {
+        &self.footer_cache
+    }
+}
+
 // Attach various file IO methods to the session when the `files` feature is enabled
 // in compilation.
 impl VortexSession {
     /// Open a Vortex file on the local file system, blocking the current thread
     /// until it completes.
     pub fn open_blocking(&self, path: impl AsRef<Path>) -> VortexResult<VortexFile> {
-        let mut opener = VortexOpenOptions::file(self.arrays().clone(), self.layouts().clone());
-        opener.open_blocking(path)
+        VortexOpenOptions::file(self.arrays().clone(), self.layouts().clone()).open_blocking(path)
     }
 
     pub async fn open(&self, path: impl AsRef<Path>) -> VortexResult<VortexFile> {

@@ -2,12 +2,13 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 
+use vortex::ArrayRegistry;
 use vortex::error::{VortexExpect, VortexResult};
-use vortex::file::{DEFAULT_REGISTRY, VortexOpenOptions};
+use vortex::file::{ArrayRegistryExt, VortexOpenOptions};
 use vortex_layout::{LayoutRef, LayoutRegistry, LayoutRegistryExt};
 
 pub async fn segments(file: impl AsRef<Path>) -> VortexResult<()> {
-    let vxf = VortexOpenOptions::file(DEFAULT_REGISTRY.clone(), Arc::new(LayoutRegistry::full()))
+    let vxf = VortexOpenOptions::file(ArrayRegistry::full(), LayoutRegistry::full())
         .open(file)
         .await?;
 

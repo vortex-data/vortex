@@ -5,7 +5,6 @@ use arrow::pyarrow::IntoPyArrow;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use vortex::ToCanonical;
 use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
@@ -13,8 +12,10 @@ use vortex::error::VortexError;
 use vortex::expr::{ExprRef, root, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::segments::MokaSegmentCache;
-use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::file::{ArrayRegistryExt, VortexFile, VortexOpenOptions};
+use vortex::layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex::stream::ArrayStreamExt;
+use vortex::{ArrayRegistry, ToCanonical};
 
 use crate::arrays::PyArrayRef;
 use crate::dataset::PyVortexDataset;
@@ -37,7 +38,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 pub fn open(path: &str) -> PyResult<PyVortexFile> {
-    let vxf = VortexOpenOptions::file()
+    // TODO(aduffy): make a session so we can attach extension encodings/layouts/types
+    let vxf = VortexOpenOptions::file(ArrayRegistry::full(), LayoutRegistry::full())
         // TODO(ngates): use a globally shared segment cache for all files
         .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
         .open_blocking(path)?;
