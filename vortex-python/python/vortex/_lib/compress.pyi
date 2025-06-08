@@ -1,3 +1,0 @@
-import vortex as vx
-
-def compress(array: vx.Array) -> vx.Array: ...

@@ -1,3 +1,0 @@
-import pyarrow.dataset
-
-def dataset_from_url(url: str) -> pyarrow.dataset.Dataset: ...

@@ -2,14 +2,14 @@
 
 # Not much point defining the exports or the modules themselves
 .*\.__all__
-vortex\._lib\.arrays
-vortex\._lib\.compress
-vortex\._lib\.dataset
-vortex\._lib\.dtype
-vortex\._lib\.expr
-vortex\._lib\.file
-vortex\._lib\.io
-vortex\._lib\.iter
-vortex\._lib\.registry
-vortex\._lib\.scalar
-vortex\._lib\.serde
+vortex\.arrays
+vortex\.compress
+vortex\.dataset
+vortex\.dtype
+vortex\.expr
+vortex\.file
+vortex\.io
+vortex\.iter
+vortex\.registry
+vortex\.scalar
+vortex\.serde
