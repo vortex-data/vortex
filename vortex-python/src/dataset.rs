@@ -6,6 +6,7 @@ use arrow::pyarrow::{IntoPyArrow, ToPyArrow};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
+use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, Select, root};
@@ -81,7 +82,8 @@ fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<ExprRef> {
     row_filter.map(|x| x.borrow().inner().clone())
 }
 
-#[pyclass(name = "VortexDataset", module = "io")]
+#[gen_stub_pyclass]
+#[pyclass(name = "VortexDataset", module = "vortex.dataset")]
 pub struct PyVortexDataset {
     vxf: VortexFile,
     schema: SchemaRef,
@@ -118,12 +120,12 @@ impl PyVortexDataset {
     }
 
     async fn async_to_record_batch_reader(
-        self_: PyRef<'_, Self>,
+        slf: PyRef<'_, Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<PyArrayRef>,
     ) -> PyResult<PyObject> {
-        let mut scan = self_
+        let mut scan = slf
             .vxf
             .scan()?
             .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
@@ -140,17 +142,18 @@ impl PyVortexDataset {
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(iter)?);
 
-        record_batch_reader.into_pyarrow(self_.py())
+        record_batch_reader.into_pyarrow(slf.py())
     }
 }
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl PyVortexDataset {
-    fn schema(self_: PyRef<Self>) -> PyResult<PyObject> {
-        self_.schema.clone().to_pyarrow(self_.py())
+    fn schema(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
+        slf.schema.clone().to_pyarrow(slf.py())
     }
 
-    #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
+    #[pyo3(name = "to_array", signature = (*, columns = None, row_filter = None, indices = None))]
     pub fn to_array<'py>(
         &self,
         columns: Option<Vec<Bound<'py, PyAny>>>,
@@ -162,19 +165,20 @@ impl PyVortexDataset {
         )?))
     }
 
-    #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
+    #[pyo3(name = "to_record_batch_reader", signature = (*, columns = None, row_filter = None, indices = None))]
     pub fn to_record_batch_reader(
-        self_: PyRef<Self>,
+        slf: PyRef<'_, Self>,
         columns: Option<Vec<Bound<'_, PyAny>>>,
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<PyArrayRef>,
     ) -> PyResult<PyObject> {
         TOKIO_RUNTIME.block_on(Self::async_to_record_batch_reader(
-            self_, columns, row_filter, indices,
+            slf, columns, row_filter, indices,
         ))
     }
 }
 
+#[gen_stub_pyfunction(module = "vortex.dataset")]
 #[pyfunction]
 pub fn dataset_from_url(url: &str) -> PyResult<PyVortexDataset> {
     Ok(TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url))?)

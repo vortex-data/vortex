@@ -10,6 +10,7 @@ use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use pyo3_stub_gen::derive::gen_stub_pyclass;
 use vortex::arrays::ChunkedVTable;
 use vortex::arrow::IntoArrowArray;
 use vortex::compute::{Operator, compare, take};
@@ -20,10 +21,10 @@ use vortex::{Array, ArrayRef};
 use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::{PyPythonArray, PythonArray};
 use crate::dtype::PyDType;
+use crate::install_module;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
 use crate::serde::context::PyArrayContext;
-use crate::{PyVortex, install_module};
 
 pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(parent.py(), "arrays")?;
@@ -68,7 +69,34 @@ pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
 }
 
 /// A type adapter used to extract an ArrayRef from a Python object.
-pub type PyArrayRef = PyVortex<ArrayRef>;
+
+#[gen_stub_pyclass(name = "ArrayRef", module = "vortex.arrays")]
+// #[pyo3::pyclass(name = "ArrayRef", module = "vortex.arrays")]
+pub struct PyArrayRef(pub ArrayRef);
+
+impl From<ArrayRef> for PyArrayRef {
+    fn from(value: ArrayRef) -> Self {
+        Self(value)
+    }
+}
+
+impl PyArrayRef {
+    pub fn into_inner(self) -> ArrayRef {
+        self.0
+    }
+
+    pub fn inner(&self) -> &ArrayRef {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for PyArrayRef {
+    type Target = ArrayRef;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl<'py> FromPyObject<'py> for PyArrayRef {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
@@ -162,7 +190,8 @@ impl<'py> IntoPyObject<'py> for PyArrayRef {
 ///        false,
 ///        true
 ///     ]
-#[pyclass(name = "Array", module = "vortex", sequence, subclass, frozen)]
+#[gen_stub_pyclass]
+#[pyclass(name = "Array", module = "vortex.arrays", sequence, subclass, frozen)]
 pub struct PyArray;
 
 #[pymethods]

@@ -5,6 +5,7 @@ use arrow::pyarrow::IntoPyArrow;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
+use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 use vortex::ToCanonical;
 use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
@@ -35,6 +36,7 @@ pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+#[gen_stub_pyfunction(module = "vortex")]
 #[pyfunction]
 pub fn open(path: &str) -> PyResult<PyVortexFile> {
     let vxf = VortexOpenOptions::file()
@@ -44,11 +46,13 @@ pub fn open(path: &str) -> PyResult<PyVortexFile> {
     Ok(PyVortexFile { vxf })
 }
 
+#[gen_stub_pyclass]
 #[pyclass(name = "VortexFile", module = "vortex", frozen)]
 pub struct PyVortexFile {
     vxf: VortexFile,
 }
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl PyVortexFile {
     fn __len__(slf: PyRef<Self>) -> PyResult<usize> {

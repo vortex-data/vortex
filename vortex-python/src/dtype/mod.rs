@@ -21,6 +21,7 @@ use pyo3::{
     Bound, PyAny, PyClass, PyClassInitializer, PyObject, PyResult, Python, pyclass, pymethods,
     wrap_pyfunction,
 };
+use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 
@@ -72,6 +73,7 @@ pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
 }
 
 /// Base class for all Vortex data types.
+#[gen_stub_pyclass]
 #[pyclass(name = "DType", module = "vortex", frozen, eq, hash, subclass)]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PyDType(DType);
@@ -134,6 +136,7 @@ impl PyDType {
     }
 }
 
+#[gen_stub_pymethods]
 #[pymethods]
 impl PyDType {
     fn to_arrow_type(&self, py: Python) -> PyResult<PyObject> {
