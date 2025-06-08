@@ -12,13 +12,14 @@ use crate::scalar::factory::scalar_helper;
 
 pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(parent.py(), "expr")?;
-    parent.add_submodule(&m)?;
-    install_module("vortex.expr", &m)?;
 
     m.add_function(wrap_pyfunction!(column, &m)?)?;
     m.add_function(wrap_pyfunction!(ident, &m)?)?;
     m.add_function(wrap_pyfunction!(literal, &m)?)?;
     m.add_class::<PyExpr>()?;
+
+    parent.add_submodule(&m)?;
+    install_module("vortex.expr", &m)?;
 
     Ok(())
 }
@@ -171,7 +172,7 @@ impl PyExpr {
 ///
 /// Returns
 /// -------
-/// :class:`vortex.Expr`
+/// :class:`vortex.expr.Expr`
 ///
 /// Examples
 /// --------
@@ -194,7 +195,7 @@ pub fn literal<'py>(
 ///
 /// Returns
 /// -------
-/// :class:`vortex.Expr`
+/// :class:`vortex.expr.Expr`
 ///
 /// Examples
 /// --------
@@ -218,14 +219,14 @@ pub fn ident() -> PyExpr {
 ///
 /// Returns
 /// -------
-/// :class:`vortex.Expr`
+/// :class:`vortex.expr.Expr`
 ///
 /// Examples
 /// --------
 ///
 ///     >>> import vortex.expr as ve
 ///     >>> ve.column("age")
-///     <vortex.Expr object at ...>
+///     <vortex.expr.Expr object at ...>
 #[pyfunction]
 pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> {
     let py = name.py();

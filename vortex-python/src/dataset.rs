@@ -22,10 +22,11 @@ use crate::{TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(parent.py(), "dataset")?;
-    parent.add_submodule(&m)?;
-    install_module("vortex.dataset", &m)?;
 
     m.add_function(wrap_pyfunction!(dataset_from_url, &m)?)?;
+
+    parent.add_submodule(&m)?;
+    install_module("vortex.dataset", &m)?;
 
     Ok(())
 }

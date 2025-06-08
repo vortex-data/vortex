@@ -36,7 +36,6 @@ use crate::{PyVortex, install_module};
 
 pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(parent.py(), "scalar")?;
-    install_module("vortex.scalar", &m)?;
 
     m.add_function(wrap_pyfunction!(factory::scalar, &m)?)?;
 
@@ -53,6 +52,7 @@ pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyStructScalar>()?;
 
     parent.add_submodule(&m)?;
+    install_module("vortex.scalar", &m)?;
 
     Ok(())
 }

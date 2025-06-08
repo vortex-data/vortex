@@ -12,18 +12,7 @@ from vortex import file
 from vortex import io
 from vortex import iter
 from vortex import registry
+from vortex import scalar
 from vortex import serde
 
-__all__: list = [
-    "arrays",
-    "compress",
-    "dataset",
-    "dtype",
-    "expr",
-    "file",
-    "io",
-    "iter",
-    "registry",
-    "vortex.scalar",
-    "serde",
-]
+__all__: list = ["arrays", "compress", "dataset", "dtype", "expr", "file", "io", "iter", "registry", "scalar", "serde"]

@@ -66,9 +66,9 @@ impl PyVortexFile {
     ///
     /// Parameters
     /// ----------
-    /// projection : :class:`vortex.Expr` | None
+    /// projection : :class:`vortex.expr.Expr` | None
     ///     The projection expression to read, or else read all columns.
-    /// expr : :class:`vortex.Expr` | None
+    /// expr : :class:`vortex.expr.Expr` | None
     ///     The predicate used to filter rows. The filter columns do not need to be in the projection.
     /// indices : :class:`vortex.Array` | None
     ///     The indices of the rows to read. Must be sorted and non-null.

@@ -1,10 +1,7 @@
-"""
-Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
-"""
-
 from __future__ import annotations
 from compress import compress
 from file import open
+from scalar import scalar
 from vortex.arrays import AlpArray
 from vortex.arrays import AlpRdArray
 from vortex.arrays import Array
@@ -61,7 +58,6 @@ from vortex.scalar import PrimitiveScalar
 from vortex.scalar import Scalar
 from vortex.scalar import StructScalar
 from vortex.scalar import Utf8Scalar
-from vortex.scalar import scalar
 from . import arrays
 from . import convert
 from . import dataset
@@ -250,9 +246,9 @@ class VortexFile:
 
         Parameters
         ----------
-        projection : :class:`vortex.Expr` | None
+        projection : :class:`vortex.expr.Expr` | None
             The projection expression to read, or else read all columns.
-        expr : :class:`vortex.Expr` | None
+        expr : :class:`vortex.expr.Expr` | None
             The predicate used to filter rows. The filter columns do not need to be in the projection.
         indices : :class:`vortex.Array` | None
             The indices of the rows to read. Must be sorted and non-null.
