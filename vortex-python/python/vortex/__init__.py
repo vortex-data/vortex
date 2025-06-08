@@ -1,12 +1,5 @@
-from typing import TYPE_CHECKING
-from vortex import vortex
+import vortex
 from .vortex import *
-
-if TYPE_CHECKING:
-    import pyarrow
-    import numpy
-    import pandas
-
 
 
 from .convert import PyArray, array
@@ -154,9 +147,3 @@ __all__ = [
     # Iterator
     "ArrayIterator",
 ]
-
-
-__doc__ = vortex.__doc__
-# if hasattr(vortex, "__all__"):
-#     __all__ = vortex.__all__
-

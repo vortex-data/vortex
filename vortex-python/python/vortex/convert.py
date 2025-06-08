@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 import pyarrow
 
 from vortex.arrays import Array
-from vortex.dtype import DType 
+from vortex.dtype import DType
 from vortex.serde import ArrayContext, ArrayParts
 
 

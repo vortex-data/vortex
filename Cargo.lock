@@ -6589,7 +6589,6 @@ name = "vortex-python"
 version = "0.1.0"
 dependencies = [
  "arrow",
- "env_logger",
  "futures",
  "itertools 0.14.0",
  "log",

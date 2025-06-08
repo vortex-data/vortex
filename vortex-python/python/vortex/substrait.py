@@ -209,9 +209,7 @@ def expression(substrait_object, functions: list[Callable[..., expr.Expr]], sche
             raise ValueError(f"unknown rex_type {rex_type}")
 
 
-def expression_reference(
-    substrait_object, functions: list[Callable[..., expr.Expr]], schema: NamedStruct
-) -> expr.Expr:
+def expression_reference(substrait_object, functions: list[Callable[..., expr.Expr]], schema: NamedStruct) -> expr.Expr:
     print(substrait_object)
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/extended__expression.proto#L16
     match substrait_object.WhichOneof("expr_type"):

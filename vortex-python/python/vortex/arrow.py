@@ -7,7 +7,6 @@ import pyarrow.compute as pc
 import pyarrow.dataset
 
 
-
 import pyarrow as pa
 import pyarrow.compute as pc
 from substrait.proto import ExtendedExpression
@@ -25,7 +24,6 @@ def arrow_to_vortex_expr(arrow_expression: pc.Expression, schema: pa.Schema) -> 
     if len(expressions) < 0 or len(expressions) > 1:
         raise ValueError("arrow_to_vortex: extended expression must have exactly one child")
     return expressions[0]
-
 
 
 class VortexDataset(pyarrow.dataset.Dataset):

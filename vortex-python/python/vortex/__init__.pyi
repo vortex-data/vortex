@@ -1,6 +1,7 @@
 """
 Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
 """
+
 from __future__ import annotations
 from compress import compress
 from file import open
@@ -71,11 +72,77 @@ from . import io
 from . import iter
 from . import serde
 from . import vortex
-__all__: list = ['array', 'compress', 'Array', 'PyArray', 'DType', 'PType', 'NullDType', 'BoolDType', 'DecimalDType', 'PrimitiveDType', 'Utf8DType', 'BinaryDType', 'StructDType', 'ListDType', 'ExtensionDType', 'null', 'bool_', 'int_', 'uint', 'float_', 'utf8', 'binary', 'struct', 'list_', 'ext', 'ConstantArray', 'ChunkedArray', 'NullArray', 'BoolArray', 'ByteBoolArray', 'PrimitiveArray', 'VarBinArray', 'VarBinViewArray', 'StructArray', 'ListArray', 'ExtensionArray', 'AlpArray', 'AlpRdArray', 'DateTimePartsArray', 'DictArray', 'FsstArray', 'RunEndArray', 'SparseArray', 'ZigZagArray', 'FastLanesBitPackedArray', 'FastLanesDeltaArray', 'FastLanesFoRArray', 'scalar', 'Scalar', 'NullScalar', 'BoolScalar', 'PrimitiveScalar', 'Utf8Scalar', 'BinaryScalar', 'StructScalar', 'ListScalar', 'ExtensionScalar', 'Registry', 'ArrayContext', 'ArrayParts', 'VortexFile', 'open', 'ArrayIterator']
+
+__all__: list = [
+    "array",
+    "compress",
+    "Array",
+    "PyArray",
+    "DType",
+    "PType",
+    "NullDType",
+    "BoolDType",
+    "DecimalDType",
+    "PrimitiveDType",
+    "Utf8DType",
+    "BinaryDType",
+    "StructDType",
+    "ListDType",
+    "ExtensionDType",
+    "null",
+    "bool_",
+    "int_",
+    "uint",
+    "float_",
+    "utf8",
+    "binary",
+    "struct",
+    "list_",
+    "ext",
+    "ConstantArray",
+    "ChunkedArray",
+    "NullArray",
+    "BoolArray",
+    "ByteBoolArray",
+    "PrimitiveArray",
+    "VarBinArray",
+    "VarBinViewArray",
+    "StructArray",
+    "ListArray",
+    "ExtensionArray",
+    "AlpArray",
+    "AlpRdArray",
+    "DateTimePartsArray",
+    "DictArray",
+    "FsstArray",
+    "RunEndArray",
+    "SparseArray",
+    "ZigZagArray",
+    "FastLanesBitPackedArray",
+    "FastLanesDeltaArray",
+    "FastLanesFoRArray",
+    "scalar",
+    "Scalar",
+    "NullScalar",
+    "BoolScalar",
+    "PrimitiveScalar",
+    "Utf8Scalar",
+    "BinaryScalar",
+    "StructScalar",
+    "ListScalar",
+    "ExtensionScalar",
+    "Registry",
+    "ArrayContext",
+    "ArrayParts",
+    "VortexFile",
+    "open",
+    "ArrayIterator",
+]
+
 class ArrayContext:
     """
     An ArrayContext captures an ordered set of encodings.
-    
+
     In a serialized array, encodings are identified by a positional index into such an
     :class:`~vortex.ArrayContext`.
     """
@@ -92,6 +159,7 @@ class ArrayContext:
         """
         Return str(self).
         """
+
 class ArrayIterator:
     @staticmethod
     def __new__(type, *args, **kwargs):
@@ -120,10 +188,11 @@ class ArrayIterator:
         """
         Convert the :class:`vortex.ArrayIterator` into a :class:`pyarrow.RecordBatchReader`.
         """
+
 class ArrayParts:
     """
     ArrayParts is a parsed representation of a serialized array.
-    
+
     It can be decoded into a full array using the `decode` method.
     """
     @staticmethod
@@ -139,11 +208,12 @@ class ArrayParts:
     def decode(self, ctx, dtype, len):
         """
         Decode the array parts into a full array.
-        
+
         # Returns
-        
+
         The decoded array.
         """
+
 class Registry:
     """
     A register of known array and layout encodings.
@@ -160,9 +230,10 @@ class Registry:
     def register(self, cls):
         """
         Register an array encoding implemented by subclassing `PyArray`.
-        
+
         It's not currently possible to register a layout encoding from Python.
         """
+
 class VortexFile:
     @staticmethod
     def __new__(type, *args, **kwargs):
@@ -173,10 +244,10 @@ class VortexFile:
         """
         Return len(self).
         """
-    def scan(self, projection = None, *, expr = None, indices = None, batch_size = None):
+    def scan(self, projection=None, *, expr=None, indices=None, batch_size=None):
         """
         Scan the Vortex file returning a :class:`vortex.ArrayIterator`.
-        
+
         Parameters
         ----------
         projection : :class:`vortex.Expr` | None
@@ -187,12 +258,12 @@ class VortexFile:
             The indices of the rows to read. Must be sorted and non-null.
         batch_size : :class:`int` | None
             The number of rows to read per chunk.
-        
+
         Examples
         --------
-        
+
         Scan a file with a structured column and nulls at multiple levels and in multiple columns.
-        
+
             >>> import vortex as vx
             >>> import vortex.expr as ve
             >>> a = vx.array([
@@ -223,9 +294,9 @@ class VortexFile:
                 "Mikhail",
                 null
               ]
-        
+
         Read just the age column:
-        
+
             >>> vxf.scan(['age']).read_all().to_arrow_array()
             <pyarrow.lib.StructArray object at ...>
             -- is_valid: all not null
@@ -237,10 +308,10 @@ class VortexFile:
                 57,
                 null
               ]
-        
-        
+
+
         Keep rows with an age above 35. This will read O(N_KEPT) rows, when the file format allows.
-        
+
             >>> vxf.scan(expr=ve.column("age") > 35).read_all().to_arrow_array()
             <pyarrow.lib.StructArray object at ...>
             -- is_valid: all not null
@@ -253,7 +324,7 @@ class VortexFile:
                 "Mikhail"
               ]
         """
-    def to_arrow(self, projection = None, *, expr = None, batch_size = None):
+    def to_arrow(self, projection=None, *, expr=None, batch_size=None):
         """
         Scan the Vortex file as a :class:`pyarrow.RecordBatchReader`.
         """
@@ -261,4 +332,5 @@ class VortexFile:
         """
         Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API.
         """
+
 registry: Registry  # value = <vortex.Registry object>
