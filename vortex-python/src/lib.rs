@@ -35,8 +35,6 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
         .vortex_expect("tokio runtime must not fail to start")
 });
 
-use pyo3_stub_gen::define_stub_info_gatherer;
-
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
 #[pymodule(name = "vortex")]
 fn entry_point(root_module: &Bound<PyModule>) -> PyResult<()> {
@@ -64,8 +62,6 @@ fn entry_point(root_module: &Bound<PyModule>) -> PyResult<()> {
 
     Ok(())
 }
-
-define_stub_info_gatherer!(stub_info);
 
 /// Initialize a module and add it to `sys.modules`.
 ///

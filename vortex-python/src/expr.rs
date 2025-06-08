@@ -3,7 +3,6 @@ use std::ops::Deref;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
-use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use vortex::dtype::{DType, Nullability, PType};
 use vortex::expr::{BinaryExpr, ExprRef, GetItem, Operator, lit};
 
@@ -29,7 +28,7 @@ pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
 /// .. seealso::
 ///    :func:`.column`
 ///
-#[gen_stub_pyclass]
+
 #[pyclass(name = "Expr", module = "vortex.expr", frozen)]
 #[derive(Clone)]
 pub struct PyExpr {
@@ -94,7 +93,6 @@ fn coerce_expr<'py>(value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyExpr>> {
     }
 }
 
-#[gen_stub_pymethods]
 #[pymethods]
 impl PyExpr {
     pub fn __str__(&self) -> String {

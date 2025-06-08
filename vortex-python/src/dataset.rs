@@ -6,7 +6,6 @@ use arrow::pyarrow::{IntoPyArrow, ToPyArrow};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
-use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, Select, root};
@@ -82,7 +81,6 @@ fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<ExprRef> {
     row_filter.map(|x| x.borrow().inner().clone())
 }
 
-#[gen_stub_pyclass]
 #[pyclass(name = "VortexDataset", module = "vortex.dataset")]
 pub struct PyVortexDataset {
     vxf: VortexFile,
@@ -146,7 +144,6 @@ impl PyVortexDataset {
     }
 }
 
-#[gen_stub_pymethods]
 #[pymethods]
 impl PyVortexDataset {
     fn schema(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
@@ -178,7 +175,6 @@ impl PyVortexDataset {
     }
 }
 
-#[gen_stub_pyfunction(module = "vortex.dataset")]
 #[pyfunction]
 pub fn dataset_from_url(url: &str) -> PyResult<PyVortexDataset> {
     Ok(TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url))?)

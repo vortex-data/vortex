@@ -10,7 +10,6 @@ use arrow::pyarrow::ToPyArrow;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use pyo3_stub_gen::derive::gen_stub_pyclass;
 use vortex::arrays::ChunkedVTable;
 use vortex::arrow::IntoArrowArray;
 use vortex::compute::{Operator, compare, take};
@@ -69,9 +68,6 @@ pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
 }
 
 /// A type adapter used to extract an ArrayRef from a Python object.
-
-#[gen_stub_pyclass(name = "ArrayRef", module = "vortex.arrays")]
-// #[pyo3::pyclass(name = "ArrayRef", module = "vortex.arrays")]
 pub struct PyArrayRef(pub ArrayRef);
 
 impl From<ArrayRef> for PyArrayRef {
@@ -190,7 +186,7 @@ impl<'py> IntoPyObject<'py> for PyArrayRef {
 ///        false,
 ///        true
 ///     ]
-#[gen_stub_pyclass]
+
 #[pyclass(name = "Array", module = "vortex.arrays", sequence, subclass, frozen)]
 pub struct PyArray;
 
