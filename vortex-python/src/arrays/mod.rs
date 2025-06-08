@@ -25,10 +25,10 @@ use crate::scalar::PyScalar;
 use crate::serde::context::PyArrayContext;
 use crate::{PyVortex, install_module};
 
-pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new(py, "arrays")?;
+pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new(parent.py(), "arrays")?;
     parent.add_submodule(&m)?;
-    install_module("vortex._lib.arrays", &m)?;
+    install_module("vortex.arrays", &m)?;
 
     m.add_class::<PyArray>()?;
     m.add_class::<PyNativeArray>()?;

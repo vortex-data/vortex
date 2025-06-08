@@ -5,7 +5,7 @@ import pyarrow as pa
 import pytest
 
 import vortex as vx
-import vortex.dataset
+import vortex.arrow
 import vortex.io
 
 

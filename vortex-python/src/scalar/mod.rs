@@ -34,10 +34,10 @@ use crate::scalar::struct_::PyStructScalar;
 use crate::scalar::utf8::PyUtf8Scalar;
 use crate::{PyVortex, install_module};
 
-pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new(py, "scalar")?;
+pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new(parent.py(), "scalar")?;
     parent.add_submodule(&m)?;
-    install_module("vortex._lib.scalar", &m)?;
+    install_module("vortex.scalar", &m)?;
 
     m.add_function(wrap_pyfunction!(factory::scalar, &m)?)?;
 

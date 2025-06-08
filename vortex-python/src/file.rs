@@ -24,10 +24,10 @@ use crate::iter::{ArrayStreamToIterator, PyArrayIterator};
 use crate::record_batch_reader::VortexRecordBatchReader;
 use crate::{TOKIO_RUNTIME, install_module};
 
-pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new(py, "file")?;
+pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new(parent.py(), "file")?;
     parent.add_submodule(&m)?;
-    install_module("vortex._lib.file", &m)?;
+    install_module("vortex.file", &m)?;
 
     m.add_function(wrap_pyfunction!(open, &m)?)?;
     m.add_class::<PyVortexFile>()?;
@@ -204,10 +204,7 @@ impl PyVortexFile {
 
     /// Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API.
     fn to_dataset(slf: Bound<Self>) -> PyResult<Bound<PyAny>> {
-        let dataset_cls = slf
-            .py()
-            .import("vortex.dataset")?
-            .getattr("VortexDataset")?;
+        let dataset_cls = slf.py().import("vortex.arrow")?.getattr("VortexDataset")?;
         let dataset = PyVortexDataset::try_new(slf.get().vxf.clone())?;
         dataset_cls.call1((dataset,))
     }

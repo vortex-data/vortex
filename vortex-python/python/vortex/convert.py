@@ -3,8 +3,9 @@ from typing import TYPE_CHECKING, Any
 
 import pyarrow
 
-import vortex as vx
-from vortex._lib import arrays as _arrays
+from vortex.arrays import Array
+from vortex.dtype import DType 
+from vortex.serde import ArrayContext, ArrayParts
 
 try:
     import pandas
@@ -29,8 +30,6 @@ else:
 if TYPE_CHECKING:
     import numpy
 
-Array = _arrays.Array
-
 
 def empty_arrow_table(schema: pyarrow.Schema) -> pyarrow.Table:
     return pyarrow.Table.from_arrays([[] for _ in schema], schema=schema)
@@ -42,7 +41,7 @@ def arrow_table_from_struct_array(array: pyarrow.StructArray | pyarrow.ChunkedAr
     return pyarrow.Table.from_struct_array(array)
 
 
-def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
+def _Array_to_arrow_table(self: Array) -> pyarrow.Table:
     """Construct an Arrow table from this Vortex array.
 
     .. seealso::
@@ -82,7 +81,7 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
 Array.to_arrow_table = _Array_to_arrow_table
 
 
-def _Array_to_pandas_df(self: _arrays.Array) -> "pandas.DataFrame":
+def _Array_to_pandas_df(self: Array) -> "pandas.DataFrame":
     """Construct a Pandas dataframe from this Vortex array.
 
     Warning
@@ -120,7 +119,7 @@ Array.to_pandas_df = _Array_to_pandas_df
 
 
 def _Array_to_polars_dataframe(
-    self: _arrays.Array,
+    self: Array,
 ):  # -> 'polars.DataFrame':  # breaks docs due to Polars issue #7027
     """Construct a Polars dataframe from this Vortex array.
 
@@ -171,7 +170,7 @@ def _Array_to_polars_dataframe(
 Array.to_polars_dataframe = _Array_to_polars_dataframe
 
 
-def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # breaks docs due to Polars issue #7027
+def _Array_to_polars_series(self: Array):  # -> 'polars.Series':  # breaks docs due to Polars issue #7027
     """Construct a Polars series from this Vortex array.
 
     .. seealso::
@@ -239,7 +238,7 @@ def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # brea
 Array.to_polars_series = _Array_to_polars_series
 
 
-def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> "numpy.ndarray":
+def _Array_to_numpy(self: Array, *, zero_copy_only: bool = True) -> "numpy.ndarray":
     """Construct a NumPy array from this Vortex array.
 
     This is an alias for :code:`self.to_arrow_array().to_numpy(zero_copy_only)`
@@ -270,7 +269,7 @@ def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> "num
 Array.to_numpy = _Array_to_numpy
 
 
-def _Array_to_pylist(self: _arrays.Array) -> list[Any]:
+def _Array_to_pylist(self: Array) -> list[Any]:
     """Deeply copy an Array into a Python list.
 
     Returns
@@ -395,12 +394,12 @@ class PyArray(Array, metaclass=abc.ABCMeta):
 
     @property
     @abc.abstractmethod
-    def dtype(self) -> vx.DType:
+    def dtype(self) -> DType:
         """The data type of the array."""
 
     @classmethod
     @abc.abstractmethod
-    def decode(cls, parts: vx.ArrayParts, ctx: vx.ArrayContext, dtype: vx.DType, len: int) -> Array:
+    def decode(cls, parts: ArrayParts, ctx: ArrayContext, dtype: DType, len: int) -> Array:
         """Decode an array from its component parts.
 
         :class:`ArrayParts` contains the metadata, buffers and child :class:`ArrayParts` that represent the

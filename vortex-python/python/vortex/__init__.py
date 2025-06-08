@@ -1,5 +1,14 @@
-from . import _lib
-from ._lib.arrays import (
+from vortex import vortex
+from .vortex import *
+
+__doc__ = vortex.__doc__
+if hasattr(vortex, "__all__"):
+    __all__ = vortex.__all__
+
+from .convert import PyArray, array
+
+from vortex.arrays import (
+    Array,
     AlpArray,
     AlpRdArray,
     BoolArray,
@@ -23,11 +32,11 @@ from ._lib.arrays import (
     VarBinViewArray,
     ZigZagArray,
 )
-from ._lib.compress import compress
-from ._lib.dtype import (
+from vortex.compress import compress
+from vortex.dtype import (
+    DType,
     BinaryDType,
     BoolDType,
-    DType,
     ExtensionDType,
     ListDType,
     NullDType,
@@ -46,10 +55,10 @@ from ._lib.dtype import (
     uint,
     utf8,
 )
-from ._lib.file import open
-from ._lib.iter import ArrayIterator
-from ._lib.registry import Registry
-from ._lib.scalar import (
+from vortex.file import open
+from vortex.iter import ArrayIterator
+from vortex.registry import Registry
+from vortex.scalar import (
     BinaryScalar,
     BoolScalar,
     ExtensionScalar,
@@ -61,83 +70,83 @@ from ._lib.scalar import (
     Utf8Scalar,
     scalar,
 )
-from ._lib.serde import ArrayContext, ArrayParts
-from .arrays import Array, PyArray, array
-from .file import VortexFile
+from vortex.serde import ArrayContext, ArrayParts
+from vortex.file import VortexFile
 
-assert _lib, "Ensure we eagerly import the Vortex native library"
-
-__all__ = [
-    "array",
-    "compress",
-    # Arrays
-    "Array",
-    "PyArray",
-    # DTypes
-    "DType",
-    "PType",
-    "NullDType",
-    "BoolDType",
-    "PrimitiveDType",
-    "Utf8DType",
-    "BinaryDType",
-    "StructDType",
-    "ListDType",
-    "ExtensionDType",
-    "null",
-    "bool_",
-    "int_",
-    "uint",
-    "float_",
-    "utf8",
-    "binary",
-    "struct",
-    "list_",
-    "ext",
-    # Encodings
-    "ConstantArray",
-    "ChunkedArray",
-    "NullArray",
-    "BoolArray",
-    "ByteBoolArray",
-    "PrimitiveArray",
-    "VarBinArray",
-    "VarBinViewArray",
-    "StructArray",
-    "ListArray",
-    "ExtensionArray",
-    "AlpArray",
-    "AlpRdArray",
-    "DateTimePartsArray",
-    "DictArray",
-    "FsstArray",
-    "RunEndArray",
-    "SparseArray",
-    "ZigZagArray",
-    "FastLanesBitPackedArray",
-    "FastLanesDeltaArray",
-    "FastLanesFoRArray",
-    # Scalars
-    "scalar",
-    "Scalar",
-    "NullScalar",
-    "BoolScalar",
-    "PrimitiveScalar",
-    "Utf8Scalar",
-    "BinaryScalar",
-    "StructScalar",
-    "ListScalar",
-    "ExtensionScalar",
-    # Registry + Serde
-    "Registry",
-    "ArrayContext",
-    "ArrayParts",
-    # File
-    "VortexFile",
-    "open",
-    # Iterator
-    "ArrayIterator",
-]
-
-#: The default registry for Vortex
+# #: The default registry for Vortex
 registry = Registry()
+
+# assert _lib, "Ensure we eagerly import the Vortex native library"
+
+# __all__ = [
+#     "array",
+#     "compress",
+#     # Arrays
+#     "Array",
+#     "PyArray",
+#     # DTypes
+#     "DType",
+#     "PType",
+#     "NullDType",
+#     "BoolDType",
+#     "PrimitiveDType",
+#     "Utf8DType",
+#     "BinaryDType",
+#     "StructDType",
+#     "ListDType",
+#     "ExtensionDType",
+#     "null",
+#     "bool_",
+#     "int_",
+#     "uint",
+#     "float_",
+#     "utf8",
+#     "binary",
+#     "struct",
+#     "list_",
+#     "ext",
+#     # Encodings
+#     "ConstantArray",
+#     "ChunkedArray",
+#     "NullArray",
+#     "BoolArray",
+#     "ByteBoolArray",
+#     "PrimitiveArray",
+#     "VarBinArray",
+#     "VarBinViewArray",
+#     "StructArray",
+#     "ListArray",
+#     "ExtensionArray",
+#     "AlpArray",
+#     "AlpRdArray",
+#     "DateTimePartsArray",
+#     "DictArray",
+#     "FsstArray",
+#     "RunEndArray",
+#     "SparseArray",
+#     "ZigZagArray",
+#     "FastLanesBitPackedArray",
+#     "FastLanesDeltaArray",
+#     "FastLanesFoRArray",
+#     # Scalars
+#     "scalar",
+#     "Scalar",
+#     "NullScalar",
+#     "BoolScalar",
+#     "PrimitiveScalar",
+#     "Utf8Scalar",
+#     "BinaryScalar",
+#     "StructScalar",
+#     "ListScalar",
+#     "ExtensionScalar",
+#     # Registry + Serde
+#     "Registry",
+#     "ArrayContext",
+#     "ArrayParts",
+#     # File
+#     "VortexFile",
+#     "open",
+#     # Iterator
+#     "ArrayIterator",
+# ]
+

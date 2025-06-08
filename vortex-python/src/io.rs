@@ -12,10 +12,10 @@ use crate::expr::PyExpr;
 use crate::iter::PyArrayIterator;
 use crate::{PyVortex, TOKIO_RUNTIME, install_module};
 
-pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new(py, "io")?;
+pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new(parent.py(), "io")?;
     parent.add_submodule(&m)?;
-    install_module("vortex._lib.io", &m)?;
+    install_module("vortex.io", &m)?;
 
     m.add_function(wrap_pyfunction!(read_url, &m)?)?;
     m.add_function(wrap_pyfunction!(write, &m)?)?;

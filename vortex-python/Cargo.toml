@@ -31,6 +31,7 @@ object_store = { workspace = true, features = ["aws", "gcp", "azure", "http"] }
 parking_lot = { workspace = true }
 pyo3 = { workspace = true, features = ["abi3-py311"] }
 pyo3-log = { workspace = true }
+pyo3-stub-gen = { workspace = true }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "python"] }

@@ -5,30 +5,30 @@ import substrait
 from substrait.proto import ExtendedExpression, NamedStruct
 
 import vortex as vx
-from vortex._lib import expr as _expr
+from vortex import expr
 
 
-def literal(substrait_object) -> _expr.Expr:
+def literal(substrait_object) -> expr.Expr:
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/algebra.proto#L890
     match substrait_object.WhichOneof("literal_type"):
         case "boolean":
-            return _expr.literal(vx.bool_(nullable=False), substrait_object.boolean)
+            return expr.literal(vx.bool_(nullable=False), substrait_object.boolean)
         case "i8":
-            return _expr.literal(vx.int_(8, nullable=False), substrait_object.i8)
+            return expr.literal(vx.int_(8, nullable=False), substrait_object.i8)
         case "i16":
-            return _expr.literal(vx.int_(16, nullable=False), substrait_object.i16)
+            return expr.literal(vx.int_(16, nullable=False), substrait_object.i16)
         case "i32":
-            return _expr.literal(vx.int_(32, nullable=False), substrait_object.i32)
+            return expr.literal(vx.int_(32, nullable=False), substrait_object.i32)
         case "i64":
-            return _expr.literal(vx.int_(64, nullable=False), substrait_object.i64)
+            return expr.literal(vx.int_(64, nullable=False), substrait_object.i64)
         case "fp32":
-            return _expr.literal(vx.float_(32, nullable=False), substrait_object.fp32)
+            return expr.literal(vx.float_(32, nullable=False), substrait_object.fp32)
         case "fp64":
-            return _expr.literal(vx.float_(64, nullable=False), substrait_object.fp64)
+            return expr.literal(vx.float_(64, nullable=False), substrait_object.fp64)
         case "string":
-            return _expr.literal(vx.utf8(nullable=False), substrait_object.string)
+            return expr.literal(vx.utf8(nullable=False), substrait_object.string)
         case "binary":
-            return _expr.literal(vx.binary(nullable=False), substrait_object.binary)
+            return expr.literal(vx.binary(nullable=False), substrait_object.binary)
         case "timestamp":
             raise NotImplementedError
         case "date":
@@ -78,7 +78,7 @@ def literal(substrait_object) -> _expr.Expr:
             raise ValueError(f"unknown literal_type {literal_type}")
 
 
-def field_reference(substrait_object, schema: NamedStruct) -> _expr.Expr:
+def field_reference(substrait_object, schema: NamedStruct) -> expr.Expr:
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/algebra.proto#L1415
     match substrait_object.WhichOneof("reference_type"):
         case "direct_reference":
@@ -86,7 +86,7 @@ def field_reference(substrait_object, schema: NamedStruct) -> _expr.Expr:
             if len(segments) == 0 or len(segments) > 1:
                 raise NotImplementedError
             arrow_field_name = schema.names[segments[0]]
-            return _expr.column(arrow_field_name)
+            return expr.column(arrow_field_name)
         case "masked_reference":
             raise NotImplementedError
         case reference_type:
@@ -117,7 +117,7 @@ def struct_field(substrait_object) -> list[int]:
         return [substrait_object.field]
 
 
-def scalar_function(substrait_object, functions: list[Callable[..., _expr.Expr]], schema: NamedStruct) -> _expr.Expr:
+def scalar_function(substrait_object, functions: list[Callable[..., expr.Expr]], schema: NamedStruct) -> expr.Expr:
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/extensions/extensions.proto#L57
     function = functions[substrait_object.function_reference]
     if len(substrait_object.options) != 0:
@@ -126,7 +126,7 @@ def scalar_function(substrait_object, functions: list[Callable[..., _expr.Expr]]
     return function(*arguments)
 
 
-def function_argument(substrait_object, functions: list[Callable[..., _expr.Expr]], schema: NamedStruct) -> _expr.Expr:
+def function_argument(substrait_object, functions: list[Callable[..., expr.Expr]], schema: NamedStruct) -> expr.Expr:
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/algebra.proto#L832
     match substrait_object.WhichOneof("arg_type"):
         case "enum":
@@ -141,7 +141,7 @@ def function_argument(substrait_object, functions: list[Callable[..., _expr.Expr
 
 def extension_function(
     substrait_object, extension_uris: list["substrait.proto.extensions.SimpleExtensionURI"]
-) -> Callable[..., _expr.Expr]:
+) -> Callable[..., expr.Expr]:
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/extensions/extensions.proto#L57
     match extension_uris[substrait_object.extension_uri_reference].uri:
         case "https://github.com/substrait-io/substrait/blob/main/extensions/functions_boolean.yaml":
@@ -180,7 +180,7 @@ def extension_function(
             raise NotImplementedError(f"Extension URI {uri} not supported")
 
 
-def expression(substrait_object, functions: list[Callable[..., _expr.Expr]], schema: NamedStruct) -> _expr.Expr:
+def expression(substrait_object, functions: list[Callable[..., expr.Expr]], schema: NamedStruct) -> expr.Expr:
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/algebra.proto#L857
     match substrait_object.WhichOneof("rex_type"):
         case "literal":
@@ -210,8 +210,8 @@ def expression(substrait_object, functions: list[Callable[..., _expr.Expr]], sch
 
 
 def expression_reference(
-    substrait_object, functions: list[Callable[..., _expr.Expr]], schema: NamedStruct
-) -> _expr.Expr:
+    substrait_object, functions: list[Callable[..., expr.Expr]], schema: NamedStruct
+) -> expr.Expr:
     print(substrait_object)
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/extended__expression.proto#L16
     match substrait_object.WhichOneof("expr_type"):
@@ -221,7 +221,7 @@ def expression_reference(
             raise ValueError("unknown expr_type: {}")
 
 
-def extended_expression(substrait_object: ExtendedExpression) -> list[_expr.Expr]:
+def extended_expression(substrait_object: ExtendedExpression) -> list[expr.Expr]:
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/extended__expression.proto#L27
     functions = []
 

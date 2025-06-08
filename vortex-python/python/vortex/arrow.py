@@ -6,9 +6,26 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset
 
-import vortex as vx
-from vortex._lib import dataset as _dataset
-from vortex.arrow.expression import arrow_to_vortex as arrow_to_vortex_expr
+
+
+import pyarrow as pa
+import pyarrow.compute as pc
+from substrait.proto import ExtendedExpression
+
+import vortex
+from vortex.substrait import extended_expression
+
+
+def arrow_to_vortex(arrow_expression: pc.Expression, schema: pa.Schema) -> vortex.expr.Expr:
+    substrait_object = ExtendedExpression()
+    substrait_object.ParseFromString(arrow_expression.to_substrait(schema))
+
+    expressions = extended_expression(substrait_object)
+
+    if len(expressions) < 0 or len(expressions) > 1:
+        raise ValueError("arrow_to_vortex: extended expression must have exactly one child")
+    return expressions[0]
+
 
 
 class VortexDataset(pyarrow.dataset.Dataset):
@@ -24,11 +41,11 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
     @staticmethod
     def from_url(url: str):
-        return VortexDataset(_dataset.dataset_from_url(url))
+        return VortexDataset(vortex.arrow.dataset_from_url(url))
 
     @staticmethod
     def from_path(path: str):
-        return vx.open(path).to_dataset()
+        return vortex.open(path).to_dataset()
 
     @property
     def schema(self) -> pa.Schema:
@@ -231,7 +248,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
         """
         return self._dataset.to_array(
-            columns=columns, row_filter=filter, indices=vx.array(indices.cast(pa.uint64()))
+            columns=columns, row_filter=filter, indices=vortex.array(indices.cast(pa.uint64()))
         ).to_arrow_table()
 
     def to_record_batch_reader(
@@ -400,11 +417,11 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
 
 def from_path(path: str) -> VortexDataset:
-    return VortexDataset(_dataset.dataset_from_path(path))
+    return VortexDataset(vortex.dataset.dataset_from_path(path))
 
 
 def from_url(url: str) -> VortexDataset:
-    return VortexDataset(_dataset.dataset_from_url(url))
+    return VortexDataset(vortex.dataset.dataset_from_url(url))
 
 
 class VortexScanner(pa.dataset.Scanner):

@@ -37,10 +37,10 @@ use crate::install_module;
 use crate::python_repr::PythonRepr;
 
 /// Register DType functions and classes.
-pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new(py, "dtype")?;
+pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new(parent.py(), "dtype")?;
     parent.add_submodule(&m)?;
-    install_module("vortex._lib.dtype", &m)?;
+    install_module("vortex.dtype", &m)?;
 
     // Register the DType class.
     m.add_class::<PyDType>()?;

@@ -20,10 +20,10 @@ use crate::install_module;
 use crate::iter::python::PythonArrayIterator;
 use crate::record_batch_reader::VortexRecordBatchReader;
 
-pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new(py, "iter")?;
+pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new(parent.py(), "iter")?;
     parent.add_submodule(&m)?;
-    install_module("vortex._lib.iter", &m)?;
+    install_module("vortex.iter", &m)?;
 
     m.add_class::<PyArrayIterator>()?;
 

@@ -20,10 +20,10 @@ use crate::object_store_urls::object_store_from_url;
 use crate::record_batch_reader::VortexRecordBatchReader;
 use crate::{TOKIO_RUNTIME, install_module};
 
-pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new(py, "dataset")?;
+pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new(parent.py(), "dataset")?;
     parent.add_submodule(&m)?;
-    install_module("vortex._lib.dataset", &m)?;
+    install_module("vortex.dataset", &m)?;
 
     m.add_function(wrap_pyfunction!(dataset_from_url, &m)?)?;
 

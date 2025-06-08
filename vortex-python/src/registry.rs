@@ -13,10 +13,10 @@ use crate::install_module;
 use crate::serde::context::PyArrayContext;
 
 /// Register serde functions and classes.
-pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new(py, "registry")?;
+pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new(parent.py(), "registry")?;
     parent.add_submodule(&m)?;
-    install_module("vortex._lib.registry", &m)?;
+    install_module("vortex.registry", &m)?;
 
     m.add_class::<PyRegistry>()?;
 

@@ -8,7 +8,7 @@ import pyarrow.compute as pc
 import pytest
 
 import vortex as vx
-import vortex.dataset
+from vortex.arrow import VortexDataset
 import vortex.io
 
 
@@ -21,14 +21,14 @@ def record(x: int, columns=None) -> dict:
 
 
 @pytest.fixture(scope="session")
-def ds(tmpdir_factory) -> vortex.dataset.VortexDataset:
+def ds(tmpdir_factory) -> VortexDataset:
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"
 
     if not os.path.exists(fname):
         a = pa.array([record(x) for x in range(1_000_000)])
         arr = vx.compress(vx.array(a))
         vortex.io.write(arr, str(fname))
-    return vortex.dataset.VortexDataset.from_path(str(fname))
+    return VortexDataset.from_path(str(fname))
 
 
 def test_schema(ds):

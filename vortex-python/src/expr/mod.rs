@@ -10,10 +10,10 @@ use crate::dtype::PyDType;
 use crate::install_module;
 use crate::scalar::factory::scalar_helper;
 
-pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new(py, "expr")?;
+pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new(parent.py(), "expr")?;
     parent.add_submodule(&m)?;
-    install_module("vortex._lib.expr", &m)?;
+    install_module("vortex.expr", &m)?;
 
     m.add_function(wrap_pyfunction!(column, &m)?)?;
     m.add_function(wrap_pyfunction!(ident, &m)?)?;

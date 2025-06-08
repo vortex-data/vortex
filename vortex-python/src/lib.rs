@@ -35,9 +35,11 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
         .vortex_expect("tokio runtime must not fail to start")
 });
 
+use pyo3_stub_gen::define_stub_info_gatherer;
+
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
-#[pymodule]
-fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
+#[pymodule(name = "vortex")]
+fn entry_point(root_module: &Bound<PyModule>) -> PyResult<()> {
     Python::with_gil(|py| -> PyResult<()> {
         Logger::new(py, Caching::LoggersAndLevels)?
             .filter(LevelFilter::Info)
@@ -47,29 +49,31 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
             .map_err(|err| PyRuntimeError::new_err(format!("could not initialize logger {err}")))
     })?;
 
-    // Initialize our submodules, living under vortex._lib
-    arrays::init(py, m)?;
-    compress::init(py, m)?;
-    dataset::init(py, m)?;
-    dtype::init(py, m)?;
-    expr::init(py, m)?;
-    file::init(py, m)?;
-    io::init(py, m)?;
-    iter::init(py, m)?;
-    registry::init(py, m)?;
-    scalar::init(py, m)?;
-    serde::init(py, m)?;
+    // Initialize our submodules
+    arrays::init(root_module)?;
+    compress::init(root_module)?;
+    dataset::init(root_module)?;
+    dtype::init(root_module)?;
+    expr::init(root_module)?;
+    file::init(root_module)?;
+    io::init(root_module)?;
+    iter::init(root_module)?;
+    registry::init(root_module)?;
+    scalar::init(root_module)?;
+    serde::init(root_module)?;
 
     Ok(())
 }
+
+define_stub_info_gatherer!(stub_info);
 
 /// Initialize a module and add it to `sys.modules`.
 ///
 /// Without this, it's not possible to use native submodules as "packages". For example:
 ///
 /// ```pycon
-/// >>> from vortex._lib.dtype import bool_  # This fails
-/// ModuleNotFoundError: No module named 'vortex._lib.dtype'; 'vortex._lib' is not a package
+/// >>> from vortex.dtype import bool_  # This fails
+/// ModuleNotFoundError: No module named 'vortex.dtype'; 'vortex._lib' is not a package
 /// ```
 ///
 /// After this, we can import submodules both as modules:
@@ -81,7 +85,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
 /// And have direct import access to functions and classes in the submodule:
 ///
 /// ```pycon
-/// >>> from vortex._lib.dtype import bool_
+/// >>> from vortex.dtype import bool_
 /// ```
 ///
 /// See <https://github.com/PyO3/pyo3/issues/759#issuecomment-1811992321>.

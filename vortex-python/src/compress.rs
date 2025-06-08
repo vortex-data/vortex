@@ -4,10 +4,10 @@ use vortex::compressor::BtrBlocksCompressor;
 use crate::arrays::PyArrayRef;
 use crate::install_module;
 
-pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
-    let m = PyModule::new(py, "compress")?;
+pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
+    let m = PyModule::new(parent.py(), "compress")?;
     parent.add_submodule(&m)?;
-    install_module("vortex._lib.compress", &m)?;
+    install_module("vortex.compress", &m)?;
 
     m.add_function(wrap_pyfunction!(compress, &m)?)?;
 

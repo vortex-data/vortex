@@ -47,10 +47,11 @@ build-backend = "maturin"
 
 [tool.uv]
 managed = true
+cache-keys = [{file = "pyproject.toml"}, {file = "rust/Cargo.toml"}, {file = "**/*.rs"}]
 
 [tool.maturin]
 python-source = "python"
-module-name = "vortex._lib"
+module-name = "vortex"
 features = ["pyo3/extension-module"]
 compatibility = "manylinux2014"
 include = [
