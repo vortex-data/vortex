@@ -36,7 +36,6 @@ use crate::{PyVortex, install_module};
 
 pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(parent.py(), "scalar")?;
-    parent.add_submodule(&m)?;
     install_module("vortex.scalar", &m)?;
 
     m.add_function(wrap_pyfunction!(factory::scalar, &m)?)?;
@@ -53,11 +52,13 @@ pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyUtf8Scalar>()?;
     m.add_class::<PyStructScalar>()?;
 
+    parent.add_submodule(&m)?;
+
     Ok(())
 }
 
 /// Base class for Vortex scalar types.
-#[pyclass(name = "Scalar", module = "vortex", subclass, frozen, eq, hash)]
+#[pyclass(name = "Scalar", module = "vortex.scalar", subclass, frozen, eq, hash)]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct PyScalar(Scalar);
 

@@ -5,7 +5,7 @@ use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 use crate::dtype::PyPType;
 
 /// Concrete class for arrays with `vortex.primitive` encoding.
-#[pyclass(name = "PrimitiveArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "PrimitiveArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyPrimitiveArray;
 
 impl EncodingSubclass for PyPrimitiveArray {

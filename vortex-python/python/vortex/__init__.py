@@ -1,9 +1,13 @@
+from typing import TYPE_CHECKING
 from vortex import vortex
 from .vortex import *
 
-__doc__ = vortex.__doc__
-if hasattr(vortex, "__all__"):
-    __all__ = vortex.__all__
+if TYPE_CHECKING:
+    import pyarrow
+    import numpy
+    import pandas
+
+
 
 from .convert import PyArray, array
 
@@ -14,6 +18,7 @@ from vortex.arrays import (
     BoolArray,
     ByteBoolArray,
     ChunkedArray,
+    NativeArray,
     ConstantArray,
     DateTimePartsArray,
     DictArray,
@@ -37,6 +42,7 @@ from vortex.dtype import (
     DType,
     BinaryDType,
     BoolDType,
+    DecimalDType,
     ExtensionDType,
     ListDType,
     NullDType,
@@ -76,77 +82,81 @@ from vortex.file import VortexFile
 # #: The default registry for Vortex
 registry = Registry()
 
-# assert _lib, "Ensure we eagerly import the Vortex native library"
+__all__ = [
+    "array",
+    "compress",
+    # Arrays
+    "Array",
+    "PyArray",
+    # DTypes
+    "DType",
+    "PType",
+    "NullDType",
+    "BoolDType",
+    "DecimalDType",
+    "PrimitiveDType",
+    "Utf8DType",
+    "BinaryDType",
+    "StructDType",
+    "ListDType",
+    "ExtensionDType",
+    "null",
+    "bool_",
+    "int_",
+    "uint",
+    "float_",
+    "utf8",
+    "binary",
+    "struct",
+    "list_",
+    "ext",
+    # Encodings
+    "ConstantArray",
+    "ChunkedArray",
+    "NullArray",
+    "BoolArray",
+    "ByteBoolArray",
+    "PrimitiveArray",
+    "VarBinArray",
+    "VarBinViewArray",
+    "StructArray",
+    "ListArray",
+    "ExtensionArray",
+    "AlpArray",
+    "AlpRdArray",
+    "DateTimePartsArray",
+    "DictArray",
+    "FsstArray",
+    "RunEndArray",
+    "SparseArray",
+    "ZigZagArray",
+    "FastLanesBitPackedArray",
+    "FastLanesDeltaArray",
+    "FastLanesFoRArray",
+    # Scalars
+    "scalar",
+    "Scalar",
+    "NullScalar",
+    "BoolScalar",
+    "PrimitiveScalar",
+    "Utf8Scalar",
+    "BinaryScalar",
+    "StructScalar",
+    "ListScalar",
+    "ExtensionScalar",
+    # Registry + Serde
+    "Registry",
+    "ArrayContext",
+    "ArrayParts",
+    # File
+    "VortexFile",
+    "open",
+    # Iterator
+    "ArrayIterator",
+]
 
-# __all__ = [
-#     "array",
-#     "compress",
-#     # Arrays
-#     "Array",
-#     "PyArray",
-#     # DTypes
-#     "DType",
-#     "PType",
-#     "NullDType",
-#     "BoolDType",
-#     "PrimitiveDType",
-#     "Utf8DType",
-#     "BinaryDType",
-#     "StructDType",
-#     "ListDType",
-#     "ExtensionDType",
-#     "null",
-#     "bool_",
-#     "int_",
-#     "uint",
-#     "float_",
-#     "utf8",
-#     "binary",
-#     "struct",
-#     "list_",
-#     "ext",
-#     # Encodings
-#     "ConstantArray",
-#     "ChunkedArray",
-#     "NullArray",
-#     "BoolArray",
-#     "ByteBoolArray",
-#     "PrimitiveArray",
-#     "VarBinArray",
-#     "VarBinViewArray",
-#     "StructArray",
-#     "ListArray",
-#     "ExtensionArray",
-#     "AlpArray",
-#     "AlpRdArray",
-#     "DateTimePartsArray",
-#     "DictArray",
-#     "FsstArray",
-#     "RunEndArray",
-#     "SparseArray",
-#     "ZigZagArray",
-#     "FastLanesBitPackedArray",
-#     "FastLanesDeltaArray",
-#     "FastLanesFoRArray",
-#     # Scalars
-#     "scalar",
-#     "Scalar",
-#     "NullScalar",
-#     "BoolScalar",
-#     "PrimitiveScalar",
-#     "Utf8Scalar",
-#     "BinaryScalar",
-#     "StructScalar",
-#     "ListScalar",
-#     "ExtensionScalar",
-#     # Registry + Serde
-#     "Registry",
-#     "ArrayContext",
-#     "ArrayParts",
-#     # File
-#     "VortexFile",
-#     "open",
-#     # Iterator
-#     "ArrayIterator",
-# ]
+
+__doc__ = vortex.__doc__
+# if hasattr(vortex, "__all__"):
+#     __all__ = vortex.__all__
 

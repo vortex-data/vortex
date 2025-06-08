@@ -7,7 +7,7 @@ use vortex::error::vortex_panic;
 use crate::dtype::PyDType;
 
 /// Concrete class for struct dtypes.
-#[pyclass(name = "StructDType", module = "vortex", extends=PyDType, frozen)]
+#[pyclass(name = "StructDType", module = "vortex.dtype", extends=PyDType, frozen)]
 pub(crate) struct PyStructDType;
 
 #[pymethods]

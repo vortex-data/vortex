@@ -26,15 +26,15 @@ use crate::{TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(parent.py(), "file")?;
-    parent.add_submodule(&m)?;
-    install_module("vortex.file", &m)?;
 
     m.add_function(wrap_pyfunction!(open, &m)?)?;
     m.add_class::<PyVortexFile>()?;
 
+    parent.add_submodule(&m)?;
+    install_module("vortex.file", &m)?;
+
     Ok(())
 }
-
 
 #[pyfunction]
 pub fn open(path: &str) -> PyResult<PyVortexFile> {
@@ -45,12 +45,10 @@ pub fn open(path: &str) -> PyResult<PyVortexFile> {
     Ok(PyVortexFile { vxf })
 }
 
-
 #[pyclass(name = "VortexFile", module = "vortex", frozen)]
 pub struct PyVortexFile {
     vxf: VortexFile,
 }
-
 
 #[pymethods]
 impl PyVortexFile {

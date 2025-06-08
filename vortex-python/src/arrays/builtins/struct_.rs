@@ -5,7 +5,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 
 /// Concrete class for arrays with `vortex.struct` encoding.
-#[pyclass(name = "StructArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "StructArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyStructArray;
 
 impl EncodingSubclass for PyStructArray {

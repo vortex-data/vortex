@@ -2,7 +2,7 @@ use pyo3::pyclass;
 
 use crate::scalar::{PyScalar, ScalarSubclass};
 
-#[pyclass(name = "NullScalar", module = "vortex", extends=PyScalar, frozen)]
+#[pyclass(name = "NullScalar", module = "vortex.scalar", extends=PyScalar, frozen)]
 pub(crate) struct PyNullScalar;
 
 /// Concrete class for null scalars.

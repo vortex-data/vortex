@@ -21,7 +21,6 @@ use pyo3::{
     Bound, PyAny, PyClass, PyClassInitializer, PyObject, PyResult, Python, pyclass, pymethods,
     wrap_pyfunction,
 };
-
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 
@@ -40,6 +39,7 @@ use crate::python_repr::PythonRepr;
 /// Register DType functions and classes.
 pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(parent.py(), "dtype")?;
+
     parent.add_submodule(&m)?;
     install_module("vortex.dtype", &m)?;
 
@@ -74,7 +74,7 @@ pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
 
 /// Base class for all Vortex data types.
 
-#[pyclass(name = "DType", module = "vortex", frozen, eq, hash, subclass)]
+#[pyclass(name = "DType", module = "vortex.dtype", frozen, eq, hash, subclass)]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct PyDType(DType);
 
@@ -135,7 +135,6 @@ impl PyDType {
         self.0
     }
 }
-
 
 #[pymethods]
 impl PyDType {

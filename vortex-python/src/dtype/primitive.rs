@@ -8,7 +8,7 @@ use crate::dtype::PyDType;
 use crate::dtype::ptype::PyPType;
 
 /// Concrete class for primitive dtypes.
-#[pyclass(name = "PrimitiveDType", module = "vortex", extends=PyDType, frozen)]
+#[pyclass(name = "PrimitiveDType", module = "vortex.dtype", extends=PyDType, frozen)]
 pub(crate) struct PyPrimitiveDType;
 
 #[pymethods]

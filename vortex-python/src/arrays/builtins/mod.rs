@@ -18,7 +18,7 @@ use vortex::encodings::bytebool::ByteBoolVTable;
 use crate::arrays::native::{EncodingSubclass, PyNativeArray};
 
 /// Concrete class for arrays with `vortex.null` encoding.
-#[pyclass(name = "NullArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "NullArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyNullArray;
 
 impl EncodingSubclass for PyNullArray {
@@ -26,7 +26,7 @@ impl EncodingSubclass for PyNullArray {
 }
 
 /// Concrete class for arrays with `vortex.bool` encoding.
-#[pyclass(name = "BoolArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "BoolArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyBoolArray;
 
 impl EncodingSubclass for PyBoolArray {
@@ -34,7 +34,7 @@ impl EncodingSubclass for PyBoolArray {
 }
 
 /// Concrete class for arrays with `vortex.bytebool` encoding.
-#[pyclass(name = "ByteBoolArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "ByteBoolArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyByteBoolArray;
 
 impl EncodingSubclass for PyByteBoolArray {
@@ -42,7 +42,7 @@ impl EncodingSubclass for PyByteBoolArray {
 }
 
 /// Concrete class for arrays with `vortex.varbin` encoding.
-#[pyclass(name = "VarBinArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "VarBinArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyVarBinArray;
 
 impl EncodingSubclass for PyVarBinArray {
@@ -50,7 +50,7 @@ impl EncodingSubclass for PyVarBinArray {
 }
 
 /// Concrete class for arrays with `vortex.varbinview` encoding.
-#[pyclass(name = "VarBinViewArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "VarBinViewArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyVarBinViewArray;
 
 impl EncodingSubclass for PyVarBinViewArray {
@@ -58,7 +58,7 @@ impl EncodingSubclass for PyVarBinViewArray {
 }
 
 /// Concrete class for arrays with `vortex.list` encoding.
-#[pyclass(name = "ListArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "ListArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyListArray;
 
 impl EncodingSubclass for PyListArray {
@@ -66,7 +66,7 @@ impl EncodingSubclass for PyListArray {
 }
 
 /// Concrete class for arrays with `vortex.ext` encoding.
-#[pyclass(name = "ExtensionArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "ExtensionArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyExtensionArray;
 
 impl EncodingSubclass for PyExtensionArray {

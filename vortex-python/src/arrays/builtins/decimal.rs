@@ -4,7 +4,7 @@ use vortex::arrays::DecimalVTable;
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 
 /// Concrete class for arrays with `vortex.decimal` encoding.
-#[pyclass(name = "DecimalArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "DecimalArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyDecimalArray;
 
 impl EncodingSubclass for PyDecimalArray {

@@ -35,7 +35,7 @@ use crate::arrays::fastlanes::{
 };
 use crate::dtype::PyDType;
 
-#[pyclass(name = "NativeArray", module = "vortex", extends=PyArray, sequence, subclass, frozen)]
+#[pyclass(name = "NativeArray", module = "vortex.arrays", extends=PyArray, sequence, subclass, frozen)]
 pub struct PyNativeArray(ArrayRef);
 
 impl Deref for PyNativeArray {

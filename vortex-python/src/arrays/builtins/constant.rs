@@ -5,7 +5,7 @@ use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 use crate::scalar::PyScalar;
 
 /// Concrete class for arrays with `vortex.constant` encoding.
-#[pyclass(name = "ConstantArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "ConstantArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyConstantArray;
 
 impl EncodingSubclass for PyConstantArray {

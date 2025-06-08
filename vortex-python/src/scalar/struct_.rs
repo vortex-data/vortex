@@ -5,7 +5,7 @@ use crate::PyVortex;
 use crate::scalar::{AsScalarRef, PyScalar, ScalarSubclass};
 
 /// Concrete class for struct scalars.
-#[pyclass(name = "StructScalar", module = "vortex", extends=PyScalar, frozen)]
+#[pyclass(name = "StructScalar",module = "vortex.scalar", extends=PyScalar, frozen)]
 pub(crate) struct PyStructScalar;
 
 impl ScalarSubclass for PyStructScalar {

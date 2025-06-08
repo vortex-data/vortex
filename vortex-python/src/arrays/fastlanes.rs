@@ -4,7 +4,7 @@ use vortex::encodings::fastlanes::{BitPackedVTable, DeltaVTable, FoRVTable};
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 
 /// Concrete class for arrays with `fastlanes.bitpacked` encoding.
-#[pyclass(name = "FastLanesBitPackedArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "FastLanesBitPackedArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyFastLanesBitPackedArray;
 
 impl EncodingSubclass for PyFastLanesBitPackedArray {
@@ -21,7 +21,7 @@ impl PyFastLanesBitPackedArray {
 }
 
 /// Concrete class for arrays with `fastlanes.delta` encoding.
-#[pyclass(name = "FastLanesDeltaArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "FastLanesDeltaArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyFastLanesDeltaArray;
 
 impl EncodingSubclass for PyFastLanesDeltaArray {
@@ -29,7 +29,7 @@ impl EncodingSubclass for PyFastLanesDeltaArray {
 }
 
 /// Concrete class for arrays with `fastlanes.for` encoding.
-#[pyclass(name = "FastLanesFoRArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "FastLanesFoRArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyFastLanesFoRArray;
 
 impl EncodingSubclass for PyFastLanesFoRArray {

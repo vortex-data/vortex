@@ -27,8 +27,6 @@ use crate::serde::context::PyArrayContext;
 
 pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(parent.py(), "arrays")?;
-    parent.add_submodule(&m)?;
-    install_module("vortex.arrays", &m)?;
 
     m.add_class::<PyArray>()?;
     m.add_class::<PyNativeArray>()?;
@@ -63,6 +61,9 @@ pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<fastlanes::PyFastLanesBitPackedArray>()?;
     m.add_class::<fastlanes::PyFastLanesDeltaArray>()?;
     m.add_class::<fastlanes::PyFastLanesFoRArray>()?;
+
+    parent.add_submodule(&m)?;
+    install_module("vortex.arrays", &m)?;
 
     Ok(())
 }

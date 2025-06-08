@@ -7,7 +7,7 @@ use vortex::error::vortex_panic;
 use crate::dtype::PyDType;
 
 /// Concrete class for primitive dtypes.
-#[pyclass(name = "DecimalDType", module = "vortex", extends=PyDType, frozen)]
+#[pyclass(name = "DecimalDType", module = "vortex.dtype", extends=PyDType, frozen)]
 pub(crate) struct PyDecimalDType;
 
 #[pymethods]

@@ -6,6 +6,9 @@ from pcodec import wrapped as pco
 
 import vortex as vx
 
+print(dir(vx))
+print(dir(vx.arrays))
+
 
 class PCodecArray(vx.PyArray):
     id = "pcodec.v0"

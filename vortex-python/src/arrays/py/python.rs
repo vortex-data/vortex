@@ -14,7 +14,7 @@ use crate::dtype::PyDType;
 // This class can hold everything _except_ a reference to its own object self. So when we
 // downcast and extract a [`crate::arrays::PythonArray`] from this Python object, we just have
 // to wrap it up with the object instance.
-#[pyclass(name = "PythonArray", module = "vortex", extends=PyArray, sequence, subclass, frozen)]
+#[pyclass(name = "PythonArray", module = "vortex.arrays", extends=PyArray, sequence, subclass, frozen)]
 pub struct PyPythonArray {
     pub(crate) encoding: EncodingRef,
     pub(crate) len: usize,

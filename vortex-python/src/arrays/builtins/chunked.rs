@@ -5,7 +5,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrays::native::{AsArrayRef, EncodingSubclass, PyNativeArray};
 
 /// Concrete class for arrays with `vortex.chunked` encoding.
-#[pyclass(name = "ChunkedArray", module = "vortex", extends=PyNativeArray, frozen)]
+#[pyclass(name = "ChunkedArray", module = "vortex.arrays", extends=PyNativeArray, frozen)]
 pub(crate) struct PyChunkedArray;
 
 impl EncodingSubclass for PyChunkedArray {

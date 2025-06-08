@@ -4,7 +4,7 @@ use vortex::scalar::Utf8Scalar;
 use crate::scalar::{PyScalar, ScalarSubclass};
 
 /// Concrete class for utf8 scalars.
-#[pyclass(name = "Utf8Scalar", module = "vortex", extends=PyScalar, frozen)]
+#[pyclass(name = "Utf8Scalar", module = "vortex.scalar", extends=PyScalar, frozen)]
 pub(crate) struct PyUtf8Scalar;
 
 impl ScalarSubclass for PyUtf8Scalar {

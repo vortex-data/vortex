@@ -6,10 +6,11 @@ use crate::install_module;
 
 pub(crate) fn init(parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(parent.py(), "compress")?;
-    parent.add_submodule(&m)?;
-    install_module("vortex.compress", &m)?;
 
     m.add_function(wrap_pyfunction!(compress, &m)?)?;
+
+    parent.add_submodule(&m)?;
+    install_module("vortex.compress", &m)?;
 
     Ok(())
 }
