@@ -41,6 +41,8 @@ impl PruningPredicate {
     /// If it returns Ok(Some(array)), the array is a boolean array with the same length as the
     /// metadata, and a true value means the chunk _can_ be pruned.
     pub fn evaluate(&self, metadata: &Scope) -> VortexResult<Option<ArrayRef>> {
+        // TODO(joe): Replace this with a StatsCatalog that contains all the available stats and
+        // build an expr using them.
         let known_stats = metadata
             .iter()
             .flat_map(|(access_path, stat)| {
@@ -81,14 +83,14 @@ struct FileStatsCatalog {
 impl StatsCatalog for FileStatsCatalog {
     fn stats_ref(&mut self, access_path: &AccessPath, stat: Stat) -> Option<ExprRef> {
         let mut expr = var(access_path.identifier().clone());
-        let name = access_path_field_name(access_path, stat);
+        let name = access_path_stat_field_name(access_path, stat);
         expr = get_item(name, expr);
         self.usage.insert((access_path.clone(), stat), expr.clone());
         Some(expr)
     }
 }
 
-pub fn access_path_field_name(access_path: &AccessPath, stat: Stat) -> FieldName {
+pub fn access_path_stat_field_name(access_path: &AccessPath, stat: Stat) -> FieldName {
     access_path
         .field_path
         .path()
@@ -124,7 +126,7 @@ mod tests {
     use vortex_dtype::FieldName;
 
     use crate::pruning::pruning_predicate::{HashMap, pruning_expr};
-    use crate::pruning::{PruningPredicate, access_path_field_name};
+    use crate::pruning::{PruningPredicate, access_path_stat_field_name};
     use crate::{
         AccessPath, HashSet, and, col, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq,
         not_eq, or, root,
@@ -139,14 +141,14 @@ mod tests {
         let expected_expr = or(
             gt(
                 get_item(
-                    access_path_field_name(&AccessPath::root_field(name.clone()), Stat::Min),
+                    access_path_stat_field_name(&AccessPath::root_field(name.clone()), Stat::Min),
                     root(),
                 ),
                 literal_eq.clone(),
             ),
             gt(
                 literal_eq,
-                get_item_scope(access_path_field_name(
+                get_item_scope(access_path_stat_field_name(
                     &AccessPath::root_field(name),
                     Stat::Max,
                 )),
@@ -180,21 +182,21 @@ mod tests {
         );
         let expected_expr = or(
             gt(
-                get_item_scope(access_path_field_name(
+                get_item_scope(access_path_stat_field_name(
                     &AccessPath::root_field(column.clone()),
                     Stat::Min,
                 )),
-                get_item_scope(access_path_field_name(
+                get_item_scope(access_path_stat_field_name(
                     &AccessPath::root_field(other_col.clone()),
                     Stat::Max,
                 )),
             ),
             gt(
-                get_item_scope(access_path_field_name(
+                get_item_scope(access_path_stat_field_name(
                     &AccessPath::root_field(other_col),
                     Stat::Min,
                 )),
-                get_item_scope(access_path_field_name(
+                get_item_scope(access_path_stat_field_name(
                     &AccessPath::root_field(column),
                     Stat::Max,
                 )),
@@ -228,21 +230,21 @@ mod tests {
         );
         let expected_expr = and(
             eq(
-                get_item_scope(access_path_field_name(
+                get_item_scope(access_path_stat_field_name(
                     &AccessPath::root_field(column.clone()),
                     Stat::Min,
                 )),
-                get_item_scope(access_path_field_name(
+                get_item_scope(access_path_stat_field_name(
                     &AccessPath::root_field(other_col.clone()),
                     Stat::Max,
                 )),
             ),
             eq(
-                get_item_scope(access_path_field_name(
+                get_item_scope(access_path_stat_field_name(
                     &AccessPath::root_field(column),
                     Stat::Max,
                 )),
-                get_item_scope(access_path_field_name(
+                get_item_scope(access_path_stat_field_name(
                     &AccessPath::root_field(other_col),
                     Stat::Min,
                 )),
@@ -274,11 +276,11 @@ mod tests {
             ])
         );
         let expected_expr = lt_eq(
-            get_item_scope(access_path_field_name(
+            get_item_scope(access_path_stat_field_name(
                 &AccessPath::root_field(column),
                 Stat::Max,
             )),
-            get_item_scope(access_path_field_name(
+            get_item_scope(access_path_stat_field_name(
                 &AccessPath::root_field(other_col),
                 Stat::Min,
             )),
@@ -301,7 +303,7 @@ mod tests {
             ),])
         );
         let expected_expr = lt_eq(
-            get_item_scope(access_path_field_name(
+            get_item_scope(access_path_stat_field_name(
                 &AccessPath::root_field(column),
                 Stat::Max,
             )),
@@ -332,11 +334,11 @@ mod tests {
             ])
         );
         let expected_expr = gt_eq(
-            get_item_scope(access_path_field_name(
+            get_item_scope(access_path_stat_field_name(
                 &AccessPath::root_field(column),
                 Stat::Min,
             )),
-            get_item_scope(access_path_field_name(
+            get_item_scope(access_path_stat_field_name(
                 &AccessPath::root_field(other_col),
                 Stat::Max,
             )),
@@ -359,7 +361,7 @@ mod tests {
             )])
         );
         let expected_expr = gt_eq(
-            get_item_scope(access_path_field_name(
+            get_item_scope(access_path_stat_field_name(
                 &AccessPath::root_field(column),
                 Stat::Min,
             )),
