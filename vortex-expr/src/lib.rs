@@ -1,3 +1,5 @@
+#![feature(option_zip)]
+
 use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
@@ -6,13 +8,16 @@ use dyn_hash::DynHash;
 
 mod binary;
 
+mod analysis;
 mod between;
+mod cast;
 mod field;
 pub mod forms;
 mod get_item;
-mod identity;
 mod is_null;
+mod let_;
 mod like;
+mod list_contains;
 mod literal;
 mod merge;
 mod not;
@@ -21,16 +26,21 @@ mod pack;
 pub mod pruning;
 #[cfg(feature = "proto")]
 mod registry;
+mod scope;
 mod select;
 pub mod transform;
 pub mod traversal;
+mod var;
 
+pub use analysis::*;
 pub use between::*;
 pub use binary::*;
+pub use cast::*;
 pub use get_item::*;
-pub use identity::*;
 pub use is_null::*;
+pub use let_::*;
 pub use like::*;
+pub use list_contains::*;
 pub use literal::*;
 pub use merge::*;
 pub use not::*;
@@ -38,10 +48,12 @@ pub use operators::*;
 pub use pack::*;
 #[cfg(feature = "proto")]
 pub use registry::deserialize_expr;
+pub use scope::*;
 pub use select::*;
+pub use var::*;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{DType, FieldName};
+use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexResult, VortexUnwrap};
 #[cfg(feature = "proto")]
 use vortex_proto::expr;
@@ -73,23 +85,23 @@ pub trait ExprSerializable {
 pub trait ExprSerializable {}
 #[cfg(not(feature = "proto"))]
 impl<T> ExprSerializable for T {}
-
 /// Represents logical operation on [`ArrayRef`]s
-pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable {
+pub trait VortexExpr:
+    Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable + AnalysisExpr
+{
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 
     /// Compute result of expression on given batch producing a new batch
-    ///
-    fn evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let result = self.unchecked_evaluate(batch)?;
+    fn evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
+        let result = self.unchecked_evaluate(scope)?;
         assert_eq!(
             result.dtype(),
-            &self.return_dtype(batch.dtype())?,
+            &self.return_dtype(&scope.into())?,
             "Expression {} returned dtype {} but declared return_dtype of {}",
             self,
             result.dtype(),
-            self.return_dtype(batch.dtype())?,
+            self.return_dtype(&scope.into())?,
         );
         Ok(result)
     }
@@ -99,14 +111,14 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + ExprSeri
     /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
     /// the [VortexExpr::return_dtype] method. Use instead the [VortexExpr::evaluate] function which
     /// includes such an assertion.
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef>;
+    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef>;
 
     fn children(&self) -> Vec<&ExprRef>;
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
 
     /// Compute the type of the array returned by [VortexExpr::evaluate].
-    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType>;
+    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType>;
 }
 
 pub trait VortexExprExt {
@@ -140,6 +152,36 @@ impl VortexExprExt for ExprRef {
                 kind: Some(self.serialize_kind()?),
             }),
         })
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct AccessPath {
+    field_path: FieldPath,
+    identifier: Identifier,
+}
+
+impl AccessPath {
+    pub fn root_field(path: FieldName) -> Self {
+        Self {
+            field_path: FieldPath::from_name(path),
+            identifier: Identifier::Identity,
+        }
+    }
+
+    fn new(path: FieldPath, identifier: Identifier) -> Self {
+        Self {
+            field_path: path,
+            identifier,
+        }
+    }
+
+    pub fn identifier(&self) -> &Identifier {
+        &self.identifier
+    }
+
+    pub fn field_path(&self) -> &FieldPath {
+        &self.field_path
     }
 }
 
@@ -224,7 +266,7 @@ mod tests {
 
     #[test]
     fn basic_expr_split_test() {
-        let lhs = get_item("col1", ident());
+        let lhs = get_item("col1", root());
         let rhs = lit(1);
         let expr = eq(lhs, rhs);
         let conjunction = split_conjunction(&expr);
@@ -233,7 +275,7 @@ mod tests {
 
     #[test]
     fn basic_conjunction_split_test() {
-        let lhs = get_item("col1", ident());
+        let lhs = get_item("col1", root());
         let rhs = lit(1);
         let expr = and(lhs, rhs);
         let conjunction = split_conjunction(&expr);
@@ -243,7 +285,7 @@ mod tests {
     #[test]
     fn expr_display() {
         assert_eq!(col("a").to_string(), "$.a");
-        assert_eq!(Identity.to_string(), "$");
+        assert_eq!(root().to_string(), "$");
 
         let col1: Arc<dyn VortexExpr> = col("col1");
         let col2: Arc<dyn VortexExpr> = col("col2");
@@ -292,13 +334,13 @@ mod tests {
         assert_eq!(not(col1.clone()).to_string(), "!$.col1");
 
         assert_eq!(
-            select(vec![FieldName::from("col1")], ident()).to_string(),
+            select(vec![FieldName::from("col1")], root()).to_string(),
             "${col1}"
         );
         assert_eq!(
             select(
                 vec![FieldName::from("col1"), FieldName::from("col2")],
-                ident()
+                root()
             )
             .to_string(),
             "${col1, col2}"
@@ -306,7 +348,7 @@ mod tests {
         assert_eq!(
             select_exclude(
                 vec![FieldName::from("col1"), FieldName::from("col2")],
-                ident()
+                root()
             )
             .to_string(),
             "$~{col1, col2}"
@@ -346,11 +388,11 @@ mod tests {
     #[cfg(feature = "proto")]
     mod tests_proto {
 
-        use crate::{VortexExprExt, deserialize_expr, eq, ident, lit};
+        use crate::{VortexExprExt, deserialize_expr, eq, lit, root};
 
         #[test]
         fn round_trip_serde() {
-            let expr = eq(ident(), lit(1));
+            let expr = eq(root(), lit(1));
             let res = expr.serialize().unwrap();
             let final_ = deserialize_expr(&res).unwrap();
 

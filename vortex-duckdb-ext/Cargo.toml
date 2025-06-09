@@ -1,0 +1,38 @@
+[package]
+name = "vortex-duckdb-ext"
+version = { workspace = true }
+description = "Vortex DuckDB extension"
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+publish = false
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+readme = { workspace = true }
+
+[lib]
+name = "vortex_duckdb_ext"
+path = "src/lib.rs"
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+bitvec = { workspace = true }
+itertools = { workspace = true }
+num-traits = { workspace = true }
+vortex = { workspace = true }
+
+[dev-dependencies]
+duckdb = { workspace = true }
+
+[lints]
+workspace = true
+
+[build-dependencies]
+bindgen = { workspace = true }
+cbindgen = { workspace = true }
+cc = { workspace = true }
+walkdir = { workspace = true }

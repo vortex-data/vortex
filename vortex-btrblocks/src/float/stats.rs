@@ -4,7 +4,7 @@ use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ToCanonical;
-use vortex_array::aliases::hash_map::HashMap;
+use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{NativeValue, PrimitiveArray, PrimitiveVTable};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
@@ -16,7 +16,7 @@ use crate::{CompressorStats, GenerateStatsOptions};
 
 #[derive(Debug, Clone)]
 pub struct DistinctValues<T> {
-    pub values: HashMap<NativeValue<T>, u32, FxBuildHasher>,
+    pub values: HashSet<NativeValue<T>, FxBuildHasher>,
 }
 
 #[derive(Debug, Clone)]
@@ -95,7 +95,7 @@ where
             average_run_length: 0,
             distinct_values_count: 0,
             distinct_values: DistinctValues {
-                values: HashMap::<NativeValue<T>, u32, FxBuildHasher>::with_hasher(FxBuildHasher),
+                values: HashSet::<NativeValue<T>, FxBuildHasher>::with_hasher(FxBuildHasher),
             }
             .into(),
         };
@@ -107,7 +107,7 @@ where
             average_run_length: 0,
             distinct_values_count: 0,
             distinct_values: DistinctValues {
-                values: HashMap::<NativeValue<T>, u32, FxBuildHasher>::with_hasher(FxBuildHasher),
+                values: HashSet::<NativeValue<T>, FxBuildHasher>::with_hasher(FxBuildHasher),
             }
             .into(),
         };
@@ -122,9 +122,9 @@ where
     // Keep a HashMap of T, then convert the keys into PValue afterward since value is
     // so much more efficient to hash and search for.
     let mut distinct_values = if count_distinct_values {
-        HashMap::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
+        HashSet::with_capacity_and_hasher(array.len() / 2, FxBuildHasher)
     } else {
-        HashMap::with_hasher(FxBuildHasher)
+        HashSet::with_hasher(FxBuildHasher)
     };
 
     let validity = array.validity_mask().vortex_expect("logical_validity");
@@ -141,7 +141,7 @@ where
         AllOr::All => {
             for value in first_valid_buff {
                 if count_distinct_values {
-                    *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
+                    distinct_values.insert(NativeValue(value));
                 }
 
                 if value != prev {
@@ -158,7 +158,7 @@ where
             {
                 if valid {
                     if count_distinct_values {
-                        *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
+                        distinct_values.insert(NativeValue(value));
                     }
 
                     if value != prev {

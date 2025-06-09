@@ -18,15 +18,28 @@ of each run, and writes out these stats to a csv.
 
 * This csv can then be loaded into duckdb and analyzed with the included comparison.sql script.
 
-### `tpch_benchmark.rs`
+### `tpch.rs`
 
 This binary will run TPC-H query 1 using DataFusion, comparing the Vortex in-memory provider against Arrow and CSV.
+
+To run the tpch benchmarks you can use:
+
+```bash
+cargo run --bin tpch
+```
+
+There are also clickbench and tpc-ds benchmarks, which can be run similarly.
 
 For profiling, you can open in Instruments using the following invocation:
 
 ```
-cargo instruments -p bench-vortex --bin tpch_benchmark --template Time --profile bench
+cargo instruments -p bench-vortex --bin tpch --template Time --profile bench
 ```
+
+### Data directory
+
+There is a data directory at `vortex/bench-vortex/data` where parquet and vortex files used for the benchmark runs
+can be found.
 
 ## Memory allocators
 

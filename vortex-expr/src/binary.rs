@@ -3,12 +3,12 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
 
+use vortex_array::ArrayRef;
 use vortex_array::compute::{Operator as ArrayOperator, and_kleene, compare, or_kleene};
-use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ExprRef, Operator, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Operator, Scope, ScopeDType, StatsCatalog, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -82,14 +82,56 @@ pub(crate) mod proto {
     }
 }
 
+impl AnalysisExpr for BinaryExpr {
+    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        match self.operator {
+            Operator::Eq => {
+                let min_lhs = self.lhs.min(catalog);
+                let max_lhs = self.lhs.max(catalog);
+
+                let min_rhs = self.rhs.min(catalog);
+                let max_rhs = self.rhs.max(catalog);
+
+                let left = min_lhs.zip_with(max_rhs, gt);
+                let right = min_rhs.zip_with(max_lhs, gt);
+                left.into_iter().chain(right).reduce(or)
+            }
+            Operator::NotEq => {
+                let min_lhs = self.lhs.min(catalog)?;
+                let max_lhs = self.lhs.max(catalog)?;
+
+                let min_rhs = self.rhs.min(catalog)?;
+                let max_rhs = self.rhs.max(catalog)?;
+
+                Some(and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs)))
+            }
+            Operator::Gt => Some(lt_eq(self.lhs.max(catalog)?, self.rhs.min(catalog)?)),
+            Operator::Gte => Some(lt(self.lhs.max(catalog)?, self.rhs.min(catalog)?)),
+            Operator::Lt => Some(gt_eq(self.lhs.min(catalog)?, self.rhs.max(catalog)?)),
+            Operator::Lte => Some(gt(self.lhs.min(catalog)?, self.rhs.max(catalog)?)),
+            // We can short circuit pruning expr for and
+            Operator::And => self
+                .lhs
+                .stat_falsification(catalog)
+                .into_iter()
+                .chain(self.rhs.stat_falsification(catalog))
+                .reduce(or),
+            Operator::Or => Some(and(
+                self.lhs.stat_falsification(catalog)?,
+                self.rhs.stat_falsification(catalog)?,
+            )),
+        }
+    }
+}
+
 impl VortexExpr for BinaryExpr {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let lhs = self.lhs.evaluate(batch)?;
-        let rhs = self.rhs.evaluate(batch)?;
+    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
+        let lhs = self.lhs.unchecked_evaluate(scope)?;
+        let rhs = self.rhs.unchecked_evaluate(scope)?;
 
         match self.operator {
             Operator::Eq => compare(&lhs, &rhs, ArrayOperator::Eq),
@@ -112,9 +154,9 @@ impl VortexExpr for BinaryExpr {
         BinaryExpr::new_expr(children[0].clone(), self.operator, children[1].clone())
     }
 
-    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
-        let lhs = self.lhs.return_dtype(scope_dtype)?;
-        let rhs = self.rhs.return_dtype(scope_dtype)?;
+    fn return_dtype(&self, ctx: &ScopeDType) -> VortexResult<DType> {
+        let lhs = self.lhs.return_dtype(ctx)?;
+        let rhs = self.rhs.return_dtype(ctx)?;
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 }
@@ -134,10 +176,10 @@ impl PartialEq for BinaryExpr {
 /// use vortex_array::{Array, IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
-/// use vortex_expr::{eq, ident, lit};
+/// use vortex_expr::{eq, root, lit, Scope};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = eq(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
+/// let result = eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -157,10 +199,10 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
-/// use vortex_expr::{ident, lit, not_eq};
+/// use vortex_expr::{root, lit, not_eq, Scope};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = not_eq(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
+/// let result = not_eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -180,10 +222,10 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
-/// use vortex_expr::{gt_eq, ident, lit};
+/// use vortex_expr::{gt_eq, root, lit, Scope};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = gt_eq(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
+/// let result = gt_eq(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -203,10 +245,10 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
-/// use vortex_expr::{gt, ident, lit};
+/// use vortex_expr::{gt, root, lit, Scope};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = gt(ident(), lit(2)).evaluate(xs.as_ref()).unwrap();
+/// let result = gt(root(), lit(2)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -226,10 +268,10 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
-/// use vortex_expr::{ident, lit, lt_eq};
+/// use vortex_expr::{root, lit, lt_eq, Scope};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = lt_eq(ident(), lit(2)).evaluate(xs.as_ref()).unwrap();
+/// let result = lt_eq(root(), lit(2)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -249,10 +291,10 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_array::validity::Validity;
 /// use vortex_buffer::buffer;
-/// use vortex_expr::{ident, lit, lt};
+/// use vortex_expr::{root, lit, lt, Scope};
 ///
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = lt(ident(), lit(3)).evaluate(xs.as_ref()).unwrap();
+/// let result = lt(root(), lit(3)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -270,10 +312,10 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ```
 /// use vortex_array::arrays::BoolArray;
 /// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_expr::{ ident, lit, or};
+/// use vortex_expr::{root, lit, or, Scope};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = or(ident(), lit(false)).evaluate(xs.as_ref()).unwrap();
+/// let result = or(root(), lit(false)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -291,10 +333,10 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// ```
 /// use vortex_array::arrays::BoolArray;
 /// use vortex_array::{IntoArray, ToCanonical};
-/// use vortex_expr::{and, ident, lit};
+/// use vortex_expr::{and, root, lit, Scope};
 ///
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = and(ident(), lit(true)).evaluate(xs.as_ref()).unwrap();
+/// let result = and(root(), lit(true)).evaluate(&Scope::new(xs.to_array())).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().unwrap().boolean_buffer(),
@@ -311,7 +353,9 @@ mod tests {
 
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{VortexExpr, and, col, eq, gt, gt_eq, lt, lt_eq, not_eq, or, test_harness};
+    use crate::{
+        ScopeDType, VortexExpr, and, col, eq, gt, gt_eq, lt, lt_eq, not_eq, or, test_harness,
+    };
 
     #[test]
     fn dtype() {
@@ -320,13 +364,13 @@ mod tests {
         let bool2: Arc<dyn VortexExpr> = col("bool2");
         assert_eq!(
             and(bool1.clone(), bool2.clone())
-                .return_dtype(&dtype)
+                .return_dtype(&ScopeDType::new(dtype.clone()))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
             or(bool1.clone(), bool2.clone())
-                .return_dtype(&dtype)
+                .return_dtype(&ScopeDType::new(dtype.clone()))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
@@ -335,32 +379,38 @@ mod tests {
         let col2: Arc<dyn VortexExpr> = col("col2");
 
         assert_eq!(
-            eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            eq(col1.clone(), col2.clone())
+                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             not_eq(col1.clone(), col2.clone())
-                .return_dtype(&dtype)
+                .return_dtype(&ScopeDType::new(dtype.clone()))
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            gt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            gt(col1.clone(), col2.clone())
+                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             gt_eq(col1.clone(), col2.clone())
-                .return_dtype(&dtype)
+                .return_dtype(&ScopeDType::new(dtype.clone()))
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            lt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
+            lt(col1.clone(), col2.clone())
+                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             lt_eq(col1.clone(), col2.clone())
-                .return_dtype(&dtype)
+                .return_dtype(&ScopeDType::new(dtype.clone()))
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
@@ -370,7 +420,7 @@ mod tests {
                 lt(col1.clone(), col2.clone()),
                 not_eq(col1.clone(), col2.clone())
             )
-            .return_dtype(&dtype)
+            .return_dtype(&ScopeDType::new(dtype))
             .unwrap(),
             DType::Bool(Nullability::Nullable)
         );

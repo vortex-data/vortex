@@ -14,12 +14,3 @@ rust-version = "1.86"
 
 [dependencies]
 vortex = { path = "../vortex", default-features = false }
-arrow = "55"
-arrow-arith = "55"
-arrow-array = "55"
-arrow-buffer = "55"
-arrow-cast = "55"
-arrow-ord = "55"
-arrow-schema = "55"
-arrow-select = "55"
-arrow-string = "55"

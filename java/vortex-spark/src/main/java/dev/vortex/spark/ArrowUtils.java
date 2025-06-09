@@ -20,14 +20,16 @@ import dev.vortex.relocated.org.apache.arrow.vector.types.FloatingPointPrecision
 import dev.vortex.relocated.org.apache.arrow.vector.types.TimeUnit;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Field;
-import java.util.stream.Collectors;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
 
+import java.util.stream.Collectors;
+
 public final class ArrowUtils {
-    private ArrowUtils() {}
+    private ArrowUtils() {
+    }
 
     public static DataType fromArrowField(Field field) {
         switch (field.getType().getTypeID()) {
@@ -75,6 +77,10 @@ public final class ArrowUtils {
                 } else {
                     throw new UnsupportedOperationException("Unsupported Arrow type: " + dt);
                 }
+            }
+            case Decimal: {
+                ArrowType.Decimal decimalType = (ArrowType.Decimal) dt;
+                return DataTypes.createDecimalType(decimalType.getPrecision(), decimalType.getScale());
             }
             case Utf8:
             case LargeUtf8:

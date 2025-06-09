@@ -99,6 +99,14 @@ pub enum DecimalValue {
     I256(i256),
 }
 
+impl DecimalValue {
+    /// Cast `self` to T using the respective `ToPrimitive` method.
+    /// If the value cannot be represented by `T`, `None` is returned.
+    pub fn cast<T: NativeDecimalType>(&self) -> Option<T> {
+        match_each_decimal_value!(self, |value| { T::from(*value) })
+    }
+}
+
 // Comparisons between DecimalValue types should upcast to i256 and operate in the upcast space.
 // Decimal values can take on any signed scalar type, but so long as their values are the same
 // they are considered the same.
@@ -152,13 +160,13 @@ pub trait NativeDecimalType:
 {
     const VALUES_TYPE: DecimalValueType;
 
-    fn try_from(decimal_type: DecimalValue) -> Option<Self>;
+    fn maybe_from(decimal_type: DecimalValue) -> Option<Self>;
 }
 
 impl NativeDecimalType for i8 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I8;
 
-    fn try_from(decimal_type: DecimalValue) -> Option<Self> {
+    fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
         match decimal_type {
             DecimalValue::I8(v) => Some(v),
             _ => None,
@@ -169,7 +177,7 @@ impl NativeDecimalType for i8 {
 impl NativeDecimalType for i16 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I16;
 
-    fn try_from(decimal_type: DecimalValue) -> Option<Self> {
+    fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
         match decimal_type {
             DecimalValue::I16(v) => Some(v),
             _ => None,
@@ -180,7 +188,7 @@ impl NativeDecimalType for i16 {
 impl NativeDecimalType for i32 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I32;
 
-    fn try_from(decimal_type: DecimalValue) -> Option<Self> {
+    fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
         match decimal_type {
             DecimalValue::I32(v) => Some(v),
             _ => None,
@@ -191,7 +199,7 @@ impl NativeDecimalType for i32 {
 impl NativeDecimalType for i64 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I64;
 
-    fn try_from(decimal_type: DecimalValue) -> Option<Self> {
+    fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
         match decimal_type {
             DecimalValue::I64(v) => Some(v),
             _ => None,
@@ -202,7 +210,7 @@ impl NativeDecimalType for i64 {
 impl NativeDecimalType for i128 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I128;
 
-    fn try_from(decimal_type: DecimalValue) -> Option<Self> {
+    fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
         match decimal_type {
             DecimalValue::I128(v) => Some(v),
             _ => None,
@@ -213,7 +221,7 @@ impl NativeDecimalType for i128 {
 impl NativeDecimalType for i256 {
     const VALUES_TYPE: DecimalValueType = DecimalValueType::I256;
 
-    fn try_from(decimal_type: DecimalValue) -> Option<Self> {
+    fn maybe_from(decimal_type: DecimalValue) -> Option<Self> {
         match decimal_type {
             DecimalValue::I256(v) => Some(v),
             _ => None,

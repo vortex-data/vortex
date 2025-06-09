@@ -465,7 +465,7 @@ impl VarBinViewArray {
     }
 }
 
-// Generic helper to create an Arrow ByteViewBuilder of the appropriate type.
+/// Generic helper to create an Arrow ByteViewBuilder of the appropriate type.
 fn generic_byte_view_builder<B, V, F>(
     values: impl Iterator<Item = Option<V>>,
     mut append_fn: F,

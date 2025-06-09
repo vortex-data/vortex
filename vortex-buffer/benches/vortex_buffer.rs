@@ -12,7 +12,7 @@ fn main() {
     divan::main();
 }
 
-// We wrap the Arrow Buffer so the Divan output has a nice name!!
+/// Wraps an arrow buffer so Divan can provide a nice name
 pub struct Arrow<T>(T);
 
 impl<T: ArrowNativeType> FromIterator<T> for Arrow<ScalarBuffer<T>> {

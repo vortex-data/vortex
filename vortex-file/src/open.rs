@@ -35,6 +35,10 @@ pub struct VortexOpenOptions<F: FileType> {
 }
 
 impl<F: FileType> VortexOpenOptions<F> {
+    /// Create a new [`VortexOpenOptions`] with the expected options for the file source.
+    ///
+    /// This should not be used directly, instead public API clients are expected to
+    /// access either `VortexOpenOptions::file()` or `VortexOpenOptions::memory()`
     pub(crate) fn new(options: F::Options) -> Self {
         Self {
             options,

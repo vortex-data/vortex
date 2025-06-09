@@ -59,7 +59,7 @@ impl<T> BufferMut<T> {
     }
 }
 
-// Specialization trait used for BufferMut::extend
+/// Specialization trait used for BufferMut::extend
 pub(super) trait SpecExtend<T, I> {
     #[track_caller]
     fn spec_extend(&mut self, iter: I);

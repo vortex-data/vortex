@@ -15,7 +15,6 @@ version = { workspace = true }
 
 [dependencies]
 arcref = { workspace = true }
-itertools = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }

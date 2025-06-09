@@ -12,10 +12,11 @@ use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
-// Wrapper around the typed builder.
-// We want to be able to downcast a Box<dyn ArrayBuilder> to a DecimalBuilder and we generally
-// don't have enough type information to get the `T` at the call site, so we instead use this
-// to hold values and can push values into the correct buffer type generically.
+/// Wrapper around the typed builder.
+///
+/// We want to be able to downcast a `Box<dyn ArrayBuilder>` to a [`DecimalBuilder`] and we generally
+/// don't have enough type information to get the `T` at the call site, so we instead use this
+/// to hold values and can push values into the correct buffer type generically.
 enum DecimalBuffer {
     I8(BufferMut<i8>),
     I16(BufferMut<i16>),

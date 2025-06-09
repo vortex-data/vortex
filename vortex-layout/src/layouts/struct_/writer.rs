@@ -8,6 +8,7 @@ use futures::future::try_join_all;
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
+use vortex_array::aliases::DefaultHashBuilder;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{ArrayContext, ToCanonical};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
@@ -42,7 +43,9 @@ impl LayoutStrategy for StructStrategy {
             // nothing we can do if dtype is not struct
             return self.child.write_stream(ctx, sequence_writer, stream);
         };
-        if HashSet::from_iter(struct_dtype.names().iter()).len() != struct_dtype.names().len() {
+        if HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
+            != struct_dtype.names().len()
+        {
             return Box::pin(async { vortex_bail!("StructLayout must have unique field names") });
         }
 

@@ -4,7 +4,7 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::{Constraints, Statistics};
 use datafusion::datasource::physical_plan::FileScanConfig;
 use vortex::dtype::FieldName;
-use vortex::expr::{VortexExpr, ident, select};
+use vortex::expr::{VortexExpr, root, select};
 
 /// Vortex specific methods for [`FileScanConfig`]
 pub trait FileScanConfigExt {
@@ -16,7 +16,7 @@ impl FileScanConfigExt for FileScanConfig {
     fn project_for_vortex(&self) -> ConfigProjection {
         let (arrow_schema, constraints, statistics, _orderings) = self.project();
         let projection_expr = match self.projection {
-            None => ident(),
+            None => root(),
             Some(_) => projection_expr(&arrow_schema),
         };
 
@@ -43,5 +43,5 @@ fn projection_expr(projected_arrow_schema: &SchemaRef) -> Arc<dyn VortexExpr> {
         .map(|field| FieldName::from(field.name().clone()))
         .collect::<Vec<_>>();
 
-    select(fields, ident())
+    select(fields, root())
 }

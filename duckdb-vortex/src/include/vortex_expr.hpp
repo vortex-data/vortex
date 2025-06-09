@@ -10,7 +10,7 @@ namespace vortex {
 const std::string BETWEEN_ID = "between";
 const std::string BINARY_ID = "binary";
 const std::string GET_ITEM_ID = "get_item";
-const std::string IDENTITY_ID = "identity";
+const std::string VAR_ID = "var";
 const std::string LIKE_ID = "like";
 const std::string LITERAL_ID = "literal";
 const std::string NOT_ID = "not";

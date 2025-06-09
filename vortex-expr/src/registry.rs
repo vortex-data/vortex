@@ -8,26 +8,30 @@ use vortex_proto::expr;
 use crate::between::proto::BetweenSerde;
 use crate::binary::proto::BinarySerde;
 use crate::get_item::proto::GetItemSerde;
-use crate::identity::proto::IdentitySerde;
+use crate::let_::proto::LetSerde;
 use crate::like::proto::LikeSerde;
+use crate::list_contains::proto::ListContainsSerde;
 use crate::literal::proto::LiteralSerde;
 use crate::merge::proto::MergeSerde;
 use crate::not::proto::NotSerde;
 use crate::pack::proto::PackSerde;
 use crate::select::proto::SelectSerde;
+use crate::var::proto::VarSerde;
 use crate::{ExprDeserialize, ExprRef};
 
 const EXPRESSIONS: &[&'static dyn ExprDeserialize] = &[
     &BetweenSerde,
     &BinarySerde,
     &GetItemSerde,
-    &IdentitySerde,
+    &LetSerde,
     &LikeSerde,
     &LiteralSerde,
+    &ListContainsSerde,
     &MergeSerde,
     &NotSerde,
     &PackSerde,
     &SelectSerde,
+    &VarSerde,
 ];
 
 static EXPRESSIONS_REGISTRY: LazyLock<HashMap<&'static str, &&'static dyn ExprDeserialize>> =
@@ -61,7 +65,7 @@ mod tests {
     use vortex_proto::expr::Expr;
 
     use crate::{
-        Between, ExprRef, VortexExprExt, and, deserialize_expr, eq, get_item, ident, lit, or,
+        Between, ExprRef, VortexExprExt, and, deserialize_expr, eq, get_item, lit, or, root,
     };
 
     #[test]
@@ -70,8 +74,8 @@ mod tests {
             and(
                 Between::between(
                     lit(1),
-                    ident(),
-                    get_item("a", ident()),
+                    root(),
+                    get_item("a", root()),
                     BetweenOptions {
                         lower_strict: StrictComparison::Strict,
                         upper_strict: StrictComparison::Strict,
@@ -79,7 +83,7 @@ mod tests {
                 ),
                 lit(1),
             ),
-            eq(lit(1), ident()),
+            eq(lit(1), root()),
         );
 
         let s_expr = expr.serialize().unwrap();

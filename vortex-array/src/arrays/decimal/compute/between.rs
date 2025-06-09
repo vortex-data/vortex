@@ -44,16 +44,22 @@ fn between_unpack<T: NativeDecimalType>(
     let Some(lower_value) = lower
         .as_decimal()
         .decimal_value()
-        .and_then(|v| T::try_from(v))
+        .and_then(|v| v.cast::<T>())
     else {
-        vortex_bail!("invalid lower bound Scalar: {lower}");
+        vortex_bail!(
+            "invalid lower bound Scalar: {lower}, expected {:?}",
+            T::VALUES_TYPE
+        )
     };
     let Some(upper_value) = upper
         .as_decimal()
         .decimal_value()
-        .and_then(|v| T::try_from(v))
+        .and_then(|v| v.cast::<T>())
     else {
-        vortex_bail!("invalid upper bound Scalar: {upper}");
+        vortex_bail!(
+            "invalid upper bound Scalar: {upper}, expected {:?}",
+            T::VALUES_TYPE
+        )
     };
 
     let lower_op = match options.lower_strict {

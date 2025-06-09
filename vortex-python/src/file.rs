@@ -10,7 +10,7 @@ use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
 use vortex::error::VortexError;
-use vortex::expr::{ExprRef, ident, select};
+use vortex::expr::{ExprRef, root, select};
 use vortex::file::scan::SplitBy;
 use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
@@ -153,7 +153,7 @@ impl PyVortexFile {
             .scan()?
             .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
             .with_some_filter(expr.map(|e| e.into_inner()))
-            .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
+            .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
 
         if let Some(indices) = indices {
             let indices = cast(indices.inner(), &DType::Primitive(PType::U64, NonNullable))?
@@ -186,7 +186,7 @@ impl PyVortexFile {
                 .scan()?
                 .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
                 .with_some_filter(expr.map(|e| e.into_inner()))
-                .with_projection(projection.map(|p| p.0).unwrap_or_else(ident));
+                .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
 
             if let Some(batch_size) = batch_size {
                 builder = builder.with_split_by(SplitBy::RowCount(batch_size));
@@ -225,7 +225,7 @@ impl<'py> FromPyObject<'py> for PyIntoProjection {
                 .collect::<PyResult<Vec<String>>>()?;
             return Ok(PyIntoProjection(select(
                 cols.into_iter().map(Arc::<str>::from).collect::<Vec<_>>(),
-                ident(),
+                root(),
             )));
         }
 

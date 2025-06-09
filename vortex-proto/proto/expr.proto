@@ -3,6 +3,7 @@ syntax = "proto3";
 package vortex.expr;
 
 import "scalar.proto";
+import "dtype.proto";
 
 option java_package = "dev.vortex.proto";
 option java_outer_classname = "ExprProtos";
@@ -21,12 +22,16 @@ message Kind {
     BinaryOp binary_op = 2;
     GetItem get_item = 3;
     Identity identity = 4;
+    Let let = 14;
+    Var var = 13;
     Merge merge = 5;
     Not not = 6;
     Pack pack = 7;
     Between between = 8;
     Like like = 9;
     IsNull is_null = 10;
+    Cast cast = 11;
+    ListContains list_contains = 12;
   }
 
   message Literal {
@@ -39,6 +44,14 @@ message Kind {
 
   message Identity {
 
+  }
+
+  message Let {
+    string var = 1;
+  }
+
+  message Var {
+    string var = 1;
   }
 
   message Merge {
@@ -75,7 +88,13 @@ message Kind {
   }
 
   message IsNull {
+  }
 
+  message Cast {
+    vortex.dtype.DType target = 1;
+  }
+
+  message ListContains {
   }
 }
 

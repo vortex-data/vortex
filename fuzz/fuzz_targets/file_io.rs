@@ -5,6 +5,7 @@ use arrow_ord::ord::make_comparator;
 use arrow_ord::sort::SortOptions;
 use futures_util::TryStreamExt;
 use libfuzzer_sys::{Corpus, fuzz_target};
+use vortex_array::aliases::DefaultHashBuilder;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
@@ -131,7 +132,8 @@ fn has_duplicate_field_names(dtype: &DType) -> bool {
 }
 
 fn struct_has_duplicate_names(struct_dtype: &StructFields) -> bool {
-    HashSet::from_iter(struct_dtype.names().iter()).len() != struct_dtype.names().len()
+    HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
+        != struct_dtype.names().len()
         || struct_dtype
             .fields()
             .any(|dtype| has_duplicate_field_names(&dtype))

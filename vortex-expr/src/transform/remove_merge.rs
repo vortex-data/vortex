@@ -1,19 +1,16 @@
-use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, Merge, VortexExpr, get_item, pack};
+use crate::{ExprRef, Merge, ScopeDType, VortexExpr, get_item, pack};
 
 /// Replaces [Merge] with combination of [GetItem] and [Pack] expressions.
-pub(crate) fn remove_merge(e: ExprRef, scope_dt: &DType) -> VortexResult<ExprRef> {
-    let mut transform = RemoveMergeTransform {
-        scope_dtype: scope_dt,
-    };
-    e.transform(&mut transform).map(|e| e.result)
+pub(crate) fn remove_merge(e: ExprRef, ctx: &ScopeDType) -> VortexResult<ExprRef> {
+    let mut transform = RemoveMergeTransform { ctx };
+    e.transform(&mut transform).map(|e| e.into_inner())
 }
 
 struct RemoveMergeTransform<'a> {
-    scope_dtype: &'a DType,
+    ctx: &'a ScopeDType,
 }
 
 impl MutNodeVisitor for RemoveMergeTransform<'_> {
@@ -27,7 +24,7 @@ impl MutNodeVisitor for RemoveMergeTransform<'_> {
 
             let mut all_nullable = true;
             for child in merge.children() {
-                let child_dtype = child.return_dtype(self.scope_dtype)?;
+                let child_dtype = child.return_dtype(self.ctx)?;
                 if !child_dtype.is_struct() {
                     return Err(vortex_err!(
                         "Merge child must return a non-nullable struct dtype, got {}",
@@ -72,7 +69,7 @@ mod tests {
     use vortex_dtype::{DType, StructFields};
 
     use crate::transform::remove_merge::remove_merge;
-    use crate::{Pack, get_item, ident, merge};
+    use crate::{Pack, ScopeDType, get_item, merge, root};
 
     #[test]
     fn test_remove_merge() {
@@ -99,15 +96,12 @@ mod tests {
             NonNullable,
         );
 
-        let e = merge(
-            [get_item("0", ident()), get_item("1", ident())],
-            NonNullable,
-        );
-        let e = remove_merge(e, &dtype).unwrap();
+        let e = merge([get_item("0", root()), get_item("1", root())], NonNullable);
+        let e = remove_merge(e, &ScopeDType::new(dtype.clone())).unwrap();
 
         assert!(e.as_any().is::<Pack>());
         assert_eq!(
-            e.return_dtype(&dtype).unwrap(),
+            e.return_dtype(&ScopeDType::new(dtype)).unwrap(),
             DType::Struct(
                 Arc::new(StructFields::new(
                     ["a".into(), "b".into(), "c".into()].into(),
@@ -134,10 +128,14 @@ mod tests {
             NonNullable,
         );
 
-        let e = merge([get_item("0", ident())], Nullable);
-        let e = remove_merge(e, &dtype).unwrap();
+        let e = merge([get_item("0", root())], Nullable);
+        let e = remove_merge(e, &ScopeDType::new(dtype.clone())).unwrap();
 
         assert!(e.as_any().is::<Pack>());
-        assert!(e.return_dtype(&dtype).unwrap().is_nullable());
+        assert!(
+            e.return_dtype(&ScopeDType::new(dtype))
+                .unwrap()
+                .is_nullable()
+        );
     }
 }
