@@ -487,7 +487,7 @@ mod tests {
     ) {
         let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
 
-        let filt = is_null(and(
+        let filt = is_null(or(
             eq(get_item_scope("a"), lit(0)),
             eq(get_item_scope("b"), lit(0)),
         ));
