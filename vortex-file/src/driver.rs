@@ -8,8 +8,8 @@ use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use linked_hash_set::LinkedHashSet;
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_core::aliases::hash_map::HashMap;
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
 use vortex_io::{PerformanceHint, VortexReadAt};
 use vortex_layout::segments::{SegmentEvent, SegmentId, SegmentRequest};
@@ -312,7 +312,7 @@ impl Stream for CoalescedDriver {
 
         if this.prefetched_bytes < this.max_prefetch_bytes
             && Arc::strong_count(&this.inflight_prefetch_lease) - 1
-                < this.max_prefetch_inflight_requests
+            < this.max_prefetch_inflight_requests
         {
             while let Some(id) = this.requested.pop_front() {
                 if let Some(request) = this

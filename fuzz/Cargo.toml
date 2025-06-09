@@ -27,6 +27,7 @@ tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["arbitrary"] }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-core = { workspace = true }
 vortex-dtype = { workspace = true, features = ["arbitrary"] }
 vortex-error = { workspace = true }
 vortex-file = { workspace = true }

@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use parking_lot::RwLock;
+use vortex_core::aliases::hash_map::HashMap;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::EncodingRef;
-use crate::aliases::hash_map::HashMap;
 use crate::arrays::{
     BoolEncoding, ChunkedEncoding, ConstantEncoding, DecimalEncoding, ExtensionEncoding,
     ListEncoding, NullEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
@@ -65,7 +65,7 @@ impl<T: Clone + Eq> VTableContext<T> {
         self
     }
 
-    pub fn with_many<E: IntoIterator<Item = T>>(self, items: E) -> Self {
+    pub fn with_many<E: IntoIterator<Item=T>>(self, items: E) -> Self {
         items.into_iter().fold(self, |ctx, e| ctx.with(e))
     }
 
@@ -108,7 +108,7 @@ impl<T: Clone + Display + Eq> VTableRegistry<T> {
     /// Create a new [`VTableContext`] with the provided encodings.
     pub fn new_context<'a>(
         &self,
-        encoding_ids: impl Iterator<Item = &'a str>,
+        encoding_ids: impl Iterator<Item=&'a str>,
     ) -> VortexResult<VTableContext<T>> {
         let mut ctx = VTableContext::<T>::empty();
         for id in encoding_ids {
@@ -125,7 +125,7 @@ impl<T: Clone + Display + Eq> VTableRegistry<T> {
     }
 
     /// List the vtables in the registry.
-    pub fn vtables(&self) -> impl Iterator<Item = &T> + '_ {
+    pub fn vtables(&self) -> impl Iterator<Item=&T> + '_ {
         self.0.values()
     }
 
@@ -135,7 +135,7 @@ impl<T: Clone + Display + Eq> VTableRegistry<T> {
     }
 
     /// Register a new encoding, replacing any existing encoding with the same ID.
-    pub fn register_many<I: IntoIterator<Item = T>>(&mut self, encodings: I) {
+    pub fn register_many<I: IntoIterator<Item=T>>(&mut self, encodings: I) {
         self.0
             .extend(encodings.into_iter().map(|e| (e.to_string(), e)));
     }

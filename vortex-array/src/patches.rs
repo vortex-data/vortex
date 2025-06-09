@@ -6,13 +6,13 @@ use itertools::Itertools as _;
 use num_traits::{NumCast, ToPrimitive};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
+use vortex_core::aliases::hash_map::HashMap;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::{PValue, Scalar};
 
-use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{cast, filter, take};
 use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
@@ -93,7 +93,7 @@ impl Patches {
                 .scalar_at(indices.len() - 1)
                 .vortex_expect("indices are not empty"),
         )
-        .vortex_expect("indices must be a number");
+            .vortex_expect("indices must be a number");
         assert!(
             max - offset < array_len,
             "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"

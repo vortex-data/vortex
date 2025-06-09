@@ -8,11 +8,11 @@ use dashmap::DashMap;
 use futures::TryStreamExt;
 use futures::stream::FuturesOrdered;
 use itertools::Itertools;
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::StructArray;
 use vortex_array::stats::Precision;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayContext, ArrayRef, IntoArray};
+use vortex_core::aliases::hash_map::HashMap;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
@@ -272,8 +272,8 @@ impl MaskEvaluation for StructMaskEvaluation {
                 }
             }
         }))
-        .try_collect()
-        .await?;
+            .try_collect()
+            .await?;
 
         let root_scope = StructArray::try_new(
             self.partitioned.partition_names.clone(),
@@ -281,7 +281,7 @@ impl MaskEvaluation for StructMaskEvaluation {
             mask.len(),
             Validity::NonNullable,
         )?
-        .into_array();
+            .into_array();
 
         let root_mask = Mask::try_from(
             self.partitioned
@@ -316,8 +316,8 @@ impl ArrayEvaluation for StructArrayEvaluation {
                 .iter()
                 .map(|eval| eval.invoke(mask.clone())),
         )
-        .try_collect()
-        .await?;
+            .try_collect()
+            .await?;
 
         let root_scope = StructArray::try_new(
             self.partitioned.partition_names.clone(),
@@ -325,7 +325,7 @@ impl ArrayEvaluation for StructArrayEvaluation {
             mask.true_count(),
             Validity::NonNullable,
         )?
-        .into_array();
+            .into_array();
 
         self.partitioned.root.evaluate(&Scope::new(root_scope))
     }
@@ -383,17 +383,17 @@ mod tests {
                                     ("b", buffer![4, 5, 6].into_array()),
                                     ("c", buffer![4, 5, 6].into_array()),
                                 ]
-                                .as_slice(),
+                                    .as_slice(),
                             )
-                            .unwrap()
-                            .into_array(),
+                                .unwrap()
+                                .into_array(),
                         ))
                     }),
                 )
-                .sendable(),
+                    .sendable(),
             ),
         )
-        .unwrap();
+            .unwrap();
 
         (ctx, Arc::new(segments), layout)
     }
@@ -414,7 +414,7 @@ mod tests {
                 .unwrap()
                 .invoke(Mask::new_true(3)),
         )
-        .unwrap();
+            .unwrap();
         assert_eq!(
             vec![true, false, false],
             result
@@ -442,7 +442,7 @@ mod tests {
                 .unwrap()
                 .invoke(Mask::from_iter([true, true, false])),
         )
-        .unwrap();
+            .unwrap();
 
         assert_eq!(result.len(), 2);
 
@@ -477,7 +477,7 @@ mod tests {
                 // Take rows 0 and 1, skip row 2, and anything after that
                 .invoke(Mask::from_iter([true, true, false])),
         )
-        .unwrap();
+            .unwrap();
 
         assert_eq!(result.len(), 2);
 

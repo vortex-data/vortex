@@ -1,12 +1,12 @@
 use std::hash::Hash;
 
 use rustc_hash::FxBuildHasher;
+use vortex_core::aliases::hash_map::HashMap;
 use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::PValue;
 
-use crate::aliases::hash_map::HashMap;
 use crate::arrays::{NativeValue, PrimitiveArray};
 
 impl PrimitiveArray {

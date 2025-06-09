@@ -27,7 +27,7 @@ use tokio::runtime::Handle;
 use tracing::{debug, info};
 use url::Url;
 use vortex::ArrayRef;
-use vortex::aliases::hash_map::HashMap;
+use vortex::core::aliases::hash_map::HashMap;
 use vortex::error::{VortexResult, vortex_err};
 use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
 use vortex::stream::ArrayStreamExt;

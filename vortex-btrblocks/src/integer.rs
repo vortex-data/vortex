@@ -675,12 +675,12 @@ mod tests {
     use log::LevelFilter;
     use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
-    use vortex_array::aliases::hash_set::HashSet;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
+    use vortex_core::aliases::hash_set::HashSet;
     use vortex_sparse::SparseEncoding;
 
     use crate::integer::{IntCompressor, IntegerStats, SparseScheme};
