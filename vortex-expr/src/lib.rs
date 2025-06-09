@@ -169,7 +169,7 @@ impl AccessPath {
         }
     }
 
-    fn new(path: FieldPath, identifier: Identifier) -> Self {
+    pub fn new(path: FieldPath, identifier: Identifier) -> Self {
         Self {
             field_path: path,
             identifier,
