@@ -11,7 +11,7 @@ use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, FieldName, Nullability, PType, StructFields};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::var_partition::{VarPartitionedExpr, var_partitions_with_map};
-use vortex_expr::{ExactExpr, ExprRef, IDENTITY_IDENTIFIER, Identifier, Scope, ScopeDType};
+use vortex_expr::{ExactExpr, ExprRef, Identifier, Scope, ScopeDType};
 use vortex_mask::Mask;
 use vortex_sequence::SequenceArray;
 
@@ -25,7 +25,7 @@ pub struct RowIdLayoutReader {
     file_index: u64,
 }
 
-static ROW_ID: LazyLock<Identifier> = LazyLock::new(|| Arc::from("row_id"));
+static ROW_ID: LazyLock<Identifier> = LazyLock::new(|| Identifier::Other(Arc::from("row_id")));
 
 impl RowIdLayoutReader {
     pub fn new(child: LayoutReaderRef) -> Self {
@@ -36,7 +36,7 @@ impl RowIdLayoutReader {
         let scope_dtype = child
             .scope_dtype()
             .clone()
-            .with_value(ROW_ID.clone(), Self::row_id_scope_dtype());
+            .with_dtype(ROW_ID.clone(), Self::row_id_scope_dtype());
         Self {
             child,
             name: Arc::from("row_id_layout_reader"),
@@ -60,7 +60,7 @@ impl RowIdLayoutReader {
                         if *id == *ROW_ID {
                             ROW_ID.clone()
                         } else {
-                            "".into()
+                            Identifier::Identity
                         }
                     })
                     .vortex_expect("We should not fail to partition variables"),
@@ -143,10 +143,10 @@ impl LayoutReader for RowIdLayoutReader {
         let Some(row_id) = partitioned.find_partition(&ROW_ID) else {
             return self.child.filter_evaluation(row_range, expr);
         };
-        let rest = partitioned.find_partition(&IDENTITY_IDENTIFIER);
+        let rest = partitioned.find_partition(&Identifier::Identity);
 
         let row_id_scope =
-            Scope::empty(arr_len).with_value(ROW_ID.clone(), self.row_id_scope(row_range));
+            Scope::empty(arr_len).with_array(ROW_ID.clone(), self.row_id_scope(row_range));
 
         let rest_eval = if let Some(rest) = &rest {
             let dtype = rest.return_dtype(self.scope_dtype())?;
@@ -182,10 +182,10 @@ impl LayoutReader for RowIdLayoutReader {
         let Some(row_id) = partitioned.find_partition(&ROW_ID) else {
             return self.child.projection_evaluation(row_range, expr);
         };
-        let rest = partitioned.find_partition(&IDENTITY_IDENTIFIER);
+        let rest = partitioned.find_partition(&Identifier::Identity);
 
         let row_id_scope =
-            Scope::empty(arr_len).with_value(ROW_ID.clone(), self.row_id_scope(row_range));
+            Scope::empty(arr_len).with_array(ROW_ID.clone(), self.row_id_scope(row_range));
 
         let res = row_id.evaluate(&row_id_scope)?;
 
@@ -229,7 +229,7 @@ impl MaskEvaluation for RowIdMaskEvaluation {
             Scope::empty(mask.len())
         };
 
-        let root_scope = root_scope.with_value(ROW_ID.clone(), self.row_id_partition.clone());
+        let root_scope = root_scope.with_array(ROW_ID.clone(), self.row_id_partition.clone());
 
         let root_mask = Mask::try_from(self.root.evaluate(&root_scope)?.as_ref())?;
         let mask = mask.bitand(&root_mask);
@@ -255,7 +255,7 @@ impl ArrayEvaluation for RowIdArrayEvaluation {
 
         let filtered = filter(&self.row_id_partition, &mask)?;
 
-        let root_scope = root_scope.with_value(ROW_ID.clone(), filtered.clone());
+        let root_scope = root_scope.with_array(ROW_ID.clone(), filtered.clone());
 
         self.root.evaluate(&root_scope)
     }

@@ -18,10 +18,10 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ExprRef, IDENTITY_IDENTIFIER, ScopeDType, root};
+use vortex_expr::{ExprRef, Identifier, ScopeDType, root};
 use vortex_metrics::VortexMetrics;
 
 use crate::LayoutReader;
@@ -381,8 +381,8 @@ fn filter_and_projection_masks(
     scope_dtype: &ScopeDType,
 ) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
     let Some(struct_dtype) = scope_dtype
-        .dtype(&IDENTITY_IDENTIFIER)
-        .vortex_unwrap()
+        .dtype(&Identifier::Identity)
+        .expect("no ident")
         .as_struct()
     else {
         return Ok(match filter {

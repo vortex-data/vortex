@@ -61,7 +61,6 @@ use vortex_proto::expr;
 #[cfg(feature = "proto")]
 use vortex_proto::expr::{Expr, kind};
 
-use crate::pruning::AnalysisExpr;
 use crate::traversal::{Node, ReferenceCollector, VarsCollector};
 
 pub type ExprRef = Arc<dyn VortexExpr>;

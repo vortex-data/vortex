@@ -8,7 +8,6 @@ use vortex_dtype::{FieldName, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::transform::access_analysis::{Accesses, variable_scope_accesses};
-use crate::transform::immediate_access::FieldAccesses;
 use crate::transform::partition::ReplaceAccessesWithChild;
 use crate::traversal::{FoldDown, FoldUp, FolderMut, Node};
 use crate::{ExprRef, Identifier, get_item, pack, var};
@@ -67,19 +66,19 @@ impl VarPartitionedExpr {
 
 #[derive(Debug)]
 struct VariableExpressionSplitter<'a> {
-    sub_expressions: HashMap<FieldName, Vec<ExprRef>>,
+    sub_expressions: HashMap<Identifier, Vec<ExprRef>>,
     accesses: &'a Accesses<'a, Identifier>,
 }
 
 impl<'a> VariableExpressionSplitter<'a> {
-    fn new(accesses: &'a FieldAccesses<'a>) -> Self {
+    fn new(accesses: &'a Accesses<'a, Identifier>) -> Self {
         Self {
             sub_expressions: HashMap::new(),
             accesses,
         }
     }
 
-    pub(crate) fn field_idx_name(field: &FieldName, idx: usize) -> FieldName {
+    pub(crate) fn field_idx_name(field: &Identifier, idx: usize) -> FieldName {
         let mut hasher = SPLITTER_RANDOM_STATE.build_hasher();
         field.hash(&mut hasher);
         idx.hash(&mut hasher);
@@ -228,11 +227,7 @@ mod tests {
         );
 
         let partitioned = VariableExpressionSplitter::split(&expr, |id| {
-            if id.as_ref() == "x" {
-                id.clone()
-            } else {
-                "".into()
-            }
+            if id == "x" { id.clone() } else { "".into() }
         })
         .unwrap();
 

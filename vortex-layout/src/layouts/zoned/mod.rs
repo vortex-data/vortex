@@ -9,8 +9,8 @@ pub use builder::{MAX_IS_TRUNCATED, MIN_IS_TRUNCATED, lower_bound, upper_bound};
 use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::{DType, TryFromBytes};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
-use vortex_expr::{IDENTITY_IDENTIFIER, ScopeDType};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_expr::{Identifier, ScopeDType};
 
 use crate::children::LayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
@@ -100,7 +100,7 @@ impl VTable for ZonedVTable {
 
         let zones_dtype = ZoneMap::dtype_for_stats_table(
             data.scope_dtype()
-                .dtype(&IDENTITY_IDENTIFIER)
+                .dtype(&Identifier::Identity)
                 .vortex_expect(""),
             &metadata.present_stats,
         );
@@ -135,14 +135,14 @@ impl ZonedLayout {
     ) -> Self {
         let expected_dtype = ZoneMap::dtype_for_stats_table(
             data.scope_dtype()
-                .dtype(&IDENTITY_IDENTIFIER)
-                .vortex_unwrap(),
+                .dtype(&Identifier::Identity)
+                .expect("no identity scope"),
             &present_stats,
         );
         if zones
             .scope_dtype()
-            .dtype(&IDENTITY_IDENTIFIER)
-            .vortex_unwrap()
+            .dtype(&Identifier::Identity)
+            .expect("no identity scope")
             != &expected_dtype
         {
             vortex_panic!("Invalid zone map layout: zones dtype does not match expected dtype");

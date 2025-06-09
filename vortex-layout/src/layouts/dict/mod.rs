@@ -7,7 +7,7 @@ use reader::DictReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
-use vortex_expr::{IDENTITY_IDENTIFIER, ScopeDType};
+use vortex_expr::{Identifier, ScopeDType};
 
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
@@ -44,7 +44,7 @@ impl VTable for DictVTable {
                 layout
                     .codes
                     .scope_dtype()
-                    .dtype(&IDENTITY_IDENTIFIER)
+                    .dtype(&Identifier::Identity)
                     .vortex_expect("must have root scope"),
             )
             .vortex_expect("ptype"),

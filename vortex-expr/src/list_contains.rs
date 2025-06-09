@@ -8,7 +8,10 @@ use vortex_array::compute::list_contains as compute_list_contains;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{
+    AnalysisExpr, ExprRef, Literal, Scope, ScopeDType, StatsCatalog, VortexExpr, and, gt, lit, lt,
+    or,
+};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -78,7 +81,46 @@ pub(crate) mod proto {
     }
 }
 
-impl AnalysisExpr for ListContains {}
+impl AnalysisExpr for ListContains {
+    // contains([1,2,5], x) =p> x != 1 and x != 2 and x != 5
+
+    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        let min = self.list.min(catalog)?;
+        let max = self.list.max(catalog)?;
+        println!("h {:?}, {}", min, max);
+        // If the list is constant when we can compare each element to the value
+        if min == max {
+            println!("m==max");
+            let list_ = min
+                .as_any()
+                .downcast_ref::<Literal>()
+                .and_then(|l| l.value().as_list_opt())
+                .and_then(|l| l.elements())?;
+            if list_.len() == 0 {
+                // contains([], x) is always false.
+                return Some(lit(true));
+            }
+            println!("list {:?}", list_);
+            let value_max = self.value.max(catalog)?;
+            let value_min = self.value.max(catalog)?;
+            println!(
+                "list {:?}, value {:?}, min {:?}",
+                list_, value_max, value_min
+            );
+            return list_.iter().fold(Some(lit(false)), move |acc, v| {
+                Some(and(
+                    acc?,
+                    or(
+                        lt(value_max.clone(), lit(v.clone())),
+                        gt(value_min.clone(), lit(v.clone())),
+                    ),
+                ))
+            });
+        }
+
+        None
+    }
+}
 
 impl VortexExpr for ListContains {
     fn as_any(&self) -> &dyn Any {

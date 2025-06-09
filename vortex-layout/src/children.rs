@@ -4,8 +4,8 @@ use std::sync::Arc;
 use flatbuffers::Follow;
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err, vortex_panic};
-use vortex_expr::IDENTITY_IDENTIFIER;
+use vortex_error::{VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_expr::Identifier;
 use vortex_flatbuffers::{FlatBuffer, layout as fbl};
 
 use crate::segments::SegmentId;
@@ -75,8 +75,8 @@ impl LayoutChildren for OwnedLayoutChildren {
         let child = &self.0[idx];
         let child_dtype = child
             .scope_dtype()
-            .dtype(&IDENTITY_IDENTIFIER)
-            .vortex_unwrap();
+            .dtype(&Identifier::Identity)
+            .expect("no identity");
         if child_dtype != dtype {
             vortex_panic!("Child dtype mismatch: {} != {}", child_dtype, dtype);
         }

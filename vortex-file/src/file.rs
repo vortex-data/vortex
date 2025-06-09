@@ -5,18 +5,20 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::stats::StatsSet;
-use vortex_dtype::DType;
+use vortex_array::aliases::hash_map::HashMap;
+use vortex_array::arrays::{ConstantArray, StructArray};
+use vortex_array::stats::{Stat, StatsSet};
+use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
-use vortex_expr::pruning::PruningPredicate;
-use vortex_expr::{ExprRef, Scope};
+use vortex_expr::pruning::checked_pruning_expr;
+use vortex_expr::{ExprRef, Identifier, Scope, ScopeFieldPathSet};
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
 
 use crate::footer::Footer;
-use crate::pruning::extract_relevant_stat_as_struct_row;
+use crate::pruning::extract_relevant_file_stat_as_struct_row;
 
 /// Represents a Vortex file, providing access to its metadata and content.
 ///
@@ -86,7 +88,7 @@ impl VortexFile {
 
     /// Returns true if the expression will never match any rows in the file.
     pub fn can_prune(&self, filter: &ExprRef) -> VortexResult<bool> {
-        let Some((file_stats, struct_dtype)) = self
+        let Some((stats, fields)) = self
             .footer
             .statistics()
             .zip(self.footer.dtype().as_struct())
@@ -94,21 +96,87 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let Some(predicate) = PruningPredicate::try_new(filter) else {
+        let set = FieldPathSet::from_iter(fields.names().iter().zip(stats.iter()).flat_map(
+            |(name, stats)| {
+                stats.iter().map(|(stat, _)| {
+                    FieldPath::from_iter([
+                        Field::Name(name.clone()),
+                        Field::Name(stat.name().into()),
+                    ])
+                })
+            },
+        ));
+
+        let mut scope_set = ScopeFieldPathSet::new(set);
+        let row_id = Identifier::Other(Arc::from("row_id"));
+        scope_set = scope_set.with_set(
+            row_id.clone(),
+            FieldPathSet::from_iter([
+                FieldPath::from_iter([
+                    Field::Name("file_row_number".into()),
+                    Field::Name(Stat::Max.name().into()),
+                ]),
+                FieldPath::from_iter([
+                    Field::Name("file_row_number".into()),
+                    Field::Name(Stat::Min.name().into()),
+                ]),
+                FieldPath::from_iter([
+                    Field::Name("file_index".into()),
+                    Field::Name(Stat::Max.name().into()),
+                ]),
+                FieldPath::from_iter([
+                    Field::Name("file_index".into()),
+                    Field::Name(Stat::Min.name().into()),
+                ]),
+            ]),
+        );
+
+        let Some((predicate, required_stats)) = checked_pruning_expr(filter, &scope_set) else {
             return Ok(false);
         };
 
-        println!("filt {} pred {:?}", filter, predicate);
+        let required_file_stats =
+            HashMap::from_iter(required_stats.map().iter().filter_map(|(path, stats)| {
+                if path.identifier().is_identity() {
+                    Some((path.field_path().clone(), stats.clone()))
+                } else {
+                    None
+                }
+            }));
 
-        let Some(struct_row) =
-            extract_relevant_stat_as_struct_row(&predicate, file_stats, struct_dtype)?
+        let Some(file_stats) =
+            extract_relevant_file_stat_as_struct_row(&required_file_stats, stats, fields)?
         else {
             return Ok(false);
         };
 
+        let mut scope = Scope::new(file_stats);
+
+        let file_idx = 2u64;
+        let file_len = self.row_count();
+        scope = scope.with_array(
+            row_id,
+            StructArray::from_fields(&[
+                (
+                    "file_row_number_max",
+                    ConstantArray::new(file_len, 1).to_array(),
+                ),
+                (
+                    "file_row_number_min",
+                    ConstantArray::new(0u64, 1).to_array(),
+                ),
+                ("file_index_max", ConstantArray::new(file_idx, 1).to_array()),
+                ("file_index_min", ConstantArray::new(file_idx, 1).to_array()),
+            ])
+            .unwrap()
+            .to_array(),
+        );
+
+        println!("prune filter {} expr pred {}", filter, predicate);
+
         Ok(predicate
-            .evaluate(&Scope::new(struct_row))?
-            .and_then(|p| p.as_constant())
+            .evaluate(&scope)?
+            .as_constant()
             .is_some_and(|result| result.as_bool().value() == Some(true)))
     }
 }

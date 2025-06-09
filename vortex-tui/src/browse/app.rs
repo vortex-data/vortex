@@ -5,7 +5,7 @@ use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult};
-use vortex::expr::IDENTITY_IDENTIFIER;
+use vortex::expr::Identifier;
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 use vortex_layout::LayoutRef;
 use vortex_layout::layouts::flat::FlatVTable;
@@ -112,7 +112,7 @@ impl LayoutCursor {
     pub fn dtype(&self) -> &DType {
         self.layout
             .scope_dtype()
-            .dtype(&IDENTITY_IDENTIFIER)
+            .dtype(&Identifier::Identity)
             .vortex_expect("")
     }
 

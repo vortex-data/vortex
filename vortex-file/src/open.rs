@@ -3,8 +3,8 @@ use std::sync::Arc;
 use flatbuffers::root;
 use vortex_array::ArrayRegistry;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
-use vortex_expr::IDENTITY_IDENTIFIER;
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_expr::Identifier;
 use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
@@ -92,8 +92,9 @@ impl<F: FileType> VortexOpenOptions<F> {
             footer
                 .layout()
                 .scope_dtype()
-                .dtype(&IDENTITY_IDENTIFIER)
-                .vortex_unwrap()
+                .dtype(&Identifier::Identity)
+                // TODO(joe): fixme
+                .unwrap()
                 .clone(),
         );
         self.footer = Some(footer);
