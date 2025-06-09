@@ -87,10 +87,10 @@ impl AnalysisExpr for ListContains {
     fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         let min = self.list.min(catalog)?;
         let max = self.list.max(catalog)?;
-        println!("h {:?}, {}", min, max);
+        // println!("h {:?}, {}", min, max);
         // If the list is constant when we can compare each element to the value
         if min == max {
-            println!("m==max");
+            // println!("m==max");
             let list_ = min
                 .as_any()
                 .downcast_ref::<Literal>()
@@ -100,14 +100,14 @@ impl AnalysisExpr for ListContains {
                 // contains([], x) is always false.
                 return Some(lit(true));
             }
-            println!("list {:?}", list_);
+            // println!("list {:?}, {:?}", list_, self.value.max(catalog));
             let value_max = self.value.max(catalog)?;
-            let value_min = self.value.max(catalog)?;
-            println!(
-                "list {:?}, value {:?}, min {:?}",
-                list_, value_max, value_min
-            );
-            return list_.iter().fold(Some(lit(false)), move |acc, v| {
+            let value_min = self.value.min(catalog)?;
+            // println!(
+            //     "list {:?}, value {:?}, min {:?}",
+            //     list_, value_max, value_min
+            // );
+            return list_.iter().fold(Some(lit(true)), move |acc, v| {
                 Some(and(
                     acc?,
                     or(
@@ -162,11 +162,15 @@ mod tests {
     use vortex_array::arrays::{BoolArray, BooleanBuffer, ListArray, PrimitiveArray};
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray};
-    use vortex_dtype::{FieldNames, Nullability, StructFields};
+    use vortex_dtype::PType::I32;
+    use vortex_dtype::{Field, FieldNames, FieldPath, FieldPathSet, Nullability, StructFields};
     use vortex_scalar::Scalar;
 
     use crate::list_contains::list_contains;
-    use crate::{Arc, DType, Scope, ScopeDType, get_item, lit, root};
+    use crate::pruning::checked_pruning_expr;
+    use crate::{
+        Arc, DType, Scope, ScopeDType, ScopeFieldPathSet, get_item, get_item_scope, lit, root,
+    };
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
@@ -278,10 +282,7 @@ mod tests {
             Arc::new(StructFields::new(
                 FieldNames::from(["array".into()]),
                 vec![DType::List(
-                    Arc::new(DType::Primitive(
-                        vortex_dtype::PType::I32,
-                        Nullability::NonNullable,
-                    )),
+                    Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
                     Nullability::Nullable,
                 )],
             )),
@@ -295,5 +296,29 @@ mod tests {
             expr.return_dtype(&scope).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
+    }
+
+    #[test]
+    pub fn list_falsification() {
+        let expr = list_contains(
+            lit(Scalar::list(
+                Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
+                vec![1.into(), 2.into(), 3.into()],
+                Nullability::NonNullable,
+            )),
+            get_item_scope("a"),
+        );
+
+        let (expr, st) = checked_pruning_expr(
+            &expr,
+            &ScopeFieldPathSet::new(FieldPathSet::from_iter([
+                FieldPath::from_iter([Field::Name("a".into()), Field::Name("max".into())]),
+                FieldPath::from_iter([Field::Name("a".into()), Field::Name("min".into())]),
+            ])),
+        )
+        .unwrap();
+
+        println!("expr {}", expr);
+        println!("st {:?}", st);
     }
 }

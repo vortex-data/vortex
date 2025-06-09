@@ -607,6 +607,7 @@ const vx_dtype *vx_file_dtype(const vx_file *file);
 bool vx_file_can_prune(const vx_file *file,
                        const char *filter_expression,
                        unsigned int filter_expression_len,
+                       unsigned long file_idx,
                        vx_error **error);
 
 /**

@@ -309,7 +309,7 @@ static bool PinFileToThread(ScanGlobalState &global_state) {
 static void CreateScanPartitions(ClientContext &context, const ScanBindData &bind, ScanGlobalState &global_state,
                                  ScanLocalState &local_state, uint64_t file_idx, VortexFile &file) {
 	auto filter_str = global_state.filter_expression_string(*bind.arena);
-	if (global_state.files[file_idx]->CanPrune(filter_str.data(), static_cast<unsigned>(filter_str.length()))) {
+	if (global_state.files[file_idx]->CanPrune(filter_str.data(), static_cast<unsigned>(filter_str.length()), file_idx)) {
 		global_state.files_partitioned += 1;
 		return;
 	}

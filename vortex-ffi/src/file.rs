@@ -232,13 +232,14 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
     file: *const vx_file,
     filter_expression: *const c_char,
     filter_expression_len: c_uint,
+    file_idx: c_ulong,
     error: *mut *mut vx_error,
 ) -> bool {
     try_or(error, false, || {
         let file = vx_file::as_ref(file);
         let filter_expr = extract_filter_expression(filter_expression, filter_expression_len)?;
         Ok(filter_expr
-            .map(|expr| file.can_prune(&expr))
+            .map(|expr| file.can_prune(&expr, file_idx as u64))
             .transpose()?
             .unwrap_or(false))
     })
