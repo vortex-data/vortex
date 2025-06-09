@@ -87,7 +87,7 @@ impl<'a> VariableExpressionSplitter<'a> {
     }
 
     fn split_all(expr: &ExprRef) -> VortexResult<VarPartitionedExpr> {
-        Self::split(expr, |f| f.clone())
+        Self::split(expr, Clone::clone)
     }
 
     fn split(

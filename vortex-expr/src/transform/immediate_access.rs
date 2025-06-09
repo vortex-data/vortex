@@ -23,7 +23,7 @@ pub fn immediate_scope_accesses<'a>(
     AccessesAnalysis::analyze(expr, move |node| {
         assert!(
             !node.as_any().is::<Select>(),
-            "cannot analyse select, simply the expression"
+            "cannot analyse select, simplify the expression"
         );
         if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
             if is_root(get_item.child()) {
