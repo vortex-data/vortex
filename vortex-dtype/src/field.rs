@@ -72,8 +72,8 @@ impl Field {
 /// ```
 /// use vortex_dtype::*;
 ///
-/// let i32 = DType::Primitive(PType::I32, Nullability::NonNullable);
-/// assert_eq!(i32, FieldPath::root().resolve(i32.clone()).unwrap());
+/// let dtype_i32 = DType::Primitive(PType::I32, Nullability::NonNullable);
+/// assert_eq!(dtype_i32, FieldPath::root().resolve(dtype_i32.clone()).unwrap());
 /// ```
 ///
 // TODO(ngates): we should probably reverse the path. Or better yet, store a Arc<[Field]> along
