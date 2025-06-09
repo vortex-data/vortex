@@ -42,8 +42,22 @@ impl std::fmt::Display for Identifier {
     }
 }
 
-/// The evaluation scope for an expression, all variables are evaluated relatively to the data it contains.
-/// It allows for expressions to access fields and previously defined data by [`Identifier`].
+/// Scope define the evaluation context/scope that an expression uses when being evaluated.
+/// There is a special `Identifier` (`Identity`) which is used to bind the initial array being evaluated
+///
+/// Other identifier can be bound with variables either before execution or while executing (see `Let`).
+/// Values can be extracted from the scope using the `Var` expression.
+///
+/// ```code
+/// <let x = lit(1) in var(Identifier::Identity) + var(x), { Identity -> Primitive[1,2,3]> ->
+/// <var(Identifier::Identity) + var(x), { Identity -> Primitive[1,2,3], x -> ConstantArray(1)> ->
+/// <Primitive[1,2,3] + var(x), { Identity -> Primitive[1,2,3], x -> ConstantArray(1)> ->
+/// <Primitive[1,2,3] + ConstantArray(1), { Identity -> Primitive[1,2,3], x -> ConstantArray(1)> ->
+/// <Primitive[2,3,4], { Identity -> Primitive[1,2,3], x -> ConstantArray(1)>
+/// ```
+///
+/// Other values can be bound before execution e.g.
+///  `<var("x") + var("y") + var("z"), x -> ..., y -> ..., z -> ...>`
 #[derive(Clone, Default)]
 pub struct Scope {
     array_len: usize,
