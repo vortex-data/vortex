@@ -1,9 +1,63 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
-use std::env;
 use std::path::PathBuf;
+use std::{env, fs};
 
-use walkdir::WalkDir;
+const DUCKDB_VERSION: &str = "v1.3.0";
+const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
+
+fn download_duckdb_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+    let duckdb_dir = out_dir.join(format!("duckdb-{DUCKDB_VERSION}"));
+
+    let target = env::var("TARGET")?;
+    let (platform, arch) = match target.as_str() {
+        "aarch64-apple-darwin" => ("osx", "arm64"),
+        "x86_64-apple-darwin" => ("osx", "amd64"),
+        "x86_64-unknown-linux-gnu" | "x86_64-unknown-linux-musl" => ("linux", "amd64"),
+        "aarch64-unknown-linux-gnu" | "aarch64-unknown-linux-musl" => ("linux", "arm64"),
+        _ => return Err(format!("Unsupported target: {target}").into()),
+    };
+
+    let archive_name = format!("static-libs-{platform}-{arch}.zip");
+    let url = format!("{DUCKDB_BASE_URL}/{DUCKDB_VERSION}/{archive_name}");
+    let archive_path = duckdb_dir.join(&archive_name);
+
+    // Create directory if it doesn't exist.
+    fs::create_dir_all(&duckdb_dir)?;
+
+    if !archive_path.exists() {
+        println!("Downloading DuckDB static libraries from {url}");
+        let response = reqwest::blocking::get(&url)?;
+        fs::write(&archive_path, &response.bytes()?)?;
+        println!("Downloaded to {}", archive_path.display());
+    } else {
+        println!("Archive already exists, skipping download");
+    }
+
+    Ok(archive_path)
+}
+
+fn extract_duckdb_libraries(archive_path: PathBuf) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let duckdb_dir = archive_path
+        .parent()
+        .ok_or("Invalid archive path")?
+        .to_path_buf();
+
+    // Check if already extracted.
+    if duckdb_dir.join("libduckdb_static.a").exists() {
+        println!("DuckDB libraries already extracted, skipping extraction");
+        return Ok(duckdb_dir);
+    }
+
+    println!("Extracting DuckDB static libraries");
+    let file = fs::File::open(&archive_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    archive.extract(&duckdb_dir)?;
+
+    println!("Extracted DuckDB libraries to {}", duckdb_dir.display());
+    Ok(duckdb_dir)
+}
 
 fn main() {
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -41,6 +95,15 @@ fn main() {
         .write_to_file(crate_dir.join("src/cpp.rs"))
         .expect("Couldn't write bindings!");
 
+    // Download and extract prebuilt DuckDB libraries.
+    let zip_path = download_duckdb_archive().unwrap();
+    let lib_path = extract_duckdb_libraries(zip_path).unwrap();
+
+    // Link against static DuckDB libraries.
+    println!("cargo:rustc-link-search=native={}", lib_path.display());
+    println!("cargo:rustc-link-lib=static=duckdb_static");
+    println!("cargo:rustc-link-lib=static=duckdb_fmt");
+
     // Compile our C++ code that exposes additional DuckDB functionality.
     cc::Build::new()
         .std("c++17")
@@ -66,7 +129,7 @@ fn main() {
         .expect("error: Unable to generate bindings for vortex.h")
         .write_to_file(crate_dir.join("include/vortex.h"));
 
-    for entry in WalkDir::new("cpp/") {
+    for entry in walkdir::WalkDir::new("cpp/") {
         println!("cargo:rerun-if-changed={}", entry.unwrap().path().display());
     }
     println!("cargo:rerun-if-changed=src/cpp.rs");

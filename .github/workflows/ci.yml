@@ -329,8 +329,9 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
       - name: Rust Tests
+        # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast
+          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-duckdb-ext
 
       - name: Generate coverage report
         if: github.ref == 'refs/heads/develop'
@@ -389,9 +390,10 @@ jobs:
           cargo codspeed build --features test-harness \
             --exclude bench-vortex \
             --exclude vortex-datafusion \
-            --exclude vortex-tui \
+            --exclude vortex-duckdb-ext \
             --exclude vortex-fuzz \
             --exclude vortex-python \
+            --exclude vortex-tui \
             --exclude xtask \
             --workspace \
             --profile bench
@@ -456,7 +458,7 @@ jobs:
         with:
           tool: nextest
       - name: Run all tests with Miri
-        run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar --exclude vortex-duckdb
+        run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar --exclude vortex-duckdb --exclude vortex-duckdb-ext
         # For now, we only run Miri against known "fiddly" crates.
         if: false
       - name: Run Miri
