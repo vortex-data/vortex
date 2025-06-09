@@ -21,7 +21,7 @@ use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
-use vortex_core::aliases::hash_set::HashSet;
+use vortex_common::aliases::hash_set::HashSet;
 use vortex_dtype::DType;
 use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;

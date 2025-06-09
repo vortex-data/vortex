@@ -1,5 +1,5 @@
 [package]
-name = "vortex-core"
+name = "vortex-common"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "Common definitions across crates"

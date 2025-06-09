@@ -1,4 +1,4 @@
-use vortex_core::aliases::hash_set::HashSet;
+use vortex_common::aliases::hash_set::HashSet;
 use vortex_dtype::{DType, Field, FieldPath};
 use vortex_error::{VortexResult, vortex_bail};
 

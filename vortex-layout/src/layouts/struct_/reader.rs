@@ -12,7 +12,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::stats::Precision;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayContext, ArrayRef, IntoArray};
-use vortex_core::aliases::hash_map::HashMap;
+use vortex_common::aliases::hash_map::HashMap;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};

@@ -680,7 +680,7 @@ mod tests {
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
-    use vortex_core::aliases::hash_set::HashSet;
+    use vortex_common::aliases::hash_set::HashSet;
     use vortex_sparse::SparseEncoding;
 
     use crate::integer::{IntCompressor, IntegerStats, SparseScheme};

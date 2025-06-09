@@ -14,7 +14,7 @@ use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
 use tokio::runtime::Handle;
 use vortex::buffer::Buffer;
-use vortex::core::aliases::hash_map::HashMap;
+use vortex::common::aliases::hash_map::HashMap;
 use vortex::file::VortexOpenOptions;
 use vortex::stream::ArrayStreamExt;
 use vortex::{Array, ArrayRef, IntoArray};

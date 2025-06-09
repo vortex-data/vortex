@@ -7,7 +7,7 @@ use moka::future::Cache;
 use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
 use vortex::buffer::ByteBuffer;
-use vortex::core::aliases::DefaultHashBuilder;
+use vortex::common::aliases::DefaultHashBuilder;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult, vortex_err};
 use vortex::file::segments::SegmentCache;
