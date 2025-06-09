@@ -65,20 +65,24 @@ macro_rules! wrapper {
 
         #[allow(dead_code)]
         impl $Name {
-            pub unsafe fn from_owned(ptr: $ffi_type) -> Self {
+            /// Takes ownership of the memory. The Rust wrapper becomes
+            /// responsible for calling the destructor when dropped.
+            pub unsafe fn own(ptr: $ffi_type) -> Self {
                 if ptr.is_null() {
                     vortex::error::vortex_panic!("Attempted to create a wrapper from a null pointer");
                 }
                 Self { ptr, owned: true }
             }
 
-            pub unsafe fn from_ptr(ptr: $ffi_type) -> Self {
+            /// Borrows the pointer without taking ownership.
+            pub unsafe fn borrow(ptr: $ffi_type) -> Self {
                 if ptr.is_null() {
                     vortex::error::vortex_panic!("Attempted to create a wrapper from a null pointer");
                 }
                 Self { ptr, owned: false }
             }
 
+            /// Returns the raw pointer.
             pub fn as_ptr(&self) -> $ffi_type {
                 self.ptr
             }

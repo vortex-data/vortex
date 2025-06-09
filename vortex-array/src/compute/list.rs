@@ -9,7 +9,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{ListScalar, Scalar};
 
 use crate::arrays::{BoolArray, ConstantArray, ListArray};
-use crate::compute::{BooleanOperator, Operator, boolean, compare, fill_null};
+use crate::compute::{Operator, compare, fill_null, or};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
@@ -68,13 +68,14 @@ pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<Array
     if let Some(value_scalar) = value.as_constant() {
         list_contains_scalar(array, &value_scalar, nullability)
     } else if let Some(list_scalar) = array.as_constant() {
-        list_scalar_contains_array(&list_scalar.as_list(), value, nullability)
+        constant_list_scalar_contains(&list_scalar.as_list(), value, nullability)
     } else {
         todo!("unsupported list contains with list and element as arrays")
     }
 }
 
-fn list_scalar_contains_array(
+// Then there is a constant list scalar (haystack) being compared to an array of needles.
+fn constant_list_scalar_contains(
     list_scalar: &ListScalar,
     values: &dyn Array,
     nullability: Nullability,
@@ -94,7 +95,7 @@ fn list_scalar_contains_array(
             &false_scalar,
         )?;
         if let Some(acc) = result {
-            result = Some(boolean(&acc, &res, BooleanOperator::Or)?)
+            result = Some(or(&acc, &res)?)
         } else {
             result = Some(res);
         }
@@ -218,8 +219,8 @@ fn list_is_not_empty(list_array: &ListArray) -> VortexResult<ArrayRef> {
     Ok(BoolArray::new(buffer, list_array.validity().clone()).into_array())
 }
 
-// Reduce each boolean values into a Mask that indicates which elements in the
-// ListArray contain the matching value.
+/// Reduces each boolean values into a Mask that indicates which elements in the
+/// ListArray contain the matching value.
 fn reduce_with_ends<T: NativePType + AsPrimitive<usize>>(
     ends: &[T],
     matches: &BooleanBuffer,

@@ -9,7 +9,7 @@ use vortex::{Array, ArrayRef, Canonical, IntoArray};
 pub struct ConversionCache {
     pub values_cache: HashMap<usize, (ArrayRef, FlatVector)>,
     pub canonical_cache: HashMap<usize, (ArrayRef, Canonical)>,
-    // A value which must be unique for a given duckdb pipeline.
+    /// A value which must be unique for a given duckdb pipeline.
     pub instance_id: u64,
 }
 

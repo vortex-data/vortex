@@ -37,9 +37,9 @@ pub fn scalar_helper(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyResul
     }
 }
 
-// This function attempts to convert the python object to a scalar, with a hint of the expected
-// dtype. It can assume that the scalar_helper function will perform a final cast to the correct
-// dtype if necessary.
+/// Attempts to convert the python object to a scalar, with a hint of the expected
+/// dtype. It can assume that the scalar_helper function will perform a final cast to the correct
+/// dtype if necessary.
 fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyResult<Scalar> {
     // If it's already a scalar, return it
     if let Ok(value) = value.downcast::<PyScalar>() {

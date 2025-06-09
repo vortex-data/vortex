@@ -9,6 +9,7 @@ use dyn_hash::DynHash;
 
 mod binary;
 
+mod analysis;
 mod between;
 mod cast;
 mod field;
@@ -32,6 +33,7 @@ pub mod transform;
 pub mod traversal;
 mod var;
 
+pub use analysis::*;
 pub use between::*;
 pub use binary::*;
 pub use cast::*;
@@ -52,7 +54,7 @@ pub use select::*;
 pub use var::*;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{DType, FieldName};
+use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexResult, VortexUnwrap};
 #[cfg(feature = "proto")]
 use vortex_proto::expr;
@@ -93,7 +95,6 @@ pub trait VortexExpr:
     fn as_any(&self) -> &dyn Any;
 
     /// Compute result of expression on given batch producing a new batch
-    ///
     fn evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
         let result = self.unchecked_evaluate(scope)?;
         assert_eq!(
@@ -163,6 +164,36 @@ impl VortexExprExt for ExprRef {
                 kind: Some(self.serialize_kind()?),
             }),
         })
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct AccessPath {
+    field_path: FieldPath,
+    identifier: Identifier,
+}
+
+impl AccessPath {
+    pub fn root_field(path: FieldName) -> Self {
+        Self {
+            field_path: FieldPath::from_name(path),
+            identifier: Identifier::Identity,
+        }
+    }
+
+    fn new(path: FieldPath, identifier: Identifier) -> Self {
+        Self {
+            field_path: path,
+            identifier,
+        }
+    }
+
+    pub fn identifier(&self) -> &Identifier {
+        &self.identifier
+    }
+
+    pub fn field_path(&self) -> &FieldPath {
+        &self.field_path
     }
 }
 

@@ -5,11 +5,10 @@ use std::sync::Arc;
 
 use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, ToCanonical};
-use vortex_dtype::{DType, FieldName, FieldPath};
+use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::pruning::{AnalysisExpr, StatsCatalog};
-use crate::{ExprRef, Identifier, Scope, ScopeDType, VortexExpr, root};
+use crate::{AccessPath, AnalysisExpr, ExprRef, Scope, ScopeDType, StatsCatalog, VortexExpr, root};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -98,19 +97,17 @@ pub(crate) mod proto {
 
 impl AnalysisExpr for GetItem {
     fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
-        let (var, path) = self.field_path()?;
-        catalog.stats_ref(&var, &path, Stat::Max)
+        catalog.stats_ref(&self.field_path()?, Stat::Max)
     }
 
     fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
-        let (var, path) = self.field_path()?;
-        catalog.stats_ref(&var, &path, Stat::Min)
+        catalog.stats_ref(&self.field_path()?, Stat::Min)
     }
 
-    fn field_path(&self) -> Option<(Identifier, FieldPath)> {
+    fn field_path(&self) -> Option<AccessPath> {
         self.child()
             .field_path()
-            .map(|(var, fp)| (var, fp.push(self.field())))
+            .map(|fp| AccessPath::new(fp.field_path.push(self.field.clone()), fp.identifier))
     }
 }
 

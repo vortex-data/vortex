@@ -47,7 +47,7 @@ pub enum Canonical {
 }
 
 impl Canonical {
-    // Create an empty canonical array of the given dtype.
+    /// Create an empty canonical array of the given dtype.
     pub fn empty(dtype: &DType) -> Canonical {
         builder_with_capacity(dtype, 0)
             .finish()
