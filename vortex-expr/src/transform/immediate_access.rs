@@ -65,7 +65,7 @@ impl<'a> NodeVisitor<'a> for ImmediateScopeAccessesAnalysis<'a> {
     fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
         assert!(
             !node.as_any().is::<Select>(),
-            "cannot analyse select, simply the expression"
+            "cannot analyze select, simplify the expression"
         );
         if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
             if is_root(get_item.child()) {

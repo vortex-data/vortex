@@ -190,7 +190,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
                     selection: self.selection.clone(),
                     filter: self.filter.clone(),
                     reader: layout_reader.clone(),
-                    projection: self.projection.clone(),
+                    projection: projection.clone(),
                     mapper: self.map_fn.clone(),
                     task_executor: None,
                 });
