@@ -3,8 +3,8 @@ use vortex_array::stats::Stat;
 use crate::{AccessPath, ExprRef};
 
 pub trait StatsCatalog {
-    // Given an id, field and stat return an expression that when evaluated will return that stat
-    // this would be a column reference or a literal value, if the value is known at planning time.
+    /// Given an id, field and stat return an expression that when evaluated will return that stat
+    /// this would be a column reference or a literal value, if the value is known at planning time.
     fn stats_ref(&mut self, _access_path: &AccessPath, _stat: Stat) -> Option<ExprRef> {
         None
     }

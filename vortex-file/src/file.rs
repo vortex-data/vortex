@@ -84,7 +84,7 @@ impl VortexFile {
         Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
     }
 
-    // Returns true if the expression will never match any rows in the file.
+    /// Returns true if the expression will never match any rows in the file.
     pub fn can_prune(&self, filter: &ExprRef) -> VortexResult<bool> {
         let Some((file_stats, struct_dtype)) = self
             .footer

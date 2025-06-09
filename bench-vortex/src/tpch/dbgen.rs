@@ -160,7 +160,7 @@ impl Display for Platform {
 // Increment this when we release new tpch-dbgen.
 const DBGEN_VERSION: &str = "0.1.0";
 
-// Return a handle to the downloaded toolchain.
+/// Return a handle to the downloaded toolchain.
 fn get_cached_dbgen<P: AsRef<Path>>(cache_dir: P) -> anyhow::Result<PathBuf> {
     if cfg!(target_os = "macos") {
         return get_or_cache_toolchain(cache_dir.as_ref(), DBGEN_VERSION, Platform::MacOS);

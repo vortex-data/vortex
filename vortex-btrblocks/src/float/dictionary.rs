@@ -13,7 +13,7 @@ use crate::float::stats::{ErasedDistinctValues, FloatStats};
 
 macro_rules! typed_encode {
     ($stats:ident, $typed:ident, $validity:ident, $typ:ty) => {{
-        let values: Buffer<$typ> = $typed.values.keys().map(|x| x.0).collect();
+        let values: Buffer<$typ> = $typed.values.iter().map(|x| x.0).collect();
 
         let max_code = values.len();
         let codes = if max_code <= u8::MAX as usize {

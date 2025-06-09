@@ -175,8 +175,8 @@ fn filter_indices(
     Ok(result)
 }
 
-// Mirrors the find_chunk_idx method on ChunkedArray, but avoids all of the overhead
-// from scalars, dtypes, and metadata cloning.
+/// Mirrors the find_chunk_idx method on ChunkedArray, but avoids all of the overhead
+/// from scalars, dtypes, and metadata cloning.
 pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
     let chunk_id = chunk_ends
         .search_sorted(&(idx as u64), SearchSortedSide::Right)
