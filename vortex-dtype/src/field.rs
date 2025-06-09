@@ -320,7 +320,7 @@ mod tests {
             .push("b")
             .push("c");
         assert!(path.resolve(level1.clone()).is_err());
-        assert!(!path.exists(level1.clone()));
+        assert!(!path.exists(level1));
     }
 
     #[test]
@@ -335,7 +335,7 @@ mod tests {
 
         let path = FieldPath::from(Field::ElementType);
         assert!(path.resolve(dtype.clone()).is_err());
-        assert!(!path.exists(dtype.clone()));
+        assert!(!path.exists(dtype));
     }
 
     #[test]
@@ -353,6 +353,6 @@ mod tests {
 
         let path = FieldPath::from_name("a").push(Field::ElementType);
         assert!(path.resolve(dtype.clone()).is_err());
-        assert!(!path.exists(dtype.clone()));
+        assert!(!path.exists(dtype));
     }
 }
