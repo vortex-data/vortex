@@ -52,6 +52,7 @@ vortex-metrics = { workspace = true }
 vortex-scalar = { workspace = true }
 
 [dev-dependencies]
+vortex-array = { workspace = true, features = ["test-harness"] }
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
 

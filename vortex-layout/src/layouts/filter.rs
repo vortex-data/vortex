@@ -121,6 +121,7 @@ impl LayoutReader for FilterLayoutReader {
     }
 }
 
+#[allow(dead_code)]
 /// Encapsulates the shared state of a single filter expression, reused across row ranges.
 pub struct FilterExpr {
     /// The conjuncts involved in the filter expression.
@@ -149,6 +150,7 @@ impl FilterExpr {
         }
     }
 
+    #[allow(dead_code)]
     /// Returns the next preferred conjunct to evaluate.
     fn next_conjunct(&self, remaining: &BitVec) -> Option<usize> {
         let read = self.ordering.read();
@@ -156,6 +158,7 @@ impl FilterExpr {
         read.iter().find(|&idx| remaining[*idx]).copied()
     }
 
+    #[allow(dead_code)]
     /// Report the selectivity of a conjunct, i.e. 0 means no rows matched the predicate.
     #[allow(clippy::cast_possible_truncation)]
     fn report_selectivity(&self, conjunct_idx: usize, selectivity: f64) {
@@ -234,6 +237,7 @@ impl PruningEvaluation for FilterPruningEvaluation {
     }
 }
 
+#[allow(dead_code)]
 struct FilterEvaluation {
     /// The parent filter expression.
     filter_expr: Arc<FilterExpr>,

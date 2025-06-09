@@ -88,6 +88,7 @@ impl VortexExpr for BinaryExpr {
     }
 
     fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
+        // TODO(joe): support expr eval short cutting
         let lhs = self.lhs.evaluate(batch)?;
         let rhs = self.rhs.evaluate(batch)?;
 

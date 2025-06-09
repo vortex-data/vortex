@@ -172,6 +172,7 @@ impl LayoutReader for DictReader {
     }
 }
 
+#[allow(dead_code)]
 struct DictMaskEvaluation {
     values_eval: SharedArrayFuture,
     codes_eval: Box<dyn ArrayEvaluation>,

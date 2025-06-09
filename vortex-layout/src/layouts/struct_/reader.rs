@@ -249,11 +249,13 @@ impl LayoutReader for StructReader {
     }
 }
 
+#[allow(dead_code)]
 struct StructMaskEvaluation {
     partitioned: Arc<PartitionedExpr>,
     field_evals: Vec<FieldEval>,
 }
 
+#[allow(dead_code)]
 enum FieldEval {
     Mask(Box<dyn MaskEvaluation>),
     Array(Box<dyn ArrayEvaluation>),
@@ -336,13 +338,15 @@ mod tests {
     use itertools::Itertools;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::{PrimitiveArray, StructArray};
+    use vortex_array::compute::fill_null;
     use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability, StructFields};
-    use vortex_expr::{and, eq, get_item, get_item_scope, gt, ident, is_null, lit, pack};
+    use vortex_expr::{eq, get_item, get_item_scope, gt, ident, is_null, lit, or, pack};
     use vortex_mask::Mask;
+    use vortex_scalar::Scalar;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
@@ -487,22 +491,27 @@ mod tests {
     ) {
         let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
 
-        let filt = is_null(and(
+        let filt = is_null(or(
             eq(get_item_scope("a"), lit(0)),
             eq(get_item_scope("b"), lit(0)),
         ));
-        let result = Mask::try_from(
-            block_on(
-                reader
-                    .projection_evaluation(&(0..3), &filt)
-                    .unwrap()
-                    .invoke(Mask::new_true(3)),
+        let result = Mask::from_iter(
+            fill_null(
+                &block_on(
+                    reader
+                        .projection_evaluation(&(0..3), &filt)
+                        .unwrap()
+                        .invoke(Mask::new_true(3)),
+                )
+                .unwrap(),
+                &Scalar::bool(false, NonNullable),
             )
             .unwrap()
             .to_bool()
-            .unwrap(),
-        )
-        .unwrap();
+            .unwrap()
+            .boolean_buffer()
+            .iter(),
+        );
 
         let proj = block_on(
             reader

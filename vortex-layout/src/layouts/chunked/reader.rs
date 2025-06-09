@@ -253,6 +253,7 @@ impl PruningEvaluation for ChunkedPruningEvaluation {
     }
 }
 
+#[allow(dead_code)]
 struct ChunkedMaskEvaluation {
     name: Arc<str>,
     chunk_evals: Vec<Box<dyn MaskEvaluation>>,
