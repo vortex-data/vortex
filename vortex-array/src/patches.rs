@@ -6,12 +6,12 @@ use itertools::Itertools as _;
 use num_traits::{NumCast, ToPrimitive};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
-use vortex_common::aliases::hash_map::HashMap;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::{PValue, Scalar};
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::arrays::PrimitiveArray;
 use crate::compute::{cast, filter, take};

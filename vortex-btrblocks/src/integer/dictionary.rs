@@ -72,7 +72,7 @@ macro_rules! impl_encode {
             #[allow(clippy::cast_possible_truncation)]
             fn encode(distinct: &[$typ], values: &[$typ]) -> Buffer<$ityp> {
                 let mut codes =
-                    vortex_common::aliases::hash_map::HashMap::<$typ, $ityp>::with_capacity(
+                    vortex_utils::aliases::hash_map::HashMap::<$typ, $ityp>::with_capacity(
                         distinct.len(),
                     );
                 for (code, &value) in distinct.iter().enumerate() {

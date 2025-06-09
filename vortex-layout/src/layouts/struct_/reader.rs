@@ -12,12 +12,12 @@ use vortex_array::arrays::StructArray;
 use vortex_array::stats::Precision;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayContext, ArrayRef, IntoArray};
-use vortex_common::aliases::hash_map::HashMap;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
 use vortex_expr::{ExprRef, Scope};
 use vortex_mask::Mask;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;

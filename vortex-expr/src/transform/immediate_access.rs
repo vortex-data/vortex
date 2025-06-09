@@ -1,8 +1,8 @@
 use itertools::Itertools;
-use vortex_common::aliases::hash_map::HashMap;
-use vortex_common::aliases::hash_set::HashSet;
 use vortex_dtype::{FieldName, StructFields};
 use vortex_error::{VortexResult, vortex_err};
+use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
 use crate::{ExprRef, GetItem, Select, is_root};

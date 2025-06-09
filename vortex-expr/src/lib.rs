@@ -52,13 +52,13 @@ pub use scope::*;
 pub use select::*;
 pub use var::*;
 use vortex_array::{Array, ArrayRef};
-use vortex_common::aliases::hash_set::HashSet;
 use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexResult, VortexUnwrap};
 #[cfg(feature = "proto")]
 use vortex_proto::expr;
 #[cfg(feature = "proto")]
 use vortex_proto::expr::{Expr, kind};
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{Node, ReferenceCollector};
 

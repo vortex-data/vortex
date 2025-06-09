@@ -11,7 +11,7 @@ mod benchmarks {
     use vortex_btrblocks::Compressor;
     use vortex_btrblocks::integer::IntCompressor;
     use vortex_buffer::buffer_mut;
-    use vortex_common::aliases::hash_set::HashSet;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     fn make_clickbench_window_name() -> ArrayRef {
         // A test that's meant to mirror the WindowName column from ClickBench.

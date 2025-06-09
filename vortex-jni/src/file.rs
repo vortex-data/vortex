@@ -14,12 +14,12 @@ use parking_lot::Mutex;
 use prost::Message;
 use url::Url;
 use vortex::buffer::Buffer;
-use vortex::common::aliases::hash_map::HashMap;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{deserialize_expr, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr::Expr;
+use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::array_iter::NativeArrayIterator;
 use crate::block_on;

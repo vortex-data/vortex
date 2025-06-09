@@ -1,6 +1,6 @@
-use vortex_common::aliases::hash_set::HashSet;
 use vortex_dtype::{DType, Field, FieldPath};
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{FoldUp, Folder, Node};
 use crate::{ExprRef, GetItem, Select, is_root};

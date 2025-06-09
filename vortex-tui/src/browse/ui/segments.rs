@@ -11,9 +11,9 @@ use taffy::{
     AvailableSpace, Dimension, FlexDirection, LengthPercentage, NodeId, PrintTree, Size, Style,
     TaffyTree, TraversePartialTree,
 };
-use vortex::common::aliases::hash_map::HashMap;
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
 use vortex::file::SegmentSpec;
+use vortex::utils::aliases::hash_map::HashMap;
 use vortex_layout::{Layout, LayoutChildType};
 
 use crate::browse::app::AppState;

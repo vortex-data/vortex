@@ -18,10 +18,10 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{Array, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut};
-use vortex_common::aliases::hash_map::HashMap;
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_fastlanes::bitpack_encode_unchecked;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::match_each_alp_float_ptype;
 

@@ -41,7 +41,6 @@ tracing-futures = { workspace = true, features = [
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-common = { workspace = true }
 vortex-dict = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
@@ -50,6 +49,7 @@ vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-utils = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
