@@ -6,7 +6,7 @@ use itertools::Itertools as _;
 use num_traits::{NumCast, ToPrimitive};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
-use vortex_core::aliases::hash_map::HashMap;
+use vortex_common::aliases::hash_map::HashMap;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};

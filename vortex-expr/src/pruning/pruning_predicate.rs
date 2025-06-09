@@ -3,8 +3,8 @@ use std::iter;
 use itertools::Itertools;
 use vortex_array::stats::Stat;
 use vortex_array::{Array, ArrayRef};
-use vortex_core::aliases::hash_map::HashMap;
-use vortex_core::aliases::hash_set::HashSet;
+use vortex_common::aliases::hash_map::HashMap;
+use vortex_common::aliases::hash_set::HashSet;
 use vortex_dtype::{Field, FieldName, FieldPath};
 use vortex_error::{VortexExpect, VortexResult};
 

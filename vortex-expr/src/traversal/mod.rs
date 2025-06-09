@@ -291,7 +291,7 @@ impl Node for ExprRef {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_core::aliases::hash_set::HashSet;
+    use vortex_common::aliases::hash_set::HashSet;
     use vortex_error::VortexResult;
 
     use crate::traversal::visitor::pre_order_visit_down;

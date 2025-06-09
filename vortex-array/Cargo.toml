@@ -52,7 +52,7 @@ rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
-vortex-core = { workspace = true }
+vortex-common = { workspace = true }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = [
     "flatbuffers",

@@ -10,7 +10,7 @@ use vortex_array::compute::{compare, filter, take};
 use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_core::aliases::hash_set::HashSet;
+use vortex_common::aliases::hash_set::HashSet;
 use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_fuzz::error::{VortexFuzzError, VortexFuzzResult};
 use vortex_fuzz::{Action, FuzzArrayAction, sort_canonical_array};

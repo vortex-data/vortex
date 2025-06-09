@@ -9,8 +9,8 @@ use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::{ArrayContext, ToCanonical};
-use vortex_core::aliases::DefaultHashBuilder;
-use vortex_core::aliases::hash_set::HashSet;
+use vortex_common::aliases::DefaultHashBuilder;
+use vortex_common::aliases::hash_set::HashSet;
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
 use crate::layouts::struct_::StructLayout;

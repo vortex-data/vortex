@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 use prost::Message;
 use url::Url;
 use vortex::buffer::Buffer;
-use vortex::core::aliases::hash_map::HashMap;
+use vortex::common::aliases::hash_map::HashMap;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{deserialize_expr, root, select};

@@ -10,7 +10,9 @@ use vortex_array::arrays::{
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_buffer::{BufferMut, ByteBufferMut};
-use vortex_core::aliases::hash_map::{DefaultHashBuilder, HashTable, HashTableEntry, RandomState};
+use vortex_common::aliases::hash_map::{
+    DefaultHashBuilder, HashTable, HashTableEntry, RandomState,
+};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
 
