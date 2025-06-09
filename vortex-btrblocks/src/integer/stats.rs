@@ -152,7 +152,7 @@ impl CompressorStats for IntegerStats {
 
 fn typed_int_stats<T>(array: &PrimitiveArray, count_distinct_values: bool) -> IntegerStats
 where
-    T: NativePType + PrimInt + for<'a> TryFrom<&'a ScalarValue, Error=VortexError>,
+    T: NativePType + PrimInt + for<'a> TryFrom<&'a ScalarValue, Error = VortexError>,
     TypedStats<T>: Into<ErasedStats>,
     NativeValue<T>: Eq + Hash,
 {
@@ -171,7 +171,7 @@ where
                 top_count: 0,
                 distinct_values: HashMap::with_hasher(FxBuildHasher),
             }
-                .into(),
+            .into(),
         };
     } else if array.all_invalid().vortex_expect("all_invalid") {
         return IntegerStats {
@@ -187,7 +187,7 @@ where
                 top_count: 0,
                 distinct_values: HashMap::with_hasher(FxBuildHasher),
             }
-                .into(),
+            .into(),
         };
     }
 

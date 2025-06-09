@@ -93,7 +93,7 @@ impl Patches {
                 .scalar_at(indices.len() - 1)
                 .vortex_expect("indices are not empty"),
         )
-            .vortex_expect("indices must be a number");
+        .vortex_expect("indices must be a number");
         assert!(
             max - offset < array_len,
             "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"

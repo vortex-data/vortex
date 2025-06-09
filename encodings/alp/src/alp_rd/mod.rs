@@ -255,7 +255,7 @@ impl RDEncoder {
             self.right_bit_width,
             exceptions,
         )
-            .vortex_expect("ALPRDArray construction in encode")
+        .vortex_expect("ALPRDArray construction in encode")
     }
 }
 

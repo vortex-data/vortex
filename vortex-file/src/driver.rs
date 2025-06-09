@@ -312,7 +312,7 @@ impl Stream for CoalescedDriver {
 
         if this.prefetched_bytes < this.max_prefetch_bytes
             && Arc::strong_count(&this.inflight_prefetch_lease) - 1
-            < this.max_prefetch_inflight_requests
+                < this.max_prefetch_inflight_requests
         {
             while let Some(id) = this.requested.pop_front() {
                 if let Some(request) = this

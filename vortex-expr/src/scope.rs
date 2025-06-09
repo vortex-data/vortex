@@ -128,7 +128,7 @@ impl Scope {
         self
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=(&Identifier, &ArrayRef)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&Identifier, &ArrayRef)> {
         let values = self.arrays.iter();
 
         self.root_scope
