@@ -10,11 +10,11 @@ use vortex_array::compute::{compare, filter, take};
 use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_common::aliases::hash_set::HashSet;
 use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_fuzz::error::{VortexFuzzError, VortexFuzzResult};
 use vortex_fuzz::{Action, FuzzArrayAction, sort_canonical_array};
 use vortex_scalar::Scalar;
+use vortex_utils::aliases::hash_set::HashSet;
 
 fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     let FuzzArrayAction { array, actions } = fuzz_action;

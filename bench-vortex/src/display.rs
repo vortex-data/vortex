@@ -5,7 +5,7 @@ use itertools::Itertools;
 use tabled::builder::Builder;
 use tabled::settings::themes::Colorization;
 use tabled::settings::{Color, Style};
-use vortex::common::aliases::hash_map::HashMap;
+use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Target;
 use crate::measurements::{MeasurementValue, TableValue, ToJson, ToTable};

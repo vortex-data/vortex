@@ -10,7 +10,7 @@ use opentelemetry_otlp::SpanExporter as OtlpSpanExporter;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::error::OTelSdkResult;
 use opentelemetry_sdk::trace::{IdGenerator, RandomIdGenerator, SpanData, SpanExporter};
-use vortex::common::aliases::hash_map::HashMap;
+use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;
 use crate::engines::df::GIT_COMMIT_ID;

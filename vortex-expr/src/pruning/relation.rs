@@ -1,7 +1,7 @@
 use std::hash::Hash;
 
-use vortex_common::aliases::hash_map::{HashMap, IntoIter};
-use vortex_common::aliases::hash_set::HashSet;
+use vortex_utils::aliases::hash_map::{HashMap, IntoIter};
+use vortex_utils::aliases::hash_set::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct Relation<K, V> {

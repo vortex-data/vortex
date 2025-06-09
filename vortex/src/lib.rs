@@ -7,10 +7,10 @@ pub use vortex_array::*;
 #[cfg(feature = "files")]
 pub use vortex_file as file;
 pub use {
-    vortex_btrblocks as compressor, vortex_buffer as buffer, vortex_common as common,
-    vortex_dtype as dtype, vortex_error as error, vortex_expr as expr,
-    vortex_flatbuffers as flatbuffers, vortex_ipc as ipc, vortex_layout as layout,
-    vortex_mask as mask, vortex_metrics as metrics, vortex_proto as proto, vortex_scalar as scalar,
+    vortex_btrblocks as compressor, vortex_buffer as buffer, vortex_dtype as dtype,
+    vortex_error as error, vortex_expr as expr, vortex_flatbuffers as flatbuffers,
+    vortex_ipc as ipc, vortex_layout as layout, vortex_mask as mask, vortex_metrics as metrics,
+    vortex_proto as proto, vortex_scalar as scalar, vortex_utils as utils,
 };
 
 pub mod encodings {

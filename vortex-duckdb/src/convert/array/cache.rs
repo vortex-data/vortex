@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use duckdb::core::FlatVector;
-use vortex::common::aliases::hash_map::HashMap;
 use vortex::error::{VortexExpect, VortexResult};
+use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, Canonical, IntoArray};
 
 #[derive(Default)]

@@ -1,6 +1,6 @@
-use vortex_common::aliases::hash_set::HashSet;
 use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{NodeVisitor, TraversalOrder};
 use crate::{ExprRef, GetItem, Select};

@@ -22,7 +22,6 @@ vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
-vortex-common = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-dict = { workspace = true }
@@ -42,6 +41,7 @@ vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
+vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 
 [dev-dependencies]

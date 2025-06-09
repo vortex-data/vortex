@@ -100,7 +100,7 @@ pub mod named_locks {
     use std::sync::{Arc, LazyLock};
 
     use tokio::sync::Mutex;
-    use vortex::common::aliases::hash_map::HashMap;
+    use vortex::utils::aliases::hash_map::HashMap;
 
     type NamedLocksMap = LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
     static NAMED_LOCKS: NamedLocksMap = LazyLock::new(|| Mutex::new(HashMap::new()));

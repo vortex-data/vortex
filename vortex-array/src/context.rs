@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use parking_lot::RwLock;
-use vortex_common::aliases::hash_map::HashMap;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::EncodingRef;
 use crate::arrays::{

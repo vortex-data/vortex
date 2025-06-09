@@ -9,9 +9,9 @@ use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::{ArrayContext, ToCanonical};
-use vortex_common::aliases::DefaultHashBuilder;
-use vortex_common::aliases::hash_set::HashSet;
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
+use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SequenceWriter;

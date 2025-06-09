@@ -21,12 +21,12 @@ use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
-use vortex_common::aliases::hash_set::HashSet;
 use vortex_dtype::DType;
 use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::compare::compare_canonical_array;
 use crate::filter::filter_canonical_array;
