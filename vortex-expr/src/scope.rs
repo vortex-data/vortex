@@ -2,8 +2,8 @@ use std::any::Any;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::{Array, ArrayRef};
+use vortex_common::aliases::hash_map::HashMap;
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 

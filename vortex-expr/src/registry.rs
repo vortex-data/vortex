@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use expr::Expr;
-use vortex_array::aliases::hash_map::HashMap;
+use vortex_common::aliases::hash_map::HashMap;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_proto::expr;
 

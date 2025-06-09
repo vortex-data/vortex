@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
 use parking_lot::Mutex;
-use vortex_array::aliases::hash_map::HashMap;
+use vortex_common::aliases::hash_map::HashMap;
 use vortex_error::VortexExpect;
 
 use crate::segments::SegmentId;

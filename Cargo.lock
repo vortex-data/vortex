@@ -6027,6 +6027,7 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
+ "vortex-common",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dict",
@@ -6062,6 +6063,7 @@ dependencies = [
  "rustc-hash",
  "vortex-array",
  "vortex-buffer",
+ "vortex-common",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
@@ -6110,6 +6112,7 @@ dependencies = [
  "static_assertions",
  "vortex-array",
  "vortex-buffer",
+ "vortex-common",
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",
@@ -6133,6 +6136,7 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
+ "vortex-common",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dict",
@@ -6173,6 +6177,13 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
+]
+
+[[package]]
+name = "vortex-common"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.15.3",
 ]
 
 [[package]]
@@ -6238,6 +6249,7 @@ dependencies = [
  "rustc-hash",
  "vortex-array",
  "vortex-buffer",
+ "vortex-common",
  "vortex-dtype",
  "vortex-error",
  "vortex-fsst",
@@ -6322,6 +6334,7 @@ dependencies = [
  "serde",
  "vortex-array",
  "vortex-buffer",
+ "vortex-common",
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
@@ -6399,6 +6412,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-bytebool",
+ "vortex-common",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dict",
@@ -6455,6 +6469,7 @@ dependencies = [
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",
+ "vortex-common",
  "vortex-dtype",
  "vortex-error",
  "vortex-file",
@@ -6548,6 +6563,7 @@ dependencies = [
  "vortex-array",
  "vortex-btrblocks",
  "vortex-buffer",
+ "vortex-common",
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",

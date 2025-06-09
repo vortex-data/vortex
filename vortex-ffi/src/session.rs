@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use moka::sync::Cache;
-use vortex::aliases::DefaultHashBuilder;
+use vortex::common::aliases::DefaultHashBuilder;
 use vortex::dtype::DType;
 use vortex::file::{Footer, SegmentSpec};
 use vortex::layout::segments::SegmentId;
