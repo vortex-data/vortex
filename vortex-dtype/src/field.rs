@@ -2,9 +2,9 @@
 //!
 //! A `Field` can either be a direct child field of the top-level struct (selected by name or index),
 //! or a nested field (selected by a sequence of such selectors)
+//!
 
 use core::fmt;
-use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
