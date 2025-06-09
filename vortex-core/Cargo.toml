@@ -15,8 +15,6 @@ version = { workspace = true }
 
 [dependencies]
 hashbrown = { workspace = true }
-inventory = { workspace = true }
-paste = { workspace = true }
 
 [lints]
 workspace = true
