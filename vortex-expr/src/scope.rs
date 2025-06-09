@@ -56,6 +56,8 @@ impl std::fmt::Display for Identifier {
 /// <Primitive[2,3,4], { Identity -> Primitive[1,2,3], x -> ConstantArray(1)>
 /// ```
 ///
+/// Other values can be bound before execution e.g.
+///  `<var("x") + var("y") + var("z"), x -> ..., y -> ..., z -> ...>`
 #[derive(Clone, Default)]
 pub struct Scope {
     array_len: usize,
