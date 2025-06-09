@@ -17,7 +17,7 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, ScopeDType, root};
@@ -155,7 +155,10 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
     #[allow(clippy::unused_enumerate_index)]
-    pub fn build(self) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<A>>>>> {
+    pub fn build(mut self) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<A>>>>> {
+        if self.filter.is_some() && self.limit.is_some() {
+            vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
+        }
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
         let layout_reader = if self.filter.is_some() {
@@ -177,17 +180,13 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         // Construct field masks and compute the row splits of the scan.
         let (filter_mask, projection_mask) =
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
-        let field_mask: Vec<_> = filter_mask
-            .iter()
-            .cloned()
-            .chain(projection_mask.iter().cloned())
-            .collect();
+        let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
         let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
 
         // Create a task that executes the full scan pipeline for each split.
         let split_tasks = splits
             .into_iter()
-            .map(move |split_range| {
+            .map(|split_range| {
                 let ctx = Arc::new(TaskContext {
                     row_range: self.row_range.clone(),
                     selection: self.selection.clone(),
@@ -198,7 +197,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
                     task_executor: None,
                 });
 
-                split_exec(ctx, split_range)
+                split_exec(ctx, split_range, self.limit.as_mut())
             })
             .try_collect()?;
 

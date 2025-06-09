@@ -29,6 +29,7 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 pub(super) fn split_exec<A: 'static + Send + Sync>(
     ctx: Arc<TaskContext<A>>,
     split: Range<u64>,
+    limit: Option<&mut usize>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
     // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
     let read_range = match &ctx.row_range {
@@ -55,7 +56,18 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
 
     let filter = match ctx.filter.as_ref() {
         // No filter == immediate task
-        None => ok(row_mask).boxed(),
+        None => {
+            let row_mask = if let Some(limit) = limit.filter(|l| **l > 0_usize) {
+                let true_count = row_mask.true_count();
+                let row_mask = row_mask.limit(*limit);
+                *limit -= usize::min(*limit, true_count);
+                row_mask
+            } else {
+                row_mask
+            };
+
+            ok(row_mask).boxed()
+        }
         Some(filter) => {
             // Step 2: if there is a filter provided, attempt to prune this range based on the filter.
             // NOTE: it's very important that the pruning and filter evaluations are built OUTSIDE

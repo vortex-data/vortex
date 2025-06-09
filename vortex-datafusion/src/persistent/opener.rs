@@ -111,7 +111,9 @@ impl FileOpener for VortexFileOpener {
             let mut scan_builder = apply_byte_range(file_meta, vxf.row_count(), scan_builder);
 
             if let Some(limit) = limit {
-                scan_builder = scan_builder.with_limit(limit);
+                if filter.is_none() {
+                    scan_builder = scan_builder.with_limit(limit);
+                }
             }
 
             let stream = scan_builder
@@ -146,9 +148,10 @@ impl FileOpener for VortexFileOpener {
                     )
                 })
                 .map_err(|e: VortexError| ArrowError::ExternalError(Box::new(e)))
-                .try_flatten();
+                .try_flatten()
+                .boxed();
 
-            Ok(stream.boxed())
+            Ok(stream)
         }
         .boxed())
     }
