@@ -12,18 +12,20 @@ use futures::{FutureExt, Stream, StreamExt, stream};
 use itertools::Itertools;
 pub use selection::*;
 pub use split_by::*;
+use vortex_array::compute::fill_null;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::{ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
+use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, Identity};
 use vortex_mask::Mask;
 use vortex_metrics::VortexMetrics;
+use vortex_scalar::Scalar;
 
 use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
@@ -236,11 +238,18 @@ impl<A: 'static + Send> ScanBuilder<A> {
                     let mask_fut = async move {
                         let mask = mask_fut.await?;
                         if mask.all_false() {
+                            println!("mask len {}", mask.len());
                             Ok(mask)
                         } else {
                             // merge mask mapping null -> false
-                            // Mask::try_from(eval.invoke(mask).await?.to_bool()?)
-                            todo!()
+                            let filled_pred = fill_null(
+                                &(_eval.invoke(mask.clone()).await?),
+                                &Scalar::bool(false, Nullability::NonNullable),
+                            )?;
+                            println!("mask len {}, pred {}", mask.len(), filled_pred.len());
+                            let ret =
+                                Mask::from_buffer(filled_pred.to_bool()?.boolean_buffer().clone());
+                            Ok(mask.intersect_by_rank(&ret))
                         }
                     }
                     .boxed();
