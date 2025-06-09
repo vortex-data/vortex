@@ -7,7 +7,7 @@ use arrow_schema::SchemaRef;
 pub use executor::*;
 use futures::executor::LocalPool;
 use futures::task::LocalSpawnExt;
-use futures::{FutureExt, Stream, StreamExt, stream};
+use futures::{Stream, StreamExt, stream};
 use itertools::Itertools;
 pub use selection::*;
 pub use split_by::*;
@@ -195,9 +195,9 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
                     task_executor: None,
                 });
 
-                split_exec(ctx, split_range).boxed()
+                split_exec(ctx, split_range)
             })
-            .collect_vec();
+            .try_collect()?;
 
         Ok(split_tasks)
     }
