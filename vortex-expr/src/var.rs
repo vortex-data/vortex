@@ -14,6 +14,8 @@ pub struct Var {
     var: Identifier,
 }
 
+/// Used to extract values (Arrays from the Scope).
+/// see `Scope`.
 impl Var {
     pub fn new_expr(var: Identifier) -> ExprRef {
         Arc::new(Self { var })

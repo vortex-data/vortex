@@ -10,7 +10,8 @@ use crate::{AnalysisExpr, ExprRef, Identifier, Scope, ScopeDType, VortexExpr};
 
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Debug, Eq, Hash)]
-/// Let expressions are of the form `let var = bind in expr`
+/// Let expressions are of the form `let var = bind in expr`,
+/// see `Scope`.
 pub struct Let {
     var: Identifier,
     bind: ExprRef,
