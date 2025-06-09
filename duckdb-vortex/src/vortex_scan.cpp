@@ -31,6 +31,9 @@ using namespace duckdb;
 
 namespace vortex {
 
+static constexpr column_t _COLUMN_IDENTIFIER_FILE_ROW_NUMBER = UINT64_C(9223372036854775809);
+static constexpr column_t _COLUMN_IDENTIFIER_FILE_INDEX = UINT64_C(9223372036854775810);
+
 /// Bind data for the Vortex table function that holds information about the
 /// file and its schema. This data is populated during the bind phase, which
 /// happens during the query planning phase.
@@ -592,8 +595,8 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 	vortex_scan.get_row_id_columns = [](ClientContext &context,
 	                                    optional_ptr<FunctionData> bind_data) -> vector<column_t> {
 		vector<column_t> result;
-		result.emplace_back(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER);
-		result.emplace_back(MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX);
+		result.emplace_back(_COLUMN_IDENTIFIER_FILE_ROW_NUMBER);
+		result.emplace_back(_COLUMN_IDENTIFIER_FILE_INDEX);
 		return result;
 	};
 	vortex_scan.get_virtual_columns = [](ClientContext &context,
@@ -601,13 +604,13 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 		auto &scan_bind_data = bind_data->Cast<ScanBindData>();
 		virtual_column_map_t result;
 
-		result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER,
+		result.insert(make_pair(_COLUMN_IDENTIFIER_FILE_ROW_NUMBER,
 		                        TableColumn("file_row_number", LogicalType::UBIGINT)));
 		result.insert(
-		    make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX, TableColumn("file_index", LogicalType::UBIGINT)));
+		    make_pair(_COLUMN_IDENTIFIER_FILE_INDEX, TableColumn("file_index", LogicalType::UBIGINT)));
 
-		scan_bind_data.virtual_col[MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER] = "file_row_number";
-		scan_bind_data.virtual_col[MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX] = "file_index";
+		scan_bind_data.virtual_col[_COLUMN_IDENTIFIER_FILE_ROW_NUMBER] = "file_row_number";
+		scan_bind_data.virtual_col[_COLUMN_IDENTIFIER_FILE_INDEX] = "file_index";
 
 		return result;
 	};
