@@ -139,7 +139,7 @@ jobs:
       - name: Generate data
         shell: bash
         env:
-          RUST_BACKTRACE: 1
+          RUST_BACKTRACE: full
         run: |
           # Generate data, running each query once to make sure they don't panic.
           target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json --skip-duckdb-build

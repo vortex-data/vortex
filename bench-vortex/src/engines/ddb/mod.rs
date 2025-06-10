@@ -331,7 +331,7 @@ pub fn execute_query(
     // Therefore, we need to additionally check whether stderr is set.
     if !output.status.success() || !output.stderr.is_empty() {
         bail!(
-            "DuckDB query failed output=`{:?}`\nsignal={:?}\nstdout=`{}`\nstderr=`{}`",
+            "DuckDB query failed output=`{:?}`\nsignal=`{:?}`\nstdout=`{}`\nstderr=`{}`",
             output.status.code(),
             output.status.signal(),
             String::from_utf8_lossy(&output.stdout),
