@@ -54,6 +54,7 @@ impl VortexLayoutStrategy {
             compress_then_flat.clone(),
             coalescing,
             Default::default(),
+            executor.clone(),
         ));
 
         // 2. calculate stats for each row group

@@ -2,10 +2,10 @@ use std::any::Any;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldPathSet};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_utils::aliases::hash_map::HashMap;
 
 type ExprScope<T> = HashMap<Identifier, T>;
 

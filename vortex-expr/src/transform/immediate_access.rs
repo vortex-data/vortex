@@ -2,6 +2,8 @@ use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::{FieldName, StructFields};
 use vortex_error::{VortexResult, vortex_err};
+use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::transform::access_analysis::AccessesAnalysis;
 use crate::traversal::TraversalOrder;

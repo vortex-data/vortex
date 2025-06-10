@@ -6046,6 +6046,7 @@ dependencies = [
  "vortex-scalar",
  "vortex-sequence",
  "vortex-sparse",
+ "vortex-utils",
  "vortex-zigzag",
 ]
 
@@ -6067,6 +6068,7 @@ dependencies = [
  "vortex-fastlanes",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -6115,6 +6117,7 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -6144,6 +6147,7 @@ dependencies = [
  "vortex-runend",
  "vortex-scalar",
  "vortex-sparse",
+ "vortex-utils",
  "vortex-zigzag",
 ]
 
@@ -6243,6 +6247,7 @@ dependencies = [
  "vortex-fsst",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -6328,6 +6333,7 @@ dependencies = [
  "vortex-mask",
  "vortex-proto",
  "vortex-scalar",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -6415,6 +6421,7 @@ dependencies = [
  "vortex-scalar",
  "vortex-sequence",
  "vortex-sparse",
+ "vortex-utils",
  "vortex-zigzag",
 ]
 
@@ -6460,6 +6467,7 @@ dependencies = [
  "vortex-file",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -6556,7 +6564,7 @@ dependencies = [
  "vortex-mask",
  "vortex-metrics",
  "vortex-scalar",
- "vortex-sequence",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -6692,6 +6700,13 @@ dependencies = [
  "tokio",
  "vortex",
  "vortex-layout",
+]
+
+[[package]]
+name = "vortex-utils"
+version = "0.1.0"
+dependencies = [
+ "hashbrown 0.15.3",
 ]
 
 [[package]]

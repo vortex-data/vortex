@@ -15,7 +15,6 @@ use std::ops::{Range, RangeInclusive};
 use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::compute::Operator;
 use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
@@ -27,6 +26,7 @@ use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::compare::compare_canonical_array;
 use crate::filter::filter_canonical_array;

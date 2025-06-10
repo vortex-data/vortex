@@ -293,8 +293,8 @@ impl Node for ExprRef {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::aliases::hash_set::HashSet;
     use vortex_error::VortexResult;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::traversal::visitor::pre_order_visit_down;
     use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};

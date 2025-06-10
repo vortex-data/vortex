@@ -4,13 +4,13 @@ use arrow_buffer::NullBufferBuilder;
 use num_traits::{AsPrimitive, Unsigned};
 use rustc_hash::FxBuildHasher;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::aliases::hash_map::{Entry, HashMap};
 use vortex_array::arrays::{NativeValue, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
 use vortex_dtype::{NativePType, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_utils::aliases::hash_map::{Entry, HashMap};
 
 use super::DictConstraints;
 use crate::builders::DictEncoder;

@@ -8,7 +8,7 @@ use crate::scan::row_mask::RowMask;
 
 /// A selection identifies a set of rows to include in the scan (in addition to applying any
 /// filter predicates).
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub enum Selection {
     /// No selection, all rows are included.
     #[default]

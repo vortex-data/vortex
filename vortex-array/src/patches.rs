@@ -11,8 +11,8 @@ use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::{PValue, Scalar};
+use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::aliases::hash_map::HashMap;
 use crate::arrays::PrimitiveArray;
 use crate::compute::{cast, filter, take};
 use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};

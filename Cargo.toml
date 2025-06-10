@@ -26,6 +26,7 @@ members = [
     "vortex-python",
     "vortex-scalar",
     "vortex-tui",
+    "vortex-utils",
     "xtask",
 ]
 exclude = ["duckdb-vortex/duckdb-rs", "wasm-test"]
@@ -201,6 +202,7 @@ vortex-scalar = { version = "0.1.0", path = "./vortex-scalar", default-features 
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-tui = { version = "0.1.0", path = "./vortex-tui", default-features = false }
+vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 # END crates published by this project
 

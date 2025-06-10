@@ -4,7 +4,6 @@ use arrow_buffer::NullBufferBuilder;
 use num_traits::AsPrimitive;
 use num_traits::sign::Unsigned;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::aliases::hash_map::{DefaultHashBuilder, HashTable, HashTableEntry, RandomState};
 use vortex_array::arrays::{
     BinaryView, PrimitiveArray, VarBinVTable, VarBinViewArray, VarBinViewVTable,
 };
@@ -13,6 +12,7 @@ use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_buffer::{BufferMut, ByteBufferMut};
 use vortex_dtype::{DType, NativePType};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
+use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashTable, HashTableEntry, RandomState};
 
 use super::DictConstraints;
 use crate::builders::DictEncoder;
