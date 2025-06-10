@@ -113,12 +113,13 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let required_file_stats =
-            HashMap::from_iter(required_stats.map().iter().filter_map(|(path, stats)| {
-                path.identifier()
-                    .is_identity()
-                    .then(|| (path.field_path().clone(), stats.clone()))
-            }));
+        let required_file_stats = HashMap::from_iter(
+            required_stats
+                .map()
+                .iter()
+                .filter(|&(path, stats)| path.identifier().is_identity())
+                .map(|(path, stats)| (path.field_path().clone(), stats.clone())),
+        );
 
         let Some(file_stats) = extract_relevant_file_stat_as_struct_row(
             &required_file_stats,
