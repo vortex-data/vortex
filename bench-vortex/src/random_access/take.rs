@@ -1,5 +1,6 @@
 use std::iter;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use arrow_array::types::Int64Type;
 use arrow_array::{PrimitiveArray, RecordBatch};
@@ -14,10 +15,12 @@ use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
 use tokio::runtime::Handle;
 use vortex::buffer::Buffer;
-use vortex::file::VortexOpenOptions;
+use vortex::session::VortexSession;
 use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, IntoArray};
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::new);
 
 pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
     take_vortex(path, indices).await
@@ -29,7 +32,7 @@ pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> anyhow::Result<R
 }
 
 async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
-    Ok(VortexOpenOptions::file()
+    Ok(SESSION
         .open(reader)
         .await?
         .scan()?

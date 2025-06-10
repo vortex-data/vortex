@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use async_trait::async_trait;
 use tokio::fs::File;
@@ -6,7 +7,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::runtime::Handle;
 use vortex::ArrayRef;
 use vortex::error::VortexError;
-use vortex::file::{VortexOpenOptions, VortexWriteOptions};
+use vortex::file::VortexWriteOptions;
+use vortex::session::VortexSession;
 use vortex::stream::ArrayStreamExt;
 
 use crate::conversions::parquet_to_vortex;
@@ -15,6 +17,8 @@ use crate::datasets::data_downloads::download_data;
 use crate::{IdempotentPath, idempotent_async};
 
 pub struct TaxiData;
+
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::new);
 
 #[async_trait]
 impl Dataset for TaxiData {
@@ -36,7 +40,7 @@ pub async fn taxi_data_parquet() -> PathBuf {
 
 pub async fn fetch_taxi_data() -> ArrayRef {
     let vortex_data = taxi_data_vortex().await;
-    VortexOpenOptions::file()
+    SESSION
         .open(vortex_data)
         .await
         .unwrap()

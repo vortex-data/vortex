@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
 use itertools::Itertools;
-use parking_lot::RwLock;
 use pyo3::prelude::*;
 use pyo3::{Bound, PyResult, Python};
-use vortex::ArrayRegistryBuilder;
+use vortex::ArrayRegistry;
 use vortex::file::ArrayRegistryExt;
 
 use crate::arrays::py::PythonEncoding;
@@ -34,7 +31,7 @@ pub(crate) fn default_registry(py: Python) -> PyResult<Bound<PyRegistry>> {
 /// A register of known array and layout encodings.
 #[pyclass(name = "Registry", module = "vortex", frozen)]
 pub(crate) struct PyRegistry {
-    array_registry: Arc<RwLock<ArrayRegistryBuilder>>,
+    array_registry: ArrayRegistry,
 }
 
 #[pymethods]
@@ -42,7 +39,7 @@ impl PyRegistry {
     #[new]
     fn new() -> Self {
         Self {
-            array_registry: Arc::new(RwLock::new(ArrayRegistryBuilder::full())),
+            array_registry: ArrayRegistry::full(),
         }
     }
 
@@ -51,18 +48,14 @@ impl PyRegistry {
     /// It's not currently possible to register a layout encoding from Python.
     pub(crate) fn register(&self, cls: PythonEncoding) -> PyResult<()> {
         let encoding = cls.to_encoding();
-        let mut handle = self.array_registry.write();
-        let x = &mut *handle;
-        let mut builder = std::mem::take(&mut *handle);
-        let builder = builder.register(encoding);
+        self.array_registry.register(encoding);
 
         Ok(())
     }
 
     /// Create an :class:`~vortex.ArrayContext` containing the given encodings.
     fn array_ctx(&self, encodings: Vec<Bound<PyAny>>) -> PyResult<PyArrayContext> {
-        let registry = self.array_registry.read();
-        Ok(PyArrayContext::from(registry.new_context(
+        Ok(PyArrayContext::from(self.array_registry.new_context(
             encoding_ids(&encodings)?.iter().map(|s| s.as_str()),
         )?))
     }

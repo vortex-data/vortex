@@ -1,70 +1,9 @@
 use std::fmt::Debug;
 
-use vortex_array::{ArrayRegistry, ArrayRegistryBuilder, EncodingRef};
+use vortex_array::{ArrayRegistry, EncodingRef};
 use vortex_file::ArrayRegistryExt;
-use vortex_layout::{LayoutEncodingRef, LayoutRegistry, LayoutRegistryBuilder, LayoutRegistryExt};
+use vortex_layout::{LayoutEncodingRef, LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
-
-pub struct VortexSessionBuilder {
-    arrays: ArrayRegistryBuilder,
-    layouts: LayoutRegistryBuilder,
-    metrics: VortexMetrics,
-}
-
-impl Default for VortexSessionBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl VortexSessionBuilder {
-    /// Make a new builder to configure a [`VortexSession`].
-    pub fn new() -> Self {
-        Self {
-            arrays: ArrayRegistryBuilder::new(),
-            layouts: LayoutRegistryBuilder::new(),
-            metrics: VortexMetrics::default(),
-        }
-    }
-
-    /// Configure the encodings builder as we see fit
-    pub fn with_encodings(mut self, arrays: ArrayRegistryBuilder) -> Self {
-        self.arrays = arrays;
-        self
-    }
-
-    pub fn with_layouts(mut self, layouts: LayoutRegistryBuilder) -> Self {
-        self.layouts = layouts;
-        self
-    }
-
-    pub fn with_encoding(mut self, encoding: EncodingRef) -> Self {
-        self.arrays = self.arrays.register(encoding);
-        self
-    }
-
-    pub fn with_layout(mut self, layout: LayoutEncodingRef) -> Self {
-        self.layouts = self.layouts.register(layout);
-        self
-    }
-
-    pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
-        self.metrics = metrics;
-        self
-    }
-
-    // TODO(aduffy): with_extension_type once the ExtVTable stuff merges.
-    pub fn build(self) -> VortexSession {
-        VortexSession {
-            arrays: self.arrays.build(),
-            layouts: self.layouts.build(),
-            metrics: self.metrics,
-            // TODO(aduffy): add config to setup the cache size.
-            #[cfg(feature = "files")]
-            footer_cache: crate::file::FooterCache::default(),
-        }
-    }
-}
 
 /// A Vortex session encapsulates the set of extensible arrays, layouts, compute functions, dtypes,
 /// etc. that are available for use in a given context.
@@ -92,6 +31,27 @@ impl Default for VortexSession {
 }
 
 impl VortexSession {
+    /// Create a new VortexSession with all builtin encodings and layouts registered.
+    ///
+    /// This is also equivalent to the `Default` impl for VortexSession.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a new VortexSession with no configured encodings or layouts.
+    ///
+    /// This is useful for building a session where callers want to selectively enable specific
+    /// encodings and layouts.
+    pub fn empty() -> Self {
+        Self {
+            arrays: ArrayRegistry::empty(),
+            layouts: LayoutRegistry::empty(),
+            metrics: VortexMetrics::default(),
+            #[cfg(feature = "files")]
+            footer_cache: crate::file::FooterCache::default(),
+        }
+    }
+
     /// The array registry for the session.
     pub fn arrays(&self) -> &ArrayRegistry {
         &self.arrays
@@ -105,5 +65,21 @@ impl VortexSession {
     /// The metrics registry for the session.
     pub fn metrics(&self) -> &VortexMetrics {
         &self.metrics
+    }
+
+    /// Register a new array encoding in the session.
+    ///
+    /// The encoding will become available for file reading/writing.
+    pub fn register_encoding(&self, encoding: EncodingRef) -> &Self {
+        self.arrays.register(encoding);
+        self
+    }
+
+    /// Register a new layout encoding in the session.
+    ///
+    /// This allows for runtime-pluggability of new layout refs.s
+    pub fn register_layout(&self, layout: LayoutEncodingRef) -> &Self {
+        self.layouts.register(layout);
+        self
     }
 }

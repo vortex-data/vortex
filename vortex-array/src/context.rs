@@ -17,7 +17,6 @@ use crate::arrays::{
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
 pub type ArrayContext = Context<EncodingRef>;
 pub type ArrayRegistry = Registry<EncodingRef>;
-pub type ArrayRegistryBuilder = RegistryBuilder<EncodingRef>;
 
 impl ArrayRegistry {
     /// Build a new ArrayRegistry with only the [canonical][crate::Canonical] encodings.
@@ -25,14 +24,16 @@ impl ArrayRegistry {
     /// This ArrayRegistry can encode any Apache Arrow-compatible arrays, but is unaware
     /// of the compressed encodings.
     pub fn canonical() -> Self {
-        ArrayRegistryBuilder::new().register_canonical().build()
+        let registry = ArrayRegistry::new();
+        registry.register_canonical();
+        registry
     }
 }
 
-impl ArrayRegistryBuilder {
+impl ArrayRegistry {
     /// Make a new ArrayRegistryBuilder with only the [canonical][crate::Canonical] encodings
     /// registered to begin with.
-    pub fn register_canonical(self) -> Self {
+    pub fn register_canonical(&self) -> &Self {
         // Register the canonical encodings
         self.register_many([
             EncodingRef::new_ref(NullEncoding.as_ref()) as EncodingRef,
@@ -101,21 +102,14 @@ impl<T: Clone + Eq> Context<T> {
     }
 }
 
-/// An immutable registry of encodings that can be used to construct a context for serde.
+/// A registry of encodings that can be used to construct a context for serde.
 ///
 /// In the future, we will support loading encodings from shared libraries or even from within
 /// the Vortex file itself. This registry will be used to manage the available encodings.
-#[derive(Clone, Debug)]
-pub struct Registry<T>(Arc<HashMap<String, T>>);
+#[derive(Clone, Debug, Default)]
+pub struct Registry<T>(Arc<RwLock<HashMap<String, T>>>);
 
-/// Builder for [`Registry`].
-///
-/// Users should construct one of these, call the `register` or `register_many` methods, and then
-/// `build` to get the final registry.
-#[derive(Debug, Default, Clone)]
-pub struct RegistryBuilder<T>(HashMap<String, T>);
-
-impl<T: Clone + Display + Eq> RegistryBuilder<T> {
+impl<T: Clone + Display + Eq> Registry<T> {
     /// Create a new empty registry builder.
     pub fn new() -> Self {
         Self(Default::default())
@@ -124,20 +118,17 @@ impl<T: Clone + Display + Eq> RegistryBuilder<T> {
     /// Register a new item in the registry.
     ///
     /// The item must have some sort of string-based name as well.
-    pub fn register(mut self, item: T) -> Self {
-        self.0.insert(item.to_string(), item);
+    pub fn register(&self, item: T) -> &Self {
+        self.0.write().insert(item.to_string(), item);
         self
     }
 
     /// Register a new encoding, replacing any existing encoding with the same ID.
-    pub fn register_many<I: IntoIterator<Item = T>>(mut self, encodings: I) -> Self {
+    pub fn register_many<I: IntoIterator<Item = T>>(&self, encodings: I) -> &Self {
         self.0
+            .write()
             .extend(encodings.into_iter().map(|e| (e.to_string(), e)));
         self
-    }
-
-    pub fn build(self) -> Registry<T> {
-        Registry(Arc::new(self.0))
     }
 }
 
@@ -152,12 +143,13 @@ impl<T: Clone + Display + Eq> Registry<T> {
         encoding_ids: impl Iterator<Item = &'a str>,
     ) -> VortexResult<Context<T>> {
         let mut ctx = Context::<T>::empty();
+        let map = self.0.read();
         for id in encoding_ids {
-            let encoding = self.0.get(id).ok_or_else(|| {
+            let encoding = map.get(id).ok_or_else(|| {
                 vortex_err!(
                     "Array encoding {} not found in registry {}",
                     id,
-                    self.0.values().join(", ")
+                    map.values().join(", ")
                 )
             })?;
             ctx = ctx.with(encoding.clone());
@@ -166,7 +158,7 @@ impl<T: Clone + Display + Eq> Registry<T> {
     }
 
     /// List the vtables in the registry.
-    pub fn vtables(&self) -> impl Iterator<Item = &T> + '_ {
-        self.0.values()
+    pub fn vtables(&self) -> Vec<T> {
+        self.0.read().values().cloned().collect_vec()
     }
 }

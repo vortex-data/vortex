@@ -13,6 +13,7 @@ use object_store::{ClientOptions, ObjectStore, ObjectStoreScheme};
 use parking_lot::Mutex;
 use prost::Message;
 use url::Url;
+use vortex::ArrayRegistry;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};

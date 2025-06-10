@@ -38,6 +38,7 @@ mod test {
     use vortex_file::VortexWriteOptions;
 
     use crate as vortex;
+    use crate::session::VortexSession;
 
     #[test]
     fn convert() -> VortexResult<()> {
@@ -98,15 +99,7 @@ mod test {
         // [write]
 
         // [read]
-        use vortex::ArrayRegistryBuilder;
-        use vortex::file::ArrayRegistryExt;
-        use vortex::layout::{LayoutRegistryBuilder, LayoutRegistryExt};
-        use vortex::session::VortexSessionBuilder;
-
-        let session = VortexSessionBuilder::new()
-            .with_encodings(ArrayRegistryBuilder::full())
-            .with_layouts(LayoutRegistryBuilder::full())
-            .build();
+        let session = VortexSession::new();
         let array = session
             .open("example.vortex")
             .await?
