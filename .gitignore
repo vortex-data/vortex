@@ -215,3 +215,6 @@ profile.json.gz
 
 # LLVM profiles
 *.profraw
+
+# Clang compilation database (https://clang.llvm.org/docs/JSONCompilationDatabase.html)
+compile_commands.json

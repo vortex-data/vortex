@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use vortex::aliases::hash_map::HashMap;
 use vortex::error::{VortexExpect, VortexResult};
+use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, Canonical, IntoArray};
 
 use crate::duckdb::Vector;

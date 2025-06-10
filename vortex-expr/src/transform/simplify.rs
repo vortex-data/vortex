@@ -10,7 +10,7 @@ use crate::{ExprRef, GetItem, Pack};
 /// If the scope dtype is known, see `simplify_typed` for a simplifier which uses dtype.
 pub fn simplify(e: ExprRef) -> VortexResult<ExprRef> {
     let mut folder = Simplify;
-    let e = e.transform(&mut folder).map(|e| e.result)?;
+    let e = e.transform(&mut folder).map(|e| e.into_inner())?;
     Ok(find_between(e.clone()))
 }
 

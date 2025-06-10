@@ -6,9 +6,8 @@ use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 pub use executor::*;
 use futures::executor::LocalPool;
-use futures::future::ok;
 use futures::task::LocalSpawnExt;
-use futures::{FutureExt, Stream, StreamExt, stream};
+use futures::{Stream, StreamExt, stream};
 use itertools::Itertools;
 pub use selection::*;
 pub use split_by::*;
@@ -18,21 +17,23 @@ use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath, Nullability};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ExprRef, Identity};
-use vortex_mask::Mask;
+use vortex_expr::{ExprRef, ScopeDType, root};
 use vortex_metrics::VortexMetrics;
 use vortex_scalar::Scalar;
 
 use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
+use crate::scan::tasks::{TaskContext, split_exec};
+
 mod executor;
 pub mod row_mask;
 mod selection;
 mod split_by;
+mod tasks;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
@@ -56,7 +57,7 @@ pub struct ScanBuilder<A> {
     file_stats: Option<Arc<[StatsSet]>>,
 }
 
-impl<A: 'static + Send> ScanBuilder<A> {
+impl<A: 'static + Send + Sync> ScanBuilder<A> {
     pub fn with_filter(mut self, filter: ExprRef) -> Self {
         self.filter = Some(filter);
         self
@@ -147,7 +148,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// Returns the output [`DType`] of the scan.
     pub fn dtype(&self) -> VortexResult<DType> {
-        self.projection.return_dtype(self.layout_reader.dtype())
+        self.projection
+            .return_dtype(&ScopeDType::new(self.layout_reader.dtype().clone()))
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
@@ -155,17 +157,20 @@ impl<A: 'static + Send> ScanBuilder<A> {
     pub fn build(self) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<A>>>>> {
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let mut layout_reader = self.layout_reader;
-        if self.filter.is_some() {
-            layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
-        }
+        let layout_reader = if self.filter.is_some() {
+            Arc::new(FilterLayoutReader::new(self.layout_reader))
+        } else {
+            self.layout_reader
+        };
+
+        let ctx = ScopeDType::new(layout_reader.dtype().clone());
 
         // Normalize and simplify the expressions.
-        let projection = simplify_typed(self.projection.clone(), layout_reader.dtype())?;
+        let projection = simplify_typed(self.projection.clone(), &ctx)?;
         let filter = self
             .filter
             .clone()
-            .map(|f| simplify_typed(f, layout_reader.dtype()))
+            .map(|f| simplify_typed(f, &ctx))
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.
@@ -178,110 +183,25 @@ impl<A: 'static + Send> ScanBuilder<A> {
             .collect();
         let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
 
-        let row_masks = splits
+        // Create a task that executes the full scan pipeline for each split.
+        let split_tasks = splits
             .into_iter()
-            .filter_map(|row_range| {
-                if let Some(scan_range) = &self.row_range {
-                    // If the row range is fully within the scan range, return it.
-                    if row_range.start >= scan_range.end || row_range.end < scan_range.start {
-                        return None;
-                    }
-                    // Otherwise, take the intersection of the range.
-                    return Some(
-                        row_range.start.max(scan_range.start)..row_range.end.min(scan_range.end),
-                    );
-                } else {
-                    Some(row_range)
-                }
+            .map(move |split_range| {
+                let ctx = Arc::new(TaskContext {
+                    row_range: self.row_range.clone(),
+                    selection: self.selection.clone(),
+                    filter: self.filter.clone(),
+                    reader: layout_reader.clone(),
+                    projection: projection.clone(),
+                    mapper: self.map_fn.clone(),
+                    task_executor: None,
+                });
+
+                split_exec(ctx, split_range)
             })
-            .map(|row_range| self.selection.row_mask(&row_range))
-            .filter(|mask| !mask.mask().all_false())
-            .map(|row_mask| {
-                let row_range = row_mask.row_range();
-                (
-                    row_range,
-                    ok::<Mask, VortexError>(row_mask.mask().clone()).boxed(),
-                )
-            })
-            .collect_vec();
+            .try_collect()?;
 
-        // NOTE(ngates): since segment prefetching occurs in insertion order, we construct
-        //  all pruning tasks, then all filter tasks, then all projection tasks. When a task
-        //  explicitly polls a segment, it jumps to the front of the queue so this shouldn't
-        //  impact the time-to-first-chunk latency.
-
-        // If a filter expression is provided, then we set up pruning and filter evaluations.
-        let row_masks = if let Some(filter) = &filter {
-            // Map the row masks through the pruning evaluation
-            let row_masks: Vec<_> = row_masks
-                .into_iter()
-                .map(|(row_range, mask_fut)| {
-                    let eval = layout_reader.pruning_evaluation(&row_range, filter)?;
-                    let mask_fut = async move {
-                        let mask = mask_fut.await?;
-                        if mask.all_false() {
-                            Ok(mask)
-                        } else {
-                            eval.invoke(mask).await
-                        }
-                    }
-                    .boxed();
-                    Ok::<_, VortexError>((row_range, mask_fut))
-                })
-                .try_collect()?;
-
-            // Map the row masks through the filter evaluation
-            row_masks
-                .into_iter()
-                .map(|(row_range, mask_fut)| {
-                    let _eval = layout_reader.projection_evaluation(&row_range, filter)?;
-                    let mask_fut = async move {
-                        let mask = mask_fut.await?;
-                        if mask.all_false() {
-                            println!("mask len {}", mask.len());
-                            Ok(mask)
-                        } else {
-                            // merge mask mapping null -> false
-                            let filled_pred = fill_null(
-                                &(_eval.invoke(mask.clone()).await?),
-                                &Scalar::bool(false, Nullability::NonNullable),
-                            )?;
-                            println!("mask len {}, pred {}", mask.len(), filled_pred.len());
-                            let ret =
-                                Mask::from_buffer(filled_pred.to_bool()?.boolean_buffer().clone());
-                            Ok(mask.intersect_by_rank(&ret))
-                        }
-                    }
-                    .boxed();
-                    Ok::<_, VortexError>((row_range, mask_fut))
-                })
-                .try_collect()?
-        } else {
-            row_masks
-        };
-
-        // Finally, map the row masks through the projection evaluation and spawn.
-        row_masks
-            .into_iter()
-            .map(|(row_range, mask_fut)| {
-                let map_fn = self.map_fn.clone();
-                let eval = layout_reader.projection_evaluation(&row_range, &projection)?;
-                let array_fut = async move {
-                    let mask = mask_fut.await?;
-                    if mask.all_false() {
-                        Ok(None)
-                    } else {
-                        map_fn(eval.invoke(mask).await?).map(Some)
-                    }
-                }
-                .boxed();
-
-                Ok(match &self.executor {
-                    None => array_fut,
-                    Some(executor) => executor.spawn(array_fut),
-                })
-            })
-            .try_collect()
+        Ok(split_tasks)
     }
 
     /// Returns a stream over the scan objects.
@@ -297,7 +217,7 @@ impl ScanBuilder<ArrayRef> {
     pub fn new(layout_reader: Arc<dyn LayoutReader>) -> Self {
         Self {
             layout_reader,
-            projection: Identity::new_expr(),
+            projection: root(),
             filter: None,
             row_range: None,
             selection: Default::default(),

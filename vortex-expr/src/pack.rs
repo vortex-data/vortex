@@ -6,11 +6,11 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 
-use crate::{ExprRef, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 
 /// Pack zero or more expressions into a structure with named fields.
 ///
@@ -19,16 +19,16 @@ use crate::{ExprRef, VortexExpr};
 /// ```
 /// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_buffer::buffer;
-/// use vortex_expr::{Pack, Identity, VortexExpr};
+/// use vortex_expr::{root, Pack, Scope, VortexExpr};
 /// use vortex_scalar::Scalar;
 /// use vortex_dtype::Nullability;
 ///
 /// let example = Pack::try_new_expr(
 ///     ["x".into(), "x copy".into(), "second x copy".into()].into(),
-///     vec![Identity::new_expr(), Identity::new_expr(), Identity::new_expr()],
+///     vec![root(), root(), root()],
 ///     Nullability::NonNullable,
 /// ).unwrap();
-/// let packed = example.evaluate(&buffer![100, 110, 200].into_array()).unwrap();
+/// let packed = example.evaluate(&Scope::new(buffer![100, 110, 200].into_array())).unwrap();
 /// let x_copy = packed
 ///     .to_struct()
 ///     .unwrap()
@@ -143,17 +143,19 @@ pub(crate) mod proto {
     }
 }
 
+impl AnalysisExpr for Pack {}
+
 impl VortexExpr for Pack {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let len = batch.len();
+    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
+        let len = scope.len();
         let value_arrays = self
             .values
             .iter()
-            .map(|value_expr| value_expr.evaluate(batch))
+            .map(|value_expr| value_expr.unchecked_evaluate(scope))
             .process_results(|it| it.collect::<Vec<_>>())?;
         let validity = match self.nullability {
             Nullability::NonNullable => Validity::NonNullable,
@@ -172,11 +174,11 @@ impl VortexExpr for Pack {
             .vortex_expect("children are known to have the same length as names")
     }
 
-    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType> {
         let value_dtypes = self
             .values
             .iter()
-            .map(|value_expr| value_expr.return_dtype(scope_dtype))
+            .map(|value_expr| value_expr.return_dtype(scope))
             .process_results(|it| it.collect())?;
         Ok(DType::Struct(
             Arc::new(StructFields::new(self.names.clone(), value_dtypes)),
@@ -192,19 +194,20 @@ mod tests {
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{FieldNames, Nullability};
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{Pack, VortexExpr, col};
+    use crate::{Pack, Scope, VortexExpr, col};
 
-    fn test_array() -> StructArray {
+    fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
             ("a", buffer![0, 1, 2].into_array()),
             ("b", buffer![4, 5, 6].into_array()),
         ])
         .unwrap()
+        .into_array()
     }
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
@@ -225,8 +228,8 @@ mod tests {
     pub fn test_empty_pack() {
         let expr = Pack::try_new_expr(Arc::new([]), Vec::new(), Nullability::NonNullable).unwrap();
 
-        let test_array = test_array().into_array();
-        let actual_array = expr.evaluate(&test_array).unwrap();
+        let test_array = test_array();
+        let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(
             actual_array.to_struct().unwrap().struct_fields().nfields(),
@@ -244,7 +247,7 @@ mod tests {
         .unwrap();
 
         let actual_array = expr
-            .evaluate(test_array().as_ref())
+            .evaluate(&Scope::new(test_array()))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -291,7 +294,7 @@ mod tests {
         .unwrap();
 
         let actual_array = expr
-            .evaluate(test_array().as_ref())
+            .evaluate(&Scope::new(test_array()))
             .unwrap()
             .to_struct()
             .unwrap();
@@ -334,7 +337,7 @@ mod tests {
         .unwrap();
 
         let actual_array = expr
-            .evaluate(test_array().as_ref())
+            .evaluate(&Scope::new(test_array()))
             .unwrap()
             .to_struct()
             .unwrap();

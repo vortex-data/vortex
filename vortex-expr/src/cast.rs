@@ -2,12 +2,12 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
+use vortex_array::ArrayRef;
 use vortex_array::compute::cast as compute_cast;
-use vortex_array::{Array, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::{ExprRef, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -79,13 +79,15 @@ pub(crate) mod proto {
     }
 }
 
+impl AnalysisExpr for Cast {}
+
 impl VortexExpr for Cast {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
-        let array = self.child.evaluate(batch)?;
+    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
+        let array = self.child.evaluate(scope)?;
         compute_cast(&array, &self.target)
     }
 
@@ -102,7 +104,7 @@ impl VortexExpr for Cast {
         )
     }
 
-    fn return_dtype(&self, _scope_dtype: &DType) -> VortexResult<DType> {
+    fn return_dtype(&self, _scope_dtype: &ScopeDType) -> VortexResult<DType> {
         Ok(self.target.clone())
     }
 }
@@ -118,14 +120,14 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::{ExprRef, cast, get_item, ident, test_harness};
+    use crate::{ExprRef, Scope, ScopeDType, cast, get_item, root, test_harness};
 
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            cast(ident(), DType::Bool(Nullability::NonNullable))
-                .return_dtype(&dtype)
+            cast(root(), DType::Bool(Nullability::NonNullable))
+                .return_dtype(&ScopeDType::new(dtype))
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
@@ -133,8 +135,8 @@ mod tests {
 
     #[test]
     fn replace_children() {
-        let expr = cast(ident(), DType::Bool(Nullability::Nullable));
-        let _ = expr.replacing_children(vec![ident()]);
+        let expr = cast(root(), DType::Bool(Nullability::Nullable));
+        let _ = expr.replacing_children(vec![root()]);
     }
 
     #[test]
@@ -147,10 +149,10 @@ mod tests {
         .into_array();
 
         let expr: ExprRef = cast(
-            get_item("a", ident()),
+            get_item("a", root()),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
-        let result = expr.unchecked_evaluate(&test_array).unwrap();
+        let result = expr.evaluate(&Scope::new(test_array)).unwrap();
 
         assert_eq!(
             result.dtype(),

@@ -10,8 +10,8 @@ pub(super) unsafe extern "C" fn bind_callback<T: TableFunction>(
     bind_result: cpp::duckdb_vx_tfunc_bind_result,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
-    let bind_input = unsafe { BindInput::from_ptr(bind_input) };
-    let mut bind_result = unsafe { BindResult::from_ptr(bind_result) };
+    let bind_input = unsafe { BindInput::own(bind_input) };
+    let mut bind_result = unsafe { BindResult::own(bind_result) };
 
     try_or_null(error_out, || {
         let bind_data = T::bind(&bind_input, &mut bind_result)?;
@@ -29,7 +29,7 @@ impl BindInput {
         if value_ptr.is_null() {
             None
         } else {
-            Some(unsafe { Value::from_owned(value_ptr) })
+            Some(unsafe { Value::own(value_ptr) })
         }
     }
 
@@ -41,7 +41,7 @@ impl BindInput {
         if value_ptr.is_null() {
             None
         } else {
-            Some(unsafe { Value::from_owned(value_ptr) })
+            Some(unsafe { Value::own(value_ptr) })
         }
     }
 

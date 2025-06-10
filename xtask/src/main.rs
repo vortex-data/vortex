@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::Parser;
 use xshell::{Shell, cmd};
 
@@ -29,7 +31,7 @@ fn execute_generate_fbs() -> anyhow::Result<()> {
     ];
 
     // CD to vortex-flatbuffers project
-    sh.change_dir(std::env::current_dir()?.join("vortex-flatbuffers"));
+    sh.change_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vortex-flatbuffers"));
 
     cmd!(
         sh,
@@ -41,7 +43,7 @@ fn execute_generate_fbs() -> anyhow::Result<()> {
 }
 
 fn execute_generate_proto() -> anyhow::Result<()> {
-    let vortex_proto = std::env::current_dir()?.join("vortex-proto");
+    let vortex_proto = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vortex-proto");
     let proto_files = vec![
         vortex_proto.join("proto").join("dtype.proto"),
         vortex_proto.join("proto").join("scalar.proto"),

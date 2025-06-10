@@ -1,4 +1,3 @@
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{VarBinArray, VarBinViewArray, VarBinViewVTable};
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
@@ -6,6 +5,7 @@ use vortex_dict::DictArray;
 use vortex_dict::builders::dict_encode;
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_fsst::{FSSTArray, fsst_compress, fsst_train_compressor};
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::integer::IntCompressor;
 use crate::sample::sample;

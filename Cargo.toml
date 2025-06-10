@@ -10,6 +10,7 @@ members = [
     "vortex-datafusion",
     "vortex-dtype",
     "vortex-duckdb",
+    "vortex-duckdb-ext",
     "vortex-error",
     "vortex-expr",
     "vortex-ffi",
@@ -25,6 +26,7 @@ members = [
     "vortex-python",
     "vortex-scalar",
     "vortex-tui",
+    "vortex-utils",
     "xtask",
 ]
 exclude = ["duckdb-vortex/duckdb-rs", "wasm-test"]
@@ -66,13 +68,15 @@ arrow-ord = "55"
 arrow-schema = "55"
 arrow-select = "55"
 arrow-string = "55"
-async-once-cell = "0.5.4"
 async-stream = "0.3.6"
 async-trait = "0.1.88"
-backtrace = "0.3.74"
+bindgen = "0.71.1"
 bit-vec = "0.8.0"
+bitvec = "1.0.1"
 bytes = "1.10"
 bzip2 = "0.5.0"
+cbindgen = "0.29.0"
+cc = "1.2"
 cfg-if = "1"
 chrono = "0.4.40"
 clap = "4.5"
@@ -81,10 +85,6 @@ crossterm = "0.28"
 dashmap = "6.1.0"
 datafusion = { version = "47", default-features = false }
 datafusion-common = { version = "47" }
-datafusion-datasource = { version = "47" }
-datafusion-execution = { version = "47" }
-datafusion-expr = { version = "47" }
-datafusion-physical-expr = { version = "47" }
 datafusion-physical-plan = { version = "47" }
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 duckdb = { path = "duckdb-vortex/duckdb-rs/crates/duckdb", features = [
@@ -100,9 +100,7 @@ flume = "0.11"
 fsst-rs = "0.5.2"
 futures = { version = "0.3.31", default-features = false }
 futures-util = "0.3.31"
-getrandom = "0.3"
 goldenfile = "1"
-governor = "0.10"
 half = { version = "2.5", features = ["std", "num-traits"] }
 hashbrown = "0.15.1"
 homedir = "0.3.3"
@@ -171,6 +169,7 @@ tracing-futures = "0.2.5"
 tracing-subscriber = "0.3.19"
 url = "2.5.4"
 uuid = { version = "1.16", features = ["js"] }
+walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
 
@@ -203,6 +202,7 @@ vortex-scalar = { version = "0.1.0", path = "./vortex-scalar", default-features 
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-tui = { version = "0.1.0", path = "./vortex-tui", default-features = false }
+vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 # END crates published by this project
 
@@ -218,11 +218,6 @@ zigzag = "0.1.0"
 features = ["wasm_js"]
 package = "getrandom"
 version = "0.3.1"
-
-[workspace.dependencies.getrandom_v02]
-features = ["js"]
-package = "getrandom"
-version = "0.2.15"
 
 [workspace.lints.rust]
 macro_use_extern_crate = "deny"

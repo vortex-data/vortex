@@ -3,6 +3,8 @@ pub mod compute;
 mod ops;
 mod patch;
 mod serde;
+#[cfg(feature = "test-harness")]
+mod test;
 
 pub use array::*;
 // Re-export the BooleanBuffer type on our API surface.

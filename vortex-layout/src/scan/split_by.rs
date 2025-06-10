@@ -99,7 +99,7 @@ mod test {
 
         let segments: Arc<dyn SegmentSource> = Arc::new(segments);
         let reader = layout
-            .new_reader(&"".into(), &segments, &ArrayContext::empty())
+            .new_reader("".into(), segments, ArrayContext::empty())
             .unwrap();
 
         let splits = SplitBy::Layout
@@ -131,7 +131,7 @@ mod test {
 
         let segments: Arc<dyn SegmentSource> = Arc::new(segments);
         let reader = layout
-            .new_reader(&"".into(), &segments, &ArrayContext::empty())
+            .new_reader("".into(), segments, ArrayContext::empty())
             .unwrap();
 
         let splits = SplitBy::RowCount(3)

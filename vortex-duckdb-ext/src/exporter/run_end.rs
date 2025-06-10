@@ -75,7 +75,7 @@ impl<E: NativePType + Ord + FromPrimitive + ToPrimitive> ColumnExporter for RunE
         }
 
         // Build up a selection vector
-        let sel_vec = SelectionVector::with_capacity(len as _);
+        let mut sel_vec = SelectionVector::with_capacity(len);
         let mut sel_vec_slice = unsafe { sel_vec.as_slice_mut(len) };
 
         for (run_idx, &next_end) in ends_slice[start_run_idx..=end_run_idx].iter().enumerate() {

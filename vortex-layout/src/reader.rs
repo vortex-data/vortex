@@ -19,8 +19,6 @@ pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
 /// A [`LayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
 /// evaluation operations.
-///
-/// It dereferences into the underlying layout being read.
 pub trait LayoutReader: 'static + Send + Sync {
     /// Returns the name of the layout reader for debugging.
     fn name(&self) -> &Arc<str>;
@@ -135,7 +133,7 @@ impl LazyReaderChildren {
         }
         self.cache[idx].get_or_try_init(|| {
             let child = self.children.child(idx, dtype)?;
-            child.new_reader(name, &self.segment_source, &self.ctx)
+            child.new_reader(name.clone(), self.segment_source.clone(), self.ctx.clone())
         })
     }
 }

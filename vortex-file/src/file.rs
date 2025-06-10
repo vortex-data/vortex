@@ -8,8 +8,8 @@ use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_expr::ExprRef;
 use vortex_expr::pruning::PruningPredicate;
+use vortex_expr::{ExprRef, Scope};
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
@@ -76,7 +76,7 @@ impl VortexFile {
         self.footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader(&"".into(), &segment_source, self.footer().ctx())
+            .new_reader("".into(), segment_source, self.footer().ctx().clone())
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
@@ -84,7 +84,7 @@ impl VortexFile {
         Ok(ScanBuilder::new(self.layout_reader()?).with_metrics(self.metrics.clone()))
     }
 
-    // Returns true if the expression will never match any rows in the file.
+    /// Returns true if the expression will never match any rows in the file.
     pub fn can_prune(&self, filter: &ExprRef) -> VortexResult<bool> {
         let Some((file_stats, struct_dtype)) = self
             .footer
@@ -105,7 +105,7 @@ impl VortexFile {
         };
 
         Ok(predicate
-            .evaluate(&struct_row)?
+            .evaluate(&Scope::new(struct_row))?
             .and_then(|p| p.as_constant())
             .is_some_and(|result| result.as_bool().value() == Some(true)))
     }

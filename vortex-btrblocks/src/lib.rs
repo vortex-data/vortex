@@ -47,11 +47,12 @@ const SAMPLE_SIZE: u32 = 64;
 pub trait CompressorStats: Debug + Clone {
     type ArrayVTable: VTable;
 
-    // Generate with options.
+    /// Generate stats with default options
     fn generate(input: &<Self::ArrayVTable as VTable>::Array) -> Self {
         Self::generate_opts(input, GenerateStatsOptions::default())
     }
 
+    /// Generate stats with provided options
     fn generate_opts(
         input: &<Self::ArrayVTable as VTable>::Array,
         opts: GenerateStatsOptions,

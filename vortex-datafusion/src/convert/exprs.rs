@@ -1,7 +1,7 @@
 use datafusion::logical_expr::Operator as DFOperator;
 use datafusion::physical_expr::{PhysicalExpr, expressions};
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{BinaryExpr, ExprRef, Like, Operator, get_item, ident, lit};
+use vortex::expr::{BinaryExpr, ExprRef, Like, Operator, get_item, lit, root};
 use vortex::scalar::Scalar;
 
 use crate::convert::{FromDataFusion, TryFromDataFusion};
@@ -19,7 +19,7 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
         }
 
         if let Some(col_expr) = df.as_any().downcast_ref::<expressions::Column>() {
-            return Ok(get_item(col_expr.name().to_owned(), ident()));
+            return Ok(get_item(col_expr.name().to_owned(), root()));
         }
 
         if let Some(like) = df.as_any().downcast_ref::<expressions::LikeExpr>() {

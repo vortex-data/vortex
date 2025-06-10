@@ -3,11 +3,12 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_array::{Array, ArrayRef, ToCanonical};
+use vortex_array::stats::Stat;
+use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::{ExprRef, VortexExpr, ident};
+use crate::{AccessPath, AnalysisExpr, ExprRef, Scope, ScopeDType, StatsCatalog, VortexExpr, root};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -38,7 +39,7 @@ impl GetItem {
 }
 
 pub fn col(field: impl Into<FieldName>) -> ExprRef {
-    GetItem::new_expr(field, ident())
+    GetItem::new_expr(field, root())
 }
 
 pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
@@ -46,7 +47,7 @@ pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
 }
 
 pub fn get_item_scope(field: impl Into<FieldName>) -> ExprRef {
-    GetItem::new_expr(field, ident())
+    GetItem::new_expr(field, root())
 }
 
 impl Display for GetItem {
@@ -94,14 +95,30 @@ pub(crate) mod proto {
     }
 }
 
+impl AnalysisExpr for GetItem {
+    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        catalog.stats_ref(&self.field_path()?, Stat::Max)
+    }
+
+    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        catalog.stats_ref(&self.field_path()?, Stat::Min)
+    }
+
+    fn field_path(&self) -> Option<AccessPath> {
+        self.child()
+            .field_path()
+            .map(|fp| AccessPath::new(fp.field_path.push(self.field.clone()), fp.identifier))
+    }
+}
+
 impl VortexExpr for GetItem {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn unchecked_evaluate(&self, batch: &dyn Array) -> VortexResult<ArrayRef> {
+    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
         self.child
-            .evaluate(batch)?
+            .unchecked_evaluate(scope)?
             .to_struct()?
             .field_by_name(self.field())
             .cloned()
@@ -116,8 +133,8 @@ impl VortexExpr for GetItem {
         Self::new_expr(self.field().clone(), children[0].clone())
     }
 
-    fn return_dtype(&self, scope_dtype: &DType) -> VortexResult<DType> {
-        let input = self.child.return_dtype(scope_dtype)?;
+    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType> {
+        let input = self.child.return_dtype(scope)?;
         input
             .as_struct()
             .ok_or_else(|| vortex_err!("GetItem: child dtype is not a struct"))?
@@ -140,7 +157,7 @@ mod tests {
     use vortex_dtype::PType::I32;
 
     use crate::get_item::get_item;
-    use crate::ident;
+    use crate::{Scope, root};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -153,15 +170,15 @@ mod tests {
     #[test]
     pub fn get_item_by_name() {
         let st = test_array();
-        let get_item = get_item("a", ident());
-        let item = get_item.evaluate(st.as_ref()).unwrap();
+        let get_item = get_item("a", root());
+        let item = get_item.evaluate(&Scope::new(st.to_array())).unwrap();
         assert_eq!(item.dtype(), &DType::from(I32))
     }
 
     #[test]
     pub fn get_item_by_name_none() {
         let st = test_array();
-        let get_item = get_item("c", ident());
-        assert!(get_item.evaluate(st.as_ref()).is_err());
+        let get_item = get_item("c", root());
+        assert!(get_item.evaluate(&Scope::new(st.to_array())).is_err());
     }
 }

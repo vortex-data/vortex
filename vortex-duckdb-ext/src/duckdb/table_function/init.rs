@@ -104,7 +104,7 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
         if ptr.is_null() {
             None
         } else {
-            Some(unsafe { TableFilterSet::from_ptr(ptr) })
+            Some(unsafe { TableFilterSet::borrow(ptr) })
         }
     }
 }

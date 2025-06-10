@@ -21,7 +21,6 @@ arrow-schema = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bit-vec = { workspace = true }
-bytes = { workspace = true }
 dashmap = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
@@ -50,6 +49,7 @@ vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-utils = { workspace = true }
 
 [dev-dependencies]
 vortex-array = { workspace = true, features = ["test-harness"] }

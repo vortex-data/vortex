@@ -4,13 +4,13 @@ use arrow_buffer::BooleanBuffer;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ToCanonical;
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::{NativeValue, PrimitiveArray, PrimitiveVTable};
 use vortex_array::stats::Stat;
 use vortex_dtype::{NativePType, match_each_integer_ptype};
 use vortex_error::{VortexError, VortexExpect, VortexUnwrap};
 use vortex_mask::AllOr;
 use vortex_scalar::{PValue, ScalarValue};
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::sample::sample;
 use crate::{CompressorStats, GenerateStatsOptions};

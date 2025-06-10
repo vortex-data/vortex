@@ -5,8 +5,8 @@ use vortex_dtype::{NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::PValue;
+use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::aliases::hash_map::HashMap;
 use crate::arrays::{NativeValue, PrimitiveArray};
 
 impl PrimitiveArray {

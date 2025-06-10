@@ -27,6 +27,10 @@ fn main() {
             "-I{}",
             duckdb_ext_dir.join("duckdb/src/include/").to_str().unwrap()
         ))
+        .clang_arg(format!(
+            "-I{}",
+            crate_dir.join("cpp/include").to_str().unwrap()
+        ))
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
@@ -55,9 +59,11 @@ fn main() {
 
     // Generate the _exported_ bindings from our Rust code.
     cbindgen::Builder::new()
+        .with_config(cbindgen::Config::from_file(crate_dir.join("cbindgen.toml")).unwrap())
         .with_crate(&crate_dir)
+        .with_no_includes()
         .generate()
-        .expect("Unable to generate bindings")
+        .expect("error: Unable to generate bindings for vortex.h")
         .write_to_file(crate_dir.join("include/vortex.h"));
 
     for entry in WalkDir::new("cpp/") {

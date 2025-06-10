@@ -29,12 +29,12 @@ impl SerdeVTable<StructVTable> for StructVTable {
             vortex_bail!("Expected struct dtype, found {:?}", dtype)
         };
 
-        let validity = if children.len() == struct_dtype.nfields() {
-            Validity::from(*nullability)
+        let (validity, non_data_children) = if children.len() == struct_dtype.nfields() {
+            (Validity::from(*nullability), 0_usize)
         } else if children.len() == struct_dtype.nfields() + 1 {
             // Validity is the first child if it exists.
             let validity = children.get(0, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
+            (Validity::Array(validity), 1_usize)
         } else {
             vortex_bail!(
                 "Expected {} or {} children, found {}",
@@ -44,12 +44,12 @@ impl SerdeVTable<StructVTable> for StructVTable {
             );
         };
 
-        let children = (0..children.len())
+        let children = (0..struct_dtype.nfields())
             .map(|i| {
                 let child_dtype = struct_dtype
                     .field_by_index(i)
                     .vortex_expect("no out of bounds");
-                children.get(i, &child_dtype, len)
+                children.get(non_data_children + i, &child_dtype, len)
             })
             .try_collect()?;
 

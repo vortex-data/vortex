@@ -17,6 +17,7 @@ mod scan;
 #[allow(non_snake_case)]
 #[allow(clippy::suspicious_doc_comments)]
 #[allow(clippy::enum_variant_names)]
+#[rustfmt::skip]
 #[path = "./cpp.rs"]
 /// This module provides the FFI interface to our C++ code exposing additional functionality
 /// for DuckDB, such as custom data types and functions.
@@ -31,7 +32,7 @@ pub fn init(conn: &Connection) -> VortexResult<()> {
 /// The DuckDB extension ABI initialization function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vortex_init(db: cpp::duckdb_database) {
-    let conn = unsafe { Database::from_ptr(db) }
+    let conn = unsafe { Database::borrow(db) }
         .connect()
         .vortex_expect("Failed to connect to DuckDB database");
     init(&conn).vortex_expect("Failed to initialize Vortex extension");

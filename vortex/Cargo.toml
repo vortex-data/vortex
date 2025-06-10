@@ -41,6 +41,7 @@ vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
+vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
