@@ -47,7 +47,7 @@ impl Default for VortexSession {
             EncodingRef::new_ref(ZigZagEncoding.as_ref()),
         ]);
         #[cfg(feature = "zstd")]
-        arrays.register(vortex_zstd::ZstdEncoding.as_ref());
+        arrays.register(vortex_zstd::ZstdEncoding.as_ref().into());
 
         // Register the layout encodings that Vortex ships with.
         let layouts = LayoutRegistry::default();

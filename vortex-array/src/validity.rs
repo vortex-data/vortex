@@ -394,7 +394,10 @@ impl Validity {
                 for &next_row_idx in row_indices {
                     while row_idx < next_row_idx {
                         row_idx += 1;
-                        value_idx += bool_iter.next().unwrap() as usize;
+                        value_idx += bool_iter
+                            .next()
+                            .ok_or_else(|| vortex_err!("Row indices exceed array length"))?
+                            as usize;
                     }
                     value_indices.push(value_idx);
                 }

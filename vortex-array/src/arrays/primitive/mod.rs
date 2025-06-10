@@ -124,7 +124,7 @@ impl PrimitiveArray {
     ) -> VortexResult<Self> {
         let byte_width = ptype.byte_width();
         let buffer = match &validity {
-            Validity::AllValid | Validity::NonNullable => valid_elems_buffer.clone(),
+            Validity::AllValid | Validity::NonNullable => valid_elems_buffer,
             Validity::AllInvalid => ByteBuffer::from(vec![0; n_rows * byte_width]),
             Validity::Array(is_valid) => {
                 let bool_array = is_valid.to_canonical()?.into_bool()?;
@@ -134,7 +134,7 @@ impl PrimitiveArray {
                 for i in 0..n_rows {
                     if bool_buffer.value(i) {
                         bytes.extend_from_slice(
-                            &&valid_elems_buffer[valid_i * byte_width..(valid_i + 1) * byte_width],
+                            &valid_elems_buffer[valid_i * byte_width..(valid_i + 1) * byte_width],
                         );
                         valid_i += 1;
                     } else {
