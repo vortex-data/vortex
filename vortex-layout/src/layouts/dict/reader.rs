@@ -12,7 +12,7 @@ use vortex_array::{Array, ArrayContext, ArrayRef, Canonical, IntoArray, ToCanoni
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_expr::{ExprRef, Scope, ScopeDType, root};
 use vortex_mask::Mask;
 
 use super::DictLayout;
@@ -146,7 +146,7 @@ impl LayoutReader for DictReader {
         Ok(Box::new(DictArrayEvaluation {
             values_eval,
             codes_eval,
-            dtype: self.dtype().clone(),
+            dtype: expr.return_dtype(&ScopeDType::new(self.dtype().clone()))?,
         }))
     }
 }
