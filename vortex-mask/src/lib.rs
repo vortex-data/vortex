@@ -439,7 +439,12 @@ impl Mask {
 
     /// Slice the mask.
     pub fn slice(&self, offset: usize, length: usize) -> Self {
-        assert!(offset + length <= self.len());
+        assert!(
+            offset + length <= self.len(),
+            "end {}, len {}",
+            offset + length,
+            self.len()
+        );
         match &self {
             Self::AllTrue(_) => Self::new_true(length),
             Self::AllFalse(_) => Self::new_false(length),

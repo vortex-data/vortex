@@ -522,7 +522,7 @@ mod tests {
             reader
                 .projection_evaluation(&(0..3), &lit(true))
                 .unwrap()
-                .invoke(result.clone()),
+                .invoke(result),
         )
         .unwrap();
 
