@@ -99,6 +99,11 @@ fn main() {
     let zip_path = download_duckdb_archive().unwrap();
     let lib_path = extract_duckdb_libraries(zip_path).unwrap();
 
+    // `cargo test` requires libstdc++ to be linked explicitly on Linux.
+    if env::var("TARGET").unwrap().contains("linux") {
+        println!("cargo:rustc-link-lib=stdc++");
+    }
+
     // Link against static DuckDB libraries.
     println!("cargo:rustc-link-search=native={}", lib_path.display());
     println!("cargo:rustc-link-lib=static=duckdb_static");

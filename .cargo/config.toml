@@ -6,6 +6,13 @@ rustflags = ["-C", "force-frame-pointers=yes"]
 rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "linker=gcc", "-C", "link-arg=-Wl,--allow-shlib-undefined"]
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "linker=gcc", "-C", "link-arg=-Wl,--allow-shlib-undefined"]
+
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"', '-C', 'target-feature=+atomics']
 
