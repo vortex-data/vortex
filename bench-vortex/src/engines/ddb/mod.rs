@@ -282,7 +282,8 @@ pub fn register_tables(
     // Therefore, we need to additionally check whether stderr is set.
     if !output.status.success() || !output.stderr.is_empty() {
         anyhow::bail!(
-            "DuckDB query failed: stdout=`{}`\n, stderr=`{}`",
+            "DuckDB query failed output `{:?}`, stdout: `{}` stderr: `{}`",
+            output.status.code(),
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
@@ -328,7 +329,8 @@ pub fn execute_query(
     // Therefore, we need to additionally check whether stderr is set.
     if !output.status.success() || !output.stderr.is_empty() {
         bail!(
-            "DuckDB query failed, stdout: `{}`\n stderr: `{}`",
+            "DuckDB query failed output `{:?}`, stdout: `{}` stderr: `{}`",
+            output.status.code(),
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
