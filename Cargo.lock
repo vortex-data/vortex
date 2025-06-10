@@ -2145,9 +2145,27 @@ dependencies = [
  "fallible-iterator",
  "fallible-streaming-iterator",
  "hashlink",
- "libduckdb-sys",
+ "libduckdb-sys 1.2.2",
  "memchr",
  "num",
+ "num-integer",
+ "rust_decimal",
+ "smallvec",
+ "strum 0.25.0",
+]
+
+[[package]]
+name = "duckdb"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "379464d1fbb69d1bbda7c11d96fafde6f2bdb78c67e630e6339b048e6e45107e"
+dependencies = [
+ "arrow",
+ "cast",
+ "fallible-iterator",
+ "fallible-streaming-iterator",
+ "hashlink",
+ "libduckdb-sys 1.3.0",
  "num-integer",
  "rust_decimal",
  "smallvec",
@@ -3299,6 +3317,21 @@ version = "1.2.2"
 dependencies = [
  "autocfg",
  "cc",
+ "flate2",
+ "pkg-config",
+ "serde",
+ "serde_json",
+ "tar",
+ "vcpkg",
+]
+
+[[package]]
+name = "libduckdb-sys"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25d3f1defe457d1ac0fbaef0fe6926953cb33419dd3c8dbac53882d020bee697"
+dependencies = [
+ "autocfg",
  "flate2",
  "pkg-config",
  "serde",
@@ -6398,7 +6431,7 @@ dependencies = [
 name = "vortex-duckdb"
 version = "0.1.0"
 dependencies = [
- "duckdb",
+ "duckdb 1.2.2",
  "itertools 0.14.0",
  "num-traits",
  "vortex",
@@ -6412,6 +6445,7 @@ dependencies = [
  "bitvec",
  "cbindgen",
  "cc",
+ "duckdb 1.3.0",
  "itertools 0.14.0",
  "num-traits",
  "reqwest",
@@ -6487,7 +6521,7 @@ dependencies = [
 name = "vortex-ffi"
 version = "0.1.0"
 dependencies = [
- "duckdb",
+ "duckdb 1.2.2",
  "futures",
  "itertools 0.14.0",
  "log",
