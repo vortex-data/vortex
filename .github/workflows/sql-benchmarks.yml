@@ -127,6 +127,10 @@ jobs:
           git checkout "$DUCKDB_VERSION"
           make release
 
+      - name: Add duckdb to path
+        run: |
+          echo "${{ github.workspace }}/duckdb/build/release/" >> $GITHUB_PATH
+
       - name: Verify duckdb available
         run: duckdb --version
 
