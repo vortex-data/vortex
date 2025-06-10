@@ -19,8 +19,8 @@ fn test_zstd_compress_decompress() {
 
     let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
     // this data should be compressible
-    assert!(compressed.compressed_buffers.len() < array.nbytes());
-    assert!(compressed.dictionary_buffer.is_none());
+    assert!(compressed.frames.len() < array.nbytes());
+    assert!(compressed.dictionary.is_none());
 
     // check full decompression works
     let decompressed = compressed.decompress().unwrap().to_primitive().unwrap();
@@ -28,8 +28,8 @@ fn test_zstd_compress_decompress() {
 
     // check slicing works
     let slice = compressed.slice(100, 105).unwrap();
-    for i in 0..5 {
-        assert_nth_scalar!(slice, i, 100 + i32::try_from(i).unwrap());
+    for i in 0_i32..5 {
+        assert_nth_scalar!(slice, i as usize, 100 + i);
     }
     match slice.to_canonical() {
         Ok(Canonical::Primitive(primitive)) => {
@@ -66,7 +66,7 @@ fn test_zstd_empty() {
 }
 
 #[test]
-fn test_zstd_with_validity_and_dict() {
+fn test_zstd_with_validity_and_multi_frame() {
     let data: Vec<i32> = (0..200).collect();
     let mut validity: Vec<bool> = vec![false; 200];
     validity[3] = true;
@@ -77,14 +77,16 @@ fn test_zstd_with_validity_and_dict() {
     );
 
     let compressed = ZstdArray::from_primitive(&array, 0, 30).unwrap();
-    assert!(compressed.dictionary_buffer.is_some());
+    assert!(compressed.dictionary.is_none());
     assert_nth_scalar!(compressed, 0, None::<i32>);
     assert_nth_scalar!(compressed, 3, 3);
     assert_nth_scalar!(compressed, 10, None::<i32>);
     assert_nth_scalar!(compressed, 177, 177);
 
     let decompressed = compressed.decompress().unwrap().to_primitive().unwrap();
-    assert_eq!(decompressed.as_slice::<i32>(), &data);
+    let decompressed_values = decompressed.as_slice::<i32>();
+    assert_eq!(decompressed_values[3], 3);
+    assert_eq!(decompressed_values[177], 177);
     assert_eq!(decompressed.validity(), array.validity());
 
     // check slicing works
@@ -96,6 +98,33 @@ fn test_zstd_with_validity_and_dict() {
                 primitive.validity(),
                 &Validity::Array(BoolArray::from_iter(vec![false, true, false]).to_array())
             )
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_zstd_with_dict() {
+    let data: Vec<i32> = (0..200).collect();
+    let array = PrimitiveArray::new(
+        data.iter().cloned().collect::<Buffer<_>>(),
+        Validity::NonNullable,
+    );
+
+    let compressed = ZstdArray::from_primitive(&array, 0, 16).unwrap();
+    assert!(compressed.dictionary.is_some());
+    assert_nth_scalar!(compressed, 0, 0);
+    assert_nth_scalar!(compressed, 199, 199);
+
+    let decompressed = compressed.decompress().unwrap().to_primitive().unwrap();
+    assert_eq!(decompressed.as_slice::<i32>(), &data);
+    assert_eq!(decompressed.validity(), array.validity());
+
+    // check slicing works
+    let slice = compressed.slice(176, 179).unwrap();
+    match slice.to_canonical() {
+        Ok(Canonical::Primitive(primitive)) => {
+            assert_eq!(primitive.as_slice::<i32>(), &[176, 177, 178]);
         }
         _ => unreachable!(),
     }

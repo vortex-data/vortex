@@ -14,14 +14,32 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::serde::{ZstdBufferMetadata, ZstdMetadata};
+use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
+
+// Zstd doesn't support training dictionaries on very few samples.
+const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;
 
 // Overall approach here:
-// Zstd can be used on the whole array (rows_per_buffer = 0), resulting in a single Zstd
-// frame, or it can be used with a dictionary (rows_per_buffer < # rows), resulting in
+// Zstd can be used on the whole array (rows_per_frame = 0), resulting in a single Zstd
+// frame, or it can be used with a dictionary (rows_per_frame < # rows), resulting in
 // multiple Zstd frames sharing a common dictionary. This latter case is helpful if you
 // want somewhat faster access to slices or individual rows, allowing us to only
 // decompress the necessary frames.
+
+// Visually, during compression and decompression, we have an interval of frames we're
+// compressing/decompressing and a tighter interval of the slice we actually care about:
+//
+// |=====================validity========================|
+// |=======================rows==========================|
+//    |----------------frames_rows-------------------|
+//    <--row_offset->|----slice-------------------|
+//                   ^                            ^
+//                   |<------slice_n_rows-------->|
+//                slice_start                 slice_stop
+//
+// |=====values (all valid elements)====|
+//     |-------frames_values------|
+//         |----slice_values-----|
 
 vtable!(Zstd);
 
@@ -52,8 +70,8 @@ pub struct ZstdEncoding;
 
 #[derive(Clone, Debug)]
 pub struct ZstdArray {
-    pub(crate) dictionary_buffer: Option<ByteBuffer>,
-    pub(crate) compressed_buffers: Vec<ByteBuffer>,
+    pub(crate) dictionary: Option<ByteBuffer>,
+    pub(crate) frames: Vec<ByteBuffer>,
     pub(crate) validity: Validity,
     pub(crate) metadata: ZstdMetadata,
     dtype: DType,
@@ -72,22 +90,22 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
 
 impl ZstdArray {
     pub fn new(
-        dictionary_buffer: Option<ByteBuffer>,
-        compressed_buffers: Vec<ByteBuffer>,
+        dictionary: Option<ByteBuffer>,
+        frames: Vec<ByteBuffer>,
         dtype: DType,
         metadata: ZstdMetadata,
-        len: usize,
+        n_rows: usize,
         validity: Validity,
     ) -> Self {
         Self {
-            dictionary_buffer,
-            compressed_buffers,
+            dictionary,
+            frames,
             validity,
             metadata,
             dtype,
             stats_set: Default::default(),
             slice_start: 0,
-            slice_stop: len,
+            slice_stop: n_rows,
         }
     }
 
@@ -98,144 +116,171 @@ impl ZstdArray {
     pub fn from_primitive(
         parray: &PrimitiveArray,
         level: i32,
-        rows_per_buffer: usize,
+        rows_per_frame: usize,
     ) -> VortexResult<Self> {
-        let buffer = parray.byte_buffer();
-        let bytes = buffer.inner();
-        let type_size = parray.ptype().byte_width();
+        let dtype = parray.dtype().clone();
+        let byte_width = parray.ptype().byte_width();
+        let validity = parray.validity().clone();
+        let n_rows = parray.len();
+        let rows_per_frame = if rows_per_frame > 0 {
+            rows_per_frame
+        } else {
+            n_rows
+        };
+        let frame_row_indices = (0..n_rows).step_by(rows_per_frame).collect::<Vec<_>>();
+        let n_frames = frame_row_indices.len();
 
-        let (dictionary_buffer, mut compressor, chunk_byte_size) =
-            if rows_per_buffer == 0 || rows_per_buffer >= parray.len() {
-                // single buffer, no dictionary
-                (
-                    None,
-                    zstd::bulk::Compressor::new(level)?,
-                    cmp::max(1, parray.len()) * type_size,
-                )
-            } else {
-                // multi buffer, with dictionary
-                let chunk_byte_size = rows_per_buffer * type_size;
-                let sample_sizes = bytes
-                    .chunks(chunk_byte_size)
-                    .map(|chunk| chunk.len())
-                    .collect::<Vec<_>>();
-                debug_assert!(sample_sizes.iter().sum::<usize>() == bytes.len());
-                let dict = zstd::dict::from_continuous(
-                    bytes,
-                    &sample_sizes,
-                    choose_max_dict_size(buffer.len()),
-                )
-                .map_err(|err| {
-                    Into::<VortexError>::into(err).with_context("while training dictionary")
-                })?;
+        // We compress only the valid elements.
+        let values = parray.collect_values()?;
+        let mut value_indices = validity.value_indices_for_rows(&frame_row_indices)?;
+        value_indices.push(values.len()); // for convenience
+        let values = values.byte_buffer();
+        let value_bytes = values.inner();
 
-                let compressor = zstd::bulk::Compressor::with_dictionary(level, &dict)?;
-                (Some(ByteBuffer::from(dict)), compressor, chunk_byte_size)
-            };
+        // Would-be sample sizes if we end up applying zstd dictionary
+        let sample_sizes: Vec<usize> = value_indices
+            .windows(2)
+            .map(|pair| (pair[1] - pair[0]) * byte_width)
+            .filter(|&size| size > 0)
+            .collect();
+        debug_assert!(sample_sizes.iter().sum::<usize>() == value_bytes.len());
 
-        let mut compressed_buffer_metas = vec![];
-        let mut compressed_buffers = vec![];
-        for chunk in buffer.chunks(chunk_byte_size) {
+        let (dictionary, mut compressor) = if sample_sizes.len() < MIN_SAMPLES_FOR_DICTIONARY {
+            // no dictionary
+            (None, zstd::bulk::Compressor::new(level)?)
+        } else {
+            // with dictionary
+            let max_dict_size = choose_max_dict_size(values.len());
+            let dict = zstd::dict::from_continuous(value_bytes, &sample_sizes, max_dict_size)
+                .map_err(|err| VortexError::from(err).with_context("while training dictionary"))?;
+
+            let compressor = zstd::bulk::Compressor::with_dictionary(level, &dict)?;
+            (Some(ByteBuffer::from(dict)), compressor)
+        };
+
+        let mut frame_metas = vec![];
+        let mut frames = vec![];
+        for i in 0..n_frames {
+            let uncompressed = &value_bytes
+                .slice(value_indices[i] * byte_width..value_indices[i + 1] * byte_width);
             let compressed = compressor
-                .compress(chunk)
-                .map_err(|err| Into::<VortexError>::into(err).with_context("while compressing"))?;
-            compressed_buffer_metas.push(ZstdBufferMetadata {
+                .compress(uncompressed)
+                .map_err(|err| VortexError::from(err).with_context("while compressing"))?;
+            let frame_n_rows = (frame_row_indices.get(i + 1).cloned().unwrap_or(n_rows)
+                - frame_row_indices[i]) as u64;
+            frame_metas.push(ZstdFrameMetadata {
+                n_rows: frame_n_rows,
                 compressed_size: compressed.len() as u64,
-                uncompressed_size: chunk.len() as u64,
+                uncompressed_size: uncompressed.len() as u64,
             });
-            compressed_buffers.push(ByteBuffer::from(compressed));
+            frames.push(ByteBuffer::from(compressed));
         }
 
-        let dtype = parray.dtype().clone();
         let metadata = ZstdMetadata {
-            dictionary_size: dictionary_buffer
+            dictionary_size: dictionary
                 .as_ref()
-                .map_or(0, |buffer| buffer.len())
+                .map_or(0, |dict| dict.len())
                 .try_into()?,
-            compressed_buffers: compressed_buffer_metas,
-            rows_per_buffer: rows_per_buffer.try_into()?,
+            frames: frame_metas,
         };
 
         Ok(ZstdArray::new(
-            dictionary_buffer,
-            compressed_buffers,
-            dtype,
-            metadata,
-            parray.len(),
-            parray.validity().clone(),
+            dictionary, frames, dtype, metadata, n_rows, validity,
         ))
     }
 
-    pub fn from_array(array: ArrayRef, level: i32, rows_per_buffer: usize) -> VortexResult<Self> {
+    pub fn from_array(array: ArrayRef, level: i32, rows_per_frame: usize) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            Self::from_primitive(parray, level, rows_per_buffer)
+            Self::from_primitive(parray, level, rows_per_frame)
         } else {
             Err(vortex_err!("Zstd can only encode primitive arrays"))
         }
     }
 
     pub fn decompress(&self) -> VortexResult<ArrayRef> {
-        // To start, we figure out which buffers we need to decompress, and with
-        // what byte offset into the first such buffer.
-        let type_size = self.dtype.as_ptype().byte_width();
-        let byte_start = self.slice_start * type_size;
-        let byte_stop = self.slice_stop * type_size;
-        let mut buf_start = 0;
-        let mut buffer_idx_lb = 0;
-        let mut buffer_idx_ub = 0;
-        let mut byte_offset = 0;
-        for (i, buffer_meta) in self.metadata.compressed_buffers.iter().enumerate() {
-            let buf_stop = buf_start + usize::try_from(buffer_meta.uncompressed_size)?;
-            if buf_start < byte_start {
-                buffer_idx_lb = i;
-                byte_offset = byte_start - buf_start
+        // To start, we figure out which frames we need to decompress, and with
+        // what row offset into the first such frame.
+        let slice_n_rows = self.slice_stop - self.slice_start;
+        let byte_width = self.dtype.as_ptype().byte_width();
+        let mut frame_start_row = 0;
+        let mut frame_idx_lb = 0;
+        let mut frame_idx_ub = 0;
+        let mut row_offset = 0;
+        for (i, frame_meta) in self.metadata.frames.iter().enumerate() {
+            let buf_stop = frame_start_row + usize::try_from(frame_meta.n_rows)?;
+            if frame_start_row < self.slice_start {
+                frame_idx_lb = i;
+                row_offset = self.slice_start - frame_start_row
             }
-            if buf_start < byte_stop {
-                buffer_idx_ub = i + 1
+            if frame_start_row < self.slice_stop {
+                frame_idx_ub = i + 1
             }
-            buf_start = buf_stop;
+            frame_start_row = buf_stop;
         }
 
-        // then we actually decompress those buffers
-        let buffer_metas = &self.metadata.compressed_buffers[buffer_idx_lb..buffer_idx_ub];
-        let total_uncompressed_size: usize = buffer_metas
+        // then we actually decompress those frames
+        let frame_metas = &self.metadata.frames[frame_idx_lb..frame_idx_ub];
+        let total_uncompressed_size: usize = frame_metas
             .iter()
             .map(|meta| meta.uncompressed_size)
             .sum::<u64>()
             .try_into()?;
 
-        let mut decompressor = if let Some(dictionary_buffer) = &self.dictionary_buffer {
-            zstd::bulk::Decompressor::with_dictionary(dictionary_buffer)
+        let mut decompressor = if let Some(dictionary) = &self.dictionary {
+            zstd::bulk::Decompressor::with_dictionary(dictionary)
         } else {
             zstd::bulk::Decompressor::new()
         }?;
 
         // we could make this empty initialized for better performance
-        let mut decompressed = vec![0; total_uncompressed_size];
-        let mut start = 0;
-        for (buffer, meta) in self.compressed_buffers[buffer_idx_lb..buffer_idx_ub]
+        let mut frames_values_bytes = vec![0; total_uncompressed_size];
+        let mut start_byte = 0;
+        for (frame, meta) in self.frames[frame_idx_lb..frame_idx_ub]
             .iter()
-            .zip(buffer_metas)
+            .zip(frame_metas)
         {
-            let stop = start + usize::try_from(meta.uncompressed_size)?;
-            decompressor.decompress_to_buffer(buffer.as_slice(), &mut decompressed[start..stop])?;
-            start = stop;
+            let stop_byte = start_byte + usize::try_from(meta.uncompressed_size)?;
+            decompressor.decompress_to_buffer(
+                frame.as_slice(),
+                &mut frames_values_bytes[start_byte..stop_byte],
+            )?;
+            start_byte = stop_byte;
         }
 
-        // Last, we apply our byte offset. We need to copy since the
-        // decompressed buffer start/end might not align with our slice.
-        // And we need to align the data to our (dynamic) dtype.
-        let slice_len = byte_stop - byte_start;
-        let bytes = decompressed[byte_offset..byte_offset + slice_len].to_vec();
-        let decompressed_buffer = ByteBuffer::from(bytes).aligned(Alignment::new(type_size));
+        // Last, we apply our offset. We need to copy since the decompressed
+        // frame start/end might not align with our slice. And we need to
+        // align the data to our (dynamic) dtype.
+        let frames_validity = self
+            .validity
+            .slice(self.slice_start - row_offset, self.slice_stop)?;
+        let frames_values_start_stop =
+            frames_validity.value_indices_for_rows(&[row_offset, row_offset + slice_n_rows])?;
+        let slice_value_bytes = frames_values_bytes
+            [frames_values_start_stop[0] * byte_width..frames_values_start_stop[1] * byte_width]
+            .to_vec();
+        let slice_values_buffer =
+            ByteBuffer::from(slice_value_bytes).aligned(Alignment::new(byte_width));
 
-        let primitive = PrimitiveArray::from_byte_buffer(
-            decompressed_buffer,
+        let primitive = PrimitiveArray::from_values_byte_buffer(
+            slice_values_buffer,
             self.dtype.as_ptype(),
-            self.validity.clone(),
-        );
+            frames_validity.slice(row_offset, row_offset + slice_n_rows)?,
+            slice_n_rows,
+        )?;
 
         Ok(primitive.into_array())
+    }
+
+    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ZstdArray> {
+        if self.slice_start + cmp::max(start, stop) > self.slice_stop {
+            vortex_bail!("Cannot slice beyond end of ZstdArray")
+        }
+
+        Ok(ZstdArray {
+            slice_start: self.slice_start + start,
+            slice_stop: self.slice_start + stop,
+            ..self.clone()
+        })
     }
 }
 
@@ -267,28 +312,10 @@ impl CanonicalVTable<ZstdVTable> for ZstdVTable {
 
 impl OperationsVTable<ZstdVTable> for ZstdVTable {
     fn slice(array: &ZstdArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        if array.slice_start + cmp::max(start, stop) > array.slice_stop {
-            vortex_bail!("Cannot slice beyond end of ZstdArray")
-        }
-
-        let sliced = ZstdArray {
-            slice_start: array.slice_start + start,
-            slice_stop: array.slice_start + stop,
-            validity: array.validity.slice(start, stop)?,
-            ..array.clone()
-        };
-        Ok(sliced.into_array())
+        Ok(array._slice(start, stop)?.into_array())
     }
 
     fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
-        if array.slice_start + index >= array.slice_stop {
-            vortex_bail!(
-                "Cannot access {}th element from Zstd slice [{}, {})",
-                index,
-                array.slice_start,
-                array.slice_stop
-            );
-        }
-        array.decompress()?.scalar_at(index)
+        array._slice(index, index + 1)?.decompress()?.scalar_at(0)
     }
 }

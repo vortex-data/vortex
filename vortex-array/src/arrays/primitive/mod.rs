@@ -115,6 +115,41 @@ impl PrimitiveArray {
         Self::new(values.freeze(), Validity::from(validity.finish()))
     }
 
+    /// Create a PrimitiveArray from a byte buffer containing only the valid elements.
+    pub fn from_values_byte_buffer(
+        valid_elems_buffer: ByteBuffer,
+        ptype: PType,
+        validity: Validity,
+        n_rows: usize,
+    ) -> VortexResult<Self> {
+        let byte_width = ptype.byte_width();
+        let buffer = match &validity {
+            Validity::AllValid | Validity::NonNullable => valid_elems_buffer.clone(),
+            Validity::AllInvalid => ByteBuffer::from(vec![0; n_rows * byte_width]),
+            Validity::Array(is_valid) => {
+                let bool_array = is_valid.to_canonical()?.into_bool()?;
+                let bool_buffer = bool_array.boolean_buffer();
+                let mut bytes = Vec::with_capacity(n_rows * byte_width);
+                let mut valid_i = 0;
+                for i in 0..n_rows {
+                    if bool_buffer.value(i) {
+                        bytes.extend_from_slice(
+                            &&valid_elems_buffer[valid_i * byte_width..(valid_i + 1) * byte_width],
+                        );
+                        valid_i += 1;
+                    } else {
+                        bytes.extend_from_slice(&vec![0; byte_width]);
+                    }
+                }
+                ByteBuffer::from(bytes)
+            }
+        };
+
+        match_each_native_ptype!(ptype, |T| {
+            Ok(Self::new::<T>(Buffer::from_byte_buffer(buffer), validity))
+        })
+    }
+
     pub fn ptype(&self) -> PType {
         self.dtype().as_ptype()
     }
@@ -227,6 +262,44 @@ impl PrimitiveArray {
             }
         };
         Ok(PrimitiveArray::new(buffer.freeze(), validity.clone()))
+    }
+
+    /// Filter down to only valid elements, returning a new non-nullable array.
+    ///
+    /// The resulting array's count of valid elements will be the same, but its
+    /// count of rows may be less.
+    pub fn collect_values(&self) -> VortexResult<PrimitiveArray> {
+        match &self.validity() {
+            &Validity::AllValid | &Validity::NonNullable => {
+                let mut array = self.clone();
+                array.validity = Validity::NonNullable;
+                Ok(array)
+            }
+            &Validity::AllInvalid => Ok(PrimitiveArray::from_byte_buffer(
+                Buffer::empty(),
+                self.ptype(),
+                Validity::NonNullable,
+            )),
+            &Validity::Array(validity) => {
+                let validity = validity.to_canonical()?.into_bool()?;
+                let validity_buffer = validity.boolean_buffer();
+                let byte_width = self.ptype().byte_width();
+                let byte_buffer = self.byte_buffer();
+
+                let mut bytes = vec![];
+                for i in 0..self.len() {
+                    if validity_buffer.value(i) {
+                        bytes.extend_from_slice(&byte_buffer[i * byte_width..(i + 1) * byte_width]);
+                    }
+                }
+
+                Ok(PrimitiveArray::from_byte_buffer(
+                    Buffer::from(bytes),
+                    self.ptype(),
+                    Validity::NonNullable,
+                ))
+            }
+        }
     }
 
     /// Return a slice of the array's buffer.

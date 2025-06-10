@@ -376,6 +376,34 @@ impl Validity {
     pub fn is_array(&self) -> bool {
         matches!(self, Validity::Array(_))
     }
+
+    /// Given monotonically increasing `row_indices` in [0, n_rows], returns the
+    /// count of valid elements up to each row_index.
+    ///
+    /// This is O(n_rows).
+    pub fn value_indices_for_rows(&self, row_indices: &[usize]) -> VortexResult<Vec<usize>> {
+        let value_indices = match self {
+            Validity::NonNullable | Validity::AllValid => row_indices.to_vec(),
+            Validity::AllInvalid => vec![0; row_indices.len()],
+            Validity::Array(is_valid) => {
+                let bool_array = is_valid.to_bool()?;
+                let mut bool_iter = bool_array.boolean_buffer().iter();
+                let mut value_indices = Vec::with_capacity(row_indices.len());
+                let mut value_idx = 0;
+                let mut row_idx = 0;
+                for &next_row_idx in row_indices {
+                    while row_idx < next_row_idx {
+                        row_idx += 1;
+                        value_idx += bool_iter.next().unwrap() as usize;
+                    }
+                    value_indices.push(value_idx);
+                }
+
+                value_indices
+            }
+        };
+        Ok(value_indices)
+    }
 }
 
 impl PartialEq for Validity {

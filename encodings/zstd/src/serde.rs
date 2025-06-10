@@ -9,10 +9,12 @@ use vortex_error::{VortexResult, vortex_bail};
 use crate::{ZstdArray, ZstdEncoding, ZstdVTable};
 
 #[derive(Clone, prost::Message)]
-pub struct ZstdBufferMetadata {
+pub struct ZstdFrameMetadata {
     #[prost(uint64, tag = "1")]
-    pub compressed_size: u64,
+    pub n_rows: u64,
     #[prost(uint64, tag = "2")]
+    pub compressed_size: u64,
+    #[prost(uint64, tag = "3")]
     pub uncompressed_size: u64,
 }
 
@@ -22,9 +24,7 @@ pub struct ZstdMetadata {
     #[prost(uint32, tag = "1")]
     pub dictionary_size: u32,
     #[prost(message, repeated, tag = "2")]
-    pub compressed_buffers: Vec<ZstdBufferMetadata>,
-    #[prost(uint32, tag = "3")]
-    pub rows_per_buffer: u32,
+    pub frames: Vec<ZstdFrameMetadata>,
 }
 
 impl SerdeVTable<ZstdVTable> for ZstdVTable {
@@ -84,7 +84,10 @@ impl EncodeVTable<ZstdVTable> for ZstdVTable {
 
 impl VisitorVTable<ZstdVTable> for ZstdVTable {
     fn visit_buffers(array: &ZstdArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for buffer in &array.compressed_buffers {
+        if let Some(buffer) = &array.dictionary {
+            visitor.visit_buffer(buffer);
+        }
+        for buffer in &array.frames {
             visitor.visit_buffer(buffer);
         }
     }
