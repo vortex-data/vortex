@@ -181,11 +181,66 @@ impl ComputeFnVTable for Boolean {
     }
 }
 
+/// Operations over the nullable Boolean values.
+///
+/// All three operators accept and produce values from the set {true, false, and null}.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BooleanOperator {
+    /// Logical and, unless either value is null, in which case the result is null.
+    ///
+    /// | left  | right | And    |
+    /// | ----- | ----- | ------ |
+    /// | true  | true  | true   |
+    /// | true  | false | false  |
+    /// | true  | null  | null   |
+    /// | false | true  | false  |
+    /// | false | false | false  |
+    /// | false | null  | null   |
+    /// | null  | true  | null   |
+    /// | null  | false | null   |
+    /// | null  | null  | null   |
     And,
+    /// [Kleene (three-valued) logical and](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics).
+    ///
+    /// | left  | right | AndKleene |
+    /// | ----- | ----- | --------- |
+    /// | true  | true  | true      |
+    /// | true  | false | false     |
+    /// | true  | null  | null      |
+    /// | false | true  | false     |
+    /// | false | false | false     |
+    /// | false | null  | false     |
+    /// | null  | true  | null      |
+    /// | null  | false | false     |
+    /// | null  | null  | null      |
     AndKleene,
+    /// Logical or, unless either value is null, in which case the result is null.
+    ///
+    /// | left  | right | Or    |
+    /// | ----- | ----- | ----- |
+    /// | true  | true  | true  |
+    /// | true  | false | true  |
+    /// | true  | null  | null  |
+    /// | false | true  | true  |
+    /// | false | false | false |
+    /// | false | null  | null  |
+    /// | null  | true  | null  |
+    /// | null  | false | null  |
+    /// | null  | null  | null  |
     Or,
+    /// [Kleene (three-valued) logical or](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics).
+    ///
+    /// | left  | right | OrKleene |
+    /// | ----- | ----- | -------- |
+    /// | true  | true  | true     |
+    /// | true  | false | true     |
+    /// | true  | null  | true     |
+    /// | false | true  | true     |
+    /// | false | false | false    |
+    /// | false | null  | null     |
+    /// | null  | true  | true     |
+    /// | null  | false | null     |
+    /// | null  | null  | null     |
     OrKleene,
     // AndNot,
     // AndNotKleene,
