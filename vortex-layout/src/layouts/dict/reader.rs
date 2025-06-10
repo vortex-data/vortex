@@ -8,7 +8,7 @@ use futures::{FutureExt, join};
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::{MinMaxResult, filter, min_max};
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
+use vortex_array::{Array, ArrayContext, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
@@ -136,26 +136,6 @@ impl LayoutReader for DictReader {
         Ok(Box::new(NoOpPruningEvaluation))
     }
 
-    // fn filter_evaluation(
-    //     &self,
-    //     row_range: &Range<u64>,
-    //     expr: &ExprRef,
-    // ) -> VortexResult<Box<dyn MaskEvaluation>> {
-    //     let values_eval = self.values_eval(expr.clone());
-    //
-    //     // We register interest on the entire codes row_range for now, there
-    //     // is no straightforward shift into the codes domain we can do to the expression
-    //     // without reading values.
-    //     let codes_eval = self
-    //         .codes
-    //         .projection_evaluation(row_range, &Identity::new_expr())?;
-    //
-    //     Ok(Box::new(DictMaskEvaluation {
-    //         values_eval,
-    //         codes_eval,
-    //     }))
-    // }
-
     fn projection_evaluation(
         &self,
         row_range: &Range<u64>,
@@ -166,6 +146,7 @@ impl LayoutReader for DictReader {
         Ok(Box::new(DictArrayEvaluation {
             values_eval,
             codes_eval,
+            dtype: self.dtype().clone(),
         }))
     }
 }
@@ -225,11 +206,16 @@ impl MaskEvaluation for DictMaskEvaluation {
 struct DictArrayEvaluation {
     values_eval: SharedArrayFuture,
     codes_eval: Box<dyn ArrayEvaluation>,
+    dtype: DType,
 }
 
 #[async_trait]
 impl ArrayEvaluation for DictArrayEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+        if mask.all_false() {
+            return Ok(Canonical::empty(&self.dtype).into_array());
+        }
+
         let (values_result, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
         let (values_result, codes) = (values_result?, codes?);
 
