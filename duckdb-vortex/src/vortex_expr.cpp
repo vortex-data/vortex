@@ -21,6 +21,7 @@
 #include "duckdb/planner/filter/in_filter.hpp"
 
 using duckdb::ConjunctionAndFilter;
+using duckdb::ConjunctionOrFilter;
 using duckdb::ConstantFilter;
 using duckdb::Exception;
 using duckdb::ExceptionType;
@@ -309,7 +310,8 @@ void set_literal(Arena &arena, const Value &value, bool nullable, expr::Expr *co
 }
 
 expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::unique_ptr<TableFilter>> &child_filters,
-                                  const string &column_name) {
+                                  expr::Kind_BinaryOp operation, const string &column_name) {
+
 	D_ASSERT(!child_filters.empty());
 
 	if (child_filters.size() == 1) {
@@ -320,11 +322,11 @@ expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::unique_pt
 	auto tail = static_cast<expr::Expr *>(nullptr);
 	auto hd = Arena::Create<expr::Expr>(&arena);
 
-	// Flatten the list of children into a linked list of AND values.
+	// Flatten the list of children into a linked list of operation values.
 	for (size_t i = 0; i < child_filters.size() - 1; i++) {
 		expr::Expr *new_and = !tail ? hd : tail->add_children();
 		new_and->set_id(BINARY_ID);
-		new_and->mutable_kind()->set_binary_op(expr::Kind::And);
+		new_and->mutable_kind()->set_binary_op(operation);
 		new_and->add_children()->Swap(table_expression_into_expr(arena, *child_filters[i], column_name));
 
 		tail = new_and;
@@ -462,10 +464,10 @@ void set_list_element(Arena &arena, expr::Expr *list, duckdb::vector<Value> &val
 	list->set_id(LITERAL_ID);
 	auto ll = list->mutable_kind()->mutable_literal();
 	auto scalar = ll->mutable_value();
-	auto elem_type = into_vortex_dtype(arena, values[0].GetTypeMutable(), false);
+	auto elem_type = into_vortex_dtype(arena, values[0].GetTypeMutable(), true);
 	auto list_type = scalar->mutable_dtype()->mutable_list();
 	list_type->mutable_element_type()->Swap(elem_type);
-	list_type->set_nullable(false);
+	list_type->set_nullable(true);
 	auto list_scalar_value = scalar->mutable_value()->mutable_list_value();
 	for (auto &elem : values) {
 		list_scalar_value->mutable_values()->Add(std::move(*into_vortex_scalar_value(arena, elem)));
@@ -486,10 +488,14 @@ expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const 
 		expr->set_id(BINARY_ID);
 		return expr;
 	}
+	case TableFilterType::CONJUNCTION_OR: {
+		auto &disjuncts = filter.Cast<ConjunctionOrFilter>();
+		return flatten_table_filters(arena, disjuncts.child_filters, expr::Kind_BinaryOp_Or, column_name);
+	}
 	case TableFilterType::CONJUNCTION_AND: {
 		auto &conjucts = filter.Cast<ConjunctionAndFilter>();
 
-		return flatten_table_filters(arena, conjucts.child_filters, column_name);
+		return flatten_table_filters(arena, conjucts.child_filters, expr::Kind_BinaryOp_And, column_name);
 	}
 	case TableFilterType::IS_NULL:
 	case TableFilterType::IS_NOT_NULL: {
@@ -519,6 +525,8 @@ expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const 
 	default:
 		break;
 	}
+	std::cout << "table expr: " << std::to_string(static_cast<uint8_t>(filter.filter_type)) << filter.DebugToString()
+	          << std::endl;
 	throw Exception(ExceptionType::NOT_IMPLEMENTED, "table_expression_into_expr",
 	                {{"filter_type_id", std::to_string(static_cast<uint8_t>(filter.filter_type))}});
 }

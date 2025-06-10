@@ -167,6 +167,8 @@ impl MaskEvaluation for FlatEvaluation {
         //  (as often happens with zone map pruning), then we could slice/filter the array prior
         //  to evaluating the expression.
 
+        // println!("expr {:?}", self.expr);
+
         // Now we await the array .
         let mut array = self.array.clone().await?;
 

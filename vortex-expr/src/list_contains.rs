@@ -87,10 +87,8 @@ impl AnalysisExpr for ListContains {
     fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         let min = self.list.min(catalog)?;
         let max = self.list.max(catalog)?;
-        // println!("h {:?}, {}", min, max);
         // If the list is constant when we can compare each element to the value
         if min == max {
-            // println!("m==max");
             let list_ = min
                 .as_any()
                 .downcast_ref::<Literal>()
@@ -100,13 +98,9 @@ impl AnalysisExpr for ListContains {
                 // contains([], x) is always false.
                 return Some(lit(true));
             }
-            // println!("list {:?}, {:?}", list_, self.value.max(catalog));
             let value_max = self.value.max(catalog)?;
             let value_min = self.value.min(catalog)?;
-            // println!(
-            //     "list {:?}, value {:?}, min {:?}",
-            //     list_, value_max, value_min
-            // );
+
             return list_.iter().fold(Some(lit(true)), move |acc, v| {
                 Some(and(
                     acc?,

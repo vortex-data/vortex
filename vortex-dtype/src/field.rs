@@ -5,6 +5,7 @@
 //!
 
 use core::fmt;
+use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
@@ -162,6 +163,9 @@ impl FromIterator<FieldPath> for FieldPathSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Nullability::{NonNullable, Nullable};
+    use crate::PType::U32;
+    use crate::{DType, PType, StructFields};
 
     #[test]
     fn test_field_path() {
@@ -177,5 +181,16 @@ mod tests {
         let vec_path = FieldPath::from(fields);
         assert_eq!(vec_path.to_string(), "$A.$B.$C");
         assert_eq!(path, vec_path);
+    }
+
+    #[test]
+    fn test_short() {
+        DType::struct_(
+            [(
+                "a",
+                DType::list(DType::struct_([("b", U32)], NonNullable), Nullable),
+            )],
+            NonNullable,
+        );
     }
 }
