@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::sync::{Arc, LazyLock};
 
-use jiff::civil::{Date, Time};
+use jiff::civil::{Date, DateTime, Time};
 use jiff::{Timestamp, Zoned};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err, vortex_panic};
 
@@ -39,8 +39,8 @@ pub enum TemporalJiff {
     Time(Time),
     /// A date value.
     Date(Date),
-    /// A timestamp value.
-    Timestamp(Timestamp),
+    /// A zone-naive timestamp value.
+    Unzoned(DateTime),
     /// A zoned timestamp value.
     Zoned(Zoned),
 }
@@ -50,7 +50,7 @@ impl Display for TemporalJiff {
         match self {
             TemporalJiff::Time(t) => write!(f, "{t}"),
             TemporalJiff::Date(d) => write!(f, "{d}"),
-            TemporalJiff::Timestamp(ts) => write!(f, "{ts}"),
+            TemporalJiff::Unzoned(dt) => write!(f, "{dt}"),
             TemporalJiff::Zoned(z) => write!(f, "{z}"),
         }
     }
@@ -97,8 +97,8 @@ impl TemporalMetadata {
             TemporalMetadata::Timestamp(TimeUnit::D, _) => {
                 vortex_bail!("Invalid TimeUnit TimeUnit::D for TemporalMetadata::Timestamp")
             }
-            TemporalMetadata::Timestamp(unit, None) => Ok(TemporalJiff::Timestamp(
-                Timestamp::UNIX_EPOCH.checked_add(unit.to_jiff_span(v)?)?,
+            TemporalMetadata::Timestamp(unit, None) => Ok(TemporalJiff::Unzoned(
+                DateTime::new(1970, 1, 1, 0, 0, 0, 0)?.checked_add(unit.to_jiff_span(v)?)?,
             )),
             TemporalMetadata::Timestamp(unit, Some(tz)) => Ok(TemporalJiff::Zoned(
                 Timestamp::UNIX_EPOCH
