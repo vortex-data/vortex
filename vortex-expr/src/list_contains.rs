@@ -94,7 +94,7 @@ impl AnalysisExpr for ListContains {
                 .downcast_ref::<Literal>()
                 .and_then(|l| l.value().as_list_opt())
                 .and_then(|l| l.elements())?;
-            if list_.len() == 0 {
+            if list_.is_empty() {
                 // contains([], x) is always false.
                 return Some(lit(true));
             }

@@ -99,7 +99,7 @@ struct ScopeStatsCatalog<'a> {
     scope_dtype: &'a ScopeFieldPathSet,
 }
 
-impl<'a> StatsCatalog for ScopeStatsCatalog<'a> {
+impl StatsCatalog for ScopeStatsCatalog<'_> {
     fn stats_ref(&mut self, access_path: &AccessPath, stat: Stat) -> Option<ExprRef> {
         let set = self.scope_dtype.set(access_path.identifier())?;
 

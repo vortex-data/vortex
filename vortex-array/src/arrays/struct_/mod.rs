@@ -158,7 +158,7 @@ impl StructArray {
     }
 
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
-        Self::try_from_iter(items.into_iter().map(|(a, b)| (a, b.to_array())))
+        Self::try_from_iter(items.iter().map(|(a, b)| (a, b.to_array())))
     }
 
     pub fn try_from_iter<N: AsRef<str>, T: IntoIterator<Item = (N, ArrayRef)>>(

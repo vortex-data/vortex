@@ -5,12 +5,12 @@
 //! the struct field "parent" which is within the struct field "grandparent".
 
 use core::fmt;
-use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::DType;
 

@@ -30,7 +30,7 @@ impl FromStr for Identifier {
 impl PartialEq<str> for Identifier {
     fn eq(&self, other: &str) -> bool {
         match self {
-            Identifier::Identity => other == "",
+            Identifier::Identity => other.is_empty(),
             Identifier::Other(str) => str.as_ref() == other,
         }
     }
@@ -38,7 +38,7 @@ impl PartialEq<str> for Identifier {
 
 impl From<&str> for Identifier {
     fn from(value: &str) -> Self {
-        if value == "" {
+        if value.is_empty() {
             Identifier::Identity
         } else {
             Identifier::Other(Arc::from(value))

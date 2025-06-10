@@ -127,7 +127,7 @@ impl vx_file_scan_options {
             filter_expr,
             split_by,
             row_range,
-            file_index: self.file_index as u64,
+            file_index: self.file_index,
         })
     }
 }
@@ -239,7 +239,7 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
         let file = vx_file::as_ref(file);
         let filter_expr = extract_filter_expression(filter_expression, filter_expression_len)?;
         Ok(filter_expr
-            .map(|expr| file.can_prune(&expr, file_idx as u64))
+            .map(|expr| file.can_prune(&expr, file_idx))
             .transpose()?
             .unwrap_or(false))
     })

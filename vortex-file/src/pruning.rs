@@ -44,7 +44,7 @@ pub fn extract_relevant_file_stat_as_struct_row(
             };
             if stat == &Stat::Max || stat == &Stat::Min {
                 columns.push((
-                    field_path_stat_field_name(&field_path, *stat),
+                    field_path_stat_field_name(field_path, *stat),
                     ConstantArray::new(Scalar::new(field_dtype.clone(), stat_value.clone()), 1)
                         .to_array(),
                 ))

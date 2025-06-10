@@ -6270,6 +6270,7 @@ dependencies = [
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-proto",
+ "vortex-utils",
 ]
 
 [[package]]
