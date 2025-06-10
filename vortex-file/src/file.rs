@@ -117,7 +117,7 @@ impl VortexFile {
             required_stats
                 .map()
                 .iter()
-                .filter(|&(path, stats)| path.identifier().is_identity())
+                .filter(|&(path, _)| path.identifier().is_identity())
                 .map(|(path, stats)| (path.field_path().clone(), stats.clone())),
         );
 
