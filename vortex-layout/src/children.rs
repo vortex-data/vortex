@@ -4,7 +4,7 @@ use std::sync::Arc;
 use flatbuffers::Follow;
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_expr::Identifier;
 use vortex_flatbuffers::{FlatBuffer, layout as fbl};
 
@@ -76,7 +76,7 @@ impl LayoutChildren for OwnedLayoutChildren {
         let child_dtype = child
             .scope_dtype()
             .dtype(&Identifier::Identity)
-            .expect("no identity");
+            .vortex_expect("no identity");
         if child_dtype != dtype {
             vortex_panic!("Child dtype mismatch: {} != {}", child_dtype, dtype);
         }

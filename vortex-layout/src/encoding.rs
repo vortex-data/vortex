@@ -63,7 +63,7 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
         let child_dtype = layout
             .scope_dtype()
             .dtype(&Identifier::Identity)
-            .expect("not identity child");
+            .vortex_expect("not identity child");
 
         if child_dtype != dtype {
             vortex_panic!("Layout dtype mismatch: {} != {}", child_dtype, dtype);

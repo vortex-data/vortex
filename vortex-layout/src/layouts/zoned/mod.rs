@@ -136,13 +136,13 @@ impl ZonedLayout {
         let expected_dtype = ZoneMap::dtype_for_stats_table(
             data.scope_dtype()
                 .dtype(&Identifier::Identity)
-                .expect("no identity scope"),
+                .vortex_expect("no identity scope"),
             &present_stats,
         );
         if zones
             .scope_dtype()
             .dtype(&Identifier::Identity)
-            .expect("no identity scope")
+            .vortex_expect("no identity scope")
             != &expected_dtype
         {
             vortex_panic!("Invalid zone map layout: zones dtype does not match expected dtype");

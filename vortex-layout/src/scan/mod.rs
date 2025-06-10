@@ -285,7 +285,7 @@ fn filter_and_projection_masks(
 ) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
     let Some(struct_dtype) = scope_dtype
         .dtype(&Identifier::Identity)
-        .expect("no ident")
+        .vortex_expect("no ident")
         .as_struct()
     else {
         return Ok(match filter {
