@@ -2,54 +2,57 @@ use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_array::arrays::{ConstantArray, StructArray};
-use vortex_array::stats::{Stat, StatsSet};
+use vortex_array::stats::{Stat, StatsProvider, StatsSet};
 use vortex_array::validity::Validity;
-use vortex_dtype::{Field, StructFields};
-use vortex_error::VortexResult;
-use vortex_expr::pruning::{PruningPredicate, access_path_stat_field_name};
+use vortex_dtype::{Field, FieldName, FieldPath, StructFields};
+use vortex_error::{VortexResult, vortex_bail};
+use vortex_expr::pruning::field_path_stat_field_name;
 use vortex_scalar::Scalar;
+use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
-pub fn extract_relevant_stat_as_struct_row(
-    predicate: &PruningPredicate,
-    stats_set: &Arc<[StatsSet]>,
+pub fn extract_relevant_file_stat_as_struct_row(
+    access: &HashMap<FieldPath, HashSet<Stat>>,
+    stats_sets: &Arc<[StatsSet]>,
     struct_dtype: &Arc<StructFields>,
 ) -> VortexResult<Option<ArrayRef>> {
-    if predicate.required_stats().is_empty() {
+    if access.is_empty() {
         return StructArray::try_new([].into(), vec![], 1, Validity::NonNullable)
             .map(|s| Some(s.to_array()));
     }
-    let mut columns = vec![];
-    for (access_path, stats) in predicate.required_stats() {
-        if access_path.field_path().path().len() != 1 {
+
+    let mut columns: Vec<(FieldName, ArrayRef)> = Vec::with_capacity(access.len() * 2);
+    for (field_path, stats) in access.into_iter() {
+        if field_path.path().len() != 1 {
             return Ok(None);
         }
-        let Field::Name(field) = &access_path.field_path().path()[0] else {
+        let Field::Name(field) = &field_path.path()[0] else {
             return Ok(None);
         };
 
         let field_idx = struct_dtype.find(field)?;
         let field_dtype = struct_dtype.field_by_index(field_idx)?;
-        let Some(cols) = stats_set[field_idx]
-            .iter()
-            .filter(|(stat, _)| stats.contains(stat))
-            .map(|(stat, value)| {
-                value.as_ref().as_exact().and_then(|value| {
-                    (stat == &Stat::Max || stat == &Stat::Min).then(|| {
-                        (
-                            access_path_stat_field_name(access_path, *stat),
-                            ConstantArray::new(Scalar::new(field_dtype.clone(), value.clone()), 1)
-                                .to_array(),
-                        )
-                    })
-                })
-            })
-            .collect::<Option<Vec<_>>>()
-        else {
-            return Ok(None);
+
+        let Some(stat_set) = stats_sets.get(field_idx) else {
+            vortex_bail!("missing stat field {} from stats set", field)
         };
 
-        columns.extend(cols)
+        for stat in stats {
+            let Some(stat_value) = stat_set.get(*stat).and_then(|p| p.as_exact()) else {
+                vortex_bail!("missing stat {}, {} from stats set", field, stat)
+            };
+            if stat == &Stat::Max || stat == &Stat::Min {
+                columns.push((
+                    field_path_stat_field_name(field_path, *stat),
+                    ConstantArray::new(Scalar::new(field_dtype.clone(), stat_value.clone()), 1)
+                        .to_array(),
+                ))
+            } else {
+                todo!("unsupported file prune stat {stat}")
+            }
+        }
     }
-
-    StructArray::from_fields(&columns).map(|s| Some(s.to_array()))
+    Ok(Some(
+        StructArray::from_fields(columns.as_slice())?.to_array(),
+    ))
 }
