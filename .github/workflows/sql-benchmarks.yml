@@ -176,7 +176,6 @@ jobs:
           target/release_debug/${{ matrix.binary_name }} \
             -d gh-json \
             --targets ${{ matrix.targets }} \
-            --export-spans \
             --skip-duckdb-build \
           | tee results.json
 
