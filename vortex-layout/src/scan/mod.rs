@@ -159,11 +159,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     pub fn build(self) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<A>>>>> {
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let mut layout_reader = if self.filter.is_some() {
-            Arc::new(FilterLayoutReader::new(self.layout_reader))
-        } else {
-            self.layout_reader
-        };
+        let mut layout_reader = self.layout_reader;
 
         if self.filter.is_some() {
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
