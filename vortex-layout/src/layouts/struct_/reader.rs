@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use std::hash::Hash;
-use std::ops::{BitAnd, Range};
+use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -22,8 +22,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
-    NoOpPruningEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, NoOpPruningEvaluation,
+    PruningEvaluation,
 };
 
 pub struct StructReader {
