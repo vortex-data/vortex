@@ -1,9 +1,10 @@
 use std::collections::BTreeSet;
-use std::ops::Range;
+use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures::FutureExt;
+use vortex_array::arrays::BoolArray;
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
@@ -23,7 +24,7 @@ use crate::{ArrayEvaluation, LayoutReader, NoOpPruningEvaluation, PruningEvaluat
 /// after.
 // TODO(ngates): more experimentation is needed, and this should probably be dynamic based on the
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
-const _EXPR_EVAL_THRESHOLD: f64 = 0.2;
+const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
 pub struct FlatReader {
     layout: FlatLayout,
@@ -129,7 +130,7 @@ impl LayoutReader for FlatReader {
             array: self.array_future()?,
             row_range,
             expr: expr.clone(),
-            _is_bool: expr.return_dtype(&ScopeDType::new(self.dtype().clone()))?
+            is_bool: expr.return_dtype(&ScopeDType::new(self.dtype().clone()))?
                 == DType::Bool(Nullability::NonNullable),
         }))
     }
@@ -140,7 +141,7 @@ struct FlatEvaluation {
     array: SharedArrayFuture,
     row_range: Range<usize>,
     expr: ExprRef,
-    _is_bool: bool,
+    is_bool: bool,
 }
 //
 // #[async_trait]
@@ -194,21 +195,21 @@ impl ArrayEvaluation for FlatEvaluation {
             array = array.slice(self.row_range.start, self.row_range.end)?;
         }
 
-        // if self.is_bool {
-        //     let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
-        //         // Evaluate only the selected rows of the mask.
-        //         array = filter(&array, &mask)?;
-        //         let array_mask = Mask::try_from(self.expr.evaluate(&Scope::new(array))?.as_ref())?;
-        //         mask.intersect_by_rank(&array_mask)
-        //     } else {
-        //         // Evaluate all rows, avoiding the more expensive rank intersection.
-        //         array = self.expr.evaluate(&Scope::new(array))?;
-        //         let array_mask = Mask::try_from(array.as_ref())?;
-        //         mask.bitand(&array_mask)
-        //     };
-        //
-        //     Ok(BoolArray::from(array_mask.to_boolean_buffer()))
-        // }
+        if self.is_bool {
+            let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
+                // Evaluate only the selected rows of the mask.
+                array = filter(&array, &mask)?;
+                let array_mask = Mask::try_from(self.expr.evaluate(&Scope::new(array))?.as_ref())?;
+                mask.intersect_by_rank(&array_mask)
+            } else {
+                // Evaluate all rows, avoiding the more expensive rank intersection.
+                array = self.expr.evaluate(&Scope::new(array))?;
+                let array_mask = Mask::try_from(array.as_ref())?;
+                mask.bitand(&array_mask)
+            };
+
+            return Ok(BoolArray::from(array_mask.to_boolean_buffer()).to_array());
+        }
 
         // Filter the array based on the row mask.
         if !mask.all_true() {
