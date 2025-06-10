@@ -14,7 +14,6 @@ use vortex_array::validity::Validity;
 use vortex_array::{ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_expr::ExprRef;
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
 use vortex_expr::{ExprRef, Scope};
 use vortex_mask::Mask;
@@ -350,7 +349,7 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability, StructFields};
-    use vortex_expr::{eq, get_item, get_item_scope, gt, ident, is_null, lit, or, pack};
+    use vortex_expr::{eq, get_item, get_item_scope, gt, is_null, lit, or, pack, root};
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
@@ -495,7 +494,7 @@ mod tests {
             LayoutRef,
         ),
     ) {
-        let reader = layout.new_reader(&"".into(), &segments, &ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
 
         let filt = is_null(or(
             eq(get_item_scope("a"), lit(0)),

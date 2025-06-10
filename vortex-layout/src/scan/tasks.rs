@@ -8,6 +8,7 @@ use futures::future::{BoxFuture, ok};
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
+use vortex_mask::Mask;
 
 use crate::LayoutReader;
 use crate::scan::{Selection, TaskExecutor, TaskExecutorExt};
@@ -62,7 +63,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
             // of the future. Registering these row ranges eagerly is a hint to the IO system that
             // we want to start prefetching the IO for this split.
             let prune = ctx.reader.pruning_evaluation(&row_range, filter)?;
-            let eval = ctx.reader.filter_evaluation(&row_range, filter)?;
+            let eval = ctx.reader.projection_evaluation(&row_range, filter)?;
 
             async move {
                 let pruned_mask = prune.invoke(row_mask).await?;
@@ -70,7 +71,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
                 // Step 3: apply exact filtering. The pruning step has already eliminated entire blocks
                 // where we know the filter won't match any rows, so the amount of work to do here
                 // should be a lot less.
-                eval.invoke(pruned_mask).await
+                Mask::try_from(eval.invoke(pruned_mask).await?.as_ref())
             }
             .boxed()
         }
