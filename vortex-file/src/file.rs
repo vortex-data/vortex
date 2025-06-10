@@ -5,7 +5,6 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::aliases::hash_map::HashMap;
 use vortex_array::arrays::{ConstantArray, StructArray};
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
@@ -16,6 +15,7 @@ use vortex_layout::LayoutReader;
 use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
 use crate::pruning::extract_relevant_file_stat_as_struct_row;

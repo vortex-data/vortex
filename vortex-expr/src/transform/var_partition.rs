@@ -3,9 +3,9 @@ use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::LazyLock;
 
 use itertools::Itertools;
-use vortex_array::aliases::hash_map::{DefaultHashBuilder, HashMap};
 use vortex_dtype::{FieldName, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
+use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashMap};
 
 use crate::transform::access_analysis::{Accesses, variable_scope_accesses};
 use crate::transform::partition::ReplaceAccessesWithChild;

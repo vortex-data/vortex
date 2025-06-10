@@ -157,10 +157,9 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     /// Constructs a task per row split of the scan, returned as a vector of futures.
     #[allow(clippy::unused_enumerate_index)]
     pub fn build(self) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<A>>>>> {
-        let mut layout_reader = self.layout_reader;
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let layout_reader = if self.filter.is_some() {
+        let mut layout_reader = if self.filter.is_some() {
             Arc::new(FilterLayoutReader::new(self.layout_reader))
         } else {
             self.layout_reader
@@ -170,8 +169,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
         }
         let ctx = layout_reader.scope_dtype();
-
-        let ctx = ScopeDType::new(layout_reader.dtype().clone());
 
         // Normalize and simplify the expressions.
         let projection = simplify_typed(self.projection.clone(), ctx)?;

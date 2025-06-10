@@ -1,9 +1,9 @@
 use std::hash::Hash;
 
 use itertools::Itertools;
-use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
 use crate::{ExprRef, Identifier, Var};

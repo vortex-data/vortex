@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{ConstantArray, StructArray};
 use vortex_array::stats::{Stat, StatsProvider, StatsSet};
 use vortex_array::validity::Validity;
@@ -10,6 +8,8 @@ use vortex_dtype::{Field, FieldName, FieldPath, StructFields};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::pruning::field_path_stat_field_name;
 use vortex_scalar::Scalar;
+use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 pub fn extract_relevant_file_stat_as_struct_row(
     access: &HashMap<FieldPath, HashSet<Stat>>,
