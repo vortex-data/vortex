@@ -15,7 +15,6 @@ use vortex::error::VortexError;
 use vortex::expr::{ExprRef, VortexExpr};
 use vortex::file::scan::ScanBuilder;
 use vortex::layout::LayoutReader;
-use vortex::layout::layouts::row_id::RowIdLayoutReader;
 use vortex::metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;
@@ -103,8 +102,6 @@ impl FileOpener for VortexFileOpener {
                     reader
                 }
             };
-
-            let layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
 
             let scan_builder = ScanBuilder::new(layout_reader);
             let scan_builder = apply_byte_range(file_meta, vxf.row_count(), scan_builder);
