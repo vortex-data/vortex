@@ -70,6 +70,8 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
 
                 if pruned_mask.all_false() {
                     Ok(pruned_mask)
+                } else if pruned_mask.all_true() {
+                    Mask::try_from(eval.invoke(pruned_mask).await?.as_ref())
                 } else {
                     // Step 3: apply exact filtering. The pruning step has already eliminated entire blocks
                     // where we know the filter won't match any rows, so the amount of work to do here
