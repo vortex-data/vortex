@@ -6,6 +6,7 @@ use std::sync::Arc;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_expr::ScopeDType;
 
 use crate::children::LayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
@@ -33,8 +34,8 @@ impl VTable for FlatVTable {
         layout.row_count
     }
 
-    fn dtype(layout: &Self::Layout) -> &DType {
-        &layout.dtype
+    fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {
+        &layout.scope_dtype
     }
 
     fn metadata(_layout: &Self::Layout) -> Self::Metadata {
@@ -82,11 +83,7 @@ impl VTable for FlatVTable {
         if segment_ids.len() != 1 {
             vortex_bail!("Flat layout must have exactly one segment ID");
         }
-        Ok(FlatLayout {
-            row_count,
-            dtype: dtype.clone(),
-            segment_id: segment_ids[0],
-        })
+        Ok(FlatLayout::new(row_count, dtype.clone(), segment_ids[0]))
     }
 }
 
@@ -97,6 +94,7 @@ pub struct FlatLayoutEncoding;
 pub struct FlatLayout {
     row_count: u64,
     dtype: DType,
+    scope_dtype: ScopeDType,
     segment_id: SegmentId,
 }
 
@@ -104,7 +102,8 @@ impl FlatLayout {
     pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId) -> Self {
         Self {
             row_count,
-            dtype,
+            dtype: dtype.clone(),
+            scope_dtype: ScopeDType::new(dtype),
             segment_id,
         }
     }

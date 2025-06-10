@@ -144,7 +144,7 @@ impl From<ArrayRef> for Scope {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct ScopeDType {
     root: Option<DType>,
     types: ExprScope<DType>,

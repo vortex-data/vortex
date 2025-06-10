@@ -118,8 +118,8 @@ impl LayoutReader for ChunkedReader {
         &self.name
     }
 
-    fn dtype(&self) -> &DType {
-        self.layout.dtype()
+    fn scope_dtype(&self) -> &ScopeDType {
+        self.layout.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {
@@ -191,7 +191,7 @@ impl LayoutReader for ChunkedReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        let dtype = expr.return_dtype(&ScopeDType::new(self.dtype().clone()))?;
+        let dtype = expr.return_dtype(self.scope_dtype())?;
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 

@@ -15,7 +15,7 @@ use vortex_array::{ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
-use vortex_expr::{ExprRef, Scope};
+use vortex_expr::{ExprRef, Scope, ScopeDType};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -71,6 +71,10 @@ impl StructReader {
     /// Return the [`StructFields`] of this layout.
     fn struct_fields(&self) -> &StructFields {
         self.layout.struct_fields()
+    }
+
+    fn dtype(&self) -> &DType {
+        &self.layout.dtype
     }
 
     /// Return the child reader for the field.
@@ -132,8 +136,8 @@ impl LayoutReader for StructReader {
         &self.name
     }
 
-    fn dtype(&self) -> &DType {
-        self.layout.dtype()
+    fn scope_dtype(&self) -> &ScopeDType {
+        self.layout.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {

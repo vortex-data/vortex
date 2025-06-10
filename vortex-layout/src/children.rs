@@ -5,6 +5,7 @@ use flatbuffers::Follow;
 use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_expr::Identifier;
 use vortex_flatbuffers::{FlatBuffer, layout as fbl};
 
 use crate::segments::SegmentId;
@@ -72,8 +73,12 @@ impl LayoutChildren for OwnedLayoutChildren {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.0.len());
         }
         let child = &self.0[idx];
-        if child.dtype() != dtype {
-            vortex_panic!("Child dtype mismatch: {} != {}", child.dtype(), dtype);
+        let child_dtype = child
+            .scope_dtype()
+            .dtype(&Identifier::Identity)
+            .expect("no identity");
+        if child_dtype != dtype {
+            vortex_panic!("Child dtype mismatch: {} != {}", child_dtype, dtype);
         }
         Ok(child.clone())
     }

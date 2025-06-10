@@ -20,7 +20,7 @@ use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ExprRef, ScopeDType, root};
+use vortex_expr::{ExprRef, Identifier, ScopeDType, root};
 use vortex_metrics::VortexMetrics;
 
 use crate::LayoutReader;
@@ -147,7 +147,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     /// Returns the output [`DType`] of the scan.
     pub fn dtype(&self) -> VortexResult<DType> {
         self.projection
-            .return_dtype(&ScopeDType::new(self.layout_reader.dtype().clone()))
+            .return_dtype(self.layout_reader.scope_dtype())
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
@@ -161,7 +161,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             self.layout_reader
         };
 
-        let ctx = ScopeDType::new(layout_reader.dtype().clone());
+        let ctx = layout_reader.scope_dtype().clone();
 
         // Normalize and simplify the expressions.
         let projection = simplify_typed(self.projection.clone(), &ctx)?;
@@ -173,7 +173,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         // Construct field masks and compute the row splits of the scan.
         let (filter_mask, projection_mask) =
-            filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
+            filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.scope_dtype())?;
         let field_mask: Vec<_> = filter_mask
             .iter()
             .cloned()
@@ -281,9 +281,13 @@ impl ScanBuilder<ArrayRef> {
 fn filter_and_projection_masks(
     projection: &ExprRef,
     filter: Option<&ExprRef>,
-    dtype: &DType,
+    scope_dtype: &ScopeDType,
 ) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
-    let Some(struct_dtype) = dtype.as_struct() else {
+    let Some(struct_dtype) = scope_dtype
+        .dtype(&Identifier::Identity)
+        .expect("no ident")
+        .as_struct()
+    else {
         return Ok(match filter {
             Some(_) => (vec![FieldMask::All], vec![FieldMask::All]),
             None => (Vec::new(), vec![FieldMask::All]),
