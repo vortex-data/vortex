@@ -52,9 +52,9 @@ vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
-vortex-array = { workspace = true, features = ["test-harness"] }
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["test-harness"] }
 
 [features]
 roaring = ["dep:roaring"]
