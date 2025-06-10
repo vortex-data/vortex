@@ -239,7 +239,6 @@ impl Eq for dyn VortexExpr {}
 dyn_hash::hash_trait_object!(VortexExpr);
 
 /// An expression wrapper that performs pointer equality.
-/// NOTE(ngates): we should consider if this shoud live in vortex-expr crate?
 #[derive(Clone)]
 pub struct ExactExpr(pub ExprRef);
 
