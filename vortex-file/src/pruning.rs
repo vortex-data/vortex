@@ -21,8 +21,7 @@ pub fn extract_relevant_file_stat_as_struct_row(
             .map(|s| Some(s.to_array()));
     }
 
-    let mut columns: Vec<(FieldName, ArrayRef)> = vec![];
-    columns.reserve(access.len() * 2);
+    let mut columns: Vec<(FieldName, ArrayRef)> = Vec::with_capacity(access.len() * 2);
     for (field_path, stats) in access.into_iter() {
         if field_path.path().len() != 1 {
             return Ok(None);

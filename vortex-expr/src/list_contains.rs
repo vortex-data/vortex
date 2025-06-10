@@ -101,9 +101,9 @@ impl AnalysisExpr for ListContains {
             let value_max = self.value.max(catalog)?;
             let value_min = self.value.min(catalog)?;
 
-            return list_.iter().fold(Some(lit(true)), move |acc, v| {
+            return list_.iter().try_fold(lit(true), move |acc, v| {
                 Some(and(
-                    acc?,
+                    acc,
                     or(
                         lt(value_max.clone(), lit(v.clone())),
                         gt(value_min.clone(), lit(v.clone())),

@@ -137,11 +137,9 @@ impl VortexFile {
 
         let required_file_stats =
             HashMap::from_iter(required_stats.map().iter().filter_map(|(path, stats)| {
-                if path.identifier().is_identity() {
-                    Some((path.field_path().clone(), stats.clone()))
-                } else {
-                    None
-                }
+                path.identifier()
+                    .is_identity()
+                    .then(|| (path.field_path().clone(), stats.clone()))
             }));
 
         let Some(file_stats) =
@@ -152,7 +150,6 @@ impl VortexFile {
 
         let mut scope = Scope::new(file_stats);
 
-        let file_idx = file_idx;
         let file_len = self.row_count();
         scope = scope.with_array(
             row_id,
