@@ -166,6 +166,7 @@ jobs:
         if: matrix.remote_storage == null
         shell: bash
         env:
+          RUST_BACKTRACE: full
           OTEL_SERVICE_NAME: 'vortex-bench'
           OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf'
           OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
