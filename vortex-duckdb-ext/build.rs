@@ -12,14 +12,14 @@ fn download_duckdb_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
 
     let target = env::var("TARGET")?;
     let (platform, arch) = match target.as_str() {
-        "aarch64-apple-darwin" => ("osx", "arm64"),
-        "x86_64-apple-darwin" => ("osx", "amd64"),
+        "aarch64-apple-darwin" => ("osx", "universal"),
+        "x86_64-apple-darwin" => ("osx", "universal"),
         "x86_64-unknown-linux-gnu" | "x86_64-unknown-linux-musl" => ("linux", "amd64"),
         "aarch64-unknown-linux-gnu" | "aarch64-unknown-linux-musl" => ("linux", "arm64"),
         _ => return Err(format!("Unsupported target: {target}").into()),
     };
 
-    let archive_name = format!("static-libs-{platform}-{arch}.zip");
+    let archive_name = format!("libduckdb-{platform}-{arch}.zip");
     let url = format!("{DUCKDB_BASE_URL}/{DUCKDB_VERSION}/{archive_name}");
     let archive_path = duckdb_dir.join(&archive_name);
 
@@ -45,7 +45,7 @@ fn extract_duckdb_libraries(archive_path: PathBuf) -> Result<PathBuf, Box<dyn st
         .to_path_buf();
 
     // Check if already extracted.
-    if duckdb_dir.join("libduckdb_static.a").exists() {
+    if duckdb_dir.join("libduckdb.so").exists() {
         println!("DuckDB libraries already extracted, skipping extraction");
         return Ok(duckdb_dir);
     }
@@ -99,10 +99,14 @@ fn main() {
     let zip_path = download_duckdb_archive().unwrap();
     let lib_path = extract_duckdb_libraries(zip_path).unwrap();
 
-    // Link against static DuckDB libraries.
+    // Link against DuckDB dylib.
     println!("cargo:rustc-link-search=native={}", lib_path.display());
-    println!("cargo:rustc-link-lib=static=duckdb_static");
-    println!("cargo:rustc-link-lib=static=duckdb_fmt");
+    println!("cargo:rustc-link-lib=dylib=duckdb");
+
+    // Linux requires libstdc++ to be linked explicitly.
+    if env::var("TARGET").unwrap().contains("linux") {
+        println!("cargo:rustc-link-lib=stdc++");
+    }
 
     // Compile our C++ code that exposes additional DuckDB functionality.
     cc::Build::new()
