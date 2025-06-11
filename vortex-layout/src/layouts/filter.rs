@@ -19,7 +19,7 @@ use crate::{ArrayEvaluation, MaskEvaluation, PruningEvaluation};
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 
-/// A [`LayoutReader`] that splits boolean expressions into individual conjunctions, tracks
+/// A [`VirtualLayoutReader`] that splits boolean expressions into individual conjunctions, tracks
 /// statistics about selectivity, and uses this information to reorder the evaluation of the
 /// conjunctions in an attempt to minimize the work done.
 ///
