@@ -22,5 +22,6 @@ pub mod scan;
 pub mod segments;
 pub mod sequence;
 mod strategy;
+mod virtual_reader;
 pub mod vtable;
 mod writer;

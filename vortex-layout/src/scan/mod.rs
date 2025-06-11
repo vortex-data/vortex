@@ -26,6 +26,7 @@ use vortex_metrics::VortexMetrics;
 use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
 use crate::scan::tasks::{TaskContext, split_exec};
+use crate::virtual_reader::{PhysicalToVirtualLayoutAdaptor, VirtualLayoutReaderRef};
 
 mod executor;
 pub mod row_mask;
@@ -155,10 +156,12 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     pub fn build(self) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<A>>>>> {
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let layout_reader = if self.filter.is_some() {
-            Arc::new(FilterLayoutReader::new(self.layout_reader))
-        } else {
-            self.layout_reader
+        let layout_reader = self.layout_reader;
+        let mut virtual_layout_reader =
+            Arc::new(PhysicalToVirtualLayoutAdaptor::new(layout_reader.clone()))
+                as VirtualLayoutReaderRef;
+        if self.filter.is_some() {
+            virtual_layout_reader = Arc::new(FilterLayoutReader::new(virtual_layout_reader));
         };
 
         let ctx = ScopeDType::new(layout_reader.dtype().clone());
@@ -189,7 +192,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
                     row_range: self.row_range.clone(),
                     selection: self.selection.clone(),
                     filter: self.filter.clone(),
-                    reader: layout_reader.clone(),
+                    virtual_reader: virtual_layout_reader.clone(),
                     projection: projection.clone(),
                     mapper: self.map_fn.clone(),
                     task_executor: None,

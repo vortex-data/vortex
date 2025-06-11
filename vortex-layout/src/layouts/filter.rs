@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::iter;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
@@ -9,14 +8,13 @@ use dashmap::DashMap;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
-use vortex_array::stats::Precision;
-use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
-use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
+use vortex_expr::{ExprRef, ScopeDType};
 use vortex_mask::Mask;
 
-use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, PruningEvaluation};
+use crate::virtual_reader::{VirtualLayoutReader, VirtualLayoutReaderRef};
+use crate::{ArrayEvaluation, MaskEvaluation, PruningEvaluation};
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -28,12 +26,12 @@ const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 /// This reader does not have a corresponding layout in the file, as it merely implements
 /// expression rewrite logic at read-time.
 pub struct FilterLayoutReader {
-    child: LayoutReaderRef,
+    child: VirtualLayoutReaderRef,
     cache: DashMap<ExprRef, Arc<FilterExpr>>,
 }
 
 impl FilterLayoutReader {
-    pub fn new(child: LayoutReaderRef) -> Self {
+    pub fn new(child: VirtualLayoutReaderRef) -> Self {
         Self {
             child,
             cache: Default::default(),
@@ -41,27 +39,13 @@ impl FilterLayoutReader {
     }
 }
 
-impl LayoutReader for FilterLayoutReader {
+impl VirtualLayoutReader for FilterLayoutReader {
     fn name(&self) -> &Arc<str> {
         self.child.name()
     }
 
-    fn dtype(&self) -> &DType {
-        self.child.dtype()
-    }
-
-    fn row_count(&self) -> Precision<u64> {
-        self.child.row_count()
-    }
-
-    fn register_splits(
-        &self,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        // Pass-through the splits to the child layout reader.
-        self.child.register_splits(field_mask, row_offset, splits)
+    fn scope_dtype(&self) -> &ScopeDType {
+        self.child.scope_dtype()
     }
 
     fn pruning_evaluation(

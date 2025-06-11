@@ -9,8 +9,8 @@ use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 
-use crate::LayoutReader;
 use crate::scan::{Selection, TaskExecutor, TaskExecutorExt};
+use crate::virtual_reader::VirtualLayoutReaderRef;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
@@ -61,8 +61,8 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
             // NOTE: it's very important that the pruning and filter evaluations are built OUTSIDE
             // of the future. Registering these row ranges eagerly is a hint to the IO system that
             // we want to start prefetching the IO for this split.
-            let prune = ctx.reader.pruning_evaluation(&row_range, filter)?;
-            let eval = ctx.reader.filter_evaluation(&row_range, filter)?;
+            let prune = ctx.virtual_reader.pruning_evaluation(&row_range, filter)?;
+            let eval = ctx.virtual_reader.filter_evaluation(&row_range, filter)?;
 
             async move {
                 let pruned_mask = prune.invoke(row_mask).await?;
@@ -78,7 +78,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
 
     // Step 4: execute the projection, only at the mask for rows which match the filter
     let exec = ctx
-        .reader
+        .virtual_reader
         .projection_evaluation(&row_range, &ctx.projection)?;
     let mapper = ctx.mapper.clone();
     let array_fut = async move {
@@ -106,8 +106,8 @@ pub(super) struct TaskContext<A> {
     /// The filter expression for the current task.
     pub(super) filter: Option<ExprRef>,
 
-    /// The layout reader.
-    pub(super) reader: Arc<dyn LayoutReader>,
+    /// The virtual layout reader.
+    pub(super) virtual_reader: VirtualLayoutReaderRef,
 
     /// The projection expression to apply to gather the scanned rows.
     pub(super) projection: ExprRef,
