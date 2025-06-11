@@ -10,16 +10,41 @@ use crate::arrays::{
 use crate::builders::builder_with_capacity;
 use crate::{Array, ArrayRef, IntoArray};
 
-/// The set of canonical array encodings, also the set of encodings that can be transferred to
-/// Arrow with zero-copy.
+/// An enum capturing the default uncompressed encodings for each [Vortex type][DType].
 ///
-/// Note that a canonical form is not recursive, i.e. a StructArray may contain non-canonical
-/// child arrays, which may themselves need to be [canonicalized](ToCanonical).
+/// Any array can be decoded into canonical form via the [`to_canonical`][Array::to_canonical]
+/// trait method. This is the simplest encoding for a type, and will not be compressed but may
+/// contain compressed child arrays.
 ///
-/// # Logical vs. Physical encodings
+/// Canonical form is useful for doing type-specific compute where you need to know that all
+/// elements are laid out decompressed and contiguous in memory.
 ///
-/// Vortex separates logical and physical types, however this creates ambiguity with Arrow, there is
-/// no separation. Thus, if you receive an Arrow array, compress it using Vortex, and then
+/// # Laziness
+///
+/// Canonical form is not recursive, so while a `StructArray` is the canonical format for any
+/// `Struct` type, individual column child arrays may still be compressed. This allows
+/// compute over Vortex arrays to push decoding as late as possible, and ideally many child arrays
+/// never need to be decoded into canonical form at all depending on the compute.
+///
+/// # Arrow interoperability
+///
+/// All of the Vortex canonical encodings have an equivalent Arrow encoding that can be built
+/// zero-copy, and the corresponding Arrow array types can also be built directly.
+///
+/// The full list of canonical types and their equivalent Arrow array types are:
+///
+/// * `NullArray`: [`arrow_array::NullArray`]
+/// * `BoolArray`: [`arrow_array::BooleanArray`]
+/// * `PrimitiveArray`: [`arrow_array::PrimitiveArray`]
+/// * `DecimalArray`: [`arrow_array::Decimal128Array`] and [`arrow_array::Decimal256Array`]
+/// * `StructArray`: [`arrow_array::StructArray`]
+/// * `ListArray`: [`arrow_array::ListArray`]
+/// * `VarBinViewArray`: [`arrow_array::GenericByteViewArray`]
+///
+/// Vortex uses a logical type system, unlike Arrow which uses physical encodings for its types.
+/// As an example, there are at least six valid physical encodings for a `Utf8` array. This can
+/// create ambiguity.
+/// Thus, if you receive an Arrow array, compress it using Vortex, and then
 /// decompress it later to pass to a compute kernel, there are multiple suitable Arrow array
 /// variants to hold the data.
 ///
@@ -31,8 +56,10 @@ use crate::{Array, ArrayRef, IntoArray};
 /// Binary and String views, also known as "German strings" are a better encoding format for
 /// nearly all use-cases. Variable-length binary views are part of the Apache Arrow spec, and are
 /// fully supported by the Datafusion query engine. We use them as our canonical string encoding
-/// for all `Utf8` and `Binary` typed arrays in Vortex.
-///
+/// for all `Utf8` and `Binary` typed arrays in Vortex. They provide considerably faster filter
+/// execution than the core `StringArray` and `BinaryArray` types, at the expense of potentially
+/// needing [garbage collection][arrow_array::GenericByteViewArray::gc] to clear unreferenced items
+/// from memory.
 #[derive(Debug, Clone)]
 pub enum Canonical {
     Null(NullArray),
@@ -150,7 +177,38 @@ impl IntoArray for Canonical {
 /// # Canonicalization
 ///
 /// This trait has a blanket implementation for all types implementing [ToCanonical].
-pub trait ToCanonical: Array {
+pub trait ToCanonical {
+    /// Canonicalize into a [`NullArray`] if the target is [`Null`][DType::Null] typed.
+    fn to_null(&self) -> VortexResult<NullArray>;
+
+    /// Canonicalize into a [`BoolArray`] if the target is [`Bool`][DType::Bool] typed.
+    fn to_bool(&self) -> VortexResult<BoolArray>;
+
+    /// Canonicalize into a [`PrimitiveArray`] if the target is [`Primitive`][DType::Primitive]
+    /// typed.
+    fn to_primitive(&self) -> VortexResult<PrimitiveArray>;
+
+    /// Canonicalize into a [`DecimalArray`] if the target is [`Decimal`][DType::Decimal]
+    /// typed.
+    fn to_decimal(&self) -> VortexResult<DecimalArray>;
+
+    /// Canonicalize into a [`StructArray`] if the target is [`Struct`][DType::Struct] typed.
+    fn to_struct(&self) -> VortexResult<StructArray>;
+
+    /// Canonicalize into a [`ListArray`] if the target is [`List`][DType::List] typed.
+    fn to_list(&self) -> VortexResult<ListArray>;
+
+    /// Canonicalize into a [`VarBinViewArray`] if the target is [`Utf8`][DType::Utf8]
+    /// or [`Binary`][DType::Binary] typed.
+    fn to_varbinview(&self) -> VortexResult<VarBinViewArray>;
+
+    /// Canonicalize into an [`ExtensionArray`] if the array is [`Extension`][DType::Extension]
+    /// typed.
+    fn to_extension(&self) -> VortexResult<ExtensionArray>;
+}
+
+// Blanket impl for all Array encodings.
+impl<A: Array + ?Sized> ToCanonical for A {
     fn to_null(&self) -> VortexResult<NullArray> {
         self.to_canonical()?.into_null()
     }
@@ -184,13 +242,6 @@ pub trait ToCanonical: Array {
     }
 }
 
-impl<A: Array + ?Sized> ToCanonical for A {}
-
-/// This conversion is always "free" and should not touch underlying data. All it does is create an
-/// owned pointer to the underlying concrete array type.
-///
-/// This combined with the above [ToCanonical] impl for [ArrayRef] allows simple two-way conversions
-/// between arbitrary Vortex encodings and canonical Arrow-compatible encodings.
 impl From<Canonical> for ArrayRef {
     fn from(value: Canonical) -> Self {
         match value {
