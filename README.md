@@ -15,17 +15,24 @@
 Vortex is a next-generation columnar file format and toolkit designed for high-performance data analytics. It provides:
 
 - **⚡️ Blazing Fast Performance**
-    - 100-200x faster random access reads than Apache Parquet
-    - 2-10x faster scans with similar compression ratios and write throughput
+    - 100-200x faster random access reads (vs. modern Apache Parquet)
+    - 2-10x faster scans
+    - 5x faster writes
+    - Similar compression ratios
     - Efficient support for wide tables with zero-copy/zero-parse metadata
 
 - **🔧 Extensible Architecture**
     - Modeled after Apache DataFusion's extensible approach
     - Pluggable encoding system
     - Zero-copy compatibility with Apache Arrow
+ 
+- **🗳️ Open Source, Neutral Governance**
+    - A Linux Foundation (LF AI & Data) Project
+    - Apache-2.0 Licensed
 
-> 🚧 **Development Status**: This project is under active development. APIs and file formats may change, and some
-> features are still being implemented.
+> 🟢 **Development Status**: Library APIs may change from version to version, but we now consider
+> the file format <ins>*stable*</ins>. All future releases of Vortex should be able to read files
+> written by version 0.36.0 and later.
 
 ## Key Features
 
