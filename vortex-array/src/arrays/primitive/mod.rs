@@ -4,7 +4,7 @@ use std::iter;
 mod accessor;
 
 use arrow_buffer::BooleanBufferBuilder;
-use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer};
+use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, NativePType, Nullability, PType, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_panic};
 
@@ -130,18 +130,16 @@ impl PrimitiveArray {
             Validity::Array(is_valid) => {
                 let bool_array = is_valid.to_canonical()?.into_bool()?;
                 let bool_buffer = bool_array.boolean_buffer();
-                let mut bytes = vec![0; n_rows * byte_width];
+                let mut bytes = ByteBufferMut::zeroed_aligned(n_rows * byte_width, alignment);
                 for (i, valid_i) in bool_buffer.set_indices().enumerate() {
                     bytes[valid_i * byte_width..(valid_i + 1) * byte_width]
                         .copy_from_slice(&valid_elems_buffer[i * byte_width..(i + 1) * byte_width])
                 }
-                ByteBuffer::from_bytes_aligned(bytes.into(), alignment)
+                bytes.freeze()
             }
         };
 
-        match_each_native_ptype!(ptype, |T| {
-            Ok(Self::from_byte_buffer(buffer, ptype, validity))
-        })
+        Ok(Self::from_byte_buffer(buffer, ptype, validity))
     }
 
     pub fn ptype(&self) -> PType {

@@ -9,7 +9,7 @@ use vortex_array::vtable::{
     ValidityVTableFromValidityHelper,
 };
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
-use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_err};
 use vortex_scalar::Scalar;
@@ -243,7 +243,15 @@ impl ZstdArray {
         }?;
 
         // we could make this empty initialized for better performance
-        let mut frames_values_bytes = vec![0; total_uncompressed_size];
+        let mut frames_values_bytes = ByteBufferMut::with_capacity_aligned(
+            total_uncompressed_size,
+            Alignment::new(byte_width),
+        );
+        unsafe {
+            // safety: we immediately fill all bytes in the following loop,
+            // assuming our metadata's uncompressed size is correct
+            frames_values_bytes.set_len(total_uncompressed_size);
+        }
         let mut start_byte = 0;
         for (frame, meta) in self.frames[frame_idx_lb..frame_idx_ub]
             .iter()
@@ -266,11 +274,9 @@ impl ZstdArray {
         let frames_mask = frames_validity.to_mask(row_offset + slice_n_rows)?;
         let frames_values_start_stop =
             frames_mask.valid_counts_for_indices(&[row_offset, row_offset + slice_n_rows])?;
-        let slice_value_bytes = frames_values_bytes
-            [frames_values_start_stop[0] * byte_width..frames_values_start_stop[1] * byte_width]
-            .to_vec();
-        let slice_values_buffer =
-            ByteBuffer::from(slice_value_bytes).aligned(Alignment::new(byte_width));
+        let slice_values_buffer = frames_values_bytes.freeze().slice(
+            frames_values_start_stop[0] * byte_width..frames_values_start_stop[1] * byte_width,
+        );
 
         let primitive = PrimitiveArray::from_values_byte_buffer(
             slice_values_buffer,
