@@ -8,8 +8,8 @@ use crate::{ArrayEvaluation, LayoutReaderRef, MaskEvaluation, PruningEvaluation}
 
 pub type VirtualLayoutReaderRef = Arc<dyn VirtualLayoutReader>;
 
-/// A [`VirtualLayoutReader`] is a used to read a [`crate::Layout`] in a way that can cache state across multiple
-/// evaluation operations.
+/// A [`VirtualLayoutReader`] is a used to adapt (and read) a [`crate::Layout`].
+/// virtual layouts add virtual columns or other reader functionality on top of a layout
 pub trait VirtualLayoutReader: 'static + Send + Sync {
     /// Returns the name of the layout reader for debugging.
     fn name(&self) -> &Arc<str>;
