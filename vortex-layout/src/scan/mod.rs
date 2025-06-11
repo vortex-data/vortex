@@ -159,6 +159,12 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
+
+        // The ultimate short circuit
+        if self.limit.is_some_and(|l| l == 0) {
+            return Ok(Vec::new());
+        }
+
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
         let layout_reader = if self.filter.is_some() {
