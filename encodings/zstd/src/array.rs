@@ -1,17 +1,17 @@
-use std::cmp;
 use std::fmt::Debug;
 
 use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
+use vortex_array::compute::filter;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexResult, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
@@ -88,6 +88,11 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
     (uncompressed_size / 100).clamp(256, 100 * 1024)
 }
 
+fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
+    let mask = parray.validity_mask()?;
+    filter(&parray.to_array(), &mask)?.to_primitive()
+}
+
 impl ZstdArray {
     pub fn new(
         dictionary: Option<ByteBuffer>,
@@ -131,14 +136,14 @@ impl ZstdArray {
         let n_frames = frame_row_indices.len();
 
         // We compress only the valid elements.
-        let values = parray.collect_values()?;
-        let mut value_indices = mask.valid_counts_for_indices(&frame_row_indices)?;
-        value_indices.push(values.len()); // for convenience
+        let values = collect_valid(parray)?;
+        let mut valid_counts = mask.valid_counts_for_indices(&frame_row_indices)?;
+        valid_counts.push(values.len()); // for convenience
         let values = values.byte_buffer();
         let value_bytes = values.inner();
 
         // Would-be sample sizes if we end up applying zstd dictionary
-        let sample_sizes: Vec<usize> = value_indices
+        let sample_sizes: Vec<usize> = valid_counts
             .windows(2)
             .map(|pair| (pair[1] - pair[0]) * byte_width)
             .filter(|&size| size > 0)
@@ -161,8 +166,8 @@ impl ZstdArray {
         let mut frame_metas = vec![];
         let mut frames = vec![];
         for i in 0..n_frames {
-            let uncompressed = &value_bytes
-                .slice(value_indices[i] * byte_width..value_indices[i + 1] * byte_width);
+            let uncompressed =
+                &value_bytes.slice(valid_counts[i] * byte_width..valid_counts[i + 1] * byte_width);
             let compressed = compressor
                 .compress(uncompressed)
                 .map_err(|err| VortexError::from(err).with_context("while compressing"))?;
@@ -277,16 +282,12 @@ impl ZstdArray {
         Ok(primitive.into_array())
     }
 
-    fn _slice(&self, start: usize, stop: usize) -> VortexResult<ZstdArray> {
-        if self.slice_start + cmp::max(start, stop) > self.slice_stop {
-            vortex_bail!("Cannot slice beyond end of ZstdArray")
-        }
-
-        Ok(ZstdArray {
+    fn _slice(&self, start: usize, stop: usize) -> ZstdArray {
+        ZstdArray {
             slice_start: self.slice_start + start,
             slice_stop: self.slice_start + stop,
             ..self.clone()
-        })
+        }
     }
 }
 
@@ -318,10 +319,10 @@ impl CanonicalVTable<ZstdVTable> for ZstdVTable {
 
 impl OperationsVTable<ZstdVTable> for ZstdVTable {
     fn slice(array: &ZstdArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        Ok(array._slice(start, stop)?.into_array())
+        Ok(array._slice(start, stop).into_array())
     }
 
     fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
-        array._slice(index, index + 1)?.decompress()?.scalar_at(0)
+        array._slice(index, index + 1).decompress()?.scalar_at(0)
     }
 }

@@ -258,44 +258,6 @@ impl PrimitiveArray {
         Ok(PrimitiveArray::new(buffer.freeze(), validity.clone()))
     }
 
-    /// Filter down to only valid elements, returning a new non-nullable array.
-    ///
-    /// The resulting array's count of valid elements will be the same, but its
-    /// count of rows may be less.
-    pub fn collect_values(&self) -> VortexResult<PrimitiveArray> {
-        match &self.validity() {
-            &Validity::AllValid | &Validity::NonNullable => {
-                let mut array = self.clone();
-                array.validity = Validity::NonNullable;
-                Ok(array)
-            }
-            &Validity::AllInvalid => Ok(PrimitiveArray::from_byte_buffer(
-                Buffer::empty(),
-                self.ptype(),
-                Validity::NonNullable,
-            )),
-            &Validity::Array(validity) => {
-                let validity = validity.to_canonical()?.into_bool()?;
-                let validity_buffer = validity.boolean_buffer();
-                let byte_width = self.ptype().byte_width();
-                let byte_buffer = self.byte_buffer();
-
-                let mut bytes = vec![];
-                for i in 0..self.len() {
-                    if validity_buffer.value(i) {
-                        bytes.extend_from_slice(&byte_buffer[i * byte_width..(i + 1) * byte_width]);
-                    }
-                }
-
-                Ok(PrimitiveArray::from_byte_buffer(
-                    Buffer::from(bytes),
-                    self.ptype(),
-                    Validity::NonNullable,
-                ))
-            }
-        }
-    }
-
     /// Return a slice of the array's buffer.
     ///
     /// NOTE: these values may be nonsense if the validity buffer indicates that the value is null.
