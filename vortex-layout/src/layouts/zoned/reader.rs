@@ -309,6 +309,7 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
+    use crate::scan::LocalExecutor;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::{LayoutRef, LayoutStrategy};
 
@@ -325,6 +326,7 @@ mod test {
                 block_size: 3,
                 ..Default::default()
             },
+            Arc::new(LocalExecutor),
         );
         let array_stream =
             sequence_writer.new_sequential(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
