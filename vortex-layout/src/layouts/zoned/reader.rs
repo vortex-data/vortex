@@ -326,7 +326,7 @@ mod test {
                 block_size: 3,
                 ..Default::default()
             },
-            Arc::new(LocalExecutor {}),
+            Arc::new(LocalExecutor),
         );
         let array_stream =
             sequence_writer.new_sequential(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
