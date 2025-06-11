@@ -1,7 +1,8 @@
 use vortex_array::compute::{
     IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, is_constant_opts,
 };
-use vortex_array::register_kernel;
+use vortex_array::stats::Stat;
+use vortex_array::{Array, register_kernel};
 use vortex_error::VortexResult;
 
 use crate::RunEndVTable;
@@ -13,10 +14,14 @@ impl IsConstantKernel for RunEndVTable {
         opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
         // If there are known to be me 0 len runs then we can check if constant on the values.
-        if is_constant_opts(array.values(), opts)? == Some(true) {
-            return Ok(Some(true));
-        }
-        Ok(None)
+        debug_assert_eq!(
+            array
+                .ends()
+                .statistics()
+                .compute_as::<bool>(Stat::IsStrictSorted),
+            Some(true)
+        );
+        is_constant_opts(array.values(), opts)
     }
 }
 
