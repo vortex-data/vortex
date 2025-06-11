@@ -529,7 +529,7 @@ impl Mask {
                 let existing_buffer = mask_values.boolean_buffer();
 
                 let mut new_buffer_builder = BooleanBufferBuilder::new(mask_values.len());
-                new_buffer_builder.append_n(existing_buffer.len(), false);
+                new_buffer_builder.append_n(mask_values.len(), false);
 
                 for index in existing_buffer.set_indices().take(limit) {
                     new_buffer_builder.set_bit(index, true);
