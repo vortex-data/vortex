@@ -8,7 +8,7 @@ use crate::{ArrayEvaluation, LayoutReaderRef, MaskEvaluation, PruningEvaluation}
 
 pub type VirtualLayoutReaderRef = Arc<dyn VirtualLayoutReader>;
 
-/// A [`VirtualLayoutReader`] is a used to adapt (and read) a [`crate::Layout`].
+/// A [`crate::VirtualLayoutReader`] is a used to adapt (and read) a [`crate::Layout`].
 /// virtual layouts add virtual columns or other reader functionality on top of a layout
 pub trait VirtualLayoutReader: 'static + Send + Sync {
     /// Returns the name of the layout reader for debugging.
