@@ -103,9 +103,10 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", lib_path.display());
     println!("cargo:rustc-link-lib=dylib=duckdb");
 
-    // Linux requires libstdc++ to be linked explicitly.
     if env::var("TARGET").unwrap().contains("linux") {
         println!("cargo:rustc-link-lib=stdc++");
+    } else {
+        println!("cargo:rustc-link-lib=c++");
     }
 
     // Compile our C++ code that exposes additional DuckDB functionality.
