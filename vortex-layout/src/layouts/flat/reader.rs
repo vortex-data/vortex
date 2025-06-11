@@ -1,17 +1,16 @@
 use std::collections::BTreeSet;
-use std::ops::{BitAnd, Range};
+use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use futures::FutureExt;
-use vortex_array::arrays::BoolArray;
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayContext, ArrayRef};
-use vortex_dtype::{DType, FieldMask, Nullability};
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, ScopeDType, is_root};
+use vortex_expr::{ExprRef, Scope, is_root};
 use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
@@ -130,8 +129,6 @@ impl LayoutReader for FlatReader {
             array: self.array_future()?,
             row_range,
             expr: expr.clone(),
-            is_bool: expr.return_dtype(&ScopeDType::new(self.dtype().clone()))?
-                == DType::Bool(Nullability::NonNullable),
         }))
     }
 }
@@ -141,7 +138,6 @@ struct FlatEvaluation {
     array: SharedArrayFuture,
     row_range: Range<usize>,
     expr: ExprRef,
-    is_bool: bool,
 }
 //
 // #[async_trait]
@@ -195,30 +191,18 @@ impl ArrayEvaluation for FlatEvaluation {
             array = array.slice(self.row_range.start, self.row_range.end)?;
         }
 
-        if self.is_bool {
-            let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
-                // Evaluate only the selected rows of the mask.
-                array = filter(&array, &mask)?;
-                let array_mask = Mask::try_from(self.expr.evaluate(&Scope::new(array))?.as_ref())?;
-                mask.intersect_by_rank(&array_mask)
-            } else {
-                // Evaluate all rows, avoiding the more expensive rank intersection.
-                array = self.expr.evaluate(&Scope::new(array))?;
-                let array_mask = Mask::try_from(array.as_ref())?;
-                mask.bitand(&array_mask)
-            };
-
-            return Ok(BoolArray::from(array_mask.to_boolean_buffer()).to_array());
-        }
-
         // Filter the array based on the row mask.
-        if !mask.all_true() {
+        if mask.density() < EXPR_EVAL_THRESHOLD {
             array = filter(&array, &mask)?;
         }
 
         // Evaluate the projection expression.
         if !is_root(&self.expr) {
             array = self.expr.evaluate(&Scope::new(array))?;
+        }
+
+        if !mask.all_true() && mask.density() >= EXPR_EVAL_THRESHOLD {
+            array = filter(&array, &mask)?;
         }
 
         Ok(array)
