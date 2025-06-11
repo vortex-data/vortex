@@ -76,7 +76,9 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
                     // Step 3: apply exact filtering. The pruning step has already eliminated entire blocks
                     // where we know the filter won't match any rows, so the amount of work to do here
                     // should be a lot less.
-                    VortexResult::Ok(Mask::try_from(eval.invoke(pruned_mask).await?.as_ref())?)
+                    VortexResult::Ok(pruned_mask.intersect_by_rank(&Mask::try_from(
+                        eval.invoke(pruned_mask.clone()).await?.as_ref(),
+                    )?))
                 }
             }
             .boxed()
