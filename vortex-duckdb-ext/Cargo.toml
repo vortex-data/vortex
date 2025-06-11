@@ -27,7 +27,7 @@ vortex = { workspace = true, features = ["files"] }
 vortex-file = { workspace = true, features = ["tokio"] }
 
 [dev-dependencies]
-# duckdb = { version = "1.3.0" }
+duckdb = { version = "1.3.0" }
 
 [lints]
 workspace = true

@@ -331,7 +331,7 @@ jobs:
       - name: Rust Tests
         # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-duckdb-ext
+          cargo nextest run --locked --workspace --all-features --no-fail-fast
 
       - name: Generate coverage report
         if: github.ref == 'refs/heads/develop'
