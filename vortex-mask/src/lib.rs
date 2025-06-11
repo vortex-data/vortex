@@ -12,6 +12,7 @@ use std::sync::{Arc, OnceLock};
 
 use arrow_buffer::{BooleanBuffer, BooleanBufferBuilder, NullBuffer};
 use itertools::Itertools;
+use vortex_error::{VortexResult, vortex_err};
 
 /// Represents a set of values that are all included, all excluded, or some mixture of both.
 pub enum AllOr<T> {
@@ -508,6 +509,36 @@ impl Mask {
             Self::Values(values) => Some(values),
             _ => None,
         }
+    }
+
+    /// Given monotonically increasing `row_indices` in [0, n_rows], returns the
+    /// count of valid elements up to each row_index.
+    ///
+    /// This is O(n_rows).
+    pub fn value_indices_for_rows(&self, row_indices: &[usize]) -> VortexResult<Vec<usize>> {
+        let value_indices = match self {
+            Self::AllTrue(_) => row_indices.to_vec(),
+            Self::AllFalse(_) => vec![0; row_indices.len()],
+            Self::Values(values) => {
+                let mut bool_iter = values.boolean_buffer().iter();
+                let mut value_indices = Vec::with_capacity(row_indices.len());
+                let mut value_idx = 0;
+                let mut row_idx = 0;
+                for &next_row_idx in row_indices {
+                    while row_idx < next_row_idx {
+                        row_idx += 1;
+                        value_idx += bool_iter
+                            .next()
+                            .ok_or_else(|| vortex_err!("Row indices exceed array length"))?
+                            as usize;
+                    }
+                    value_indices.push(value_idx);
+                }
+
+                value_indices
+            }
+        };
+        Ok(value_indices)
     }
 }
 

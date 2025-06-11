@@ -120,7 +120,7 @@ impl ZstdArray {
     ) -> VortexResult<Self> {
         let dtype = parray.dtype().clone();
         let byte_width = parray.ptype().byte_width();
-        let validity = parray.validity().clone();
+        let mask = parray.validity_mask()?;
         let n_rows = parray.len();
         let rows_per_frame = if rows_per_frame > 0 {
             rows_per_frame
@@ -132,7 +132,7 @@ impl ZstdArray {
 
         // We compress only the valid elements.
         let values = parray.collect_values()?;
-        let mut value_indices = validity.value_indices_for_rows(&frame_row_indices)?;
+        let mut value_indices = mask.value_indices_for_rows(&frame_row_indices)?;
         value_indices.push(values.len()); // for convenience
         let values = values.byte_buffer();
         let value_bytes = values.inner();
@@ -143,7 +143,7 @@ impl ZstdArray {
             .map(|pair| (pair[1] - pair[0]) * byte_width)
             .filter(|&size| size > 0)
             .collect();
-        debug_assert!(sample_sizes.iter().sum::<usize>() == value_bytes.len());
+        debug_assert_eq!(sample_sizes.iter().sum::<usize>(), value_bytes.len());
 
         let (dictionary, mut compressor) = if sample_sizes.len() < MIN_SAMPLES_FOR_DICTIONARY {
             // no dictionary
@@ -185,7 +185,12 @@ impl ZstdArray {
         };
 
         Ok(ZstdArray::new(
-            dictionary, frames, dtype, metadata, n_rows, validity,
+            dictionary,
+            frames,
+            dtype,
+            metadata,
+            n_rows,
+            parray.validity().clone(),
         ))
     }
 
@@ -253,8 +258,9 @@ impl ZstdArray {
         let frames_validity = self
             .validity
             .slice(self.slice_start - row_offset, self.slice_stop)?;
+        let frames_mask = frames_validity.to_mask(row_offset + slice_n_rows)?;
         let frames_values_start_stop =
-            frames_validity.value_indices_for_rows(&[row_offset, row_offset + slice_n_rows])?;
+            frames_mask.value_indices_for_rows(&[row_offset, row_offset + slice_n_rows])?;
         let slice_value_bytes = frames_values_bytes
             [frames_values_start_stop[0] * byte_width..frames_values_start_stop[1] * byte_width]
             .to_vec();
