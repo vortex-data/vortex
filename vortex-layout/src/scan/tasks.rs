@@ -8,6 +8,7 @@ use futures::future::{BoxFuture, ok};
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
+use vortex_mask::Mask;
 
 use crate::LayoutReader;
 use crate::scan::{Selection, TaskExecutor, TaskExecutorExt};
@@ -57,13 +58,15 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
     let filter = match ctx.filter.as_ref() {
         // No filter == immediate task
         None => {
-            let row_mask = if let Some(limit) = limit.filter(|l| **l > 0_usize) {
-                let true_count = row_mask.true_count();
-                let row_mask = row_mask.limit(*limit);
-                *limit -= usize::min(*limit, true_count);
-                row_mask
-            } else {
-                row_mask
+            let row_mask = match limit {
+                Some(l) if *l == 0 => Mask::new_false(row_mask.len()),
+                Some(l) => {
+                    let true_count = row_mask.true_count();
+                    let row_mask = row_mask.limit(*l);
+                    *l -= usize::min(*l, true_count);
+                    row_mask
+                }
+                None => row_mask,
             };
 
             ok(row_mask).boxed()

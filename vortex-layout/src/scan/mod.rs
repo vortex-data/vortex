@@ -186,7 +186,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         // Create a task that executes the full scan pipeline for each split.
         let split_tasks = splits
             .into_iter()
-            .map(|split_range| {
+            .filter_map(|split_range| {
                 let ctx = Arc::new(TaskContext {
                     row_range: self.row_range.clone(),
                     selection: self.selection.clone(),
@@ -197,7 +197,11 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
                     task_executor: None,
                 });
 
-                split_exec(ctx, split_range, self.limit.as_mut())
+                if self.limit.is_some_and(|l| l == 0) {
+                    None
+                } else {
+                    Some(split_exec(ctx, split_range, self.limit.as_mut()))
+                }
             })
             .try_collect()?;
 
