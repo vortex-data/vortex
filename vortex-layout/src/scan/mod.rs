@@ -76,11 +76,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         self
     }
 
-    pub fn with_some_row_range(mut self, row_range: Option<Range<u64>>) -> Self {
-        self.row_range = row_range;
-        self
-    }
-
     pub fn with_selection(mut self, selection: Selection) -> Self {
         self.selection = selection;
         self
