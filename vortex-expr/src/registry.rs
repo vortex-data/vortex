@@ -16,13 +16,14 @@ use crate::merge::proto::MergeSerde;
 use crate::not::proto::NotSerde;
 use crate::pack::proto::PackSerde;
 use crate::select::proto::SelectSerde;
-use crate::var::proto::VarSerde;
+use crate::var::proto::{IdentitySerde, VarSerde};
 use crate::{ExprDeserialize, ExprRef};
 
 const EXPRESSIONS: &[&'static dyn ExprDeserialize] = &[
     &BetweenSerde,
     &BinarySerde,
     &GetItemSerde,
+    &IdentitySerde,
     &LetSerde,
     &LikeSerde,
     &LiteralSerde,
