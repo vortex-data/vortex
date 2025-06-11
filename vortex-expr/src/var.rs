@@ -8,7 +8,7 @@ use vortex_dtype::{DType, FieldPath};
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::{
-    AccessPath, AnalysisExpr, ExprRef, Identifier, Scope, ScopeDType, StatsCatalog, VortexExpr,
+    AccessPath, ExprRef, Identifier, Scope, ScopeDType, StatsCatalog, StatsPrunable, VortexExpr,
 };
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -95,7 +95,7 @@ impl Display for Var {
     }
 }
 
-impl AnalysisExpr for Var {
+impl StatsPrunable for Var {
     fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(&self.field_path()?, Stat::Max)
     }

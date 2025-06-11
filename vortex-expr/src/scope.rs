@@ -46,16 +46,6 @@ impl From<&str> for Identifier {
     }
 }
 
-impl From<&Arc<str>> for Identifier {
-    fn from(value: &Arc<str>) -> Self {
-        if value.as_ref() == "" {
-            Identifier::Identity
-        } else {
-            Identifier::Other(value.clone())
-        }
-    }
-}
-
 impl Identifier {
     pub fn is_identity(&self) -> bool {
         matches!(self, Self::Identity)

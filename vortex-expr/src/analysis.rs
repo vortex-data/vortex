@@ -10,12 +10,11 @@ pub trait StatsCatalog {
     }
 }
 
-/// This can be used by expression to plug into vortex expression analysis, such as
-/// pruning or expression simplification
-pub trait AnalysisExpr {
+/// Trait used to convert expression into expression over statistics
+pub trait StatsPrunable {
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.
     ///
-    /// Given an expression, `e`, if `e.stat_falsification(..)` evaluates to true, it is guaranteed
+    /// Given an expression, `e`, if `e.stat_falsifiable_expr()` evaluates to true, it is guaranteed
     /// that `e` evaluates to false on all records in the zone. However, the inverse is not
     /// necessarily true: even if the falsification evaluates to false, `e` need not evaluate to
     /// true on all records.
@@ -31,7 +30,7 @@ pub trait AnalysisExpr {
     ///
     /// Some expressions, in theory, have falsifications but this function does not support them
     /// such as `x < (y < z)` or `x LIKE "needle%"`.
-    fn stat_falsification(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsifiable_expr(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         None
     }
 

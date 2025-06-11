@@ -8,7 +8,9 @@ use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, vortex_err};
 
-use crate::{AccessPath, AnalysisExpr, ExprRef, Scope, ScopeDType, StatsCatalog, VortexExpr, root};
+use crate::{
+    AccessPath, ExprRef, Scope, ScopeDType, StatsCatalog, StatsPrunable, VortexExpr, root,
+};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -95,7 +97,7 @@ pub(crate) mod proto {
     }
 }
 
-impl AnalysisExpr for GetItem {
+impl StatsPrunable for GetItem {
     fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(&self.field_path()?, Stat::Max)
     }

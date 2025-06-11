@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
-use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, StatsCatalog, VortexExpr};
+use crate::{ExprRef, Scope, ScopeDType, StatsCatalog, StatsPrunable, VortexExpr};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Literal {
@@ -81,7 +81,7 @@ pub(crate) mod proto {
     }
 }
 
-impl AnalysisExpr for Literal {
+impl StatsPrunable for Literal {
     fn max(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         Some(lit(self.value.clone()))
     }

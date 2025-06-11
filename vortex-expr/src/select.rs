@@ -8,7 +8,7 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::field::DisplayFieldNames;
-use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{ExprRef, Scope, ScopeDType, StatsPrunable, VortexExpr};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SelectField {
@@ -152,7 +152,7 @@ pub(crate) mod proto {
     }
 }
 
-impl AnalysisExpr for Select {}
+impl StatsPrunable for Select {}
 
 impl VortexExpr for Select {
     fn as_any(&self) -> &dyn Any {

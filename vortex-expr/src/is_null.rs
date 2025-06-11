@@ -9,7 +9,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{ExprRef, Scope, ScopeDType, StatsPrunable, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -73,7 +73,7 @@ pub(crate) mod proto {
     }
 }
 
-impl AnalysisExpr for IsNull {}
+impl StatsPrunable for IsNull {}
 
 impl VortexExpr for IsNull {
     fn as_any(&self) -> &dyn Any {

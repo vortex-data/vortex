@@ -8,7 +8,7 @@ use vortex_array::compute::{Operator as ArrayOperator, and_kleene, compare, or_k
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{AnalysisExpr, ExprRef, Operator, Scope, ScopeDType, StatsCatalog, VortexExpr};
+use crate::{ExprRef, Operator, Scope, ScopeDType, StatsCatalog, StatsPrunable, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -82,8 +82,8 @@ pub(crate) mod proto {
     }
 }
 
-impl AnalysisExpr for BinaryExpr {
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+impl StatsPrunable for BinaryExpr {
+    fn stat_falsifiable_expr(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         match self.operator {
             Operator::Eq => {
                 let min_lhs = self.lhs.min(catalog);
@@ -112,13 +112,13 @@ impl AnalysisExpr for BinaryExpr {
             // We can short circuit pruning expr for and
             Operator::And => self
                 .lhs
-                .stat_falsification(catalog)
+                .stat_falsifiable_expr(catalog)
                 .into_iter()
-                .chain(self.rhs.stat_falsification(catalog))
+                .chain(self.rhs.stat_falsifiable_expr(catalog))
                 .reduce(or),
             Operator::Or => Some(and(
-                self.lhs.stat_falsification(catalog)?,
-                self.rhs.stat_falsification(catalog)?,
+                self.lhs.stat_falsifiable_expr(catalog)?,
+                self.rhs.stat_falsifiable_expr(catalog)?,
             )),
         }
     }

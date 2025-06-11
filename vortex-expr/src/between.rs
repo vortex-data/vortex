@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
 use vortex_error::VortexResult;
 
-use crate::{AnalysisExpr, BinaryExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{BinaryExpr, ExprRef, Scope, ScopeDType, StatsPrunable, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -130,7 +130,7 @@ pub(crate) mod proto {
     }
 }
 
-impl AnalysisExpr for Between {}
+impl StatsPrunable for Between {}
 
 impl VortexExpr for Between {
     fn as_any(&self) -> &dyn Any {

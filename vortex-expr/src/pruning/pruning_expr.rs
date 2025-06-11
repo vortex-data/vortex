@@ -10,7 +10,7 @@ use crate::{AccessPath, ExprRef, ScopeFieldPathSet, StatsCatalog, get_item, var}
 
 pub type RequiredStats = Relation<AccessPath, Stat>;
 
-// A catalog that return a stat column whenever it is required
+// A catalog that returns a stat column whenever it is required
 #[derive(Default)]
 struct AnyStatsCatalog {
     usage: HashMap<(AccessPath, Stat), ExprRef>,
@@ -68,7 +68,7 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
     let mut catalog = AnyStatsCatalog {
         ..Default::default()
     };
-    let expr = expr.stat_falsification(&mut catalog)?;
+    let expr = expr.stat_falsifiable_expr(&mut catalog)?;
 
     // TODO(joe): filter access by used exprs
     let mut relation: Relation<AccessPath, Stat> = Relation::new();
@@ -92,7 +92,7 @@ pub fn checked_pruning_expr(
         scope_field_paths,
     };
 
-    let expr = expr.stat_falsification(&mut catalog)?;
+    let expr = expr.stat_falsifiable_expr(&mut catalog)?;
 
     // TODO(joe): filter access by used exprs
     let mut relation: Relation<AccessPath, Stat> = Relation::new();
