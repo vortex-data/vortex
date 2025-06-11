@@ -70,7 +70,7 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
     };
     let expr = expr.stat_falsification(&mut catalog)?;
 
-    // TODO: filter by used exprs
+    // TODO(joe): filter access by used exprs
     let mut relation: Relation<AccessPath, Stat> = Relation::new();
     for ((field_path, stat), _) in catalog.usage.into_iter() {
         relation.insert(field_path, stat)
@@ -79,7 +79,7 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
     Some((expr, relation))
 }
 
-// Build a pruning expr mask an existing bundle of stats
+/// Build a pruning expr mask an existing bundle of stats
 /// Create a stat based falsification expr using the stats in the `scope_field_paths`.
 /// These are of the form
 /// [["col_0", ..., "col_n", "stat_name"], ...] for each stat.
@@ -94,7 +94,7 @@ pub fn checked_pruning_expr(
 
     let expr = expr.stat_falsification(&mut catalog)?;
 
-    // TODO: filter by used exprs
+    // TODO(joe): filter access by used exprs
     let mut relation: Relation<AccessPath, Stat> = Relation::new();
     for ((field_path, stat), _) in catalog.any_catalog.usage.into_iter() {
         relation.insert(field_path, stat)

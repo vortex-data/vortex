@@ -17,7 +17,7 @@ use vortex_metrics::VortexMetrics;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
-use crate::pruning::extract_relevant_file_stat_as_struct_row;
+use crate::pruning::extract_relevant_file_stats_as_struct_row;
 
 /// Represents a Vortex file, providing access to its metadata and content.
 ///
@@ -121,7 +121,7 @@ impl VortexFile {
                 .map(|(path, stats)| (path.field_path().clone(), stats.clone())),
         );
 
-        let Some(file_stats) = extract_relevant_file_stat_as_struct_row(
+        let Some(file_stats) = extract_relevant_file_stats_as_struct_row(
             &required_file_stats,
             file_stats,
             struct_dtype,
