@@ -511,31 +511,31 @@ impl Mask {
         }
     }
 
-    /// Given monotonically increasing `row_indices` in [0, n_rows], returns the
-    /// count of valid elements up to each row_index.
+    /// Given monotonically increasing `indices` in [0, n_rows], returns the
+    /// count of valid elements up to each index.
     ///
     /// This is O(n_rows).
-    pub fn value_indices_for_rows(&self, row_indices: &[usize]) -> VortexResult<Vec<usize>> {
+    pub fn valid_counts_for_indices(&self, indices: &[usize]) -> VortexResult<Vec<usize>> {
         let value_indices = match self {
-            Self::AllTrue(_) => row_indices.to_vec(),
-            Self::AllFalse(_) => vec![0; row_indices.len()],
+            Self::AllTrue(_) => indices.to_vec(),
+            Self::AllFalse(_) => vec![0; indices.len()],
             Self::Values(values) => {
                 let mut bool_iter = values.boolean_buffer().iter();
-                let mut value_indices = Vec::with_capacity(row_indices.len());
-                let mut value_idx = 0;
-                let mut row_idx = 0;
-                for &next_row_idx in row_indices {
-                    while row_idx < next_row_idx {
-                        row_idx += 1;
-                        value_idx += bool_iter
+                let mut valid_counts = Vec::with_capacity(indices.len());
+                let mut valid_count = 0;
+                let mut idx = 0;
+                for &next_idx in indices {
+                    while idx < next_idx {
+                        idx += 1;
+                        valid_count += bool_iter
                             .next()
                             .ok_or_else(|| vortex_err!("Row indices exceed array length"))?
                             as usize;
                     }
-                    value_indices.push(value_idx);
+                    valid_counts.push(valid_count);
                 }
 
-                value_indices
+                valid_counts
             }
         };
         Ok(value_indices)

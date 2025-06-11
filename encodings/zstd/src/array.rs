@@ -132,7 +132,7 @@ impl ZstdArray {
 
         // We compress only the valid elements.
         let values = parray.collect_values()?;
-        let mut value_indices = mask.value_indices_for_rows(&frame_row_indices)?;
+        let mut value_indices = mask.valid_counts_for_indices(&frame_row_indices)?;
         value_indices.push(values.len()); // for convenience
         let values = values.byte_buffer();
         let value_bytes = values.inner();
@@ -260,7 +260,7 @@ impl ZstdArray {
             .slice(self.slice_start - row_offset, self.slice_stop)?;
         let frames_mask = frames_validity.to_mask(row_offset + slice_n_rows)?;
         let frames_values_start_stop =
-            frames_mask.value_indices_for_rows(&[row_offset, row_offset + slice_n_rows])?;
+            frames_mask.valid_counts_for_indices(&[row_offset, row_offset + slice_n_rows])?;
         let slice_value_bytes = frames_values_bytes
             [frames_values_start_stop[0] * byte_width..frames_values_start_stop[1] * byte_width]
             .to_vec();
