@@ -23,6 +23,7 @@ crate-type = ["staticlib", "cdylib"]
 bitvec = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
 vortex = { workspace = true, features = ["files"] }
 vortex-file = { workspace = true, features = ["tokio"] }
 

@@ -39,7 +39,7 @@ pub(super) unsafe extern "C" fn init_local_callback<T: TableFunction>(
         unsafe { init_input.as_ref() }.vortex_expect("init_input null pointer"),
     );
 
-    let global_init_data = unsafe { global_init_data.cast::<T::InitGlobalData>().as_mut() }
+    let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_mut() }
         .vortex_expect("global_init_data null pointer");
 
     match T::init_local(&init_input, global_init_data) {

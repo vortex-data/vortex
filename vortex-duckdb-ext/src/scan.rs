@@ -1,20 +1,25 @@
-use std::ffi::CString;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
-use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::error::{VortexResult, vortex_bail, vortex_err};
 use vortex::file::{VortexFile, VortexOpenOptions};
 
 use crate::duckdb::{
     BindInput, BindResult, DataChunk, Expression, LogicalType, TableFunction, TableInitInput,
 };
+use crate::exporter::ArrayIteratorExporter;
 
 pub struct VortexBindData {
+    first_file: VortexFile,
     _column_names: Vec<String>,
     _column_types: Vec<LogicalType>,
 }
 
-pub struct HelloInitData {
+pub struct VortexGlobalData {
     done: AtomicBool,
+}
+
+pub struct VortexLocalData {
+    exporter: Option<ArrayIteratorExporter>,
 }
 
 #[derive(Debug)]
@@ -47,23 +52,25 @@ fn extract_schema_from_vortex_file(
 
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
-    type InitGlobalData = HelloInitData;
-    type InitLocalData = ();
+    type GlobalState = VortexGlobalData;
+    type LocalState = VortexLocalData;
 
+    /// Input parameter types of the `vortex_scan` table function.
+    ///
+    // `vortex_scan` takes a single file glob parameter.
     fn parameters() -> Vec<LogicalType> {
         vec![LogicalType::varchar()]
     }
 
-    // TODO: expand glob, assign to file list
-
     fn bind(input: &BindInput, result: &mut BindResult) -> VortexResult<Self::BindData> {
+        // TODO: expand glob & assign to file list
         let file_glob_string = input
             .get_parameter(0)
-            .ok_or_else(|| vortex_err!("Missing parameter for hello function"))?;
+            .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
         let file_path: String = file_glob_string.as_string().to_string_lossy().into_owned();
         let first_file = VortexOpenOptions::file()
-            .open_blocking(file_path)
+            .open_blocking(&file_path)
             .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
         let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
@@ -74,43 +81,63 @@ impl TableFunction for VortexTableFunction {
         }
 
         Ok(VortexBindData {
+            first_file,
             _column_names: column_names,
             _column_types: column_types,
         })
     }
 
-    fn function(
-        _bind_data: &Self::BindData,
-        _local_init: &mut Self::InitLocalData,
-        global_init: &mut Self::InitGlobalData,
+    fn scan(
+        bind_data: &Self::BindData,
+        local_state: &mut Self::LocalState,
+        global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
-        // Check if the function has already been executed
-        if global_init.done.swap(true, Ordering::Relaxed) {
+        if global_state.done.load(std::sync::atomic::Ordering::SeqCst) {
+            // Signal to DuckDB that there's no work left by setting the chunk length to 0.
             chunk.set_len(0);
             return Ok(());
         }
 
-        chunk.set_len(1);
-        let value = CString::new(format!("Hello {}", "hello"))
-            .map_err(|_| vortex_err!("Name contains null byte"))
-            .vortex_expect("Failed to create CString from greeting");
-        chunk.get_vector(0).assign_string_element(0, &value);
+        if local_state.exporter.is_none() {
+            let array_iter = bind_data
+                .first_file
+                .scan()?
+                .into_array_iter()
+                .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
+
+            local_state.exporter = Some(ArrayIteratorExporter::new(Box::new(array_iter)));
+        }
+
+        let Some(ref mut exporter) = local_state.exporter else {
+            vortex_bail!("ArrayIteratorExporter is not set")
+        };
+
+        let is_data_left_to_scan = exporter
+            .export(chunk)
+            .map_err(|e| vortex_err!("Failed to export data: {}", e))?;
+
+        if !is_data_left_to_scan {
+            global_state
+                .done
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            chunk.set_len(0);
+        }
 
         Ok(())
     }
 
-    fn init_global(_init: &TableInitInput<Self>) -> VortexResult<Self::InitGlobalData> {
-        Ok(HelloInitData {
+    fn init_global(_init: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
+        Ok(VortexGlobalData {
             done: AtomicBool::new(false),
         })
     }
 
     fn init_local(
         _init: &TableInitInput<Self>,
-        _global: &mut Self::InitGlobalData,
-    ) -> VortexResult<Self::InitLocalData> {
-        Ok(())
+        _global: &mut Self::GlobalState,
+    ) -> VortexResult<Self::LocalState> {
+        Ok(VortexLocalData { exporter: None })
     }
 
     fn pushdown_complex_filter(
