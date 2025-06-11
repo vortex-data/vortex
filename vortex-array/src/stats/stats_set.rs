@@ -39,7 +39,7 @@ impl StatsSet {
         stats
     }
 
-    // A convenience method for creating a stats set which will represent an empty array.
+    /// A convenience method for creating a stats set which will represent an empty array.
     pub fn empty_array() -> StatsSet {
         StatsSet::new_unchecked(vec![(Stat::NullCount, Precision::exact(0))])
     }
@@ -232,7 +232,7 @@ impl StatsSet {
         self
     }
 
-    // given two sets of stats (of differing precision) for the same array, combine them
+    /// Given two sets of stats (of differing precision) for the same array, combine them
     pub fn combine_sets(&mut self, other: &Self, dtype: &DType) -> VortexResult<()> {
         let other_stats: Vec<_> = other.values.iter().map(|(stat, _)| *stat).collect();
         for s in other_stats {

@@ -131,7 +131,7 @@ fn chunked_into_canonical(
         .bench_values(|array| array.to_canonical().unwrap());
 }
 
-// Helper function to generate random string data.
+/// Helper function to generate random string data.
 fn generate_test_data(string_count: usize, avg_len: usize, unique_chars: u8) -> VarBinArray {
     let mut rng = StdRng::seed_from_u64(0);
     let mut strings = Vec::with_capacity(string_count);

@@ -20,7 +20,7 @@ impl Database {
             unsafe { cpp::duckdb_open(ptr::null(), &raw mut ptr) },
             "Failed to open in-memory DuckDB database"
         );
-        Ok(unsafe { Self::from_owned(ptr) })
+        Ok(unsafe { Self::own(ptr) })
     }
 
     /// Connects to the DuckDB database.

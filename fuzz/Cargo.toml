@@ -32,6 +32,7 @@ vortex-error = { workspace = true }
 vortex-file = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
+vortex-utils = { workspace = true }
 
 [lints]
 workspace = true

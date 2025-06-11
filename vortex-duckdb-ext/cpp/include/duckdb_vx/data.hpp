@@ -2,6 +2,8 @@
 
 #include "duckdb_vx/data.h"
 
+namespace vortex {
+
 class CData final {
 public:
 	CData(void *data_ptr, duckdb_delete_callback_t callback);
@@ -20,3 +22,5 @@ private:
 	void *data = nullptr;
 	duckdb_delete_callback_t delete_callback = nullptr;
 };
+
+} // namespace vortex

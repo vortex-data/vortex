@@ -7,7 +7,7 @@ use vortex_array::compute::cast as compute_cast;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::{ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -78,6 +78,8 @@ pub(crate) mod proto {
         }
     }
 }
+
+impl AnalysisExpr for Cast {}
 
 impl VortexExpr for Cast {
     fn as_any(&self) -> &dyn Any {

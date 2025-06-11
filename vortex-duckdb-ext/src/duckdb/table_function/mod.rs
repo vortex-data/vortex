@@ -152,7 +152,7 @@ unsafe extern "C" fn function<T: TableFunction>(
         .vortex_expect("global_init_data null pointer");
     let local_init_data = unsafe { local_init_data.cast::<T::InitLocalData>().as_mut() }
         .vortex_expect("local_init_data null pointer");
-    let mut data_chunk = unsafe { DataChunk::from_ptr(output) };
+    let mut data_chunk = unsafe { DataChunk::borrow(output) };
 
     match T::function(
         bind_data,

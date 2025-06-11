@@ -6,7 +6,6 @@ use datafusion::common::ScalarValue;
 use moka::future::Cache;
 use object_store::path::Path;
 use object_store::{ObjectMeta, ObjectStore};
-use vortex::aliases::DefaultHashBuilder;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexResult, vortex_err};
@@ -15,6 +14,7 @@ use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 use vortex::layout::segments::SegmentId;
 use vortex::session::VortexSession;
 use vortex::stats::{Precision, Stat};
+use vortex::utils::aliases::DefaultHashBuilder;
 
 #[derive(Clone)]
 pub(crate) struct VortexFileCache {

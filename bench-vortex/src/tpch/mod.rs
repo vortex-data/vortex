@@ -35,7 +35,7 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
     0, 4, 100, 10, 5, 5, 1, 4, 2, 175, 20, 0, 2, 45, 1, 1, 27840, 1, 100, 1, 1804, 100, 7,
 ];
 
-// Generate table dataset.
+/// Generate table dataset.
 pub async fn load_datasets(
     base_dir: &Url,
     format: Format,
@@ -100,7 +100,7 @@ pub mod named_locks {
     use std::sync::{Arc, LazyLock};
 
     use tokio::sync::Mutex;
-    use vortex::aliases::hash_map::HashMap;
+    use vortex::utils::aliases::hash_map::HashMap;
 
     type NamedLocksMap = LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
     static NAMED_LOCKS: NamedLocksMap = LazyLock::new(|| Mutex::new(HashMap::new()));

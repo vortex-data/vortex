@@ -3,7 +3,6 @@
 #![allow(clippy::result_large_err)]
 
 use libfuzzer_sys::{Corpus, fuzz_target};
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{
     BoolEncoding, ConstantArray, ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
     VarBinViewEncoding,
@@ -16,6 +15,7 @@ use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_fuzz::error::{VortexFuzzError, VortexFuzzResult};
 use vortex_fuzz::{Action, FuzzArrayAction, sort_canonical_array};
 use vortex_scalar::Scalar;
+use vortex_utils::aliases::hash_set::HashSet;
 
 fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
     let FuzzArrayAction { array, actions } = fuzz_action;

@@ -36,8 +36,8 @@ impl IsConstantKernel for PrimitiveVTable {
 
 register_kernel!(IsConstantKernelAdapter(PrimitiveVTable).lift());
 
-// Assumes any floating point has been cast into its bit representation for which != and !is_eq are the same
-// Assumes there's at least 1 value in the slice, which is an invariant of the entry level function.
+/// Assumes any floating point has been cast into its bit representation for which != and !is_eq are the same
+/// Assumes there's at least 1 value in the slice, which is an invariant of the entry level function.
 pub fn compute_is_constant<T: NativePType, const WIDTH: usize>(values: &[T]) -> bool {
     let first_value = values[0];
     let first_vec = &[first_value; WIDTH];

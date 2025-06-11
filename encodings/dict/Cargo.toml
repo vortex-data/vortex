@@ -31,6 +31,7 @@ vortex-error = { workspace = true }
 vortex-fsst = { workspace = true, optional = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-utils = { workspace = true }
 
 [lints]
 workspace = true

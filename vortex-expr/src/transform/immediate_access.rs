@@ -1,8 +1,8 @@
 use itertools::Itertools;
-use vortex_array::aliases::hash_map::HashMap;
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_dtype::{FieldName, StructFields};
 use vortex_error::{VortexResult, vortex_err};
+use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
 use crate::{ExprRef, GetItem, Select, is_root};
@@ -65,7 +65,7 @@ impl<'a> NodeVisitor<'a> for ImmediateScopeAccessesAnalysis<'a> {
     fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
         assert!(
             !node.as_any().is::<Select>(),
-            "cannot analyse select, simply the expression"
+            "cannot analyze select, simplify the expression"
         );
         if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
             if is_root(get_item.child()) {

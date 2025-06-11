@@ -139,7 +139,7 @@ pub fn write_execution_plan(
             "{}",
             DisplayableExecutionPlan::with_metrics(execution_plan)
                 .set_show_schema(true)
-                .indent(false)
+                .tree_render()
         ),
     )
     .expect("Unable to write file");

@@ -14,7 +14,7 @@ pub trait FromDuckDBType<A> {
 }
 
 impl FromDuckDBType<LogicalTypeHandle> for DType {
-    // Converts a DuckDB logical type handle to a `DType` based on the logical type ID.
+    /// Converts a DuckDB logical type handle to a `DType` based on the logical type ID.
     fn from_duckdb(type_: LogicalTypeHandle, nullable: Nullability) -> VortexResult<Self> {
         match type_.id() {
             LogicalTypeId::SQLNull => Ok(DType::Null),

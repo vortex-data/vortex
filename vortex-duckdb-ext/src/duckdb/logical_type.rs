@@ -6,9 +6,12 @@ wrapper!(
     cpp::duckdb_destroy_logical_type
 );
 
+/// `LogicalType` is Send, as the wrapped pointer and bool are Send.
+unsafe impl Send for LogicalType {}
+
 impl LogicalType {
     pub fn new(dtype: cpp::DUCKDB_TYPE) -> Self {
-        unsafe { Self::from_owned(cpp::duckdb_create_logical_type(dtype)) }
+        unsafe { Self::own(cpp::duckdb_create_logical_type(dtype)) }
     }
 
     pub fn as_type_id(&self) -> cpp::DUCKDB_TYPE {
