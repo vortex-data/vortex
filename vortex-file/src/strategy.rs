@@ -54,6 +54,7 @@ impl VortexLayoutStrategy {
             compress_then_flat.clone(),
             coalescing,
             Default::default(),
+            executor.clone(),
         ));
 
         // 2. calculate stats for each row group
@@ -64,7 +65,9 @@ impl VortexLayoutStrategy {
                 block_size: ROW_BLOCK_SIZE,
                 stats: PRUNING_STATS.into(),
                 max_variable_length_statistics_size: 64,
+                parallelism: 16,
             },
+            executor.clone(),
         ));
 
         // 1. repartition each column to fixed row counts

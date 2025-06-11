@@ -18,7 +18,7 @@ use object_store::aws::AmazonS3Builder;
 use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use url::Url;
-use vortex_datafusion::persistent::VortexFormatFactory;
+use vortex_datafusion::VortexFormatFactory;
 
 pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
     String::from_utf8(
@@ -139,7 +139,7 @@ pub fn write_execution_plan(
             "{}",
             DisplayableExecutionPlan::with_metrics(execution_plan)
                 .set_show_schema(true)
-                .indent(false)
+                .tree_render()
         ),
     )
     .expect("Unable to write file");

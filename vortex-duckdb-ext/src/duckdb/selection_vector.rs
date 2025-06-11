@@ -10,7 +10,7 @@ wrapper!(
 
 impl SelectionVector {
     pub fn with_capacity(len: usize) -> Self {
-        unsafe { Self::borrow(cpp::duckdb_create_selection_vector(len as _)) }
+        unsafe { Self::own(cpp::duckdb_create_selection_vector(len as _)) }
     }
 
     // NOTE(ngates): selection vector doesn't hold its own length. Which makes writing a safe

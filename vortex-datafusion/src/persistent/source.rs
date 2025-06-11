@@ -65,7 +65,7 @@ impl FileSource for VortexSource {
     fn create_file_opener(
         &self,
         object_store: Arc<dyn ObjectStore>,
-        _base_config: &FileScanConfig,
+        base_config: &FileScanConfig,
         partition: usize,
     ) -> Arc<dyn FileOpener> {
         let partition_metrics = self
@@ -85,6 +85,7 @@ impl FileSource for VortexSource {
                 .clone()
                 .vortex_expect("We should have a schema here"),
             batch_size,
+            base_config.limit,
             partition_metrics,
             self.layout_readers.clone(),
         );

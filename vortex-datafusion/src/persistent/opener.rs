@@ -27,6 +27,7 @@ pub(crate) struct VortexFileOpener {
     pub(crate) file_cache: VortexFileCache,
     pub projected_arrow_schema: SchemaRef,
     pub batch_size: usize,
+    pub limit: Option<usize>,
     metrics: VortexMetrics,
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
 }
@@ -40,6 +41,7 @@ impl VortexFileOpener {
         file_cache: VortexFileCache,
         projected_arrow_schema: SchemaRef,
         batch_size: usize,
+        limit: Option<usize>,
         metrics: VortexMetrics,
         layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     ) -> Self {
@@ -50,6 +52,7 @@ impl VortexFileOpener {
             file_cache,
             projected_arrow_schema,
             batch_size,
+            limit,
             metrics,
             layout_readers,
         }
@@ -65,6 +68,7 @@ impl FileOpener for VortexFileOpener {
         let projected_arrow_schema = self.projected_arrow_schema.clone();
         let metrics = self.metrics.clone();
         let batch_size = self.batch_size;
+        let limit = self.limit;
         let layout_reader = self.layout_readers.clone();
 
         Ok(async move {
@@ -104,7 +108,13 @@ impl FileOpener for VortexFileOpener {
             };
 
             let scan_builder = ScanBuilder::new(layout_reader);
-            let scan_builder = apply_byte_range(file_meta, vxf.row_count(), scan_builder);
+            let mut scan_builder = apply_byte_range(file_meta, vxf.row_count(), scan_builder);
+
+            if let Some(limit) = limit {
+                if filter.is_none() {
+                    scan_builder = scan_builder.with_limit(limit);
+                }
+            }
 
             let stream = scan_builder
                 .with_tokio_executor(Handle::current())

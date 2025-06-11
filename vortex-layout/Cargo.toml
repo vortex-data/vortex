@@ -49,6 +49,7 @@ vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-utils = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }

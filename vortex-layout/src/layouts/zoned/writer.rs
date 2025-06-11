@@ -2,8 +2,8 @@ use std::future;
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use futures::StreamExt as _;
 use futures::stream::once;
+use futures::{FutureExt, StreamExt as _};
 use parking_lot::Mutex;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
+use crate::scan::{TaskExecutor, TaskExecutorExt};
 use crate::segments::SequenceWriter;
 use crate::sequence::SequenceId;
 use crate::{
@@ -26,6 +27,8 @@ pub struct ZonedLayoutOptions {
     pub stats: Arc<[Stat]>,
     /// Maximum length of a variable length statistics
     pub max_variable_length_statistics_size: usize,
+    /// Number of chunks to compute in parallel.
+    pub parallelism: usize,
 }
 
 impl Default for ZonedLayoutOptions {
@@ -34,6 +37,7 @@ impl Default for ZonedLayoutOptions {
             block_size: 8192,
             stats: PRUNING_STATS.into(),
             max_variable_length_statistics_size: 64,
+            parallelism: 16,
         }
     }
 }
@@ -42,6 +46,7 @@ pub struct ZonedStrategy {
     child: ArcRef<dyn LayoutStrategy>,
     stats: ArcRef<dyn LayoutStrategy>,
     options: ZonedLayoutOptions,
+    executor: Arc<dyn TaskExecutor>,
 }
 
 impl ZonedStrategy {
@@ -49,11 +54,13 @@ impl ZonedStrategy {
         child: ArcRef<dyn LayoutStrategy>,
         stats: ArcRef<dyn LayoutStrategy>,
         options: ZonedLayoutOptions,
+        executor: Arc<dyn TaskExecutor>,
     ) -> Self {
         Self {
             child,
             stats,
             options,
+            executor,
         }
     }
 }
@@ -65,14 +72,33 @@ impl LayoutStrategy for ZonedStrategy {
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
     ) -> SendableLayoutWriter {
+        let executor = self.executor.clone();
+        let stats = self.options.stats.clone();
+        let precomputed_stream = SequentialStreamAdapter::new(
+            stream.dtype().clone(),
+            stream
+                .map(move |chunk| {
+                    let stats = stats.clone();
+                    async move {
+                        let (sequence_id, chunk) = chunk?;
+                        chunk.statistics().compute_all(&stats)?;
+                        VortexResult::Ok((sequence_id, chunk))
+                    }
+                    .boxed()
+                })
+                .map(move |stats_future| executor.spawn(stats_future))
+                .buffered(self.options.parallelism),
+        )
+        .sendable();
+
         let stats_accumulator = Arc::new(Mutex::new(StatsAccumulator::new(
-            stream.dtype(),
+            precomputed_stream.dtype(),
             &self.options.stats,
             self.options.max_variable_length_statistics_size,
         )));
         let stream = SequentialStreamAdapter::new(
-            stream.dtype().clone(),
-            stream.scan(stats_accumulator.clone(), |acc, item| {
+            precomputed_stream.dtype().clone(),
+            precomputed_stream.scan(stats_accumulator.clone(), |acc, item| {
                 future::ready(Some(accumulate_stats(acc, item)))
             }),
         )

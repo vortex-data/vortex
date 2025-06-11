@@ -358,7 +358,7 @@ impl Mask {
         match &self {
             Self::AllTrue(len) => *len,
             Self::AllFalse(len) => *len,
-            Self::Values(values) => values.buffer.len(),
+            Self::Values(values) => values.len(),
         }
     }
 
@@ -516,7 +516,7 @@ impl Mask {
     ///
     /// This is O(n_rows).
     pub fn valid_counts_for_indices(&self, indices: &[usize]) -> VortexResult<Vec<usize>> {
-        let value_indices = match self {
+        Ok(match self {
             Self::AllTrue(_) => indices.to_vec(),
             Self::AllFalse(_) => vec![0; indices.len()],
             Self::Values(values) => {
@@ -537,8 +537,37 @@ impl Mask {
 
                 valid_counts
             }
-        };
-        Ok(value_indices)
+        })
+    }
+
+    /// Limit the mask to the first `limit` true values
+    pub fn limit(self, limit: usize) -> Self {
+        if self.len() <= limit {
+            return self;
+        }
+
+        match self {
+            Mask::AllTrue(len) => {
+                Self::from_iter([Self::new_true(limit), Self::new_false(len - limit)])
+            }
+            Mask::AllFalse(_) => self,
+            Mask::Values(ref mask_values) => {
+                if limit >= mask_values.true_count() {
+                    return self;
+                }
+
+                let existing_buffer = mask_values.boolean_buffer();
+
+                let mut new_buffer_builder = BooleanBufferBuilder::new(mask_values.len());
+                new_buffer_builder.append_n(mask_values.len(), false);
+
+                for index in existing_buffer.set_indices().take(limit) {
+                    new_buffer_builder.set_bit(index, true);
+                }
+
+                Self::from(new_buffer_builder.finish())
+            }
+        }
     }
 }
 
@@ -636,5 +665,49 @@ mod test {
                 AllOr::Some(&BooleanBuffer::from_iter([true, false, true, true, false]))
             );
         }
+    }
+
+    #[test]
+    fn limit_all_true_mask() {
+        let all_true = Mask::new_true(4);
+        let limited_mask = all_true.clone().limit(2);
+        assert_eq!(all_true.len(), limited_mask.len());
+        assert_eq!(limited_mask.true_count(), 2);
+        assert_eq!(
+            limited_mask.boolean_buffer(),
+            AllOr::Some(&BooleanBuffer::from_iter([true, true, false, false]))
+        );
+
+        let limited_mask = all_true.clone().limit(5);
+        assert_eq!(limited_mask, all_true);
+    }
+
+    #[test]
+    fn limit_mask_values() {
+        let original_mask = Mask::from_iter([true, true, false, true, false, true]);
+        let limited_mask = original_mask.clone().limit(2);
+
+        assert_eq!(
+            limited_mask.boolean_buffer(),
+            AllOr::Some(&BooleanBuffer::from_iter([
+                true, true, false, false, false, false
+            ]))
+        );
+        assert_eq!(limited_mask.true_count(), 2);
+
+        let limited_mask = original_mask.limit(3);
+
+        assert_eq!(
+            limited_mask.boolean_buffer(),
+            AllOr::Some(&BooleanBuffer::from_iter([
+                true, true, false, true, false, false
+            ]))
+        );
+        assert_eq!(limited_mask.true_count(), 3);
+
+        let original_mask = Mask::from_iter([true, true, false, true, false, true]);
+        let limited_mask = original_mask.clone().limit(100);
+
+        assert_eq!(original_mask, limited_mask);
     }
 }

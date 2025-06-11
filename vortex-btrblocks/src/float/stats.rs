@@ -4,12 +4,12 @@ use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::ToCanonical;
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::arrays::{NativeValue, PrimitiveArray, PrimitiveVTable};
 use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_mask::AllOr;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::sample::sample;
 use crate::{CompressorStats, GenerateStatsOptions};

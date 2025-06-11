@@ -33,6 +33,11 @@ struct CTableGlobalData final : GlobalTableFunctionState {
 	}
 
 	optional_ptr<vortex::CData> ffi_data;
+
+	idx_t MaxThreads() const override {
+		return 1;
+		// return GlobalTableFunctionState::MAX_THREADS;
+	}
 };
 
 struct CTableLocalData final : LocalTableFunctionState {
@@ -207,7 +212,6 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
 	}
 
 	auto conn = reinterpret_cast<Connection *>(ffi_conn);
-
 	auto tf = new TableFunction(vtab->name, {}, c_function, c_bind, c_init_global, c_init_local);
 
 	tf->pushdown_complex_filter = c_pushdown_complex_filter;

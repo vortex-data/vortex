@@ -8,10 +8,10 @@ use futures::future::try_join_all;
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
-use vortex_array::aliases::DefaultHashBuilder;
-use vortex_array::aliases::hash_set::HashSet;
 use vortex_array::{ArrayContext, ToCanonical};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
+use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SequenceWriter;

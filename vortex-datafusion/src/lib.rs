@@ -1,4 +1,4 @@
-//! Connectors to enable DataFusion to read Vortex data.
+//! Connectors to enable [DataFusion](https://docs.rs/datafusion/latest/datafusion/) to read [`Vortex`](https://docs.rs/crate/vortex/latest) data.
 #![deny(missing_docs)]
 use std::fmt::Debug;
 
@@ -8,7 +8,9 @@ use datafusion::logical_expr::{Expr, Operator};
 use vortex::stats::Precision;
 
 mod convert;
-pub mod persistent;
+mod persistent;
+
+pub use persistent::*;
 
 const SUPPORTED_BINARY_OPS: &[Operator] = &[
     Operator::Eq,

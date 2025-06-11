@@ -110,6 +110,7 @@ impl ArrayExporter {
             let mut vector = chunk.get_vector(i);
             field.export(position, chunk_len, &mut vector)?;
         }
+
         Ok(true)
     }
 }
