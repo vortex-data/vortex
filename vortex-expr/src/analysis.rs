@@ -13,8 +13,12 @@ pub trait StatsCatalog {
 /// This can be used by expression to plug into vortex expression analysis, such as
 /// pruning or expression simplification
 pub trait AnalysisExpr {
-    /// Tries to find an expression over zone-statistics which is true if-and-only-if `expr` is
-    /// false for all records in the zone.
+    /// An expression over zone-statistics which implies all records in the zone evaluate to false.
+    ///
+    /// Given an expression, `e`, if `e.stat_falsification(..)` evaluates to true, it is guaranteed
+    /// that `e` evaluates to false on all records in the zone. However, the inverse is not
+    /// necessarily true: even if the falsification evaluates to false, `e` need not evaluate to
+    /// true on all records.
     ///
     /// The `StatsCatalog` can be used to constrain or rename stats used in the final expr.
     ///

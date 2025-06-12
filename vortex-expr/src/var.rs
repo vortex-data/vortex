@@ -33,7 +33,27 @@ pub(crate) mod proto {
     use vortex_error::{VortexResult, vortex_bail};
     use vortex_proto::expr::kind::{Kind, Var as ProtoVar};
 
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Var};
+    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Var, root};
+
+    // NOTE(aduffy): identity expression is deprecated for the moment, but it is still
+    // in the protobuf definition. We map it into the new Var(root()) expression.
+    pub(crate) struct IdentitySerde;
+
+    impl Id for IdentitySerde {
+        fn id(&self) -> &'static str {
+            "identity"
+        }
+    }
+
+    impl ExprDeserialize for IdentitySerde {
+        fn deserialize(&self, kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            let Kind::Identity(..) = kind else {
+                vortex_bail!("wrong kind {:?}, wanted identity", kind)
+            };
+
+            Ok(root())
+        }
+    }
 
     pub(crate) struct VarSerde;
 

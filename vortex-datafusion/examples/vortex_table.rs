@@ -12,7 +12,7 @@ use vortex::buffer::buffer;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
 use vortex::validity::Validity;
-use vortex_datafusion::persistent::VortexFormat;
+use vortex_datafusion::VortexFormat;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

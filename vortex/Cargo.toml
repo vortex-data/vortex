@@ -43,6 +43,7 @@ vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
+vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 arrow = { workspace = true }
@@ -52,7 +53,7 @@ tokio = { workspace = true, features = ["full"] }
 vortex = { path = ".", features = ["parquet", "tokio"] }
 
 [features]
-default = ["files"]
+default = ["files", "zstd"]
 files = ["dep:vortex-file"]
 memmap2 = ["vortex-buffer/memmap2"]
 object_store = ["vortex-file/object_store"]
@@ -61,3 +62,4 @@ python = ["vortex-error/python"]
 tokio = ["vortex-file/tokio"]
 proto = ["vortex-expr/proto", "vortex-error/prost"]
 tracing = ["vortex-file/tracing", "vortex-layout/tracing"]
+zstd = ["dep:vortex-zstd"]

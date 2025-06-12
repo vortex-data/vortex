@@ -30,7 +30,7 @@ use similar::{ChangeTag, TextDiff};
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex_datafusion::persistent::metrics::VortexMetricsFinder;
+use vortex_datafusion::metrics::VortexMetricsFinder;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

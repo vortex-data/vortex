@@ -35,6 +35,12 @@ public interface ScanOptions {
     Optional<Expression> predicate();
 
     /**
+     * Optional start (inclusive) and end (exclusive) row indices to select a range of rows
+     * in the scan.
+     */
+    Optional<long[]> rowRange();
+
+    /**
      * Optional row indices to select specific rows.
      * These must be sorted in ascending order.
      */

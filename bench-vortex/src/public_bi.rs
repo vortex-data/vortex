@@ -31,7 +31,7 @@ use vortex::error::{VortexResult, vortex_err};
 use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
 use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex_datafusion::persistent::VortexFormat;
+use vortex_datafusion::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;

@@ -22,8 +22,8 @@ use crate::{cpp, duckdb_try};
 /// This trait does not yet cover the full C++ API, see table_function.hpp.
 pub trait TableFunction: Sized + Debug {
     type BindData: Send;
-    type InitGlobalData: Send + Sync;
-    type InitLocalData;
+    type GlobalState: Send + Sync;
+    type LocalState;
 
     /// Whether the table function supports projection pushdown.
     /// If not supported a projection will be added that filters out unused columns.
@@ -56,10 +56,10 @@ pub trait TableFunction: Sized + Debug {
     fn bind(input: &BindInput, result: &mut BindResult) -> VortexResult<Self::BindData>;
 
     /// The function is called during query execution and is responsible for producing the output
-    fn function(
+    fn scan(
         bind_data: &Self::BindData,
-        init_local: &mut Self::InitLocalData,
-        init_global: &mut Self::InitGlobalData,
+        init_local: &mut Self::LocalState,
+        init_global: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()>;
 
@@ -67,7 +67,7 @@ pub trait TableFunction: Sized + Debug {
     ///
     /// The global operator state is used to keep track of the progress in the table function and
     /// is shared between all threads working on the table function.
-    fn init_global(input: &TableInitInput<Self>) -> VortexResult<Self::InitGlobalData>;
+    fn init_global(input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState>;
 
     /// Initialize the local operator state of the function.
     ///
@@ -75,8 +75,8 @@ pub trait TableFunction: Sized + Debug {
     /// is thread-local.
     fn init_local(
         init: &TableInitInput<Self>,
-        global: &mut Self::InitGlobalData,
-    ) -> VortexResult<Self::InitLocalData>;
+        global: &mut Self::GlobalState,
+    ) -> VortexResult<Self::LocalState>;
 
     /// Pushes down a filter expression to the table function.
     ///
@@ -148,13 +148,13 @@ unsafe extern "C" fn function<T: TableFunction>(
     error_out: *mut cpp::duckdb_vx_error,
 ) {
     let bind_data = unsafe { &*(bind_data as *const T::BindData) };
-    let global_init_data = unsafe { global_init_data.cast::<T::InitGlobalData>().as_mut() }
+    let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_mut() }
         .vortex_expect("global_init_data null pointer");
-    let local_init_data = unsafe { local_init_data.cast::<T::InitLocalData>().as_mut() }
+    let local_init_data = unsafe { local_init_data.cast::<T::LocalState>().as_mut() }
         .vortex_expect("local_init_data null pointer");
     let mut data_chunk = unsafe { DataChunk::borrow(output) };
 
-    match T::function(
+    match T::scan(
         bind_data,
         local_init_data,
         global_init_data,

@@ -8,6 +8,7 @@ use futures::future::{BoxFuture, ok};
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
+use vortex_mask::Mask;
 
 use crate::LayoutReader;
 use crate::scan::{Selection, TaskExecutor, TaskExecutorExt};
@@ -29,6 +30,7 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 pub(super) fn split_exec<A: 'static + Send + Sync>(
     ctx: Arc<TaskContext<A>>,
     split: Range<u64>,
+    limit: Option<&mut usize>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
     // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
     let read_range = match &ctx.row_range {
@@ -55,7 +57,20 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
 
     let filter = match ctx.filter.as_ref() {
         // No filter == immediate task
-        None => ok(row_mask).boxed(),
+        None => {
+            let row_mask = match limit {
+                Some(l) if *l == 0 => Mask::new_false(row_mask.len()),
+                Some(l) => {
+                    let true_count = row_mask.true_count();
+                    let row_mask = row_mask.limit(*l);
+                    *l -= usize::min(*l, true_count);
+                    row_mask
+                }
+                None => row_mask,
+            };
+
+            ok(row_mask).boxed()
+        }
         Some(filter) => {
             // Step 2: if there is a filter provided, attempt to prune this range based on the filter.
             // NOTE: it's very important that the pruning and filter evaluations are built OUTSIDE

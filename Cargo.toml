@@ -172,6 +172,7 @@ uuid = { version = "1.16", features = ["js"] }
 walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
+zip = "4.0.0"
 
 # BEGIN crates published by this project
 vortex = { version = "0.1.0", path = "./vortex" }
@@ -204,6 +205,7 @@ vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-featur
 vortex-tui = { version = "0.1.0", path = "./vortex-tui", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
+vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }
 # END crates published by this project
 
 # No version contraints for unpublished crates.
@@ -213,6 +215,7 @@ vortex-ffi = { path = "./vortex-ffi", default-features = false }
 worker = "0.5.0"
 xshell = "0.2.6"
 zigzag = "0.1.0"
+zstd = "0.13"
 
 [workspace.dependencies.getrandom_v03]
 features = ["wasm_js"]

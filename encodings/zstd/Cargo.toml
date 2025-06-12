@@ -1,8 +1,8 @@
 [package]
-name = "vortex-sequence"
+name = "vortex-zstd"
 authors = { workspace = true }
 categories = { workspace = true }
-description = "Vortex run end encoded array"
+description = "Vortex zstd compression array encoding"
 edition = { workspace = true }
 homepage = { workspace = true }
 include = { workspace = true }
@@ -13,23 +13,20 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[lints]
+workspace = true
+
 [dependencies]
-arcref = { workspace = true }
-num-traits = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
-vortex-mask = { workspace = true }
-vortex-proto = { workspace = true }
 vortex-scalar = { workspace = true }
+zstd = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["full"] }
-vortex-expr = { path = "../../vortex-expr" }
-vortex-file = { path = "../../vortex-file", features = ["tokio"] }
-vortex-layout = { path = "../../vortex-layout" }
+vortex-array = { workspace = true, features = ["test-harness"] }
 
-[lints]
+[dev-dependencies.vortex-dict]
 workspace = true
