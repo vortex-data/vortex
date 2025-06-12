@@ -152,6 +152,11 @@ impl Scope {
         self
     }
 
+    /// Register an array with an identifier in the scope, overriding any existing value stored in it.
+    pub fn with_array_pair(self, (ident, value): (Identifier, ArrayRef)) -> Self {
+        self.with_array(ident, value)
+    }
+
     pub fn with_var(mut self, ident: Identifier, var: Arc<dyn Any + Send + Sync>) -> Self {
         self.vars.insert(ident, var);
         self
@@ -219,6 +224,10 @@ impl ScopeDType {
         }
         self
     }
+
+    pub fn with_dtype_pair(self, (ident, dtype): (Identifier, DType)) -> Self {
+        self.with_dtype(ident, dtype)
+    }
 }
 
 #[derive(Default, Clone, Debug)]
@@ -253,5 +262,9 @@ impl ScopeFieldPathSet {
             self.sets.insert(ident, set);
         }
         self
+    }
+
+    pub fn with_set_pair(self, (ident, set): (Identifier, FieldPathSet)) -> Self {
+        self.with_set(ident, set)
     }
 }

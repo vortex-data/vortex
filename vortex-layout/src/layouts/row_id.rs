@@ -6,9 +6,11 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use vortex_array::arrays::{ConstantArray, StructArray};
 use vortex_array::compute::filter;
-use vortex_array::stats::Precision;
+use vortex_array::stats::{Precision, Stat};
 use vortex_array::{ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldMask, FieldName, Nullability, PType, StructFields};
+use vortex_dtype::{
+    DType, Field, FieldMask, FieldName, FieldPath, FieldPathSet, Nullability, PType, StructFields,
+};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::var_partition::{VarPartitionedExpr, var_partitions_with_map};
 use vortex_expr::{ExactExpr, ExprRef, Identifier, Scope, ScopeDType};
@@ -64,35 +66,85 @@ impl RowIdLayoutReader {
             .clone()
     }
 
-    fn row_id_scope(&self, row_range: &Range<u64>) -> ArrayRef {
+    fn row_id_scope(&self, row_range: &Range<u64>) -> (Identifier, ArrayRef) {
         let arr_len = row_range.clone().count();
 
-        StructArray::from_fields(&[
-            (
-                "file_row_number",
-                SequenceArray::typed_new(row_range.start, 1, arr_len)
-                    .vortex_expect("cannot be out of bounds")
-                    .to_array(),
-            ),
-            (
-                "file_index",
-                ConstantArray::new(self.file_index, arr_len).to_array(),
-            ),
-        ])
-        .vortex_expect("valid struct array")
-        .to_array()
+        (
+            ROW_ID.clone(),
+            StructArray::from_fields(&[
+                (
+                    "file_row_number",
+                    SequenceArray::typed_new(row_range.start, 1, arr_len)
+                        .vortex_expect("cannot be out of bounds")
+                        .to_array(),
+                ),
+                (
+                    "file_index",
+                    ConstantArray::new(self.file_index, arr_len).to_array(),
+                ),
+            ])
+            .vortex_expect("valid struct array")
+            .to_array(),
+        )
     }
 
-    pub fn row_id_scope_dtype() -> DType {
-        DType::Struct(
-            Arc::new(StructFields::from_iter([
+    pub fn row_id_scope_dtype() -> (Identifier, DType) {
+        (
+            ROW_ID.clone(),
+            DType::Struct(
+                Arc::new(StructFields::from_iter([
+                    (
+                        FieldName::from("file_row_number"),
+                        DType::Primitive(PType::I64, Nullability::NonNullable),
+                    ),
+                    ("file_index".into(), PType::I64.into()),
+                ])),
+                Nullability::NonNullable,
+            ),
+        )
+    }
+
+    pub fn row_id_stats_field_path_set() -> (Identifier, FieldPathSet) {
+        (
+            ROW_ID.clone(),
+            FieldPathSet::from_iter([
+                FieldPath::from_iter([
+                    Field::Name("file_row_number".into()),
+                    Field::Name(Stat::Max.name().into()),
+                ]),
+                FieldPath::from_iter([
+                    Field::Name("file_row_number".into()),
+                    Field::Name(Stat::Min.name().into()),
+                ]),
+                FieldPath::from_iter([
+                    Field::Name("file_index".into()),
+                    Field::Name(Stat::Max.name().into()),
+                ]),
+                FieldPath::from_iter([
+                    Field::Name("file_index".into()),
+                    Field::Name(Stat::Min.name().into()),
+                ]),
+            ]),
+        )
+    }
+
+    pub fn row_id_stats_set_scope(row_range: &Range<u64>, file_idx: u64) -> (Identifier, ArrayRef) {
+        (
+            ROW_ID.clone(),
+            StructArray::from_fields(&[
                 (
-                    FieldName::from("file_row_number"),
-                    DType::Primitive(PType::I64, Nullability::NonNullable),
+                    "file_row_number_max",
+                    ConstantArray::new(row_range.end, 1).to_array(),
                 ),
-                ("file_index".into(), PType::I64.into()),
-            ])),
-            Nullability::NonNullable,
+                (
+                    "file_row_number_min",
+                    ConstantArray::new(row_range.start, 1).to_array(),
+                ),
+                ("file_index_max", ConstantArray::new(file_idx, 1).to_array()),
+                ("file_index_min", ConstantArray::new(file_idx, 1).to_array()),
+            ])
+            .vortex_expect("valid struct")
+            .to_array(),
         )
     }
 }
@@ -140,8 +192,7 @@ impl LayoutReader for RowIdLayoutReader {
         };
         let rest = partitioned.find_partition(&Identifier::Identity);
 
-        let row_id_scope =
-            Scope::empty(arr_len).with_array(ROW_ID.clone(), self.row_id_scope(row_range));
+        let row_id_scope = Scope::empty(arr_len).with_array_pair(self.row_id_scope(row_range));
 
         let rest_eval = if let Some(rest) = &rest {
             let dtype = rest.return_dtype(&ScopeDType::new(self.dtype().clone()))?;
@@ -179,8 +230,7 @@ impl LayoutReader for RowIdLayoutReader {
         };
         let rest = partitioned.find_partition(&Identifier::Identity);
 
-        let row_id_scope =
-            Scope::empty(arr_len).with_array(ROW_ID.clone(), self.row_id_scope(row_range));
+        let row_id_scope = Scope::empty(arr_len).with_array_pair(self.row_id_scope(row_range));
 
         let res = row_id.evaluate(&row_id_scope)?;
 

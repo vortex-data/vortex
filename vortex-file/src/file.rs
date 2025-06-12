@@ -2,17 +2,18 @@
 //!
 //! The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading
 //! data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
+
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::arrays::{ConstantArray, StructArray};
-use vortex_array::stats::{Stat, StatsSet};
+use vortex_array::stats::StatsSet;
 use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope, ScopeFieldPathSet};
 use vortex_layout::LayoutReader;
-use vortex_layout::layouts::row_id::ROW_ID;
+use vortex_layout::layouts::row_id::RowIdLayoutReader;
 use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
@@ -109,27 +110,7 @@ impl VortexFile {
         ));
 
         let mut scope_set = ScopeFieldPathSet::new(set);
-        scope_set = scope_set.with_set(
-            ROW_ID.clone(),
-            FieldPathSet::from_iter([
-                FieldPath::from_iter([
-                    Field::Name("file_row_number".into()),
-                    Field::Name(Stat::Max.name().into()),
-                ]),
-                FieldPath::from_iter([
-                    Field::Name("file_row_number".into()),
-                    Field::Name(Stat::Min.name().into()),
-                ]),
-                FieldPath::from_iter([
-                    Field::Name("file_index".into()),
-                    Field::Name(Stat::Max.name().into()),
-                ]),
-                FieldPath::from_iter([
-                    Field::Name("file_index".into()),
-                    Field::Name(Stat::Min.name().into()),
-                ]),
-            ]),
-        );
+        scope_set = scope_set.with_set_pair(RowIdLayoutReader::row_id_stats_field_path_set());
 
         let Some((predicate, required_stats)) = checked_pruning_expr(filter, &scope_set) else {
             return Ok(false);
@@ -149,26 +130,14 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let mut scope = Scope::new(file_stats);
-
-        let file_len = self.row_count();
-        scope = scope.with_array(
-            ROW_ID.clone(),
-            StructArray::from_fields(&[
-                (
-                    "file_row_number_max",
-                    ConstantArray::new(file_len, 1).to_array(),
-                ),
-                (
-                    "file_row_number_min",
-                    ConstantArray::new(0u64, 1).to_array(),
-                ),
-                ("file_index_max", ConstantArray::new(file_idx, 1).to_array()),
-                ("file_index_min", ConstantArray::new(file_idx, 1).to_array()),
-            ])
-            .vortex_expect("valid struct")
-            .to_array(),
-        );
+        let scope =
+            Scope::new(file_stats).with_array_pair(RowIdLayoutReader::row_id_stats_set_scope(
+                &Range {
+                    start: 0,
+                    end: self.row_count(),
+                },
+                file_idx,
+            ));
 
         Ok(predicate
             .evaluate(&scope)?

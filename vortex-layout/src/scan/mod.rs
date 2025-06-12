@@ -25,7 +25,7 @@ use vortex_metrics::VortexMetrics;
 
 use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
-use crate::layouts::row_id::{ROW_ID, RowIdLayoutReader};
+use crate::layouts::row_id::RowIdLayoutReader;
 use crate::scan::tasks::{TaskContext, split_exec};
 
 mod executor;
@@ -153,7 +153,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     pub fn dtype(&self) -> VortexResult<DType> {
         self.projection.return_dtype(
             &ScopeDType::new(self.layout_reader.dtype().clone())
-                .with_dtype(ROW_ID.clone(), RowIdLayoutReader::row_id_scope_dtype()),
+                .with_dtype_pair(RowIdLayoutReader::row_id_scope_dtype()),
         )
     }
 
