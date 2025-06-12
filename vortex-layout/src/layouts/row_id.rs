@@ -103,7 +103,7 @@ impl LayoutReader for RowIdLayoutReader {
     }
 
     fn dtype(&self) -> &DType {
-        &self.child.dtype()
+        self.child.dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {

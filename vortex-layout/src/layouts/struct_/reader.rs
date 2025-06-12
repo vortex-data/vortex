@@ -105,10 +105,6 @@ impl StructReader {
             })
             .clone()
     }
-
-    fn dtype(&self) -> &DType {
-        &self.layout.dtype
-    }
 }
 
 impl LayoutReader for StructReader {

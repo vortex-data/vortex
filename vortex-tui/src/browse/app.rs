@@ -5,7 +5,6 @@ use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
 use vortex::dtype::DType;
 use vortex::error::{VortexExpect, VortexResult};
-use vortex::expr::Identifier;
 use vortex::file::{Footer, SegmentSpec, VortexFile, VortexOpenOptions};
 use vortex_layout::LayoutRef;
 use vortex_layout::layouts::flat::FlatVTable;

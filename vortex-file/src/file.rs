@@ -8,7 +8,7 @@ use vortex_array::ArrayRef;
 use vortex_array::arrays::{ConstantArray, StructArray};
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Identifier, Scope, ScopeFieldPathSet};
 use vortex_layout::LayoutReader;
@@ -135,12 +135,13 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let required_file_stats =
-            HashMap::from_iter(required_stats.map().iter().filter_map(|(path, stats)| {
-                path.identifier()
-                    .is_identity()
-                    .then(|| (path.field_path().clone(), stats.clone()))
-            }));
+        let required_file_stats = HashMap::from_iter(
+            required_stats
+                .map()
+                .iter()
+                .filter(|&(path, _)| path.identifier().is_identity())
+                .map(|(path, stats)| (path.field_path().clone(), stats.clone())),
+        );
 
         let Some(file_stats) =
             extract_relevant_file_stat_as_struct_row(&required_file_stats, stats, fields)?
@@ -165,16 +166,9 @@ impl VortexFile {
                 ("file_index_max", ConstantArray::new(file_idx, 1).to_array()),
                 ("file_index_min", ConstantArray::new(file_idx, 1).to_array()),
             ])
-            .unwrap()
+            .vortex_expect("valid struct")
             .to_array(),
         );
-
-        // println!(
-        //     "--\nprune filter {}\n expr pred {}\n, res {}\n--",
-        //     filter,
-        //     predicate,
-        //     predicate.evaluate(&scope).unwrap().as_constant().unwrap()
-        // );
 
         Ok(predicate
             .evaluate(&scope)?

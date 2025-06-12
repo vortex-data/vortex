@@ -249,7 +249,6 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
             || Ok(ScanOptions::default()),
             |options| options.process_scan_options(),
         )?;
-        //         println!("scan options {:?}", scan_options);
 
         let layout_reader = file.layout_reader()?;
         let layout_reader = Arc::new(RowIdLayoutReader::new_with_file_index(

@@ -20,7 +20,7 @@ use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ExprRef, Identifier, ScopeDType, root};
+use vortex_expr::{ExprRef, ScopeDType, root};
 use vortex_metrics::VortexMetrics;
 
 use crate::LayoutReader;
@@ -41,8 +41,6 @@ pub struct ScanBuilder<A> {
     filter: Option<ExprRef>,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
-    /// Optionally set ann initial row offset, used to number files not starting from 0.
-    initial_row_id: Option<usize>,
     /// The selection mask to apply to the selected row range.
     // TODO(joe): remove me!
     selection: Selection,
@@ -140,7 +138,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             projection: self.projection,
             filter: self.filter,
             row_range: self.row_range,
-            initial_row_id: self.initial_row_id,
             selection: self.selection,
             split_by: self.split_by,
             concurrency: self.concurrency,
@@ -236,7 +233,6 @@ impl ScanBuilder<ArrayRef> {
             projection: root(),
             filter: None,
             row_range: None,
-            initial_row_id: None,
             selection: Default::default(),
             split_by: SplitBy::Layout,
             // How many row splits to make progress on concurrently (not necessarily in parallel,

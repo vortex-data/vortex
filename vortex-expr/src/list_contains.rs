@@ -101,15 +101,15 @@ impl AnalysisExpr for ListContains {
             let value_max = self.value.max(catalog)?;
             let value_min = self.value.min(catalog)?;
 
-            return list_.iter().try_fold(lit(true), move |acc, v| {
-                Some(and(
-                    acc,
+            return list_
+                .iter()
+                .map(move |v| {
                     or(
                         lt(value_max.clone(), lit(v.clone())),
                         gt(value_min.clone(), lit(v.clone())),
-                    ),
-                ))
-            });
+                    )
+                })
+                .reduce(and);
         }
 
         None
@@ -154,16 +154,19 @@ impl PartialEq for ListContains {
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::{BoolArray, BooleanBuffer, ListArray, PrimitiveArray};
+    use vortex_array::stats::Stat;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray};
     use vortex_dtype::PType::I32;
     use vortex_dtype::{Field, FieldNames, FieldPath, FieldPathSet, Nullability, StructFields};
     use vortex_scalar::Scalar;
+    use vortex_utils::aliases::hash_map::HashMap;
 
     use crate::list_contains::list_contains;
     use crate::pruning::checked_pruning_expr;
     use crate::{
-        Arc, DType, Scope, ScopeDType, ScopeFieldPathSet, get_item, get_item_scope, lit, root,
+        AccessPath, Arc, DType, HashSet, Scope, ScopeDType, ScopeFieldPathSet, and, get_item,
+        get_item_scope, gt, lit, lt, or, root,
     };
 
     fn test_array() -> ArrayRef {
@@ -312,7 +315,32 @@ mod tests {
         )
         .unwrap();
 
-        println!("expr {}", expr);
-        println!("st {:?}", st);
+        assert_eq!(
+            &expr,
+            &and(
+                and(
+                    or(
+                        lt(get_item_scope("a_max"), lit(1i32)),
+                        gt(get_item_scope("a_min"), lit(1i32)),
+                    ),
+                    or(
+                        lt(get_item_scope("a_max"), lit(2i32)),
+                        gt(get_item_scope("a_min"), lit(2i32)),
+                    )
+                ),
+                or(
+                    lt(get_item_scope("a_max"), lit(3i32)),
+                    gt(get_item_scope("a_min"), lit(3i32)),
+                )
+            )
+        );
+
+        assert_eq!(
+            st.map(),
+            &HashMap::from_iter([(
+                AccessPath::root_field("a".into()),
+                HashSet::from([Stat::Min, Stat::Max])
+            )])
+        );
     }
 }
