@@ -46,7 +46,7 @@ mod tests {
 
         // let chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
         let mut chunk =
-            DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)].into_iter());
+            DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
         chunk.set_len(arr.len());
 
         new_exporter(&arr)
