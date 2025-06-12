@@ -23,15 +23,13 @@ import dev.vortex.api.expressions.*;
 import dev.vortex.proto.DTypeProtos;
 import dev.vortex.proto.ExprProtos;
 import dev.vortex.proto.ScalarProtos;
-
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
 public final class ExpressionProtoDeserializer {
-    private ExpressionProtoDeserializer() {
-    }
+    private ExpressionProtoDeserializer() {}
 
     public static Expression deserialize(ExprProtos.Expr expr) {
         switch (expr.getKind().getKindCase()) {
@@ -133,12 +131,13 @@ public final class ExpressionProtoDeserializer {
             case BYTES_VALUE:
                 if (dtype.hasDecimal()) {
                     ByteString littleEndian = scalarValue.getBytesValue();
-                    byte[] bigEndian = new byte[littleEndian.size()];
-                    for (int i = 0; i < bigEndian.length; i++) {
-                        bigEndian[i] = littleEndian.byteAt(bigEndian.length - 1 - i);
-                    }
-                    BigDecimal value = new BigDecimal(new BigInteger(bigEndian), dtype.getDecimal().getScale());
-                    return Literal.decimal(value, dtype.getDecimal().getPrecision(), dtype.getDecimal().getScale());
+                    byte[] bigEndian = EndianUtils.reverse(littleEndian);
+                    BigDecimal value = new BigDecimal(
+                            new BigInteger(bigEndian), dtype.getDecimal().getScale());
+                    return Literal.decimal(
+                            value,
+                            dtype.getDecimal().getPrecision(),
+                            dtype.getDecimal().getScale());
                 } else {
                     return Literal.bytes(scalarValue.getBytesValue().toByteArray());
                 }
@@ -245,7 +244,10 @@ public final class ExpressionProtoDeserializer {
                         throw new UnsupportedOperationException("Unsupported ScalarValue type encountered: " + type);
                 }
             case DECIMAL:
-                return Literal.decimal(null, type.getDecimal().getPrecision(), type.getDecimal().getScale());
+                return Literal.decimal(
+                        null,
+                        type.getDecimal().getPrecision(),
+                        type.getDecimal().getScale());
             case UTF8:
                 return Literal.string(null);
             case BINARY:

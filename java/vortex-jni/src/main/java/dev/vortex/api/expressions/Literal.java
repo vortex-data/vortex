@@ -17,7 +17,6 @@ package dev.vortex.api.expressions;
 
 import com.google.common.base.Preconditions;
 import dev.vortex.api.Expression;
-
 import java.math.BigDecimal;
 import java.util.Objects;
 import java.util.Optional;

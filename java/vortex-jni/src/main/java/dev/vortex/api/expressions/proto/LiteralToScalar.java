@@ -17,7 +17,6 @@ package dev.vortex.api.expressions.proto;
 
 import dev.vortex.api.expressions.Literal;
 import dev.vortex.proto.ScalarProtos;
-
 import java.math.BigDecimal;
 import java.util.Objects;
 import java.util.Optional;
@@ -25,8 +24,7 @@ import java.util.Optional;
 final class LiteralToScalar implements Literal.LiteralVisitor<ScalarProtos.Scalar> {
     static final LiteralToScalar INSTANCE = new LiteralToScalar();
 
-    private LiteralToScalar() {
-    }
+    private LiteralToScalar() {}
 
     @Override
     public ScalarProtos.Scalar visitNull() {
