@@ -2,6 +2,8 @@
 //!
 //! This module provides functionality to convert Vortex scalar values to DuckDB values.
 //!
+//! Note that nullability of Vortex scalars is not transferred to DuckDB scalars.
+//!
 //! # Supported Scalar Conversions
 //!
 //! | Vortex Scalar | DuckDB Value |
@@ -37,6 +39,10 @@ impl ToDuckDBScalar for Scalar {
     ///
     /// Struct and List scalars are not yet implemented and cause a panic.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
+        if self.is_null() {
+            return Ok(Value::null());
+        }
+
         match self.dtype() {
             DType::Null => Ok(Value::null()),
             DType::Bool(_) => self.as_bool().try_to_duckdb_scalar(),
@@ -80,6 +86,11 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
     /// - `I8`, `I16`, `I32`, `I64` - Converted to `i128` for DuckDB
     /// - `I128` - Used directly
     /// - `I256` - Not supported, returns an error
+    ///
+    /// # Note: Scalar vs Array Conversion Differences
+    ///
+    /// This scalar conversion always uses `i128` for all decimal values regardless of precision,
+    /// which differs from the array conversion logic that uses precision-based storage optimization.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         let decimal_type = self
             .dtype()

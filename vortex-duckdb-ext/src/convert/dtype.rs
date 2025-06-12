@@ -2,6 +2,8 @@
 //!
 //! This module provides functionality to convert Vortex data types (`DType`) to DuckDB logical types.
 //!
+//! Note that nullability of Vortex logical types is not transferred to DuckDB logical types.
+//!
 //! # Supported Type Mappings
 //!
 //! | Vortex Type | DuckDB Type |
@@ -21,7 +23,7 @@
 //! | `List` | `LIST` |
 //! | `Date` | `DATE` |
 //! | `Time` | `TIME` |
-//! | `Timestamp` | `TIMESTAMP` (various precisions) |
+//! | `Timestamp` | `TIMESTAMP` |
 
 use std::ffi::CString;
 
@@ -100,7 +102,6 @@ impl LogicalType {
     /// - **Date**: Must use `TimeUnit::D`
     /// - **Time**: Must use `TimeUnit::Us`
     /// - **Timestamp**: Supports `TimeUnit::Ns`, `Us`, `Ms`, `S`
-    /// ```
     fn temporal_type(ext_dtype: &vortex::dtype::ExtDType) -> VortexResult<Self> {
         use vortex::dtype::datetime::{TemporalMetadata, TimeUnit};
 
@@ -148,7 +149,7 @@ impl TryFrom<&DType> for LogicalType {
     ///
     /// # Returns
     ///
-    /// A `Result<Self, Self::Error>` containing the DuckDB logical type or a conversion error.
+    /// A `Result` containing the DuckDB logical type or a conversion error.
     fn try_from(dtype: &DType) -> Result<Self, Self::Error> {
         let duckdb_type = match dtype {
             DType::Null => cpp::DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL,
