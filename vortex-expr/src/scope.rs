@@ -98,6 +98,8 @@ pub struct Scope {
     vars: ExprScope<Arc<dyn Any + Send + Sync>>,
 }
 
+pub type ScopeElement = (Identifier, ArrayRef);
+
 impl Scope {
     pub fn new(arr: ArrayRef) -> Self {
         Self {
@@ -153,7 +155,7 @@ impl Scope {
     }
 
     /// Register an array with an identifier in the scope, overriding any existing value stored in it.
-    pub fn with_array_pair(self, (ident, value): (Identifier, ArrayRef)) -> Self {
+    pub fn with_array_pair(self, (ident, value): ScopeElement) -> Self {
         self.with_array(ident, value)
     }
 
@@ -183,6 +185,8 @@ pub struct ScopeDType {
     root: Option<DType>,
     types: ExprScope<DType>,
 }
+
+pub type ScopeDTypeElement = (Identifier, DType);
 
 impl From<&Scope> for ScopeDType {
     fn from(ctx: &Scope) -> Self {
@@ -225,7 +229,7 @@ impl ScopeDType {
         self
     }
 
-    pub fn with_dtype_pair(self, (ident, dtype): (Identifier, DType)) -> Self {
+    pub fn with_dtype_element(self, (ident, dtype): ScopeDTypeElement) -> Self {
         self.with_dtype(ident, dtype)
     }
 }
@@ -235,6 +239,8 @@ pub struct ScopeFieldPathSet {
     root: Option<FieldPathSet>,
     sets: ExprScope<FieldPathSet>,
 }
+
+pub type ScopeFieldPathSetElement = (Identifier, FieldPathSet);
 
 impl ScopeFieldPathSet {
     pub fn new(path_set: FieldPathSet) -> Self {
@@ -264,7 +270,7 @@ impl ScopeFieldPathSet {
         self
     }
 
-    pub fn with_set_pair(self, (ident, set): (Identifier, FieldPathSet)) -> Self {
+    pub fn with_set_element(self, (ident, set): ScopeFieldPathSetElement) -> Self {
         self.with_set(ident, set)
     }
 }

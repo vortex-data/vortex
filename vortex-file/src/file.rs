@@ -110,7 +110,7 @@ impl VortexFile {
         ));
 
         let mut scope_set = ScopeFieldPathSet::new(set);
-        scope_set = scope_set.with_set_pair(RowIdLayoutReader::row_id_stats_field_path_set());
+        scope_set = scope_set.with_set_element(RowIdLayoutReader::row_id_stats_field_path_set());
 
         let Some((predicate, required_stats)) = checked_pruning_expr(filter, &scope_set) else {
             return Ok(false);

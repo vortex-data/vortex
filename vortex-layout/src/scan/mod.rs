@@ -153,7 +153,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     pub fn dtype(&self) -> VortexResult<DType> {
         self.projection.return_dtype(
             &ScopeDType::new(self.layout_reader.dtype().clone())
-                .with_dtype_pair(RowIdLayoutReader::row_id_scope_dtype()),
+                .with_dtype_element(RowIdLayoutReader::row_id_scope_dtype()),
         )
     }
 

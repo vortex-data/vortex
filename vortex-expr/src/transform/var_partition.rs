@@ -15,11 +15,15 @@ use crate::{ExprRef, Identifier, get_item, pack, var};
 static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
     LazyLock::new(DefaultHashBuilder::default);
 
-/// Partition an expression over the variables.
+/// Partition an expression by the variable identifiers.
 pub fn var_partitions(expr: &ExprRef) -> VortexResult<VarPartitionedExpr> {
     VariableExpressionSplitter::split_all(expr)
 }
 
+/// Partition an expression using the partition function `f`
+/// e.g. var(x) + var(y) + var(z), where f(x) = {x} and f(y | z) = {y}
+/// the partitioned expr will be
+/// root: var(x) + var(y).0 + var(y).1, { x: var(x), y: pack(0: var(y), 1: var(z) }
 pub fn var_partitions_with_map(
     expr: &ExprRef,
     f: impl Fn(&Identifier) -> Identifier,

@@ -14,7 +14,10 @@ use vortex_dtype::{
 };
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::var_partition::{VarPartitionedExpr, var_partitions_with_map};
-use vortex_expr::{ExactExpr, ExprRef, Identifier, Scope, ScopeDType};
+use vortex_expr::{
+    ExactExpr, ExprRef, Identifier, Scope, ScopeDType, ScopeDTypeElement, ScopeElement,
+    ScopeFieldPathSetElement,
+};
 use vortex_mask::Mask;
 use vortex_sequence::SequenceArray;
 
@@ -67,7 +70,7 @@ impl RowIdLayoutReader {
             .clone()
     }
 
-    fn row_id_scope(&self, row_range: &Range<u64>) -> (Identifier, ArrayRef) {
+    fn row_id_scope(&self, row_range: &Range<u64>) -> ScopeElement {
         let arr_len = row_range.clone().count();
 
         (
@@ -89,7 +92,7 @@ impl RowIdLayoutReader {
         )
     }
 
-    pub fn row_id_scope_dtype() -> (Identifier, DType) {
+    pub fn row_id_scope_dtype() -> ScopeDTypeElement {
         (
             ROW_ID.clone(),
             DType::Struct(
@@ -102,7 +105,7 @@ impl RowIdLayoutReader {
         )
     }
 
-    pub fn row_id_stats_field_path_set() -> (Identifier, FieldPathSet) {
+    pub fn row_id_stats_field_path_set() -> ScopeFieldPathSetElement {
         (
             ROW_ID.clone(),
             FieldPathSet::from_iter([
