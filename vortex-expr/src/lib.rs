@@ -124,7 +124,7 @@ pub trait VortexExpr:
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
-    fn root_references(&self) -> HashSet<FieldName>;
+    fn field_references(&self) -> HashSet<FieldName>;
 
     fn vars(&self) -> HashSet<Identifier>;
 
@@ -133,7 +133,7 @@ pub trait VortexExprExt {
 }
 
 impl VortexExprExt for ExprRef {
-    fn root_references(&self) -> HashSet<FieldName> {
+    fn field_references(&self) -> HashSet<FieldName> {
         let mut collector = ReferenceCollector::new();
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
