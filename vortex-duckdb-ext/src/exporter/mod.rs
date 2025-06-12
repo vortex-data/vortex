@@ -4,6 +4,7 @@ mod decimal;
 mod dict;
 mod primitive;
 mod run_end;
+mod sequence;
 mod varbinview;
 
 use cache::*;
@@ -11,6 +12,7 @@ use itertools::Itertools;
 use vortex::arrays::{ConstantVTable, StructArray};
 use vortex::encodings::dict::DictVTable;
 use vortex::encodings::runend::RunEndVTable;
+use vortex::encodings::sequence::SequenceVTable;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 use vortex::iter::ArrayIterator;
 use vortex::mask::Mask;
@@ -140,6 +142,10 @@ fn new_array_exporter(
 
     if let Some(array) = array.as_opt::<DictVTable>() {
         return dict::new_exporter(array, cache);
+    }
+
+    if let Some(array) = array.as_opt::<SequenceVTable>() {
+        return sequence::new_exporter(array);
     }
 
     // Otherwise, we fall back to canonical

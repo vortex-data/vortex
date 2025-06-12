@@ -41,6 +41,11 @@ impl Vector {
         }
     }
 
+    pub fn to_sequence(&mut self, start: i64, stop: i64, capacity: u64) {
+        unsafe { cpp::duckdb_vx_sequence_vector(self.ptr, start, stop, capacity) }
+        // todo!()
+    }
+
     // NOTE(ngates): vector doesn't hold its own length. Which makes writing a safe
     //  Rust API annoying...
     pub unsafe fn as_slice_mut<T>(&mut self, length: usize) -> &mut [T] {
