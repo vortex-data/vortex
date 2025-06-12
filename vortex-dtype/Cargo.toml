@@ -28,6 +28,7 @@ static_assertions = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["dtype"] }
 vortex-proto = { workspace = true, features = ["dtype"] }
+vortex-utils = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

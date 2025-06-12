@@ -6,17 +6,18 @@ use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_array::stats::StatsSet;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
-use vortex_expr::pruning::PruningPredicate;
-use vortex_expr::{ExprRef, Scope};
+use vortex_expr::pruning::checked_pruning_expr;
+use vortex_expr::{ExprRef, Scope, ScopeFieldPathSet};
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::footer::Footer;
-use crate::pruning::extract_relevant_stat_as_struct_row;
+use crate::pruning::extract_relevant_file_stats_as_struct_row;
 
 /// Represents a Vortex file, providing access to its metadata and content.
 ///
@@ -94,19 +95,46 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let Some(predicate) = PruningPredicate::try_new(filter) else {
+        let set =
+            FieldPathSet::from_iter(struct_dtype.names().iter().zip(file_stats.iter()).flat_map(
+                |(name, stats)| {
+                    stats.iter().map(|(stat, _)| {
+                        FieldPath::from_iter([
+                            Field::Name(name.clone()),
+                            Field::Name(stat.name().into()),
+                        ])
+                    })
+                },
+            ));
+
+        let scope_set = ScopeFieldPathSet::new(set);
+
+        let Some((predicate, required_stats)) = checked_pruning_expr(filter, &scope_set) else {
             return Ok(false);
         };
 
-        let Some(struct_row) =
-            extract_relevant_stat_as_struct_row(&predicate, file_stats, struct_dtype)?
+        let required_file_stats = HashMap::from_iter(
+            required_stats
+                .map()
+                .iter()
+                .filter(|&(path, _)| path.identifier().is_identity())
+                .map(|(path, stats)| (path.field_path().clone(), stats.clone())),
+        );
+
+        let Some(file_stats) = extract_relevant_file_stats_as_struct_row(
+            &required_file_stats,
+            file_stats,
+            struct_dtype,
+        )?
         else {
             return Ok(false);
         };
 
+        let scope = Scope::new(file_stats);
+
         Ok(predicate
-            .evaluate(&Scope::new(struct_row))?
-            .and_then(|p| p.as_constant())
+            .evaluate(&scope)?
+            .as_constant()
             .is_some_and(|result| result.as_bool().value() == Some(true)))
     }
 }

@@ -10,10 +10,10 @@ use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ToCanonical};
-use vortex_dtype::{DType, FieldMask};
+use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
-use vortex_expr::pruning::PruningPredicate;
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_expr::pruning::checked_pruning_expr;
+use vortex_expr::{ExprRef, Scope, ScopeFieldPathSet, root};
 use vortex_mask::Mask;
 
 use crate::layouts::zoned::ZonedLayout;
@@ -23,7 +23,7 @@ use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
 
 pub(crate) type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
 pub(crate) type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
-pub(crate) type PredicateCache = Arc<OnceLock<Option<PruningPredicate>>>;
+pub(crate) type PredicateCache = Arc<OnceLock<Option<ExprRef>>>;
 
 pub struct ZonedReader {
     layout: ZonedLayout,
@@ -41,6 +41,7 @@ pub struct ZonedReader {
     zone_map: OnceLock<SharedZoneMap>,
 
     /// A cache of expr -> optional pruning predicate.
+    /// This also uses the present_stats from the `ZonedLayout`
     pruning_predicates: Arc<DashMap<ExprRef, PredicateCache>>,
 }
 
@@ -72,11 +73,19 @@ impl ZonedReader {
     }
 
     /// Get or create the pruning predicate for a given expression.
-    fn pruning_predicate(&self, expr: ExprRef) -> Option<PruningPredicate> {
+    fn pruning_predicate(&self, expr: ExprRef) -> Option<ExprRef> {
         self.pruning_predicates
             .entry(expr.clone())
             .or_default()
-            .get_or_init(move || PruningPredicate::try_new(&expr))
+            .get_or_init(move || {
+                let scope_set = ScopeFieldPathSet::new(FieldPathSet::from_iter(
+                    self.layout
+                        .present_stats
+                        .iter()
+                        .map(|s| FieldPath::from_name(s.name())),
+                ));
+                checked_pruning_expr(&expr, &scope_set).map(|(expr, _)| expr)
+            })
             .clone()
     }
 
@@ -125,10 +134,12 @@ impl ZonedReader {
                         self.stats_table()
                             .map(move |stats_table| {
                                 stats_table.and_then(move |stats_table| {
-                                    pred.evaluate(&Scope::new(stats_table.array().to_array()))?
-                                        .map(|a| Mask::try_from(a.as_ref()))
-                                        .transpose()
-                                        .map_err(Arc::new)
+                                    Mask::try_from(
+                                        pred.evaluate(&Scope::new(stats_table.array().to_array()))?
+                                            .as_ref(),
+                                    )
+                                    .map_err(Arc::new)
+                                    .map(Some)
                                 })
                             })
                             .boxed()

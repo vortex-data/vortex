@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::DType;
 
@@ -205,6 +206,28 @@ impl From<Vec<Field>> for FieldPath {
 impl Display for FieldPath {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.0.iter().format("."), f)
+    }
+}
+
+#[derive(Default, Clone, Debug)]
+/// Contains a set of field paths, and can answer efficient field path contains queries.
+pub struct FieldPathSet {
+    /// While this is currently a set wrapper it can be replaced with a trie.
+    // TODO(joe): this can be replaced with a `FieldPath` trie
+    set: HashSet<FieldPath>,
+}
+
+impl FieldPathSet {
+    /// Checks if a set contains a field path
+    pub fn contains(&self, path: &FieldPath) -> bool {
+        self.set.contains(path)
+    }
+}
+
+impl FromIterator<FieldPath> for FieldPathSet {
+    fn from_iter<T: IntoIterator<Item = FieldPath>>(iter: T) -> Self {
+        let set = HashSet::from_iter(iter);
+        Self { set }
     }
 }
 

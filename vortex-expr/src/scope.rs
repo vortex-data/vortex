@@ -3,7 +3,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, FieldPathSet};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -23,6 +23,35 @@ impl FromStr for Identifier {
             vortex_bail!("Empty strings aren't allowed in identifiers")
         } else {
             Ok(Identifier::Other(s.into()))
+        }
+    }
+}
+
+impl PartialEq<str> for Identifier {
+    fn eq(&self, other: &str) -> bool {
+        match self {
+            Identifier::Identity => other.is_empty(),
+            Identifier::Other(str) => str.as_ref() == other,
+        }
+    }
+}
+
+impl From<&str> for Identifier {
+    fn from(value: &str) -> Self {
+        if value.is_empty() {
+            Identifier::Identity
+        } else {
+            Identifier::Other(Arc::from(value))
+        }
+    }
+}
+
+impl From<&Arc<str>> for Identifier {
+    fn from(value: &Arc<str>) -> Self {
+        if value.as_ref() == "" {
+            Identifier::Identity
+        } else {
+            Identifier::Other(value.clone())
         }
     }
 }
@@ -107,7 +136,7 @@ impl Scope {
         self.array_len
     }
 
-    pub fn copy_with_value(&self, ident: Identifier, value: ArrayRef) -> Self {
+    pub fn copy_with_array(&self, ident: Identifier, value: ArrayRef) -> Self {
         self.clone().with_array(ident, value)
     }
 
@@ -144,7 +173,7 @@ impl From<ArrayRef> for Scope {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct ScopeDType {
     root: Option<DType>,
     types: ExprScope<DType>,
@@ -178,15 +207,50 @@ impl ScopeDType {
         self.types.get(id)
     }
 
-    pub fn copy_with_value(&self, ident: Identifier, dtype: DType) -> Self {
-        self.clone().with_value(ident, dtype)
+    pub fn copy_with_dtype(&self, ident: Identifier, dtype: DType) -> Self {
+        self.clone().with_dtype(ident, dtype)
     }
 
-    pub fn with_value(mut self, ident: Identifier, dtype: DType) -> Self {
+    pub fn with_dtype(mut self, ident: Identifier, dtype: DType) -> Self {
         if ident.is_identity() {
             self.root = Some(dtype);
         } else {
             self.types.insert(ident, dtype);
+        }
+        self
+    }
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct ScopeFieldPathSet {
+    root: Option<FieldPathSet>,
+    sets: ExprScope<FieldPathSet>,
+}
+
+impl ScopeFieldPathSet {
+    pub fn new(path_set: FieldPathSet) -> Self {
+        Self {
+            root: Some(path_set),
+            ..Default::default()
+        }
+    }
+
+    pub fn set(&self, id: &Identifier) -> Option<&FieldPathSet> {
+        if id.is_identity() {
+            return self.root.as_ref();
+        }
+        self.sets.get(id)
+    }
+
+    pub fn copy_with_set(&self, ident: Identifier, set: FieldPathSet) -> Self {
+        self.clone().with_set(ident, set)
+    }
+
+    pub fn with_set(mut self, ident: Identifier, set: FieldPathSet) -> Self {
+        if ident.is_identity() {
+            self.root = Some(set);
+        } else {
+            self.sets.insert(ident, set);
         }
         self
     }
