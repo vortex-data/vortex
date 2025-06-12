@@ -228,19 +228,6 @@ impl DType {
             _ => None,
         }
     }
-
-    /// todo
-    pub fn struct_<I: IntoIterator<Item = (impl Into<FieldName>, impl Into<FieldDType>)>>(
-        iter: I,
-        nullability: Nullability,
-    ) -> Self {
-        Struct(Arc::new(StructFields::from_iter(iter)), nullability)
-    }
-
-    /// Todod
-    pub fn list(dtype: impl Into<DType>, nullability: Nullability) -> Self {
-        List(Arc::new(dtype.into()), nullability)
-    }
 }
 
 impl Display for DType {
