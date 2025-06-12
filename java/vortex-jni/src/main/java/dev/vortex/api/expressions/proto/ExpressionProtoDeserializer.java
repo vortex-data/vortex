@@ -17,12 +17,15 @@ package dev.vortex.api.expressions.proto;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
+import com.google.protobuf.ByteString;
 import dev.vortex.api.Expression;
 import dev.vortex.api.expressions.*;
 import dev.vortex.proto.DTypeProtos;
 import dev.vortex.proto.ExprProtos;
 import dev.vortex.proto.ScalarProtos;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
@@ -128,7 +131,17 @@ public final class ExpressionProtoDeserializer {
             case STRING_VALUE:
                 return Literal.string(scalarValue.getStringValue());
             case BYTES_VALUE:
-                return Literal.bytes(scalarValue.getBytesValue().toByteArray());
+                if (dtype.hasDecimal()) {
+                    ByteString littleEndian = scalarValue.getBytesValue();
+                    byte[] bigEndian = new byte[littleEndian.size()];
+                    for (int i = 0; i < bigEndian.length; i++) {
+                        bigEndian[i] = littleEndian.byteAt(bigEndian.length - 1 - i);
+                    }
+                    BigDecimal value = new BigDecimal(new BigInteger(bigEndian), dtype.getDecimal().getScale());
+                    return Literal.decimal(value, dtype.getDecimal().getPrecision(), dtype.getDecimal().getScale());
+                } else {
+                    return Literal.bytes(scalarValue.getBytesValue().toByteArray());
+                }
             default:
                 throw new UnsupportedOperationException("Unsupported ScalarValue type encountered: " + scalarValue);
         }

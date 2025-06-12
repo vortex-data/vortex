@@ -276,7 +276,7 @@ public abstract class Literal<T> implements Expression {
         DecimalLiteral(BigDecimal value, int precision, int scale) {
             super(value);
             if (!Objects.isNull(value)) {
-                Preconditions.checkArgument(precision == value.precision(), "");
+                Preconditions.checkArgument(scale == value.scale(), "scale %s ≠ value scale %s", scale, value.scale());
             }
             this.precision = precision;
             this.scale = scale;
