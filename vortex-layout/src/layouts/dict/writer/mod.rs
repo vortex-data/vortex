@@ -12,7 +12,9 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex_error::{
+    ErrString, VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err,
+};
 
 use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;
@@ -419,8 +421,20 @@ async fn call_for_first_item<T>(
     mut stream: BoxStream<'static, SequencedChunk>,
     func: impl Fn(&ArrayRef) -> VortexResult<T>,
 ) -> (BoxStream<'static, SequencedChunk>, VortexResult<T>) {
-    let Some(Ok((sequence_id, first_chunk))) = stream.next().await else {
+    let Some(result) = stream.next().await else {
         return (stream.boxed(), Err(vortex_err!("empty stream")));
+    };
+    let (sequence_id, first_chunk) = match result {
+        Ok((sequence_id, first_chunk)) => (sequence_id, first_chunk),
+        Err(err) => {
+            return (
+                stream.boxed(),
+                Err(VortexError::Context(
+                    ErrString::from("call_for_first_item"),
+                    Box::new(err),
+                )),
+            );
+        }
     };
     let res = func(&first_chunk);
     // reconstruct the stream
