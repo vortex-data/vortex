@@ -12,7 +12,9 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dict::DictEncoding;
 use vortex_dict::builders::{DictConstraints, DictEncoder, dict_encoder};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err};
+use vortex_error::{
+    ErrString, VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err,
+};
 
 use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;
