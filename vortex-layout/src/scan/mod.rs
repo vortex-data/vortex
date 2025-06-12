@@ -301,13 +301,9 @@ impl ScanBuilder<ArrayRef> {
 fn filter_and_projection_masks(
     projection: &ExprRef,
     filter: Option<&ExprRef>,
-    scope_dtype: &ScopeDType,
+    dtype: &DType,
 ) -> VortexResult<(Vec<FieldMask>, Vec<FieldMask>)> {
-    let Some(struct_dtype) = scope_dtype
-        .dtype(&Identifier::Identity)
-        .expect("no ident")
-        .as_struct()
-    else {
+    let Some(struct_dtype) = dtype.as_struct() else {
         return Ok(match filter {
             Some(_) => (vec![FieldMask::All], vec![FieldMask::All]),
             None => (Vec::new(), vec![FieldMask::All]),
