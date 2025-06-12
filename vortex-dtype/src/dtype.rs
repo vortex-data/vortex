@@ -9,7 +9,7 @@ use vortex_error::vortex_panic;
 
 use crate::decimal::DecimalDType;
 use crate::nullability::Nullability;
-use crate::{ExtDType, FieldDType, PType, StructFields};
+use crate::{ExtDType, PType, StructFields};
 
 /// A name for a field in a struct
 pub type FieldName = Arc<str>;
