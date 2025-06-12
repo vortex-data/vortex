@@ -21,6 +21,7 @@ message ScalarValue {
     uint64 uint64_value = 4;
     float f32_value = 5;
     double f64_value = 6;
+    bytes decimal_value = 10;
     string string_value = 7;
     bytes bytes_value = 8;
     ListValue list_value = 9;

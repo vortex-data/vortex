@@ -17,6 +17,8 @@ package dev.vortex.api.expressions;
 
 import com.google.common.base.Objects;
 import dev.vortex.api.Expression;
+
+import java.math.BigDecimal;
 import java.util.Optional;
 
 public abstract class Literal<T> implements Expression {
@@ -164,6 +166,8 @@ public abstract class Literal<T> implements Expression {
         U visitFloat32(Float literal);
 
         U visitFloat64(Double literal);
+
+        U visitDecimal(BigDecimal decimal);
 
         U visitString(String literal);
 

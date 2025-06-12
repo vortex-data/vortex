@@ -18,10 +18,14 @@ package dev.vortex.api.expressions.proto;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
 import dev.vortex.proto.ScalarProtos;
+
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.Optional;
 
 final class Scalars {
-    private Scalars() {}
+    private Scalars() {
+    }
 
     static ScalarProtos.Scalar nullNull() {
         return ScalarProtos.Scalar.newBuilder()
@@ -172,6 +176,50 @@ final class Scalars {
                         .build())
                 .setDtype(DTypes.string(true))
                 .build();
+    }
+
+    private static byte[] littleEndianDecimal(BigDecimal decimal) {
+        BigInteger unscaled = decimal.unscaledValue();
+        byte[] bigEndianBytes = unscaled.toByteArray();
+
+        // Determine target size (1, 2, 4, 8, 16, or 32 bytes)
+        int targetSize;
+        if (bigEndianBytes.length <= 1) targetSize = 1;
+        else if (bigEndianBytes.length <= 2) targetSize = 2;
+        else if (bigEndianBytes.length <= 4) targetSize = 4;
+        else if (bigEndianBytes.length <= 8) targetSize = 8;
+        else if (bigEndianBytes.length <= 16) targetSize = 16;
+        else targetSize = 32;
+
+        byte[] result = new byte[targetSize];
+
+        // Copy bytes in reverse order (big endian to little endian)
+        for (int i = 0; i < bigEndianBytes.length; i++) {
+            result[i] = bigEndianBytes[bigEndianBytes.length - 1 - i];
+        }
+
+        // Sign extend if negative
+        if (unscaled.signum() < 0) {
+            for (int i = bigEndianBytes.length; i < targetSize; i++) {
+                result[i] = (byte) 0xFF;
+            }
+        }
+
+        return result;
+    }
+
+    static ScalarProtos.Scalar decimal(BigDecimal decimal) {
+        var littleEndian = littleEndianDecimal(decimal);
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setDecimalValue(ByteString.copyFrom(littleEndian))
+                        .build())
+                .setDtype(DTypes.decimal(false, decimal.precision(), decimal.scale()))
+                .build();
+    }
+
+    static ScalarProtos.Scalar nullDecimal(int precision, int scale) {
+        // Do stuff
     }
 
     static ScalarProtos.Scalar bytes(byte[] value) {

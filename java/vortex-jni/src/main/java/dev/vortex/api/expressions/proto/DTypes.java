@@ -91,6 +91,16 @@ final class DTypes {
                 .build();
     }
 
+    static DTypeProtos.DType decimal(boolean nullable, int precision, int scale) {
+        return DTypeProtos.DType.newBuilder()
+                .setDecimal(DTypeProtos.Decimal.newBuilder()
+                        .setNullable(nullable)
+                        .setPrecision(precision)
+                        .setScale(scale)
+                        .build())
+                .build();
+    }
+
     static DTypeProtos.DType string(boolean nullable) {
         return DTypeProtos.DType.newBuilder()
                 .setUtf8(DTypeProtos.Utf8.newBuilder().setNullable(nullable).build())
