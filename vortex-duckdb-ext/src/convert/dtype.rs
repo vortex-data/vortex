@@ -1,3 +1,28 @@
+//! Logical type conversion between Vortex and DuckDB.
+//!
+//! This module provides functionality to convert Vortex data types (`DType`) to DuckDB logical types.
+//!
+//! # Supported Type Mappings
+//!
+//! | Vortex Type | DuckDB Type |
+//! |-------------|-------------|
+//! | `Null` | `SQLNULL` |
+//! | `Bool` | `BOOLEAN` |
+//! | `I8/U8` | `TINYINT/UTINYINT` |
+//! | `I16/U16` | `SMALLINT/USMALLINT` |
+//! | `I32/U32` | `INTEGER/UINTEGER` |
+//! | `I64/U64` | `BIGINT/UBIGINT` |
+//! | `F32` | `FLOAT` |
+//! | `F64` | `DOUBLE` |
+//! | `Utf8` | `VARCHAR` |
+//! | `Binary` | `BLOB` |
+//! | `Struct` | `STRUCT` |
+//! | `Decimal` | `DECIMAL` |
+//! | `List` | `LIST` |
+//! | `Date` | `DATE` |
+//! | `Time` | `TIME` |
+//! | `Timestamp` | `TIMESTAMP` (various precisions) |
+
 use std::ffi::CString;
 
 use vortex::dtype::{DType, PType, datetime};
@@ -7,6 +32,7 @@ use crate::cpp::{self, duckdb_logical_type};
 use crate::duckdb::LogicalType;
 
 impl LogicalType {
+    /// Creates a DuckDB struct logical type from child types and field names.
     fn struct_type<T, N>(child_types: T, child_names: N) -> VortexResult<LogicalType>
     where
         T: IntoIterator<Item = LogicalType>,
@@ -36,6 +62,7 @@ impl LogicalType {
         Ok(unsafe { Self::own(struct_type_ptr) })
     }
 
+    /// Creates a DuckDB decimal logical type with the specified precision and scale.
     fn decimal_type(precision: u8, scale: u8) -> VortexResult<Self> {
         assert!(
             precision <= 38,
@@ -51,6 +78,7 @@ impl LogicalType {
         }
     }
 
+    /// Creates a DuckDB list logical type with the specified element type.
     fn list_type(element_type: LogicalType) -> VortexResult<Self> {
         unsafe {
             let ptr = cpp::duckdb_create_list_type(element_type.as_ptr());
@@ -61,7 +89,18 @@ impl LogicalType {
         }
     }
 
-    /// Convert temporal extension types to corresponding DuckDB types.
+    /// Converts temporal extension types to corresponding DuckDB types.
+    ///
+    /// # Arguments
+    ///
+    /// * `ext_dtype` - A reference to the extension data type containing temporal metadata.
+    ///
+    /// # Supported Temporal Types
+    ///
+    /// - **Date**: Must use `TimeUnit::D`
+    /// - **Time**: Must use `TimeUnit::Us`
+    /// - **Timestamp**: Supports `TimeUnit::Ns`, `Us`, `Ms`, `S`
+    /// ```
     fn temporal_type(ext_dtype: &vortex::dtype::ExtDType) -> VortexResult<Self> {
         use vortex::dtype::datetime::{TemporalMetadata, TimeUnit};
 
@@ -98,6 +137,18 @@ impl LogicalType {
 impl TryFrom<&DType> for LogicalType {
     type Error = VortexError;
 
+    /// Converts a Vortex data type to a DuckDB logical type.
+    ///
+    /// This is the main conversion function that handles all supported Vortex data types
+    /// and maps them to their corresponding DuckDB logical types.
+    ///
+    /// # Arguments
+    ///
+    /// * `dtype` - A reference to the Vortex data type to convert
+    ///
+    /// # Returns
+    ///
+    /// A `Result<Self, Self::Error>` containing the DuckDB logical type or a conversion error.
     fn try_from(dtype: &DType) -> Result<Self, Self::Error> {
         let duckdb_type = match dtype {
             DType::Null => cpp::DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL,
