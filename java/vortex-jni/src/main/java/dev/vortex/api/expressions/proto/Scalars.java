@@ -212,14 +212,18 @@ final class Scalars {
         var littleEndian = littleEndianDecimal(decimal);
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
-                        .setDecimalValue(ByteString.copyFrom(littleEndian))
+                        .setBytesValue(ByteString.copyFrom(littleEndian))
                         .build())
                 .setDtype(DTypes.decimal(false, decimal.precision(), decimal.scale()))
                 .build();
     }
 
     static ScalarProtos.Scalar nullDecimal(int precision, int scale) {
-        // Do stuff
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setNullValue(NullValue.NULL_VALUE))
+                .setDtype(DTypes.decimal(true, precision, scale))
+                .build();
     }
 
     static ScalarProtos.Scalar bytes(byte[] value) {

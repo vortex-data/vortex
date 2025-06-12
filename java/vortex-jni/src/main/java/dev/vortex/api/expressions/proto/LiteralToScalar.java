@@ -179,9 +179,9 @@ final class LiteralToScalar implements Literal.LiteralVisitor<ScalarProtos.Scala
     @Override
     public ScalarProtos.Scalar visitDecimal(BigDecimal decimal) {
         if (Objects.isNull(decimal)) {
-            return Scalars.nullDecimal();
+            return Scalars.nullDecimal(1, 1);
         } else {
-            Scalars.decimal(decimal);
+            return Scalars.decimal(decimal);
         }
     }
 

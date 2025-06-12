@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use num_traits::ToBytes;
 use vortex_buffer::{BufferString, ByteBuffer};
-use vortex_dtype::{DType, TryFromBytes};
-use vortex_error::{VortexError, VortexUnwrap, vortex_err};
+use vortex_dtype::DType;
+use vortex_error::{VortexError, vortex_err};
 use vortex_proto::scalar as pb;
 use vortex_proto::scalar::ListValue;
 use vortex_proto::scalar::scalar_value::Kind;
 
 use crate::pvalue::PValue;
-use crate::{DecimalValue, InnerScalarValue, Scalar, ScalarValue, i256};
+use crate::{DecimalValue, InnerScalarValue, Scalar, ScalarValue};
 
 impl From<&Scalar> for pb::Scalar {
     fn from(value: &Scalar) -> Self {
@@ -41,7 +41,7 @@ impl From<&ScalarValue> for pb::ScalarValue {
                 };
 
                 pb::ScalarValue {
-                    kind: Some(Kind::DecimalValue(inner_value)),
+                    kind: Some(Kind::BytesValue(inner_value)),
                 }
             }
             ScalarValue(InnerScalarValue::Buffer(v)) => pb::ScalarValue {
@@ -141,27 +141,6 @@ impl TryFrom<&pb::ScalarValue> for ScalarValue {
             Kind::Uint64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U64(*v)))),
             Kind::F32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(*v)))),
             Kind::F64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(*v)))),
-            Kind::DecimalValue(v) => match v.len() {
-                1 => Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::from(
-                    v[0] as i8,
-                )))),
-                2 => Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::from(
-                    i16::from_le_bytes(v[0..2].try_into().vortex_unwrap()),
-                )))),
-                4 => Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::from(
-                    i32::from_le_bytes(v[0..4].try_into().vortex_unwrap()),
-                )))),
-                8 => Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::from(
-                    i64::from_le_bytes(v[0..8].try_into().vortex_unwrap()),
-                )))),
-                16 => Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::from(
-                    i128::from_le_bytes(v[0..16].try_into().vortex_unwrap()),
-                )))),
-                32 => Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::from(
-                    i256::from_le_bytes(v[0..32].try_into().vortex_unwrap()),
-                )))),
-                _ => Err(vortex_err!(InvalidSerde: "Invalid DecimalValue length: {}", v.len())),
-            },
             Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
                 BufferString::from(v.clone()),
             )))),
