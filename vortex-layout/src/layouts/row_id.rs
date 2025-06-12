@@ -8,8 +8,9 @@ use vortex_array::arrays::{ConstantArray, StructArray};
 use vortex_array::compute::filter;
 use vortex_array::stats::{Precision, Stat};
 use vortex_array::{ArrayRef, IntoArray};
+use vortex_dtype::PType::I64;
 use vortex_dtype::{
-    DType, Field, FieldMask, FieldName, FieldPath, FieldPathSet, Nullability, PType, StructFields,
+    DType, Field, FieldMask, FieldName, FieldPath, FieldPathSet, Nullability, StructFields,
 };
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::var_partition::{VarPartitionedExpr, var_partitions_with_map};
@@ -93,11 +94,8 @@ impl RowIdLayoutReader {
             ROW_ID.clone(),
             DType::Struct(
                 Arc::new(StructFields::from_iter([
-                    (
-                        FieldName::from("file_row_number"),
-                        DType::Primitive(PType::I64, Nullability::NonNullable),
-                    ),
-                    ("file_index".into(), PType::I64.into()),
+                    (FieldName::from("file_row_number"), DType::from(I64)),
+                    ("file_index".into(), I64.into()),
                 ])),
                 Nullability::NonNullable,
             ),
@@ -210,9 +208,9 @@ impl LayoutReader for RowIdLayoutReader {
             None
         };
 
-        let res = row_id.evaluate(&row_id_scope)?;
         Ok(Box::new(RowIdMaskEvaluation {
-            row_id_partition: res,
+            row_id_partition_expr: row_id.clone(),
+            row_id_partition_scope: row_id_scope,
             child: rest_eval,
             root: partitioned.root.clone(),
         }) as Box<_>)
@@ -225,21 +223,20 @@ impl LayoutReader for RowIdLayoutReader {
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         let arr_len = row_range.clone().count();
         let partitioned = self.partition_expr(expr);
-        let Some(row_id) = partitioned.find_partition(&ROW_ID) else {
+        let Some(row_id_expr) = partitioned.find_partition(&ROW_ID) else {
             return self.child.projection_evaluation(row_range, expr);
         };
         let rest = partitioned.find_partition(&Identifier::Identity);
 
         let row_id_scope = Scope::empty(arr_len).with_array_pair(self.row_id_scope(row_range));
 
-        let res = row_id.evaluate(&row_id_scope)?;
-
         let rest_eval = rest
             .map(|r| self.child.projection_evaluation(row_range, r))
             .transpose()?;
 
         Ok(Box::new(RowIdArrayEvaluation {
-            row_id_partition: res,
+            row_id_partition_expr: row_id_expr.clone(),
+            row_id_partition_scope: row_id_scope,
             child: rest_eval,
             root: partitioned.root.clone(),
         }) as Box<_>)
@@ -252,7 +249,8 @@ enum FieldEval {
 }
 
 struct RowIdMaskEvaluation {
-    row_id_partition: ArrayRef,
+    row_id_partition_expr: ExprRef,
+    row_id_partition_scope: Scope,
     child: Option<FieldEval>,
     root: ExprRef,
 }
@@ -274,7 +272,11 @@ impl MaskEvaluation for RowIdMaskEvaluation {
             Scope::empty(mask.len())
         };
 
-        let root_scope = root_scope.with_array(ROW_ID.clone(), self.row_id_partition.clone());
+        let row_id_value = self
+            .row_id_partition_expr
+            .evaluate(&self.row_id_partition_scope)?;
+
+        let root_scope = root_scope.with_array(ROW_ID.clone(), row_id_value);
 
         let root_mask = Mask::try_from(self.root.evaluate(&root_scope)?.as_ref())?;
         let mask = mask.bitand(&root_mask);
@@ -284,7 +286,8 @@ impl MaskEvaluation for RowIdMaskEvaluation {
 }
 
 struct RowIdArrayEvaluation {
-    row_id_partition: ArrayRef,
+    row_id_partition_expr: ExprRef,
+    row_id_partition_scope: Scope,
     child: Option<Box<dyn ArrayEvaluation>>,
     root: ExprRef,
 }
@@ -298,7 +301,10 @@ impl ArrayEvaluation for RowIdArrayEvaluation {
             Scope::empty(mask.len())
         };
 
-        let filtered = filter(&self.row_id_partition, &mask)?;
+        let row_id_result = self
+            .row_id_partition_expr
+            .evaluate(&self.row_id_partition_scope)?;
+        let filtered = filter(&row_id_result, &mask)?;
 
         let root_scope = root_scope.with_array(ROW_ID.clone(), filtered.clone());
 
