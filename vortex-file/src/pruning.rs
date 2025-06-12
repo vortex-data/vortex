@@ -11,7 +11,7 @@ use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
-pub fn extract_relevant_file_stat_as_struct_row(
+pub fn extract_relevant_file_stats_as_struct_row(
     access: &HashMap<FieldPath, HashSet<Stat>>,
     stats_sets: &Arc<[StatsSet]>,
     struct_dtype: &Arc<StructFields>,

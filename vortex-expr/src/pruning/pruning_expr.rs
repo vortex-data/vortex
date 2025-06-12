@@ -2,85 +2,41 @@ use std::iter;
 
 use itertools::Itertools;
 use vortex_array::stats::Stat;
-use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{Field, FieldName, FieldPath};
-use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use super::relation::Relation;
-use crate::{AccessPath, ExprRef, Scope, ScopeFieldPathSet, StatsCatalog, get_item, var};
+use crate::{AccessPath, ExprRef, ScopeFieldPathSet, StatsCatalog, get_item, var};
 
 pub type RequiredStats = Relation<AccessPath, Stat>;
-
-#[derive(Debug, Clone)]
-pub struct PruningPredicate {
-    expr: ExprRef,
-    required_stats: RequiredStats,
-}
-
-impl PruningPredicate {
-    pub fn try_new(original_expr: &ExprRef) -> Option<Self> {
-        let (expr, required_stats) = pruning_expr(original_expr)?;
-
-        Some(Self {
-            expr,
-            required_stats,
-        })
-    }
-
-    pub fn expr(&self) -> &ExprRef {
-        &self.expr
-    }
-
-    pub fn required_stats(&self) -> &HashMap<AccessPath, HashSet<Stat>> {
-        self.required_stats.map()
-    }
-
-    /// Evaluate this predicate against a per-chunk statistics table.
-    ///
-    /// Returns Ok(None) if any of the required statistics are not present in metadata.
-    /// If it returns Ok(Some(array)), the array is a boolean array with the same length as the
-    /// metadata, and a true value means the chunk _can_ be pruned.
-    pub fn evaluate(&self, metadata: &Scope) -> VortexResult<Option<ArrayRef>> {
-        // TODO(joe): Replace this with a StatsCatalog that contains all the available stats and
-        // build an expr using them.
-        let known_stats = metadata
-            .iter()
-            .flat_map(|(access_path, stat)| {
-                stat.dtype()
-                    .as_struct()
-                    .vortex_expect("metadata must be struct array")
-                    .names()
-                    .iter()
-                    .map(|n| {
-                        (
-                            AccessPath::new(FieldPath::root(), access_path.clone()),
-                            n.clone(),
-                        )
-                    })
-            })
-            .collect::<HashSet<(AccessPath, FieldName)>>();
-        let required_stats = self
-            .required_stats()
-            .iter()
-            .flat_map(|(path, stats)| stats.iter().map(|s| (path.clone(), s.name().into())))
-            .collect::<HashSet<(AccessPath, FieldName)>>();
-
-        let missing_stats = required_stats.difference(&known_stats).collect::<Vec<_>>();
-
-        if !missing_stats.is_empty() {
-            return Ok(None);
-        }
-
-        self.expr.evaluate(metadata).map(Some)
-    }
-}
 
 // A catalog that return a stat column whenever it is required
 #[derive(Default)]
 struct AnyStatsCatalog {
     usage: HashMap<(AccessPath, Stat), ExprRef>,
+}
+
+// A catalog that return a stat column if it exists in the given scope.
+struct ScopeStatsCatalog<'a> {
+    any_catalog: AnyStatsCatalog,
+    scope_field_paths: &'a ScopeFieldPathSet,
+}
+
+impl StatsCatalog for ScopeStatsCatalog<'_> {
+    fn stats_ref(&mut self, access_path: &AccessPath, stat: Stat) -> Option<ExprRef> {
+        let set = self.scope_field_paths.set(access_path.identifier())?;
+
+        let stat_path = access_path
+            .field_path
+            .clone()
+            .push(Field::Name(stat.name().into()));
+
+        if set.contains(&stat_path) {
+            self.any_catalog.stats_ref(access_path, stat)
+        } else {
+            None
+        }
+    }
 }
 
 impl StatsCatalog for AnyStatsCatalog {
@@ -90,27 +46,6 @@ impl StatsCatalog for AnyStatsCatalog {
         expr = get_item(name, expr);
         self.usage.insert((access_path.clone(), stat), expr.clone());
         Some(expr)
-    }
-}
-
-// A catalog that return a stat column if it exists in the given scope.
-struct ScopeStatsCatalog<'a> {
-    any_catalog: AnyStatsCatalog,
-    scope_dtype: &'a ScopeFieldPathSet,
-}
-
-impl StatsCatalog for ScopeStatsCatalog<'_> {
-    fn stats_ref(&mut self, access_path: &AccessPath, stat: Stat) -> Option<ExprRef> {
-        let set = self.scope_dtype.set(access_path.identifier())?;
-
-        let stat_path = access_path
-            .field_path
-            .clone()
-            .push(Field::Name(stat.name().into()));
-
-        set.contains(&stat_path)
-            .then(|| self.any_catalog.stats_ref(access_path, stat))
-            .flatten()
     }
 }
 
@@ -127,13 +62,15 @@ pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldNa
         .into()
 }
 
+/// Create a stat based falsification expr assuming all stats for all column in the expression
+/// exist
 pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
     let mut catalog = AnyStatsCatalog {
         ..Default::default()
     };
     let expr = expr.stat_falsification(&mut catalog)?;
 
-    // TODO: filter by used exprs
+    // TODO(joe): filter access by used exprs
     let mut relation: Relation<AccessPath, Stat> = Relation::new();
     for ((field_path, stat), _) in catalog.usage.into_iter() {
         relation.insert(field_path, stat)
@@ -142,19 +79,22 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
     Some((expr, relation))
 }
 
-// Build a pruning expr mask an existing bundle of stats
+/// Build a pruning expr mask an existing bundle of stats
+/// Create a stat based falsification expr using the stats in the `scope_field_paths`.
+/// These are of the form
+/// [["col_0", ..., "col_n", "stat_name"], ...] for each stat.
 pub fn checked_pruning_expr(
     expr: &ExprRef,
-    scope_dtype: &ScopeFieldPathSet,
+    scope_field_paths: &ScopeFieldPathSet,
 ) -> Option<(ExprRef, RequiredStats)> {
     let mut catalog = ScopeStatsCatalog {
         any_catalog: Default::default(),
-        scope_dtype,
+        scope_field_paths,
     };
 
     let expr = expr.stat_falsification(&mut catalog)?;
 
-    // TODO: filter by used exprs
+    // TODO(joe): filter access by used exprs
     let mut relation: Relation<AccessPath, Stat> = Relation::new();
     for ((field_path, stat), _) in catalog.any_catalog.usage.into_iter() {
         relation.insert(field_path, stat)
@@ -168,8 +108,8 @@ mod tests {
     use vortex_array::stats::Stat;
     use vortex_dtype::{FieldName, FieldPath};
 
-    use crate::pruning::pruning_predicate::{HashMap, pruning_expr};
-    use crate::pruning::{PruningPredicate, field_path_stat_field_name};
+    use crate::pruning::field_path_stat_field_name;
+    use crate::pruning::pruning_expr::{HashMap, pruning_expr};
     use crate::{
         AccessPath, HashSet, and, col, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq,
         not_eq, or, root,
@@ -484,7 +424,7 @@ mod tests {
         // True > False
         // True
         let expr = gt_eq(col("x"), gt(col("y"), col("z")));
-        assert!(PruningPredicate::try_new(&expr).is_none());
+        assert!(pruning_expr(&expr).is_none());
         // TODO(DK): a sufficiently complex pruner would produce: `x_max <= (y_max > z_min)`
     }
 }

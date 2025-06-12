@@ -1,4 +1,4 @@
-mod pruning_predicate;
+mod pruning_expr;
 mod relation;
 
 pub use pruning_predicate::{

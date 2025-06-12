@@ -121,7 +121,6 @@ impl TableFunction for VortexTableFunction {
             global_state
                 .done
                 .store(true, std::sync::atomic::Ordering::SeqCst);
-            chunk.set_len(0);
         }
 
         Ok(())
