@@ -9,17 +9,29 @@ use vortex_error::{VortexResult, vortex_bail};
 use crate::{PcoArray, PcoEncoding, PcoVTable};
 
 #[derive(Clone, prost::Message)]
-pub struct PcoBufferMetadata {
-    #[prost(bool, tag = "1")]
-    pub is_chunk_meta: bool,
-    #[prost(uint64, tag = "2")]
-    pub n: u64, // chunk_n for chunks an page_n for pages
+pub struct PcoPageInfo {
+    // Since pco limits to 2^24 values per chunk, u32 is sufficient for the
+    // count of values.
+    #[prost(uint32, tag = "1")]
+    pub n_values: u32,
+}
+
+// We're calling this Info instead of Metadata because ChunkMeta refers to a specific
+// component of a Pco file.
+#[derive(Clone, prost::Message)]
+pub struct PcoChunkInfo {
+    #[prost(message, repeated, tag = "1")]
+    pub pages: Vec<PcoPageInfo>,
 }
 
 #[derive(Clone, prost::Message)]
 pub struct PcoMetadata {
-    #[prost(message, repeated, tag = "1")]
-    pub buffers: Vec<PcoBufferMetadata>,
+    // would be nice to reuse one header per vortex file, but it's really only 1 byte, so
+    // no issue duplicating it here per PcoArray
+    #[prost(bytes, tag = "1")]
+    pub header: Vec<u8>,
+    #[prost(message, repeated, tag = "2")]
+    pub chunks: Vec<PcoChunkInfo>,
 }
 
 impl SerdeVTable<PcoVTable> for PcoVTable {
@@ -46,8 +58,21 @@ impl SerdeVTable<PcoVTable> for PcoVTable {
             vortex_bail!("PcoArray expected 0 or 1 child, got {}", children.len());
         };
 
+        let mut chunk_metas = vec![];
+        let mut pages = vec![];
+        let mut buffer_idx = 0;
+        for chunk_info in &metadata.chunks {
+            chunk_metas.push(buffers[buffer_idx].clone());
+            buffer_idx += 1;
+            for _ in &chunk_info.pages {
+                pages.push(buffers[buffer_idx].clone());
+                buffer_idx += 1;
+            }
+        }
+
         Ok(PcoArray::new(
-            buffers,
+            chunk_metas,
+            pages,
             dtype.clone(),
             metadata.clone(),
             len,
@@ -70,8 +95,11 @@ impl EncodeVTable<PcoVTable> for PcoVTable {
 
 impl VisitorVTable<PcoVTable> for PcoVTable {
     fn visit_buffers(array: &PcoArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for buffer in &array.buffers {
-            visitor.visit_buffer(&buffer.inner);
+        for buffer in &array.chunk_metas {
+            visitor.visit_buffer(buffer);
+        }
+        for buffer in &array.pages {
+            visitor.visit_buffer(buffer);
         }
     }
 

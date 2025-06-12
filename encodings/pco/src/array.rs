@@ -1,24 +1,26 @@
 use std::cmp;
 use std::fmt::Debug;
 
-use pco::data_types::NumberType;
-use pco::wrapped::{ChunkCompressor, FileCompressor};
+use pco::data_types::{Number, NumberType};
+use pco::errors::PcoError;
+use pco::wrapped::{ChunkDecompressor, FileCompressor, FileDecompressor};
 use pco::{ChunkConfig, PagingSpec, match_number_enum};
 use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
+use vortex_array::compute::filter;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
-use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
+use vortex_buffer::{BufferMut, ByteBuffer};
 use vortex_dtype::{DType, PType};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::PcoBufferMetadata;
 use crate::serde::PcoMetadata;
+use crate::{PcoChunkInfo, PcoPageInfo};
 
 // Overall approach here:
 // Chunk the array into Pco chunks (currently using the default recommended size
@@ -66,8 +68,9 @@ impl VTable for PcoVTable {
     }
 }
 
-fn get_pco_type(ptype: PType) -> Option<NumberType> {
-    let pco_type = match ptype {
+fn number_type_from_dtype(dtype: &DType) -> VortexResult<NumberType> {
+    let ptype = dtype.as_ptype();
+    let number_type = match ptype {
         PType::F16 => NumberType::F16,
         PType::F32 => NumberType::F32,
         PType::F64 => NumberType::F64,
@@ -77,27 +80,36 @@ fn get_pco_type(ptype: PType) -> Option<NumberType> {
         PType::U16 => NumberType::U16,
         PType::U32 => NumberType::U32,
         PType::U64 => NumberType::U64,
-        _ => return None,
+        _ => vortex_bail!("PType not supported by Pco: {:?}", ptype),
     };
+    Ok(number_type)
+}
 
-    return Some(pco_type);
+fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
+    let mask = parray.validity_mask()?;
+    filter(&parray.to_array(), &mask)?.to_primitive()
+}
+
+fn vortex_err_from_pco(err: PcoError) -> VortexError {
+    use pco::errors::ErrorKind::*;
+    match err.kind {
+        Io(io_kind) => VortexError::from(std::io::Error::new(io_kind, err.message)),
+        InvalidArgument => vortex_err!(InvalidArgument: "{}", err.message),
+        other => vortex_err!("Pco {:?} error: {}", other, err.message),
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct PcoEncoding;
 
 #[derive(Clone, Debug)]
-enum PcoBufferKind {
-    ChunkMeta,
-    Page,
-}
-
-#[derive(Clone, Debug)]
 pub struct PcoArray {
-    pub(crate) buffers: Vec<ByteBuffer>,
+    pub(crate) chunk_metas: Vec<ByteBuffer>,
+    pub(crate) pages: Vec<ByteBuffer>,
     pub(crate) validity: Validity,
     pub(crate) metadata: PcoMetadata,
     dtype: DType,
+    n_rows: usize, // not sliced
     stats_set: ArrayStats,
     slice_start: usize,
     slice_stop: usize,
@@ -105,35 +117,30 @@ pub struct PcoArray {
 
 impl PcoArray {
     pub fn new(
-        buffers: Vec<ByteBuffer>,
+        chunk_metas: Vec<ByteBuffer>,
+        pages: Vec<ByteBuffer>,
         dtype: DType,
         metadata: PcoMetadata,
         len: usize,
         validity: Validity,
     ) -> Self {
         Self {
-            buffers,
+            chunk_metas,
+            pages,
             validity,
             metadata,
             dtype,
+            n_rows: len,
             stats_set: Default::default(),
             slice_start: 0,
             slice_stop: len,
         }
     }
 
-    fn type_byte_width(&self) -> usize {
-        self.dtype.as_ptype().byte_width()
-    }
-
-    pub fn uncompressed_size(&self) -> usize {
-        (self.slice_stop - self.slice_start) * self.type_byte_width()
-    }
-
     pub fn from_primitive(
         parray: &PrimitiveArray,
         level: usize,
-        nums_per_page: usize,
+        values_per_page: usize,
     ) -> VortexResult<Self> {
         Self::from_primitive_with_values_per_chunk(parray, level, VALUES_PER_CHUNK, values_per_page)
     }
@@ -154,15 +161,14 @@ impl PcoArray {
         // perhaps one day we can make this more configurable
         let chunk_config = ChunkConfig::default()
             .with_compression_level(level)
-            .with_paging_spec(PagingSpec::EqualPagesUpTo(nums_per_page));
-        let mut start_n = 0;
-        let mut buffers = vec![];
-        let mut buffer_metas = vec![];
+            .with_paging_spec(PagingSpec::EqualPagesUpTo(values_per_page));
+
+        let values = collect_valid(parray)?;
+        let n_values = values.len();
 
         let fc = FileCompressor::default();
-        while start_n < n {
-            let chunk_n = cmp::min(chunk_n, n - start_n);
-            let stop_n = start_n + chunk_n;
+        let mut header = vec![];
+        fc.write_header(&mut header).map_err(vortex_err_from_pco)?;
 
         let mut chunk_meta_buffers = vec![]; // the Pco component
         let mut chunk_infos = vec![]; // the Vortex metadata
@@ -179,34 +185,33 @@ impl PcoArray {
                         .map_err(vortex_err_from_pco)?
                 }
             );
-            let mut chunk_meta = vec![];
-            cc.write_chunk_meta(&mut chunk_meta)?;
-            buffers.push(ByteBuffer::from(chunk_meta));
-            buffer_metas.push(PcoBufferMetadata {
-                is_chunk_meta: true,
-                n: chunk_n as u64,
-            });
 
-            for (i, page_n) in cc.n_per_page().into_iter().enumerate() {
-                let mut page = vec![];
-                cc.write_page(i, &mut page);
-                buffers.push(ByteBuffer::from(page));
-                buffer_metas.push(PcoBufferMetadata {
-                    is_chunk_meta: false,
-                    n: page_n as u64,
+            let mut chunk_meta_buffer = Vec::with_capacity(cc.chunk_meta_size_hint());
+            cc.write_chunk_meta(&mut chunk_meta_buffer)
+                .map_err(vortex_err_from_pco)?;
+            chunk_meta_buffers.push(ByteBuffer::from(chunk_meta_buffer));
+
+            let mut page_infos = vec![];
+            for (page_idx, page_n_values) in cc.n_per_page().into_iter().enumerate() {
+                let mut page = Vec::with_capacity(cc.page_size_hint(page_idx));
+                cc.write_page(page_idx, &mut page)
+                    .map_err(vortex_err_from_pco)?;
+                page_buffers.push(ByteBuffer::from(page));
+                page_infos.push(PcoPageInfo {
+                    n_values: u32::try_from(page_n_values)?,
                 });
             }
-
-            start_n = stop_n;
+            chunk_infos.push(PcoChunkInfo { pages: page_infos })
         }
 
         let metadata = PcoMetadata {
-            buffers: buffer_metas,
+            header,
+            chunks: chunk_infos,
         };
-
         Ok(PcoArray::new(
-            buffers,
-            dtype,
+            chunk_meta_buffers,
+            page_buffers,
+            parray.dtype().clone(),
             metadata,
             parray.len(),
             parray.validity().clone(),
@@ -222,64 +227,22 @@ impl PcoArray {
     }
 
     pub fn decompress(&self) -> VortexResult<ArrayRef> {
-        // To start, we figure out which buffers we need to decompress, and with
-        // what byte offset into the first such buffer.
-        let type_size = self.type_byte_width()
-        let mut buf_start = 0;
-        let mut buffer_idx_lb = 0;
-        let mut buffer_idx_ub = 0;
-        let mut byte_offset = 0;
-        for (i, buffer_meta) in self.metadata.buffers.iter().enumerate() {
-            let buf_stop = buf_start + usize::try_from(buffer_meta.uncompressed_size)?;
-            if buf_start < byte_start {
-                buffer_idx_lb = i;
-                byte_offset = byte_start - buf_start
+        // To start, we figure out which chunks and pages we need to decompress, and with
+        // what value offset into the first such page.
+        let number_type = number_type_from_dtype(&self.dtype)?;
+        let values_byte_buffer = match_number_enum!(
+            number_type,
+            NumberType<T> => {
+              self.decompress_values_typed::<T>()
             }
-            if buf_start < byte_stop {
-                buffer_idx_ub = i + 1
-            }
-            buf_start = buf_stop;
-        }
+        )?;
 
-        // then we actually decompress those buffers
-        let buffer_metas = &self.metadata.buffers[buffer_idx_lb..buffer_idx_ub];
-        let total_uncompressed_size: usize = buffer_metas
-            .iter()
-            .map(|meta| meta.uncompressed_size)
-            .sum::<u64>()
-            .try_into()?;
-
-        let mut decompressor = if let Some(dictionary_buffer) = &self.chunk_meta_buffers {
-            pco::bulk::Decompressor::with_dictionary(dictionary_buffer)
-        } else {
-            pco::bulk::Decompressor::new()
-        }?;
-
-        // we could make this empty initialized for better performance
-        let mut decompressed = vec![0; total_uncompressed_size];
-        let mut start = 0;
-        for (buffer, meta) in self.page_buffers[buffer_idx_lb..buffer_idx_ub]
-            .iter()
-            .zip(buffer_metas)
-        {
-            let stop = start + usize::try_from(meta.uncompressed_size)?;
-            decompressor.decompress_to_buffer(buffer.as_slice(), &mut decompressed[start..stop])?;
-            start = stop;
-        }
-
-        // Last, we apply our byte offset. We need to copy since the
-        // decompressed buffer start/end might not align with our slice.
-        // And we need to align the data to our (dynamic) dtype.
-        let slice_len = byte_stop - byte_start;
-        let bytes = decompressed[byte_offset..byte_offset + slice_len].to_vec();
-        let decompressed_buffer = ByteBuffer::from(bytes).aligned(Alignment::new(type_size));
-
-        let primitive = PrimitiveArray::from_byte_buffer(
-            decompressed_buffer,
+        let primitive = PrimitiveArray::from_values_byte_buffer(
+            values_byte_buffer,
             self.dtype.as_ptype(),
-            self.validity.clone(),
-        );
-
+            self.validity.slice(self.slice_start, self.slice_stop)?,
+            self.slice_stop - self.slice_start,
+        )?;
         Ok(primitive.into_array())
     }
 
@@ -385,28 +348,10 @@ impl CanonicalVTable<PcoVTable> for PcoVTable {
 
 impl OperationsVTable<PcoVTable> for PcoVTable {
     fn slice(array: &PcoArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        if array.slice_start + cmp::max(start, stop) > array.slice_stop {
-            vortex_bail!("Cannot slice beyond end of PcoArray")
-        }
-
-        let sliced = PcoArray {
-            slice_start: array.slice_start + start,
-            slice_stop: array.slice_start + stop,
-            validity: array.validity.slice(start, stop)?,
-            ..array.clone()
-        };
-        Ok(sliced.into_array())
+        Ok(array._slice(start, stop).into_array())
     }
 
     fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
-        if array.slice_start + index >= array.slice_stop {
-            vortex_bail!(
-                "Cannot access {}th element from Pco slice [{}, {})",
-                index,
-                array.slice_start,
-                array.slice_stop
-            );
-        }
-        array.decompress()?.scalar_at(index)
+        array._slice(index, index + 1).decompress()?.scalar_at(0)
     }
 }

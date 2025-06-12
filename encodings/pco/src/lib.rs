@@ -1,5 +1,4 @@
 mod array;
-mod errors;
 mod serde;
 #[cfg(test)]
 mod test;

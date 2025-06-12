@@ -6783,6 +6783,7 @@ dependencies = [
 name = "vortex-pco"
 version = "0.1.0"
 dependencies = [
+ "half",
  "pco",
  "prost",
  "vortex-array",
