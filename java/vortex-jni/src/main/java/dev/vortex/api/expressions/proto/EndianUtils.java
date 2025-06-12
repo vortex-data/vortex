@@ -34,12 +34,22 @@ final class EndianUtils {
 
         // Determine target size (1, 2, 4, 8, 16, or 32 bytes)
         int targetSize;
-        if (bigEndianBytes.length <= 1) targetSize = 1;
-        else if (bigEndianBytes.length <= 2) targetSize = 2;
-        else if (bigEndianBytes.length <= 4) targetSize = 4;
-        else if (bigEndianBytes.length <= 8) targetSize = 8;
-        else if (bigEndianBytes.length <= 16) targetSize = 16;
-        else targetSize = 32;
+        if (bigEndianBytes.length <= 1) {
+            targetSize = 1;
+        } else if (bigEndianBytes.length <= 2) {
+            targetSize = 2;
+        } else if (bigEndianBytes.length <= 4) {
+            targetSize = 4;
+        } else if (bigEndianBytes.length <= 8) {
+            targetSize = 8;
+        } else if (bigEndianBytes.length <= 16) {
+            targetSize = 16;
+        } else if (bigEndianBytes.length <= 32) {
+            targetSize = 32;
+        } else {
+            throw new IllegalArgumentException(
+                    "BigDecimal with " + bigEndianBytes.length + " bytes overflows maximum Vortex decimal size");
+        }
 
         byte[] result = new byte[targetSize];
 
