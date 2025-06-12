@@ -20,12 +20,12 @@ use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, Prun
 pub struct RowIdLayoutReader {
     child: LayoutReaderRef,
     name: Arc<str>,
-    scope_dtype: ScopeDType,
     partitioned_expr_cache: DashMap<ExactExpr, Arc<VarPartitionedExpr>>,
     file_index: u64,
 }
 
-static ROW_ID: LazyLock<Identifier> = LazyLock::new(|| Identifier::Other(Arc::from("row_id")));
+pub static ROW_ID: LazyLock<Identifier> =
+    LazyLock::new(|| Identifier::Other(Arc::from("$vx.row_id")));
 
 impl RowIdLayoutReader {
     pub fn new(child: LayoutReaderRef) -> Self {
@@ -33,14 +33,9 @@ impl RowIdLayoutReader {
     }
 
     pub fn new_with_file_index(child: LayoutReaderRef, file_index: u64) -> Self {
-        let scope_dtype = child
-            .scope_dtype()
-            .clone()
-            .with_dtype(ROW_ID.clone(), Self::row_id_scope_dtype());
         Self {
             child,
             name: Arc::from("row_id_layout_reader"),
-            scope_dtype,
             partitioned_expr_cache: Default::default(),
             file_index,
         }
@@ -88,7 +83,7 @@ impl RowIdLayoutReader {
         .to_array()
     }
 
-    fn row_id_scope_dtype() -> DType {
+    pub fn row_id_scope_dtype() -> DType {
         DType::Struct(
             Arc::new(StructFields::from_iter([
                 (
@@ -107,8 +102,8 @@ impl LayoutReader for RowIdLayoutReader {
         &self.name
     }
 
-    fn scope_dtype(&self) -> &ScopeDType {
-        &self.scope_dtype
+    fn dtype(&self) -> &DType {
+        &self.child.dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {
@@ -149,7 +144,7 @@ impl LayoutReader for RowIdLayoutReader {
             Scope::empty(arr_len).with_array(ROW_ID.clone(), self.row_id_scope(row_range));
 
         let rest_eval = if let Some(rest) = &rest {
-            let dtype = rest.return_dtype(self.scope_dtype())?;
+            let dtype = rest.return_dtype(&ScopeDType::new(self.dtype().clone()))?;
             Some(if matches!(dtype, DType::Bool(_)) {
                 // If the partition evaluates to a boolean, we can evaluate it as a mask which
                 // can often be more efficient since nulls are turned into `false` early on,
@@ -275,7 +270,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::row_id::RowIdLayoutReader;
+    use crate::layouts::row_id::{ROW_ID, RowIdLayoutReader};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutReader, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
@@ -342,7 +337,7 @@ mod tests {
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
-            let expr = gt(get_item("file_row_number", var("row_id")), lit(3u64));
+            let expr = gt(get_item("file_row_number", var(ROW_ID.clone())), lit(3u64));
             let result =
                 RowIdLayoutReader::new(layout.new_reader("".into(), segments, ctx).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
@@ -385,7 +380,7 @@ mod tests {
             let expr = or(
                 eq(root(), lit(3i32)),
                 or(
-                    gt(get_item("file_row_number", var("row_id")), lit(3u64)),
+                    gt(get_item("file_row_number", var(ROW_ID.clone())), lit(3u64)),
                     eq(root(), lit(1i32)),
                 ),
             );

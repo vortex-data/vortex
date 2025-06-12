@@ -23,7 +23,6 @@ use vortex_array::stats::StatsSet;
 use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_expr::Identifier;
 use vortex_flatbuffers::{FlatBuffer, footer as fb};
 use vortex_layout::{LayoutContext, LayoutRef, LayoutRegistry, layout_from_flatbuffer};
 
@@ -114,12 +113,8 @@ impl Footer {
     }
 
     /// Returns the [`DType`] of the file.
-    // TODO(joe): fixmme.
     pub fn dtype(&self) -> &DType {
-        self.root_layout
-            .scope_dtype()
-            .dtype(&Identifier::Identity)
-            .expect("dt")
+        self.root_layout.dtype()
     }
 
     /// Returns the number of rows in the file.

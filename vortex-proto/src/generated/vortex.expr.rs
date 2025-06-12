@@ -45,6 +45,8 @@ pub mod kind {
     pub struct Pack {
         #[prost(string, repeated, tag = "1")]
         pub paths: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        #[prost(bool, tag = "2")]
+        pub nullable: bool,
     }
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct GetItem {

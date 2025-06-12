@@ -25,6 +25,7 @@ use vortex_metrics::VortexMetrics;
 
 use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
+use crate::layouts::row_id::{ROW_ID, RowIdLayoutReader};
 use crate::scan::tasks::{TaskContext, split_exec};
 
 mod executor;
@@ -150,8 +151,10 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
     /// Returns the output [`DType`] of the scan.
     pub fn dtype(&self) -> VortexResult<DType> {
-        self.projection
-            .return_dtype(self.layout_reader.scope_dtype())
+        self.projection.return_dtype(
+            &ScopeDType::new(self.layout_reader.dtype().clone())
+                .with_dtype(ROW_ID.clone(), RowIdLayoutReader::row_id_scope_dtype()),
+        )
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
@@ -164,19 +167,22 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         if self.filter.is_some() {
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
         }
-        let ctx = layout_reader.scope_dtype();
+        let ctx = ScopeDType::new(layout_reader.dtype().clone());
 
         // Normalize and simplify the expressions.
-        let projection = simplify_typed(self.projection.clone(), ctx)?;
+        let projection = simplify_typed(self.projection.clone(), &ctx)?;
         let filter = self
             .filter
             .clone()
-            .map(|f| simplify_typed(f, ctx))
+            .map(|f| simplify_typed(f, &ctx))
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.
-        let (filter_mask, projection_mask) =
-            filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.scope_dtype())?;
+        let (filter_mask, projection_mask) = filter_and_projection_masks(
+            &projection,
+            filter.as_ref(),
+            &ScopeDType::new(layout_reader.dtype().clone()),
+        )?;
         let field_mask: Vec<_> = filter_mask
             .iter()
             .cloned()

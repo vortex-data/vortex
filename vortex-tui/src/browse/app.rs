@@ -111,7 +111,7 @@ impl LayoutCursor {
 
     pub fn dtype(&self) -> &DType {
         self.layout
-            .scope_dtype()
+            .dtype()
             .dtype(&Identifier::Identity)
             .vortex_expect("")
     }

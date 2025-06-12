@@ -8,9 +8,9 @@ use vortex_array::compute::filter;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayContext, ArrayRef};
-use vortex_dtype::FieldMask;
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, ScopeDType, is_root};
+use vortex_expr::{ExprRef, Scope, is_root};
 use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
@@ -72,7 +72,7 @@ impl FlatReader {
             .array
             .get_or_init(|| {
                 let ctx = self.ctx.clone();
-                let dtype = self.layout.dtype.clone();
+                let dtype = self.layout.dtype().clone();
                 async move {
                     let segment = segment_fut.await?;
                     ArrayParts::try_from(segment)?
@@ -91,8 +91,8 @@ impl LayoutReader for FlatReader {
         &self.name
     }
 
-    fn scope_dtype(&self) -> &ScopeDType {
-        self.layout.scope_dtype()
+    fn dtype(&self) -> &DType {
+        self.layout.dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {
@@ -166,8 +166,6 @@ impl MaskEvaluation for FlatEvaluation {
         // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
         //  (as often happens with zone map pruning), then we could slice/filter the array prior
         //  to evaluating the expression.
-
-        // println!("expr {:?}", self.expr);
 
         // Now we await the array .
         let mut array = self.array.clone().await?;

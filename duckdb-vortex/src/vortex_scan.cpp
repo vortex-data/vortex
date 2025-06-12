@@ -133,7 +133,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	vector<idx_t> column_ids;
 	vector<idx_t> projection_ids;
 	// The precomputed column names used in the query.
-	std::vector<char const *> projected_column_names;
+	std::string projection;
 
 	// This is the max number threads that the extension might use.
 	idx_t MaxThreads() const override {
@@ -204,10 +204,12 @@ static void PopulateProjection(ScanBindData &bind_data, ScanGlobalState &global_
 		global_state.projection_ids.push_back(input.column_ids[proj_id]);
 	}
 
-	global_state.projected_column_names.reserve(input.projection_ids.size());
+	auto vec = duckdb::vector<std::string>();
 	for (auto column_id : global_state.projection_ids) {
-		global_state.projected_column_names.push_back(bind_data.ColumnName(column_id).c_str());
+		vec.push_back(bind_data.ColumnName(column_id));
 	}
+	auto expr = pack_projection_columns(*bind_data.arena, vec);
+	global_state.projection = expr->SerializeAsString();
 }
 
 /// Extracts schema information from a Vortex file's data type.
@@ -312,7 +314,8 @@ static bool PinFileToThread(ScanGlobalState &global_state) {
 static void CreateScanPartitions(ClientContext &context, const ScanBindData &bind, ScanGlobalState &global_state,
                                  ScanLocalState &local_state, uint64_t file_idx, VortexFile &file) {
 	auto filter_str = global_state.filter_expression_string(*bind.arena);
-	if (global_state.files[file_idx]->CanPrune(filter_str.data(), static_cast<unsigned>(filter_str.length()), file_idx)) {
+	if (global_state.files[file_idx]->CanPrune(filter_str.data(), static_cast<unsigned>(filter_str.length()),
+	                                           file_idx)) {
 		global_state.files_partitioned += 1;
 		return;
 	}
@@ -360,8 +363,8 @@ static unique_ptr<ArrayIterator> OpenArrayIter(const ScanBindData &bind, ScanGlo
 	auto filter_str = global_state.filter_expression_string(*bind.arena);
 
 	const auto options =
-	    vx_file_scan_options {.projection = global_state.projected_column_names.data(),
-	                          .projection_len = static_cast<unsigned>(global_state.projected_column_names.size()),
+	    vx_file_scan_options {.projection_expression = global_state.projection.data(),
+	                          .projection_expr_len = static_cast<unsigned>(global_state.projection.length()),
 	                          .filter_expression = filter_str.data(),
 	                          .filter_expression_len = static_cast<unsigned>(filter_str.length()),
 	                          .split_by_row_count = 0,
@@ -561,7 +564,6 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 		ExtractFilterExpression(*bind.arena, bind, input.filters, input.column_ids, bind.conjuncts,
 		                        global_state->dynamic_filters);
 
-
 		// Create the static filter expression
 		global_state->static_filter_expr = flatten_exprs(*bind.arena, bind.conjuncts);
 		if (global_state->static_filter_expr != nullptr) {
@@ -604,10 +606,9 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 		auto &scan_bind_data = bind_data->Cast<ScanBindData>();
 		virtual_column_map_t result;
 
-		result.insert(make_pair(_COLUMN_IDENTIFIER_FILE_ROW_NUMBER,
-		                        TableColumn("file_row_number", LogicalType::UBIGINT)));
 		result.insert(
-		    make_pair(_COLUMN_IDENTIFIER_FILE_INDEX, TableColumn("file_index", LogicalType::UBIGINT)));
+		    make_pair(_COLUMN_IDENTIFIER_FILE_ROW_NUMBER, TableColumn("file_row_number", LogicalType::UBIGINT)));
+		result.insert(make_pair(_COLUMN_IDENTIFIER_FILE_INDEX, TableColumn("file_index", LogicalType::UBIGINT)));
 
 		scan_bind_data.virtual_col[_COLUMN_IDENTIFIER_FILE_ROW_NUMBER] = "file_row_number";
 		scan_bind_data.virtual_col[_COLUMN_IDENTIFIER_FILE_INDEX] = "file_index";

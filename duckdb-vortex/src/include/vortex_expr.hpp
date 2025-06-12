@@ -10,6 +10,7 @@ namespace vortex {
 const std::string BETWEEN_ID = "between";
 const std::string BINARY_ID = "binary";
 const std::string GET_ITEM_ID = "get_item";
+const std::string PACK_ID = "pack";
 const std::string VAR_ID = "var";
 const std::string LIKE_ID = "like";
 const std::string LITERAL_ID = "literal";
@@ -21,4 +22,5 @@ vortex::expr::Expr *table_expression_into_expr(google::protobuf::Arena &arena, d
 vortex::expr::Expr *expression_into_vortex_expr(google::protobuf::Arena &arena, const duckdb::Expression &expr);
 vortex::expr::Expr *flatten_exprs(google::protobuf::Arena &arena,
                                   const duckdb::vector<vortex::expr::Expr *> &child_filters);
+vortex::expr::Expr *pack_projection_columns(google::protobuf::Arena &arena, duckdb::vector<std::string> columns);
 } // namespace vortex

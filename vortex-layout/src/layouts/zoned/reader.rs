@@ -10,10 +10,10 @@ use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ToCanonical};
-use vortex_dtype::FieldMask;
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::pruning::PruningPredicate;
-use vortex_expr::{ExprRef, Scope, ScopeDType, root};
+use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
 
 use crate::layouts::zoned::ZonedLayout;
@@ -157,8 +157,8 @@ impl LayoutReader for ZonedReader {
         &self.name
     }
 
-    fn scope_dtype(&self) -> &ScopeDType {
-        self.data_child.scope_dtype()
+    fn dtype(&self) -> &DType {
+        self.data_child.dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {
@@ -309,6 +309,7 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
+    use crate::scan::LocalExecutor;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::{LayoutRef, LayoutStrategy};
 
@@ -325,6 +326,7 @@ mod test {
                 block_size: 3,
                 ..Default::default()
             },
+            Arc::new(LocalExecutor),
         );
         let array_stream =
             sequence_writer.new_sequential(ArrayStreamExt::boxed(ArrayStreamAdapter::new(

@@ -41,6 +41,8 @@ const string VORTEX_DATE_ID = "vortex.date";
 const string VORTEX_TIME_ID = "vortex.time";
 const string VORTEX_TIMESTAMP_ID = "vortex.timestamp";
 
+const string VX_ROW_ID_COL_ID = "$vx.row_id";
+
 const string DUCKDB_FUNCTION_NAME_CONTAINS = "contains";
 
 enum TimeUnit : uint8_t {
@@ -296,7 +298,7 @@ void set_column(const string &s, expr::Expr *column) {
 	auto id = column->add_children();
 	id->set_id(VAR_ID);
 	if (s == "file_row_number" || s == "file_index") {
-		id->mutable_kind()->mutable_var()->set_var("row_id");
+		id->mutable_kind()->mutable_var()->set_var(VX_ROW_ID_COL_ID);
 	} else {
 		id->mutable_kind()->mutable_var()->set_var("");
 	}
@@ -529,6 +531,18 @@ expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const 
 	          << std::endl;
 	throw Exception(ExceptionType::NOT_IMPLEMENTED, "table_expression_into_expr",
 	                {{"filter_type_id", std::to_string(static_cast<uint8_t>(filter.filter_type))}});
+}
+
+vortex::expr::Expr *pack_projection_columns(google::protobuf::Arena &arena, duckdb::vector<std::string> columns) {
+	auto expr = arena.Create<expr::Expr>(&arena);
+	expr->set_id(PACK_ID);
+	auto pack_paths = expr->mutable_kind()->mutable_pack()->mutable_paths();
+	for (auto &columnn : columns) {
+		set_column(columnn, expr->add_children());
+		pack_paths->Add(std::string(columnn));
+	}
+
+	return expr;
 }
 
 } // namespace vortex

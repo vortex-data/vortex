@@ -7,7 +7,6 @@ use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Field, FieldMask, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
-use vortex_expr::ScopeDType;
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};
@@ -34,8 +33,8 @@ impl VTable for StructVTable {
         layout.row_count
     }
 
-    fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {
-        &layout.scope_dtype
+    fn dtype(layout: &Self::Layout) -> &DType {
+        &layout.dtype
     }
 
     fn metadata(_layout: &Self::Layout) -> Self::Metadata {
@@ -100,7 +99,6 @@ impl VTable for StructVTable {
         }
         Ok(StructLayout {
             row_count,
-            scope_dtype: ScopeDType::new(dtype.clone()),
             dtype: dtype.clone(),
             children: children.to_arc(),
         })
@@ -113,7 +111,6 @@ pub struct StructLayoutEncoding;
 #[derive(Clone, Debug)]
 pub struct StructLayout {
     row_count: u64,
-    scope_dtype: ScopeDType,
     dtype: DType,
     children: Arc<dyn LayoutChildren>,
 }
@@ -122,18 +119,14 @@ impl StructLayout {
     pub fn new(row_count: u64, dtype: DType, children: Vec<LayoutRef>) -> Self {
         Self {
             row_count,
-            scope_dtype: ScopeDType::new(dtype.clone()),
             dtype,
             children: OwnedLayoutChildren::layout_children(children),
         }
     }
 
     pub fn struct_fields(&self) -> &Arc<StructFields> {
-        let DType::Struct(dtype, _) = &self.dtype else {
-            vortex_panic!(
-                "Mismatched scope_dtype {:?} for struct layout",
-                self.scope_dtype()
-            );
+        let DType::Struct(dtype, _) = self.dtype() else {
+            vortex_panic!("Mismatched dtype {} for struct layout", self.dtype());
         };
         dtype
     }

@@ -271,11 +271,11 @@ typedef struct {
   /**
    * Column names to project out in the scan. These must be null-terminated C strings.
    */
-  const char *const *projection;
+  const char *projection_expression;
   /**
    * Number of columns in `projection`.
    */
-  unsigned int projection_len;
+  unsigned int projection_expr_len;
   /**
    * Serialized expressions for pushdown
    */

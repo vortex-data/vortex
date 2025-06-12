@@ -10,9 +10,9 @@ use vortex_array::compute::{MinMaxResult, filter, min_max};
 use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
 use vortex_dict::DictArray;
-use vortex_dtype::FieldMask;
+use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Scope, ScopeDType, root};
+use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
 
 use super::DictLayout;
@@ -107,8 +107,8 @@ impl LayoutReader for DictReader {
         &self.name
     }
 
-    fn scope_dtype(&self) -> &ScopeDType {
-        self.layout.scope_dtype()
+    fn dtype(&self) -> &DType {
+        &self.layout.values.dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {

@@ -60,6 +60,7 @@ message Kind {
 
   message Pack {
     repeated string paths = 1;
+    bool nullable = 2;
   }
 
   message GetItem {

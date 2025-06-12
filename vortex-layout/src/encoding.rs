@@ -5,7 +5,6 @@ use arcref::ArcRef;
 use vortex_array::DeserializeMetadata;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
-use vortex_expr::Identifier;
 
 use crate::segments::SegmentId;
 use crate::{IntoLayout, LayoutChildren, LayoutRef, VTable};
@@ -59,14 +58,8 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
                 row_count
             );
         }
-
-        let child_dtype = layout
-            .scope_dtype()
-            .dtype(&Identifier::Identity)
-            .expect("not identity child");
-
-        if child_dtype != dtype {
-            vortex_panic!("Layout dtype mismatch: {} != {}", child_dtype, dtype);
+        if layout.dtype() != dtype {
+            vortex_panic!("Layout dtype mismatch: {} != {}", layout.dtype(), dtype);
         }
 
         Ok(layout.into_layout())

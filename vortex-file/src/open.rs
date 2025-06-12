@@ -4,7 +4,6 @@ use flatbuffers::root;
 use vortex_array::ArrayRegistry;
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_expr::Identifier;
 use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
@@ -88,15 +87,7 @@ impl<F: FileType> VortexOpenOptions<F> {
     /// If this is provided, then the Vortex file can be opened without performing any I/O.
     /// Once open, the [`Footer`] can be accessed via [`crate::VortexFile::footer`].
     pub fn with_footer(mut self, footer: Footer) -> Self {
-        self.dtype = Some(
-            footer
-                .layout()
-                .scope_dtype()
-                .dtype(&Identifier::Identity)
-                // TODO(joe): fixme
-                .unwrap()
-                .clone(),
-        );
+        self.dtype = Some(footer.layout().dtype().clone());
         self.footer = Some(footer);
         self
     }
