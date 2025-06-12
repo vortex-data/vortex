@@ -119,7 +119,7 @@ impl LayoutReader for ChunkedReader {
     }
 
     fn dtype(&self) -> &DType {
-        &self.layout.dtype
+        self.layout.dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {

@@ -108,7 +108,7 @@ impl LayoutReader for DictReader {
     }
 
     fn dtype(&self) -> &DType {
-        &self.layout.values.dtype()
+        self.layout.dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {
