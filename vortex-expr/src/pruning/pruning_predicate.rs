@@ -108,33 +108,9 @@ impl StatsCatalog for ScopeStatsCatalog<'_> {
             .clone()
             .push(Field::Name(stat.name().into()));
 
-        if set.contains(&stat_path) {
-            self.any_catalog.stats_ref(access_path, stat)
-        } else {
-            None
-        }
-
-        // let struct_dtype = dtype
-        //     .as_struct()
-        //     .vortex_expect("must pass in a scope with stat as struct columns.");
-        //
-        // let field = access_path.field_path.path().iter().fold(
-        //     Some(struct_dtype.clone()),
-        //     |acc, value| {
-        //         let Some(acc) = acc else {
-        //             return None;
-        //         };
-        //
-        //         let Field::Name(struct_value) = value else {
-        //             todo!("unsupported list")
-        //         };
-        //         acc.field(&struct_value)
-        //             .ok()
-        //             .and_then(|dtype| dtype.as_struct().cloned())
-        //     },
-        // )?;
-        // let _ = field.field(stat.name()).ok()?;
-        // self.any_catalog.stats_ref(access_path, stat)
+        set.contains(&stat_path)
+            .then(|| self.any_catalog.stats_ref(access_path, stat))
+            .flatten()
     }
 }
 

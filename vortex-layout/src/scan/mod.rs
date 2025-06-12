@@ -42,7 +42,7 @@ pub struct ScanBuilder<A> {
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
     /// The selection mask to apply to the selected row range.
-    // TODO(joe): remove me!
+    // TODO(joe): replace this is usage of row_id selection, see
     selection: Selection,
     /// How to split the file for concurrent processing.
     split_by: SplitBy,
