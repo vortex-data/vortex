@@ -15,10 +15,11 @@
  */
 package dev.vortex.api.expressions;
 
-import com.google.common.base.Objects;
+import com.google.common.base.Preconditions;
 import dev.vortex.api.Expression;
 
 import java.math.BigDecimal;
+import java.util.Objects;
 import java.util.Optional;
 
 public abstract class Literal<T> implements Expression {
@@ -46,7 +47,7 @@ public abstract class Literal<T> implements Expression {
     public boolean equals(Object o) {
         if (!(o instanceof Literal)) return false;
         Literal<?> literal = (Literal<?>) o;
-        return java.util.Objects.equals(value, literal.value);
+        return Objects.equals(value, literal.value);
     }
 
     public static Literal<Void> nullLit() {
@@ -79,6 +80,10 @@ public abstract class Literal<T> implements Expression {
 
     public static Literal<Double> float64(Double value) {
         return new Float64Literal(value);
+    }
+
+    public static Literal<BigDecimal> decimal(BigDecimal value, int precision, int scale) {
+        return new DecimalLiteral(value, precision, scale);
     }
 
     public static Literal<String> string(String value) {
@@ -167,7 +172,7 @@ public abstract class Literal<T> implements Expression {
 
         U visitFloat64(Double literal);
 
-        U visitDecimal(BigDecimal decimal);
+        U visitDecimal(BigDecimal decimal, int precision, int scale);
 
         U visitString(String literal);
 
@@ -261,6 +266,25 @@ public abstract class Literal<T> implements Expression {
         @Override
         public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
             return visitor.visitFloat64(getValue());
+        }
+    }
+
+    static final class DecimalLiteral extends Literal<BigDecimal> {
+        private final int precision;
+        private final int scale;
+
+        DecimalLiteral(BigDecimal value, int precision, int scale) {
+            super(value);
+            if (!Objects.isNull(value)) {
+                Preconditions.checkArgument(precision == value.precision(), "");
+            }
+            this.precision = precision;
+            this.scale = scale;
+        }
+
+        @Override
+        public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
+            return visitor.visitDecimal(getValue(), precision, scale);
         }
     }
 

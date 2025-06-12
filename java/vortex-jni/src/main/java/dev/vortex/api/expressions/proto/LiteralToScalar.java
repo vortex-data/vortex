@@ -25,7 +25,8 @@ import java.util.Optional;
 final class LiteralToScalar implements Literal.LiteralVisitor<ScalarProtos.Scalar> {
     static final LiteralToScalar INSTANCE = new LiteralToScalar();
 
-    private LiteralToScalar() {}
+    private LiteralToScalar() {
+    }
 
     @Override
     public ScalarProtos.Scalar visitNull() {
@@ -177,11 +178,11 @@ final class LiteralToScalar implements Literal.LiteralVisitor<ScalarProtos.Scala
     }
 
     @Override
-    public ScalarProtos.Scalar visitDecimal(BigDecimal decimal) {
+    public ScalarProtos.Scalar visitDecimal(BigDecimal decimal, int precision, int scale) {
         if (Objects.isNull(decimal)) {
-            return Scalars.nullDecimal(1, 1);
+            return Scalars.nullDecimal(precision, scale);
         } else {
-            return Scalars.decimal(decimal);
+            return Scalars.decimal(decimal, precision, scale);
         }
     }
 

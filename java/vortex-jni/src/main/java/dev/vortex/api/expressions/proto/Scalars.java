@@ -208,13 +208,13 @@ final class Scalars {
         return result;
     }
 
-    static ScalarProtos.Scalar decimal(BigDecimal decimal) {
+    static ScalarProtos.Scalar decimal(BigDecimal decimal, int precision, int scale) {
         var littleEndian = littleEndianDecimal(decimal);
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setBytesValue(ByteString.copyFrom(littleEndian))
                         .build())
-                .setDtype(DTypes.decimal(false, decimal.precision(), decimal.scale()))
+                .setDtype(DTypes.decimal(false, precision, scale))
                 .build();
     }
 

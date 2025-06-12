@@ -22,11 +22,13 @@ import dev.vortex.api.expressions.*;
 import dev.vortex.proto.DTypeProtos;
 import dev.vortex.proto.ExprProtos;
 import dev.vortex.proto.ScalarProtos;
+
 import java.util.List;
 import java.util.Optional;
 
 public final class ExpressionProtoDeserializer {
-    private ExpressionProtoDeserializer() {}
+    private ExpressionProtoDeserializer() {
+    }
 
     public static Expression deserialize(ExprProtos.Expr expr) {
         switch (expr.getKind().getKindCase()) {
@@ -229,6 +231,8 @@ public final class ExpressionProtoDeserializer {
                     default:
                         throw new UnsupportedOperationException("Unsupported ScalarValue type encountered: " + type);
                 }
+            case DECIMAL:
+                return Literal.decimal(null, type.getDecimal().getPrecision(), type.getDecimal().getScale());
             case UTF8:
                 return Literal.string(null);
             case BINARY:
