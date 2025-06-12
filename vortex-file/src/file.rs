@@ -10,8 +10,9 @@ use vortex_array::stats::{Stat, StatsSet};
 use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, Identifier, Scope, ScopeFieldPathSet};
+use vortex_expr::{ExprRef, Scope, ScopeFieldPathSet};
 use vortex_layout::LayoutReader;
+use vortex_layout::layouts::row_id::ROW_ID;
 use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
@@ -108,9 +109,8 @@ impl VortexFile {
         ));
 
         let mut scope_set = ScopeFieldPathSet::new(set);
-        let row_id = Identifier::Other(Arc::from("row_id"));
         scope_set = scope_set.with_set(
-            row_id.clone(),
+            ROW_ID.clone(),
             FieldPathSet::from_iter([
                 FieldPath::from_iter([
                     Field::Name("file_row_number".into()),
@@ -153,7 +153,7 @@ impl VortexFile {
 
         let file_len = self.row_count();
         scope = scope.with_array(
-            row_id,
+            ROW_ID.clone(),
             StructArray::from_fields(&[
                 (
                     "file_row_number_max",
