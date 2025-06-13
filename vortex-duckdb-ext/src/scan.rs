@@ -151,7 +151,6 @@ impl TableFunction for VortexTableFunction {
             .transpose()?
             .unwrap_or(lit(true));
 
-        println!("filter {}", filter);
         Ok(VortexGlobalData {
             done: AtomicBool::new(false),
             filter_expr: filter,
