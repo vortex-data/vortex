@@ -11,7 +11,7 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
-    ValidityVTableFromValidityHelper,
+    ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
 };
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::{BufferMut, ByteBuffer};
@@ -53,7 +53,7 @@ impl VTable for PcoVTable {
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
@@ -106,10 +106,10 @@ pub struct PcoEncoding;
 pub struct PcoArray {
     pub(crate) chunk_metas: Vec<ByteBuffer>,
     pub(crate) pages: Vec<ByteBuffer>,
-    pub(crate) validity: Validity,
     pub(crate) metadata: PcoMetadata,
     dtype: DType,
-    n_rows: usize, // not sliced
+    pub(crate) unsliced_validity: Validity,
+    unsliced_n_rows: usize,
     stats_set: ArrayStats,
     slice_start: usize,
     slice_stop: usize,
@@ -127,10 +127,10 @@ impl PcoArray {
         Self {
             chunk_metas,
             pages,
-            validity,
             metadata,
             dtype,
-            n_rows: len,
+            unsliced_validity: validity,
+            unsliced_n_rows: len,
             stats_set: Default::default(),
             slice_start: 0,
             slice_stop: len,
@@ -240,7 +240,8 @@ impl PcoArray {
         let primitive = PrimitiveArray::from_values_byte_buffer(
             values_byte_buffer,
             self.dtype.as_ptype(),
-            self.validity.slice(self.slice_start, self.slice_stop)?,
+            self.unsliced_validity
+                .slice(self.slice_start, self.slice_stop)?,
             self.slice_stop - self.slice_start,
         )?;
         Ok(primitive.into_array())
@@ -248,14 +249,17 @@ impl PcoArray {
 
     #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
     fn decompress_values_typed<T: Number>(&self) -> VortexResult<ByteBuffer> {
-        // To start, we figure out which chunks and pages we need to decompress, and with
-        // what value offset into the first such page.
+        // To start, we figure out what range of values we need to decompress.
         let slice_n_rows = self.slice_stop - self.slice_start;
-        let mask = self.validity.to_mask(self.n_rows)?;
-        let value_indices = mask.valid_counts_for_indices(&[self.slice_start, self.slice_stop])?;
-        let slice_value_start = value_indices[0];
-        let slice_value_stop = value_indices[1];
+        let slice_value_indices = self
+            .unsliced_validity
+            .to_mask(self.unsliced_n_rows)?
+            .valid_counts_for_indices(&[self.slice_start, self.slice_stop])?;
+        let slice_value_start = slice_value_indices[0];
+        let slice_value_stop = slice_value_indices[1];
 
+        // Then we decompress those pages into a buffer. Note that these values
+        // may exceed the bounds of the slice, so we need to slice later.
         let (fd, _) =
             FileDecompressor::new(self.metadata.header.as_slice()).map_err(vortex_err_from_pco)?;
         let mut decompressed_values = BufferMut::<T>::with_capacity(slice_n_rows);
@@ -304,6 +308,7 @@ impl PcoArray {
             }
         }
 
+        // Slice only the values requested.
         let value_offset = slice_value_start - n_skipped_values;
         Ok(decompressed_values
             .freeze()
@@ -320,9 +325,9 @@ impl PcoArray {
     }
 }
 
-impl ValidityHelper for PcoArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+impl ValiditySliceHelper for PcoArray {
+    fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize) {
+        (&self.unsliced_validity, self.slice_start, self.slice_stop)
     }
 }
 

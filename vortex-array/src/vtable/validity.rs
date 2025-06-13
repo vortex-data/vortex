@@ -60,6 +60,41 @@ where
     }
 }
 
+/// An implementation of the [`ValidityVTable`] for arrays that hold an unsliced validity
+/// and a slice into it.
+pub struct ValidityVTableFromValiditySliceHelper;
+
+pub trait ValiditySliceHelper {
+    fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize);
+
+    fn sliced_validity(&self) -> VortexResult<Validity> {
+        let (unsliced_validity, start, stop) = self.unsliced_validity_and_slice();
+        unsliced_validity.slice(start, stop)
+    }
+}
+
+impl<V: VTable> ValidityVTable<V> for ValidityVTableFromValiditySliceHelper
+where
+    V::Array: ValiditySliceHelper,
+{
+    fn is_valid(array: &V::Array, index: usize) -> VortexResult<bool> {
+        let (unsliced_validity, start, _) = array.unsliced_validity_and_slice();
+        unsliced_validity.is_valid(start + index)
+    }
+
+    fn all_valid(array: &V::Array) -> VortexResult<bool> {
+        array.sliced_validity()?.all_valid()
+    }
+
+    fn all_invalid(array: &V::Array) -> VortexResult<bool> {
+        array.sliced_validity()?.all_invalid()
+    }
+
+    fn validity_mask(array: &V::Array) -> VortexResult<Mask> {
+        array.sliced_validity()?.to_mask(array.len())
+    }
+}
+
 /// An implementation of the [`ValidityVTable`] for arrays that delegate validity entirely
 /// to a child array.
 pub struct ValidityVTableFromChild;

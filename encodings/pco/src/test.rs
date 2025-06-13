@@ -3,6 +3,7 @@ use vortex_array::arrays::{BoolArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
+use vortex_mask::Mask;
 
 use crate::PcoArray;
 
@@ -13,7 +14,7 @@ macro_rules! assert_nth_scalar {
 }
 
 #[test]
-fn test_pco_compress_decompress() {
+fn test_compress_decompress() {
     let data: Vec<i32> = (0..200).collect();
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
@@ -38,7 +39,7 @@ fn test_pco_compress_decompress() {
 }
 
 #[test]
-fn test_pco_empty() {
+fn test_empty() {
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = PcoArray::from_primitive(&array, 3, 100).unwrap();
@@ -47,7 +48,7 @@ fn test_pco_empty() {
 }
 
 #[test]
-fn test_pco_with_validity_and_multiple_chunks_and_pages() {
+fn test_validity_and_multiple_chunks_and_pages() {
     let data: Vec<i32> = (0..200).collect();
     let mut validity: Vec<bool> = vec![true; 200];
     validity[7..15].fill(false);
@@ -85,5 +86,24 @@ fn test_pco_with_validity_and_multiple_chunks_and_pages() {
     assert_eq!(
         primitive.validity(),
         &Validity::Array(BoolArray::from_iter(vec![true, false, true]).to_array())
+    );
+}
+
+#[test]
+fn test_validity_vtable() {
+    let data: Vec<i32> = (0..5).collect();
+    let mask_bools = vec![false, true, true, false, true];
+    let array = PrimitiveArray::new(
+        data.iter().cloned().collect::<Buffer<_>>(),
+        Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
+    );
+    let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
+    assert_eq!(
+        compressed.validity_mask().unwrap(),
+        Mask::from_iter(mask_bools)
+    );
+    assert_eq!(
+        compressed.slice(1, 4).unwrap().validity_mask().unwrap(),
+        Mask::from_iter(vec![true, true, false])
     );
 }
