@@ -97,11 +97,11 @@ impl ComputeFnVTable for ListContains {
         }
 
         for kernel in kernels {
-            if let Some(output) = kernel.invoke(&args)? {
+            if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
             }
         }
-        if let Some(output) = array.invoke(&LIST_CONTAINS_FN, &args)? {
+        if let Some(output) = array.invoke(&LIST_CONTAINS_FN, args)? {
             return Ok(output);
         }
 
