@@ -18,7 +18,10 @@
 
 #include "vortex_expr.hpp"
 
+#include "duckdb/planner/filter/in_filter.hpp"
+
 using duckdb::ConjunctionAndFilter;
+using duckdb::ConjunctionOrFilter;
 using duckdb::ConstantFilter;
 using duckdb::Exception;
 using duckdb::ExceptionType;
@@ -37,6 +40,8 @@ namespace vortex {
 const string VORTEX_DATE_ID = "vortex.date";
 const string VORTEX_TIME_ID = "vortex.time";
 const string VORTEX_TIMESTAMP_ID = "vortex.timestamp";
+
+const string VX_ROW_ID_COL_ID = "$vx.row_id";
 
 const string DUCKDB_FUNCTION_NAME_CONTAINS = "contains";
 
@@ -194,50 +199,48 @@ scalar::Scalar *into_null_scalar(Arena &arena, LogicalType &logical_type) {
 	return scalar;
 }
 
-scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullable) {
-	auto scalar = Arena::Create<scalar::Scalar>(&arena);
-	auto dtype = into_vortex_dtype(arena, value.type(), nullable);
-	scalar->set_allocated_dtype(dtype);
+scalar::ScalarValue *into_vortex_scalar_value(Arena &arena, const Value &value) {
+	auto scalar = Arena::Create<scalar::ScalarValue>(&arena);
 
 	switch (value.type().id()) {
 	case LogicalTypeId::INVALID:
 	case LogicalTypeId::SQLNULL: {
-		scalar->mutable_value()->set_null_value(google::protobuf::NULL_VALUE);
+		scalar->set_null_value(google::protobuf::NULL_VALUE);
 		return scalar;
 	}
 	case LogicalTypeId::BOOLEAN: {
-		scalar->mutable_value()->set_bool_value(value.GetValue<bool>());
+		scalar->set_bool_value(value.GetValue<bool>());
 		return scalar;
 	}
 	case LogicalTypeId::TINYINT:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int8_t>());
+		scalar->set_int64_value(value.GetValue<int8_t>());
 		return scalar;
 	case LogicalTypeId::SMALLINT:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int16_t>());
+		scalar->set_int64_value(value.GetValue<int16_t>());
 		return scalar;
 	case LogicalTypeId::INTEGER:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int32_t>());
+		scalar->set_int64_value(value.GetValue<int32_t>());
 		return scalar;
 	case LogicalTypeId::BIGINT:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		scalar->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	case LogicalTypeId::UTINYINT:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<uint8_t>());
+		scalar->set_uint64_value(value.GetValue<uint8_t>());
 		return scalar;
 	case LogicalTypeId::USMALLINT:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<uint16_t>());
+		scalar->set_uint64_value(value.GetValue<uint16_t>());
 		return scalar;
 	case LogicalTypeId::UINTEGER:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<uint32_t>());
+		scalar->set_uint64_value(value.GetValue<uint32_t>());
 		return scalar;
 	case LogicalTypeId::UBIGINT:
-		scalar->mutable_value()->set_uint64_value(value.GetValue<uint64_t>());
+		scalar->set_uint64_value(value.GetValue<uint64_t>());
 		return scalar;
 	case LogicalTypeId::FLOAT:
-		scalar->mutable_value()->set_f32_value(value.GetValue<float_t>());
+		scalar->set_f32_value(value.GetValue<float_t>());
 		return scalar;
 	case LogicalTypeId::DOUBLE:
-		scalar->mutable_value()->set_f64_value(value.GetValue<double_t>());
+		scalar->set_f64_value(value.GetValue<double_t>());
 		return scalar;
 	case LogicalTypeId::DECIMAL: {
 		auto huge = value.GetValue<duckdb::hugeint_t>();
@@ -246,44 +249,59 @@ scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullab
 		out[1] = static_cast<uint32_t>(huge >> 32);
 		out[2] = static_cast<uint32_t>(huge >> 64);
 		out[3] = static_cast<uint32_t>(huge >> 96);
-		scalar->mutable_value()->set_bytes_value(std::string(reinterpret_cast<char *>(out), 8));
+		scalar->set_bytes_value(std::string(reinterpret_cast<char *>(out), 8));
 		return scalar;
 	}
 	case LogicalTypeId::VARCHAR:
-		scalar->mutable_value()->set_string_value(value.GetValue<string>());
+		scalar->set_string_value(value.GetValue<string>());
 		return scalar;
 	case LogicalTypeId::DATE:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int32_t>());
+		scalar->set_int64_value(value.GetValue<int32_t>());
 		return scalar;
 	case LogicalTypeId::TIME:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int32_t>());
+		scalar->set_int64_value(value.GetValue<int32_t>());
 		return scalar;
 	case LogicalTypeId::TIMESTAMP_SEC:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		scalar->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	case LogicalTypeId::TIMESTAMP_MS:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		scalar->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	case LogicalTypeId::TIMESTAMP:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		scalar->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	case LogicalTypeId::TIMESTAMP_NS:
-		scalar->mutable_value()->set_int64_value(value.GetValue<int64_t>());
+		scalar->set_int64_value(value.GetValue<int64_t>());
 		return scalar;
 	default:
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "into_vortex_scalar", {{"id", value.ToString()}});
 	}
 }
 
+scalar::Scalar *into_vortex_scalar(Arena &arena, const Value &value, bool nullable) {
+	auto scalar = Arena::Create<scalar::Scalar>(&arena);
+	auto dtype = into_vortex_dtype(arena, value.type(), nullable);
+	scalar->set_allocated_dtype(dtype);
+
+	auto scalar_value = into_vortex_scalar_value(arena, value);
+	scalar->mutable_value()->Swap(scalar_value);
+	return scalar;
+}
+
 void set_column(const string &s, expr::Expr *column) {
+
 	column->set_id(GET_ITEM_ID);
 	auto kind = column->mutable_kind();
 	auto get_item = kind->mutable_get_item();
 	get_item->mutable_path()->assign(s);
 
 	auto id = column->add_children();
-	id->mutable_kind()->mutable_var()->set_var("");
 	id->set_id(VAR_ID);
+	if (s == "file_row_number" || s == "file_index") {
+		id->mutable_kind()->mutable_var()->set_var(VX_ROW_ID_COL_ID);
+	} else {
+		id->mutable_kind()->mutable_var()->set_var("");
+	}
 }
 
 void set_literal(Arena &arena, const Value &value, bool nullable, expr::Expr *constant) {
@@ -294,7 +312,8 @@ void set_literal(Arena &arena, const Value &value, bool nullable, expr::Expr *co
 }
 
 expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::unique_ptr<TableFilter>> &child_filters,
-                                  const string &column_name) {
+                                  expr::Kind_BinaryOp operation, const string &column_name) {
+
 	D_ASSERT(!child_filters.empty());
 
 	if (child_filters.size() == 1) {
@@ -305,11 +324,11 @@ expr::Expr *flatten_table_filters(Arena &arena, duckdb::vector<duckdb::unique_pt
 	auto tail = static_cast<expr::Expr *>(nullptr);
 	auto hd = Arena::Create<expr::Expr>(&arena);
 
-	// Flatten the list of children into a linked list of AND values.
+	// Flatten the list of children into a linked list of operation values.
 	for (size_t i = 0; i < child_filters.size() - 1; i++) {
 		expr::Expr *new_and = !tail ? hd : tail->add_children();
 		new_and->set_id(BINARY_ID);
-		new_and->mutable_kind()->set_binary_op(expr::Kind::And);
+		new_and->mutable_kind()->set_binary_op(operation);
 		new_and->add_children()->Swap(table_expression_into_expr(arena, *child_filters[i], column_name));
 
 		tail = new_and;
@@ -443,6 +462,20 @@ expr::Expr *expression_into_vortex_expr(Arena &arena, const duckdb::Expression &
 	}
 }
 
+void set_list_element(Arena &arena, expr::Expr *list, duckdb::vector<Value> &values) {
+	list->set_id(LITERAL_ID);
+	auto ll = list->mutable_kind()->mutable_literal();
+	auto scalar = ll->mutable_value();
+	auto elem_type = into_vortex_dtype(arena, values[0].GetTypeMutable(), true);
+	auto list_type = scalar->mutable_dtype()->mutable_list();
+	list_type->mutable_element_type()->Swap(elem_type);
+	list_type->set_nullable(true);
+	auto list_scalar_value = scalar->mutable_value()->mutable_list_value();
+	for (auto &elem : values) {
+		list_scalar_value->mutable_values()->Add(std::move(*into_vortex_scalar_value(arena, elem)));
+	}
+}
+
 expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const string &column_name) {
 	auto expr = Arena::Create<expr::Expr>(&arena);
 	switch (filter.filter_type) {
@@ -457,27 +490,59 @@ expr::Expr *table_expression_into_expr(Arena &arena, TableFilter &filter, const 
 		expr->set_id(BINARY_ID);
 		return expr;
 	}
+	case TableFilterType::CONJUNCTION_OR: {
+		auto &disjuncts = filter.Cast<ConjunctionOrFilter>();
+		return flatten_table_filters(arena, disjuncts.child_filters, expr::Kind_BinaryOp_Or, column_name);
+	}
 	case TableFilterType::CONJUNCTION_AND: {
 		auto &conjucts = filter.Cast<ConjunctionAndFilter>();
 
-		return flatten_table_filters(arena, conjucts.child_filters, column_name);
+		return flatten_table_filters(arena, conjucts.child_filters, expr::Kind_BinaryOp_And, column_name);
 	}
 	case TableFilterType::IS_NULL:
 	case TableFilterType::IS_NOT_NULL: {
 		throw Exception(ExceptionType::NOT_IMPLEMENTED, "null checks");
 	}
 	case TableFilterType::OPTIONAL_FILTER: {
+		auto *expr_o =
+		    table_expression_into_expr(arena, *filter.Cast<duckdb::OptionalFilter>().child_filter, column_name);
+		if (expr_o != nullptr) {
+			return expr_o;
+		}
 		expr->set_id(LITERAL_ID);
 		auto lit = expr->mutable_kind()->mutable_literal();
 		lit->mutable_value()->mutable_value()->set_bool_value(true);
 		lit->mutable_value()->mutable_dtype()->mutable_bool_()->set_nullable(false);
 		return expr;
 	}
+	case TableFilterType::IN_FILTER: {
+		auto &in_list_filter = filter.Cast<duckdb::InFilter>();
+		expr->set_id(LIST_CONTAINS_ID);
+		expr->mutable_kind()->mutable_list_contains();
+		auto list = expr->add_children();
+		set_list_element(arena, list, in_list_filter.values);
+		set_column(column_name, expr->add_children());
+		return expr;
+	}
 	default:
 		break;
 	}
+	std::cout << "table expr: " << std::to_string(static_cast<uint8_t>(filter.filter_type)) << filter.DebugToString()
+	          << std::endl;
 	throw Exception(ExceptionType::NOT_IMPLEMENTED, "table_expression_into_expr",
 	                {{"filter_type_id", std::to_string(static_cast<uint8_t>(filter.filter_type))}});
+}
+
+vortex::expr::Expr *pack_projection_columns(google::protobuf::Arena &arena, duckdb::vector<std::string> columns) {
+	auto expr = arena.Create<expr::Expr>(&arena);
+	expr->set_id(PACK_ID);
+	auto pack_paths = expr->mutable_kind()->mutable_pack()->mutable_paths();
+	for (auto &columnn : columns) {
+		set_column(columnn, expr->add_children());
+		pack_paths->Add(std::string(columnn));
+	}
+
+	return expr;
 }
 
 } // namespace vortex

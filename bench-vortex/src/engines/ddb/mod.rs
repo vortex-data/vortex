@@ -1,5 +1,6 @@
 mod timing;
 
+use std::os::unix::prelude::ExitStatusExt;
 use std::path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -281,8 +282,10 @@ pub fn register_tables(
     // DuckDB does not return non-zero exit codes in case of failures.
     // Therefore, we need to additionally check whether stderr is set.
     if !output.status.success() || !output.stderr.is_empty() {
-        anyhow::bail!(
-            "DuckDB query failed: stdout=({})\n, stderr=({})",
+        bail!(
+            "DuckDB query failed output=`{:?}`\nsignal={:?}\nstdout=`{}`\nstderr=`{}`",
+            output.status.code(),
+            output.status.signal(),
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
@@ -328,7 +331,9 @@ pub fn execute_query(
     // Therefore, we need to additionally check whether stderr is set.
     if !output.status.success() || !output.stderr.is_empty() {
         bail!(
-            "DuckDB query failed, stdout: {} stderr: {}",
+            "DuckDB query failed output=`{:?}`\nsignal=`{:?}`\nstdout=`{}`\nstderr=`{}`",
+            output.status.code(),
+            output.status.signal(),
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );

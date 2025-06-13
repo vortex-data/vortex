@@ -271,11 +271,11 @@ typedef struct {
   /**
    * Column names to project out in the scan. These must be null-terminated C strings.
    */
-  const char *const *projection;
+  const char *projection_expression;
   /**
    * Number of columns in `projection`.
    */
-  unsigned int projection_len;
+  unsigned int projection_expr_len;
   /**
    * Serialized expressions for pushdown
    */
@@ -296,6 +296,10 @@ typedef struct {
    * Last row of a range to scan.
    */
   unsigned long row_range_end;
+  /**
+   * The index of the file in a multi-file scan.
+   */
+  unsigned long file_index;
 } vx_file_scan_options;
 
 
@@ -514,64 +518,6 @@ uint8_t vx_dtype_time_unit(const DType *dtype);
 
 void vx_dtype_time_zone(const DType *dtype, void *dst, int *len);
 
-/**
- * Clone a borrowed [`vx_struct_fields`], returning an owned [`vx_struct_fields`].
- *
- *
- * Must be released with [`vx_struct_fields_free`].
- */
-const vx_struct_fields *vx_struct_fields_clone(const vx_struct_fields *ptr);
-
-/**
- * Free an owned [`vx_struct_fields`] object.
- */
-void vx_struct_fields_free(const vx_struct_fields *ptr);
-
-/**
- * Return the number of fields in the struct dtype.
- */
-size_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
-
-/**
- * Return a borrowed reference to the name of the field at the given index.
- */
-const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size_t idx);
-
-/**
- * Returns an *owned* reference to the dtype of the field at the given index.
- *
- * The return type is owned since struct dtypes can be lazily parsed from a binary format, in
- * which case it's not possible to return a borrowed reference to the field dtype.
- */
-const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, size_t idx);
-
-/**
- * Free an owned [`vx_struct_fields_builder`] object.
- */
-void vx_struct_fields_builder_free(vx_struct_fields_builder *ptr);
-
-/**
- * Create a new struct dtype builder.
- */
-vx_struct_fields_builder *vx_struct_fields_builder_new(void);
-
-/**
- * Add a field to the struct dtype builder.
- *
- * Takes ownership of both the `name` and `dtype` pointers.
- * Must either free or finalize the builder.
- */
-void vx_struct_fields_builder_add_field(vx_struct_fields_builder *builder,
-                                       const vx_string *name,
-                                       const vx_dtype *dtype);
-
-/**
- * Finalize the struct dtype builder, returning a new `vx_struct_fields`.
- *
- * Takes ownership of the `builder`.
- */
-const vx_struct_fields *vx_struct_fields_builder_finalize(vx_struct_fields_builder *builder);
-
 #if defined(ENABLE_DUCKDB_FFI)
 /**
  * Converts a DType into a duckdb
@@ -661,6 +607,7 @@ const vx_dtype *vx_file_dtype(const vx_file *file);
 bool vx_file_can_prune(const vx_file *file,
                        const char *filter_expression,
                        unsigned int filter_expression_len,
+                       unsigned long file_idx,
                        vx_error **error);
 
 /**
@@ -738,6 +685,64 @@ size_t vx_string_len(const vx_string *ptr);
  * Return the pointer to the string data.
  */
 const char *vx_string_ptr(const vx_string *ptr);
+
+/**
+ * Clone a borrowed [`vx_struct_fields`], returning an owned [`vx_struct_fields`].
+ *
+ *
+ * Must be released with [`vx_struct_fields_free`].
+ */
+const vx_struct_fields *vx_struct_fields_clone(const vx_struct_fields *ptr);
+
+/**
+ * Free an owned [`vx_struct_fields`] object.
+ */
+void vx_struct_fields_free(const vx_struct_fields *ptr);
+
+/**
+ * Return the number of fields in the struct dtype.
+ */
+size_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
+
+/**
+ * Return a borrowed reference to the name of the field at the given index.
+ */
+const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size_t idx);
+
+/**
+ * Returns an *owned* reference to the dtype of the field at the given index.
+ *
+ * The return type is owned since struct dtypes can be lazily parsed from a binary format, in
+ * which case it's not possible to return a borrowed reference to the field dtype.
+ */
+const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, size_t idx);
+
+/**
+ * Free an owned [`vx_struct_fields_builder`] object.
+ */
+void vx_struct_fields_builder_free(vx_struct_fields_builder *ptr);
+
+/**
+ * Create a new struct dtype builder.
+ */
+vx_struct_fields_builder *vx_struct_fields_builder_new(void);
+
+/**
+ * Add a field to the struct dtype builder.
+ *
+ * Takes ownership of both the `name` and `dtype` pointers.
+ * Must either free or finalize the builder.
+ */
+void vx_struct_fields_builder_add_field(vx_struct_fields_builder *builder,
+                                        const vx_string *name,
+                                        const vx_dtype *dtype);
+
+/**
+ * Finalize the struct dtype builder, returning a new `vx_struct_fields`.
+ *
+ * Takes ownership of the `builder`.
+ */
+const vx_struct_fields *vx_struct_fields_builder_finalize(vx_struct_fields_builder *builder);
 
 #ifdef __cplusplus
 }  // extern "C"

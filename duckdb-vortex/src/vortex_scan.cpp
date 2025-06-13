@@ -22,6 +22,7 @@
 #include "vortex_common.hpp"
 #include "vortex_expr.hpp"
 #include "vortex_session.hpp"
+#include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "duckdb/function/table/table_scan.hpp"
 #include "duckdb/planner/filter/dynamic_filter.hpp"
 #include "duckdb/planner/filter/optional_filter.hpp"
@@ -29,6 +30,9 @@
 using namespace duckdb;
 
 namespace vortex {
+
+static constexpr column_t _COLUMN_IDENTIFIER_FILE_ROW_NUMBER = UINT64_C(9223372036854775809);
+static constexpr column_t _COLUMN_IDENTIFIER_FILE_INDEX = UINT64_C(9223372036854775810);
 
 /// Bind data for the Vortex table function that holds information about the
 /// file and its schema. This data is populated during the bind phase, which
@@ -40,6 +44,7 @@ struct ScanBindData : public TableFunctionData {
 	shared_ptr<MultiFileList> file_list;
 	vector<LogicalType> columns_types;
 	vector<string> column_names;
+	map<column_t, string> virtual_col;
 
 	// Used to read the schema during the bind phase and cached here to
 	// avoid having to open the same file again during the scan phase.
@@ -57,12 +62,22 @@ struct ScanBindData : public TableFunctionData {
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto result = make_uniq<ScanBindData>();
+		result->arena = make_uniq<google::protobuf::Arena>();
 		result->session = session;
 		result->file_list = file_list;
 		result->columns_types = columns_types;
 		result->column_names = column_names;
 		result->initial_file = initial_file;
+		result->virtual_col = virtual_col;
 		return std::move(result);
+	}
+
+	std::string &ColumnName(column_t col) {
+		if (col < column_names.size()) {
+			return column_names[col];
+		}
+
+		return virtual_col[col];
 	}
 };
 
@@ -118,7 +133,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 	vector<idx_t> column_ids;
 	vector<idx_t> projection_ids;
 	// The precomputed column names used in the query.
-	std::vector<char const *> projected_column_names;
+	std::string projection;
 
 	// This is the max number threads that the extension might use.
 	idx_t MaxThreads() const override {
@@ -159,7 +174,7 @@ struct ScanGlobalState : public GlobalTableFunctionState {
 };
 
 // Use to create vortex expressions from `TableFilterSet` filter.
-void ExtractFilterExpression(google::protobuf::Arena &arena, vector<std::string> column_names,
+void ExtractFilterExpression(google::protobuf::Arena &arena, ScanBindData &data,
                              optional_ptr<TableFilterSet> filter_set, vector<idx_t> column_ids,
                              vector<expr::Expr *> &conjuncts, map<string, shared_ptr<DynamicFilterData>> &dyn_filters) {
 	if (filter_set == nullptr) {
@@ -167,7 +182,7 @@ void ExtractFilterExpression(google::protobuf::Arena &arena, vector<std::string>
 	}
 
 	for (const auto &[col_id, value] : filter_set->filters) {
-		auto column_name = column_names[column_ids[col_id]];
+		auto column_name = data.ColumnName(column_ids[col_id]);
 
 		// Extract the optional dynamic filter, this seems like the only way that
 		// duckdb will use dynamic filters.
@@ -175,26 +190,26 @@ void ExtractFilterExpression(google::protobuf::Arena &arena, vector<std::string>
 			auto &opt_filter = value->Cast<OptionalFilter>().child_filter;
 			if (opt_filter->filter_type == TableFilterType::DYNAMIC_FILTER) {
 				dyn_filters.emplace(column_name, opt_filter->Cast<DynamicFilter>().filter_data);
+				continue;
 			}
-		} else {
-			auto conj = table_expression_into_expr(arena, *value, column_name);
-			conjuncts.push_back(conj);
 		}
+		auto conj = table_expression_into_expr(arena, *value, column_name);
+		conjuncts.push_back(conj);
 	}
 }
 
-static void PopulateProjection(ScanGlobalState &global_state, const vector<string> &column_names,
-                               TableFunctionInitInput &input) {
+static void PopulateProjection(ScanBindData &bind_data, ScanGlobalState &global_state, TableFunctionInitInput &input) {
 	global_state.projection_ids.reserve(input.projection_ids.size());
 	for (auto proj_id : input.projection_ids) {
 		global_state.projection_ids.push_back(input.column_ids[proj_id]);
 	}
 
-	global_state.projected_column_names.reserve(input.projection_ids.size());
+	auto vec = duckdb::vector<std::string>();
 	for (auto column_id : global_state.projection_ids) {
-		assert(column_id < column_names.size());
-		global_state.projected_column_names.push_back(column_names[column_id].c_str());
+		vec.push_back(bind_data.ColumnName(column_id));
 	}
+	auto expr = pack_projection_columns(*bind_data.arena, vec);
+	global_state.projection = expr->SerializeAsString();
 }
 
 /// Extracts schema information from a Vortex file's data type.
@@ -299,7 +314,8 @@ static bool PinFileToThread(ScanGlobalState &global_state) {
 static void CreateScanPartitions(ClientContext &context, const ScanBindData &bind, ScanGlobalState &global_state,
                                  ScanLocalState &local_state, uint64_t file_idx, VortexFile &file) {
 	auto filter_str = global_state.filter_expression_string(*bind.arena);
-	if (global_state.files[file_idx]->CanPrune(filter_str.data(), static_cast<unsigned>(filter_str.length()))) {
+	if (global_state.files[file_idx]->CanPrune(filter_str.data(), static_cast<unsigned>(filter_str.length()),
+	                                           file_idx)) {
 		global_state.files_partitioned += 1;
 		return;
 	}
@@ -346,15 +362,15 @@ static unique_ptr<ArrayIterator> OpenArrayIter(const ScanBindData &bind, ScanGlo
                                                shared_ptr<VortexFile> &file, ScanPartition row_range_partition) {
 	auto filter_str = global_state.filter_expression_string(*bind.arena);
 
-	const auto options = vx_file_scan_options {
-	    .projection = global_state.projected_column_names.data(),
-	    .projection_len = static_cast<unsigned>(global_state.projected_column_names.size()),
-	    .filter_expression = filter_str.data(),
-	    .filter_expression_len = static_cast<unsigned>(filter_str.length()),
-	    .split_by_row_count = 0,
-	    .row_range_start = row_range_partition.start_row,
-	    .row_range_end = row_range_partition.end_row,
-	};
+	const auto options =
+	    vx_file_scan_options {.projection_expression = global_state.projection.data(),
+	                          .projection_expr_len = static_cast<unsigned>(global_state.projection.length()),
+	                          .filter_expression = filter_str.data(),
+	                          .filter_expression_len = static_cast<unsigned>(filter_str.length()),
+	                          .split_by_row_count = 0,
+	                          .row_range_start = row_range_partition.start_row,
+	                          .row_range_end = row_range_partition.end_row,
+	                          .file_index = row_range_partition.file_idx};
 
 	return make_uniq<ArrayIterator>(file->Scan(&options));
 }
@@ -362,7 +378,8 @@ static unique_ptr<ArrayIterator> OpenArrayIter(const ScanBindData &bind, ScanGlo
 // Assigns the next array exporter.
 //
 // Returns true if a new exporter was assigned, false otherwise.
-static bool GetNextExporter(ClientContext &context, const ScanBindData &bind_data, ScanGlobalState &global_state, ScanLocalState &local_state) {
+static bool GetNextExporter(ClientContext &context, const ScanBindData &bind_data, ScanGlobalState &global_state,
+                            ScanLocalState &local_state) {
 
 	// Try to deque a partition off the thread local queue.
 	auto try_dequeue = [&](ScanPartition &scan_partition) {
@@ -434,17 +451,17 @@ static void VortexScanFunction(ClientContext &context, TableFunctionInput &data,
 
 				// Create new scan partitions in case the queue is empty.
 				if (auto file_idx = global_state.next_file_idx.fetch_add(1);
-					file_idx < global_state.expanded_files.size()) {
+				    file_idx < global_state.expanded_files.size()) {
 					if (file_idx == 0) {
 						global_state.files[0] = bind_data.initial_file;
 					} else {
 						auto file_name = global_state.expanded_files[file_idx];
-						global_state.files[file_idx] =
-							OpenFileAndVerify(FileSystem::GetFileSystem(context), *bind_data.session, file_name, bind_data);
+						global_state.files[file_idx] = OpenFileAndVerify(FileSystem::GetFileSystem(context),
+						                                                 *bind_data.session, file_name, bind_data);
 					}
 
 					CreateScanPartitions(context, bind_data, global_state, local_state, file_idx,
-										 *global_state.files[file_idx]);
+					                     *global_state.files[file_idx]);
 				}
 			}
 			continue;
@@ -528,6 +545,7 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 
 	vortex_scan.init_global = [](ClientContext &context,
 	                             TableFunctionInitInput &input) -> unique_ptr<GlobalTableFunctionState> {
+		auto &nonbind = input.bind_data->Cast<ScanBindData>();
 		auto &bind = input.bind_data->CastNoConst<ScanBindData>();
 		auto global_state = make_uniq<ScanGlobalState>();
 
@@ -540,11 +558,12 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 		global_state->filter = input.filters;
 		global_state->column_ids = input.column_ids;
 
-		PopulateProjection(*global_state, bind.column_names, input);
+		PopulateProjection(bind, *global_state, input);
 
 		// Most expressions are extracted from `PushdownComplexFilter`, the final filters come from `input.filters`.
-		ExtractFilterExpression(*bind.arena, bind.column_names, input.filters, input.column_ids, bind.conjuncts,
+		ExtractFilterExpression(*bind.arena, bind, input.filters, input.column_ids, bind.conjuncts,
 		                        global_state->dynamic_filters);
+
 		// Create the static filter expression
 		global_state->static_filter_expr = flatten_exprs(*bind.arena, bind.conjuncts);
 		if (global_state->static_filter_expr != nullptr) {
@@ -573,6 +592,29 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 	vortex_scan.cardinality = VortexCardinality;
 	vortex_scan.filter_pushdown = true;
 	vortex_scan.filter_prune = true;
+	vortex_scan.late_materialization = true;
+
+	vortex_scan.get_row_id_columns = [](ClientContext &context,
+	                                    optional_ptr<FunctionData> bind_data) -> vector<column_t> {
+		vector<column_t> result;
+		result.emplace_back(_COLUMN_IDENTIFIER_FILE_ROW_NUMBER);
+		result.emplace_back(_COLUMN_IDENTIFIER_FILE_INDEX);
+		return result;
+	};
+	vortex_scan.get_virtual_columns = [](ClientContext &context,
+	                                     optional_ptr<FunctionData> bind_data) -> virtual_column_map_t {
+		auto &scan_bind_data = bind_data->Cast<ScanBindData>();
+		virtual_column_map_t result;
+
+		result.insert(
+		    make_pair(_COLUMN_IDENTIFIER_FILE_ROW_NUMBER, TableColumn("file_row_number", LogicalType::UBIGINT)));
+		result.insert(make_pair(_COLUMN_IDENTIFIER_FILE_INDEX, TableColumn("file_index", LogicalType::UBIGINT)));
+
+		scan_bind_data.virtual_col[_COLUMN_IDENTIFIER_FILE_ROW_NUMBER] = "file_row_number";
+		scan_bind_data.virtual_col[_COLUMN_IDENTIFIER_FILE_INDEX] = "file_index";
+
+		return result;
+	};
 
 	ExtensionUtil::RegisterFunction(instance, vortex_scan);
 }

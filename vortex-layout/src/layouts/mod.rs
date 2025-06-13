@@ -12,6 +12,7 @@ pub mod file_stats;
 pub mod filter;
 pub mod flat;
 pub mod repartition;
+pub mod row_id;
 pub mod struct_;
 pub mod zoned;
 

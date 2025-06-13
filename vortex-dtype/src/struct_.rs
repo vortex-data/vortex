@@ -5,7 +5,7 @@ use itertools::Itertools;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err, vortex_panic};
 
 use crate::flatbuffers::ViewedDType;
-use crate::{DType, FieldName, FieldNames};
+use crate::{DType, FieldName, FieldNames, PType};
 
 /// DType of a struct's field, either owned or a pointer to an underlying flatbuffer.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -26,6 +26,14 @@ impl From<DType> for FieldDType {
     fn from(value: DType) -> Self {
         Self {
             inner: FieldDTypeInner::Owned(value),
+        }
+    }
+}
+
+impl From<PType> for FieldDType {
+    fn from(value: PType) -> Self {
+        Self {
+            inner: FieldDTypeInner::Owned(DType::from(value)),
         }
     }
 }

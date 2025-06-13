@@ -54,9 +54,9 @@ struct VortexFile {
 		return Try([&](auto err) { return vx_file_scan(this->file, options, err); });
 	}
 
-	bool CanPrune(const char *filter_expression, unsigned int filter_expression_len) {
+	bool CanPrune(const char *filter_expression, unsigned int filter_expression_len, unsigned long file_idx) {
 		return Try([&](auto err) {
-			return vx_file_can_prune(this->file, filter_expression, filter_expression_len, err);
+			return vx_file_can_prune(this->file, filter_expression, filter_expression_len, file_idx, err);
 		});
 	}
 

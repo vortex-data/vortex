@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::hash::Hash;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
@@ -15,7 +14,7 @@ use vortex_array::{ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
-use vortex_expr::{ExprRef, Scope};
+use vortex_expr::{ExactExpr, ExprRef, Scope};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -105,25 +104,6 @@ impl StructReader {
                 )
             })
             .clone()
-    }
-}
-
-/// An expression wrapper that performs pointer equality.
-/// NOTE(ngates): we should consider if this shoud live in vortex-expr crate?
-#[derive(Clone)]
-struct ExactExpr(ExprRef);
-
-impl PartialEq for ExactExpr {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl Eq for ExactExpr {}
-
-impl Hash for ExactExpr {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        Arc::as_ptr(&self.0).hash(state)
     }
 }
 
@@ -338,6 +318,7 @@ mod tests {
     use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream;
+    use itertools::Itertools;
     use rstest::{fixture, rstest};
     use vortex_array::arrays::StructArray;
     use vortex_array::{Array, ArrayContext, IntoArray, ToCanonical};
@@ -345,7 +326,7 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
-    use vortex_expr::{get_item, gt, pack, root};
+    use vortex_expr::{eq, get_item, get_item_scope, gt, lit, or, pack, root};
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -396,6 +377,35 @@ mod tests {
         .unwrap();
 
         (ctx, Arc::new(segments), layout)
+    }
+
+    #[rstest]
+    fn test_struct_layout_or(
+        #[from(struct_layout)] (ctx, segments, layout): (
+            ArrayContext,
+            Arc<dyn SegmentSource>,
+            LayoutRef,
+        ),
+    ) {
+        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
+        let filt = or(
+            eq(get_item_scope("a"), lit(7)),
+            or(
+                eq(get_item_scope("b"), lit(5)),
+                eq(get_item_scope("a"), lit(3)),
+            ),
+        );
+        let result = block_on(
+            reader
+                .filter_evaluation(&(0..3), &filt)
+                .unwrap()
+                .invoke(Mask::new_true(3)),
+        )
+        .unwrap();
+        assert_eq!(
+            vec![true, true, true],
+            result.to_boolean_buffer().iter().collect_vec()
+        );
     }
 
     #[rstest]

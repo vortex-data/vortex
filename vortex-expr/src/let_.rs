@@ -138,7 +138,7 @@ mod tests {
             let_(
                 "y".parse().unwrap(),
                 get_item_scope("a2"),
-                eq(var("x".parse().unwrap()), var("y".parse().unwrap())),
+                eq(var("x"), var("y")),
             ),
         );
         let res = expr.evaluate(&Scope::new(struct_arr)).unwrap();

@@ -1,7 +1,9 @@
 mod references;
+mod vars;
 mod visitor;
 
 pub use references::ReferenceCollector;
+pub use vars::VarsCollector;
 pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
 
@@ -297,8 +299,8 @@ mod tests {
     use crate::traversal::visitor::pre_order_visit_down;
     use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
     use crate::{
-        BinaryExpr, ExprRef, FieldName, GetItem, Literal, Operator, VortexExpr, VortexExprExt, col,
-        is_root, root,
+        BinaryExpr, ExprRef, GetItem, Literal, Operator, VortexExpr, col, get_item_scope, is_root,
+        root,
     };
 
     #[derive(Default)]
@@ -406,12 +408,10 @@ mod tests {
         }))
         .unwrap();
 
+        let nodes: HashSet<ExprRef> = HashSet::from_iter(nodes.into_iter().cloned());
         assert_eq!(
-            nodes
-                .into_iter()
-                .map(|x| x.references())
-                .fold(HashSet::new(), |acc, x| acc.union(&x).cloned().collect()),
-            HashSet::from_iter(vec![FieldName::from("col3"), FieldName::from("col4")])
+            nodes,
+            HashSet::from_iter([get_item_scope("col3"), get_item_scope("col4")])
         );
     }
 
@@ -439,13 +439,7 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(
-            nodes
-                .into_iter()
-                .map(|x| x.references())
-                .fold(HashSet::new(), |acc, x| acc.union(&x).cloned().collect()),
-            HashSet::from_iter(vec![])
-        );
+        assert!(nodes.is_empty());
     }
 
     #[test]

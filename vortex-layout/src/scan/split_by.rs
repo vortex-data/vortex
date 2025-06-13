@@ -11,7 +11,7 @@ use crate::LayoutReader;
 /// Defines how the Vortex file is split into batches for reading.
 ///
 /// Note that each split must fit into the platform's maximum usize.
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Copy, Clone, Debug)]
 pub enum SplitBy {
     #[default]
     /// Splits any time there is a chunk boundary in the file.

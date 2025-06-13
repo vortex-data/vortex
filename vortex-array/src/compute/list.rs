@@ -51,8 +51,12 @@ pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<Array
     let DType::List(elem_dtype, _) = array.dtype() else {
         vortex_bail!("Array must be of List type");
     };
-    if !elem_dtype.eq_ignore_nullability(value.dtype()) {
-        vortex_bail!("Element type of ListArray does not match search value");
+    if !elem_dtype.as_ref().eq_ignore_nullability(value.dtype()) {
+        vortex_bail!(
+            "Element type {} of ListArray does not match search value {}",
+            elem_dtype,
+            value.dtype(),
+        );
     }
 
     if value.all_invalid()? || array.all_invalid()? {
