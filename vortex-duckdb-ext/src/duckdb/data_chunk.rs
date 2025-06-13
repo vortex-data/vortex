@@ -43,7 +43,7 @@ impl DataChunk {
 impl Debug for DataChunk {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         debug_assert!(unsafe {
-            cpp::duckdb_data_chunk_verify2(self.as_ptr());
+            cpp::duckdb_data_chunk_verify(self.as_ptr());
             true
         });
         let debug = unsafe { cpp::duckdb_data_chunk_to_string(self.as_ptr()) };

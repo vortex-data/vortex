@@ -5,13 +5,11 @@ use vortex::error::{VortexExpect, VortexResult};
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
 
-#[allow(dead_code)]
 struct SequenceExporter {
     start: i64,
     step: i64,
 }
 
-#[allow(dead_code)]
 pub(crate) fn new_exporter(array: &SequenceArray) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(Box::new(SequenceExporter {
         start: array.base().as_i64().vortex_expect("cannot have null base"),

@@ -11,7 +11,7 @@ const char *duckdb_data_chunk_to_string(duckdb_data_chunk chunk) {
 	return result;
 }
 
-void duckdb_data_chunk_verify2(duckdb_data_chunk chunk) {
+void duckdb_data_chunk_verify(duckdb_data_chunk chunk) {
 	auto dchunk = reinterpret_cast<duckdb::DataChunk *>(chunk);
 	dchunk->Verify();
 }
