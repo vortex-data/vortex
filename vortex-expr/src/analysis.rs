@@ -14,7 +14,7 @@ pub trait StatsCatalog {
 pub trait AnalyzableExpr {
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.
     ///
-    /// Given an expression, `e`, if `e.stat_falsifiable_expr()` evaluates to true, it is guaranteed
+    /// Given an expression, `e`, if `e.stat_falsifiable()` evaluates to true, it is guaranteed
     /// that `e` evaluates to false on all records in the zone. However, the inverse is not
     /// necessarily true: even if the falsification evaluates to false, `e` need not evaluate to
     /// true on all records.
@@ -30,7 +30,7 @@ pub trait AnalyzableExpr {
     ///
     /// Some expressions, in theory, have falsifications but this function does not support them
     /// such as `x < (y < z)` or `x LIKE "needle%"`.
-    fn stat_falsifiable_expr(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsifiable(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         None
     }
 

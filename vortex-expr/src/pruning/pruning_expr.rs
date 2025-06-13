@@ -68,7 +68,7 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
     let mut catalog = AnyStatsCatalog {
         ..Default::default()
     };
-    let expr = expr.stat_falsifiable_expr(&mut catalog)?;
+    let expr = expr.stat_falsifiable(&mut catalog)?;
 
     // TODO(joe): filter access by used exprs
     let mut relation: Relation<AccessPath, Stat> = Relation::new();
@@ -92,7 +92,7 @@ pub fn checked_pruning_expr(
         scope_field_paths,
     };
 
-    let expr = expr.stat_falsifiable_expr(&mut catalog)?;
+    let expr = expr.stat_falsifiable(&mut catalog)?;
 
     // TODO(joe): filter access by used exprs
     let mut relation: Relation<AccessPath, Stat> = Relation::new();

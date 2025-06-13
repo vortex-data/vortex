@@ -83,7 +83,7 @@ pub(crate) mod proto {
 }
 
 impl AnalyzableExpr for BinaryExpr {
-    fn stat_falsifiable_expr(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsifiable(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         match self.operator {
             Operator::Eq => {
                 let min_lhs = self.lhs.min(catalog);
@@ -112,13 +112,13 @@ impl AnalyzableExpr for BinaryExpr {
             // We can short circuit pruning expr for and
             Operator::And => self
                 .lhs
-                .stat_falsifiable_expr(catalog)
+                .stat_falsifiable(catalog)
                 .into_iter()
-                .chain(self.rhs.stat_falsifiable_expr(catalog))
+                .chain(self.rhs.stat_falsifiable(catalog))
                 .reduce(or),
             Operator::Or => Some(and(
-                self.lhs.stat_falsifiable_expr(catalog)?,
-                self.rhs.stat_falsifiable_expr(catalog)?,
+                self.lhs.stat_falsifiable(catalog)?,
+                self.rhs.stat_falsifiable(catalog)?,
             )),
         }
     }
