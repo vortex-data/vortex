@@ -35,8 +35,10 @@ impl ListContainsKernel for SequenceVTable {
             })
             .collect::<Vec<_>>();
 
+        let nullability = list.dtype().nullability() | element.dtype().nullability();
+
         Ok(Some(
-            BoolArray::from_indices(element.len(), set_indices).to_array(),
+            BoolArray::from_indices(element.len(), set_indices, nullability.into()).to_array(),
         ))
     }
 }
@@ -62,7 +64,7 @@ mod tests {
             Scalar::list(
                 Arc::new(I32.into()),
                 vec![1.into(), 3.into()],
-                Nullability::NonNullable,
+                Nullability::Nullable,
             ),
             3,
         );

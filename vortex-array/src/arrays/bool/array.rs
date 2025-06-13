@@ -21,14 +21,18 @@ pub struct BoolArray {
 impl BoolArray {
     /// Create a new BoolArray from a set of indices and a length.
     /// All indices must be less than the length.
-    pub fn from_indices<I: IntoIterator<Item = usize>>(length: usize, indices: I) -> Self {
+    pub fn from_indices<I: IntoIterator<Item = usize>>(
+        length: usize,
+        indices: I,
+        validity: Validity,
+    ) -> Self {
         let mut buffer = MutableBuffer::new_null(length);
         indices
             .into_iter()
             .for_each(|idx| arrow_buffer::bit_util::set_bit(&mut buffer, idx));
         Self::new(
             BooleanBufferBuilder::new_from_buffer(buffer, length).finish(),
-            Validity::NonNullable,
+            validity,
         )
     }
 

@@ -161,8 +161,11 @@ impl<V: VTable + ListContainsKernel> Kernel for ListContainsKernelAdapter<V> {
             rhs: value,
             ..
         } = BinaryArgs::<()>::try_from(args)?;
+        let Some(value) = value.as_opt::<V>() else {
+            return Ok(None);
+        };
         self.0
-            .list_contains(array, value.as_::<V>())
+            .list_contains(array, value)
             .map(|c| c.map(Output::Array))
     }
 }
