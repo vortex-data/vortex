@@ -81,6 +81,7 @@ cfg-if = "1"
 chrono = "0.4.40"
 clap = "4.5"
 compio = { version = "0.14", features = ["io-uring"], default-features = false }
+crossbeam-queue = "0.3"
 crossterm = "0.28"
 dashmap = "6.1.0"
 datafusion = { version = "47", default-features = false }
@@ -100,6 +101,7 @@ flume = "0.11"
 fsst-rs = "0.5.2"
 futures = { version = "0.3.31", default-features = false }
 futures-util = "0.3.31"
+glob = "0.3.2"
 goldenfile = "1"
 half = { version = "2.5", features = ["std", "num-traits"] }
 hashbrown = "0.15.1"

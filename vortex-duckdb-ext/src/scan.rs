@@ -1,5 +1,6 @@
-use std::sync::atomic::AtomicBool;
+use std::path::PathBuf;
 
+use crossbeam_queue::SegQueue;
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
 use vortex::file::{VortexFile, VortexOpenOptions};
 
@@ -9,14 +10,13 @@ use crate::duckdb::{
 use crate::exporter::ArrayIteratorExporter;
 
 pub struct VortexBindData {
-    first_file: VortexFile,
+    _first_file: VortexFile,
+    file_list: SegQueue<PathBuf>,
     _column_names: Vec<String>,
     _column_types: Vec<LogicalType>,
 }
 
-pub struct VortexGlobalData {
-    done: AtomicBool,
-}
+pub struct VortexGlobalData {}
 
 pub struct VortexLocalData {
     exporter: Option<ArrayIteratorExporter>,
@@ -63,7 +63,6 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn bind(input: &BindInput, result: &mut BindResult) -> VortexResult<Self::BindData> {
-        // TODO: expand glob & assign to file list
         let file_glob_string = input
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
@@ -80,8 +79,22 @@ impl TableFunction for VortexTableFunction {
             result.add_result_column(name, logical_type);
         }
 
+        let paths = match glob::glob(file_glob_string.as_string().to_str()?) {
+            Ok(paths) => paths,
+            Err(e) => vortex_bail!("Failed to glob files: {}", e),
+        };
+
+        let file_list = SegQueue::new();
+        for path in paths {
+            match path {
+                Ok(path) => file_list.push(path),
+                Err(e) => vortex_bail!("Failed to glob files: {}", e),
+            }
+        }
+
         Ok(VortexBindData {
-            first_file,
+            file_list,
+            _first_file: first_file,
             _column_names: column_names,
             _column_types: column_types,
         })
@@ -90,23 +103,26 @@ impl TableFunction for VortexTableFunction {
     fn scan(
         bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
-        global_state: &mut Self::GlobalState,
+        _global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
-        if global_state.done.load(std::sync::atomic::Ordering::SeqCst) {
-            // Signal to DuckDB that there's no work left by setting the chunk length to 0.
-            chunk.set_len(0);
-            return Ok(());
-        }
-
         if local_state.exporter.is_none() {
-            let array_iter = bind_data
-                .first_file
-                .scan()?
-                .into_array_iter()
-                .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
+            if let Some(file_path) = bind_data.file_list.pop() {
+                let file = VortexOpenOptions::file()
+                    .open_blocking(&file_path)
+                    .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
-            local_state.exporter = Some(ArrayIteratorExporter::new(Box::new(array_iter)));
+                let array_iter = file
+                    .scan()?
+                    .into_array_iter()
+                    .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
+
+                local_state.exporter = Some(ArrayIteratorExporter::new(Box::new(array_iter)));
+            } else {
+                // If the exporter is None and there are no more files to process, signal that the scan finished.
+                chunk.set_len(0);
+                return Ok(());
+            }
         }
 
         let Some(ref mut exporter) = local_state.exporter else {
@@ -118,18 +134,14 @@ impl TableFunction for VortexTableFunction {
             .map_err(|e| vortex_err!("Failed to export data: {}", e))?;
 
         if !is_data_left_to_scan {
-            global_state
-                .done
-                .store(true, std::sync::atomic::Ordering::SeqCst);
+            local_state.exporter = None;
         }
 
         Ok(())
     }
 
     fn init_global(_init: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
-        Ok(VortexGlobalData {
-            done: AtomicBool::new(false),
-        })
+        Ok(VortexGlobalData {})
     }
 
     fn init_local(
@@ -144,5 +156,115 @@ impl TableFunction for VortexTableFunction {
         _expr: &Expression,
     ) -> VortexResult<bool> {
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use duckdb::Connection;
+    use tempfile::NamedTempFile;
+    use vortex::IntoArray;
+    use vortex::arrays::{BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray};
+    use vortex::file::VortexWriteOptions;
+    use vortex::scalar::Scalar;
+    use vortex::validity::Validity;
+
+    use super::*;
+    use crate::duckdb::Database;
+
+    fn database_connection() -> Connection {
+        let db = Database::open_in_memory().unwrap();
+        let connection = db.connect().unwrap();
+        connection
+            .register_table_function::<VortexTableFunction>(c"vortex_scan")
+            .unwrap();
+        unsafe { Connection::open_from_raw(db.as_ptr().cast()) }.unwrap()
+    }
+
+    fn create_temp_file() -> NamedTempFile {
+        NamedTempFile::new().unwrap()
+    }
+
+    async fn write_vortex_file(field_name: &str, array: impl IntoArray) -> NamedTempFile {
+        let temp_file_path = create_temp_file();
+
+        let struct_array = StructArray::from_fields(&[(field_name, array.into_array())]).unwrap();
+        let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
+        VortexWriteOptions::default()
+            .write(file, struct_array.to_array_stream())
+            .await
+            .unwrap();
+
+        temp_file_path
+    }
+
+    fn scan_vortex_file<T>(tmp_file: NamedTempFile, query: &str) -> T
+    where
+        T: duckdb::types::FromSql,
+    {
+        let conn = database_connection();
+        conn.prepare(query)
+            .unwrap()
+            .query_row([tmp_file.path().to_string_lossy()], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn test_scan_function_registration() {
+        let conn = database_connection();
+        let result: String = conn
+            .prepare(
+                "SELECT function_name FROM duckdb_functions() WHERE function_name = 'vortex_scan'",
+            )
+            .unwrap()
+            .query_row([], |row| row.get(0))
+            .unwrap();
+        assert_eq!(&result, "vortex_scan");
+    }
+
+    #[tokio::test]
+    async fn test_vortex_scan_strings() {
+        let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
+        let file = write_vortex_file("strings", strings).await;
+        let result: String =
+            scan_vortex_file(file, "SELECT string_agg(strings, ',') FROM vortex_scan(?)");
+        assert_eq!(result, "Hello,Hi,Hey");
+    }
+
+    #[tokio::test]
+    async fn test_vortex_scan_integers() {
+        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
+        let file = write_vortex_file("number", numbers).await;
+        let sum: i64 = scan_vortex_file(file, "SELECT SUM(number) FROM vortex_scan(?)");
+        assert_eq!(sum, 138);
+    }
+
+    #[tokio::test]
+    async fn test_vortex_scan_floats() {
+        let values = PrimitiveArray::from_iter([1.5f64, -2.5, 0.0, 42.42]);
+        let file = write_vortex_file("value", values).await;
+        let count: i64 =
+            scan_vortex_file(file, "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0");
+        assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_vortex_scan_constant() {
+        let constant = ConstantArray::new(Scalar::from(42i32), 100);
+        let file = write_vortex_file("constant", constant).await;
+        let value: i32 = scan_vortex_file(file, "SELECT constant FROM vortex_scan(?) LIMIT 1");
+        assert_eq!(value, 42);
+    }
+
+    #[tokio::test]
+    async fn test_vortex_scan_booleans() {
+        let flags = vec![true, false, true, true, false];
+        let flags_array = BoolArray::new(flags.into(), Validity::NonNullable);
+        let file = write_vortex_file("flag", flags_array).await;
+        let true_count: i64 = scan_vortex_file(
+            file,
+            "SELECT COUNT(*) FROM vortex_scan(?) WHERE flag = true",
+        );
+        assert_eq!(true_count, 3);
     }
 }
