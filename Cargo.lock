@@ -2161,11 +2161,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "379464d1fbb69d1bbda7c11d96fafde6f2bdb78c67e630e6339b048e6e45107e"
 dependencies = [
  "arrow",
+ "calamine",
  "cast",
  "fallible-iterator",
  "fallible-streaming-iterator",
  "hashlink",
  "libduckdb-sys 1.3.0",
+ "num",
  "num-integer",
  "rust_decimal",
  "smallvec",
@@ -6443,6 +6445,7 @@ dependencies = [
 name = "vortex-duckdb-ext"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
  "bindgen",
  "bitvec",
  "cbindgen",
@@ -6452,6 +6455,7 @@ dependencies = [
  "log",
  "num-traits",
  "reqwest",
+ "tempfile",
  "tokio",
  "vortex",
  "vortex-file",

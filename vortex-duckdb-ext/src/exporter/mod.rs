@@ -8,12 +8,14 @@ mod sequence;
 mod varbinview;
 
 use cache::*;
+use duckdb::vtab::arrow::write_arrow_array_to_vector;
 use itertools::Itertools;
 use vortex::arrays::{ConstantVTable, StructArray};
+use vortex::arrow::compute::to_arrow_preferred;
 use vortex::encodings::dict::DictVTable;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::iter::ArrayIterator;
 use vortex::mask::Mask;
 use vortex::{Array, Canonical, ToCanonical};
@@ -167,25 +169,22 @@ fn new_array_exporter(
         Canonical::Extension(_) => {}
     }
 
-    // Otherwise use Arrow.
-    // let array = to_arrow_preferred(array.as_ref())?;
-    // Ok(Box::new(ArrowArrayExporter { array }))
-    vortex_bail!(
-        "DuckDB export for array type {} is not implemented yet",
-        array.as_ref().encoding_id()
-    );
+    Ok(Box::new(ArrowArrayExporter {
+        array: to_arrow_preferred(array.as_ref())?,
+    }))
 }
-//
-// struct ArrowArrayExporter {
-//     array: ArrowArrayRef,
-// }
-//
-// impl ColumnExporter for ArrowArrayExporter {
-//     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
-//         write_arrow_array_to_vector(&self.array.slice(offset, len), vector)
-//             .map_err(|e| vortex_err!("Failed to convert Arrow array to DuckDB vector {e}"))
-//     }
-// }
+
+struct ArrowArrayExporter {
+    array: arrow_array::ArrayRef,
+}
+
+impl ColumnExporter for ArrowArrayExporter {
+    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+        let duckdb_vector = vector.as_ptr();
+        write_arrow_array_to_vector(&self.array.slice(offset, len), &mut duckdb_vector.cast())
+            .map_err(|e| vortex_err!("Failed to convert Arrow array to DuckDB vector {e}"))
+    }
+}
 
 pub(crate) trait VectorExt {
     /// Returns true if *all* values within the offset -> len slice are null.

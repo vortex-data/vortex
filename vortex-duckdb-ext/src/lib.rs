@@ -58,13 +58,13 @@ pub extern "C" fn vortex_extension_version() -> *const c_char {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-    use std::path::{Path, PathBuf};
-
     use duckdb::Connection;
+    use tempfile::NamedTempFile;
     use vortex::IntoArray;
-    use vortex::arrays::{StructArray, VarBinArray};
+    use vortex::arrays::{BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray};
     use vortex::file::VortexWriteOptions;
+    use vortex::scalar::Scalar;
+    use vortex::validity::Validity;
 
     use crate::duckdb::Database;
 
@@ -75,63 +75,90 @@ mod tests {
         unsafe { Connection::open_from_raw(db.as_ptr().cast()) }.unwrap()
     }
 
-    fn temp_file_path() -> PathBuf {
-        let temp_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("vortex-duckdb-ext");
-        std::fs::create_dir_all(&temp_dir).unwrap();
-        temp_dir.join("test-data.vortex")
+    fn create_temp_file() -> NamedTempFile {
+        NamedTempFile::new().unwrap()
     }
 
-    #[test]
-    fn test_scan_function_registration() {
-        let conn = database_connection();
+    async fn write_vortex_file(field_name: &str, array: impl IntoArray) -> NamedTempFile {
+        let temp_file_path = create_temp_file();
 
-        let result = conn
-            .prepare(
-                "SELECT function_name FROM duckdb_functions() WHERE function_name = 'vortex_scan'",
-            )
-            .unwrap()
-            .query_row([], |row| row.get::<_, String>(0))
-            .unwrap();
-
-        assert_eq!(&result, "vortex_scan");
-    }
-
-    #[tokio::test]
-    async fn test_vortex_scan_with_file() {
-        let temp_file_path = temp_file_path();
-        if temp_file_path.exists() {
-            // Clear previous temp file.
-            std::fs::remove_file(&temp_file_path).unwrap();
-        }
-
-        let greetings = ["Hello", "Hi", "Hey"];
-        let greetings_array = VarBinArray::from(greetings.to_vec());
-        let struct_array =
-            StructArray::from_fields(&[("greeting", greetings_array.into_array())]).unwrap();
-
-        // Write test data to Vortex file.
+        let struct_array = StructArray::from_fields(&[(field_name, array.into_array())]).unwrap();
         let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
         VortexWriteOptions::default()
             .write(file, struct_array.to_array_stream())
             .await
             .unwrap();
 
+        temp_file_path
+    }
+
+    fn scan_vortex_file<T>(tmp_file: NamedTempFile, query: &str) -> T
+    where
+        T: duckdb::types::FromSql,
+    {
         let conn = database_connection();
+        conn.prepare(query)
+            .unwrap()
+            .query_row([tmp_file.path().to_string_lossy()], |row| row.get(0))
+            .unwrap()
+    }
 
-        // Execute the query and run the scan.
-        for greeting in greetings.iter() {
-            let result: String = conn
-                .prepare(&format!(
-                    "SELECT greeting FROM vortex_scan(?) WHERE greeting = '{greeting}'"
-                ))
-                .unwrap()
-                .query_row([temp_file_path.to_string_lossy().as_ref()], |row| {
-                    // From the row, get the column at index 0.
-                    row.get(0)
-                })
-                .unwrap();
+    #[test]
+    fn test_scan_function_registration() {
+        let conn = database_connection();
+        let result: String = conn
+            .prepare(
+                "SELECT function_name FROM duckdb_functions() WHERE function_name = 'vortex_scan'",
+            )
+            .unwrap()
+            .query_row([], |row| row.get(0))
+            .unwrap();
+        assert_eq!(&result, "vortex_scan");
+    }
 
-            assert_eq!(&result, greeting);
-        }
+    #[tokio::test]
+    async fn test_vortex_scan_strings() {
+        let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
+        let file = write_vortex_file("strings", strings).await;
+        let result: String =
+            scan_vortex_file(file, "SELECT string_agg(strings, ',') FROM vortex_scan(?)");
+        assert_eq!(result, "Hello,Hi,Hey");
+    }
+
+    #[tokio::test]
+    async fn test_vortex_scan_integers() {
+        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
+        let file = write_vortex_file("number", numbers).await;
+        let sum: i64 = scan_vortex_file(file, "SELECT SUM(number) FROM vortex_scan(?)");
+        assert_eq!(sum, 138);
+    }
+
+    #[tokio::test]
+    async fn test_vortex_scan_floats() {
+        let values = PrimitiveArray::from_iter([1.5f64, -2.5, 0.0, 42.42]);
+        let file = write_vortex_file("value", values).await;
+        let count: i64 =
+            scan_vortex_file(file, "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0");
+        assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_vortex_scan_constant() {
+        let constant = ConstantArray::new(Scalar::from(42i32), 100);
+        let file = write_vortex_file("constant", constant).await;
+        let value: i32 = scan_vortex_file(file, "SELECT constant FROM vortex_scan(?) LIMIT 1");
+        assert_eq!(value, 42);
+    }
+
+    #[tokio::test]
+    async fn test_vortex_scan_booleans() {
+        let flags = vec![true, false, true, true, false];
+        let flags_array = BoolArray::new(flags.into(), Validity::NonNullable);
+        let file = write_vortex_file("flag", flags_array).await;
+        let true_count: i64 = scan_vortex_file(
+            file,
+            "SELECT COUNT(*) FROM vortex_scan(?) WHERE flag = true",
+        );
+        assert_eq!(true_count, 3);
     }
 }
