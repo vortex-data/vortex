@@ -159,11 +159,12 @@ impl LayoutReader for DictReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        let values_eval = self.values_eval(expr.clone());
+        let values_eval = self.values_eval(root());
         let codes_eval = self.codes.projection_evaluation(row_range, &root())?;
         Ok(Box::new(DictArrayEvaluation {
             values_eval,
             codes_eval,
+            expr: expr.clone(),
         }))
     }
 }
@@ -222,6 +223,7 @@ impl MaskEvaluation for DictMaskEvaluation {
 struct DictArrayEvaluation {
     values_eval: SharedArrayFuture,
     codes_eval: Box<dyn ArrayEvaluation>,
+    expr: ExprRef,
 }
 
 #[async_trait]
@@ -229,8 +231,6 @@ impl ArrayEvaluation for DictArrayEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
         let (values_result, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
         let (values_result, codes) = (values_result?, codes?);
-
-        println!("{:#?} {:#?}", values_result, codes);
 
         if values_result.dtype().is_struct() {
             // If the expression returns a struct push down the dict creation,
@@ -241,14 +241,18 @@ impl ArrayEvaluation for DictArrayEvaluation {
                 values_result
                     .fields()
                     .iter()
-                    .map(|field| Ok(DictArray::try_new(codes.clone(), field.clone())?.to_array()))
+                    .map(|field| {
+                        let array = DictArray::try_new(codes.clone(), field.clone())?.to_array();
+                        self.expr.evaluate(&Scope::new(array))
+                    })
                     .collect::<VortexResult<Vec<_>>>()?,
                 codes.len(),
                 values_result.dtype().nullability().into(),
             )?
             .to_array())
         } else {
-            Ok(DictArray::try_new(codes, values_result)?.to_array())
+            let array = DictArray::try_new(codes, values_result)?.to_array();
+            self.expr.evaluate(&Scope::new(array))
         }
     }
 }
