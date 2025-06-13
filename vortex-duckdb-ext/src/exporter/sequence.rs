@@ -44,9 +44,7 @@ mod tests {
     fn test_sequence() {
         let arr = SequenceArray::typed_new(2, 5, 100).unwrap();
 
-        // let chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Integer)]);
-        let mut chunk =
-            DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
         chunk.set_len(arr.len());
 
         new_exporter(&arr)

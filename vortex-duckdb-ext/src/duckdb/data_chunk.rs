@@ -1,9 +1,8 @@
 use std::fmt::{Debug, Formatter};
 
-use cpp::duckdb_create_data_chunk;
-use itertools::Itertools;
 use vortex::error::VortexExpect;
 
+use crate::cpp::duckdb_logical_type;
 use crate::duckdb::{LogicalType, Vector};
 use crate::{cpp, wrapper};
 
@@ -16,8 +15,11 @@ wrapper!(
 impl DataChunk {
     /// Create a new data chunk using a list of logical dtypes
     pub fn new(column_types: impl IntoIterator<Item = LogicalType>) -> DataChunk {
-        let mut ptrs = column_types.into_iter().map(|x| x.as_ptr()).collect_vec();
-        let ptr = unsafe { duckdb_create_data_chunk(ptrs.as_mut_ptr(), ptrs.len() as _) };
+        let mut ptrs = column_types
+            .into_iter()
+            .map(|x| x.as_ptr())
+            .collect::<Vec<duckdb_logical_type>>();
+        let ptr = unsafe { cpp::duckdb_create_data_chunk(ptrs.as_mut_ptr(), ptrs.len() as _) };
         unsafe { DataChunk::own(ptr) }
     }
 
@@ -44,7 +46,7 @@ impl Debug for DataChunk {
             cpp::duckdb_data_chunk_verify2(self.as_ptr());
             true
         });
-        let debug = unsafe { cpp::duckdb_data_chunk_to_string2(self.as_ptr()) };
+        let debug = unsafe { cpp::duckdb_data_chunk_to_string(self.as_ptr()) };
         write!(f, "{}", unsafe {
             std::ffi::CStr::from_ptr(debug).to_string_lossy()
         })?;

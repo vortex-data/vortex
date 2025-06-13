@@ -1,0 +1,14 @@
+#include "duckdb/common/types.hpp"
+
+#include "duckdb_vx.h"
+#include "duckdb_vx/logical_type.h"
+
+#include "../../duckdb-vortex/duckdb/src/include/duckdb/common/types.hpp"
+
+char *duckdb_vx_logical_type_stringify(duckdb_logical_type c_type) {
+	auto type = reinterpret_cast<duckdb::LogicalType *>(c_type);
+	auto str = type->ToString();
+	auto result = static_cast<char *>(duckdb_malloc(str.size() + 1));
+	memcpy(result, str.c_str(), str.size() + 1);
+	return result;
+}

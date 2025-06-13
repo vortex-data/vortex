@@ -6,9 +6,7 @@
 extern "C" {
 #endif
 
-const char *duckdb_data_chunk_to_string(duckdb_data_chunk chunk);
-
-void duckdb_data_chunk_verify2(duckdb_data_chunk chunk);
+char * duckdb_vx_logical_type_stringify(duckdb_logical_type ty);
 
 #ifdef __cplusplus /* End C ABI */
 }

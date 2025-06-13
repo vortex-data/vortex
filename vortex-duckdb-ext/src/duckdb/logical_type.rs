@@ -1,3 +1,5 @@
+use std::fmt::{Debug, Formatter};
+
 use crate::{cpp, wrapper};
 
 wrapper!(
@@ -20,6 +22,17 @@ impl LogicalType {
 
     pub fn varchar() -> Self {
         Self::new(cpp::DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR)
+    }
+}
+
+impl Debug for LogicalType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let debug = unsafe { cpp::duckdb_vx_logical_type_stringify(self.as_ptr()) };
+        write!(f, "{}", unsafe {
+            std::ffi::CStr::from_ptr(debug).to_string_lossy()
+        })?;
+        unsafe { cpp::duckdb_free(debug.cast()) };
+        Ok(())
     }
 }
 

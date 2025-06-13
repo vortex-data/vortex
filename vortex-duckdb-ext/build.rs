@@ -99,9 +99,21 @@ fn main() {
     let zip_path = download_duckdb_archive().unwrap();
     let lib_path = extract_duckdb_libraries(zip_path).unwrap();
 
+    if false {
+        let _ = lib_path;
+    }
+
+    // if true {
+    //     panic!("lib path {}", lib_path.display());
+    // }
+
     // Link against DuckDB dylib.
-    println!("cargo:rustc-link-search=native={}", lib_path.display());
-    println!("cargo:rustc-link-lib=dylib=duckdb");
+    println!(
+        "cargo:rustc-link-search=native={}",
+        "/Users/joeisaacs/git/duckdb/build/debug/src/"
+    );
+    // println!("cargo:rustc-link-search=native={}", lib_path.display());
+    println!("cargo:rustc-link-lib=static=duckdb");
 
     if env::var("TARGET").unwrap().contains("linux") {
         println!("cargo:rustc-link-lib=stdc++");
@@ -124,6 +136,7 @@ fn main() {
         .file("cpp/expr.cpp")
         .file("cpp/table_filter.cpp")
         .file("cpp/table_function.cpp")
+        .file("cpp/logical_type.cpp")
         .file("cpp/vector.cpp")
         .compile("vortex-duckdb-ext-extras");
 
