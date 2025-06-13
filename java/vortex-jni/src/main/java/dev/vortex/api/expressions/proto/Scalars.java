@@ -18,6 +18,7 @@ package dev.vortex.api.expressions.proto;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
 import dev.vortex.proto.ScalarProtos;
+import java.math.BigDecimal;
 import java.util.Optional;
 
 final class Scalars {
@@ -171,6 +172,23 @@ final class Scalars {
                         .setNullValue(NullValue.NULL_VALUE)
                         .build())
                 .setDtype(DTypes.string(true))
+                .build();
+    }
+
+    static ScalarProtos.Scalar decimal(BigDecimal decimal, int precision, int scale) {
+        var littleEndian = EndianUtils.littleEndianDecimal(decimal);
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder()
+                        .setBytesValue(ByteString.copyFrom(littleEndian))
+                        .build())
+                .setDtype(DTypes.decimal(false, precision, scale))
+                .build();
+    }
+
+    static ScalarProtos.Scalar nullDecimal(int precision, int scale) {
+        return ScalarProtos.Scalar.newBuilder()
+                .setValue(ScalarProtos.ScalarValue.newBuilder().setNullValue(NullValue.NULL_VALUE))
+                .setDtype(DTypes.decimal(true, precision, scale))
                 .build();
     }
 

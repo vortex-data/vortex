@@ -17,11 +17,14 @@ package dev.vortex.api.expressions.proto;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
+import com.google.protobuf.ByteString;
 import dev.vortex.api.Expression;
 import dev.vortex.api.expressions.*;
 import dev.vortex.proto.DTypeProtos;
 import dev.vortex.proto.ExprProtos;
 import dev.vortex.proto.ScalarProtos;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
@@ -126,7 +129,18 @@ public final class ExpressionProtoDeserializer {
             case STRING_VALUE:
                 return Literal.string(scalarValue.getStringValue());
             case BYTES_VALUE:
-                return Literal.bytes(scalarValue.getBytesValue().toByteArray());
+                if (dtype.hasDecimal()) {
+                    ByteString littleEndian = scalarValue.getBytesValue();
+                    byte[] bigEndian = EndianUtils.reverse(littleEndian);
+                    BigDecimal value = new BigDecimal(
+                            new BigInteger(bigEndian), dtype.getDecimal().getScale());
+                    return Literal.decimal(
+                            value,
+                            dtype.getDecimal().getPrecision(),
+                            dtype.getDecimal().getScale());
+                } else {
+                    return Literal.bytes(scalarValue.getBytesValue().toByteArray());
+                }
             default:
                 throw new UnsupportedOperationException("Unsupported ScalarValue type encountered: " + scalarValue);
         }
@@ -229,6 +243,11 @@ public final class ExpressionProtoDeserializer {
                     default:
                         throw new UnsupportedOperationException("Unsupported ScalarValue type encountered: " + type);
                 }
+            case DECIMAL:
+                return Literal.decimal(
+                        null,
+                        type.getDecimal().getPrecision(),
+                        type.getDecimal().getScale());
             case UTF8:
                 return Literal.string(null);
             case BINARY:

@@ -17,6 +17,7 @@ package dev.vortex.api.expressions.proto;
 
 import dev.vortex.api.expressions.Literal;
 import dev.vortex.proto.ScalarProtos;
+import java.math.BigDecimal;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -171,6 +172,15 @@ final class LiteralToScalar implements Literal.LiteralVisitor<ScalarProtos.Scala
             return Scalars.nullFloat64();
         } else {
             return Scalars.float64(literal);
+        }
+    }
+
+    @Override
+    public ScalarProtos.Scalar visitDecimal(BigDecimal decimal, int precision, int scale) {
+        if (Objects.isNull(decimal)) {
+            return Scalars.nullDecimal(precision, scale);
+        } else {
+            return Scalars.decimal(decimal, precision, scale);
         }
     }
 
