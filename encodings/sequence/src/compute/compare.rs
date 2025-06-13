@@ -1,11 +1,10 @@
-use num_traits::{AsPrimitive, FromPrimitive};
 use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray};
 use vortex_array::compute::{CompareKernel, Operator};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef};
-use vortex_dtype::{DType, Nullability, match_each_integer_ptype};
+use vortex_dtype::{DType, NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_scalar::{PValue, Scalar};
 
 use crate::SequenceArray;
 use crate::array::SequenceVTable;
@@ -26,23 +25,15 @@ impl CompareKernel for SequenceVTable {
         };
 
         // Check if there exists an integer solution to const = base + (0..len) * multiplier.
-        let set_idx: Option<usize> = match_each_integer_ptype!(lhs.ptype(), |P| {
-            let c = constant
+        let set_idx: Option<usize> = find_intersection_scalar(
+            lhs.base(),
+            lhs.multiplier(),
+            lhs.len(),
+            constant
                 .as_primitive()
-                .as_::<P>()?
-                .vortex_expect("null constant already checked in entry");
-
-            let base = lhs.base().as_primitive::<P>()?;
-            let multiplier = lhs.multiplier().as_primitive::<P>()?;
-
-            // Array is non-empty here.
-            let count = <P>::from_usize(lhs.len() - 1).vortex_expect("idx must fit into type");
-
-            let end_element = base + (multiplier * count);
-
-            (c >= base && c <= end_element && c - base % multiplier == 0)
-                .then(|| (c - base / multiplier).as_())
-        });
+                .pvalue()
+                .vortex_expect("non-null constant"),
+        );
 
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
         let validity = match nullability {
@@ -63,6 +54,44 @@ impl CompareKernel for SequenceVTable {
             ))
         }
     }
+}
+
+pub(crate) fn find_intersection_scalar(
+    base: PValue,
+    multiplier: PValue,
+    len: usize,
+    intercept: PValue,
+) -> Option<usize> {
+    match_each_integer_ptype!(base.ptype(), |P| {
+        let intercept = intercept
+            .as_primitive()
+            .vortex_expect("constant pvalue matching already validated");
+
+        let base = base
+            .as_primitive::<P>()
+            .vortex_expect("base pvalue matching already validated");
+        let multiplier = multiplier
+            .as_primitive::<P>()
+            .vortex_expect("multiplier pvalue matching already validated");
+
+        find_intersection(base, multiplier, len, intercept)
+    })
+}
+
+fn find_intersection<P: NativePType + PartialOrd + Eq>(
+    base: P,
+    multiplier: P,
+    len: usize,
+    intercept: P,
+) -> Option<usize> {
+    // Array is non-empty here.
+    let count = <P>::from_usize(len - 1).vortex_expect("idx must fit into type");
+
+    let end_element = base + (multiplier * count);
+
+    (intercept >= base && intercept <= end_element && intercept - base % multiplier == P::zero())
+        .then(|| (intercept - base / multiplier).to_usize())
+        .flatten()
 }
 
 #[cfg(test)]
