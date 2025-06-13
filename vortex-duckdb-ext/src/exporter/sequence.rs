@@ -26,9 +26,8 @@ impl ColumnExporter for SequenceExporter {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         let offset = offset.as_i64();
         let start = (offset * self.step) + self.start;
-        let end = (len.as_i64() * self.step) + start;
 
-        vector.to_sequence(start, end, len.as_u64());
+        vector.to_sequence(start, self.step, len.as_u64());
         Ok(())
     }
 }
@@ -45,17 +44,17 @@ mod tests {
         let arr = SequenceArray::typed_new(2, 5, 100).unwrap();
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
-        chunk.set_len(arr.len());
 
         new_exporter(&arr)
             .unwrap()
             .export(0, 4, &mut chunk.get_vector(0))
             .unwrap();
+        chunk.set_len(4);
 
         assert_eq!(
             format!("{chunk:?}"),
             r#"Chunk - [1 Columns]
-- SEQUENCE INTEGER: 4 = [ 2, 7, 12]
+- SEQUENCE INTEGER: 4 = [ 2, 7, 12, 17]
 "#
         );
     }

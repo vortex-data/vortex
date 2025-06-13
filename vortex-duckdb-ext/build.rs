@@ -95,25 +95,23 @@ fn main() {
         .write_to_file(crate_dir.join("src/cpp.rs"))
         .expect("Couldn't write bindings!");
 
+    // To run against a local duckdb library use instead of `lib_path`
+    // println!(
+    //     "cargo:rustc-link-search=native={}",
+    //     "<>"
+    // );
+    // println!(
+    //     "cargo:rustc-link-arg=-Wl,-rpath,{}",
+    //     "<>"
+    // );
+    // println!("cargo:rustc-link-lib=static=duckdb");
+
     // Download and extract prebuilt DuckDB libraries.
     let zip_path = download_duckdb_archive().unwrap();
     let lib_path = extract_duckdb_libraries(zip_path).unwrap();
 
-    if false {
-        let _ = lib_path;
-    }
-
-    // if true {
-    //     panic!("lib path {}", lib_path.display());
-    // }
-
     // Link against DuckDB dylib.
-    println!(
-        "cargo:rustc-link-search=native={}",
-        "/Users/joeisaacs/git/duckdb/build/debug/src/"
-    );
-    // println!("cargo:rustc-link-search=native={}", lib_path.display());
-    println!("cargo:rustc-link-lib=static=duckdb");
+    println!("cargo:rustc-link-search=native={}", lib_path.display());
 
     if env::var("TARGET").unwrap().contains("linux") {
         println!("cargo:rustc-link-lib=stdc++");

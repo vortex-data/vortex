@@ -17,7 +17,7 @@ impl DataChunk {
     pub fn new(column_types: impl IntoIterator<Item = LogicalType>) -> DataChunk {
         let mut ptrs = column_types
             .into_iter()
-            .map(|x| x.as_ptr())
+            .map(|x| x.into_ptr())
             .collect::<Vec<duckdb_logical_type>>();
         let ptr = unsafe { cpp::duckdb_create_data_chunk(ptrs.as_mut_ptr(), ptrs.len() as _) };
         unsafe { DataChunk::own(ptr) }
