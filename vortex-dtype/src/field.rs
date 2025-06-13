@@ -324,21 +324,21 @@ mod tests {
             .push("b")
             .push("c")
             .push(Field::ElementType);
-        assert!(path.resolve(level1.clone()).is_some());
+        assert!(path.resolve(level1.clone()).is_none());
         assert!(!path.exists(level1.clone()));
 
         let path = FieldPath::from_name("a")
             .push(Field::ElementType)
             .push("b")
             .push("c");
-        assert!(path.resolve(level1.clone()).is_some());
+        assert!(path.resolve(level1.clone()).is_none());
         assert!(!path.exists(level1.clone()));
 
         let path = FieldPath::from_name(Field::ElementType)
             .push("a")
             .push("b")
             .push("c");
-        assert!(path.resolve(level1.clone()).is_some());
+        assert!(path.resolve(level1.clone()).is_none());
         assert!(!path.exists(level1));
     }
 
@@ -346,11 +346,11 @@ mod tests {
     fn nested_field_not_found() {
         let dtype = DType::struct_([("a", DType::Bool(NonNullable))], NonNullable);
         let path = FieldPath::from_name("b");
-        assert!(path.resolve(dtype.clone()).is_some());
+        assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists(dtype.clone()));
 
         let path = FieldPath::from(Field::ElementType);
-        assert!(path.resolve(dtype.clone()).is_some());
+        assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists(dtype));
     }
 
@@ -361,11 +361,11 @@ mod tests {
             NonNullable,
         );
         let path = FieldPath::from_name("a").push("b");
-        assert!(path.resolve(dtype.clone()).is_some());
+        assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists(dtype.clone()));
 
         let path = FieldPath::from_name("a").push(Field::ElementType);
-        assert!(path.resolve(dtype.clone()).is_some());
+        assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists(dtype));
     }
 }
