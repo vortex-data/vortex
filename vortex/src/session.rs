@@ -42,11 +42,11 @@ impl Default for VortexSession {
             EncodingRef::new_ref(DictEncoding.as_ref()),
             EncodingRef::new_ref(FSSTEncoding.as_ref()),
             EncodingRef::new_ref(FoREncoding.as_ref()),
+            EncodingRef::new_ref(PcoEncoding.as_ref()),
             EncodingRef::new_ref(RunEndEncoding.as_ref()),
             EncodingRef::new_ref(SequenceEncoding.as_ref()),
             EncodingRef::new_ref(SparseEncoding.as_ref()),
             EncodingRef::new_ref(ZigZagEncoding.as_ref()),
-            EncodingRef::new_ref(PcoEncoding.as_ref()),
         ]);
         #[cfg(feature = "zstd")]
         arrays.register(vortex_zstd::ZstdEncoding.as_ref().into());

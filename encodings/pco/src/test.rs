@@ -1,7 +1,7 @@
+use vortex_array::ToCanonical;
 use vortex_array::arrays::{BoolArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{Canonical, ToCanonical};
 use vortex_buffer::Buffer;
 
 use crate::PcoArray;
@@ -29,20 +29,12 @@ fn test_pco_compress_decompress() {
     for i in 0_i32..5 {
         assert_nth_scalar!(slice, i as usize, 100 + i);
     }
-    match slice.to_canonical() {
-        Ok(Canonical::Primitive(primitive)) => {
-            assert_eq!(primitive.as_slice::<i32>(), &[100, 101, 102, 103, 104]);
-        }
-        _ => unreachable!(),
-    }
+    let primitive = slice.to_primitive().unwrap();
+    assert_eq!(primitive.as_slice::<i32>(), &[100, 101, 102, 103, 104]);
 
     let slice = compressed.slice(200, 200).unwrap();
-    match slice.to_canonical().unwrap() {
-        Canonical::Primitive(primitive) => {
-            assert_eq!(primitive.as_slice::<i32>(), &Vec::<i32>::new());
-        }
-        _ => unreachable!(),
-    }
+    let primitive = slice.to_primitive().unwrap();
+    assert_eq!(primitive.as_slice::<i32>(), &Vec::<i32>::new());
 }
 
 #[test]
@@ -50,12 +42,8 @@ fn test_pco_empty() {
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = PcoArray::from_primitive(&array, 3, 100).unwrap();
-    match compressed.decompress().unwrap().to_canonical().unwrap() {
-        Canonical::Primitive(primitive) => {
-            assert_eq!(primitive.as_slice::<i32>(), &data);
-        }
-        _ => unreachable!(),
-    }
+    let primitive = compressed.decompress().unwrap().to_primitive().unwrap();
+    assert_eq!(primitive.as_slice::<i32>(), &data);
 }
 
 #[test]
@@ -93,13 +81,9 @@ fn test_pco_with_validity_and_multiple_chunks_and_pages() {
     let slice = compressed.slice(100, 103).unwrap();
     assert_nth_scalar!(slice, 0, 100);
     assert_nth_scalar!(slice, 2, 102);
-    match slice.to_canonical() {
-        Ok(Canonical::Primitive(primitive)) => {
-            assert_eq!(
-                primitive.validity(),
-                &Validity::Array(BoolArray::from_iter(vec![true, false, true]).to_array())
-            )
-        }
-        _ => unreachable!(),
-    }
+    let primitive = slice.to_primitive().unwrap();
+    assert_eq!(
+        primitive.validity(),
+        &Validity::Array(BoolArray::from_iter(vec![true, false, true]).to_array())
+    );
 }
