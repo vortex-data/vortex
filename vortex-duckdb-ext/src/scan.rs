@@ -1,8 +1,10 @@
 use std::sync::atomic::AtomicBool;
 
-use vortex::error::{VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::expr::{ExprRef, and, lit};
 use vortex::file::{VortexFile, VortexOpenOptions};
 
+use crate::convert::try_from_table_filter;
 use crate::duckdb::{
     BindInput, BindResult, DataChunk, Expression, LogicalType, TableFunction, TableInitInput,
 };
@@ -15,6 +17,7 @@ pub struct VortexBindData {
 }
 
 pub struct VortexGlobalData {
+    filter_expr: ExprRef,
     done: AtomicBool,
 }
 
@@ -54,6 +57,8 @@ impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
     type GlobalState = VortexGlobalData;
     type LocalState = VortexLocalData;
+
+    const FILTER_PUSHDOWN: bool = true;
 
     /// Input parameter types of the `vortex_scan` table function.
     ///
@@ -103,6 +108,7 @@ impl TableFunction for VortexTableFunction {
             let array_iter = bind_data
                 .first_file
                 .scan()?
+                .with_filter(global_state.filter_expr.clone())
                 .into_array_iter()
                 .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
 
@@ -127,8 +133,28 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn init_global(_init: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
+        let filter = _init
+            .table_filter_set()
+            .and_then(|filter| {
+                filter
+                    .into_iter()
+                    .map(|(idx, ex)| {
+                        let name = _init
+                            .bind_data()
+                            ._column_names
+                            .get(idx as usize)
+                            .vortex_expect("exists");
+                        try_from_table_filter(&ex, name)
+                    })
+                    .reduce(|l, r| Ok(and(l?, r?)))
+            })
+            .transpose()?
+            .unwrap_or(lit(true));
+
+        println!("filter {}", filter);
         Ok(VortexGlobalData {
             done: AtomicBool::new(false),
+            filter_expr: filter,
         })
     }
 

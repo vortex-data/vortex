@@ -3,6 +3,8 @@
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/dynamic_filter.hpp"
 
+#include <duckdb/planner/expression/bound_columnref_expression.hpp>
+
 using namespace duckdb;
 
 extern "C" duckdb_vx_table_filter duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set ffi_filter_set,
@@ -14,6 +16,11 @@ extern "C" duckdb_vx_table_filter duckdb_vx_table_filter_set_get(duckdb_vx_table
 		return nullptr; // No filter for this column index
 	}
 	return reinterpret_cast<duckdb_vx_table_filter>(iter->second.get());
+}
+
+extern "C" idx_t duckdb_vx_table_filter_set_size(duckdb_vx_table_filter_set ffi_filter_set) {
+	auto filter_set = reinterpret_cast<TableFilterSet *>(ffi_filter_set);
+	return filter_set->filters.size();
 }
 
 extern "C" duckdb_vx_table_filter_type duckdb_vx_table_filter_get_type(duckdb_vx_table_filter ffi_filter) {

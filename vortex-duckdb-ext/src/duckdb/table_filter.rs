@@ -2,6 +2,7 @@ use std::ffi::CStr;
 use std::fmt::{Debug, Formatter};
 use std::ptr;
 
+use crate::cpp::idx_t;
 use crate::duckdb::Value;
 use crate::{cpp, wrapper};
 
@@ -15,6 +16,37 @@ impl TableFilterSet {
         } else {
             Some(unsafe { TableFilter::borrow(ptr) })
         }
+    }
+
+    pub fn len(&self) -> idx_t {
+        unsafe { cpp::duckdb_vx_table_filter_set_size(self.as_ptr()) }
+    }
+}
+
+impl<'a> IntoIterator for &'a TableFilterSet {
+    type Item = (idx_t, TableFilter);
+    type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let mut index = 0;
+        let len = self.len();
+
+        Box::new(std::iter::from_fn(move || {
+            if index < len {
+                let value = self.get(index); // works because we have a reference
+                let result = value.map(|v| (index, v));
+                index += 1;
+                result
+            } else {
+                None
+            }
+        }))
+    }
+}
+
+impl Debug for TableFilterSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_map().entries(self.into_iter()).finish()
     }
 }
 

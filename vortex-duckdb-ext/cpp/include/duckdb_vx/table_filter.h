@@ -34,6 +34,8 @@ duckdb_vx_table_filter_type duckdb_vx_table_filter_get_type(duckdb_vx_table_filt
 
 const char *duckdb_vx_table_filter_to_debug_string(duckdb_vx_table_filter ffi_filter);
 
+idx_t duckdb_vx_table_filter_set_size(duckdb_vx_table_filter_set ffi_filter_set);
+
 typedef struct {
 	duckdb_value value;
 	duckdb_vx_expr_type comparison_type;

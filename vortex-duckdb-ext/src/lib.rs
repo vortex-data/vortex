@@ -1,3 +1,4 @@
+#![feature(iterator_try_reduce)]
 #![allow(clippy::missing_safety_doc)]
 use std::ffi::{CStr, c_char};
 
@@ -127,10 +128,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_vortex_scan_integers() {
-        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
+        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0, -10]);
         let file = write_vortex_file("number", numbers).await;
-        let sum: i64 = scan_vortex_file(file, "SELECT SUM(number) FROM vortex_scan(?)");
-        assert_eq!(sum, 138);
+        let sum: i64 = scan_vortex_file(
+            file,
+            "SELECT SUM(number) FROM vortex_scan(?) WHERE value > -6",
+        );
+        assert_eq!(sum, 133);
     }
 
     #[tokio::test]
