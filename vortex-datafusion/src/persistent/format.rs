@@ -231,7 +231,7 @@ impl FileFormat for VortexFormat {
             let stats = table_schema
                 .fields()
                 .iter()
-                .map(|field| struct_dtype.find(field.name()).ok())
+                .map(|field| struct_dtype.find(field.name()))
                 .map(|idx| match idx {
                     None => StatsSet::default(),
                     Some(id) => file_stats[id].clone(),
