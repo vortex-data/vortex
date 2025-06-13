@@ -156,7 +156,9 @@ impl StructLayout {
             let Field::Name(field_name) = field else {
                 vortex_bail!("Expected field name, got {field:?}");
             };
-            let idx = self.struct_fields().find(field_name)
+            let idx = self
+                .struct_fields()
+                .find(field_name)
                 .ok_or_else(|| vortex_err!("Field not found: {field_name}"))?;
 
             per_child(path.clone().step_into()?, idx)?;
