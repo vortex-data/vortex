@@ -137,7 +137,7 @@ impl ComputeFnVTable for ListContains {
 pub trait ListContainsKernel: VTable {
     fn list_contains(
         &self,
-        list: &Self::Array,
+        list: &dyn Array,
         element: &Self::Array,
     ) -> VortexResult<Option<ArrayRef>>;
 }
@@ -162,7 +162,7 @@ impl<V: VTable + ListContainsKernel> Kernel for ListContainsKernelAdapter<V> {
             ..
         } = BinaryArgs::<()>::try_from(args)?;
         self.0
-            .list_contains(array.as_::<V>(), value.as_::<V>())
+            .list_contains(array, value.as_::<V>())
             .map(|c| c.map(Output::Array))
     }
 }

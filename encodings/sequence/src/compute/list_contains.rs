@@ -1,6 +1,6 @@
 use vortex_array::arrays::BoolArray;
 use vortex_array::compute::{ListContainsKernel, ListContainsKernelAdapter};
-use vortex_array::{ArrayRef, register_kernel};
+use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::array::SequenceVTable;
@@ -9,7 +9,7 @@ use crate::compute::compare::find_intersection_scalar;
 impl ListContainsKernel for SequenceVTable {
     fn list_contains(
         &self,
-        list: &Self::Array,
+        list: &dyn Array,
         element: &Self::Array,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(list_scalar) = list.as_constant() else {
@@ -21,16 +21,19 @@ impl ListContainsKernel for SequenceVTable {
             .elements()
             .vortex_expect("non-null element (checked in entry)");
 
-        let set_indices = list_elements.iter().flat_map(|elem| {
-            elem.as_primitive().pvalue().and_then(|intercept| {
-                find_intersection_scalar(
-                    element.base(),
-                    element.multiplier(),
-                    element.len(),
-                    intercept,
-                )
+        let set_indices = list_elements
+            .iter()
+            .flat_map(|elem| {
+                elem.as_primitive().pvalue().and_then(|intercept| {
+                    find_intersection_scalar(
+                        element.base(),
+                        element.multiplier(),
+                        element.len(),
+                        intercept,
+                    )
+                })
             })
-        });
+            .collect::<Vec<_>>();
 
         Ok(Some(
             BoolArray::from_indices(element.len(), set_indices).to_array(),
@@ -65,6 +68,9 @@ mod tests {
         );
 
         {
+            // [1, 3] in  1
+            //            2
+            //            3
             let array = SequenceArray::typed_new(1, 1, 3).unwrap();
 
             let res = list_contains(elements.as_ref(), array.as_ref())
@@ -78,6 +84,9 @@ mod tests {
         }
 
         {
+            // [1, 3] in  1
+            //            3
+            //            5
             let array = SequenceArray::typed_new(1, 2, 3).unwrap();
 
             let res = list_contains(elements.as_ref(), array.as_ref())

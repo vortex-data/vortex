@@ -89,8 +89,8 @@ fn find_intersection<P: NativePType + PartialOrd + Eq>(
 
     let end_element = base + (multiplier * count);
 
-    (intercept >= base && intercept <= end_element && intercept - base % multiplier == P::zero())
-        .then(|| (intercept - base / multiplier).to_usize())
+    (intercept >= base && intercept <= end_element && (intercept - base) % multiplier == P::zero())
+        .then(|| ((intercept - base) / multiplier).to_usize())
         .flatten()
 }
 
