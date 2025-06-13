@@ -6762,6 +6762,7 @@ dependencies = [
  "vortex-error",
  "vortex-expr",
  "vortex-flatbuffers",
+ "vortex-layout",
  "vortex-mask",
  "vortex-metrics",
  "vortex-scalar",
