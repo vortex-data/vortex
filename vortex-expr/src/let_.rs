@@ -6,7 +6,7 @@ use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ExprRef, Identifier, Scope, ScopeDType, StatsPrunable, VortexExpr};
+use crate::{ExprRef, Identifier, Scope, ScopeDType, AnalyzableExpr, VortexExpr};
 
 #[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Debug, Eq, Hash)]
@@ -72,7 +72,7 @@ impl Display for Let {
     }
 }
 
-impl StatsPrunable for Let {}
+impl AnalyzableExpr for Let {}
 
 impl VortexExpr for Let {
     fn as_any(&self) -> &dyn Any {

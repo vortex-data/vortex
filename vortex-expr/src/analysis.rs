@@ -11,7 +11,7 @@ pub trait StatsCatalog {
 }
 
 /// Trait used to convert expression into expression over statistics
-pub trait StatsPrunable {
+pub trait AnalyzableExpr {
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.
     ///
     /// Given an expression, `e`, if `e.stat_falsifiable_expr()` evaluates to true, it is guaranteed

@@ -8,7 +8,7 @@ use vortex_array::compute::{Operator as ArrayOperator, and_kleene, compare, or_k
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ExprRef, Operator, Scope, ScopeDType, StatsCatalog, StatsPrunable, VortexExpr};
+use crate::{ExprRef, Operator, Scope, ScopeDType, StatsCatalog, AnalyzableExpr, VortexExpr};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -82,7 +82,7 @@ pub(crate) mod proto {
     }
 }
 
-impl StatsPrunable for BinaryExpr {
+impl AnalyzableExpr for BinaryExpr {
     fn stat_falsifiable_expr(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         match self.operator {
             Operator::Eq => {

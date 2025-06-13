@@ -10,7 +10,7 @@ use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
-use crate::{ExprRef, Scope, ScopeDType, StatsPrunable, VortexExpr};
+use crate::{ExprRef, Scope, ScopeDType, AnalyzableExpr, VortexExpr};
 
 /// Merge zero or more expressions that ALL return structs.
 ///
@@ -88,7 +88,7 @@ pub(crate) mod proto {
     }
 }
 
-impl StatsPrunable for Merge {}
+impl AnalyzableExpr for Merge {}
 
 impl VortexExpr for Merge {
     fn as_any(&self) -> &dyn Any {

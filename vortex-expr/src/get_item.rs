@@ -9,7 +9,7 @@ use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::{
-    AccessPath, ExprRef, Scope, ScopeDType, StatsCatalog, StatsPrunable, VortexExpr, root,
+    AccessPath, ExprRef, Scope, ScopeDType, StatsCatalog, AnalyzableExpr, VortexExpr, root,
 };
 
 #[derive(Debug, Clone, Eq, Hash)]
@@ -97,7 +97,7 @@ pub(crate) mod proto {
     }
 }
 
-impl StatsPrunable for GetItem {
+impl AnalyzableExpr for GetItem {
     fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(&self.field_path()?, Stat::Max)
     }

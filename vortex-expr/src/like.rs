@@ -8,7 +8,7 @@ use vortex_array::compute::{LikeOptions, like};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ExprRef, Scope, ScopeDType, StatsPrunable, VortexExpr};
+use crate::{ExprRef, Scope, ScopeDType, AnalyzableExpr, VortexExpr};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -102,7 +102,7 @@ pub(crate) mod proto {
     }
 }
 
-impl StatsPrunable for Like {}
+impl AnalyzableExpr for Like {}
 
 impl VortexExpr for Like {
     fn as_any(&self) -> &dyn Any {

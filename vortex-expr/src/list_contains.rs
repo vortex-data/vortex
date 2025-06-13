@@ -9,7 +9,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::{
-    ExprRef, Literal, Scope, ScopeDType, StatsCatalog, StatsPrunable, VortexExpr, and, gt, lit, lt,
+    ExprRef, Literal, Scope, ScopeDType, StatsCatalog, AnalyzableExpr, VortexExpr, and, gt, lit, lt,
     or,
 };
 
@@ -81,7 +81,7 @@ pub(crate) mod proto {
     }
 }
 
-impl StatsPrunable for ListContains {
+impl AnalyzableExpr for ListContains {
     // falsification(contains([1,2,5], x)) =>
     //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
 

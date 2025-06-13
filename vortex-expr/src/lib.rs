@@ -88,7 +88,7 @@ pub trait ExprSerializable {}
 impl<T> ExprSerializable for T {}
 /// Represents logical operation on [`ArrayRef`]s
 pub trait VortexExpr:
-    Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable + StatsPrunable
+    Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable + AnalyzableExpr
 {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
