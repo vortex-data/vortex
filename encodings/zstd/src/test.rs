@@ -3,6 +3,7 @@ use vortex_array::arrays::{BoolArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
+use vortex_mask::Mask;
 
 use crate::ZstdArray;
 
@@ -108,4 +109,23 @@ fn test_zstd_with_dict() {
     let slice = compressed.slice(176, 179).unwrap();
     let primitive = slice.to_primitive().unwrap();
     assert_eq!(primitive.as_slice::<i32>(), &[176, 177, 178]);
+}
+
+#[test]
+fn test_validity_vtable() {
+    let data: Vec<i32> = (0..5).collect();
+    let mask_bools = vec![false, true, true, false, true];
+    let array = PrimitiveArray::new(
+        data.iter().cloned().collect::<Buffer<_>>(),
+        Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
+    );
+    let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
+    assert_eq!(
+        compressed.validity_mask().unwrap(),
+        Mask::from_iter(mask_bools)
+    );
+    assert_eq!(
+        compressed.slice(1, 4).unwrap().validity_mask().unwrap(),
+        Mask::from_iter(vec![true, true, false])
+    );
 }

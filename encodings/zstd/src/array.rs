@@ -6,7 +6,7 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
-    ValidityVTableFromValidityHelper,
+    ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
 };
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
@@ -48,7 +48,7 @@ impl VTable for ZstdVTable {
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
@@ -287,9 +287,9 @@ impl ZstdArray {
     }
 }
 
-impl ValidityHelper for ZstdArray {
-    fn validity(&self) -> &Validity {
-        &self.unsliced_validity
+impl ValiditySliceHelper for ZstdArray {
+    fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize) {
+        (&self.unsliced_validity, self.slice_start, self.slice_stop)
     }
 }
 
