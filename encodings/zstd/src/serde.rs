@@ -11,10 +11,6 @@ use crate::{ZstdArray, ZstdEncoding, ZstdVTable};
 #[derive(Clone, prost::Message)]
 pub struct ZstdFrameMetadata {
     #[prost(uint64, tag = "1")]
-    pub n_rows: u64,
-    #[prost(uint64, tag = "2")]
-    pub compressed_size: u64,
-    #[prost(uint64, tag = "3")]
     pub uncompressed_size: u64,
 }
 
@@ -93,6 +89,6 @@ impl VisitorVTable<ZstdVTable> for ZstdVTable {
     }
 
     fn visit_children(array: &ZstdArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(&array.validity, array.len());
+        visitor.visit_validity(&array.unsliced_validity, array.len());
     }
 }
