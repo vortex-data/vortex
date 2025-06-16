@@ -21,6 +21,10 @@ impl TableFilterSet {
     pub fn len(&self) -> idx_t {
         unsafe { cpp::duckdb_vx_table_filter_set_size(self.as_ptr()) }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl<'a> IntoIterator for &'a TableFilterSet {
@@ -46,7 +50,7 @@ impl<'a> IntoIterator for &'a TableFilterSet {
 
 impl Debug for TableFilterSet {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_map().entries(self.into_iter()).finish()
+        f.debug_map().entries(self).finish()
     }
 }
 

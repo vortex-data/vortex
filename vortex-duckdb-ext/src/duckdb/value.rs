@@ -1,4 +1,5 @@
 use std::ffi::CStr;
+use std::fmt::{Debug, Formatter};
 
 use crate::duckdb::LogicalType;
 use crate::{cpp, wrapper};
@@ -72,6 +73,15 @@ impl Value {
 
     pub fn as_string(&self) -> &CStr {
         unsafe { CStr::from_ptr(cpp::duckdb_get_varchar(self.as_ptr())) }
+    }
+}
+
+impl Debug for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let debug = unsafe { cpp::duckdb_value_to_string(self.as_ptr()) };
+        write!(f, "{}", unsafe { CStr::from_ptr(debug).to_string_lossy() })?;
+        unsafe { cpp::duckdb_free(debug.cast()) };
+        Ok(())
     }
 }
 

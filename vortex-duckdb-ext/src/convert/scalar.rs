@@ -16,15 +16,19 @@
 //! | `Binary` | `BLOB` |
 //! | `ExtScalar` (temporal) | `DATE`/`TIME`/`TIMESTAMP` |
 
+use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::datetime::{TemporalMetadata, TimeUnit};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, PType, match_each_native_simd_ptype};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::scalar::{
     BinaryScalar, BoolScalar, DecimalScalar, DecimalValue, ExtScalar, PrimitiveScalar, Scalar,
     Utf8Scalar,
 };
 
+use crate::convert::dtype::FromLogicalType;
+use crate::cpp;
+use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::Value;
 
 /// Trait for converting Vortex scalars to DuckDB values.
@@ -193,6 +197,70 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     }
                 }
             }
+        }
+    }
+}
+
+impl TryFrom<Value> for Scalar {
+    type Error = VortexError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if unsafe { cpp::duckdb_is_null_value(value.as_ptr()) } {
+            let dtype = DType::from_logical_type(value.logical_type(), Nullable);
+            return Ok(Scalar::null(dtype?));
+        };
+        match value.logical_type().as_type_id() {
+            DUCKDB_TYPE::DUCKDB_TYPE_INVALID => vortex_bail!("invalid duckdb type"),
+            DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
+                let bool = unsafe { cpp::duckdb_get_bool(value.as_ptr()) };
+                Ok(Scalar::bool(bool, Nullable))
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TINYINT => Ok(Scalar::primitive(
+                unsafe { cpp::duckdb_get_int8(value.as_ptr()) },
+                Nullable,
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT => Ok(Scalar::primitive(
+                unsafe { cpp::duckdb_get_int16(value.as_ptr()) },
+                Nullable,
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_INTEGER => Ok(Scalar::primitive(
+                unsafe { cpp::duckdb_get_int32(value.as_ptr()) },
+                Nullable,
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => Ok(Scalar::primitive(
+                unsafe { cpp::duckdb_get_int64(value.as_ptr()) },
+                Nullable,
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT => Ok(Scalar::primitive(
+                unsafe { cpp::duckdb_get_uint8(value.as_ptr()) },
+                Nullable,
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT => Ok(Scalar::primitive(
+                unsafe { cpp::duckdb_get_uint16(value.as_ptr()) },
+                Nullable,
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER => Ok(Scalar::primitive(
+                unsafe { cpp::duckdb_get_uint32(value.as_ptr()) },
+                Nullable,
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT => Ok(Scalar::primitive(
+                unsafe { cpp::duckdb_get_uint64(value.as_ptr()) },
+                Nullable,
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_FLOAT => Ok(Scalar::primitive(
+                unsafe { cpp::duckdb_get_float(value.as_ptr()) },
+                Nullable,
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE => Ok(Scalar::primitive(
+                unsafe { cpp::duckdb_get_double(value.as_ptr()) },
+                Nullable,
+            )),
+            // DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => {}
+            // DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT => {}
+            // DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT => {}
+            // DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER => {}
+            // DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT => {}
+            _ => todo!("cannot convert value into scalar {value:?}"),
         }
     }
 }

@@ -1,5 +1,6 @@
 use std::sync::atomic::AtomicBool;
 
+use bitvec::macros::internal::funty::Fundamental;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, lit};
 use vortex::file::{VortexFile, VortexOpenOptions};
@@ -142,14 +143,14 @@ impl TableFunction for VortexTableFunction {
                         let name = _init
                             .bind_data()
                             ._column_names
-                            .get(idx as usize)
+                            .get(idx.as_usize())
                             .vortex_expect("exists");
                         try_from_table_filter(&ex, name)
                     })
                     .reduce(|l, r| Ok(and(l?, r?)))
             })
             .transpose()?
-            .unwrap_or(lit(true));
+            .unwrap_or_else(|| lit(true));
 
         Ok(VortexGlobalData {
             done: AtomicBool::new(false),

@@ -27,10 +27,11 @@
 
 use std::ffi::CString;
 
-use vortex::dtype::{DType, PType, datetime};
+use vortex::dtype::PType::{F32, F64, I8, I16, I32, I64, U8, U16, U32, U64};
+use vortex::dtype::{DType, Nullability, PType, datetime};
 use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
-use crate::cpp::{self, duckdb_logical_type};
+use crate::cpp::{self, DUCKDB_TYPE, duckdb_logical_type};
 use crate::duckdb::LogicalType;
 
 impl LogicalType {
@@ -109,11 +110,11 @@ impl LogicalType {
             .map_err(|e| vortex_err!("Failed to extract temporal metadata: {}", e))?;
 
         let duckdb_type = match temporal_metadata {
-            TemporalMetadata::Date(TimeUnit::D) => cpp::DUCKDB_TYPE::DUCKDB_TYPE_DATE,
+            TemporalMetadata::Date(TimeUnit::D) => DUCKDB_TYPE::DUCKDB_TYPE_DATE,
             TemporalMetadata::Date(time_unit) => {
                 return Err(vortex_err!("Invalid TimeUnit {} for date", time_unit));
             }
-            TemporalMetadata::Time(TimeUnit::Us) => cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIME,
+            TemporalMetadata::Time(TimeUnit::Us) => DUCKDB_TYPE::DUCKDB_TYPE_TIME,
             TemporalMetadata::Time(time_unit) => {
                 return Err(vortex_err!("Invalid TimeUnit {} for time", time_unit));
             }
@@ -122,16 +123,72 @@ impl LogicalType {
                     return Err(vortex_err!("Timestamp with timezone is not yet supported"));
                 }
                 match time_unit {
-                    TimeUnit::Ns => cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
-                    TimeUnit::Us => cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP,
-                    TimeUnit::Ms => cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS,
-                    TimeUnit::S => cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
+                    TimeUnit::Ns => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
+                    TimeUnit::Us => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP,
+                    TimeUnit::Ms => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS,
+                    TimeUnit::S => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
                     _ => return Err(vortex_err!("Invalid TimeUnit {} for timestamp", time_unit)),
                 }
             }
         };
 
         Ok(Self::new(duckdb_type))
+    }
+}
+
+pub trait FromLogicalType {
+    fn from_logical_type(
+        logical_type: LogicalType,
+        nullability: Nullability,
+    ) -> VortexResult<DType>;
+}
+
+impl FromLogicalType for DType {
+    fn from_logical_type(
+        logical_type: LogicalType,
+        nullability: Nullability,
+    ) -> VortexResult<DType> {
+        Ok(match logical_type.as_type_id() {
+            DUCKDB_TYPE::DUCKDB_TYPE_INVALID => vortex_bail!("invalid duckdb type"),
+            DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => DType::Bool(nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_TINYINT => DType::Primitive(I8, nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT => DType::Primitive(I16, nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_INTEGER => DType::Primitive(I32, nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => DType::Primitive(I64, nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT => DType::Primitive(U8, nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT => DType::Primitive(U16, nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER => DType::Primitive(U32, nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT => DType::Primitive(U64, nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_FLOAT => DType::Primitive(F32, nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE => DType::Primitive(F64, nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_DATE => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_HUGEINT => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_UHUGEINT => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_BLOB => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_ENUM => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_LIST => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_MAP => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_UUID => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_UNION => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_BIT => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_ANY => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_VARINT => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL => DType::Null,
+            DUCKDB_TYPE::DUCKDB_TYPE_STRING_LITERAL => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_INTEGER_LITERAL => todo!(),
+        })
     }
 }
 
@@ -152,23 +209,23 @@ impl TryFrom<&DType> for LogicalType {
     /// A `Result` containing the DuckDB logical type or a conversion error.
     fn try_from(dtype: &DType) -> Result<Self, Self::Error> {
         let duckdb_type = match dtype {
-            DType::Null => cpp::DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL,
-            DType::Bool(_) => cpp::DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN,
+            DType::Null => DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL,
+            DType::Bool(_) => DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN,
             DType::Primitive(ptype, _) => match ptype {
-                PType::I8 => cpp::DUCKDB_TYPE::DUCKDB_TYPE_TINYINT,
-                PType::I16 => cpp::DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT,
-                PType::I32 => cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER,
-                PType::I64 => cpp::DUCKDB_TYPE::DUCKDB_TYPE_BIGINT,
-                PType::U8 => cpp::DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT,
-                PType::U16 => cpp::DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT,
-                PType::U32 => cpp::DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER,
-                PType::U64 => cpp::DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT,
-                PType::F32 => cpp::DUCKDB_TYPE::DUCKDB_TYPE_FLOAT,
-                PType::F64 => cpp::DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE,
+                I8 => DUCKDB_TYPE::DUCKDB_TYPE_TINYINT,
+                I16 => DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT,
+                I32 => DUCKDB_TYPE::DUCKDB_TYPE_INTEGER,
+                I64 => DUCKDB_TYPE::DUCKDB_TYPE_BIGINT,
+                U8 => DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT,
+                U16 => DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT,
+                U32 => DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER,
+                U64 => DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT,
+                F32 => DUCKDB_TYPE::DUCKDB_TYPE_FLOAT,
+                F64 => DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE,
                 PType::F16 => return Err(vortex_err!("F16 type not supported in DuckDB")),
             },
-            DType::Utf8(_) => cpp::DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR,
-            DType::Binary(_) => cpp::DUCKDB_TYPE::DUCKDB_TYPE_BLOB,
+            DType::Utf8(_) => DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR,
+            DType::Binary(_) => DUCKDB_TYPE::DUCKDB_TYPE_BLOB,
             DType::Struct(struct_type, _) => {
                 let child_types: Vec<LogicalType> = struct_type
                     .fields()
