@@ -180,7 +180,7 @@ impl TableFunction for VortexTableFunction {
             .into_iter()
             .chain(filter)
             .reduce(and)
-            .unwrap_or(lit(true));
+            .unwrap_or_else(|| lit(true));
 
         Ok(VortexGlobalData { filter_expr })
     }
