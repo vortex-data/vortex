@@ -1,22 +1,8 @@
 [package]
 name = "testfiles"
-description = "generate Vortex files for Java integration tests"
+description = "Generate Vortex files for Java integration tests"
 publish = false
-authors.workspace = true
-categories.workspace = true
-edition.workspace = true
-homepage.workspace = true
-include.workspace = true
-keywords.workspace = true
-license.workspace = true
-readme.workspace = true
-repository.workspace = true
-rust-version.workspace = true
-version.workspace = true
 
 [dependencies]
 futures = "0.3"
 vortex = { path = "../../vortex", features = ["files"] }
-
-[lints]
-workspace = true
