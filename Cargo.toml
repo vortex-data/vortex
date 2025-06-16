@@ -2,7 +2,7 @@
 members = [
     "bench-vortex",
     "encodings/*",
-    "fuzz", "java/testfiles",
+    "fuzz",
     "vortex",
     "vortex-array",
     "vortex-btrblocks",

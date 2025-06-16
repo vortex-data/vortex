@@ -363,7 +363,7 @@ jobs:
       - name: Build vortex-jni
         run: |
           cargo build -p vortex-jni
-          mkdir -p vortex-jni/src/main/resources/native/linux-amd64
+          mkdir -p java/vortex-jni/src/main/resources/native/linux-amd64
           cp target/debug/libvortex_jni.so java/vortex-jni/src/main/resources/native/linux-amd64
       - run: ./gradlew test
         working-directory: ./java

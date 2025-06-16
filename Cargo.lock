@@ -5675,14 +5675,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "testfiles"
-version = "0.1.0"
-dependencies = [
- "futures",
- "vortex",
-]
-
-[[package]]
 name = "testing_table"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
