@@ -3,14 +3,14 @@ use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::LazyLock;
 
 use itertools::Itertools;
-use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
+use vortex_dtype::{DType, Field, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashMap};
 
 use crate::transform::immediate_access::{FieldAccesses, immediate_scope_accesses};
 use crate::transform::simplify_typed::simplify_typed;
 use crate::traversal::{FoldDown, FoldUp, FolderMut, MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, GetItem, ScopeDType, get_item, is_root, pack, root};
+use crate::{ExprRef, ScopeDType, get_item, is_root, pack, root};
 
 static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
     LazyLock::new(DefaultHashBuilder::default);
@@ -255,14 +255,25 @@ impl MutNodeVisitor for ScopeStepIntoFieldExpr {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<ExprRef>> {
-        if is_root(&node) {
-            Ok(TransformResult::yes(pack(
-                [(self.0.clone(), root())],
-                Nullability::NonNullable,
-            )))
-        } else {
-            Ok(TransformResult::no(node))
+        if let Some(path) = node.field_path() {
+            if path.identifier().is_identity() {
+                match path.field_path().path() {
+                    [] => {
+                        return Ok(TransformResult::yes(pack(
+                            [(self.0.clone(), root())],
+                            Nullability::NonNullable,
+                        )));
+                    }
+                    [Field::Name(first_field_access), ..] => {
+                        assert_eq!(first_field_access, &self.0);
+                        return Ok(TransformResult::yes(root()));
+                    }
+                    [Field::ElementType, ..] => {}
+                }
+            }
         }
+
+        Ok(TransformResult::no(node))
     }
 }
 
@@ -278,11 +289,23 @@ impl MutNodeVisitor for ReplaceAccessesWithChild {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<ExprRef>> {
-        if let Some(item) = node.as_any().downcast_ref::<GetItem>() {
-            if self.0.contains(item.field()) {
-                return Ok(TransformResult::yes(item.child().clone()));
+        if let Some(path) = node.field_path() {
+            if path.identifier().is_identity() {
+                match path.field_path().path() {
+                    [] => {}
+                    [Field::Name(first_field_access), ..] => {
+                        if self.0.contains(first_field_access) {
+                            vortex_bail!(
+                                "Cannot replace accesses in nodes other than GetItem: {:?}",
+                                node
+                            );
+                        }
+                    }
+                    [Field::ElementType, ..] => {}
+                }
             }
         }
+
         Ok(TransformResult::no(node))
     }
 }

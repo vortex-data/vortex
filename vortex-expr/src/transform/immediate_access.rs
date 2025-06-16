@@ -1,13 +1,13 @@
-use vortex_dtype::{FieldName, StructFields};
+use vortex_dtype::{Field, FieldName, StructFields};
 use vortex_error::{VortexResult, vortex_err};
-use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use super::access_analysis::Accesses;
 use crate::transform::access_analysis::AccessesAnalysis;
 use crate::traversal::TraversalOrder;
-use crate::{ExprRef, GetItem, Select, is_root};
+use crate::{ExprRef, Select};
 
-pub type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
+pub type FieldAccesses<'a> = Accesses<'a, FieldName>;
 
 /// For all subexpressions in an expression, find the fields that are accessed directly from the
 /// scope, but not any fields in those fields
@@ -25,16 +25,23 @@ pub fn immediate_scope_accesses<'a>(
             !node.as_any().is::<Select>(),
             "cannot analyse select, simplify the expression"
         );
-        if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
-            if is_root(get_item.child()) {
-                return (TraversalOrder::Skip, vec![get_item.field().clone()]);
+        if let Some(path) = node.field_path() {
+            if path.identifier().is_identity() {
+                match path.field_path().path() {
+                    [] => {
+                        return (
+                            TraversalOrder::Skip,
+                            scope_dtype.names().iter().cloned().collect(),
+                        );
+                    }
+                    [Field::Name(first_field_access), ..] => {
+                        return (TraversalOrder::Skip, vec![first_field_access.clone()]);
+                    }
+                    [Field::ElementType, ..] => {
+                        todo!()
+                    }
+                }
             }
-        } else if is_root(node) {
-            let st_dtype = &scope_dtype;
-            return (
-                TraversalOrder::Skip,
-                st_dtype.names().iter().cloned().collect(),
-            );
         }
 
         (TraversalOrder::Continue, vec![])
