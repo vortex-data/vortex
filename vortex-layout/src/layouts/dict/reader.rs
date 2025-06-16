@@ -5,10 +5,9 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::{FutureExt, join};
-use vortex_array::arrays::StructArray;
 use vortex_array::compute::{MinMaxResult, filter, min_max};
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayContext, ArrayRef, ToCanonical};
+use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
@@ -232,28 +231,8 @@ impl ArrayEvaluation for DictArrayEvaluation {
         let (values_result, codes) = join!(self.values_eval.clone(), self.codes_eval.invoke(mask));
         let (values_result, codes) = (values_result?, codes?);
 
-        if values_result.dtype().is_struct() {
-            // If the expression returns a struct push down the dict creation,
-            // return a struct of dicts
-            let values_result = values_result.to_struct()?;
-            Ok(StructArray::try_new(
-                values_result.names().clone(),
-                values_result
-                    .fields()
-                    .iter()
-                    .map(|field| {
-                        let array = DictArray::try_new(codes.clone(), field.clone())?.to_array();
-                        self.expr.evaluate(&Scope::new(array))
-                    })
-                    .collect::<VortexResult<Vec<_>>>()?,
-                codes.len(),
-                values_result.dtype().nullability().into(),
-            )?
-            .to_array())
-        } else {
-            let array = DictArray::try_new(codes, values_result)?.to_array();
-            self.expr.evaluate(&Scope::new(array))
-        }
+        let array = DictArray::try_new(codes, values_result)?.to_array();
+        self.expr.evaluate(&Scope::new(array))
     }
 }
 
