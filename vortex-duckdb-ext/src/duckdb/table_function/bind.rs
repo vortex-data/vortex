@@ -19,6 +19,29 @@ pub(super) unsafe extern "C" fn bind_callback<T: TableFunction>(
     })
 }
 
+/// The native copy callback for bind data.
+pub(super) unsafe extern "C" fn clone_bind_data_callback<T: TableFunction>(
+    bind_data: *const std::ffi::c_void,
+    error_out: *mut cpp::duckdb_vx_error,
+) -> cpp::duckdb_vx_data {
+    try_or_null(error_out, || {
+        let bind_data = unsafe { &*(bind_data as *const T::BindData) };
+        let copied_data = bind_data.clone();
+        Ok(Data::from(Box::new(copied_data)).as_ptr())
+    })
+}
+
+/// The native equals callback for bind data.
+pub(super) unsafe extern "C" fn equals_bind_data_callback<T: TableFunction>(
+    bind_data_1: *const std::ffi::c_void,
+    bind_data_2: *const std::ffi::c_void,
+) -> bool {
+    let bind_data_1 = unsafe { &*(bind_data_1 as *const T::BindData) };
+    let bind_data_2 = unsafe { &*(bind_data_2 as *const T::BindData) };
+
+    bind_data_1 == bind_data_2
+}
+
 wrapper!(BindInput, cpp::duckdb_vx_tfunc_bind_input, |_| {});
 
 impl BindInput {

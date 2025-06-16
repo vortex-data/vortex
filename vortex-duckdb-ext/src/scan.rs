@@ -12,15 +12,33 @@ use crate::duckdb::{
 };
 use crate::exporter::ArrayIteratorExporter;
 
+#[derive(Clone)]
 pub struct VortexBindData {
-    _first_file: VortexFile,
-    file_list: SegQueue<PathBuf>,
+    first_file: VortexFile,
     filter_exprs: Vec<ExprRef>,
-    _column_names: Vec<String>,
+    file_paths: Vec<PathBuf>,
+    column_names: Vec<String>,
     _column_types: Vec<LogicalType>,
 }
 
+impl std::fmt::Debug for VortexBindData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VortexBindData")
+            .field("file_paths", &self.file_paths)
+            .field("column_names", &self.column_names)
+            .finish()
+    }
+}
+
+impl PartialEq for VortexBindData {
+    fn eq(&self, other: &Self) -> bool {
+        self.file_paths == other.file_paths && self.column_names == other.column_names
+    }
+}
+
 pub struct VortexGlobalData {
+    file_paths: SegQueue<PathBuf>,
+    is_first_file_processed: std::sync::atomic::AtomicBool,
     filter_expr: ExprRef,
 }
 
@@ -92,18 +110,18 @@ impl TableFunction for VortexTableFunction {
             Err(e) => vortex_bail!("Failed to glob files: {}", e),
         };
 
-        let file_list = SegQueue::new();
+        let mut file_paths = Vec::new();
         for path in paths {
             match path {
-                Ok(path) => file_list.push(path),
+                Ok(path) => file_paths.push(path),
                 Err(e) => vortex_bail!("Failed to glob files: {}", e),
             }
         }
 
         Ok(VortexBindData {
-            file_list,
-            _first_file: first_file,
-            _column_names: column_names,
+            file_paths,
+            first_file,
+            column_names,
             _column_types: column_types,
             filter_exprs: vec![],
         })
@@ -116,7 +134,21 @@ impl TableFunction for VortexTableFunction {
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
         if local_state.exporter.is_none() {
-            if let Some(file_path) = bind_data.file_list.pop() {
+            // Special case the first file, as it is opened during bind.
+            if !global_state
+                .is_first_file_processed
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                let array_iter = bind_data
+                    .first_file
+                    .scan()?
+                    .into_array_iter()
+                    .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
+
+                local_state.exporter = Some(ArrayIteratorExporter::new(Box::new(array_iter)));
+            }
+            // Retrieve a file path from the shared lock-free queue.
+            else if let Some(file_path) = global_state.file_paths.pop() {
                 let file = VortexOpenOptions::file()
                     .open_blocking(&file_path)
                     .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
@@ -151,6 +183,14 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn init_global(init: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
+        let bind_data = init.bind_data();
+        let file_paths = SegQueue::new();
+
+        // Skip the first file path, as the file is opened during bind.
+        for path in bind_data.file_paths.iter().skip(1) {
+            file_paths.push(path.clone());
+        }
+
         let complex_filter = and_collect(init.bind_data().filter_exprs.clone());
 
         let filter = init
@@ -161,7 +201,7 @@ impl TableFunction for VortexTableFunction {
                     .map(|(idx, ex)| {
                         let name = init
                             .bind_data()
-                            ._column_names
+                            .column_names
                             .get(idx.as_usize())
                             .vortex_expect("exists");
                         try_from_table_filter(&ex, name)
@@ -176,7 +216,11 @@ impl TableFunction for VortexTableFunction {
             .reduce(and)
             .unwrap_or_else(|| lit(true));
 
-        Ok(VortexGlobalData { filter_expr })
+        Ok(VortexGlobalData {
+            file_paths,
+            is_first_file_processed: std::sync::atomic::AtomicBool::new(false),
+            filter_expr,
+        })
     }
 
     fn init_local(
@@ -257,6 +301,75 @@ mod tests {
             .query_row([], |row| row.get(0))
             .unwrap();
         assert_eq!(&result, "vortex_scan");
+    }
+
+    #[tokio::test]
+    async fn test_vortex_bind_data_equality() {
+        let temp_file =
+            write_vortex_file("test_col", PrimitiveArray::from_iter([1i32, 2, 3])).await;
+
+        let vortex_file1 = VortexOpenOptions::file()
+            .open_blocking(temp_file.path())
+            .unwrap();
+
+        let vortex_file2 = VortexOpenOptions::file()
+            .open_blocking(temp_file.path())
+            .unwrap();
+
+        let bind_data1 = VortexBindData {
+            first_file: vortex_file1,
+            file_paths: vec![temp_file.path().to_owned()],
+            column_names: vec!["test_col".to_string()],
+            _column_types: vec![],
+            filter_exprs: vec![],
+        };
+
+        let bind_data2 = VortexBindData {
+            first_file: vortex_file2,
+            file_paths: vec![temp_file.path().to_owned()],
+            column_names: vec!["test_col".to_string()],
+            _column_types: vec![],
+            filter_exprs: vec![],
+        };
+
+        // Compares file_paths and column_names.
+        assert_eq!(bind_data1, bind_data2);
+    }
+
+    #[tokio::test]
+    async fn test_vortex_bind_data_path_inequality() {
+        let temp_file1 =
+            write_vortex_file("test_col", PrimitiveArray::from_iter([1i32, 2, 3])).await;
+
+        let temp_file2 =
+            write_vortex_file("test_col", PrimitiveArray::from_iter([1i32, 2, 3])).await;
+
+        let vortex_file1 = VortexOpenOptions::file()
+            .open_blocking(temp_file1.path())
+            .unwrap();
+
+        let vortex_file2 = VortexOpenOptions::file()
+            .open_blocking(temp_file2.path())
+            .unwrap();
+
+        let bind_data1 = VortexBindData {
+            first_file: vortex_file1,
+            file_paths: vec![temp_file1.path().to_owned()],
+            column_names: vec!["test_col".to_string()],
+            _column_types: vec![],
+            filter_exprs: vec![],
+        };
+
+        let bind_data2 = VortexBindData {
+            first_file: vortex_file2,
+            file_paths: vec![temp_file2.path().to_owned()],
+            column_names: vec!["test_col".to_string()],
+            _column_types: vec![],
+            filter_exprs: vec![],
+        };
+
+        // Compares file_paths and column_names.
+        assert_ne!(bind_data1, bind_data2);
     }
 
     #[tokio::test]
