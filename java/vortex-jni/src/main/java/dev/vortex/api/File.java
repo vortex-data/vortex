@@ -18,6 +18,8 @@ package dev.vortex.api;
 public interface File extends AutoCloseable {
     DType getDType();
 
+    long rowCount();
+
     ArrayIterator newScan(ScanOptions options);
 
     @Override

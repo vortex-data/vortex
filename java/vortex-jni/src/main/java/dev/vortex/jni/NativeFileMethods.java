@@ -35,6 +35,14 @@ public final class NativeFileMethods {
     public static native long open(String uri, Map<String, String> options);
 
     /**
+     * Get the total row count contained in the file associated with the given pointer.
+     *
+     * @param pointer The native pointer to a file. Must be a value returned by {@link #open(String, Map)}.
+     * @return The number of rows of data encoded in the file. This includes null values.
+     */
+    public static native long rowCount(long pointer);
+
+    /**
      * Get the data type of the file associated with the given pointer.
      *
      * @param pointer The native pointer to a file. Must be a value returned by {@link #open(String, Map)}.

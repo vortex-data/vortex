@@ -1,9 +1,10 @@
-use std::path::PathBuf;
+mod generate_fbs;
+mod generate_proto;
 
 use clap::Parser;
-use xshell::{Shell, cmd};
 
-static FLATC_BIN: &str = "flatc";
+use crate::generate_fbs::generate_fbs;
+use crate::generate_proto::generate_proto;
 
 #[derive(clap::Parser)]
 struct Xtask {
@@ -13,64 +14,19 @@ struct Xtask {
 
 #[derive(clap::Subcommand)]
 enum Commands {
+    /// Subcommand to regenerate flatbuffers language bindings for the Rust project.
     #[command(name = "generate-fbs")]
     GenerateFlatbuffers,
+    /// Subcommand to regenerate protobuf language bindings for the Rust project.
     #[command(name = "generate-proto")]
     GenerateProto,
-}
-
-fn execute_generate_fbs() -> anyhow::Result<()> {
-    let sh = Shell::new()?;
-
-    let files = vec![
-        "./flatbuffers/vortex-array/array.fbs",
-        "./flatbuffers/vortex-dtype/dtype.fbs",
-        "./flatbuffers/vortex-file/footer.fbs",
-        "./flatbuffers/vortex-layout/layout.fbs",
-        "./flatbuffers/vortex-serde/message.fbs",
-    ];
-
-    // CD to vortex-flatbuffers project
-    sh.change_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vortex-flatbuffers"));
-
-    cmd!(
-        sh,
-        "{FLATC_BIN} --rust --filename-suffix '' -I ./flatbuffers/ -o ./src/generated {files...}"
-    )
-    .run()?;
-
-    Ok(())
-}
-
-fn execute_generate_proto() -> anyhow::Result<()> {
-    let vortex_proto = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vortex-proto");
-    let proto_files = vec![
-        vortex_proto.join("proto").join("dtype.proto"),
-        vortex_proto.join("proto").join("scalar.proto"),
-        vortex_proto.join("proto").join("expr.proto"),
-    ];
-
-    for file in &proto_files {
-        if !file.exists() {
-            anyhow::bail!("proto file not found: {file:?}");
-        }
-    }
-
-    let out_dir = vortex_proto.join("src").join("generated");
-    std::fs::create_dir_all(&out_dir)?;
-
-    prost_build::Config::new()
-        .out_dir(out_dir)
-        .compile_protos(&proto_files, &[vortex_proto.join("proto")])?;
-
-    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Xtask::parse();
     match cli.command {
-        Commands::GenerateFlatbuffers => execute_generate_fbs()?,
-        Commands::GenerateProto => execute_generate_proto()?,
+        Commands::GenerateFlatbuffers => generate_fbs()?,
+        Commands::GenerateProto => generate_proto()?,
     }
     Ok(())
 }
