@@ -55,6 +55,8 @@ vortex-utils = { workspace = true }
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
+vortex-layout = { path = ".", features = ["tokio"] }
 
 [features]
 roaring = ["dep:roaring"]
