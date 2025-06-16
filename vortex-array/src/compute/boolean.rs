@@ -14,31 +14,42 @@ use crate::{Array, ArrayRef};
 
 /// Point-wise logical _and_ between two Boolean arrays.
 ///
-/// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
+/// This method uses Arrow-style null propagation rather than the Kleene logic semantics. This
+/// semantics is also known as "Bochvar logic" and "weak Kleene logic".
+///
+/// See also [BooleanOperator::And]
 pub fn and(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     boolean(lhs, rhs, BooleanOperator::And)
 }
 
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
+///
+/// See also [BooleanOperator::AndKleene]
 pub fn and_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     boolean(lhs, rhs, BooleanOperator::AndKleene)
 }
 
 /// Point-wise logical _or_ between two Boolean arrays.
 ///
-/// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
+/// This method uses Arrow-style null propagation rather than the Kleene logic semantics. This
+/// semantics is also known as "Bochvar logic" and "weak Kleene logic".
+///
+/// See also [BooleanOperator::Or]
 pub fn or(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     boolean(lhs, rhs, BooleanOperator::Or)
 }
 
 /// Point-wise Kleene logical _or_ between two Boolean arrays.
+///
+/// See also [BooleanOperator::OrKleene]
 pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     boolean(lhs, rhs, BooleanOperator::OrKleene)
 }
 
 /// Point-wise logical operator between two Boolean arrays.
 ///
-/// This method uses Arrow-style null propagation rather than the Kleene logic semantics.
+/// This method uses Arrow-style null propagation rather than the Kleene logic semantics. This
+/// semantics is also known as "Bochvar logic" and "weak Kleene logic".
 pub fn boolean(lhs: &dyn Array, rhs: &dyn Array, op: BooleanOperator) -> VortexResult<ArrayRef> {
     BOOLEAN_FN
         .invoke(&InvocationArgs {
@@ -188,59 +199,39 @@ impl ComputeFnVTable for Boolean {
 pub enum BooleanOperator {
     /// Logical and, unless either value is null, in which case the result is null.
     ///
-    /// | left  | right | And    |
-    /// | ----- | ----- | ------ |
-    /// | true  | true  | true   |
-    /// | true  | false | false  |
-    /// | true  | null  | null   |
-    /// | false | true  | false  |
-    /// | false | false | false  |
-    /// | false | null  | null   |
-    /// | null  | true  | null   |
-    /// | null  | false | null   |
-    /// | null  | null  | null   |
+    /// | A ∧ B |       | **B** |       |       |
+    /// |:-----:|:-----:|:-----:|:-----:|:-----:|
+    /// |       |       | **F** | **U** | **T** |
+    /// | **A** | **F** | F     | U     | F     |
+    /// |       | **U** | U     | U     | U     |
+    /// |       | **T** | F     | U     | T     |
     And,
     /// [Kleene (three-valued) logical and](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics).
     ///
-    /// | left  | right | AndKleene |
-    /// | ----- | ----- | --------- |
-    /// | true  | true  | true      |
-    /// | true  | false | false     |
-    /// | true  | null  | null      |
-    /// | false | true  | false     |
-    /// | false | false | false     |
-    /// | false | null  | false     |
-    /// | null  | true  | null      |
-    /// | null  | false | false     |
-    /// | null  | null  | null      |
+    /// | A ∧ B |       | **B** |       |       |
+    /// |:-----:|:-----:|:-----:|:-----:|:-----:|
+    /// |       |       | **F** | **U** | **T** |
+    /// | **A** | **F** | F     | F     | F     |
+    /// |       | **U** | F     | U     | U     |
+    /// |       | **T** | F     | U     | T     |
     AndKleene,
     /// Logical or, unless either value is null, in which case the result is null.
     ///
-    /// | left  | right | Or    |
-    /// | ----- | ----- | ----- |
-    /// | true  | true  | true  |
-    /// | true  | false | true  |
-    /// | true  | null  | null  |
-    /// | false | true  | true  |
-    /// | false | false | false |
-    /// | false | null  | null  |
-    /// | null  | true  | null  |
-    /// | null  | false | null  |
-    /// | null  | null  | null  |
+    /// | A ∨ B |       | **B** |       |       |
+    /// |:-----:|:-----:|:-----:|:-----:|:-----:|
+    /// |       |       | **F** | **U** | **T** |
+    /// | **A** | **F** | F     | U     | T     |
+    /// |       | **U** | U     | U     | U     |
+    /// |       | **T** | T     | U     | T     |
     Or,
     /// [Kleene (three-valued) logical or](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics).
     ///
-    /// | left  | right | OrKleene |
-    /// | ----- | ----- | -------- |
-    /// | true  | true  | true     |
-    /// | true  | false | true     |
-    /// | true  | null  | true     |
-    /// | false | true  | true     |
-    /// | false | false | false    |
-    /// | false | null  | null     |
-    /// | null  | true  | true     |
-    /// | null  | false | null     |
-    /// | null  | null  | null     |
+    /// | A ∨ B |       | **B** |       |       |
+    /// |:-----:|:-----:|:-----:|:-----:|:-----:|
+    /// |       |       | **F** | **U** | **T** |
+    /// | **A** | **F** | F     | U     | T     |
+    /// |       | **U** | U     | U     | T     |
+    /// |       | **T** | T     | T     | T     |
     OrKleene,
     // AndNot,
     // AndNotKleene,
