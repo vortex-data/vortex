@@ -3,6 +3,7 @@
 
 use vortex_array::stats::Stat;
 use vortex_dtype::FieldPath;
+use vortex_dtype::Nullability;
 
 use crate::ExprRef;
 
@@ -74,4 +75,24 @@ pub trait AnalysisExpr {
     }
 
     // TODO: add containment
+
+    /// Marks whether an expression `e` *ignores nulls*, i.e., its result remains the same
+    /// whether nulls are handled before or after evaluation.
+    ///
+    /// Let `a = (a_v, a_m)` be an array, where `a_v` is the array `a` with some part of the mask removed.
+    /// and `a_m` is a boolean mask representing nulls which when applied to `a_v` match exactly `a`.
+    ///
+    /// Then `e` is said to `ignore_null` iff:
+    ///     e(a) = mask(e(a_v), a_m)
+    /// That is, applying `e` to the original array is equivalent to applying `e` to the
+    /// non-null part and masking the result afterward.
+    ///
+    /// Furthermore, if the null mask is a composition of two masks (a_m = a_m1 ∧ a_m2),
+    /// then this property implies:
+    ///     e(a) = mask(e(mask(a_v, a_m1), a_m2))
+    /// That is, the expression allows null masks to be distributed over its inputs
+    /// and composed incrementally.
+    fn ignores_nulls(&self, children_nullability: &[Nullability]) -> bool {
+        true
+    }
 }
