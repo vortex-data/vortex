@@ -364,6 +364,7 @@ jobs:
         run: |
           cargo build -p vortex-jni
           mkdir -p java/vortex-jni/src/main/resources/native/linux-amd64
+          cargo xtask java-test-files
           cp target/debug/libvortex_jni.so java/vortex-jni/src/main/resources/native/linux-amd64
       - run: ./gradlew test
         working-directory: ./java
