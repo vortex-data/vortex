@@ -38,7 +38,7 @@ impl PartialEq for VortexBindData {
 
 pub struct VortexGlobalData {
     file_paths: SegQueue<PathBuf>,
-    is_first_file_processed: std::sync::atomic::AtomicBool,
+    _is_first_file_processed: std::sync::atomic::AtomicBool,
     filter_expr: ExprRef,
 }
 
@@ -134,21 +134,8 @@ impl TableFunction for VortexTableFunction {
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
         if local_state.exporter.is_none() {
-            // Special case the first file, as it is opened during bind.
-            if !global_state
-                .is_first_file_processed
-                .swap(true, std::sync::atomic::Ordering::SeqCst)
-            {
-                let array_iter = bind_data
-                    .first_file
-                    .scan()?
-                    .into_array_iter()
-                    .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
-
-                local_state.exporter = Some(ArrayIteratorExporter::new(Box::new(array_iter)));
-            }
             // Retrieve a file path from the shared lock-free queue.
-            else if let Some(file_path) = global_state.file_paths.pop() {
+            if let Some(file_path) = global_state.file_paths.pop() {
                 let file = VortexOpenOptions::file()
                     .open_blocking(&file_path)
                     .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
@@ -187,7 +174,7 @@ impl TableFunction for VortexTableFunction {
         let file_paths = SegQueue::new();
 
         // Skip the first file path, as the file is opened during bind.
-        for path in bind_data.file_paths.iter().skip(1) {
+        for path in bind_data.file_paths.iter() {
             file_paths.push(path.clone());
         }
 
@@ -218,7 +205,7 @@ impl TableFunction for VortexTableFunction {
 
         Ok(VortexGlobalData {
             file_paths,
-            is_first_file_processed: std::sync::atomic::AtomicBool::new(false),
+            _is_first_file_processed: std::sync::atomic::AtomicBool::new(false),
             filter_expr,
         })
     }
