@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used)]
+
 use std::io::Write;
 use std::path::Path;
 
@@ -78,7 +80,7 @@ fn main() {
     // Save to file
     let minimal_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vortex-jni/src/test/resources/minimal.vortex");
-    let mut file = std::fs::File::create(&minimal_path).unwrap();
+    let mut file = std::fs::File::create(&minimal_path).expect("opening Vortex file");
     file.write_all(written.as_ref())
         .expect("flushing Vortex file to disk");
 

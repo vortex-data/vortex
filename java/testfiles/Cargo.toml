@@ -1,5 +1,7 @@
 [package]
 name = "testfiles"
+description = "generate Vortex files for Java integration tests"
+publish = false
 authors.workspace = true
 categories.workspace = true
 edition.workspace = true
