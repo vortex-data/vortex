@@ -1,8 +1,9 @@
+use vortex_array::ToCanonical;
 use vortex_array::arrays::{BoolArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_array::{Canonical, ToCanonical};
 use vortex_buffer::Buffer;
+use vortex_mask::Mask;
 
 use crate::ZstdArray;
 
@@ -31,20 +32,12 @@ fn test_zstd_compress_decompress() {
     for i in 0_i32..5 {
         assert_nth_scalar!(slice, i as usize, 100 + i);
     }
-    match slice.to_canonical() {
-        Ok(Canonical::Primitive(primitive)) => {
-            assert_eq!(primitive.as_slice::<i32>(), &[100, 101, 102, 103, 104]);
-        }
-        _ => unreachable!(),
-    }
+    let primitive = slice.to_primitive().unwrap();
+    assert_eq!(primitive.as_slice::<i32>(), &[100, 101, 102, 103, 104]);
 
     let slice = compressed.slice(200, 200).unwrap();
-    match slice.to_canonical().unwrap() {
-        Canonical::Primitive(primitive) => {
-            assert_eq!(primitive.as_slice::<i32>(), &Vec::<i32>::new());
-        }
-        _ => unreachable!(),
-    }
+    let primitive = slice.to_primitive().unwrap();
+    assert_eq!(primitive.as_slice::<i32>(), &Vec::<i32>::new());
 }
 
 #[test]
@@ -57,12 +50,8 @@ fn test_zstd_empty() {
 
     let compressed = ZstdArray::from_primitive(&array, 3, 100).unwrap();
 
-    match compressed.to_canonical().unwrap() {
-        Canonical::Primitive(primitive) => {
-            assert_eq!(primitive.as_slice::<i32>(), &data);
-        }
-        _ => unreachable!(),
-    }
+    let primitive = compressed.to_primitive().unwrap();
+    assert_eq!(primitive.as_slice::<i32>(), &data);
 }
 
 #[test]
@@ -91,16 +80,12 @@ fn test_zstd_with_validity_and_multi_frame() {
 
     // check slicing works
     let slice = compressed.slice(176, 179).unwrap();
-    match slice.to_canonical() {
-        Ok(Canonical::Primitive(primitive)) => {
-            assert_eq!(primitive.as_slice::<i32>()[1], 177);
-            assert_eq!(
-                primitive.validity(),
-                &Validity::Array(BoolArray::from_iter(vec![false, true, false]).to_array())
-            )
-        }
-        _ => unreachable!(),
-    }
+    let primitive = slice.to_primitive().unwrap();
+    assert_eq!(primitive.as_slice::<i32>()[1], 177);
+    assert_eq!(
+        primitive.validity(),
+        &Validity::Array(BoolArray::from_iter(vec![false, true, false]).to_array())
+    );
 }
 
 #[test]
@@ -122,10 +107,25 @@ fn test_zstd_with_dict() {
 
     // check slicing works
     let slice = compressed.slice(176, 179).unwrap();
-    match slice.to_canonical() {
-        Ok(Canonical::Primitive(primitive)) => {
-            assert_eq!(primitive.as_slice::<i32>(), &[176, 177, 178]);
-        }
-        _ => unreachable!(),
-    }
+    let primitive = slice.to_primitive().unwrap();
+    assert_eq!(primitive.as_slice::<i32>(), &[176, 177, 178]);
+}
+
+#[test]
+fn test_validity_vtable() {
+    let data: Vec<i32> = (0..5).collect();
+    let mask_bools = vec![false, true, true, false, true];
+    let array = PrimitiveArray::new(
+        data.iter().cloned().collect::<Buffer<_>>(),
+        Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
+    );
+    let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
+    assert_eq!(
+        compressed.validity_mask().unwrap(),
+        Mask::from_iter(mask_bools)
+    );
+    assert_eq!(
+        compressed.slice(1, 4).unwrap().validity_mask().unwrap(),
+        Mask::from_iter(vec![true, true, false])
+    );
 }

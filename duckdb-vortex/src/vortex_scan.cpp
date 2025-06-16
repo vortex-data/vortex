@@ -545,7 +545,6 @@ void RegisterScanFunction(DatabaseInstance &instance) {
 
 	vortex_scan.init_global = [](ClientContext &context,
 	                             TableFunctionInitInput &input) -> unique_ptr<GlobalTableFunctionState> {
-		auto &nonbind = input.bind_data->Cast<ScanBindData>();
 		auto &bind = input.bind_data->CastNoConst<ScanBindData>();
 		auto global_state = make_uniq<ScanGlobalState>();
 

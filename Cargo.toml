@@ -81,6 +81,7 @@ cfg-if = "1"
 chrono = "0.4.40"
 clap = "4.5"
 compio = { version = "0.14", features = ["io-uring"], default-features = false }
+crossbeam-queue = "0.3"
 crossterm = "0.28"
 dashmap = "6.1.0"
 datafusion = { version = "47", default-features = false }
@@ -100,6 +101,7 @@ flume = "0.11"
 fsst-rs = "0.5.2"
 futures = { version = "0.3.31", default-features = false }
 futures-util = "0.3.31"
+glob = "0.3.2"
 goldenfile = "1"
 half = { version = "2.5", features = ["std", "num-traits"] }
 hashbrown = "0.15.1"
@@ -124,6 +126,7 @@ opentelemetry-otlp = "0.29.0"
 opentelemetry_sdk = "0.29.0"
 parquet = "55"
 paste = "1.0.15"
+pco = "0.4.4"
 pin-project = "1.1.5"
 pin-project-lite = "0.2.15"
 prost = "0.13.4"
@@ -197,6 +200,7 @@ vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = fals
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
+vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scalar = { version = "0.1.0", path = "./vortex-scalar", default-features = false }
