@@ -62,6 +62,7 @@ impl TableFunction for VortexTableFunction {
     type LocalState = VortexLocalData;
 
     const FILTER_PUSHDOWN: bool = true;
+    const FILTER_PRUNE: bool = true;
 
     /// Input parameter types of the `vortex_scan` table function.
     ///
@@ -222,10 +223,19 @@ mod tests {
         NamedTempFile::new().unwrap()
     }
 
-    async fn write_vortex_file(field_name: &str, array: impl IntoArray) -> NamedTempFile {
+    async fn write_single_column_vortex_file(
+        field_name: &str,
+        array: impl IntoArray,
+    ) -> NamedTempFile {
+        write_vortex_file([(field_name, array)].into_iter()).await
+    }
+
+    async fn write_vortex_file(
+        iter: impl Iterator<Item = (impl AsRef<str>, impl IntoArray)>,
+    ) -> NamedTempFile {
         let temp_file_path = create_temp_file();
 
-        let struct_array = StructArray::from_fields(&[(field_name, array.into_array())]).unwrap();
+        let struct_array = StructArray::try_from_iter(iter).unwrap();
         let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
         VortexWriteOptions::default()
             .write(file, struct_array.to_array_stream())
@@ -262,7 +272,7 @@ mod tests {
     #[tokio::test]
     async fn test_vortex_scan_strings() {
         let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
-        let file = write_vortex_file("strings", strings).await;
+        let file = write_single_column_vortex_file("strings", strings).await;
         let result: String =
             scan_vortex_file(file, "SELECT string_agg(strings, ',') FROM vortex_scan(?)");
         assert_eq!(result, "Hello,Hi,Hey");
@@ -271,7 +281,7 @@ mod tests {
     #[tokio::test]
     async fn test_vortex_scan_integers() {
         let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
-        let file = write_vortex_file("number", numbers).await;
+        let file = write_single_column_vortex_file("number", numbers).await;
         let sum: i64 = scan_vortex_file(file, "SELECT SUM(number) FROM vortex_scan(?)");
         assert_eq!(sum, 138);
     }
@@ -279,7 +289,7 @@ mod tests {
     #[tokio::test]
     async fn test_vortex_scan_floats() {
         let values = PrimitiveArray::from_iter([1.5f64, -2.5, 0.0, 42.42]);
-        let file = write_vortex_file("value", values).await;
+        let file = write_single_column_vortex_file("value", values).await;
         let count: i64 =
             scan_vortex_file(file, "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0");
         assert_eq!(count, 2);
@@ -288,7 +298,7 @@ mod tests {
     #[tokio::test]
     async fn test_vortex_scan_constant() {
         let constant = ConstantArray::new(Scalar::from(42i32), 100);
-        let file = write_vortex_file("constant", constant).await;
+        let file = write_single_column_vortex_file("constant", constant).await;
         let value: i32 = scan_vortex_file(file, "SELECT constant FROM vortex_scan(?) LIMIT 1");
         assert_eq!(value, 42);
     }
@@ -297,11 +307,27 @@ mod tests {
     async fn test_vortex_scan_booleans() {
         let flags = vec![true, false, true, true, false];
         let flags_array = BoolArray::new(flags.into(), Validity::NonNullable);
-        let file = write_vortex_file("flag", flags_array).await;
+        let file = write_single_column_vortex_file("flag", flags_array).await;
         let true_count: i64 = scan_vortex_file(
             file,
             "SELECT COUNT(*) FROM vortex_scan(?) WHERE flag = true",
         );
         assert_eq!(true_count, 3);
+    }
+
+    #[tokio::test]
+    async fn test_vortex_multi_column() {
+        let f1 = BoolArray::new(
+            vec![true, false, true, true, false].into(),
+            Validity::NonNullable,
+        )
+        .to_array();
+        let f2 = (0..=5).collect::<PrimitiveArray>().to_array();
+        let file = write_vortex_file([("f1", f1), ("f2", f2)].into_iter()).await;
+        let result: [i32; 2] = scan_vortex_file(
+            file,
+            "SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 > 3",
+        );
+        assert_eq!(result, [2, 3]);
     }
 }
