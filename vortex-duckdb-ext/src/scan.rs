@@ -182,13 +182,12 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn pushdown_complex_filter(
-        _bind_data: &mut Self::BindData,
+        bind_data: &mut Self::BindData,
         expr: &Expression,
     ) -> VortexResult<bool> {
         let expr = try_from_bound_expression(expr)?;
-        _bind_data.filter_exprs.push(expr);
-        // we cannot handle this value
-        Ok(false)
+        bind_data.filter_exprs.push(expr);
+        Ok(true)
     }
 }
 
