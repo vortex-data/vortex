@@ -268,6 +268,34 @@ impl StructFields {
 
         Ok(StructFields::from_fields(names.into(), dtypes))
     }
+
+    /// Returns a new [`StructFields`] without the field at the given index.
+    /// 
+    /// ## Panics
+    /// Panics if the index is out of bounds for the struct fields.
+    pub fn without_field(&self, index: usize) -> Self {
+        if index >= self.nfields() {
+            vortex_panic!("index out of bounds for struct fields");
+        }
+
+        let names = self
+            .names
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| (i != index))
+            .map(|(_, name)| name.clone())
+            .collect::<FieldNames>();
+
+        let dtypes = self
+            .dtypes
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| (i != index))
+            .map(|(_, dtype)| dtype.clone())
+            .collect::<Vec<_>>();
+
+        StructFields::from_fields(names, dtypes)
+    }
 }
 
 impl<T, V> FromIterator<(T, V)> for StructFields
@@ -335,5 +363,10 @@ mod test {
         assert_eq!(sdt.find("A").unwrap(), 0);
         assert_eq!(sdt.find("B").unwrap(), 1);
         assert!(sdt.find("C").is_err());
+
+        let without_a = sdt.without_field(0);
+        assert_eq!(without_a.names()[0], "B".into());
+        assert_eq!(without_a.field_by_index(0).unwrap(), b_type);
+        assert_eq!(without_a.nfields(), 1);
     }
 }
