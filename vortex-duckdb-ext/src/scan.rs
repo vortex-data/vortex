@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use bitvec::macros::internal::funty::Fundamental;
 use crossbeam_queue::SegQueue;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, lit};
+use vortex::expr::{ExprRef, and, and_collect, lit};
 use vortex::file::{VortexFile, VortexOpenOptions};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
@@ -150,22 +150,16 @@ impl TableFunction for VortexTableFunction {
         Ok(())
     }
 
-    fn init_global(_init: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
-        let complex_filter = _init
-            .bind_data()
-            .filter_exprs
-            .iter()
-            .rev() // left most and should be top level
-            .cloned()
-            .reduce(and);
+    fn init_global(init: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
+        let complex_filter = and_collect(init.bind_data().filter_exprs.clone());
 
-        let filter = _init
+        let filter = init
             .table_filter_set()
             .and_then(|filter| {
                 filter
                     .into_iter()
                     .map(|(idx, ex)| {
-                        let name = _init
+                        let name = init
                             .bind_data()
                             ._column_names
                             .get(idx.as_usize())

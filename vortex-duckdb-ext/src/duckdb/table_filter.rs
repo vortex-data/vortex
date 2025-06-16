@@ -2,6 +2,8 @@ use std::ffi::CStr;
 use std::fmt::{Debug, Formatter};
 use std::ptr;
 
+use vortex::error::VortexExpect;
+
 use crate::cpp::idx_t;
 use crate::duckdb::Value;
 use crate::{cpp, wrapper};
@@ -32,19 +34,10 @@ impl<'a> IntoIterator for &'a TableFilterSet {
     type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let mut index = 0;
-        let len = self.len();
-
-        Box::new(std::iter::from_fn(move || {
-            if index < len {
-                let value = self.get(index); // works because we have a reference
-                let result = value.map(|v| (index, v));
-                index += 1;
-                result
-            } else {
-                None
-            }
-        }))
+        Box::new(
+            (0..self.len())
+                .map(move |i| (i, self.get(i).vortex_expect("inside filter set bounds"))),
+        )
     }
 }
 

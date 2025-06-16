@@ -1,4 +1,3 @@
-#![feature(iterator_try_reduce)]
 #![allow(clippy::missing_safety_doc)]
 use std::ffi::{CStr, c_char};
 
