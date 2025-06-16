@@ -6,7 +6,7 @@ use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, lit};
 use vortex::file::{VortexFile, VortexOpenOptions};
 
-use crate::convert::try_from_table_filter;
+use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
     BindInput, BindResult, DataChunk, Expression, LogicalType, TableFunction, TableInitInput,
 };
@@ -181,8 +181,10 @@ impl TableFunction for VortexTableFunction {
 
     fn pushdown_complex_filter(
         _bind_data: &mut Self::BindData,
-        _expr: &Expression,
+        expr: &Expression,
     ) -> VortexResult<bool> {
+        let _ = try_from_bound_expression(&expr)?;
+        // we cannot handle this value
         Ok(false)
     }
 }

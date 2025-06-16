@@ -4,7 +4,7 @@ use vortex::expr::{BinaryExpr, ExprRef, Operator, and, get_item_scope, lit, or};
 use vortex::scalar::Scalar;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-use crate::duckdb::{TableFilter, TableFilterClass};
+use crate::duckdb::{Expression, ExpressionClass, TableFilter, TableFilterClass};
 
 pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<ExprRef> {
     let Some(class) = value.as_class() else {
@@ -45,6 +45,28 @@ pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<Exp
         }
         _ => todo!("cannot convert table filter {:?}", value),
     }
+}
+
+pub fn try_from_bound_expression(value: &Expression) -> VortexResult<ExprRef> {
+    let Some(value) = value.as_class() else {
+        vortex_bail!("no expression class")
+    };
+    Ok(match value {
+        ExpressionClass::BoundColumnRef(col) => get_item_scope(col.name.to_str()?),
+        ExpressionClass::BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
+        ExpressionClass::BoundComparison(compare) => {
+            let operator: Operator = compare.op.try_into()?;
+
+            BinaryExpr::new_expr(
+                try_from_bound_expression(&compare.left)?,
+                operator,
+                try_from_bound_expression(&compare.right)?,
+            )
+        }
+        ExpressionClass::BoundBetween(_) => todo!(),
+        ExpressionClass::BoundOperator(_) => todo!(),
+        ExpressionClass::BoundFunction(_) => todo!(),
+    })
 }
 
 impl TryFrom<DUCKDB_VX_EXPR_TYPE> for Operator {
