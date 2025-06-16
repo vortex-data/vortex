@@ -1,7 +1,5 @@
 //! A contiguously serialized Vortex array.
 //!
-//! See [message] and [footer] for the flatbuffer specifications.
-//!
 //! See the `vortex-file` crate for non-contiguous serialization.
 
 #[cfg(feature = "array")]
