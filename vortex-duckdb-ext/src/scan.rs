@@ -15,6 +15,7 @@ use crate::exporter::ArrayIteratorExporter;
 pub struct VortexBindData {
     _first_file: VortexFile,
     file_list: SegQueue<PathBuf>,
+    filter_exprs: Vec<ExprRef>,
     _column_names: Vec<String>,
     _column_types: Vec<LogicalType>,
 }
@@ -104,6 +105,7 @@ impl TableFunction for VortexTableFunction {
             _first_file: first_file,
             _column_names: column_names,
             _column_types: column_types,
+            filter_exprs: vec![],
         })
     }
 
@@ -183,7 +185,8 @@ impl TableFunction for VortexTableFunction {
         _bind_data: &mut Self::BindData,
         expr: &Expression,
     ) -> VortexResult<bool> {
-        let _ = try_from_bound_expression(&expr)?;
+        let expr = try_from_bound_expression(&expr)?;
+        _bind_data.filter_exprs.push(expr);
         // we cannot handle this value
         Ok(false)
     }
