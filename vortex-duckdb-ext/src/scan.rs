@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use bitvec::macros::internal::funty::Fundamental;
+use crossbeam_queue::SegQueue;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, lit};
-use crossbeam_queue::SegQueue;
 use vortex::file::{VortexFile, VortexOpenOptions};
 
 use crate::convert::try_from_table_filter;
@@ -21,7 +21,6 @@ pub struct VortexBindData {
 
 pub struct VortexGlobalData {
     filter_expr: ExprRef,
-    done: AtomicBool,
 }
 
 pub struct VortexLocalData {
@@ -169,7 +168,6 @@ impl TableFunction for VortexTableFunction {
             .unwrap_or_else(|| lit(true));
 
         Ok(VortexGlobalData {
-            done: AtomicBool::new(false),
             filter_expr: filter,
         })
     }

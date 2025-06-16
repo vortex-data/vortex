@@ -16,6 +16,9 @@
 //! | `Binary` | `BLOB` |
 //! | `ExtScalar` (temporal) | `DATE`/`TIME`/`TIMESTAMP` |
 
+use std::ffi::CStr;
+
+use vortex::buffer::ByteBuffer;
 use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::datetime::{TemporalMetadata, TimeUnit};
 use vortex::dtype::half::f16;
@@ -255,11 +258,17 @@ impl TryFrom<Value> for Scalar {
                 unsafe { cpp::duckdb_get_double(value.as_ptr()) },
                 Nullable,
             )),
-            // DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => {}
-            // DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT => {}
-            // DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT => {}
-            // DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER => {}
-            // DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT => {}
+            DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => {
+                let str: &str = unsafe {
+                    let str = cpp::duckdb_get_varchar(value.as_ptr());
+                    CStr::from_ptr(str).to_str()?
+                };
+                Ok(Scalar::utf8(str, Nullable))
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_BLOB => Ok(Scalar::binary(
+                ByteBuffer::copy_from(value.as_string().to_str()?),
+                Nullable,
+            )),
             _ => todo!("cannot convert value into scalar {value:?}"),
         }
     }
