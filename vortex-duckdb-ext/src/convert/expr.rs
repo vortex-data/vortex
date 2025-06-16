@@ -32,7 +32,7 @@ pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<Exp
                 .reduce(and)
                 .ok_or_else(|| vortex_err!("cannot have empty conjuction table filter"))
         }
-        // This is a disjunction?
+        // This is a disjunction.
         TableFilterClass::ConjunctionOr(disjuction_or) => {
             let children = disjuction_or
                 .children()
