@@ -185,7 +185,7 @@ impl TableFunction for VortexTableFunction {
         _bind_data: &mut Self::BindData,
         expr: &Expression,
     ) -> VortexResult<bool> {
-        let expr = try_from_bound_expression(&expr)?;
+        let expr = try_from_bound_expression(expr)?;
         _bind_data.filter_exprs.push(expr);
         // we cannot handle this value
         Ok(false)
