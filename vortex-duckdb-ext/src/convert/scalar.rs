@@ -273,3 +273,31 @@ impl TryFrom<Value> for Scalar {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex::scalar::Scalar;
+
+    use crate::convert::ToDuckDBScalar;
+
+    #[test]
+    fn test_scalar_round_trip() {
+        let value = Scalar::from(32i32);
+        assert_eq!(
+            value,
+            value.try_to_duckdb_scalar().unwrap().try_into().unwrap()
+        );
+
+        let value = Scalar::from("hello");
+        assert_eq!(
+            value,
+            value.try_to_duckdb_scalar().unwrap().try_into().unwrap()
+        );
+
+        let value = Scalar::from(1.0f64);
+        assert_eq!(
+            value,
+            value.try_to_duckdb_scalar().unwrap().try_into().unwrap()
+        );
+    }
+}

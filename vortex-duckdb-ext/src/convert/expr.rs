@@ -1,5 +1,6 @@
-use vortex::error::{VortexError, VortexResult, vortex_bail};
-use vortex::expr::{BinaryExpr, ExprRef, Operator, get_item_scope, lit};
+use itertools::Itertools;
+use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex::expr::{BinaryExpr, ExprRef, Operator, and, get_item_scope, lit, or};
 use vortex::scalar::Scalar;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
@@ -18,6 +19,29 @@ pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<Exp
                 const_.operator.try_into()?,
                 lit(scalar),
             ))
+        }
+        TableFilterClass::ConjunctionAnd(conj_and) => {
+            let children = conj_and
+                .children()
+                .map(|child| try_from_table_filter(&child, col))
+                .try_collect::<_, Vec<_>, _>()?;
+
+            children
+                .into_iter()
+                .rev()
+                .reduce(and)
+                .ok_or_else(|| vortex_err!("cannot have empty conjuction table filter"))
+        }
+        // This is a disjunction?
+        TableFilterClass::ConjunctionOr(disjuction_or) => {
+            let children = disjuction_or
+                .children()
+                .map(|child| try_from_table_filter(&child, col))
+                .try_collect::<_, Vec<_>, _>()?;
+
+            children.into_iter().rev().reduce(or).ok_or_else(|| {
+                vortex_err!("cannot have empty disjunction (ConjunctionOr) table filter")
+            })
         }
         _ => todo!("cannot convert table filter {:?}", value),
     }
