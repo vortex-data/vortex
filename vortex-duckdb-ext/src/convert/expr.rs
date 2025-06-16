@@ -28,7 +28,7 @@ pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<Exp
 
             children
                 .into_iter()
-                .rev()
+                .rev() // left most and should be top level
                 .reduce(and)
                 .ok_or_else(|| vortex_err!("cannot have empty conjuction table filter"))
         }
