@@ -151,6 +151,14 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn init_global(_init: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
+        let complex_filter = _init
+            .bind_data()
+            .filter_exprs
+            .iter()
+            .rev() // left most and should be top level
+            .cloned()
+            .reduce(and);
+
         let filter = _init
             .table_filter_set()
             .and_then(|filter| {
@@ -166,12 +174,15 @@ impl TableFunction for VortexTableFunction {
                     })
                     .reduce(|l, r| Ok(and(l?, r?)))
             })
-            .transpose()?
-            .unwrap_or_else(|| lit(true));
+            .transpose()?;
 
-        Ok(VortexGlobalData {
-            filter_expr: filter,
-        })
+        let filter_expr = complex_filter
+            .into_iter()
+            .chain(filter)
+            .reduce(and)
+            .unwrap_or(lit(true));
+
+        Ok(VortexGlobalData { filter_expr })
     }
 
     fn init_local(
