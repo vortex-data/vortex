@@ -270,7 +270,7 @@ mod tests {
         temp_file_path
     }
 
-    fn scan_vortex_file<T>(tmp_file: NamedTempFile, query: &str) -> T
+    fn scan_vortex_file_single_row<T>(tmp_file: NamedTempFile, query: &str) -> T
     where
         T: duckdb::types::FromSql,
     {
@@ -279,6 +279,19 @@ mod tests {
             .unwrap()
             .query_row([tmp_file.path().to_string_lossy()], |row| row.get(0))
             .unwrap()
+    }
+
+    fn scan_vortex_file<T>(tmp_file: NamedTempFile, query: &str) -> Result<Vec<T>, String>
+    where
+        T: duckdb::types::FromSql,
+    {
+        let conn = database_connection();
+        conn.prepare(query)
+            .unwrap()
+            .query_and_then([tmp_file.path().to_string_lossy()], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     #[test]
@@ -298,8 +311,10 @@ mod tests {
     async fn test_vortex_scan_strings() {
         let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
         let file = write_single_column_vortex_file("strings", strings).await;
-        let result: String =
-            scan_vortex_file(file, "SELECT string_agg(strings, ',') FROM vortex_scan(?)");
+        let result: String = scan_vortex_file_single_row(
+            file,
+            "SELECT string_agg(strings, ',') FROM vortex_scan(?)",
+        );
         assert_eq!(result, "Hello,Hi,Hey");
     }
 
@@ -307,7 +322,7 @@ mod tests {
     async fn test_vortex_scan_integers() {
         let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
         let file = write_single_column_vortex_file("number", numbers).await;
-        let sum: i64 = scan_vortex_file(file, "SELECT SUM(number) FROM vortex_scan(?)");
+        let sum: i64 = scan_vortex_file_single_row(file, "SELECT SUM(number) FROM vortex_scan(?)");
         assert_eq!(sum, 138);
     }
 
@@ -315,8 +330,10 @@ mod tests {
     async fn test_vortex_scan_floats() {
         let values = PrimitiveArray::from_iter([1.5f64, -2.5, 0.0, 42.42]);
         let file = write_single_column_vortex_file("value", values).await;
-        let count: i64 =
-            scan_vortex_file(file, "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0");
+        let count: i64 = scan_vortex_file_single_row(
+            file,
+            "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0",
+        );
         assert_eq!(count, 2);
     }
 
@@ -324,7 +341,8 @@ mod tests {
     async fn test_vortex_scan_constant() {
         let constant = ConstantArray::new(Scalar::from(42i32), 100);
         let file = write_single_column_vortex_file("constant", constant).await;
-        let value: i32 = scan_vortex_file(file, "SELECT constant FROM vortex_scan(?) LIMIT 1");
+        let value: i32 =
+            scan_vortex_file_single_row(file, "SELECT constant FROM vortex_scan(?) LIMIT 1");
         assert_eq!(value, 42);
     }
 
@@ -333,7 +351,7 @@ mod tests {
         let flags = vec![true, false, true, true, false];
         let flags_array = BoolArray::new(flags.into(), Validity::NonNullable);
         let file = write_single_column_vortex_file("flag", flags_array).await;
-        let true_count: i64 = scan_vortex_file(
+        let true_count: i64 = scan_vortex_file_single_row(
             file,
             "SELECT COUNT(*) FROM vortex_scan(?) WHERE flag = true",
         );
@@ -351,14 +369,11 @@ mod tests {
         let f3 = (100..105).collect::<PrimitiveArray>().to_array();
         let file = write_vortex_file([("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await;
 
-        let conn = database_connection();
-        let result: Vec<i32> = conn
-            .prepare("SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 >= 2")
-            .unwrap()
-            .query_and_then([file.path().to_str()], |r| r.get(0))
-            .unwrap()
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
+        let result: Vec<i32> = scan_vortex_file(
+            file,
+            "SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 >= 2",
+        )
+        .unwrap();
         assert_eq!(result, vec![2, 3]);
     }
 }
