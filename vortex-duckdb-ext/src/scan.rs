@@ -270,25 +270,29 @@ mod tests {
         temp_file_path
     }
 
-    fn scan_vortex_file_single_row<T>(tmp_file: NamedTempFile, query: &str) -> T
+    fn scan_vortex_file_single_row<T>(tmp_file: NamedTempFile, query: &str, col_idx: usize) -> T
     where
         T: duckdb::types::FromSql,
     {
         let conn = database_connection();
         conn.prepare(query)
             .unwrap()
-            .query_row([tmp_file.path().to_string_lossy()], |row| row.get(0))
+            .query_row([tmp_file.path().to_string_lossy()], |row| row.get(col_idx))
             .unwrap()
     }
 
-    fn scan_vortex_file<T>(tmp_file: NamedTempFile, query: &str) -> Result<Vec<T>, String>
+    fn scan_vortex_file<T>(
+        tmp_file: NamedTempFile,
+        query: &str,
+        col_idx: usize,
+    ) -> Result<Vec<T>, String>
     where
         T: duckdb::types::FromSql,
     {
         let conn = database_connection();
         conn.prepare(query)
             .unwrap()
-            .query_and_then([tmp_file.path().to_string_lossy()], |row| row.get(0))
+            .query_and_then([tmp_file.path().to_string_lossy()], |row| row.get(col_idx))
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())
@@ -314,6 +318,7 @@ mod tests {
         let result: String = scan_vortex_file_single_row(
             file,
             "SELECT string_agg(strings, ',') FROM vortex_scan(?)",
+            0,
         );
         assert_eq!(result, "Hello,Hi,Hey");
     }
@@ -322,7 +327,8 @@ mod tests {
     async fn test_vortex_scan_integers() {
         let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
         let file = write_single_column_vortex_file("number", numbers).await;
-        let sum: i64 = scan_vortex_file_single_row(file, "SELECT SUM(number) FROM vortex_scan(?)");
+        let sum: i64 =
+            scan_vortex_file_single_row(file, "SELECT SUM(number) FROM vortex_scan(?)", 0);
         assert_eq!(sum, 138);
     }
 
@@ -333,6 +339,7 @@ mod tests {
         let count: i64 = scan_vortex_file_single_row(
             file,
             "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0",
+            0,
         );
         assert_eq!(count, 2);
     }
@@ -342,7 +349,7 @@ mod tests {
         let constant = ConstantArray::new(Scalar::from(42i32), 100);
         let file = write_single_column_vortex_file("constant", constant).await;
         let value: i32 =
-            scan_vortex_file_single_row(file, "SELECT constant FROM vortex_scan(?) LIMIT 1");
+            scan_vortex_file_single_row(file, "SELECT constant FROM vortex_scan(?) LIMIT 1", 0);
         assert_eq!(value, 42);
     }
 
@@ -354,6 +361,7 @@ mod tests {
         let true_count: i64 = scan_vortex_file_single_row(
             file,
             "SELECT COUNT(*) FROM vortex_scan(?) WHERE flag = true",
+            0,
         );
         assert_eq!(true_count, 3);
     }
@@ -372,6 +380,7 @@ mod tests {
         let result: Vec<i32> = scan_vortex_file(
             file,
             "SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 >= 2",
+            0,
         )
         .unwrap();
         assert_eq!(result, vec![2, 3]);
