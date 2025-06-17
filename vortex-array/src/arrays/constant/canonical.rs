@@ -91,14 +91,24 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
             }
             DType::Struct(struct_dtype, _) => {
                 let value = StructScalar::try_from(scalar)?;
-                let fields = value.fields().map(|fields| {
-                    fields
+                let fields = match value.fields() {
+                    Some(fields) => fields
                         .into_iter()
                         .map(|s| ConstantArray::new(s, array.len()).into_array())
-                        .collect::<Vec<_>>()
-                });
+                        .collect::<Vec<_>>(),
+                    None => {
+                        debug_assert!(scalar.is_null());
+                        struct_dtype
+                            .fields()
+                            .map(|dt| {
+                                ConstantArray::new(Scalar::null(dt), array.len()).into_array()
+                            })
+                            .collect::<Vec<_>>()
+                    }
+                };
+
                 Canonical::Struct(StructArray::try_new_with_dtype(
-                    fields.unwrap_or_default(),
+                    fields,
                     struct_dtype.clone(),
                     array.len(),
                     validity,
@@ -212,7 +222,7 @@ mod tests {
 
     use enum_iterator::all;
     use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{DType, Nullability, PType, StructFields};
     use vortex_scalar::Scalar;
 
     use crate::arrays::ConstantArray;
@@ -357,5 +367,81 @@ mod tests {
                 .as_slice::<u64>(),
             [0u64, 0, 0]
         );
+    }
+
+    #[test]
+    fn test_canonicalize_struct() {
+        let sd = DType::Struct(
+            Arc::new(StructFields::new(
+                vortex_dtype::FieldNames::from_iter(["nested".into()]),
+                vec![DType::Primitive(PType::I32, Nullability::Nullable)],
+            )),
+            Nullability::Nullable,
+        );
+
+        let struct_dtype = DType::Struct(
+            Arc::new(StructFields::new(
+                vortex_dtype::FieldNames::from_iter(["a".into(), "b".into(), "c".into()]),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Primitive(PType::F64, Nullability::Nullable),
+                    sd.clone(),
+                ],
+            )),
+            Nullability::NonNullable,
+        );
+
+        let struct_scalar = Scalar::struct_(
+            struct_dtype.clone(),
+            vec![
+                Scalar::primitive(42, Nullability::NonNullable),
+                Scalar::null(DType::Primitive(PType::F64, Nullability::Nullable)),
+                Scalar::null(sd.clone()),
+            ],
+        );
+
+        let const_array = ConstantArray::new(struct_scalar, 3).into_array();
+        let canonical_const = const_array.to_struct().unwrap();
+
+        assert_eq!(canonical_const.len(), 3);
+        assert_eq!(
+            canonical_const
+                .field_by_name("a")
+                .unwrap()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<i32>(),
+            &[42, 42, 42]
+        );
+
+        let lt = canonical_const
+            .field_by_name("b")
+            .unwrap()
+            .as_constant()
+            .unwrap();
+
+        assert_eq!(
+            lt.dtype(),
+            &DType::Primitive(PType::F64, Nullability::Nullable)
+        );
+
+        assert!(lt.is_null());
+
+        let ct = canonical_const
+            .field_by_name("c")
+            .unwrap()
+            .to_struct()
+            .unwrap();
+
+        assert_eq!(ct.fields().len(), 1);
+
+        let cts = ct.field_by_name("nested").unwrap();
+        assert_eq!(
+            cts.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+
+        let q = cts.as_constant().unwrap();
+        assert!(q.is_null());
     }
 }
