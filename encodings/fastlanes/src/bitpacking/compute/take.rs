@@ -73,7 +73,6 @@ fn take_primitive<T: NativePType + BitPacking, I: NativePType>(
     chunked_indices(indices_iter, offset, |chunk_idx, indices_within_chunk| {
         let packed = &packed[chunk_idx * chunk_len..][..chunk_len];
 
-        // array_chunks produced a fixed size array, doesn't heap allocate
         let mut have_unpacked = false;
         let mut offset_chunk_iter = indices_within_chunk.chunks_exact(UNPACK_CHUNK_THRESHOLD);
 
