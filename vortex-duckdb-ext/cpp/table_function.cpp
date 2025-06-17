@@ -25,24 +25,22 @@ struct CTableBindData final : TableFunctionData {
 	}
 
 	bool Equals(const FunctionData &other_p) const override {
+		assert(info->vtab.equals_bind_data != nullptr);
+
 		auto &other = (CTableBindData &)other_p;
 		return info->vtab.equals_bind_data(this, &other);
 	}
 
 	unique_ptr<FunctionData> Copy() const override {
-		if (info->vtab.clone_bind_data) {
-			duckdb_vx_error error_out = nullptr;
-			const auto copied_ffi_data = info->vtab.clone_bind_data(ffi_data->DataPtr(), &error_out);
-			if (error_out) {
-				throw BinderException(IntoErrString(error_out));
-			}
-			return make_uniq<CTableBindData>(
-			    make_uniq<CTableFunctionInfo>(info->vtab),
-			    optional_ptr(reinterpret_cast<vortex::CData *>(copied_ffi_data)));
-		} else {
-			// Fallback: shallow copy if no copy function is provided.
-			return make_uniq<CTableBindData>(make_uniq<CTableFunctionInfo>(info->vtab), ffi_data);
+		assert(info->vtab.clone_bind_data != nullptr);
+
+		duckdb_vx_error error_out = nullptr;
+		const auto copied_ffi_data = info->vtab.clone_bind_data(ffi_data->DataPtr(), &error_out);
+		if (error_out) {
+			throw BinderException(IntoErrString(error_out));
 		}
+		return make_uniq<CTableBindData>(make_uniq<CTableFunctionInfo>(info->vtab),
+		                                 optional_ptr(reinterpret_cast<vortex::CData *>(copied_ffi_data)));
 	}
 
 	unique_ptr<CTableFunctionInfo> info;
