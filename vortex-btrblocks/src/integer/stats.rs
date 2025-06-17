@@ -213,11 +213,15 @@ where
     };
 
     let sliced = buffer.slice(head_idx..array.len());
-    let mut chunks = sliced.as_slice().array_chunks::<64>();
+    let mut chunks = sliced.as_slice().chunks_exact(64);
     match validity.boolean_buffer() {
         AllOr::All => {
             for chunk in &mut chunks {
-                inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state)
+                inner_loop_nonnull(
+                    chunk.try_into().vortex_unwrap(),
+                    count_distinct_values,
+                    &mut loop_state,
+                )
             }
             let remainder = chunks.remainder();
             inner_loop_naive(
@@ -239,10 +243,14 @@ where
                     // All nulls -> no stats to update
                     0 => continue,
                     // Inner loop for when validity check can be elided
-                    64 => inner_loop_nonnull(chunk, count_distinct_values, &mut loop_state),
+                    64 => inner_loop_nonnull(
+                        chunk.try_into().vortex_unwrap(),
+                        count_distinct_values,
+                        &mut loop_state,
+                    ),
                     // Inner loop for when we need to check validity
                     _ => inner_loop_nullable(
-                        chunk,
+                        chunk.try_into().vortex_unwrap(),
                         count_distinct_values,
                         &validity,
                         &mut loop_state,
