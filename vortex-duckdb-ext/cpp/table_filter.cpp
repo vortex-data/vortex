@@ -3,19 +3,25 @@
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/dynamic_filter.hpp"
 
-#include <duckdb/planner/expression/bound_columnref_expression.hpp>
+#include "duckdb/planner/expression/bound_columnref_expression.hpp"
+#include <iostream>
 
 using namespace duckdb;
 
-extern "C" duckdb_vx_table_filter duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set ffi_filter_set,
-                                                                 idx_t column_index) {
+extern "C" idx_t duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set ffi_filter_set,
+                                                    size_t index, duckdb_vx_table_filter *table_filter_out) {
 	auto filter_set = reinterpret_cast<TableFilterSet *>(ffi_filter_set);
-	auto iter = filter_set->filters.find(column_index);
+	auto it = std::next(filter_set->filters.begin(), index);
 
-	if (iter == filter_set->filters.end()) {
-		return nullptr; // No filter for this column index
+	if (it == filter_set->filters.end()) {
+		table_filter_out = nullptr;
+		return 0;
 	}
-	return reinterpret_cast<duckdb_vx_table_filter>(iter->second.get());
+
+	std::cout << "found col: " << it->first << std::endl;
+
+	*table_filter_out = reinterpret_cast<duckdb_vx_table_filter>(it->second.get());
+	return it->first;
 }
 
 extern "C" idx_t duckdb_vx_table_filter_set_size(duckdb_vx_table_filter_set ffi_filter_set) {
