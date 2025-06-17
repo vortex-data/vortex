@@ -62,6 +62,7 @@ typedef struct {
 
 	duckdb_vx_data (*bind)(duckdb_vx_tfunc_bind_input input, duckdb_vx_tfunc_bind_result result,
 	                       duckdb_vx_error *error_out);
+	duckdb_vx_data (*bind_data_clone)(const void *bind_data, duckdb_vx_error *error_out);
 
 	// void *bind_replace;
 	// void *bind_operator;

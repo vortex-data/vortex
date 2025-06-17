@@ -115,6 +115,20 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_dtype(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_rowCount(
+    mut env: JNIEnv,
+    _class: JClass,
+    pointer: jlong,
+) -> jlong {
+    let file = unsafe { NativeFile::from_ptr(pointer) };
+    try_or_throw(&mut env, |_| {
+        let row_count = jlong::try_from(file.inner.row_count())
+            .map_err(|_| vortex_err!("Overflow converting row count to jlong"))?;
+        Ok(row_count)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
     mut env: JNIEnv,
     _class: JClass,

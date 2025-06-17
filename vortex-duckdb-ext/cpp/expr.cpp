@@ -23,7 +23,7 @@ extern "C" const char *duckdb_vx_expr_to_string(duckdb_vx_expr ffi_expr) {
 
 //! Create a DuckDB vortex error.
 extern "C" void duckdb_vx_destroy_expr(duckdb_vx_expr *ffi_expr) {
-	auto expr = reinterpret_cast<duckdb::Expression *>(ffi_expr);
+	auto expr = reinterpret_cast<Expression *>(ffi_expr);
 	delete expr;
 	memset(ffi_expr, 0, sizeof(duckdb_vx_expr));
 }

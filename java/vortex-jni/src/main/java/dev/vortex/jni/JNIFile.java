@@ -37,6 +37,11 @@ public final class JNIFile implements File {
     }
 
     @Override
+    public long rowCount() {
+        return NativeFileMethods.rowCount(pointer.getAsLong());
+    }
+
+    @Override
     public ArrayIterator newScan(ScanOptions options) {
         byte[] predicateProto = null;
 

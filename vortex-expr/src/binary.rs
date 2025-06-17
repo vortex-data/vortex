@@ -326,6 +326,18 @@ pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
     BinaryExpr::new_expr(lhs, Operator::Or, rhs)
 }
 
+/// Collects a list of `or`ed values into a single vortex, expr
+/// [x, y, z] => x or (y or z)
+pub fn or_collect<I>(iter: I) -> Option<ExprRef>
+where
+    I: IntoIterator<Item = ExprRef>,
+    I::IntoIter: DoubleEndedIterator<Item = ExprRef>,
+{
+    let mut iter = iter.into_iter();
+    let first = iter.next_back()?;
+    Some(iter.rfold(first, |acc, elem| or(elem, acc)))
+}
+
 /// Create a new `BinaryExpr` using the `And` operator.
 ///
 /// ## Example usage
@@ -347,6 +359,28 @@ pub fn and(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
     BinaryExpr::new_expr(lhs, Operator::And, rhs)
 }
 
+/// Collects a list of `and`ed values into a single vortex, expr
+/// [x, y, z] => x and (y and z)
+pub fn and_collect<I>(iter: I) -> Option<ExprRef>
+where
+    I: IntoIterator<Item = ExprRef>,
+    I::IntoIter: DoubleEndedIterator<Item = ExprRef>,
+{
+    let mut iter = iter.into_iter();
+    let first = iter.next_back()?;
+    Some(iter.rfold(first, |acc, elem| and(elem, acc)))
+}
+
+/// Collects a list of `and`ed values into a single vortex, expr
+/// [x, y, z] => x and (y and z)
+pub fn and_collect_right<I>(iter: I) -> Option<ExprRef>
+where
+    I: IntoIterator<Item = ExprRef>,
+{
+    let iter = iter.into_iter();
+    iter.reduce(and)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -354,8 +388,27 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
 
     use crate::{
-        ScopeDType, VortexExpr, and, col, eq, gt, gt_eq, lt, lt_eq, not_eq, or, test_harness,
+        ScopeDType, VortexExpr, and, and_collect, and_collect_right, col, eq, gt, gt_eq, lit, lt,
+        lt_eq, not_eq, or, test_harness,
     };
+
+    #[test]
+    fn and_collect_left_assoc() {
+        let values = vec![lit(1), lit(2), lit(3)];
+        assert_eq!(
+            Some(and(lit(1), and(lit(2), lit(3)))),
+            and_collect(values.into_iter())
+        );
+    }
+
+    #[test]
+    fn and_collect_right_assoc() {
+        let values = vec![lit(1), lit(2), lit(3)];
+        assert_eq!(
+            Some(and(and(lit(1), lit(2)), lit(3))),
+            and_collect_right(values.into_iter())
+        );
+    }
 
     #[test]
     fn dtype() {
