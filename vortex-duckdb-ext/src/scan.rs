@@ -51,7 +51,7 @@ pub struct VortexGlobalData {
     file_paths: SegQueue<PathBuf>,
     _is_first_file_processed: std::sync::atomic::AtomicBool,
     filter_expr: ExprRef,
-    project_expr: ExprRef,
+    projection_expr: ExprRef,
 }
 
 pub struct VortexLocalData {
@@ -86,6 +86,58 @@ fn extract_schema_from_vortex_file(
     Ok((column_names, column_types))
 }
 
+/// Creates a projection expression based on the table initialization input.
+fn create_projection_expr(init: &TableInitInput<VortexTableFunction>) -> ExprRef {
+    let projection_ids = init.projection_ids().unwrap_or(&[]);
+    let column_ids = init.column_ids();
+
+    let projected_ids = projection_ids.iter().map(|p| column_ids[p.as_usize()]);
+    select(
+        projected_ids
+            .map(|idx| {
+                init.bind_data()
+                    .column_names
+                    .get(idx.as_usize())
+                    .vortex_expect("prune idx in column names")
+            })
+            .map(|s| Arc::from(s.clone()))
+            .collect::<FieldNames>(),
+        root(),
+    )
+}
+
+/// Creates a table filter expression from the table filter set.
+fn create_table_filter_expr(
+    init: &TableInitInput<VortexTableFunction>,
+) -> VortexResult<Option<ExprRef>> {
+    init
+        .table_filter_set()
+        .and_then(|filter| {
+            filter
+                .into_iter()
+                .map(|(idx, ex)| {
+                    let name = init
+                        .bind_data()
+                        .column_names
+                        .get(idx.as_usize())
+                        .vortex_expect("exists");
+                    try_from_table_filter(&ex, name)
+                })
+                .reduce(|l, r| l?.zip(r?).map(|(l, r)| Ok(and(l, r))).transpose())
+        })
+        .transpose()?
+        .flatten();
+}
+
+/// Creates a SegQueue populated with file paths from bind data.
+fn create_file_paths_queue(bind_data: &VortexBindData) -> SegQueue<PathBuf> {
+    let file_paths = SegQueue::new();
+    for path in bind_data.file_paths.iter() {
+        file_paths.push(path.clone());
+    }
+    file_paths
+}
+
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
     type GlobalState = VortexGlobalData;
@@ -107,18 +159,6 @@ impl TableFunction for VortexTableFunction {
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
-        let file_path: String = file_glob_string.as_string().to_string_lossy().into_owned();
-        let first_file = VortexOpenOptions::file()
-            .open_blocking(&file_path)
-            .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
-
-        let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
-
-        // Add result columns based on the extracted schema.
-        for (name, logical_type) in column_names.iter().zip(&column_types) {
-            result.add_result_column(name, logical_type);
-        }
-
         let paths = match glob::glob(file_glob_string.as_string().to_str()?) {
             Ok(paths) => paths,
             Err(e) => vortex_bail!("Failed to glob files: {}", e),
@@ -130,6 +170,18 @@ impl TableFunction for VortexTableFunction {
                 Ok(path) => file_paths.push(path),
                 Err(e) => vortex_bail!("Failed to glob files: {}", e),
             }
+        }
+
+        let file_path: String = file_paths[0].to_string_lossy().into_owned();
+        let first_file = VortexOpenOptions::file()
+            .open_blocking(&file_path)
+            .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
+
+        let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
+
+        // Add result columns based on the extracted schema.
+        for (name, logical_type) in column_names.iter().zip(&column_types) {
+            result.add_result_column(name, logical_type);
         }
 
         Ok(VortexBindData {
@@ -156,7 +208,7 @@ impl TableFunction for VortexTableFunction {
 
                 let array_iter = file
                     .scan()?
-                    .with_projection(global_state.project_expr.clone())
+                    .with_projection(global_state.projection_expr.clone())
                     .with_filter(global_state.filter_expr.clone())
                     .into_array_iter()
                     .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
@@ -173,7 +225,7 @@ impl TableFunction for VortexTableFunction {
             vortex_bail!("ArrayIteratorExporter is not set")
         };
 
-        let is_data_left_to_scan = exporter
+        let is_data_left_to_scan = !exporter
             .export(chunk)
             .map_err(|e| vortex_err!("Failed to export data: {}", e))?;
 
@@ -184,55 +236,16 @@ impl TableFunction for VortexTableFunction {
         Ok(())
     }
 
-    fn init_global(init: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
-        let bind_data = init.bind_data();
-        let file_paths = SegQueue::new();
+    fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
+        let bind_data = init_input.bind_data();
+        let file_paths = create_file_paths_queue(bind_data);
+        let projection_expr = create_projection_expr(init_input);
+        let filter_expr = create_table_filter_expr(init_input)?;
 
-        // Skip the first file path, as the file is opened during bind.
-        for path in bind_data.file_paths.iter() {
-            file_paths.push(path.clone());
-        }
-
-        let complex_filter = and_collect(init.bind_data().filter_exprs.clone());
-
-        let projection_ids = init.projection_ids().unwrap_or(&[]);
-        let column_ids = init.column_ids();
-
-        let projected_ids = projection_ids.iter().map(|p| column_ids[p.as_usize()]);
-        let project_expr = select(
-            projected_ids
-                .map(|idx| {
-                    init.bind_data()
-                        .column_names
-                        .get(idx.as_usize())
-                        .vortex_expect("prune idx in column names")
-                })
-                .map(|s| Arc::from(s.clone()))
-                .collect::<FieldNames>(),
-            root(),
-        );
-
-        let filter = init
-            .table_filter_set()
-            .and_then(|filter| {
-                filter
-                    .into_iter()
-                    .map(|(idx, ex)| {
-                        let name = init
-                            .bind_data()
-                            .column_names
-                            .get(idx.as_usize())
-                            .vortex_expect("exists");
-                        try_from_table_filter(&ex, name)
-                    })
-                    .reduce(|l, r| l?.zip(r?).map(|(l, r)| Ok(and(l, r))).transpose())
-            })
-            .transpose()?
-            .flatten();
-
-        let filter_expr = complex_filter
+        let complex_filter_expr = and_collect(init_input.bind_data().filter_exprs.clone());
+        let filter_expr = complex_filter_expr
             .into_iter()
-            .chain(filter)
+            .chain(filter_expr)
             .reduce(and)
             .unwrap_or_else(|| lit(true));
 
@@ -240,7 +253,7 @@ impl TableFunction for VortexTableFunction {
             file_paths,
             _is_first_file_processed: std::sync::atomic::AtomicBool::new(false),
             filter_expr,
-            project_expr,
+            projection_expr,
         })
     }
 
@@ -341,6 +354,26 @@ mod tests {
             .map_err(|e| e.to_string())
     }
 
+    async fn write_vortex_file_to_dir(
+        dir: &std::path::Path,
+        field_name: &str,
+        array: impl IntoArray,
+    ) -> NamedTempFile {
+        let struct_array = StructArray::from_fields(&[(field_name, array.into_array())]).unwrap();
+        let temp_file_path = tempfile::Builder::new()
+            .suffix(".vortex")
+            .tempfile_in(dir)
+            .unwrap();
+
+        let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
+        VortexWriteOptions::default()
+            .write(file, struct_array.to_array_stream())
+            .await
+            .unwrap();
+
+        temp_file_path
+    }
+
     #[test]
     fn test_scan_function_registration() {
         let conn = database_connection();
@@ -426,7 +459,40 @@ mod tests {
             0,
         )
         .unwrap();
+
         assert_eq!(result, vec![2, 3]);
+    }
+
+    #[tokio::test]
+    async fn test_vortex_scan_multiple_files() {
+        let tempdir = tempfile::tempdir().unwrap();
+
+        let _file1 = write_vortex_file_to_dir(
+            tempdir.path(),
+            "numbers",
+            PrimitiveArray::from_iter([1i32, 2, 3]),
+        )
+        .await;
+
+        let _file2 = write_vortex_file_to_dir(
+            tempdir.path(),
+            "numbers",
+            PrimitiveArray::from_iter([4i32, 5, 6]),
+        )
+        .await;
+
+        // Create glob pattern to match all .vortex files in the temp directory.
+        let glob_pattern = format!("{}/*.vortex", tempdir.path().display());
+
+        // Scan both Vortex files.
+        let conn = database_connection();
+        let total_sum: i64 = conn
+            .prepare("SELECT SUM(numbers) FROM vortex_scan(?)")
+            .unwrap()
+            .query_row([&glob_pattern], |row| row.get(0))
+            .unwrap();
+
+        assert_eq!(total_sum, 21);
     }
 
     #[tokio::test]

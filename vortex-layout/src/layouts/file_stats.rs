@@ -6,8 +6,8 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::stats::{Stat, StatsSet};
 use vortex_array::{ArrayRef, ToCanonical as _};
-use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_dtype::{DType, Nullability};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
 use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::sequence::SequenceId;
@@ -42,12 +42,26 @@ pub struct FileStatsAccumulator {
 impl FileStatsAccumulator {
     fn new(dtype: &DType, stats: Arc<[Stat]>, max_variable_length_statistics_size: usize) -> Self {
         let accumulators = Arc::new(Mutex::new(match dtype.as_struct() {
-            Some(dtype) => dtype
-                .fields()
-                .map(|field_dtype| {
-                    StatsAccumulator::new(&field_dtype, &stats, max_variable_length_statistics_size)
-                })
-                .collect(),
+            Some(struct_dtype) => {
+                if dtype.nullability() == Nullability::Nullable {
+                    // top level dtype could be nullable, but we don't support it yet
+                    vortex_panic!(
+                        "FileStatsAccumulator temporarily does not support nullable top-level structs, got: {}. Use Validity::NonNullable",
+                        dtype
+                    );
+                }
+
+                struct_dtype
+                    .fields()
+                    .map(|field_dtype| {
+                        StatsAccumulator::new(
+                            &field_dtype,
+                            &stats,
+                            max_variable_length_statistics_size,
+                        )
+                    })
+                    .collect()
+            }
             None => [StatsAccumulator::new(
                 dtype,
                 &stats,
