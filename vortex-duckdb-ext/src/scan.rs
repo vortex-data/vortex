@@ -25,6 +25,7 @@ impl Clone for VortexBindData {
     fn clone(&self) -> Self {
         Self {
             _first_file: self._first_file.clone(),
+            // filter_expr don't need to be cloned as they are consumed once in `init_global`.
             filter_exprs: vec![],
             file_paths: self.file_paths.clone(),
             column_names: self.column_names.clone(),
