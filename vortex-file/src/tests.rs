@@ -8,7 +8,7 @@ use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    ChunkedArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
+    ChunkedArray, ConstantArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
     VarBinViewArray,
 };
 use vortex_array::stream::ArrayStreamExt;
@@ -19,6 +19,7 @@ use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
 use vortex_expr::{and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
+use vortex_scalar::Scalar;
 
 use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
 
@@ -1098,6 +1099,52 @@ async fn file_take() -> VortexResult<()> {
         .to_primitive()?;
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 8]);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn write_nullable_nested_struct() -> VortexResult<()> {
+    let nested_dtype = DType::Struct(
+        Arc::new(StructFields::new(
+            vortex_dtype::FieldNames::from_iter(["nested_field".into()]),
+            vec![DType::Primitive(PType::F16, Nullability::Nullable)],
+        )),
+        Nullability::Nullable,
+    );
+
+    let struct_ = ConstantArray::new(Scalar::null(nested_dtype), 1).to_array();
+
+    let array = StructArray::try_new(
+        ["struct".into()].into(),
+        vec![struct_.into_array()],
+        1,
+        Validity::NonNullable,
+    )?
+    .into_array();
+
+    let buffer: Bytes = VortexWriteOptions::default()
+        .write(vec![], array.to_array_stream())
+        .await?
+        .into();
+
+    let vxf = VortexOpenOptions::in_memory()
+        .with_dtype(array.dtype().clone())
+        .open(buffer)
+        .await?;
+
+    assert_eq!(vxf.dtype(), array.dtype());
+    assert_eq!(vxf.row_count(), 1);
+
+    let result = vxf
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?
+        .to_struct()?;
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(result.fields().len(), 1);
 
     Ok(())
 }
