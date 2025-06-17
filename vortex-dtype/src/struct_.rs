@@ -270,7 +270,7 @@ impl StructFields {
     }
 
     /// Returns a new [`StructFields`] without the field at the given index.
-    /// 
+    ///
     /// ## Panics
     /// Panics if the index is out of bounds for the struct fields.
     pub fn without_field(&self, index: usize) -> Self {
