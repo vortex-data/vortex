@@ -1,9 +1,11 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use bitvec::macros::internal::funty::Fundamental;
 use crossbeam_queue::SegQueue;
+use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, and_collect, lit};
+use vortex::expr::{ExprRef, and, and_collect, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
@@ -49,6 +51,7 @@ pub struct VortexGlobalData {
     file_paths: SegQueue<PathBuf>,
     _is_first_file_processed: std::sync::atomic::AtomicBool,
     filter_expr: ExprRef,
+    project_expr: ExprRef,
 }
 
 pub struct VortexLocalData {
@@ -88,7 +91,9 @@ impl TableFunction for VortexTableFunction {
     type GlobalState = VortexGlobalData;
     type LocalState = VortexLocalData;
 
+    const PROJECTION_PUSHDOWN: bool = true;
     const FILTER_PUSHDOWN: bool = true;
+    const FILTER_PRUNE: bool = true;
 
     /// Input parameter types of the `vortex_scan` table function.
     ///
@@ -151,6 +156,7 @@ impl TableFunction for VortexTableFunction {
 
                 let array_iter = file
                     .scan()?
+                    .with_projection(global_state.project_expr.clone())
                     .with_filter(global_state.filter_expr.clone())
                     .into_array_iter()
                     .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
@@ -189,6 +195,23 @@ impl TableFunction for VortexTableFunction {
 
         let complex_filter = and_collect(init.bind_data().filter_exprs.clone());
 
+        let projection_ids = init.projection_ids().unwrap_or(&[]);
+        let column_ids = init.column_ids();
+
+        let projected_ids = projection_ids.iter().map(|p| column_ids[p.as_usize()]);
+        let project_expr = select(
+            projected_ids
+                .map(|idx| {
+                    init.bind_data()
+                        .column_names
+                        .get(idx.as_usize())
+                        .vortex_expect("prune idx in column names")
+                })
+                .map(|s| Arc::from(s.clone()))
+                .collect::<FieldNames>(),
+            root(),
+        );
+
         let filter = init
             .table_filter_set()
             .and_then(|filter| {
@@ -216,6 +239,7 @@ impl TableFunction for VortexTableFunction {
             file_paths,
             _is_first_file_processed: std::sync::atomic::AtomicBool::new(false),
             filter_expr,
+            project_expr,
         })
     }
 
@@ -262,10 +286,19 @@ mod tests {
         NamedTempFile::new().unwrap()
     }
 
-    async fn write_vortex_file(field_name: &str, array: impl IntoArray) -> NamedTempFile {
+    async fn write_single_column_vortex_file(
+        field_name: &str,
+        array: impl IntoArray,
+    ) -> NamedTempFile {
+        write_vortex_file([(field_name, array)].into_iter()).await
+    }
+
+    async fn write_vortex_file(
+        iter: impl Iterator<Item = (impl AsRef<str>, impl IntoArray)>,
+    ) -> NamedTempFile {
         let temp_file_path = create_temp_file();
 
-        let struct_array = StructArray::from_fields(&[(field_name, array.into_array())]).unwrap();
+        let struct_array = StructArray::try_from_iter(iter).unwrap();
         let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
         VortexWriteOptions::default()
             .write(file, struct_array.to_array_stream())
@@ -275,15 +308,32 @@ mod tests {
         temp_file_path
     }
 
-    fn scan_vortex_file<T>(tmp_file: NamedTempFile, query: &str) -> T
+    fn scan_vortex_file_single_row<T>(tmp_file: NamedTempFile, query: &str, col_idx: usize) -> T
     where
         T: duckdb::types::FromSql,
     {
         let conn = database_connection();
         conn.prepare(query)
             .unwrap()
-            .query_row([tmp_file.path().to_string_lossy()], |row| row.get(0))
+            .query_row([tmp_file.path().to_string_lossy()], |row| row.get(col_idx))
             .unwrap()
+    }
+
+    fn scan_vortex_file<T>(
+        tmp_file: NamedTempFile,
+        query: &str,
+        col_idx: usize,
+    ) -> Result<Vec<T>, String>
+    where
+        T: duckdb::types::FromSql,
+    {
+        let conn = database_connection();
+        conn.prepare(query)
+            .unwrap()
+            .query_and_then([tmp_file.path().to_string_lossy()], |row| row.get(col_idx))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())
     }
 
     #[test]
@@ -302,34 +352,42 @@ mod tests {
     #[tokio::test]
     async fn test_vortex_scan_strings() {
         let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
-        let file = write_vortex_file("strings", strings).await;
-        let result: String =
-            scan_vortex_file(file, "SELECT string_agg(strings, ',') FROM vortex_scan(?)");
+        let file = write_single_column_vortex_file("strings", strings).await;
+        let result: String = scan_vortex_file_single_row(
+            file,
+            "SELECT string_agg(strings, ',') FROM vortex_scan(?)",
+            0,
+        );
         assert_eq!(result, "Hello,Hi,Hey");
     }
 
     #[tokio::test]
     async fn test_vortex_scan_integers() {
         let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
-        let file = write_vortex_file("number", numbers).await;
-        let sum: i64 = scan_vortex_file(file, "SELECT SUM(number) FROM vortex_scan(?)");
+        let file = write_single_column_vortex_file("number", numbers).await;
+        let sum: i64 =
+            scan_vortex_file_single_row(file, "SELECT SUM(number) FROM vortex_scan(?)", 0);
         assert_eq!(sum, 138);
     }
 
     #[tokio::test]
     async fn test_vortex_scan_floats() {
         let values = PrimitiveArray::from_iter([1.5f64, -2.5, 0.0, 42.42]);
-        let file = write_vortex_file("value", values).await;
-        let count: i64 =
-            scan_vortex_file(file, "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0");
+        let file = write_single_column_vortex_file("value", values).await;
+        let count: i64 = scan_vortex_file_single_row(
+            file,
+            "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0",
+            0,
+        );
         assert_eq!(count, 2);
     }
 
     #[tokio::test]
     async fn test_vortex_scan_constant() {
         let constant = ConstantArray::new(Scalar::from(42i32), 100);
-        let file = write_vortex_file("constant", constant).await;
-        let value: i32 = scan_vortex_file(file, "SELECT constant FROM vortex_scan(?) LIMIT 1");
+        let file = write_single_column_vortex_file("constant", constant).await;
+        let value: i32 =
+            scan_vortex_file_single_row(file, "SELECT constant FROM vortex_scan(?) LIMIT 1", 0);
         assert_eq!(value, 42);
     }
 
@@ -337,11 +395,32 @@ mod tests {
     async fn test_vortex_scan_booleans() {
         let flags = vec![true, false, true, true, false];
         let flags_array = BoolArray::new(flags.into(), Validity::NonNullable);
-        let file = write_vortex_file("flag", flags_array).await;
-        let true_count: i64 = scan_vortex_file(
+        let file = write_single_column_vortex_file("flag", flags_array).await;
+        let true_count: i64 = scan_vortex_file_single_row(
             file,
             "SELECT COUNT(*) FROM vortex_scan(?) WHERE flag = true",
+            0,
         );
         assert_eq!(true_count, 3);
+    }
+
+    #[tokio::test]
+    async fn test_vortex_multi_column() {
+        let f1 = BoolArray::new(
+            vec![true, false, true, true, false].into(),
+            Validity::NonNullable,
+        )
+        .to_array();
+        let f2 = (0..5).collect::<PrimitiveArray>().to_array();
+        let f3 = (100..105).collect::<PrimitiveArray>().to_array();
+        let file = write_vortex_file([("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await;
+
+        let result: Vec<i32> = scan_vortex_file(
+            file,
+            "SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 >= 2",
+            0,
+        )
+        .unwrap();
+        assert_eq!(result, vec![2, 3]);
     }
 }
