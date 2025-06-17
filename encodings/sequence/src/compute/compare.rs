@@ -89,9 +89,11 @@ fn find_intersection<P: NativePType>(
 
     let end_element = base + (multiplier * count);
 
-    (intercept >= base && intercept <= end_element && (intercept - base) % multiplier == P::zero())
-        .then(|| ((intercept - base) / multiplier).to_usize())
-        .flatten()
+    (intercept.is_ge(base)
+        && intercept.is_le(end_element)
+        && (intercept - base) % multiplier == P::zero())
+    .then(|| ((intercept - base) / multiplier).to_usize())
+    .flatten()
 }
 
 #[cfg(test)]
