@@ -180,8 +180,8 @@ mod tests {
             ..=DUCKDB_TYPE::DUCKDB_TYPE_INTEGER_LITERAL as u32)
             .map(|variant| unsafe { std::mem::transmute::<u32, DUCKDB_TYPE>(variant) })
             .filter(|&variant| {
-                // `LogicalType::new` method calls the DuckDB C API function
-                // `duckdb_create_logical_type(dtype)` with just the type enum.
+                // `LogicalType::new` calls the DuckDB C API function
+                // `duckdb_create_logical_type` with just the type enum.
                 //
                 // Though complex types require additional parameters:
                 let excluded_types = [
