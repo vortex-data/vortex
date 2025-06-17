@@ -15,13 +15,6 @@ duckdb_logical_type duckdb_vx_logical_type_copy(duckdb_logical_type ty) {
 	return reinterpret_cast<duckdb_logical_type>(copy);
 }
 
-bool duckdb_vx_logical_type_eq(duckdb_logical_type ty1, duckdb_logical_type ty2) {
-	assert(ty1 != nullptr && ty2 != nullptr);
-
-	// Leverage the C++ == operator.
-	return *reinterpret_cast<duckdb::LogicalType *>(ty1) == *reinterpret_cast<duckdb::LogicalType *>(ty2);
-}
-
 char *duckdb_vx_logical_type_stringify(duckdb_logical_type c_type) {
 	auto type = reinterpret_cast<duckdb::LogicalType *>(c_type);
 	auto str = type->ToString();
