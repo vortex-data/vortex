@@ -13,22 +13,18 @@ use vortex::validity::Validity;
 
 /// Generate a test dataset with the following small set of rows:
 ///
-/// ```markdown
-/// =======================
-/// Name | Salary  | State
-/// =======================
-/// Alice   1000    CA
-/// Bob     2000    NY
-/// Carol   3000    TX
-/// Dan     4000    CA
-/// Edward  5000    NY
-/// Frida   6000    TX
-/// George  7000    CA
-/// Henry   8000    NY
-/// Ida     9000    TX
-/// John    10000   VA
-/// =======================
-/// ```
+/// | Name   | Salary | State |
+/// |--------|--------|-------|
+/// | Alice  | 1000   | CA    |
+/// | Bob    | 2000   | NY    |
+/// | Carol  | 3000   | TX    |
+/// | Dan    | 4000   | CA    |
+/// | Edward | 5000   | NY    |
+/// | Frida  | 6000   | TX    |
+/// | George | 7000   | CA    |
+/// | Henry  | 8000   | NY    |
+/// | Ida    | 9000   | TX    |
+/// | John   | 10000  | VA    |
 fn main() {
     let mut names = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 10);
     names.append_value("Alice");
