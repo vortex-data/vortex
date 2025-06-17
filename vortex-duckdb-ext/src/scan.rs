@@ -62,7 +62,7 @@ impl TableFunction for VortexTableFunction {
     type LocalState = VortexLocalData;
 
     const FILTER_PUSHDOWN: bool = true;
-    const FILTER_PRUNE: bool = true;
+    // const FILTER_PRUNE: bool = true;
 
     /// Input parameter types of the `vortex_scan` table function.
     ///
