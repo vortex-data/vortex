@@ -25,17 +25,17 @@ struct CTableBindData final : TableFunctionData {
 	}
 
 	bool Equals(const FunctionData &other_p) const override {
-		assert(info->vtab.equals_bind_data != nullptr);
+		assert(info->vtab.bind_data_eq != nullptr);
 
 		auto &other = (CTableBindData &)other_p;
-		return info->vtab.equals_bind_data(this, &other);
+		return info->vtab.bind_data_eq(this, &other);
 	}
 
 	unique_ptr<FunctionData> Copy() const override {
-		assert(info->vtab.clone_bind_data != nullptr);
+		assert(info->vtab.bind_data_clone != nullptr);
 
 		duckdb_vx_error error_out = nullptr;
-		const auto copied_ffi_data = info->vtab.clone_bind_data(ffi_data->DataPtr(), &error_out);
+		const auto copied_ffi_data = info->vtab.bind_data_clone(ffi_data->DataPtr(), &error_out);
 		if (error_out) {
 			throw BinderException(IntoErrString(error_out));
 		}

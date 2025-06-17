@@ -20,7 +20,7 @@ pub(super) unsafe extern "C" fn bind_callback<T: TableFunction>(
 }
 
 /// The native copy callback for bind data.
-pub(super) unsafe extern "C" fn clone_bind_data_callback<T: TableFunction>(
+pub(super) unsafe extern "C" fn bind_data_clone_callback<T: TableFunction>(
     bind_data: *const std::ffi::c_void,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
@@ -32,7 +32,7 @@ pub(super) unsafe extern "C" fn clone_bind_data_callback<T: TableFunction>(
 }
 
 /// The native equals callback for bind data.
-pub(super) unsafe extern "C" fn equals_bind_data_callback<T: TableFunction>(
+pub(super) unsafe extern "C" fn bind_data_eq_callback<T: TableFunction>(
     bind_data_1: *const std::ffi::c_void,
     bind_data_2: *const std::ffi::c_void,
 ) -> bool {
