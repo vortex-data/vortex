@@ -1101,3 +1101,23 @@ async fn file_take() -> VortexResult<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+#[should_panic(expected = "FileStatsAccumulator does not support top-level nullable structs")]
+async fn write_nullable_top_level_struct() {
+    let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
+
+    let array = StructArray::try_new(
+        ["age".into()].into(),
+        vec![ages.into_array()],
+        5,
+        Validity::AllValid,
+    )
+    .unwrap()
+    .into_array();
+
+    VortexWriteOptions::default()
+        .write(vec![], array.to_array_stream())
+        .await
+        .unwrap();
+}
