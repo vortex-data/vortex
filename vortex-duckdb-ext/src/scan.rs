@@ -212,8 +212,6 @@ impl TableFunction for VortexTableFunction {
             root(),
         );
 
-        println!("filter set {:?}", init.table_filter_set());
-
         let filter = init
             .table_filter_set()
             .and_then(|filter| {
@@ -485,11 +483,13 @@ mod tests {
     SELECT DATE_TRUNC('minute', "EventTime") AS M, COUNT(*) AS PageViews FROM hits WHERE "CounterID" = 62 AND "EventDate" >= '2013-07-14' AND "EventDate" <= '2013-07-15' AND "IsRefresh" = 0 AND "DontCountHits" = 0 GROUP BY DATE_TRUNC('minute', "EventTime") ORDER BY DATE_TRUNC('minute', M) LIMIT 10 OFFSET 1000;
                 "#;
 
-        for q in queries
+        for (id, q) in queries
             .split(";")
             .filter(|s| !s.is_empty())
-            .map(|s| s.to_string() + ";")
+            .enumerate()
+            .map(|(id, s)| (id, s.to_string() + ";"))
         {
+            println!("running query {id}");
             println!("{}", conn.execute(q.as_str(), []).unwrap());
         }
     }
