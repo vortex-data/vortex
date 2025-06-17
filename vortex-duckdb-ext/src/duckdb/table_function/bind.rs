@@ -1,5 +1,7 @@
 use std::ffi::CStr;
 
+use vortex::error::vortex_err;
+
 use crate::duckdb::data::Data;
 use crate::duckdb::{LogicalType, TableFunction, Value, try_or_null};
 use crate::{cpp, wrapper};
@@ -25,7 +27,11 @@ pub(super) unsafe extern "C" fn bind_data_clone_callback<T: TableFunction>(
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
     try_or_null(error_out, || {
-        let bind_data = unsafe { &*(bind_data as *const T::BindData) };
+        let bind_data = unsafe {
+            (bind_data as *const T::BindData)
+                .as_ref()
+                .ok_or(vortex_err!("bind_data is nullptr"))?
+        };
         let copied_data = bind_data.clone();
         Ok(Data::from(Box::new(copied_data)).as_ptr())
     })
