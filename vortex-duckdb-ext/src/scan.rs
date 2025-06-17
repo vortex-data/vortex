@@ -32,15 +32,6 @@ impl std::fmt::Debug for VortexBindData {
     }
 }
 
-impl PartialEq for VortexBindData {
-    fn eq(&self, other: &Self) -> bool {
-        self.filter_exprs == other.filter_exprs
-            && self.column_types == other.column_types
-            && self.column_names == other.column_names
-            && self.file_paths == other.file_paths
-    }
-}
-
 pub struct VortexGlobalData {
     file_paths: SegQueue<PathBuf>,
     _is_first_file_processed: std::sync::atomic::AtomicBool,

@@ -12,12 +12,6 @@ wrapper!(
 /// `LogicalType` is Send, as the wrapped pointer and bool are Send.
 unsafe impl Send for LogicalType {}
 
-impl PartialEq for LogicalType {
-    fn eq(&self, other: &Self) -> bool {
-        unsafe { duckdb_vx_logical_type_eq(self.as_ptr(), other.as_ptr()) }
-    }
-}
-
 impl Clone for LogicalType {
     fn clone(&self) -> Self {
         unsafe { Self::own(duckdb_vx_logical_type_copy(self.as_ptr())) }

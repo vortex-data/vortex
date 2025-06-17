@@ -24,13 +24,6 @@ struct CTableBindData final : TableFunctionData {
 	    : info(std::move(info_p)), ffi_data(ffi_data_p) {
 	}
 
-	bool Equals(const FunctionData &other_p) const override {
-		assert(info->vtab.bind_data_eq != nullptr);
-
-		auto &other = (CTableBindData &)other_p;
-		return info->vtab.bind_data_eq(this, &other);
-	}
-
 	unique_ptr<FunctionData> Copy() const override {
 		assert(info->vtab.bind_data_clone != nullptr);
 
