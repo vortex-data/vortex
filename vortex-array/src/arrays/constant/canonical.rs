@@ -1,7 +1,7 @@
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Buffer, BufferMut, buffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{
     BinaryScalar, BoolScalar, DecimalValue, ExtScalar, ListScalar, Scalar, ScalarValue,
     StructScalar, Utf8Scalar, match_each_decimal_value, match_each_decimal_value_type,
@@ -101,9 +101,14 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                         struct_dtype
                             .fields()
                             .map(|dt| {
-                                ConstantArray::new(Scalar::null(dt), array.len()).into_array()
+                                if !dt.is_nullable() {
+                                    vortex_bail!("Cannot canonicalize a struct with non-nullable fields when the scalar is null");
+                                }
+
+                                Ok(ConstantArray::new(Scalar::null(dt), array.len())
+                                    .into_array())
                             })
-                            .collect::<Vec<_>>()
+                            .collect::<Result<Vec<_>, _>>()?
                     }
                 };
 
