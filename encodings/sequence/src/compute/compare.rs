@@ -25,7 +25,7 @@ impl CompareKernel for SequenceVTable {
         };
 
         // Check if there exists an integer solution to const = base + (0..len) * multiplier.
-        let set_idx: Option<usize> = find_intersection_scalar(
+        let set_idx = find_intersection_scalar(
             lhs.base(),
             lhs.multiplier(),
             lhs.len(),
@@ -78,7 +78,7 @@ pub(crate) fn find_intersection_scalar(
     })
 }
 
-fn find_intersection<P: NativePType + PartialOrd + Eq>(
+fn find_intersection<P: NativePType>(
     base: P,
     multiplier: P,
     len: usize,
