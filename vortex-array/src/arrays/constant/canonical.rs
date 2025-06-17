@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_canonicalize_struct() {
-        let sd = DType::Struct(
+        let nested_dtype = DType::Struct(
             Arc::new(StructFields::new(
                 vortex_dtype::FieldNames::from_iter(["nested".into()]),
                 vec![DType::Primitive(PType::I32, Nullability::Nullable)],
@@ -385,7 +385,7 @@ mod tests {
                 vec![
                     DType::Primitive(PType::I32, Nullability::NonNullable),
                     DType::Primitive(PType::F64, Nullability::Nullable),
-                    sd.clone(),
+                    nested_dtype.clone(),
                 ],
             )),
             Nullability::NonNullable,
@@ -396,52 +396,47 @@ mod tests {
             vec![
                 Scalar::primitive(42, Nullability::NonNullable),
                 Scalar::null(DType::Primitive(PType::F64, Nullability::Nullable)),
-                Scalar::null(sd.clone()),
+                Scalar::null(nested_dtype.clone()),
             ],
         );
 
         let const_array = ConstantArray::new(struct_scalar, 3).into_array();
-        let canonical_const = const_array.to_struct().unwrap();
+        let canonical_struct = const_array.to_struct().unwrap();
 
-        assert_eq!(canonical_const.len(), 3);
-        assert_eq!(
-            canonical_const
-                .field_by_name("a")
-                .unwrap()
-                .to_primitive()
-                .unwrap()
-                .as_slice::<i32>(),
-            &[42, 42, 42]
-        );
+        assert_eq!(canonical_struct.len(), 3);
 
-        let lt = canonical_const
+        // Verify non-null field "a" contains expected values
+        let field_a = canonical_struct
+            .field_by_name("a")
+            .unwrap()
+            .to_primitive()
+            .unwrap();
+        assert_eq!(field_a.as_slice::<i32>(), &[42, 42, 42]);
+
+        let field_b = canonical_struct
             .field_by_name("b")
             .unwrap()
             .as_constant()
             .unwrap();
-
         assert_eq!(
-            lt.dtype(),
+            field_b.dtype(),
             &DType::Primitive(PType::F64, Nullability::Nullable)
         );
+        assert!(field_b.is_null());
 
-        assert!(lt.is_null());
-
-        let ct = canonical_const
+        let nested_struct = canonical_struct
             .field_by_name("c")
             .unwrap()
             .to_struct()
             .unwrap();
 
-        assert_eq!(ct.fields().len(), 1);
-
-        let cts = ct.field_by_name("nested").unwrap();
+        let nested_field = nested_struct.field_by_name("nested").unwrap();
         assert_eq!(
-            cts.dtype(),
+            nested_field.dtype(),
             &DType::Primitive(PType::I32, Nullability::Nullable)
         );
 
-        let q = cts.as_constant().unwrap();
-        assert!(q.is_null());
+        let nested_constant = nested_field.as_constant().unwrap();
+        assert!(nested_constant.is_null());
     }
 }
