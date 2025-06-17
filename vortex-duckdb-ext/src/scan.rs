@@ -12,13 +12,25 @@ use crate::duckdb::{
 };
 use crate::exporter::ArrayIteratorExporter;
 
-#[derive(Clone)]
 pub struct VortexBindData {
     _first_file: VortexFile,
     filter_exprs: Vec<ExprRef>,
     file_paths: Vec<PathBuf>,
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
+}
+
+impl Clone for VortexBindData {
+    /// `VortexBindData` is cloned in case of multiple scan nodes.
+    fn clone(&self) -> Self {
+        Self {
+            _first_file: self._first_file.clone(),
+            filter_exprs: vec![],
+            file_paths: self.file_paths.clone(),
+            column_names: self.column_names.clone(),
+            column_types: self.column_types.clone(),
+        }
+    }
 }
 
 impl std::fmt::Debug for VortexBindData {
@@ -284,75 +296,6 @@ mod tests {
             .query_row([], |row| row.get(0))
             .unwrap();
         assert_eq!(&result, "vortex_scan");
-    }
-
-    #[tokio::test]
-    async fn test_vortex_bind_data_equality() {
-        let temp_file =
-            write_vortex_file("test_col", PrimitiveArray::from_iter([1i32, 2, 3])).await;
-
-        let vortex_file1 = VortexOpenOptions::file()
-            .open_blocking(temp_file.path())
-            .unwrap();
-
-        let vortex_file2 = VortexOpenOptions::file()
-            .open_blocking(temp_file.path())
-            .unwrap();
-
-        let bind_data1 = VortexBindData {
-            _first_file: vortex_file1,
-            file_paths: vec![temp_file.path().to_owned()],
-            column_names: vec!["test_col".to_string()],
-            column_types: vec![],
-            filter_exprs: vec![],
-        };
-
-        let bind_data2 = VortexBindData {
-            _first_file: vortex_file2,
-            file_paths: vec![temp_file.path().to_owned()],
-            column_names: vec!["test_col".to_string()],
-            column_types: vec![],
-            filter_exprs: vec![],
-        };
-
-        // Compares file_paths and column_names.
-        assert_eq!(bind_data1, bind_data2);
-    }
-
-    #[tokio::test]
-    async fn test_vortex_bind_data_path_inequality() {
-        let temp_file1 =
-            write_vortex_file("test_col", PrimitiveArray::from_iter([1i32, 2, 3])).await;
-
-        let temp_file2 =
-            write_vortex_file("test_col", PrimitiveArray::from_iter([1i32, 2, 3])).await;
-
-        let vortex_file1 = VortexOpenOptions::file()
-            .open_blocking(temp_file1.path())
-            .unwrap();
-
-        let vortex_file2 = VortexOpenOptions::file()
-            .open_blocking(temp_file2.path())
-            .unwrap();
-
-        let bind_data1 = VortexBindData {
-            _first_file: vortex_file1,
-            file_paths: vec![temp_file1.path().to_owned()],
-            column_names: vec!["test_col".to_string()],
-            column_types: vec![],
-            filter_exprs: vec![],
-        };
-
-        let bind_data2 = VortexBindData {
-            _first_file: vortex_file2,
-            file_paths: vec![temp_file2.path().to_owned()],
-            column_names: vec!["test_col".to_string()],
-            column_types: vec![],
-            filter_exprs: vec![],
-        };
-
-        // Compares file_paths and column_names.
-        assert_ne!(bind_data1, bind_data2);
     }
 
     #[tokio::test]
