@@ -392,11 +392,11 @@ mod tests {
         );
 
         let struct_scalar = Scalar::struct_(
-            struct_dtype.clone(),
+            struct_dtype,
             vec![
                 Scalar::primitive(42, Nullability::NonNullable),
                 Scalar::null(DType::Primitive(PType::F64, Nullability::Nullable)),
-                Scalar::null(nested_dtype.clone()),
+                Scalar::null(nested_dtype),
             ],
         );
 
