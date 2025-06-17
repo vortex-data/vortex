@@ -1125,7 +1125,6 @@ async fn write_nullable_top_level_struct() {
         .unwrap();
 }
 
-
 #[tokio::test]
 async fn write_nullable_nested_struct() -> VortexResult<()> {
     let nested_dtype = DType::Struct(
@@ -1144,7 +1143,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
         1,
         Validity::NonNullable,
     )?
-        .into_array();
+    .into_array();
 
     let buffer: Bytes = VortexWriteOptions::default()
         .write(vec![], array.to_array_stream())
