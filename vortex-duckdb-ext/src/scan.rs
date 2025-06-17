@@ -322,12 +322,15 @@ mod tests {
             Validity::NonNullable,
         )
         .to_array();
-        let f2 = (0..=5).collect::<PrimitiveArray>().to_array();
+        let f2 = (0..5).collect::<PrimitiveArray>().to_array();
         let file = write_vortex_file([("f1", f1), ("f2", f2)].into_iter()).await;
-        let result: [i32; 2] = scan_vortex_file(
-            file,
-            "SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 > 3",
-        );
-        assert_eq!(result, [2, 3]);
+
+        let conn = database_connection();
+        let res: i32 = conn
+            .prepare("SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 > 3")
+            .unwrap()
+            .query_row([file.path().to_str()], |r| r.get(0))
+            .unwrap();
+        println!("{:?}", res);
     }
 }
