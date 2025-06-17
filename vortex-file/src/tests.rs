@@ -1103,7 +1103,9 @@ async fn file_take() -> VortexResult<()> {
 }
 
 #[tokio::test]
-#[should_panic(expected = "FileStatsAccumulator temporarily does not support nullable top-level structs")]
+#[should_panic(
+    expected = "FileStatsAccumulator temporarily does not support nullable top-level structs"
+)]
 async fn write_nullable_top_level_struct() {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
 
