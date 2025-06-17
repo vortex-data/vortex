@@ -57,6 +57,8 @@ pub struct ScanBuilder<A> {
     file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<usize>,
+    /// Include the within-file row index as a non-nullable u64 column with this name.
+    include_row_index_in_scope: bool,
 }
 
 impl<A: 'static + Send + Sync> ScanBuilder<A> {
@@ -87,6 +89,11 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
     pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
         self.selection = Selection::IncludeByIndex(row_indices);
+        self
+    }
+
+    pub fn with_row_index_in_scope(mut self) -> Self {
+        self.include_row_index_in_scope = true;
         self
     }
 
@@ -146,6 +153,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             metrics: self.metrics,
             file_stats: self.file_stats,
             limit: self.limit,
+            include_row_index_in_scope: self.include_row_index_in_scope,
         }
     }
 
@@ -176,6 +184,11 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         if self.filter.is_some() {
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
         }
+        if self.include_row_index_in_scope {
+            // Row Index Layout Reader must be last so that the projection has the row id scope.
+            layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
+        }
+
         let ctx = ScopeDType::new(layout_reader.dtype().clone());
 
         // Normalize and simplify the expressions.
@@ -243,6 +256,7 @@ impl ScanBuilder<ArrayRef> {
             metrics: Default::default(),
             file_stats: None,
             limit: None,
+            include_row_index_in_scope: false,
         }
     }
 
