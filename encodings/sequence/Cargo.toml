@@ -27,6 +27,7 @@ vortex-scalar = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
+vortex-array = { path = "../../vortex-array", features = ["test-harness"] }
 vortex-expr = { path = "../../vortex-expr" }
 vortex-file = { path = "../../vortex-file", features = ["tokio"] }
 vortex-layout = { path = "../../vortex-layout" }
