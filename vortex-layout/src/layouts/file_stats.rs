@@ -45,7 +45,7 @@ impl FileStatsAccumulator {
             Some(struct_dtype) => {
                 if dtype.nullability() == Nullability::Nullable {
                     vortex_panic!(
-                        "FileStatsAccumulator does not support top-level nullable structs, got: {}. Use Validity::NonNullable",
+                        "FileStatsAccumulator does not support nullable top-level structs, got: {}. Use Validity::NonNullable",
                         dtype
                     );
                 }
