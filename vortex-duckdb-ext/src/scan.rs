@@ -14,7 +14,7 @@ use crate::exporter::ArrayIteratorExporter;
 
 #[derive(Clone)]
 pub struct VortexBindData {
-    first_file: VortexFile,
+    _first_file: VortexFile,
     filter_exprs: Vec<ExprRef>,
     file_paths: Vec<PathBuf>,
     column_names: Vec<String>,
@@ -120,7 +120,7 @@ impl TableFunction for VortexTableFunction {
 
         Ok(VortexBindData {
             file_paths,
-            first_file,
+            _first_file: first_file,
             column_names,
             _column_types: column_types,
             filter_exprs: vec![],
@@ -128,7 +128,7 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn scan(
-        bind_data: &Self::BindData,
+        _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
         global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
@@ -304,7 +304,7 @@ mod tests {
             .unwrap();
 
         let bind_data1 = VortexBindData {
-            first_file: vortex_file1,
+            _first_file: vortex_file1,
             file_paths: vec![temp_file.path().to_owned()],
             column_names: vec!["test_col".to_string()],
             _column_types: vec![],
@@ -312,7 +312,7 @@ mod tests {
         };
 
         let bind_data2 = VortexBindData {
-            first_file: vortex_file2,
+            _first_file: vortex_file2,
             file_paths: vec![temp_file.path().to_owned()],
             column_names: vec!["test_col".to_string()],
             _column_types: vec![],
@@ -340,7 +340,7 @@ mod tests {
             .unwrap();
 
         let bind_data1 = VortexBindData {
-            first_file: vortex_file1,
+            _first_file: vortex_file1,
             file_paths: vec![temp_file1.path().to_owned()],
             column_names: vec!["test_col".to_string()],
             _column_types: vec![],
@@ -348,7 +348,7 @@ mod tests {
         };
 
         let bind_data2 = VortexBindData {
-            first_file: vortex_file2,
+            _first_file: vortex_file2,
             file_paths: vec![temp_file2.path().to_owned()],
             column_names: vec!["test_col".to_string()],
             _column_types: vec![],
