@@ -8,7 +8,7 @@ use futures::future::{BoxFuture, Shared};
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
-use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
+use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
@@ -131,9 +131,27 @@ impl LazyReaderChildren {
         if idx >= self.cache.len() {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());
         }
-        self.cache[idx].get_or_try_init(|| {
-            let child = self.children.child(idx, dtype)?;
-            child.new_reader(name.clone(), self.segment_source.clone(), self.ctx.clone())
-        })
+
+        if let Some(reader) = self.cache[idx].get() {
+            return Ok(reader);
+        }
+
+        let child = self.children.child(idx, dtype)?;
+        let reader =
+            child.new_reader(name.clone(), self.segment_source.clone(), self.ctx.clone())?;
+
+        // Try to set the value, but if another thread beat us to it, use their value instead
+        match self.cache[idx].set(reader) {
+            Ok(()) => self.cache[idx]
+                .get()
+                .ok_or_else(|| vortex_err!(InvalidState: "Failed to retrieve just-set value")),
+            Err(_) => {
+                // Another thread set the value first, use the cached value
+                // The reader we created gets dropped here
+                self.cache[idx].get().ok_or_else(
+                    || vortex_err!(InvalidState: "Expected cached value after failed set"),
+                )
+            }
+        }
     }
 }

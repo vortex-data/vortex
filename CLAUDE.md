@@ -24,3 +24,5 @@
   or cheap non-zero-cost abstractions.
 * Every new public API definition must have a doc comment. Examples are nice to have but not
   strictly required.
+* Use `vortex_err!` to create a `VortexError` with a format string and `vortex_bail!` to do the same but immediately
+  return it as a `VortexResult<T>` to the surrounding context.
