@@ -214,8 +214,8 @@ impl StructArray {
 
     /// Removes and returns a column from the struct array by name.
     /// If the column does not exist, returns `None`.
-    pub fn remove_column(&mut self, name: impl AsRef<str>) -> Option<ArrayRef> {
-        let name = name.as_ref();
+    pub fn remove_column(&mut self, name: impl Into<FieldName>) -> Option<ArrayRef> {
+        let name = name.into();
 
         let Some(struct_dtype) = self.dtype.as_struct() else {
             unreachable!(
@@ -226,7 +226,7 @@ impl StructArray {
         let position = struct_dtype
             .names()
             .iter()
-            .position(|field_name| field_name.as_ref() == name)?;
+            .position(|field_name| field_name.as_ref() == name.as_ref())?;
 
         let field = self.fields.remove(position);
 
