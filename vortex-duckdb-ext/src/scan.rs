@@ -159,7 +159,7 @@ impl TableFunction for VortexTableFunction {
     fn init_global(init: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
         let complex_filter = and_collect(init.bind_data().filter_exprs.clone());
 
-        let projection_ids = init.projection_ids().vortex_expect("pruning on");
+        let projection_ids = init.projection_ids().unwrap_or(&[]);
         let column_ids = init.column_ids();
 
         let projected_ids = projection_ids.iter().map(|p| column_ids[p.as_usize()]);
