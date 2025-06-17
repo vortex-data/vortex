@@ -18,7 +18,7 @@ pub struct VortexBindData {
     filter_exprs: Vec<ExprRef>,
     file_paths: Vec<PathBuf>,
     column_names: Vec<String>,
-    _column_types: Vec<LogicalType>,
+    column_types: Vec<LogicalType>,
 }
 
 impl std::fmt::Debug for VortexBindData {
@@ -26,13 +26,18 @@ impl std::fmt::Debug for VortexBindData {
         f.debug_struct("VortexBindData")
             .field("file_paths", &self.file_paths)
             .field("column_names", &self.column_names)
+            .field("column_types", &self.column_types)
+            .field("filter_expr", &self.filter_exprs)
             .finish()
     }
 }
 
 impl PartialEq for VortexBindData {
     fn eq(&self, other: &Self) -> bool {
-        self.file_paths == other.file_paths && self.column_names == other.column_names
+        self.filter_exprs == other.filter_exprs
+            && self.column_types == other.column_types
+            && self.column_names == other.column_names
+            && self.file_paths == other.file_paths
     }
 }
 
@@ -122,7 +127,7 @@ impl TableFunction for VortexTableFunction {
             file_paths,
             _first_file: first_file,
             column_names,
-            _column_types: column_types,
+            column_types,
             filter_exprs: vec![],
         })
     }
@@ -307,7 +312,7 @@ mod tests {
             _first_file: vortex_file1,
             file_paths: vec![temp_file.path().to_owned()],
             column_names: vec!["test_col".to_string()],
-            _column_types: vec![],
+            column_types: vec![],
             filter_exprs: vec![],
         };
 
@@ -315,7 +320,7 @@ mod tests {
             _first_file: vortex_file2,
             file_paths: vec![temp_file.path().to_owned()],
             column_names: vec!["test_col".to_string()],
-            _column_types: vec![],
+            column_types: vec![],
             filter_exprs: vec![],
         };
 
@@ -343,7 +348,7 @@ mod tests {
             _first_file: vortex_file1,
             file_paths: vec![temp_file1.path().to_owned()],
             column_names: vec!["test_col".to_string()],
-            _column_types: vec![],
+            column_types: vec![],
             filter_exprs: vec![],
         };
 
@@ -351,7 +356,7 @@ mod tests {
             _first_file: vortex_file2,
             file_paths: vec![temp_file2.path().to_owned()],
             column_names: vec!["test_col".to_string()],
-            _column_types: vec![],
+            column_types: vec![],
             filter_exprs: vec![],
         };
 
