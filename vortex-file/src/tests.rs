@@ -1104,6 +1104,29 @@ async fn file_take() -> VortexResult<()> {
 }
 
 #[tokio::test]
+#[should_panic(
+    expected = "FileStatsAccumulator temporarily does not support nullable top-level structs"
+)]
+async fn write_nullable_top_level_struct() {
+    let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
+
+    let array = StructArray::try_new(
+        ["age".into()].into(),
+        vec![ages.into_array()],
+        5,
+        Validity::AllValid,
+    )
+    .unwrap()
+    .into_array();
+
+    VortexWriteOptions::default()
+        .write(vec![], array.to_array_stream())
+        .await
+        .unwrap();
+}
+
+
+#[tokio::test]
 async fn write_nullable_nested_struct() -> VortexResult<()> {
     let nested_dtype = DType::Struct(
         Arc::new(StructFields::new(
@@ -1121,7 +1144,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
         1,
         Validity::NonNullable,
     )?
-    .into_array();
+        .into_array();
 
     let buffer: Bytes = VortexWriteOptions::default()
         .write(vec![], array.to_array_stream())

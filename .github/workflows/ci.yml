@@ -359,8 +359,14 @@ jobs:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      # TODO(ngates): we should run tests here when they pass!
-      - run: ./gradlew shadowJar
+      # Build vortex-jni shared library, and copy into JAR.
+      - name: Build vortex-jni
+        run: |
+          cargo build -p vortex-jni
+          mkdir -p java/vortex-jni/src/main/resources/native/linux-amd64
+          cargo xtask java-test-files
+          cp target/debug/libvortex_jni.so java/vortex-jni/src/main/resources/native/linux-amd64
+      - run: ./gradlew test
         working-directory: ./java
 
   bench-codspeed:

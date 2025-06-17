@@ -21,7 +21,7 @@ use crate::{cpp, duckdb_try};
 ///
 /// This trait does not yet cover the full C++ API, see table_function.hpp.
 pub trait TableFunction: Sized + Debug {
-    type BindData: Send;
+    type BindData: Send + Clone;
     type GlobalState: Send + Sync;
     type LocalState;
 
@@ -114,6 +114,7 @@ impl Connection {
             named_parameter_types: param_types.as_ptr(),
             named_parameter_count: param_names.len() as _,
             bind: Some(bind_callback::<T>),
+            bind_data_clone: Some(bind_data_clone_callback::<T>),
             init_global: Some(init_global_callback::<T>),
             init_local: Some(init_local_callback::<T>),
             function: Some(function::<T>),
