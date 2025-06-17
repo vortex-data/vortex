@@ -112,6 +112,7 @@ fn main() {
 
     // Link against DuckDB dylib.
     println!("cargo:rustc-link-search=native={}", lib_path.display());
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_path.display());
 
     if env::var("TARGET").unwrap().contains("linux") {
         println!("cargo:rustc-link-lib=stdc++");
