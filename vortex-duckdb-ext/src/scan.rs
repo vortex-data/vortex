@@ -1,9 +1,11 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use bitvec::macros::internal::funty::Fundamental;
 use crossbeam_queue::SegQueue;
+use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, and_collect, lit};
+use vortex::expr::{ExprRef, and, and_collect, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
@@ -16,12 +18,13 @@ pub struct VortexBindData {
     _first_file: VortexFile,
     file_list: SegQueue<PathBuf>,
     filter_exprs: Vec<ExprRef>,
-    _column_names: Vec<String>,
+    column_names: Vec<String>,
     _column_types: Vec<LogicalType>,
 }
 
 pub struct VortexGlobalData {
     filter_expr: ExprRef,
+    project_expr: ExprRef,
 }
 
 pub struct VortexLocalData {
@@ -61,8 +64,9 @@ impl TableFunction for VortexTableFunction {
     type GlobalState = VortexGlobalData;
     type LocalState = VortexLocalData;
 
+    const PROJECTION_PUSHDOWN: bool = true;
     const FILTER_PUSHDOWN: bool = true;
-    // const FILTER_PRUNE: bool = true;
+    const FILTER_PRUNE: bool = true;
 
     /// Input parameter types of the `vortex_scan` table function.
     ///
@@ -104,7 +108,7 @@ impl TableFunction for VortexTableFunction {
         Ok(VortexBindData {
             file_list,
             _first_file: first_file,
-            _column_names: column_names,
+            column_names,
             _column_types: column_types,
             filter_exprs: vec![],
         })
@@ -124,6 +128,7 @@ impl TableFunction for VortexTableFunction {
 
                 let array_iter = file
                     .scan()?
+                    .with_projection(global_state.project_expr.clone())
                     .with_filter(global_state.filter_expr.clone())
                     .into_array_iter()
                     .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
@@ -154,6 +159,23 @@ impl TableFunction for VortexTableFunction {
     fn init_global(init: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
         let complex_filter = and_collect(init.bind_data().filter_exprs.clone());
 
+        let projection_ids = init.projection_ids().vortex_expect("pruning on");
+        let column_ids = init.column_ids();
+
+        let projected_ids = projection_ids.iter().map(|p| column_ids[p.as_usize()]);
+        let project_expr = select(
+            projected_ids
+                .map(|idx| {
+                    init.bind_data()
+                        .column_names
+                        .get(idx.as_usize())
+                        .vortex_expect("prune idx in column names")
+                })
+                .map(|s| Arc::from(s.clone()))
+                .collect::<FieldNames>(),
+            root(),
+        );
+
         let filter = init
             .table_filter_set()
             .and_then(|filter| {
@@ -162,7 +184,7 @@ impl TableFunction for VortexTableFunction {
                     .map(|(idx, ex)| {
                         let name = init
                             .bind_data()
-                            ._column_names
+                            .column_names
                             .get(idx.as_usize())
                             .vortex_expect("exists");
                         try_from_table_filter(&ex, name)
@@ -177,7 +199,10 @@ impl TableFunction for VortexTableFunction {
             .reduce(and)
             .unwrap_or_else(|| lit(true));
 
-        Ok(VortexGlobalData { filter_expr })
+        Ok(VortexGlobalData {
+            filter_expr,
+            project_expr,
+        })
     }
 
     fn init_local(
@@ -323,14 +348,17 @@ mod tests {
         )
         .to_array();
         let f2 = (0..5).collect::<PrimitiveArray>().to_array();
-        let file = write_vortex_file([("f1", f1), ("f2", f2)].into_iter()).await;
+        let f3 = (100..105).collect::<PrimitiveArray>().to_array();
+        let file = write_vortex_file([("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await;
 
         let conn = database_connection();
-        let res: i32 = conn
-            .prepare("SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 > 3")
+        let result: Vec<i32> = conn
+            .prepare("SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 >= 2")
             .unwrap()
-            .query_row([file.path().to_str()], |r| r.get(0))
+            .query_and_then([file.path().to_str()], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        println!("{:?}", res);
+        assert_eq!(result, vec![2, 3]);
     }
 }
