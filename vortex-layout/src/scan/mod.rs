@@ -185,7 +185,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
         }
         if self.include_row_index_in_scope {
-            // Row Index Layout Reader must be last so that the projection has the row id scope.
             layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
         }
 
