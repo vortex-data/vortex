@@ -16,13 +16,40 @@ use crate::exporter::ArrayIteratorExporter;
 
 pub struct VortexBindData {
     _first_file: VortexFile,
-    file_list: SegQueue<PathBuf>,
     filter_exprs: Vec<ExprRef>,
+    file_paths: Vec<PathBuf>,
     column_names: Vec<String>,
-    _column_types: Vec<LogicalType>,
+    column_types: Vec<LogicalType>,
+}
+
+impl Clone for VortexBindData {
+    /// `VortexBindData` is cloned in case of multiple scan nodes.
+    fn clone(&self) -> Self {
+        Self {
+            _first_file: self._first_file.clone(),
+            // filter_expr don't need to be cloned as they are consumed once in `init_global`.
+            filter_exprs: vec![],
+            file_paths: self.file_paths.clone(),
+            column_names: self.column_names.clone(),
+            column_types: self.column_types.clone(),
+        }
+    }
+}
+
+impl std::fmt::Debug for VortexBindData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VortexBindData")
+            .field("file_paths", &self.file_paths)
+            .field("column_names", &self.column_names)
+            .field("column_types", &self.column_types)
+            .field("filter_expr", &self.filter_exprs)
+            .finish()
+    }
 }
 
 pub struct VortexGlobalData {
+    file_paths: SegQueue<PathBuf>,
+    _is_first_file_processed: std::sync::atomic::AtomicBool,
     filter_expr: ExprRef,
     project_expr: ExprRef,
 }
@@ -97,31 +124,32 @@ impl TableFunction for VortexTableFunction {
             Err(e) => vortex_bail!("Failed to glob files: {}", e),
         };
 
-        let file_list = SegQueue::new();
+        let mut file_paths = Vec::new();
         for path in paths {
             match path {
-                Ok(path) => file_list.push(path),
+                Ok(path) => file_paths.push(path),
                 Err(e) => vortex_bail!("Failed to glob files: {}", e),
             }
         }
 
         Ok(VortexBindData {
-            file_list,
+            file_paths,
             _first_file: first_file,
             column_names,
-            _column_types: column_types,
+            column_types,
             filter_exprs: vec![],
         })
     }
 
     fn scan(
-        bind_data: &Self::BindData,
+        _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
         global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
         if local_state.exporter.is_none() {
-            if let Some(file_path) = bind_data.file_list.pop() {
+            // Retrieve a file path from the shared lock-free queue.
+            if let Some(file_path) = global_state.file_paths.pop() {
                 let file = VortexOpenOptions::file()
                     .open_blocking(&file_path)
                     .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
@@ -157,6 +185,14 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn init_global(init: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
+        let bind_data = init.bind_data();
+        let file_paths = SegQueue::new();
+
+        // Skip the first file path, as the file is opened during bind.
+        for path in bind_data.file_paths.iter() {
+            file_paths.push(path.clone());
+        }
+
         let complex_filter = and_collect(init.bind_data().filter_exprs.clone());
 
         let projection_ids = init.projection_ids().unwrap_or(&[]);
@@ -200,6 +236,8 @@ impl TableFunction for VortexTableFunction {
             .unwrap_or_else(|| lit(true));
 
         Ok(VortexGlobalData {
+            file_paths,
+            _is_first_file_processed: std::sync::atomic::AtomicBool::new(false),
             filter_expr,
             project_expr,
         })
