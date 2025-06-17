@@ -6,7 +6,8 @@
 extern "C" {
 #endif
 
-char * duckdb_vx_logical_type_stringify(duckdb_logical_type ty);
+char *duckdb_vx_logical_type_stringify(duckdb_logical_type ty);
+duckdb_logical_type duckdb_vx_logical_type_copy(duckdb_logical_type ty);
 
 #ifdef __cplusplus /* End C ABI */
 }
