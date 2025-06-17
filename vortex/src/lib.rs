@@ -7,11 +7,16 @@ pub use vortex_array::*;
 #[cfg(feature = "files")]
 pub use vortex_file as file;
 pub use {
-    vortex_btrblocks as compressor, vortex_buffer as buffer, vortex_dtype as dtype,
-    vortex_error as error, vortex_expr as expr, vortex_flatbuffers as flatbuffers,
-    vortex_ipc as ipc, vortex_layout as layout, vortex_mask as mask, vortex_metrics as metrics,
-    vortex_proto as proto, vortex_scalar as scalar, vortex_utils as utils,
+    vortex_buffer as buffer, vortex_dtype as dtype, vortex_error as error, vortex_expr as expr,
+    vortex_flatbuffers as flatbuffers, vortex_ipc as ipc, vortex_layout as layout,
+    vortex_mask as mask, vortex_metrics as metrics, vortex_proto as proto, vortex_scalar as scalar,
+    vortex_utils as utils,
 };
+
+pub mod compressor {
+    pub use vortex_btrblocks::BtrBlocksCompressor;
+    pub use vortex_layout::layouts::compact::CompactCompressor;
+}
 
 pub mod encodings {
     #[cfg(feature = "zstd")]
@@ -74,12 +79,23 @@ mod test {
     #[test]
     fn compress() -> VortexResult<()> {
         // [compress]
-        use vortex::compressor::BtrBlocksCompressor;
+        use vortex::compressor::{BtrBlocksCompressor, CompactCompressor};
 
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
+        // You can compress an array in-memory with the BtrBlocks compressor
         let compressed = BtrBlocksCompressor.compress(array.as_ref())?;
-        println!("{} / {}", compressed.nbytes(), array.nbytes());
+        println!(
+            "BtrBlocks size: {} / {}",
+            compressed.nbytes(),
+            array.nbytes()
+        );
+
+        // Or apply generally stronger compression with the compact compressor
+        let compressed = CompactCompressor::default()
+            .with_values_per_page(8192)
+            .compress(array.as_ref())?;
+        println!("Compact size: {} / {}", compressed.nbytes(), array.nbytes());
         // [compress]
 
         Ok(())
@@ -115,6 +131,41 @@ mod test {
         // [read]
 
         std::fs::remove_file("example.vortex")?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn compact_read_write() -> VortexResult<()> {
+        // [compact_write]
+        let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
+
+        // Write a Vortex file with the compact compression strategy.
+        VortexWriteOptions::default()
+            .with_compact_compression()
+            .write(
+                tokio::fs::File::create("example_compact.vortex").await?,
+                array.to_array_stream(),
+            )
+            .await?;
+
+        // [compact_write]
+
+        // [compact_read]
+        let array = VortexOpenOptions::file()
+            .open("example_compact.vortex")
+            .await?
+            .scan()?
+            .with_filter(gt(root(), lit(2u64)))
+            .into_array_stream()?
+            .read_all()
+            .await?;
+
+        assert_eq!(array.len(), 2);
+
+        // [compact_read]
+
+        std::fs::remove_file("example_compact.vortex")?;
 
         Ok(())
     }

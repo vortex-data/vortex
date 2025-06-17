@@ -6746,6 +6746,7 @@ dependencies = [
  "log",
  "parking_lot",
  "paste",
+ "pco",
  "pin-project-lite",
  "prost",
  "roaring",
@@ -6764,9 +6765,11 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-pco",
  "vortex-scalar",
  "vortex-sequence",
  "vortex-utils",
+ "vortex-zstd",
 ]
 
 [[package]]
