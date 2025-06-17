@@ -17,12 +17,12 @@ package dev.vortex.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.google.common.collect.ImmutableList;
 import dev.vortex.api.expressions.Binary;
 import dev.vortex.api.expressions.GetItem;
 import dev.vortex.api.expressions.Identity;
 import dev.vortex.api.expressions.Literal;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -85,7 +85,7 @@ public final class TestMinimal {
     /// Ida     9000    TX
     /// John    10000   VA
     /// =======================
-    private static final List<Person> MINIMAL_DATA = ImmutableList.of(
+    private static final List<Person> MINIMAL_DATA = List.of(
             new Person("Alice", BigDecimal.valueOf(1000L, 2), "CA"),
             new Person("Bob", BigDecimal.valueOf(2000L, 2), "NY"),
             new Person("Carol", BigDecimal.valueOf(3000L, 2), "TX"),
@@ -97,7 +97,7 @@ public final class TestMinimal {
             new Person("Ida", BigDecimal.valueOf(9000L, 2), "TX"),
             new Person("John", BigDecimal.valueOf(10_000L, 2), "VA"));
 
-    private static final List<Person> PROJECTED_DATA = ImmutableList.of(
+    private static final List<Person> PROJECTED_DATA = List.of(
             new Person("Alice", null, "CA"),
             new Person("Bob", null, "NY"),
             new Person("Carol", null, "TX"),
@@ -117,7 +117,7 @@ public final class TestMinimal {
 
             var dtype = fullScan.getDataType();
             assertEquals(DType.Variant.STRUCT, dtype.getVariant());
-            assertEquals(dtype.getFieldNames(), ImmutableList.of("Name", "Salary", "State"));
+            assertEquals(dtype.getFieldNames(), List.of("Name", "Salary", "State"));
 
             // Perform a full scan, check the result.
             var people = readToList(fullScan, new TestCase() {
@@ -147,7 +147,7 @@ public final class TestMinimal {
             // Do stuff.
             var dtype = projectedScan.getDataType();
             assertEquals(DType.Variant.STRUCT, dtype.getVariant());
-            assertEquals(dtype.getFieldNames(), ImmutableList.of("Name", "State"));
+            assertEquals(dtype.getFieldNames(), List.of("Name", "State"));
 
             var people = readToList(projectedScan, new TestCase() {
                 @Override
@@ -178,7 +178,7 @@ public final class TestMinimal {
                 var filteredScan = file.newScan(filterOptions)) {
             var dtype = filteredScan.getDataType();
             assertEquals(DType.Variant.STRUCT, dtype.getVariant());
-            assertEquals(dtype.getFieldNames(), ImmutableList.of("State", "Salary", "Name"));
+            assertEquals(dtype.getFieldNames(), List.of("State", "Salary", "Name"));
 
             var people = readToList(filteredScan, new TestCase() {
                 @Override
@@ -199,7 +199,7 @@ public final class TestMinimal {
                 }
             });
 
-            assertEquals(ImmutableList.of(new Person("John", BigDecimal.valueOf(10_000L, 2), "VA")), people);
+            assertEquals(List.of(new Person("John", BigDecimal.valueOf(10_000L, 2), "VA")), people);
         }
     }
 
@@ -210,7 +210,7 @@ public final class TestMinimal {
     }
 
     private List<Person> readToList(ArrayIterator scan, TestCase testCase) {
-        ImmutableList.Builder<Person> people = ImmutableList.builder();
+        List<Person> people = new ArrayList<>();
         while (scan.hasNext()) {
             var batch = scan.next();
             Array[] fields = testCase.open(batch);
@@ -219,6 +219,6 @@ public final class TestMinimal {
                 people.add(testCase.readRow(fields, batchIdx));
             }
         }
-        return people.build();
+        return people;
     }
 }
