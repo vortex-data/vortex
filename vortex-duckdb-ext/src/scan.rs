@@ -107,18 +107,6 @@ impl TableFunction for VortexTableFunction {
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
-        let file_path: String = file_glob_string.as_string().to_string_lossy().into_owned();
-        let first_file = VortexOpenOptions::file()
-            .open_blocking(&file_path)
-            .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
-
-        let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
-
-        // Add result columns based on the extracted schema.
-        for (name, logical_type) in column_names.iter().zip(&column_types) {
-            result.add_result_column(name, logical_type);
-        }
-
         let paths = match glob::glob(file_glob_string.as_string().to_str()?) {
             Ok(paths) => paths,
             Err(e) => vortex_bail!("Failed to glob files: {}", e),
@@ -130,6 +118,18 @@ impl TableFunction for VortexTableFunction {
                 Ok(path) => file_paths.push(path),
                 Err(e) => vortex_bail!("Failed to glob files: {}", e),
             }
+        }
+
+        let file_path: String = file_paths[0].to_string_lossy().into_owned();
+        let first_file = VortexOpenOptions::file()
+            .open_blocking(&file_path)
+            .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
+
+        let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
+
+        // Add result columns based on the extracted schema.
+        for (name, logical_type) in column_names.iter().zip(&column_types) {
+            result.add_result_column(name, logical_type);
         }
 
         Ok(VortexBindData {
@@ -173,7 +173,7 @@ impl TableFunction for VortexTableFunction {
             vortex_bail!("ArrayIteratorExporter is not set")
         };
 
-        let is_data_left_to_scan = exporter
+        let is_data_left_to_scan = !exporter
             .export(chunk)
             .map_err(|e| vortex_err!("Failed to export data: {}", e))?;
 
@@ -336,6 +336,26 @@ mod tests {
             .map_err(|e| e.to_string())
     }
 
+    async fn write_vortex_file_to_dir(
+        dir: &std::path::Path,
+        field_name: &str,
+        array: impl IntoArray,
+    ) -> NamedTempFile {
+        let struct_array = StructArray::from_fields(&[(field_name, array.into_array())]).unwrap();
+        let temp_file_path = tempfile::Builder::new()
+            .suffix(".vortex")
+            .tempfile_in(dir)
+            .unwrap();
+
+        let file = tokio::fs::File::create(&temp_file_path).await.unwrap();
+        VortexWriteOptions::default()
+            .write(file, struct_array.to_array_stream())
+            .await
+            .unwrap();
+
+        temp_file_path
+    }
+
     #[test]
     fn test_scan_function_registration() {
         let conn = database_connection();
@@ -421,6 +441,39 @@ mod tests {
             0,
         )
         .unwrap();
+
         assert_eq!(result, vec![2, 3]);
+    }
+
+    #[tokio::test]
+    async fn test_vortex_scan_multiple_files() {
+        let tempdir = tempfile::tempdir().unwrap();
+
+        let _file1 = write_vortex_file_to_dir(
+            tempdir.path(),
+            "numbers",
+            PrimitiveArray::from_iter([1i32, 2, 3]),
+        )
+        .await;
+
+        let _file2 = write_vortex_file_to_dir(
+            tempdir.path(),
+            "numbers",
+            PrimitiveArray::from_iter([4i32, 5, 6]),
+        )
+        .await;
+
+        // Create glob pattern to match all .vortex files in the temp directory.
+        let glob_pattern = format!("{}/*.vortex", tempdir.path().display());
+
+        // Scan both Vortex files.
+        let conn = database_connection();
+        let total_sum: i64 = conn
+            .prepare("SELECT SUM(numbers) FROM vortex_scan(?)")
+            .unwrap()
+            .query_row([&glob_pattern], |row| row.get(0))
+            .unwrap();
+
+        assert_eq!(total_sum, 21);
     }
 }
