@@ -81,16 +81,6 @@ impl Canonical {
             .to_canonical()
             .vortex_expect("cannot fail to convert an empty array to canonical")
     }
-
-    pub fn zeros(dtype: &DType, n: usize) -> Canonical {
-        let mut builder = builder_with_capacity(dtype, n);
-        builder.append_zeros(n);
-
-        builder
-            .finish()
-            .to_canonical()
-            .vortex_expect("cannot fail to convert an array with a single zero to canonical")
-    }
 }
 
 // Unwrap canonical type back down to specialized type.

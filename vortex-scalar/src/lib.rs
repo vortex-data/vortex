@@ -3,7 +3,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 pub use scalar_type::ScalarType;
-use vortex_buffer::{BufferString, ByteBuffer};
+use vortex_buffer::{Buffer, BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
 #[cfg(feature = "arbitrary")]
@@ -176,6 +176,31 @@ impl Scalar {
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
                 .unwrap_or_default(),
             DType::Extension(_ext_dtype) => self.as_extension().storage().nbytes(),
+        }
+    }
+
+    /// Create a "zero" scalar of the given dtype
+    pub fn zero(dtype: DType) -> Self {
+        match dtype {
+            DType::Null => Self::null(dtype),
+            DType::Bool(nullability) => Self::bool(false, nullability),
+            DType::Primitive(pt, nullability) => {
+                Self::primitive_value(PValue::zero(pt), pt, nullability)
+            }
+            DType::Decimal(dt, nullability) => {
+                Self::decimal(DecimalValue::from(0), dt, nullability)
+            }
+            DType::Utf8(nullability) => Self::utf8("", nullability),
+            DType::Binary(nullability) => Self::binary(Buffer::empty(), nullability),
+            DType::Struct(sf, nullability) => {
+                let fields: Vec<_> = sf.fields().map(Scalar::zero).collect();
+                Self::struct_(DType::Struct(sf, nullability), fields)
+            }
+            DType::List(dt, nullability) => Self::list(dt, vec![], nullability),
+            DType::Extension(dt) => {
+                let scalar = Self::zero(dt.storage_dtype().clone());
+                Self::extension(dt, scalar)
+            }
         }
     }
 }
@@ -566,5 +591,33 @@ mod test {
             }),
             "{result:?}"
         );
+    }
+
+    #[test]
+    fn zero_for_complex_dtype() {
+        let struct_dtype = DType::Struct(
+            Arc::new(vortex_dtype::StructFields::new(
+                vortex_dtype::FieldNames::from_iter(["a".into(), "b".into()]),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::List(
+                        Arc::new(DType::Primitive(PType::I8, Nullability::Nullable)),
+                        Nullability::NonNullable,
+                    ),
+                ],
+            )),
+            Nullability::NonNullable,
+        );
+
+        let scalar = Scalar::zero(struct_dtype.clone());
+        assert_eq!(scalar.dtype(), &struct_dtype);
+
+        let scalar = scalar.as_struct();
+
+        let a_field = scalar.field("a").unwrap();
+        assert_eq!(a_field.as_primitive().pvalue().unwrap(), PValue::I32(0));
+
+        let b_field = scalar.field("b").unwrap();
+        assert!(b_field.as_list().is_empty())
     }
 }

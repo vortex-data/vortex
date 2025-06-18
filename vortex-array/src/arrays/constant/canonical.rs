@@ -91,16 +91,18 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
             }
             DType::Struct(struct_dtype, _) => {
                 let value = StructScalar::try_from(scalar)?;
-                let fields = match value.fields() {
+                let fields: Vec<_> = match value.fields() {
                     Some(fields) => fields
                         .into_iter()
                         .map(|s| ConstantArray::new(s, array.len()).into_array())
-                        .collect::<Vec<_>>(),
+                        .collect(),
                     None => {
                         debug_assert!(validity.all_invalid()?);
                         struct_dtype
                             .fields()
-                            .map(|dt| Canonical::zeros(&dt, array.len()).into_array())
+                            .map(|dt| {
+                                ConstantArray::new(Scalar::zero(dt), array.len()).into_array()
+                            })
                             .collect()
                     }
                 };
