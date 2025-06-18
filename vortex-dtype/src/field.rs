@@ -9,7 +9,6 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_error::{VortexResult, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::DType;
@@ -124,7 +123,7 @@ impl FieldPath {
         if self.0.is_empty() {
             return None;
         }
-        self.0 = self.0.iter().skip(1).cloned().collect();
+        self.0 = self.0.into_iter().skip(1).collect();
         Some(self)
     }
 
@@ -164,24 +163,24 @@ impl FieldPath {
     /// let resolved = path.resolve(dtype).unwrap();
     /// assert_eq!(resolved, DType::Primitive(PType::U32, NonNullable));
     /// ```
-    pub fn resolve(&self, mut dtype: DType) -> VortexResult<DType> {
+    pub fn resolve(&self, mut dtype: DType) -> Option<DType> {
         for field in &self.0 {
             dtype = match (dtype, field) {
                 (DType::Struct(fields, _), Field::Name(name)) => fields.field(name)?,
-                (DType::List(element_dtype, _), Field::ElementType) => DType::clone(&element_dtype),
-                (other, f) => {
-                    vortex_bail!("FieldPath: invalid index {:?} for DType {:?}", f, other)
+                (DType::List(element_dtype, _), Field::ElementType) => {
+                    element_dtype.as_ref().clone()
                 }
+                (..) => return None,
             }
         }
 
-        Ok(dtype)
+        Some(dtype)
     }
 
     /// Does the field referenced by the field path exist in the given dtype?
     pub fn exists(&self, dtype: DType) -> bool {
         // Indexing a struct type always allocates anyway.
-        self.resolve(dtype).is_ok()
+        self.resolve(dtype).is_some()
     }
 }
 
@@ -325,21 +324,21 @@ mod tests {
             .push("b")
             .push("c")
             .push(Field::ElementType);
-        assert!(path.resolve(level1.clone()).is_err());
+        assert!(path.resolve(level1.clone()).is_none());
         assert!(!path.exists(level1.clone()));
 
         let path = FieldPath::from_name("a")
             .push(Field::ElementType)
             .push("b")
             .push("c");
-        assert!(path.resolve(level1.clone()).is_err());
+        assert!(path.resolve(level1.clone()).is_none());
         assert!(!path.exists(level1.clone()));
 
         let path = FieldPath::from_name(Field::ElementType)
             .push("a")
             .push("b")
             .push("c");
-        assert!(path.resolve(level1.clone()).is_err());
+        assert!(path.resolve(level1.clone()).is_none());
         assert!(!path.exists(level1));
     }
 
@@ -347,11 +346,11 @@ mod tests {
     fn nested_field_not_found() {
         let dtype = DType::struct_([("a", DType::Bool(NonNullable))], NonNullable);
         let path = FieldPath::from_name("b");
-        assert!(path.resolve(dtype.clone()).is_err());
+        assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists(dtype.clone()));
 
         let path = FieldPath::from(Field::ElementType);
-        assert!(path.resolve(dtype.clone()).is_err());
+        assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists(dtype));
     }
 
@@ -362,11 +361,11 @@ mod tests {
             NonNullable,
         );
         let path = FieldPath::from_name("a").push("b");
-        assert!(path.resolve(dtype.clone()).is_err());
+        assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists(dtype.clone()));
 
         let path = FieldPath::from_name("a").push(Field::ElementType);
-        assert!(path.resolve(dtype.clone()).is_err());
+        assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists(dtype));
     }
 }
