@@ -1135,12 +1135,12 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
         Nullability::Nullable,
     );
 
-    let struct_ = ConstantArray::new(Scalar::null(nested_dtype), 1).to_array();
+    let struct_ = ConstantArray::new(Scalar::null(nested_dtype.clone()), 3).to_array();
 
     let array = StructArray::try_new(
         ["struct".into()].into(),
         vec![struct_.into_array()],
-        1,
+        3,
         Validity::NonNullable,
     )?
     .into_array();
@@ -1156,7 +1156,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
         .await?;
 
     assert_eq!(vxf.dtype(), array.dtype());
-    assert_eq!(vxf.row_count(), 1);
+    assert_eq!(vxf.row_count(), 3);
 
     let result = vxf
         .scan()?
@@ -1165,8 +1165,14 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
         .await?
         .to_struct()?;
 
-    assert_eq!(result.len(), 1);
+    assert_eq!(result.len(), 3);
     assert_eq!(result.fields().len(), 1);
+    assert!(result.all_valid()?);
+
+    let nested_struct = result.field_by_name("struct")?.to_struct()?;
+    assert_eq!(nested_struct.dtype(), &nested_dtype);
+    assert_eq!(nested_struct.len(), 3);
+    assert!(nested_struct.all_invalid()?);
 
     Ok(())
 }
