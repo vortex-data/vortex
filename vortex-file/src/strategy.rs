@@ -7,7 +7,7 @@ use vortex_array::stats::PRUNING_STATS;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
-use vortex_layout::layouts::compact::CompactCompressedStrategy;
+use vortex_layout::layouts::compact::{CompactCompressedStrategy, CompactCompressor};
 use vortex_layout::layouts::compressed::BtrBlocksCompressedStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -22,32 +22,27 @@ pub struct VortexLayoutStrategy;
 
 impl VortexLayoutStrategy {
     pub fn with_executor(executor: Arc<dyn TaskExecutor>) -> ArcRef<dyn LayoutStrategy> {
-        let compression_strategy = arcref(BtrBlocksCompressedStrategy::new(
-            arcref(BufferedStrategy::new(
-                arcref(ChunkedLayoutStrategy::default()),
-                2 << 20,
-            )),
+        // 7. for each chunk create a flat layout
+        let chunked = arcref(ChunkedLayoutStrategy::default());
+        // 6. buffer chunks so they end up with closer segment ids physically
+        let buffered = arcref(BufferedStrategy::new(chunked, 2 << 20)); // 2MB
+        // 5. compress each chunk
+        let compressing = arcref(BtrBlocksCompressedStrategy::new(
+            buffered,
             executor.clone(),
             16,
         ));
-        Self::with_compression_strategy(executor, compression_strategy)
-    }
 
-    /// Create a layout strategy with the specified compression strategy
-    pub fn with_compression_strategy(
-        executor: Arc<dyn TaskExecutor>,
-        compression_strategy: ArcRef<dyn LayoutStrategy>,
-    ) -> ArcRef<dyn LayoutStrategy> {
         // 4. prior to compression, coalesce up to a minimum size
         let coalescing = arcref(RepartitionStrategy::new(
-            compression_strategy,
+            compressing,
             RepartitionWriterOptions {
                 block_size_minimum: 1 << 20,
                 block_len_multiple: ROW_BLOCK_SIZE,
             },
         ));
 
-        // 2.1. | 3.1. compress stats tables and dict values using BtrBlocks (for simplicity)
+        // 2.1. | 3.1. compress stats tables and dict values.
         let compress_then_flat = arcref(BtrBlocksCompressedStrategy::new(
             arcref(FlatLayoutStrategy::default()),
             executor.clone(),
@@ -66,6 +61,67 @@ impl VortexLayoutStrategy {
         // 2. calculate stats for each row group
         let stats = arcref(ZonedStrategy::new(
             dict,
+            compress_then_flat.clone(),
+            ZonedLayoutOptions {
+                block_size: ROW_BLOCK_SIZE,
+                stats: PRUNING_STATS.into(),
+                max_variable_length_statistics_size: 64,
+                parallelism: 16,
+            },
+            executor.clone(),
+        ));
+
+        // 1. repartition each column to fixed row counts
+        let repartition = arcref(RepartitionStrategy::new(
+            stats,
+            RepartitionWriterOptions {
+                // No minimum block size in bytes
+                block_size_minimum: 0,
+                // Always repartition into 8K row blocks
+                block_len_multiple: ROW_BLOCK_SIZE,
+            },
+        ));
+
+        // 0. start with splitting columns
+        arcref(StructStrategy::new(repartition))
+    }
+
+    pub fn compact_with_executor(
+        executor: Arc<dyn TaskExecutor>,
+        compressor: CompactCompressor,
+    ) -> ArcRef<dyn LayoutStrategy> {
+        // 6. for each chunk create a flat layout
+        let chunked = arcref(ChunkedLayoutStrategy::default());
+        // 5. buffer chunks so they end up with closer segment ids physically
+        let buffered = arcref(BufferedStrategy::new(chunked, 2 << 20)); // 2MB
+        // 4. compress each chunk
+        let compressing = arcref(CompactCompressedStrategy::new(
+            buffered,
+            executor.clone(),
+            16,
+            compressor.clone(),
+        ));
+
+        // 3. prior to compression, coalesce up to a minimum size
+        let coalescing = arcref(RepartitionStrategy::new(
+            compressing,
+            RepartitionWriterOptions {
+                block_size_minimum: 1 << 20,
+                block_len_multiple: ROW_BLOCK_SIZE,
+            },
+        ));
+
+        // 2.1. compress stats tables
+        let compress_then_flat = arcref(CompactCompressedStrategy::new(
+            arcref(FlatLayoutStrategy::default()),
+            executor.clone(),
+            1,
+            compressor,
+        ));
+
+        // 2. calculate stats for each row group
+        let stats = arcref(ZonedStrategy::new(
+            coalescing,
             compress_then_flat.clone(),
             ZonedLayoutOptions {
                 block_size: ROW_BLOCK_SIZE,

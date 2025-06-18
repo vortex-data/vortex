@@ -146,19 +146,6 @@ impl CompactCompressedStrategy {
         child: ArcRef<dyn LayoutStrategy>,
         executor: Arc<dyn TaskExecutor>,
         parallelism: usize,
-    ) -> Self {
-        Self {
-            child,
-            executor,
-            parallelism,
-            compressor: CompactCompressor::default(),
-        }
-    }
-
-    pub fn with_compressor(
-        child: ArcRef<dyn LayoutStrategy>,
-        executor: Arc<dyn TaskExecutor>,
-        parallelism: usize,
         compressor: CompactCompressor,
     ) -> Self {
         Self {

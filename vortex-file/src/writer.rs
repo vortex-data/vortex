@@ -61,12 +61,6 @@ impl VortexWriteOptions {
         self.file_statistics = file_statistics;
         self
     }
-
-    /// Use the compact compression strategy (PCO for supported numeric types, ZSTD for everything else).
-    pub fn with_compact_compression(mut self) -> Self {
-        self.strategy = VortexLayoutStrategy::with_compact_compression(Arc::new(LocalExecutor));
-        self
-    }
 }
 
 impl VortexWriteOptions {
