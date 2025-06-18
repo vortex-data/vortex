@@ -101,8 +101,12 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                         struct_dtype
                             .fields()
                             .map(|dt| {
-                                ConstantArray::new(Scalar::default_value(dt), array.len())
-                                    .into_array()
+                                let scalar = match dt.nullability() {
+                                    Nullability::NonNullable => Scalar::default_value(dt),
+                                    Nullability::Nullable => Scalar::null(dt),
+                                };
+
+                                ConstantArray::new(scalar, array.len()).into_array()
                             })
                             .collect()
                     }

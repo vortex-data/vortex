@@ -36,7 +36,7 @@ pub use pvalue::*;
 pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].
 ///
@@ -180,11 +180,12 @@ impl Scalar {
     }
 
     /// Create a "default" scalar value for the given data type.
-    ///
-    /// Note that default for nullable types is currently the same as for non-nullable types except the field nullability.
-    /// For example, `default_value(DType::Bool(Nullability::Nullable))` will return a `BoolScalar`
-    /// with value `false` and nullability `Nullable` (but not `null`).
     pub fn default_value(dtype: DType) -> Self {
+        if dtype.is_nullable() {
+            // We need to decide if we want to return "None" or "0"
+            vortex_panic!("default for nullable dtype {dtype} is not implemented");
+        }
+
         match dtype {
             DType::Null => Self::null(dtype),
             DType::Bool(nullability) => Self::bool(false, nullability),
