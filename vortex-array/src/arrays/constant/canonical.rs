@@ -97,10 +97,11 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                         .map(|s| ConstantArray::new(s, array.len()).into_array())
                         .collect(),
                     None => {
-                        debug_assert!(validity.all_invalid()?);
+                        assert!(validity.all_invalid()?);
                         struct_dtype
                             .fields()
                             .map(|dt| {
+                                // TODO(blaginin): remove this workaround once we've decided on the default value for nullable fields (#3553)
                                 let scalar = match dt.nullability() {
                                     Nullability::NonNullable => Scalar::default_value(dt),
                                     Nullability::Nullable => Scalar::null(dt),
