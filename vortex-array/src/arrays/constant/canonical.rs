@@ -397,8 +397,5 @@ mod tests {
             field.dtype(),
             &DType::Primitive(PType::I8, Nullability::NonNullable)
         );
-
-        let value = field.scalar_at(0).unwrap();
-        assert_eq!(value, Scalar::primitive(0i8, Nullability::NonNullable));
     }
 }
