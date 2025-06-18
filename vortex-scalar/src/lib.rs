@@ -179,8 +179,12 @@ impl Scalar {
         }
     }
 
-    /// Create a "zero" scalar of the given dtype
-    pub fn zero(dtype: DType) -> Self {
+    /// Create a "default" scalar value for the given data type.
+    ///
+    /// Note that default for nullable types is currently the same as for non-nullable types except the field nullability.
+    /// For example, `default_value(DType::Bool(Nullability::Nullable))` will return a `BoolScalar`
+    /// with value `false` and nullability `Nullable` (but not `null`).
+    pub fn default_value(dtype: DType) -> Self {
         match dtype {
             DType::Null => Self::null(dtype),
             DType::Bool(nullability) => Self::bool(false, nullability),
@@ -193,12 +197,12 @@ impl Scalar {
             DType::Utf8(nullability) => Self::utf8("", nullability),
             DType::Binary(nullability) => Self::binary(Buffer::empty(), nullability),
             DType::Struct(sf, nullability) => {
-                let fields: Vec<_> = sf.fields().map(Scalar::zero).collect();
+                let fields: Vec<_> = sf.fields().map(Scalar::default_value).collect();
                 Self::struct_(DType::Struct(sf, nullability), fields)
             }
             DType::List(dt, nullability) => Self::list(dt, vec![], nullability),
             DType::Extension(dt) => {
-                let scalar = Self::zero(dt.storage_dtype().clone());
+                let scalar = Self::default_value(dt.storage_dtype().clone());
                 Self::extension(dt, scalar)
             }
         }
@@ -609,7 +613,7 @@ mod test {
             Nullability::NonNullable,
         );
 
-        let scalar = Scalar::zero(struct_dtype.clone());
+        let scalar = Scalar::default_value(struct_dtype.clone());
         assert_eq!(scalar.dtype(), &struct_dtype);
 
         let scalar = scalar.as_struct();

@@ -101,7 +101,8 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                         struct_dtype
                             .fields()
                             .map(|dt| {
-                                ConstantArray::new(Scalar::zero(dt), array.len()).into_array()
+                                ConstantArray::new(Scalar::default_value(dt), array.len())
+                                    .into_array()
                             })
                             .collect()
                     }
