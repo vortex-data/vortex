@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::*;
 
 use bitvec::macros::internal::funty::Fundamental;
 use crossbeam_queue::SegQueue;
@@ -15,7 +15,7 @@ use crate::duckdb::{
 use crate::exporter::ArrayIteratorExporter;
 
 pub struct VortexBindData {
-    _first_file: VortexFile,
+    first_file: VortexFile,
     filter_exprs: Vec<ExprRef>,
     file_paths: Vec<PathBuf>,
     column_names: Vec<String>,
@@ -26,7 +26,7 @@ impl Clone for VortexBindData {
     /// `VortexBindData` is cloned in case of multiple scan nodes.
     fn clone(&self) -> Self {
         Self {
-            _first_file: self._first_file.clone(),
+            first_file: self.first_file.clone(),
             // filter_expr don't need to be cloned as they are consumed once in `init_global`.
             filter_exprs: vec![],
             file_paths: self.file_paths.clone(),
@@ -49,7 +49,7 @@ impl std::fmt::Debug for VortexBindData {
 
 pub struct VortexGlobalData {
     file_paths: SegQueue<PathBuf>,
-    _is_first_file_processed: std::sync::atomic::AtomicBool,
+    is_first_file_processed: atomic::AtomicBool,
     filter_expr: ExprRef,
     projection_expr: ExprRef,
 }
@@ -127,10 +127,11 @@ fn create_table_filter_expr(
         .transpose()
 }
 
-/// Creates a SegQueue populated with file paths from bind data.
+/// Creates a lock-free queue populated with file paths from bind data.
 fn create_file_paths_queue(bind_data: &VortexBindData) -> SegQueue<PathBuf> {
     let file_paths = SegQueue::new();
-    for path in bind_data.file_paths.iter() {
+    // Skip the first file as it is opened during bind.
+    for path in bind_data.file_paths.iter().skip(1) {
         file_paths.push(path.clone());
     }
     file_paths
@@ -162,29 +163,25 @@ impl TableFunction for VortexTableFunction {
             Err(e) => vortex_bail!("Failed to glob files: {}", e),
         };
 
-        let mut file_paths = Vec::new();
-        for path in paths {
-            match path {
-                Ok(path) => file_paths.push(path),
-                Err(e) => vortex_bail!("Failed to glob files: {}", e),
-            }
-        }
+        let file_paths: Vec<_> = paths
+            .collect::<Result<_, _>>()
+            .map_err(|e| vortex_err!("Failed to glob files: {}", e))?;
 
-        let file_path: String = file_paths[0].to_string_lossy().into_owned();
+        // The first file is skipped in `create_file_paths_queue`.
         let first_file = VortexOpenOptions::file()
-            .open_blocking(&file_path)
+            .open_blocking(&file_paths[0])
             .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
         let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
 
         // Add result columns based on the extracted schema.
-        for (name, logical_type) in column_names.iter().zip(&column_types) {
-            result.add_result_column(name, logical_type);
+        for (column_name, column_type) in column_names.iter().zip(&column_types) {
+            result.add_result_column(column_name, column_type);
         }
 
         Ok(VortexBindData {
             file_paths,
-            _first_file: first_file,
+            first_file,
             column_names,
             column_types,
             filter_exprs: vec![],
@@ -192,26 +189,36 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn scan(
-        _bind_data: &Self::BindData,
+        bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
         global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
+        let exporter_for_file = |file: &VortexFile| -> VortexResult<ArrayIteratorExporter> {
+            let array_iter = file
+                .scan()?
+                .with_projection(global_state.projection_expr.clone())
+                .with_filter(global_state.filter_expr.clone())
+                .into_array_iter()
+                .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
+
+            Ok(ArrayIteratorExporter::new(Box::new(array_iter)))
+        };
+
         if local_state.exporter.is_none() {
+            if !global_state
+                .is_first_file_processed
+                .swap(true, atomic::Ordering::SeqCst)
+            {
+                local_state.exporter = Some(exporter_for_file(&bind_data.first_file)?);
+            }
             // Retrieve a file path from the shared lock-free queue.
-            if let Some(file_path) = global_state.file_paths.pop() {
+            else if let Some(file_path) = global_state.file_paths.pop() {
                 let file = VortexOpenOptions::file()
                     .open_blocking(&file_path)
                     .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
-                let array_iter = file
-                    .scan()?
-                    .with_projection(global_state.projection_expr.clone())
-                    .with_filter(global_state.filter_expr.clone())
-                    .into_array_iter()
-                    .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
-
-                local_state.exporter = Some(ArrayIteratorExporter::new(Box::new(array_iter)));
+                local_state.exporter = Some(exporter_for_file(&file)?);
             } else {
                 // If the exporter is None and there are no more files to process, signal that the scan finished.
                 chunk.set_len(0);
@@ -249,7 +256,7 @@ impl TableFunction for VortexTableFunction {
 
         Ok(VortexGlobalData {
             file_paths,
-            _is_first_file_processed: std::sync::atomic::AtomicBool::new(false),
+            is_first_file_processed: atomic::AtomicBool::new(false),
             filter_expr,
             projection_expr,
         })
@@ -274,6 +281,8 @@ impl TableFunction for VortexTableFunction {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use duckdb::Connection;
     use tempfile::NamedTempFile;
     use vortex::IntoArray;
@@ -349,7 +358,7 @@ mod tests {
     }
 
     async fn write_vortex_file_to_dir(
-        dir: &std::path::Path,
+        dir: &Path,
         field_name: &str,
         array: impl IntoArray,
     ) -> NamedTempFile {
