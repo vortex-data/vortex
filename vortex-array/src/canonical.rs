@@ -83,7 +83,7 @@ impl Canonical {
     }
 
     pub fn zeros(dtype: &DType, n: usize) -> Canonical {
-        let mut builder = builder_with_capacity(dtype, 1);
+        let mut builder = builder_with_capacity(dtype, n);
         builder.append_zeros(n);
 
         builder
