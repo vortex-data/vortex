@@ -1,5 +1,8 @@
 //! List-related compute operations.
 
+use std::sync::LazyLock;
+
+use arcref::ArcRef;
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::bit_iterator::BitIndexIterator;
 use num_traits::AsPrimitive;
@@ -9,9 +12,12 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{ListScalar, Scalar};
 
 use crate::arrays::{BoolArray, ConstantArray, ListArray};
-use crate::compute::{Operator, compare, fill_null, or};
+use crate::compute::{
+    BinaryArgs, ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Output, compare,
+    fill_null, or,
+};
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::{VTable, ValidityHelper};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Compute a `Bool`-typed array the same length as `array` where elements is `true` if the list
@@ -46,33 +52,131 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 /// let to_vec: Vec<bool> = matches.to_bool().unwrap().boolean_buffer().iter().collect();
 /// assert_eq!(to_vec, vec![false, true, false]);
 /// ```
-// TODO(joe): promote to compute fn.
 pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<ArrayRef> {
-    let DType::List(elem_dtype, _) = array.dtype() else {
-        vortex_bail!("Array must be of List type");
-    };
-    if !elem_dtype.eq_ignore_nullability(value.dtype()) {
-        vortex_bail!("Element type of ListArray does not match search value");
+    LIST_CONTAINS_FN
+        .invoke(&InvocationArgs {
+            inputs: &[array.into(), value.into()],
+            options: &(),
+        })?
+        .unwrap_array()
+}
+
+pub struct ListContains;
+
+impl ComputeFnVTable for ListContains {
+    fn invoke(
+        &self,
+        args: &InvocationArgs,
+        kernels: &[ArcRef<dyn Kernel>],
+    ) -> VortexResult<Output> {
+        let BinaryArgs {
+            lhs: array,
+            rhs: value,
+            ..
+        } = BinaryArgs::<()>::try_from(args)?;
+
+        let DType::List(elem_dtype, _) = array.dtype() else {
+            vortex_bail!("Array must be of List type");
+        };
+        if !elem_dtype.as_ref().eq_ignore_nullability(value.dtype()) {
+            vortex_bail!(
+                "Element type {} of ListArray does not match search value {}",
+                elem_dtype,
+                value.dtype(),
+            );
+        };
+
+        if value.all_invalid()? || array.all_invalid()? {
+            return Ok(Output::Array(
+                ConstantArray::new(
+                    Scalar::null(DType::Bool(Nullability::Nullable)),
+                    array.len(),
+                )
+                .to_array(),
+            ));
+        }
+
+        for kernel in kernels {
+            if let Some(output) = kernel.invoke(args)? {
+                return Ok(output);
+            }
+        }
+        if let Some(output) = array.invoke(&LIST_CONTAINS_FN, args)? {
+            return Ok(output);
+        }
+
+        let nullability = array.dtype().nullability() | value.dtype().nullability();
+
+        let result = if let Some(value_scalar) = value.as_constant() {
+            list_contains_scalar(array, &value_scalar, nullability)
+        } else if let Some(list_scalar) = array.as_constant() {
+            constant_list_scalar_contains(&list_scalar.as_list(), value, nullability)
+        } else {
+            todo!("unsupported list contains with list and element as arrays")
+        };
+
+        result.map(Output::Array)
     }
 
-    if value.all_invalid()? || array.all_invalid()? {
-        return Ok(ConstantArray::new(
-            Scalar::null(DType::Bool(Nullability::Nullable)),
-            array.len(),
-        )
-        .to_array());
+    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
+        let input = BinaryArgs::<()>::try_from(args)?;
+        Ok(DType::Bool(
+            input.lhs.dtype().nullability() | input.rhs.dtype().nullability(),
+        ))
     }
 
-    let nullability = array.dtype().nullability() | value.dtype().nullability();
+    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
+        Ok(BinaryArgs::<()>::try_from(args)?.lhs.len())
+    }
 
-    if let Some(value_scalar) = value.as_constant() {
-        list_contains_scalar(array, &value_scalar, nullability)
-    } else if let Some(list_scalar) = array.as_constant() {
-        constant_list_scalar_contains(&list_scalar.as_list(), value, nullability)
-    } else {
-        todo!("unsupported list contains with list and element as arrays")
+    fn is_elementwise(&self) -> bool {
+        true
     }
 }
+
+pub trait ListContainsKernel: VTable {
+    fn list_contains(
+        &self,
+        list: &dyn Array,
+        element: &Self::Array,
+    ) -> VortexResult<Option<ArrayRef>>;
+}
+
+pub struct ListContainsKernelRef(ArcRef<dyn Kernel>);
+inventory::collect!(ListContainsKernelRef);
+
+#[derive(Debug)]
+pub struct ListContainsKernelAdapter<V: VTable>(pub V);
+
+impl<V: VTable + ListContainsKernel> ListContainsKernelAdapter<V> {
+    pub const fn lift(&'static self) -> ListContainsKernelRef {
+        ListContainsKernelRef(ArcRef::new_ref(self))
+    }
+}
+
+impl<V: VTable + ListContainsKernel> Kernel for ListContainsKernelAdapter<V> {
+    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
+        let BinaryArgs {
+            lhs: array,
+            rhs: value,
+            ..
+        } = BinaryArgs::<()>::try_from(args)?;
+        let Some(value) = value.as_opt::<V>() else {
+            return Ok(None);
+        };
+        self.0
+            .list_contains(array, value)
+            .map(|c| c.map(Output::Array))
+    }
+}
+
+pub static LIST_CONTAINS_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("list_contains".into(), ArcRef::new_ref(&ListContains));
+    for kernel in inventory::iter::<ListContainsKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
 
 // Then there is a constant list scalar (haystack) being compared to an array of needles.
 fn constant_list_scalar_contains(
@@ -121,7 +225,7 @@ fn list_contains_scalar(
     let elems = list_array.elements();
     if elems.is_empty() {
         // Must return false when a list is empty (but valid), or null when the list itself is null.
-        return list_false_or_null(&list_array);
+        return list_false_or_null(&list_array, nullability);
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
@@ -139,7 +243,7 @@ fn list_contains_scalar(
                     "Search value must not be null here"
                 );
                 // False, unless the list itself is null in which case we return null.
-                list_false_or_null(&list_array)
+                list_false_or_null(&list_array, nullability)
             }
             // No elements match, and all comparisons are valid (result in `false`).
             Some(false) => {
@@ -152,7 +256,7 @@ fn list_contains_scalar(
             // All elements match, and all comparisons are valid (result in `true`).
             Some(true) => {
                 // True, unless the list itself is empty or NULL.
-                list_is_not_empty(&list_array)
+                list_is_not_empty(&list_array, nullability)
             }
         };
     }
@@ -169,11 +273,11 @@ fn list_contains_scalar(
 
 /// Returns a `Bool` array with `false` for lists that are valid,
 /// or `NULL` if the list itself is null.
-fn list_false_or_null(list_array: &ListArray) -> VortexResult<ArrayRef> {
+fn list_false_or_null(list_array: &ListArray, nullability: Nullability) -> VortexResult<ArrayRef> {
     match list_array.validity() {
         Validity::NonNullable => {
             // All false.
-            Ok(ConstantArray::new::<bool>(false, list_array.len()).into_array())
+            Ok(ConstantArray::new(Scalar::bool(false, nullability), list_array.len()).into_array())
         }
         Validity::AllValid => {
             // All false, but nullable.
@@ -200,7 +304,7 @@ fn list_false_or_null(list_array: &ListArray) -> VortexResult<ArrayRef> {
 
 /// Returns a `Bool` array with `true` for lists which are NOT empty, or `false` if they are empty,
 /// or `NULL` if the list itself is null.
-fn list_is_not_empty(list_array: &ListArray) -> VortexResult<ArrayRef> {
+fn list_is_not_empty(list_array: &ListArray, nullability: Nullability) -> VortexResult<ArrayRef> {
     // Short-circuit for all invalid.
     if matches!(list_array.validity(), Validity::AllInvalid) {
         return Ok(ConstantArray::new(
@@ -216,7 +320,11 @@ fn list_is_not_empty(list_array: &ListArray) -> VortexResult<ArrayRef> {
     });
 
     // Copy over the validity mask from the input.
-    Ok(BoolArray::new(buffer, list_array.validity().clone()).into_array())
+    Ok(BoolArray::new(
+        buffer,
+        list_array.validity().clone().union_nullability(nullability),
+    )
+    .into_array())
 }
 
 /// Reduces each boolean values into a Mask that indicates which elements in the
@@ -335,12 +443,7 @@ mod tests {
             .into_array()
     }
 
-    fn bool_array(values: Vec<bool>, validity: Option<Vec<bool>>) -> BoolArray {
-        let validity = match validity {
-            None => Validity::NonNullable,
-            Some(v) => Validity::from_iter(v),
-        };
-
+    fn bool_array(values: Vec<bool>, validity: Validity) -> BoolArray {
         BoolArray::new(values.into_iter().collect(), validity)
     }
 
@@ -348,49 +451,49 @@ mod tests {
     #[case(
         nonnull_strings(vec![vec![], vec!["a"], vec!["a", "b"]]),
         Some("a"),
-        bool_array(vec![false, true, true], None)
+        bool_array(vec![false, true, true], Validity::NonNullable)
     )]
     // Cast 2: valid scalar search over nullable list, with all nulls matched
     #[case(
         null_strings(vec![vec![], vec![Some("a"), None], vec![Some("a"), None, Some("b")]]),
         Some("a"),
-        bool_array(vec![false, true, true], Some(vec![true, true, true]))
+        bool_array(vec![false, true, true], Validity::AllValid)
     )]
     // Cast 3: valid scalar search over nullable list, with some nulls not matched (return no nulls)
     #[case(
         null_strings(vec![vec![], vec![Some("a"), None], vec![Some("b"), None, None]]),
         Some("a"),
-        bool_array(vec![false, true, false], Some(vec![true, true, true]))
+        bool_array(vec![false, true, false], Validity::AllValid)
     )]
     // Case 4: list(utf8) with all elements matching, but some empty lists
     #[case(
         nonnull_strings(vec![vec![], vec!["a"], vec!["a"]]),
         Some("a"),
-        bool_array(vec![false, true, true], None)
+        bool_array(vec![false, true, true], Validity::NonNullable)
     )]
     // Case 5: list(utf8) all lists empty.
     #[case(
         nonnull_strings(vec![vec![], vec![], vec![]]),
         Some("a"),
-        bool_array(vec![false, false, false], None)
+        bool_array(vec![false, false, false], Validity::NonNullable)
     )]
     // Case 6: list(utf8) no elements matching.
     #[case(
         nonnull_strings(vec![vec!["b"], vec![], vec!["b"]]),
         Some("a"),
-        bool_array(vec![false, false, false], None)
+        bool_array(vec![false, false, false], Validity::NonNullable)
     )]
     // Case 7: list(utf8?) with empty + NULL elements and NULL search
     #[case(
         null_strings(vec![vec![], vec![None, None], vec![None, None, None]]),
         None,
-        bool_array(vec![false, true, true], Some(vec![false, false, false]))
+        bool_array(vec![false, true, true], Validity::AllInvalid)
     )]
     // Case 8: list(utf8?) with empty + NULL elements and search scalar
     #[case(
         null_strings(vec![vec![], vec![None, None], vec![None, None, None]]),
         Some("a"),
-        bool_array(vec![false, false, false], None)
+        bool_array(vec![false, false, false], Validity::AllValid)
     )]
     fn test_contains_nullable(
         #[case] list_array: ArrayRef,

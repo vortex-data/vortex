@@ -52,7 +52,7 @@ impl Pack {
         names: FieldNames,
         values: Vec<ExprRef>,
         nullability: Nullability,
-    ) -> VortexResult<Arc<Self>> {
+    ) -> VortexResult<ExprRef> {
         if names.len() != values.len() {
             vortex_bail!("length mismatch {} {}", names.len(), values.len());
         }
@@ -113,7 +113,9 @@ impl Display for Pack {
 
 #[cfg(feature = "proto")]
 pub(crate) mod proto {
+
     use vortex_error::{VortexResult, vortex_bail};
+    use vortex_proto::expr::kind;
     use vortex_proto::expr::kind::Kind;
 
     use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Pack};
@@ -127,8 +129,16 @@ pub(crate) mod proto {
     }
 
     impl ExprDeserialize for PackSerde {
-        fn deserialize(&self, _kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            todo!()
+        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            let Kind::Pack(op) = kind else {
+                vortex_bail!("wrong kind {:?}, wanted pack", kind)
+            };
+
+            Pack::try_new_expr(
+                op.paths.iter().cloned().map(|p| p.into()).collect(),
+                children,
+                op.nullable.into(),
+            )
         }
     }
 
@@ -138,7 +148,10 @@ pub(crate) mod proto {
         }
 
         fn serialize_kind(&self) -> VortexResult<Kind> {
-            vortex_bail!(NotImplemented: "", self.id())
+            Ok(Kind::Pack(kind::Pack {
+                paths: self.names.iter().map(|n| n.to_string()).collect(),
+                nullable: self.nullability.into(),
+            }))
         }
     }
 }
@@ -199,7 +212,7 @@ mod tests {
     use vortex_dtype::{FieldNames, Nullability};
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{Pack, Scope, VortexExpr, col};
+    use crate::{Pack, Scope, col};
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[

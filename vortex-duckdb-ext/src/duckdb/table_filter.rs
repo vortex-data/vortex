@@ -2,6 +2,9 @@ use std::ffi::CStr;
 use std::fmt::{Debug, Formatter};
 use std::ptr;
 
+use vortex::error::VortexExpect;
+
+use crate::cpp::idx_t;
 use crate::duckdb::Value;
 use crate::{cpp, wrapper};
 
@@ -15,6 +18,32 @@ impl TableFilterSet {
         } else {
             Some(unsafe { TableFilter::borrow(ptr) })
         }
+    }
+
+    pub fn len(&self) -> idx_t {
+        unsafe { cpp::duckdb_vx_table_filter_set_size(self.as_ptr()) }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl<'a> IntoIterator for &'a TableFilterSet {
+    type Item = (idx_t, TableFilter);
+    type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Box::new(
+            (0..self.len())
+                .map(move |i| (i, self.get(i).vortex_expect("inside filter set bounds"))),
+        )
+    }
+}
+
+impl Debug for TableFilterSet {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_map().entries(self).finish()
     }
 }
 

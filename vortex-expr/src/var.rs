@@ -137,8 +137,8 @@ impl VortexExpr for Var {
     }
 }
 
-pub fn var(ident: Identifier) -> ExprRef {
-    Var::new_expr(ident)
+pub fn var(ident: impl Into<Identifier>) -> ExprRef {
+    Var::new_expr(ident.into())
 }
 
 /// Return a global pointer to the identity token.
@@ -170,7 +170,7 @@ mod tests {
         let a1 = PrimitiveArray::new(buffer![5, 4, 3, 2, 1, 0], Validity::AllValid).to_array();
         let a2 = PrimitiveArray::from_iter(1..=6).to_array();
 
-        let expr = eq(var(Identifier::Identity), var("row".parse().unwrap()));
+        let expr = eq(var(Identifier::Identity), var("row"));
         let res = expr
             .evaluate(&Scope::new(a1).with_array("row".parse().unwrap(), a2))
             .unwrap();

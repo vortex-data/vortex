@@ -151,7 +151,7 @@ impl SegmentSource for EventsSegmentSource {
 }
 
 /// A pending segment returned by the [`SegmentSource`].
-pub struct PendingSegment {
+struct PendingSegment {
     id: SegmentId,
     /// A weak shared future that we hand out to all requesters. Once all requesters have been
     /// dropped, typically because their row split has completed (or been pruned), then the weak

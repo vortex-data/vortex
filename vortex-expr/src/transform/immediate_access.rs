@@ -1,10 +1,10 @@
-use itertools::Itertools;
 use vortex_dtype::{FieldName, StructFields};
 use vortex_error::{VortexResult, vortex_err};
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::traversal::{Node, NodeVisitor, TraversalOrder};
+use crate::transform::access_analysis::AccessesAnalysis;
+use crate::traversal::TraversalOrder;
 use crate::{ExprRef, GetItem, Select, is_root};
 
 pub type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
@@ -20,7 +20,25 @@ pub fn immediate_scope_accesses<'a>(
     expr: &'a ExprRef,
     scope_dtype: &'a StructFields,
 ) -> VortexResult<FieldAccesses<'a>> {
-    ImmediateScopeAccessesAnalysis::<'a>::analyze(expr, scope_dtype)
+    AccessesAnalysis::analyze(expr, move |node| {
+        assert!(
+            !node.as_any().is::<Select>(),
+            "cannot analyse select, simplify the expression"
+        );
+        if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
+            if is_root(get_item.child()) {
+                return (TraversalOrder::Skip, vec![get_item.field().clone()]);
+            }
+        } else if is_root(node) {
+            let st_dtype = &scope_dtype;
+            return (
+                TraversalOrder::Skip,
+                st_dtype.names().iter().cloned().collect(),
+            );
+        }
+
+        (TraversalOrder::Continue, vec![])
+    })
 }
 
 /// This returns the immediate scope_access (as explained `immediate_scope_accesses`) for `expr`.
@@ -28,73 +46,10 @@ pub fn immediate_scope_access<'a>(
     expr: &'a ExprRef,
     scope_dtype: &'a StructFields,
 ) -> VortexResult<HashSet<FieldName>> {
-    ImmediateScopeAccessesAnalysis::<'a>::analyze(expr, scope_dtype)?
+    immediate_scope_accesses(expr, scope_dtype)?
         .get(expr)
         .ok_or_else(|| {
             vortex_err!("Expression missing from scope accesses, this is a internal bug")
         })
         .cloned()
-}
-
-struct ImmediateScopeAccessesAnalysis<'a> {
-    sub_expressions: FieldAccesses<'a>,
-    scope_dtype: &'a StructFields,
-}
-
-impl<'a> ImmediateScopeAccessesAnalysis<'a> {
-    fn new(scope_dtype: &'a StructFields) -> Self {
-        Self {
-            sub_expressions: HashMap::new(),
-            scope_dtype,
-        }
-    }
-
-    fn analyze(
-        expr: &'a ExprRef,
-        scope_dtype: &'a StructFields,
-    ) -> VortexResult<FieldAccesses<'a>> {
-        let mut analysis = Self::new(scope_dtype);
-        expr.accept(&mut analysis)?;
-        Ok(analysis.sub_expressions)
-    }
-}
-
-impl<'a> NodeVisitor<'a> for ImmediateScopeAccessesAnalysis<'a> {
-    type NodeTy = ExprRef;
-
-    fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
-        assert!(
-            !node.as_any().is::<Select>(),
-            "cannot analyze select, simplify the expression"
-        );
-        if let Some(get_item) = node.as_any().downcast_ref::<GetItem>() {
-            if is_root(get_item.child()) {
-                self.sub_expressions
-                    .insert(node, HashSet::from_iter(vec![get_item.field().clone()]));
-
-                return Ok(TraversalOrder::Skip);
-            }
-        } else if is_root(node) {
-            let st_dtype = &self.scope_dtype;
-            self.sub_expressions
-                .insert(node, st_dtype.names().iter().cloned().collect());
-        }
-
-        Ok(TraversalOrder::Continue)
-    }
-
-    fn visit_up(&mut self, node: &'a ExprRef) -> VortexResult<TraversalOrder> {
-        let accesses = node
-            .children()
-            .iter()
-            .filter_map(|c| self.sub_expressions.get(c).cloned())
-            .collect_vec();
-
-        let node_accesses = self.sub_expressions.entry(node).or_default();
-        accesses
-            .into_iter()
-            .for_each(|fields| node_accesses.extend(fields.iter().cloned()));
-
-        Ok(TraversalOrder::Continue)
-    }
 }

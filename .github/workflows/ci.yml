@@ -327,7 +327,9 @@ jobs:
         if: github.ref == 'refs/heads/develop'
         uses: taiki-e/install-action@grcov
       - name: Install nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9.98
       - name: Rust Tests
         # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
@@ -359,8 +361,14 @@ jobs:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      # TODO(ngates): we should run tests here when they pass!
-      - run: ./gradlew shadowJar
+      # Build vortex-jni shared library, and copy into JAR.
+      - name: Build vortex-jni
+        run: |
+          cargo build -p vortex-jni
+          mkdir -p java/vortex-jni/src/main/resources/native/linux-amd64
+          cargo xtask java-test-files
+          cp target/debug/libvortex_jni.so java/vortex-jni/src/main/resources/native/linux-amd64
+      - run: ./gradlew test
         working-directory: ./java
 
   bench-codspeed:
@@ -456,7 +464,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - uses: taiki-e/install-action@v2
         with:
-          tool: nextest
+          tool: nextest@0.9.98
       - name: Run all tests with Miri
         run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar --exclude vortex-duckdb --exclude vortex-duckdb-ext
         # For now, we only run Miri against known "fiddly" crates.

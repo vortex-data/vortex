@@ -29,6 +29,9 @@ testing {
     suites {
         val test by getting(JvmTestSuite::class) {
             useJUnitJupiter()
+            dependencies {
+                implementation("org.junit.jupiter:junit-jupiter-params")
+            }
         }
     }
 }

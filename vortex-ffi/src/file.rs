@@ -1,6 +1,7 @@
 //! FFI interface for Vortex File I/O.
 
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
+use std::ops::Range;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{ptr, slice};
@@ -14,9 +15,10 @@ use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, deserialize_expr, root, select};
+use vortex::expr::{ExprRef, deserialize_expr};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
+use vortex::layout::layouts::row_id::RowIdLayoutReader;
 use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 
@@ -25,7 +27,7 @@ use crate::array_iterator::vx_array_iterator;
 use crate::dtype::vx_dtype;
 use crate::error::{try_or, vx_error};
 use crate::session::{FileKey, vx_session};
-use crate::{RUNTIME, arc_wrapper, to_string, to_string_vec};
+use crate::{RUNTIME, arc_wrapper, to_string_vec};
 
 arc_wrapper!(
     /// A handle to a Vortex file encapsulating ther footer and logic for instantiating a reader.
@@ -56,10 +58,10 @@ pub struct vx_file_open_options {
 // FIXME(ngates): we cannot have transparent structs in FFI since we cannot break them.
 pub struct vx_file_scan_options {
     /// Column names to project out in the scan. These must be null-terminated C strings.
-    pub projection: *const *const c_char,
+    pub projection_expression: *const c_char,
 
     /// Number of columns in `projection`.
-    pub projection_len: c_uint,
+    pub projection_expr_len: c_uint,
 
     /// Serialized expressions for pushdown
     pub filter_expression: *const c_char,
@@ -75,26 +77,22 @@ pub struct vx_file_scan_options {
 
     /// Last row of a range to scan.
     pub row_range_end: c_ulong,
+
+    /// The index of the file in a multi-file scan.
+    pub file_index: c_ulong,
 }
 
-fn extract_filter_expression(
-    filter_expression: *const c_char,
-    filter_expression_len: c_uint,
+fn extract_expression(
+    expression: *const c_char,
+    expression_len: c_uint,
 ) -> VortexResult<Option<ExprRef>> {
-    Ok(
-        (!filter_expression.is_null() && filter_expression_len > 0).then_some({
-            let bytes = unsafe {
-                slice::from_raw_parts(
-                    filter_expression as *const u8,
-                    filter_expression_len as usize,
-                )
-            };
+    Ok((!expression.is_null() && expression_len > 0).then_some({
+        let bytes =
+            unsafe { slice::from_raw_parts(expression as *const u8, expression_len as usize) };
 
-            // Decode the protobuf message.
-            deserialize_expr(&Expr::decode(bytes)?)
-                .map_err(|e| e.with_context("deserializing expr"))?
-        }),
-    )
+        // Decode the protobuf message.
+        deserialize_expr(&Expr::decode(bytes)?).map_err(|e| e.with_context("deserializing expr"))?
+    }))
 }
 
 impl vx_file_scan_options {
@@ -103,12 +101,10 @@ impl vx_file_scan_options {
     /// Extracts and converts a scan configuration from an FFI options struct.
     fn process_scan_options(&self) -> VortexResult<ScanOptions> {
         // Extract field names for projection.
-        let field_names = (0..self.projection_len)
-            .map(|idx| unsafe { to_string(*self.projection.add(idx as usize)).into() })
-            .collect::<Vec<Arc<str>>>();
+        let projection_expr =
+            extract_expression(self.projection_expression, self.projection_expr_len)?;
 
-        let filter_expr =
-            extract_filter_expression(self.filter_expression, self.filter_expression_len)?;
+        let filter_expr = extract_expression(self.filter_expression, self.filter_expression_len)?;
 
         let row_range = (self.row_range_end > self.row_range_start)
             .then_some(self.row_range_start..self.row_range_end);
@@ -117,10 +113,11 @@ impl vx_file_scan_options {
             .then_some(SplitBy::RowCount(self.split_by_row_count as usize));
 
         Ok(ScanOptions {
-            field_names: Some(field_names),
+            projection_expr,
             filter_expr,
             split_by,
             row_range,
+            file_index: self.file_index,
         })
     }
 }
@@ -204,12 +201,13 @@ pub unsafe extern "C-unwind" fn vx_file_row_count(file: *const vx_file) -> u64 {
     vx_file::as_ref(file).row_count()
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct ScanOptions {
-    field_names: Option<Vec<Arc<str>>>,
+    projection_expr: Option<ExprRef>,
     filter_expr: Option<ExprRef>,
     split_by: Option<SplitBy>,
-    row_range: Option<std::ops::Range<u64>>,
+    row_range: Option<Range<u64>>,
+    file_index: u64,
 }
 
 /// Return a borrowed reference to the DType of the file.
@@ -224,13 +222,14 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
     file: *const vx_file,
     filter_expression: *const c_char,
     filter_expression_len: c_uint,
+    file_idx: c_ulong,
     error: *mut *mut vx_error,
 ) -> bool {
     try_or(error, false, || {
         let file = vx_file::as_ref(file);
-        let filter_expr = extract_filter_expression(filter_expression, filter_expression_len)?;
+        let filter_expr = extract_expression(filter_expression, filter_expression_len)?;
         Ok(filter_expr
-            .map(|expr| file.can_prune(&expr))
+            .map(|expr| file.can_prune(&expr, file_idx))
             .transpose()?
             .unwrap_or(false))
     })
@@ -252,12 +251,15 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         )?;
 
         let layout_reader = file.layout_reader()?;
-        let mut scan_builder = ScanBuilder::new(layout_reader.clone());
+        let layout_reader = Arc::new(RowIdLayoutReader::new_with_file_index(
+            layout_reader,
+            scan_options.file_index,
+        ));
+        let mut scan_builder = ScanBuilder::new(layout_reader);
 
         // Apply options if provided.
-        if let Some(field_names) = scan_options.field_names {
-            // Field names are allowed to be `Some` and empty.
-            scan_builder = scan_builder.with_projection(select(field_names, root()));
+        if let Some(projection_expr) = scan_options.projection_expr {
+            scan_builder = scan_builder.with_projection(projection_expr);
         }
 
         if let Some(expr) = scan_options.filter_expr {

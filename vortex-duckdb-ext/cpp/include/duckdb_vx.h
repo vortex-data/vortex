@@ -1,9 +1,11 @@
 #pragma once
 
 #include "duckdb_vx/data.h"
+#include "duckdb_vx/data_chunk.h"
 #include "duckdb_vx/error.h"
 #include "duckdb_vx/expr.h"
 #include "duckdb_vx/scalar_function.h"
 #include "duckdb_vx/table_filter.h"
 #include "duckdb_vx/table_function.h"
+#include "duckdb_vx/logical_type.h"
 #include "duckdb_vx/vector.h"

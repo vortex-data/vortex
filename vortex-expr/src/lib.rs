@@ -2,6 +2,7 @@
 
 use std::any::Any;
 use std::fmt::{Debug, Display};
+use std::hash::Hash;
 use std::sync::Arc;
 
 use dyn_hash::DynHash;
@@ -60,7 +61,7 @@ use vortex_proto::expr;
 use vortex_proto::expr::{Expr, kind};
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::traversal::{Node, ReferenceCollector};
+use crate::traversal::{Node, ReferenceCollector, VarsCollector};
 
 pub type ExprRef = Arc<dyn VortexExpr>;
 
@@ -123,18 +124,27 @@ pub trait VortexExpr:
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
-    fn references(&self) -> HashSet<FieldName>;
+    fn field_references(&self) -> HashSet<FieldName>;
+
+    fn vars(&self) -> HashSet<Identifier>;
 
     #[cfg(feature = "proto")]
     fn serialize(&self) -> VortexResult<Expr>;
 }
 
 impl VortexExprExt for ExprRef {
-    fn references(&self) -> HashSet<FieldName> {
+    fn field_references(&self) -> HashSet<FieldName> {
         let mut collector = ReferenceCollector::new();
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
         collector.into_fields()
+    }
+
+    fn vars(&self) -> HashSet<Identifier> {
+        let mut collector = VarsCollector::new();
+        // The collector is infallible, so we can unwrap the result
+        self.accept(&mut collector).vortex_unwrap();
+        collector.into_vars()
     }
 
     #[cfg(feature = "proto")]
@@ -226,6 +236,24 @@ impl PartialEq for dyn VortexExpr {
 impl Eq for dyn VortexExpr {}
 
 dyn_hash::hash_trait_object!(VortexExpr);
+
+/// An expression wrapper that performs pointer equality.
+#[derive(Clone)]
+pub struct ExactExpr(pub ExprRef);
+
+impl PartialEq for ExactExpr {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ExactExpr {}
+
+impl Hash for ExactExpr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.0).hash(state)
+    }
+}
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
@@ -387,7 +415,6 @@ mod tests {
 
     #[cfg(feature = "proto")]
     mod tests_proto {
-
         use crate::{VortexExprExt, deserialize_expr, eq, lit, root};
 
         #[test]

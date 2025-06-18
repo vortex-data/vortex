@@ -1,0 +1,12 @@
+[package]
+name = "testfiles"
+version = "0.1.0"
+description = "Generate Vortex files for Java integration tests"
+authors = ["Vortex Authors <hello@vortex.dev>"]
+license = "Apache-2.0"
+repository = "https://github.com/vortex-data/vortex"
+edition = "2024"
+
+[dependencies]
+futures = "0.3"
+vortex = { path = "../../vortex", features = ["files"] }

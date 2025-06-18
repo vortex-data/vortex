@@ -6,12 +6,12 @@ use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, OperationsVTable, VTable, ValidityHelper,
-    ValidityVTableFromValidityHelper,
+    ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
 };
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_err};
+use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
@@ -20,26 +20,24 @@ use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
 const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;
 
 // Overall approach here:
-// Zstd can be used on the whole array (rows_per_frame = 0), resulting in a single Zstd
-// frame, or it can be used with a dictionary (rows_per_frame < # rows), resulting in
+// Zstd can be used on the whole array (values_per_frame = 0), resulting in a single Zstd
+// frame, or it can be used with a dictionary (values_per_frame < # values), resulting in
 // multiple Zstd frames sharing a common dictionary. This latter case is helpful if you
 // want somewhat faster access to slices or individual rows, allowing us to only
 // decompress the necessary frames.
 
-// Visually, during compression and decompression, we have an interval of frames we're
-// compressing/decompressing and a tighter interval of the slice we actually care about:
+// Visually, during decompression, we have an interval of frames we're
+// decompressing and a tighter interval of the slice we actually care about.
 //
-// |=====================validity========================|
-// |=======================rows==========================|
-//    |----------------frames_rows-------------------|
-//    <--row_offset->|----slice-------------------|
-//                   ^                            ^
-//                   |<------slice_n_rows-------->|
-//                slice_start                 slice_stop
+// |=============values (all valid elements)==============|
+// |<-skipped_uncompressed->|----decompressed-------------|
+//                              |------slice-------|
+//                              ^                  ^
+// |<-slice_uncompressed_start->|                  |
+// |<------------slice_uncompressed_stop---------->|
 //
-// |=====values (all valid elements)====|
-//     |-------frames_values------|
-//         |----slice_values-----|
+// We then insert these values to the correct position using a primitive array
+// constructor.
 
 vtable!(Zstd);
 
@@ -50,7 +48,7 @@ impl VTable for ZstdVTable {
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
@@ -72,9 +70,10 @@ pub struct ZstdEncoding;
 pub struct ZstdArray {
     pub(crate) dictionary: Option<ByteBuffer>,
     pub(crate) frames: Vec<ByteBuffer>,
-    pub(crate) validity: Validity,
     pub(crate) metadata: ZstdMetadata,
     dtype: DType,
+    pub(crate) unsliced_validity: Validity,
+    unsliced_n_rows: usize,
     stats_set: ArrayStats,
     slice_start: usize,
     slice_stop: usize,
@@ -105,48 +104,42 @@ impl ZstdArray {
         Self {
             dictionary,
             frames,
-            validity,
             metadata,
             dtype,
+            unsliced_validity: validity,
+            unsliced_n_rows: n_rows,
             stats_set: Default::default(),
             slice_start: 0,
             slice_stop: n_rows,
         }
     }
 
-    pub fn uncompressed_size(&self) -> usize {
-        (self.slice_stop - self.slice_start) * self.dtype.as_ptype().byte_width()
-    }
-
     pub fn from_primitive(
         parray: &PrimitiveArray,
         level: i32,
-        rows_per_frame: usize,
+        values_per_frame: usize,
     ) -> VortexResult<Self> {
         let dtype = parray.dtype().clone();
         let byte_width = parray.ptype().byte_width();
-        let mask = parray.validity_mask()?;
-        let n_rows = parray.len();
-        let rows_per_frame = if rows_per_frame > 0 {
-            rows_per_frame
-        } else {
-            n_rows
-        };
-        let frame_row_indices = (0..n_rows).step_by(rows_per_frame).collect::<Vec<_>>();
-        let n_frames = frame_row_indices.len();
 
         // We compress only the valid elements.
         let values = collect_valid(parray)?;
-        let mut valid_counts = mask.valid_counts_for_indices(&frame_row_indices)?;
-        valid_counts.push(values.len()); // for convenience
-        let values = values.byte_buffer();
-        let value_bytes = values.inner();
+        let n_values = values.len();
+        let values_per_frame = if values_per_frame > 0 {
+            values_per_frame
+        } else {
+            n_values
+        };
+
+        let mut frame_value_starts = (0..n_values).step_by(values_per_frame).collect::<Vec<_>>();
+        let n_frames = frame_value_starts.len();
+        frame_value_starts.push(values.len()); // for convenience, include the stop of the last frame
+        let value_bytes = values.byte_buffer();
 
         // Would-be sample sizes if we end up applying zstd dictionary
-        let sample_sizes: Vec<usize> = valid_counts
+        let sample_sizes: Vec<usize> = frame_value_starts
             .windows(2)
             .map(|pair| (pair[1] - pair[0]) * byte_width)
-            .filter(|&size| size > 0)
             .collect();
         debug_assert_eq!(sample_sizes.iter().sum::<usize>(), value_bytes.len());
 
@@ -155,7 +148,7 @@ impl ZstdArray {
             (None, zstd::bulk::Compressor::new(level)?)
         } else {
             // with dictionary
-            let max_dict_size = choose_max_dict_size(values.len());
+            let max_dict_size = choose_max_dict_size(value_bytes.len());
             let dict = zstd::dict::from_continuous(value_bytes, &sample_sizes, max_dict_size)
                 .map_err(|err| VortexError::from(err).with_context("while training dictionary"))?;
 
@@ -166,16 +159,12 @@ impl ZstdArray {
         let mut frame_metas = vec![];
         let mut frames = vec![];
         for i in 0..n_frames {
-            let uncompressed =
-                &value_bytes.slice(valid_counts[i] * byte_width..valid_counts[i + 1] * byte_width);
+            let uncompressed = &value_bytes
+                .slice(frame_value_starts[i] * byte_width..frame_value_starts[i + 1] * byte_width);
             let compressed = compressor
                 .compress(uncompressed)
                 .map_err(|err| VortexError::from(err).with_context("while compressing"))?;
-            let frame_n_rows = (frame_row_indices.get(i + 1).cloned().unwrap_or(n_rows)
-                - frame_row_indices[i]) as u64;
             frame_metas.push(ZstdFrameMetadata {
-                n_rows: frame_n_rows,
-                compressed_size: compressed.len() as u64,
                 uncompressed_size: uncompressed.len() as u64,
             });
             frames.push(ByteBuffer::from(compressed));
@@ -194,14 +183,14 @@ impl ZstdArray {
             frames,
             dtype,
             metadata,
-            n_rows,
+            parray.len(),
             parray.validity().clone(),
         ))
     }
 
-    pub fn from_array(array: ArrayRef, level: i32, rows_per_frame: usize) -> VortexResult<Self> {
+    pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            Self::from_primitive(parray, level, rows_per_frame)
+            Self::from_primitive(parray, level, values_per_frame)
         } else {
             Err(vortex_err!("Zstd can only encode primitive arrays"))
         }
@@ -210,78 +199,79 @@ impl ZstdArray {
     pub fn decompress(&self) -> VortexResult<ArrayRef> {
         // To start, we figure out which frames we need to decompress, and with
         // what row offset into the first such frame.
+        let ptype = self.dtype.as_ptype();
+        let byte_width = ptype.byte_width();
         let slice_n_rows = self.slice_stop - self.slice_start;
-        let byte_width = self.dtype.as_ptype().byte_width();
-        let mut frame_start_row = 0;
-        let mut frame_idx_lb = 0;
-        let mut frame_idx_ub = 0;
-        let mut row_offset = 0;
-        for (i, frame_meta) in self.metadata.frames.iter().enumerate() {
-            let buf_stop = frame_start_row + usize::try_from(frame_meta.n_rows)?;
-            if frame_start_row < self.slice_start {
-                frame_idx_lb = i;
-                row_offset = self.slice_start - frame_start_row
+        let slice_value_indices = self
+            .unsliced_validity
+            .to_mask(self.unsliced_n_rows)?
+            .valid_counts_for_indices(&[self.slice_start, self.slice_stop])?;
+        let slice_uncompressed_start = slice_value_indices[0] * byte_width;
+        let slice_uncompressed_stop = slice_value_indices[1] * byte_width;
+
+        let mut frames_to_decompress = vec![];
+        let mut uncompressed_start = 0;
+        let mut uncompressed_size_to_decompress = 0;
+        let mut skipped_uncompressed = 0;
+        for (frame, frame_meta) in self.frames.iter().zip(&self.metadata.frames) {
+            if uncompressed_start >= slice_uncompressed_stop {
+                break;
             }
-            if frame_start_row < self.slice_stop {
-                frame_idx_ub = i + 1
+            let frame_uncompressed = usize::try_from(frame_meta.uncompressed_size)?;
+
+            let uncompressed_stop = uncompressed_start + frame_uncompressed;
+            if uncompressed_stop > slice_uncompressed_start {
+                // we need this frame
+                frames_to_decompress.push(frame);
+                uncompressed_size_to_decompress += frame_uncompressed;
+            } else {
+                skipped_uncompressed += frame_uncompressed;
             }
-            frame_start_row = buf_stop;
+            uncompressed_start = uncompressed_stop;
         }
 
         // then we actually decompress those frames
-        let frame_metas = &self.metadata.frames[frame_idx_lb..frame_idx_ub];
-        let total_uncompressed_size: usize = frame_metas
-            .iter()
-            .map(|meta| meta.uncompressed_size)
-            .sum::<u64>()
-            .try_into()?;
-
         let mut decompressor = if let Some(dictionary) = &self.dictionary {
             zstd::bulk::Decompressor::with_dictionary(dictionary)
         } else {
             zstd::bulk::Decompressor::new()
         }?;
-
-        // we could make this empty initialized for better performance
-        let mut frames_values_bytes = ByteBufferMut::with_capacity_aligned(
-            total_uncompressed_size,
+        let mut decompressed = ByteBufferMut::with_capacity_aligned(
+            uncompressed_size_to_decompress,
             Alignment::new(byte_width),
         );
         unsafe {
             // safety: we immediately fill all bytes in the following loop,
             // assuming our metadata's uncompressed size is correct
-            frames_values_bytes.set_len(total_uncompressed_size);
+            decompressed.set_len(uncompressed_size_to_decompress);
         }
-        let mut start_byte = 0;
-        for (frame, meta) in self.frames[frame_idx_lb..frame_idx_ub]
-            .iter()
-            .zip(frame_metas)
-        {
-            let stop_byte = start_byte + usize::try_from(meta.uncompressed_size)?;
-            decompressor.decompress_to_buffer(
-                frame.as_slice(),
-                &mut frames_values_bytes[start_byte..stop_byte],
-            )?;
-            start_byte = stop_byte;
+        let mut uncompressed_start = 0;
+        for frame in frames_to_decompress {
+            let uncompressed_written = decompressor
+                .decompress_to_buffer(frame.as_slice(), &mut decompressed[uncompressed_start..])?;
+            uncompressed_start += uncompressed_written;
+        }
+        if uncompressed_start != uncompressed_size_to_decompress {
+            vortex_bail!(
+                "Zstd metadata or frames were corrupt; expected {} byte but decompressed {}",
+                uncompressed_size_to_decompress,
+                uncompressed_start
+            );
         }
 
-        // Last, we apply our offset. We need to copy since the decompressed
-        // frame start/end might not align with our slice. And we need to
-        // align the data to our (dynamic) dtype.
-        let frames_validity = self
-            .validity
-            .slice(self.slice_start - row_offset, self.slice_stop)?;
-        let frames_mask = frames_validity.to_mask(row_offset + slice_n_rows)?;
-        let frames_values_start_stop =
-            frames_mask.valid_counts_for_indices(&[row_offset, row_offset + slice_n_rows])?;
-        let slice_values_buffer = frames_values_bytes.freeze().slice(
-            frames_values_start_stop[0] * byte_width..frames_values_start_stop[1] * byte_width,
+        // Last, we slice the exact values requested out of the decompressed data.
+        let slice_validity = self
+            .unsliced_validity
+            .slice(self.slice_start, self.slice_stop)?;
+        let slice_values_buffer = decompressed.freeze().slice(
+            slice_uncompressed_start - skipped_uncompressed
+                ..slice_uncompressed_stop - skipped_uncompressed,
         );
 
         let primitive = PrimitiveArray::from_values_byte_buffer(
             slice_values_buffer,
-            self.dtype.as_ptype(),
-            frames_validity.slice(row_offset, row_offset + slice_n_rows)?,
+            ptype,
+            slice_validity,
             slice_n_rows,
         )?;
 
@@ -297,9 +287,9 @@ impl ZstdArray {
     }
 }
 
-impl ValidityHelper for ZstdArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+impl ValiditySliceHelper for ZstdArray {
+    fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize) {
+        (&self.unsliced_validity, self.slice_start, self.slice_stop)
     }
 }
 

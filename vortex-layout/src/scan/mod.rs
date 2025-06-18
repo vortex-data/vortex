@@ -25,6 +25,7 @@ use vortex_metrics::VortexMetrics;
 
 use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
+use crate::layouts::row_id::RowIdLayoutReader;
 use crate::scan::tasks::{TaskContext, split_exec};
 
 mod executor;
@@ -41,6 +42,7 @@ pub struct ScanBuilder<A> {
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
     /// The selection mask to apply to the selected row range.
+    // TODO(joe): replace this is usage of row_id selection, see
     selection: Selection,
     /// How to split the file for concurrent processing.
     split_by: SplitBy,
@@ -149,8 +151,10 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
     /// Returns the output [`DType`] of the scan.
     pub fn dtype(&self) -> VortexResult<DType> {
-        self.projection
-            .return_dtype(&ScopeDType::new(self.layout_reader.dtype().clone()))
+        self.projection.return_dtype(
+            &ScopeDType::new(self.layout_reader.dtype().clone())
+                .with_dtype_element(RowIdLayoutReader::row_id_scope_dtype()),
+        )
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
@@ -167,12 +171,11 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let layout_reader = if self.filter.is_some() {
-            Arc::new(FilterLayoutReader::new(self.layout_reader))
-        } else {
-            self.layout_reader
-        };
+        let mut layout_reader = self.layout_reader;
 
+        if self.filter.is_some() {
+            layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
+        }
         let ctx = ScopeDType::new(layout_reader.dtype().clone());
 
         // Normalize and simplify the expressions.

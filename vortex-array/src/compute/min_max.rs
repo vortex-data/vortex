@@ -10,9 +10,8 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output,
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
 
-/// Computes the min & max of an array, returning the (min, max) values
-/// The return values are (min, max) scalars, where None indicates that the value is non-existent
-/// (e.g. for an empty array).
+/// The minimum and maximum non-null values of an array, or None if there are no non-null values.
+///
 /// The return value dtype is the non-nullable version of the array dtype.
 ///
 /// This will update the stats set of this array (as a side effect).
@@ -146,8 +145,7 @@ fn min_max_impl(
     vortex_bail!(NotImplemented: "min_max", array.encoding_id());
 }
 
-/// Computes the min and max of an array, returning the (min, max) values
-/// If the array is empty or has only nulls, the result is `None`.
+/// The minimum and maximum non-null values of an array, or None if there are no non-null values.
 pub trait MinMaxKernel: VTable {
     fn min_max(&self, array: &Self::Array) -> VortexResult<Option<MinMaxResult>>;
 }

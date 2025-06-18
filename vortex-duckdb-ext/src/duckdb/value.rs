@@ -1,5 +1,7 @@
 use std::ffi::CStr;
+use std::fmt::{Debug, Formatter};
 
+use crate::duckdb::LogicalType;
 use crate::{cpp, wrapper};
 
 wrapper!(Value, cpp::duckdb_value, cpp::duckdb_destroy_value);
@@ -7,6 +9,11 @@ wrapper!(Value, cpp::duckdb_value, cpp::duckdb_destroy_value);
 impl Value {
     pub fn null() -> Self {
         unsafe { Self::own(cpp::duckdb_create_null_value()) }
+    }
+
+    /// Note the lifetime of logical type if tied to &self
+    pub fn logical_type(&self) -> LogicalType {
+        unsafe { LogicalType::borrow(cpp::duckdb_get_value_type(self.as_ptr())) }
     }
 
     pub fn new_decimal(precision: u8, scale: i8, value: i128) -> Self {
@@ -66,6 +73,15 @@ impl Value {
 
     pub fn as_string(&self) -> &CStr {
         unsafe { CStr::from_ptr(cpp::duckdb_get_varchar(self.as_ptr())) }
+    }
+}
+
+impl Debug for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let debug = unsafe { cpp::duckdb_value_to_string(self.as_ptr()) };
+        write!(f, "{}", unsafe { CStr::from_ptr(debug).to_string_lossy() })?;
+        unsafe { cpp::duckdb_free(debug.cast()) };
+        Ok(())
     }
 }
 

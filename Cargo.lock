@@ -552,6 +552,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "better_io"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92fde17f91e7ba10b2a07f8dff29530b77144894bc6ae850fbc66e1276af0d28"
+
+[[package]]
 name = "bigdecimal"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2136,6 +2142,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dtype_dispatch"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3a5ccdfd6c5e7e2fea9c5cf256f2a08216047fab19c621c3da64e9ae4a1462d"
+
+[[package]]
 name = "duckdb"
 version = "1.2.2"
 dependencies = [
@@ -2161,11 +2173,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "379464d1fbb69d1bbda7c11d96fafde6f2bdb78c67e630e6339b048e6e45107e"
 dependencies = [
  "arrow",
+ "calamine",
  "cast",
  "fallible-iterator",
  "fallible-streaming-iterator",
  "hashlink",
  "libduckdb-sys 1.3.0",
+ "num",
  "num-integer",
  "rust_decimal",
  "smallvec",
@@ -4129,6 +4143,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pco"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e5e35686bd1ed459b4617bdd0b9740d566cbe7b3116fee0d99c9d9237d6fe91"
+dependencies = [
+ "better_io",
+ "dtype_dispatch",
+ "half",
+ "rand_xoshiro",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4655,6 +4681,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "99d9a13982dcf210057a8a78572b2217b667c3beacbf3a0d8b454f6f82837d38"
 dependencies = [
  "getrandom 0.3.3",
+]
+
+[[package]]
+name = "rand_xoshiro"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f97cdb2a36ed4183de61b2f824cc45c9f1037f28afe0a322e9fff4c108b5aaa"
+dependencies = [
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -6196,6 +6231,7 @@ dependencies = [
  "vortex-layout",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-pco",
  "vortex-proto",
  "vortex-runend",
  "vortex-scalar",
@@ -6426,6 +6462,7 @@ dependencies = [
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-proto",
+ "vortex-utils",
 ]
 
 [[package]]
@@ -6442,14 +6479,18 @@ dependencies = [
 name = "vortex-duckdb-ext"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
  "bindgen",
  "bitvec",
  "cbindgen",
  "cc",
+ "crossbeam-queue",
  "duckdb 1.3.0",
+ "glob",
  "itertools 0.14.0",
  "num-traits",
  "reqwest",
+ "tempfile",
  "tokio",
  "vortex",
  "vortex-file",
@@ -6721,9 +6762,11 @@ dependencies = [
  "vortex-error",
  "vortex-expr",
  "vortex-flatbuffers",
+ "vortex-layout",
  "vortex-mask",
  "vortex-metrics",
  "vortex-scalar",
+ "vortex-sequence",
  "vortex-utils",
 ]
 
@@ -6743,6 +6786,21 @@ dependencies = [
  "getrandom 0.3.3",
  "parking_lot",
  "witchcraft-metrics",
+]
+
+[[package]]
+name = "vortex-pco"
+version = "0.1.0"
+dependencies = [
+ "half",
+ "pco",
+ "prost",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-scalar",
 ]
 
 [[package]]
@@ -6892,6 +6950,7 @@ dependencies = [
  "vortex-dict",
  "vortex-dtype",
  "vortex-error",
+ "vortex-mask",
  "vortex-scalar",
  "zstd",
 ]

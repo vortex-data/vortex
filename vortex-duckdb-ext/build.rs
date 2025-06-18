@@ -95,13 +95,24 @@ fn main() {
         .write_to_file(crate_dir.join("src/cpp.rs"))
         .expect("Couldn't write bindings!");
 
+    // To run against a local duckdb library use instead of `lib_path`
+    // println!(
+    //     "cargo:rustc-link-search=native={}",
+    //     "<>"
+    // );
+    // println!(
+    //     "cargo:rustc-link-arg=-Wl,-rpath,{}",
+    //     "<>"
+    // );
+    // println!("cargo:rustc-link-lib=static=duckdb");
+
     // Download and extract prebuilt DuckDB libraries.
     let zip_path = download_duckdb_archive().unwrap();
     let lib_path = extract_duckdb_libraries(zip_path).unwrap();
 
     // Link against DuckDB dylib.
     println!("cargo:rustc-link-search=native={}", lib_path.display());
-    println!("cargo:rustc-link-lib=dylib=duckdb");
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_path.display());
 
     if env::var("TARGET").unwrap().contains("linux") {
         println!("cargo:rustc-link-lib=stdc++");
@@ -119,10 +130,12 @@ fn main() {
         .include(duckdb_ext_dir.join("duckdb/src/include"))
         .include("cpp/include")
         .file("cpp/data.cpp")
+        .file("cpp/data_chunk.cpp")
         .file("cpp/error.cpp")
         .file("cpp/expr.cpp")
         .file("cpp/table_filter.cpp")
         .file("cpp/table_function.cpp")
+        .file("cpp/logical_type.cpp")
         .file("cpp/vector.cpp")
         .compile("vortex-duckdb-ext-extras");
 

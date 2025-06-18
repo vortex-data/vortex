@@ -158,8 +158,16 @@ impl StructArray {
     }
 
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
-        let names = items.iter().map(|(name, _)| FieldName::from(name.as_ref()));
-        let fields: Vec<ArrayRef> = items.iter().map(|(_, array)| array.to_array()).collect();
+        Self::try_from_iter(items.iter().map(|(a, b)| (a, b.to_array())))
+    }
+
+    pub fn try_from_iter<N: AsRef<str>, A: IntoArray, T: IntoIterator<Item = (N, A)>>(
+        iter: T,
+    ) -> VortexResult<Self> {
+        let (names, fields): (Vec<FieldName>, Vec<ArrayRef>) = iter
+            .into_iter()
+            .map(|(name, fields)| (FieldName::from(name.as_ref()), fields.into_array()))
+            .unzip();
         let len = fields
             .first()
             .map(|f| f.len())
@@ -202,6 +210,30 @@ impl StructArray {
             self.len(),
             self.validity().clone(),
         )
+    }
+
+    /// Removes and returns a column from the struct array by name.
+    /// If the column does not exist, returns `None`.
+    pub fn remove_column(&mut self, name: impl Into<FieldName>) -> Option<ArrayRef> {
+        let name = name.into();
+
+        let Some(struct_dtype) = self.dtype.as_struct() else {
+            unreachable!(
+                "struct arrays must have be a DType::Struct, this is likely an internal bug."
+            )
+        };
+
+        let position = struct_dtype
+            .names()
+            .iter()
+            .position(|field_name| field_name.as_ref() == name.as_ref())?;
+
+        let field = self.fields.remove(position);
+
+        let new_dtype = struct_dtype.without_field(position);
+        self.dtype = DType::Struct(Arc::new(new_dtype), self.dtype.nullability());
+
+        Some(field)
     }
 }
 
@@ -262,7 +294,7 @@ impl OperationsVTable<StructVTable> for StructVTable {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, FieldName, FieldNames, Nullability};
+    use vortex_dtype::{DType, FieldName, FieldNames, Nullability, PType};
 
     use crate::IntoArray;
     use crate::arrays::primitive::PrimitiveArray;
@@ -313,5 +345,50 @@ mod test {
             prims.as_::<PrimitiveVTable>().as_slice::<i64>(),
             [0i64, 1, 2, 3, 4]
         );
+    }
+
+    #[test]
+    fn test_remove_column() {
+        let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
+        let ys = PrimitiveArray::new(buffer![4u64, 5, 6, 7, 8], Validity::NonNullable);
+
+        let mut struct_a = StructArray::try_new(
+            FieldNames::from(["xs".into(), "ys".into()]),
+            vec![xs.into_array(), ys.into_array()],
+            5,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let removed = struct_a.remove_column("xs").unwrap();
+        assert_eq!(
+            removed.dtype(),
+            &DType::Primitive(PType::I64, Nullability::NonNullable)
+        );
+        assert_eq!(
+            removed.as_::<PrimitiveVTable>().as_slice::<i64>(),
+            [0i64, 1, 2, 3, 4]
+        );
+
+        assert_eq!(struct_a.names().as_ref(), [FieldName::from("ys")]);
+        assert_eq!(struct_a.fields.len(), 1);
+        assert_eq!(struct_a.len(), 5);
+        assert_eq!(
+            struct_a.fields[0].dtype(),
+            &DType::Primitive(PType::U64, Nullability::NonNullable)
+        );
+        assert_eq!(
+            struct_a.fields[0]
+                .as_::<PrimitiveVTable>()
+                .as_slice::<u64>(),
+            [4u64, 5, 6, 7, 8]
+        );
+
+        let empty = struct_a.remove_column("non_existent");
+        assert!(
+            empty.is_none(),
+            "Expected None when removing non-existent column"
+        );
+        assert_eq!(struct_a.names().as_ref(), [FieldName::from("ys")]);
     }
 }

@@ -97,7 +97,7 @@ impl LayoutStrategy for DictStrategy {
                 let compressed = BtrBlocksCompressor.compress(chunk)?;
                 Ok(compressed.is_encoding(DictEncoding.id()))
             })
-            .await;
+            .await?;
             let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
             if !is_dict_encoding? {
                 // first chunk did not compress to dict, skip dict layout
@@ -137,7 +137,7 @@ impl LayoutStrategy for DictStrategy {
                         call_for_first_item(codes_stream.boxed(), |chunk| {
                             Ok(chunk.dtype().clone())
                         })
-                        .await;
+                        .await?;
                     let Ok(codes_dtype) = codes_dtype else {
                         // codes_stream is empty, this would happen if the parent stream end coincided with a dict run end
                         break;
@@ -418,14 +418,15 @@ impl Drop for DictEncodedRunStream {
 async fn call_for_first_item<T>(
     mut stream: BoxStream<'static, SequencedChunk>,
     func: impl Fn(&ArrayRef) -> VortexResult<T>,
-) -> (BoxStream<'static, SequencedChunk>, VortexResult<T>) {
-    let Some(Ok((sequence_id, first_chunk))) = stream.next().await else {
-        return (stream.boxed(), Err(vortex_err!("empty stream")));
+) -> VortexResult<(BoxStream<'static, SequencedChunk>, VortexResult<T>)> {
+    let Some(result) = stream.next().await else {
+        return Ok((stream.boxed(), Err(vortex_err!("empty stream"))));
     };
+    let (sequence_id, first_chunk) = result?;
     let res = func(&first_chunk);
     // reconstruct the stream
     let stream = once(async { Ok((sequence_id, first_chunk)) }).chain(stream);
-    (stream.boxed(), res)
+    Ok((stream.boxed(), res))
 }
 
 pub fn dict_layout_supported(dtype: &DType) -> bool {
