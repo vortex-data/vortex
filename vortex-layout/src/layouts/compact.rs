@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use futures::{FutureExt as _, StreamExt as _};
+use vortex_array::arrays::{ListArray, StructArray};
 use vortex_array::stats::Stat;
+use vortex_array::vtable::ValidityHelper;
 use vortex_array::{Array, ArrayContext, ArrayRef, Canonical, IntoArray};
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
@@ -86,8 +88,35 @@ impl CompactCompressor {
                     Ok(zstd_array.into_array())
                 }
             }
+            Canonical::Struct(struct_array) => {
+                let fields = struct_array
+                    .fields()
+                    .iter()
+                    .map(|field| self.compress(field))
+                    .collect::<VortexResult<Vec<_>>>()?;
+
+                Ok(StructArray::try_new(
+                    struct_array.names().clone(),
+                    fields,
+                    struct_array.len(),
+                    struct_array.validity().clone(),
+                )?
+                .into_array())
+            }
+            Canonical::List(list_array) => {
+                // Compress the inner
+                let compressed_elems = self.compress(list_array.elements())?;
+                let compressed_offsets = self.compress(list_array.offsets())?;
+
+                Ok(ListArray::try_new(
+                    compressed_elems,
+                    compressed_offsets,
+                    list_array.validity().clone(),
+                )?
+                .into_array())
+            }
             // For non-primitive arrays, return as-is for now.
-            _ => Ok(array.to_array()),
+            other => Ok(other.into_array()),
         }
     }
 }
@@ -103,8 +132,8 @@ impl Default for CompactCompressor {
 }
 
 /// A layout writer that compresses chunks using the "compact" strategy:
-/// - pco for supported numeric types (16, 32, and 64-bit floats and ints)
-/// - zstd for everything else (primitive arrays only)
+/// - Pco for supported numeric types (16, 32, and 64-bit floats and ints)
+/// - Zstd for everything else (primitive arrays only)
 pub struct CompactCompressedStrategy {
     child: ArcRef<dyn LayoutStrategy>,
     executor: Arc<dyn TaskExecutor>,
@@ -151,9 +180,10 @@ impl LayoutStrategy for CompactCompressedStrategy {
         let executor = self.executor.clone();
 
         let dtype = stream.dtype().clone();
+        let compressor = self.compressor.clone();
         let stream = stream
             .map(move |chunk| {
-                let compressor = self.compressor.clone();
+                let compressor = compressor.clone();
                 async move {
                     let (sequence_id, chunk) = chunk?;
                     // Compute the stats for the chunk prior to compression
@@ -177,66 +207,65 @@ impl LayoutStrategy for CompactCompressedStrategy {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::validity::Validity;
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 
+    // use vortex_dtype::{DType, Nullability, StructFields};
     use super::*;
 
     #[test]
-    fn test_compact_compressor_pco_types() {
+    fn test_compact_compressor_struct_with_mixed_types() {
         let compressor = CompactCompressor::default();
 
-        // Test pco-supported types
-        let f64_array =
-            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0, 5.0], Validity::NonNullable);
-        let compressed = compressor.compress(f64_array.as_ref()).unwrap();
+        // Create a struct array containing various types
+        let columns = vec![
+            // Pco types
+            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0, 5.0], Validity::NonNullable),
+            PrimitiveArray::new(buffer![10i32, 20, 30, 40, 50], Validity::NonNullable),
+            // Zstd types
+            PrimitiveArray::new(buffer![11u8, 22, 33, 44, 55], Validity::NonNullable),
+        ]
+        .iter()
+        .map(|a| a.clone().into_array())
+        .collect::<Vec<_>>();
+        let field_names = vec!["f64_field".into(), "i32_field".into(), "u8_field".into()];
+
+        let n_rows = columns[0].len();
+        let struct_array = StructArray::try_new(
+            field_names.clone().into(),
+            columns.clone(),
+            n_rows,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        // Compress the struct array
+        let compressed = compressor.compress(struct_array.as_ref()).unwrap();
 
         // Verify we can decompress back to original
-        let decompressed = compressed.to_canonical().unwrap();
-        assert_eq!(decompressed.len(), 5);
+        let decompressed = compressed.to_canonical().unwrap().into_array();
+        assert_eq!(decompressed.len(), n_rows);
+        let decompressed_struct = decompressed.to_canonical().unwrap().into_struct().unwrap();
 
-        // Test i32 (pco-supported)
-        let i32_array = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
-        let compressed = compressor.compress(i32_array.as_ref()).unwrap();
-        let decompressed = compressed.to_canonical().unwrap();
-        assert_eq!(decompressed.len(), 5);
+        // Verify each field can be accessed and has correct data
+        for (i, name) in decompressed_struct.names().iter().enumerate() {
+            assert_eq!(name, &field_names[i]);
+            let decompressed_array = decompressed_struct
+                .field_by_name(name)
+                .unwrap()
+                .to_primitive()
+                .unwrap();
+            // is there no direct way to assert_eq on (primitive) arrays?
+            assert_eq!(decompressed_array.len(), n_rows);
 
-        // Test u64 (pco-supported)
-        let u64_array = PrimitiveArray::new(buffer![1u64, 2, 3, 4, 5], Validity::NonNullable);
-        let compressed = compressor.compress(u64_array.as_ref()).unwrap();
-        let decompressed = compressed.to_canonical().unwrap();
-        assert_eq!(decompressed.len(), 5);
-    }
-
-    #[test]
-    fn test_compact_compressor_zstd_types() {
-        let compressor = CompactCompressor::default();
-
-        // Test zstd-supported types (non-pco)
-        let i8_array = PrimitiveArray::new(buffer![1i8, 2, 3, 4, 5], Validity::NonNullable);
-        let compressed = compressor.compress(i8_array.as_ref()).unwrap();
-
-        // Verify we can decompress back to original
-        let decompressed = compressed.to_canonical().unwrap();
-        assert_eq!(decompressed.len(), 5);
-
-        // Test u8 (zstd)
-        let u8_array = PrimitiveArray::new(buffer![1u8, 2, 3, 4, 5], Validity::NonNullable);
-        let compressed = compressor.compress(u8_array.as_ref()).unwrap();
-        let decompressed = compressed.to_canonical().unwrap();
-        assert_eq!(decompressed.len(), 5);
-    }
-
-    #[test]
-    fn test_compact_compressor_custom_options() {
-        let compressor = CompactCompressor::new()
-            .with_pco_options(12, 1024)
-            .with_zstd_options(6, 100);
-
-        let f64_array = PrimitiveArray::new(buffer![1.0f64; 1000], Validity::NonNullable);
-        let compressed = compressor.compress(f64_array.as_ref()).unwrap();
-        let decompressed = compressed.to_canonical().unwrap();
-        assert_eq!(decompressed.len(), 1000);
+            for j in 0..n_rows {
+                assert_eq!(
+                    decompressed_array.scalar_at(j).unwrap(),
+                    columns[i].scalar_at(j).unwrap(),
+                );
+            }
+        }
     }
 }

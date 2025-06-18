@@ -7,6 +7,7 @@ use vortex_array::stats::PRUNING_STATS;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
+use vortex_layout::layouts::compact::CompactCompressedStrategy;
 use vortex_layout::layouts::compressed::BtrBlocksCompressedStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -21,27 +22,32 @@ pub struct VortexLayoutStrategy;
 
 impl VortexLayoutStrategy {
     pub fn with_executor(executor: Arc<dyn TaskExecutor>) -> ArcRef<dyn LayoutStrategy> {
-        // 7. for each chunk create a flat layout
-        let chunked = arcref(ChunkedLayoutStrategy::default());
-        // 6. buffer chunks so they end up with closer segment ids physically
-        let buffered = arcref(BufferedStrategy::new(chunked, 2 << 20)); // 2MB
-        // 5. compress each chunk
-        let compressing = arcref(BtrBlocksCompressedStrategy::new(
-            buffered,
+        let compression_strategy = arcref(BtrBlocksCompressedStrategy::new(
+            arcref(BufferedStrategy::new(
+                arcref(ChunkedLayoutStrategy::default()),
+                2 << 20,
+            )),
             executor.clone(),
             16,
         ));
+        Self::with_compression_strategy(executor, compression_strategy)
+    }
 
+    /// Create a layout strategy with the specified compression strategy
+    pub fn with_compression_strategy(
+        executor: Arc<dyn TaskExecutor>,
+        compression_strategy: ArcRef<dyn LayoutStrategy>,
+    ) -> ArcRef<dyn LayoutStrategy> {
         // 4. prior to compression, coalesce up to a minimum size
         let coalescing = arcref(RepartitionStrategy::new(
-            compressing,
+            compression_strategy,
             RepartitionWriterOptions {
                 block_size_minimum: 1 << 20,
                 block_len_multiple: ROW_BLOCK_SIZE,
             },
         ));
 
-        // 2.1. | 3.1. compress stats tables and dict values.
+        // 2.1. | 3.1. compress stats tables and dict values using BtrBlocks (for simplicity)
         let compress_then_flat = arcref(BtrBlocksCompressedStrategy::new(
             arcref(FlatLayoutStrategy::default()),
             executor.clone(),
