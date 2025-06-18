@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use itertools::Itertools;
 use vortex::compute::{BetweenOptions, StrictComparison};
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail};
+use vortex::dtype::Nullability;
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    Between, BinaryExpr, ExprRef, Like, Literal, Not, Operator, and_collect, get_item_scope, lit,
-    or_collect,
+    Between, BinaryExpr, ExprRef, Like, Literal, Not, Operator, and_collect, get_item_scope,
+    list_contains, lit, or_collect,
 };
 use vortex::scalar::Scalar;
 
@@ -98,7 +101,30 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<ExprRef> {
                 let child = try_from_bound_expression(&children[0])?;
                 Not::new_expr(child)
             }
-            _ => todo!(),
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
+                // First child is element, rest form the list.
+                let children = operator.children().collect_vec();
+                assert!(children.len() >= 2);
+                let element = try_from_bound_expression(&children[0])?;
+
+                let list_elements = children
+                    .iter()
+                    .skip(1)
+                    .map(|c| {
+                        Ok(Literal::maybe_from(&try_from_bound_expression(c)?)
+                            .ok_or_else(|| vortex_err!("cannot have a non literal in a in_list"))?
+                            .value()
+                            .clone())
+                    })
+                    .collect::<VortexResult<Vec<_>>>()?;
+                let list = Scalar::list(
+                    Arc::new(list_elements[0].dtype().clone()),
+                    list_elements,
+                    Nullability::Nullable,
+                );
+                list_contains(lit(list), element)
+            }
+            _ => todo!("operator {:?}", operator.op),
         },
         ExpressionClass::BoundFunction(func) => match func.scalar_function.name() {
             DUCKDB_FUNCTION_NAME_CONTAINS => {

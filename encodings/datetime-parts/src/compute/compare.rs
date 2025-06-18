@@ -3,9 +3,10 @@ use vortex_array::compute::{
     CompareKernel, CompareKernelAdapter, Operator, and, cast, compare, or,
 };
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
-use vortex_dtype::DType;
 use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_scalar::Scalar;
 
 use crate::array::{DateTimePartsArray, DateTimePartsVTable};
 use crate::timestamp;
@@ -36,22 +37,24 @@ impl CompareKernel for DateTimePartsVTable {
             return Ok(None);
         };
 
+        let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
+
         let temporal_metadata = TemporalMetadata::try_from(ext_dtype.as_ref())?;
         let ts_parts = timestamp::split(timestamp, temporal_metadata.time_unit())?;
 
         match operator {
-            Operator::Eq => compare_eq(lhs, &ts_parts),
-            Operator::NotEq => compare_ne(lhs, &ts_parts),
+            Operator::Eq => compare_eq(lhs, &ts_parts, nullability),
+            Operator::NotEq => compare_ne(lhs, &ts_parts, nullability),
             // lt and lte have identical behavior, as we optimize
             // for the case that all days on the lhs are smaller.
             //
             // If that special case is not hit, we return `Ok(None)` to
             // signal that the comparison wasn't handled within dtp.
-            Operator::Lt => compare_lt(lhs, &ts_parts),
-            Operator::Lte => compare_lt(lhs, &ts_parts),
+            Operator::Lt => compare_lt(lhs, &ts_parts, nullability),
+            Operator::Lte => compare_lt(lhs, &ts_parts, nullability),
             // (Like for lt, lte)
-            Operator::Gt => compare_gt(lhs, &ts_parts),
-            Operator::Gte => compare_gt(lhs, &ts_parts),
+            Operator::Gt => compare_gt(lhs, &ts_parts, nullability),
+            Operator::Gte => compare_gt(lhs, &ts_parts, nullability),
         }
     }
 }
@@ -61,15 +64,16 @@ register_kernel!(CompareKernelAdapter(DateTimePartsVTable).lift());
 fn compare_eq(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
+    nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
-    let mut comparison = compare_dtp(lhs.days(), ts_parts.days, Operator::Eq)?;
+    let mut comparison = compare_dtp(lhs.days(), ts_parts.days, Operator::Eq, nullability)?;
     if comparison.statistics().compute_max::<bool>() == Some(false) {
         // All values are different.
         return Ok(Some(comparison));
     }
 
     comparison = and(
-        &compare_dtp(lhs.seconds(), ts_parts.seconds, Operator::Eq)?,
+        &compare_dtp(lhs.seconds(), ts_parts.seconds, Operator::Eq, nullability)?,
         &comparison,
     )?;
 
@@ -79,7 +83,12 @@ fn compare_eq(
     }
 
     comparison = and(
-        &compare_dtp(lhs.subseconds(), ts_parts.subseconds, Operator::Eq)?,
+        &compare_dtp(
+            lhs.subseconds(),
+            ts_parts.subseconds,
+            Operator::Eq,
+            nullability,
+        )?,
         &comparison,
     )?;
 
@@ -89,15 +98,21 @@ fn compare_eq(
 fn compare_ne(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
+    nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
-    let mut comparison = compare_dtp(lhs.days(), ts_parts.days, Operator::NotEq)?;
+    let mut comparison = compare_dtp(lhs.days(), ts_parts.days, Operator::NotEq, nullability)?;
     if comparison.statistics().compute_min::<bool>() == Some(true) {
         // All values are different.
         return Ok(Some(comparison));
     }
 
     comparison = or(
-        &compare_dtp(lhs.seconds(), ts_parts.seconds, Operator::NotEq)?,
+        &compare_dtp(
+            lhs.seconds(),
+            ts_parts.seconds,
+            Operator::NotEq,
+            nullability,
+        )?,
         &comparison,
     )?;
 
@@ -107,7 +122,12 @@ fn compare_ne(
     }
 
     comparison = or(
-        &compare_dtp(lhs.subseconds(), ts_parts.subseconds, Operator::NotEq)?,
+        &compare_dtp(
+            lhs.subseconds(),
+            ts_parts.subseconds,
+            Operator::NotEq,
+            nullability,
+        )?,
         &comparison,
     )?;
 
@@ -117,8 +137,9 @@ fn compare_ne(
 fn compare_lt(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
+    nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
-    let days_lt = compare_dtp(lhs.days(), ts_parts.days, Operator::Lt)?;
+    let days_lt = compare_dtp(lhs.days(), ts_parts.days, Operator::Lt, nullability)?;
     if days_lt.statistics().compute_min::<bool>() == Some(true) {
         // All values on the lhs are smaller.
         return Ok(Some(days_lt));
@@ -130,8 +151,9 @@ fn compare_lt(
 fn compare_gt(
     lhs: &DateTimePartsArray,
     ts_parts: &timestamp::TimestampParts,
+    nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
-    let days_gt = compare_dtp(lhs.days(), ts_parts.days, Operator::Gt)?;
+    let days_gt = compare_dtp(lhs.days(), ts_parts.days, Operator::Gt, nullability)?;
     if days_gt.statistics().compute_min::<bool>() == Some(true) {
         // All values on the lhs are larger.
         return Ok(Some(days_gt));
@@ -140,7 +162,12 @@ fn compare_gt(
     Ok(None)
 }
 
-fn compare_dtp(lhs: &dyn Array, rhs: i64, operator: Operator) -> VortexResult<ArrayRef> {
+fn compare_dtp(
+    lhs: &dyn Array,
+    rhs: i64,
+    operator: Operator,
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
     match cast(ConstantArray::new(rhs, lhs.len()).as_ref(), lhs.dtype()) {
         Ok(casted) => compare(lhs, &casted, operator),
         // The narrowing cast failed. Therefore, we know lhs < rhs.
@@ -149,7 +176,10 @@ fn compare_dtp(lhs: &dyn Array, rhs: i64, operator: Operator) -> VortexResult<Ar
                 Operator::Eq | Operator::Gte | Operator::Gt => false,
                 Operator::NotEq | Operator::Lte | Operator::Lt => true,
             };
-            Ok(ConstantArray::new(constant_value, lhs.len()).into_array())
+            Ok(
+                ConstantArray::new(Scalar::bool(constant_value, nullability), lhs.len())
+                    .into_array(),
+            )
         }
     }
 }
