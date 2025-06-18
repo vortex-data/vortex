@@ -367,11 +367,11 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_struct() {
+    fn test_canonicalize_nullable_struct() {
         let array = ConstantArray::new(
             Scalar::null(DType::Struct(
                 Arc::new(StructFields::new(
-                    vortex_dtype::FieldNames::from_iter(["abc".into()]),
+                    vortex_dtype::FieldNames::from_iter(["non_null_field".into()]),
                     vec![DType::Primitive(PType::I8, Nullability::NonNullable)],
                 )),
                 Nullability::Nullable,
@@ -383,7 +383,7 @@ mod tests {
         assert_eq!(struct_array.len(), 3);
         assert_eq!(struct_array.valid_count().unwrap(), 0);
 
-        let field = struct_array.field_by_name("abc").unwrap();
+        let field = struct_array.field_by_name("non_null_field").unwrap();
 
         assert_eq!(
             field.dtype(),
