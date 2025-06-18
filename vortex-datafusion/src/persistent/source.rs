@@ -4,12 +4,17 @@ use std::sync::{Arc, Weak};
 use dashmap::DashMap;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::{Result as DFResult, Statistics};
+use datafusion::config::ConfigOptions;
 use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig, FileSource};
+use datafusion::physical_plan::PhysicalExpr;
+use datafusion::physical_plan::filter_pushdown::{
+    FilterPushdownPropagation, PredicateSupport, PredicateSupports,
+};
 use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::error::VortexExpect as _;
-use vortex::expr::{VortexExpr, root};
+use vortex::expr::{ExprRef, VortexExpr, and, root};
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
@@ -18,6 +23,8 @@ use super::cache::VortexFileCache;
 use super::config::{ConfigProjection, FileScanConfigExt};
 use super::metrics::PARTITION_LABEL;
 use super::opener::VortexFileOpener;
+use crate::can_be_pushed_down;
+use crate::convert::TryFromDataFusion as _;
 
 /// A config for [`VortexFileOpener`]. Used to create [`DataSourceExec`] based physical plans.
 ///
@@ -158,4 +165,49 @@ impl FileSource for VortexSource {
     fn file_type(&self) -> &str {
         VORTEX_FILE_EXTENSION
     }
+
+    fn try_pushdown_filters(
+        &self,
+        filters: Vec<Arc<dyn PhysicalExpr>>,
+        _config: &ConfigOptions,
+    ) -> DFResult<FilterPushdownPropagation<Arc<dyn FileSource>>> {
+        let Some(schema) = self.arrow_schema.as_ref() else {
+            return Ok(FilterPushdownPropagation::unsupported(filters));
+        };
+        let (supported, unsupported): (Vec<_>, Vec<_>) = filters
+            .iter()
+            .partition(|expr| can_be_pushed_down(expr, schema));
+
+        match make_vortex_predicate(&supported) {
+            Some(predicate) => {
+                let supports = PredicateSupports::new(
+                    supported
+                        .into_iter()
+                        .map(|expr| PredicateSupport::Supported(expr.clone()))
+                        .chain(
+                            unsupported
+                                .into_iter()
+                                .map(|expr| PredicateSupport::Unsupported(expr.clone())),
+                        )
+                        .collect(),
+                );
+                Ok(FilterPushdownPropagation::with_filters(supports)
+                    .with_updated_node(Arc::new(self.with_predicate(predicate))))
+            }
+            None => Ok(FilterPushdownPropagation::unsupported(filters)),
+        }
+    }
+}
+
+// If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
+// will rerun the filter expression anyway.
+pub(crate) fn make_vortex_predicate(
+    predicate: &[&Arc<dyn PhysicalExpr>],
+) -> Option<Arc<dyn VortexExpr>> {
+    // This splits expressions into conjunctions and converts them to vortex expressions.
+    // Any inconvertible expressions are dropped since true /\ a == a.
+    predicate
+        .iter()
+        .filter_map(|e| ExprRef::try_from_df(e.as_ref()).ok())
+        .reduce(and)
 }
