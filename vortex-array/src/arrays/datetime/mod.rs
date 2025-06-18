@@ -192,6 +192,12 @@ impl From<TemporalArray> for ArrayRef {
     }
 }
 
+impl IntoArray for TemporalArray {
+    fn into_array(self) -> ArrayRef {
+        self.into()
+    }
+}
+
 impl TryFrom<ArrayRef> for TemporalArray {
     type Error = VortexError;
 
