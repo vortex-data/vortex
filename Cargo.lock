@@ -3917,6 +3917,9 @@ name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
+dependencies = [
+ "parking_lot_core",
+]
 
 [[package]]
 name = "once_cell_polyfill"
@@ -6713,6 +6716,7 @@ dependencies = [
  "getrandom 0.3.3",
  "itertools 0.14.0",
  "log",
+ "once_cell",
  "parking_lot",
  "paste",
  "pin-project-lite",
