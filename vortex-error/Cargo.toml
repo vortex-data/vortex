@@ -21,7 +21,6 @@ serde = ["dep:serde_json"]
 [dependencies]
 arrow-schema = { workspace = true }
 flatbuffers = { workspace = true, optional = true }
-flexbuffers = { workspace = true, optional = true }
 jiff = { workspace = true }
 object_store = { workspace = true, optional = true }
 parquet = { workspace = true, optional = true }

@@ -95,15 +95,6 @@ pub enum VortexError {
     /// A wrapper for errors from the FlatBuffers library.
     #[cfg(feature = "flatbuffers")]
     FlatBuffersError(flatbuffers::InvalidFlatbuffer, Backtrace),
-    /// A wrapper for reader errors from the FlexBuffers library.
-    #[cfg(feature = "flexbuffers")]
-    FlexBuffersReaderError(flexbuffers::ReaderError, Backtrace),
-    /// A wrapper for deserialization errors from the FlexBuffers library.
-    #[cfg(feature = "flexbuffers")]
-    FlexBuffersDeError(flexbuffers::DeserializationError, Backtrace),
-    /// A wrapper for serialization errors from the FlexBuffers library.
-    #[cfg(feature = "flexbuffers")]
-    FlexBuffersSerError(flexbuffers::SerializationError, Backtrace),
     /// A wrapper for formatting errors.
     FmtError(fmt::Error, Backtrace),
     /// A wrapper for IO errors.
@@ -204,18 +195,6 @@ impl Display for VortexError {
             VortexError::FlatBuffersError(err, backtrace) => {
                 write!(f, "{}\nBacktrace:\n{}", err, backtrace)
             }
-            #[cfg(feature = "flexbuffers")]
-            VortexError::FlexBuffersReaderError(err, backtrace) => {
-                write!(f, "{}\nBacktrace:\n{}", err, backtrace)
-            }
-            #[cfg(feature = "flexbuffers")]
-            VortexError::FlexBuffersDeError(err, backtrace) => {
-                write!(f, "{}\nBacktrace:\n{}", err, backtrace)
-            }
-            #[cfg(feature = "flexbuffers")]
-            VortexError::FlexBuffersSerError(err, backtrace) => {
-                write!(f, "{}\nBacktrace:\n{}", err, backtrace)
-            }
             VortexError::FmtError(err, backtrace) => {
                 write!(f, "{}\nBacktrace:\n{}", err, backtrace)
             }
@@ -282,12 +261,6 @@ impl Error for VortexError {
             VortexError::ArrowError(err, _) => Some(err),
             #[cfg(feature = "flatbuffers")]
             VortexError::FlatBuffersError(err, _) => Some(err),
-            #[cfg(feature = "flexbuffers")]
-            VortexError::FlexBuffersReaderError(err, _) => Some(err),
-            #[cfg(feature = "flexbuffers")]
-            VortexError::FlexBuffersDeError(err, _) => Some(err),
-            #[cfg(feature = "flexbuffers")]
-            VortexError::FlexBuffersSerError(err, _) => Some(err),
             VortexError::FmtError(err, _) => Some(err),
             VortexError::IOError(err, _) => Some(err),
             VortexError::Utf8Error(err, _) => Some(err),
@@ -517,27 +490,6 @@ impl From<arrow_schema::ArrowError> for VortexError {
 impl From<flatbuffers::InvalidFlatbuffer> for VortexError {
     fn from(value: flatbuffers::InvalidFlatbuffer) -> Self {
         VortexError::FlatBuffersError(value, Backtrace::capture())
-    }
-}
-
-#[cfg(feature = "flexbuffers")]
-impl From<flexbuffers::ReaderError> for VortexError {
-    fn from(value: flexbuffers::ReaderError) -> Self {
-        VortexError::FlexBuffersReaderError(value, Backtrace::capture())
-    }
-}
-
-#[cfg(feature = "flexbuffers")]
-impl From<flexbuffers::DeserializationError> for VortexError {
-    fn from(value: flexbuffers::DeserializationError) -> Self {
-        VortexError::FlexBuffersDeError(value, Backtrace::capture())
-    }
-}
-
-#[cfg(feature = "flexbuffers")]
-impl From<flexbuffers::SerializationError> for VortexError {
-    fn from(value: flexbuffers::SerializationError) -> Self {
-        VortexError::FlexBuffersSerError(value, Backtrace::capture())
     }
 }
 
