@@ -206,14 +206,14 @@ impl TableFunction for VortexTableFunction {
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
         let exporter_for_file = |file: &VortexFile| -> VortexResult<ArrayIteratorExporter> {
-            let array_iter = file
+            let array_iterator = file
                 .scan()?
                 .with_projection(global_state.projection_expr.clone())
                 .with_some_filter(global_state.filter_expr.clone())
                 .into_array_iter()
                 .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
 
-            Ok(ArrayIteratorExporter::new(Box::new(array_iter)))
+            Ok(ArrayIteratorExporter::new(Box::new(array_iterator)))
         };
 
         if local_state.exporter.is_none() {
