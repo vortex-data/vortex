@@ -28,7 +28,7 @@ prost = { workspace = true }
 simplelog = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-tikv-jemallocator = { workspace = true, optional = true, features = ["profiling", "stats"] }
+tikv-jemallocator = { workspace = true, optional = true, features = ["profiling", "stats", "unprefixed_malloc_on_supported_platforms"] }
 url = { workspace = true }
 vortex = { workspace = true, features = [
     "object_store",
