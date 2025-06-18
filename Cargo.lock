@@ -1524,7 +1524,7 @@ dependencies = [
 [[package]]
 name = "datafusion"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "arrow-ipc",
@@ -1572,7 +1572,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1597,7 +1597,7 @@ dependencies = [
 [[package]]
 name = "datafusion-catalog-listing"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1619,7 +1619,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -1641,7 +1641,7 @@ dependencies = [
 [[package]]
 name = "datafusion-common-runtime"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "futures",
  "log",
@@ -1651,7 +1651,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1680,7 +1680,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-csv"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1704,7 +1704,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-json"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1728,7 +1728,7 @@ dependencies = [
 [[package]]
 name = "datafusion-datasource-parquet"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1758,12 +1758,12 @@ dependencies = [
 [[package]]
 name = "datafusion-doc"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 
 [[package]]
 name = "datafusion-execution"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "dashmap",
@@ -1781,7 +1781,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "chrono",
@@ -1800,7 +1800,7 @@ dependencies = [
 [[package]]
 name = "datafusion-expr-common"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -1812,7 +1812,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "arrow-buffer",
@@ -1836,7 +1836,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -1856,7 +1856,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-aggregate-common"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -1868,7 +1868,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-table"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "async-trait",
@@ -1883,7 +1883,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -1900,7 +1900,7 @@ dependencies = [
 [[package]]
 name = "datafusion-functions-window-common"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "datafusion-common",
  "datafusion-physical-expr-common",
@@ -1909,7 +1909,7 @@ dependencies = [
 [[package]]
 name = "datafusion-macros"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "datafusion-expr",
  "quote",
@@ -1919,7 +1919,7 @@ dependencies = [
 [[package]]
 name = "datafusion-optimizer"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "chrono",
@@ -1936,7 +1936,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -1957,7 +1957,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-expr-common"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -1970,7 +1970,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-optimizer"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "datafusion-common",
@@ -1987,7 +1987,7 @@ dependencies = [
 [[package]]
 name = "datafusion-physical-plan"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "ahash 0.8.12",
  "arrow",
@@ -2016,7 +2016,7 @@ dependencies = [
 [[package]]
 name = "datafusion-session"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "async-trait",
@@ -2039,7 +2039,7 @@ dependencies = [
 [[package]]
 name = "datafusion-sql"
 version = "48.0.0"
-source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=51e63d8d2d949499aaa27e233e922932da8c03ed#51e63d8d2d949499aaa27e233e922932da8c03ed"
+source = "git+https://github.com/adamgs/arrow-datafusion.git?rev=4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0#4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0"
 dependencies = [
  "arrow",
  "bigdecimal",
@@ -2837,7 +2837,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.57.0",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -4336,6 +4336,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "psm"
+version = "0.1.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e944464ec8536cd1beb0bbfd96987eb5e3b72f2ecdafdc5c769a37f1fa2ae1f"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "ptr_meta"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4632,6 +4641,26 @@ checksum = "1465873a3dfdaa8ae7cb14b4383657caab0b3e8a0aa9ae8e04b044854c8dfce2"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
+]
+
+[[package]]
+name = "recursive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0786a43debb760f491b1bc0269fe5e84155353c67482b9e60d0cfb596054b43e"
+dependencies = [
+ "recursive-proc-macro-impl",
+ "stacker",
+]
+
+[[package]]
+name = "recursive-proc-macro-impl"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76009fbe0614077fc1a2ce255e3a1881a2e3a3527097d5dc6d8212c585e7e38b"
+dependencies = [
+ "quote",
+ "syn 2.0.103",
 ]
 
 [[package]]
@@ -5313,6 +5342,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4521174166bac1ff04fe16ef4524c70144cd29682a45978978ca3d7f4e0be11"
 dependencies = [
  "log",
+ "recursive",
  "sqlparser_derive",
 ]
 
@@ -5332,6 +5362,19 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
+
+[[package]]
+name = "stacker"
+version = "0.1.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cddb07e32ddb770749da91081d8d0ac3a16f1a569a18b20348cd371f5dead06b"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "psm",
+ "windows-sys 0.59.0",
+]
 
 [[package]]
 name = "static_assertions"

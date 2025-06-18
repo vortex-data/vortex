@@ -84,9 +84,9 @@ compio = { version = "0.14", features = ["io-uring"], default-features = false }
 crossbeam-queue = "0.3"
 crossterm = "0.28"
 dashmap = "6.1.0"
-datafusion = { version = "48", default-features = false, git = "https://github.com/adamgs/arrow-datafusion.git", rev = "51e63d8d2d949499aaa27e233e922932da8c03ed" }
-datafusion-common = { version = "48", git = "https://github.com/adamgs/arrow-datafusion.git", rev = "51e63d8d2d949499aaa27e233e922932da8c03ed" }
-datafusion-physical-plan = { version = "48", git = "https://github.com/adamgs/arrow-datafusion.git", rev = "51e63d8d2d949499aaa27e233e922932da8c03ed" }
+datafusion = { version = "48", default-features = false, git = "https://github.com/adamgs/arrow-datafusion.git", rev = "4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0" }
+datafusion-common = { version = "48", git = "https://github.com/adamgs/arrow-datafusion.git", rev = "4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0" }
+datafusion-physical-plan = { version = "48", git = "https://github.com/adamgs/arrow-datafusion.git", rev = "4deefb1cb3f25b277a5c2f48c19fb8ac4767d8e0" }
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 duckdb = { path = "duckdb-vortex/duckdb-rs/crates/duckdb", features = [
     "vtab-full",
