@@ -327,7 +327,9 @@ jobs:
         if: github.ref == 'refs/heads/develop'
         uses: taiki-e/install-action@grcov
       - name: Install nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9.98
       - name: Rust Tests
         # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
@@ -462,7 +464,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - uses: taiki-e/install-action@v2
         with:
-          tool: nextest
+          tool: nextest@0.9.98
       - name: Run all tests with Miri
         run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar --exclude vortex-duckdb --exclude vortex-duckdb-ext
         # For now, we only run Miri against known "fiddly" crates.
