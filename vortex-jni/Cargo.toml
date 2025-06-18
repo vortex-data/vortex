@@ -18,6 +18,8 @@ categories = { workspace = true }
 
 [dependencies]
 arrow = { workspace = true, features = ["ffi"] }
+axum = "0.8.4"
+jemalloc_pprof = { workspace = true, optional = true, features = ["flamegraph"] }
 jni = "0.21.1"
 log = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
@@ -39,7 +41,7 @@ vortex = { workspace = true, features = [
 jni = { version = "0.21.1", features = ["invocation"] }
 
 [features]
-jemalloc = ["dep:tikv-jemallocator"]
+jemalloc = ["dep:tikv-jemallocator", "dep:jemalloc_pprof"]
 
 [lib]
 crate-type = ["staticlib", "cdylib"]

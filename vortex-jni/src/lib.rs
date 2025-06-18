@@ -15,6 +15,8 @@ mod dtype;
 mod errors;
 mod file;
 mod logging;
+#[cfg(feature = "jemalloc")]
+mod pprof;
 
 /// Install jemalloc as the global allocator, to enable runtime profiling and stats collection.
 #[cfg(feature = "jemalloc")]

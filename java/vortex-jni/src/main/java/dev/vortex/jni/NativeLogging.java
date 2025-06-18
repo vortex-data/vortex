@@ -39,4 +39,9 @@ public final class NativeLogging {
      * </ul>
      */
     public static native void initLogging(int level);
+
+    /**
+     * Initialize pprof server on 127.0.01:3001 for accessing pprof information.
+     */
+    public static native void initProf();
 }
