@@ -24,6 +24,21 @@ pub enum Field {
     ElementType,
 }
 
+impl Field {
+    /// Retrieve a field name if it has one
+    pub fn as_name(&self) -> Option<&str> {
+        match self {
+            Field::Name(name) => Some(name),
+            Field::ElementType => None,
+        }
+    }
+
+    /// Returns true if the field is defined by Name
+    pub fn is_named(&self) -> bool {
+        matches!(self, Field::Name(_))
+    }
+}
+
 impl From<&str> for Field {
     fn from(value: &str) -> Self {
         Field::Name(value.into())
@@ -36,31 +51,12 @@ impl From<Arc<str>> for Field {
     }
 }
 
-impl From<&Arc<str>> for Field {
-    fn from(value: &Arc<str>) -> Self {
-        Self::Name(value.clone())
-    }
-}
-
-impl From<String> for Field {
-    fn from(value: String) -> Self {
-        Field::Name(value.into())
-    }
-}
-
 impl Display for Field {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Field::Name(name) => write!(f, "${name}"),
             Field::ElementType => write!(f, "[]"),
         }
-    }
-}
-
-impl Field {
-    /// Returns true if the field is defined by Name
-    pub fn is_named(&self) -> bool {
-        matches!(self, Field::Name(_))
     }
 }
 
@@ -210,7 +206,7 @@ impl Display for FieldPath {
 }
 
 #[derive(Default, Clone, Debug)]
-/// Contains a set of field paths, and can answer efficient field path contains queries.
+/// Contains a set of field paths, and can answer an efficient field path contains queries.
 pub struct FieldPathSet {
     /// While this is currently a set wrapper it can be replaced with a trie.
     // TODO(joe): this can be replaced with a `FieldPath` trie
