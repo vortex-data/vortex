@@ -26,7 +26,7 @@ typedef struct duckdb_vx_table_filter_ *duckdb_vx_table_filter;
 
 typedef struct duckdb_vx_dynamic_filter_data_ *duckdb_vx_dynamic_filter_data;
 
-/// Returns the column index associated with idx, if table_filter_out is null then there is not idx is out of bounds.
+/// Returns the column index associated with idx, if `table_filter_out` is null then the idx is out of bounds.
 idx_t duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set filter_set,
                                     size_t idx, duckdb_vx_table_filter *table_filter_out);
 
