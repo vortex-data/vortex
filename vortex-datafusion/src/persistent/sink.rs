@@ -157,8 +157,8 @@ mod tests {
         let values = Values {
             schema: Arc::new(my_tbl.schema().clone()),
             values: vec![vec![
-                Expr::Literal("hello".into()),
-                Expr::Literal(42_i32.into()),
+                Expr::Literal("hello".into(), None),
+                Expr::Literal(42_i32.into(), None),
             ]],
         };
 

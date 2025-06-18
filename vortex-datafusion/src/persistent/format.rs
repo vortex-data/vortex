@@ -12,15 +12,14 @@ use datafusion::common::{
     config_datafusion_err, not_impl_err,
 };
 use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
-use datafusion::datasource::file_format::{FileFormat, FileFormatFactory, FilePushdownSupport};
+use datafusion::datasource::file_format::{FileFormat, FileFormatFactory};
 use datafusion::datasource::physical_plan::{
     FileScanConfig, FileScanConfigBuilder, FileSinkConfig, FileSource,
 };
 use datafusion::datasource::sink::DataSinkExec;
 use datafusion::datasource::source::DataSourceExec;
-use datafusion::logical_expr::Expr;
 use datafusion::logical_expr::dml::InsertOp;
-use datafusion::physical_expr::{LexRequirement, PhysicalExpr};
+use datafusion::physical_expr::LexRequirement;
 use datafusion::physical_plan::ExecutionPlan;
 use futures::{FutureExt, StreamExt as _, TryStreamExt as _, stream};
 use itertools::Itertools;
@@ -28,7 +27,6 @@ use object_store::{ObjectMeta, ObjectStore};
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
-use vortex::expr::{ExprRef, VortexExpr, and};
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::metrics::VortexMetrics;
 use vortex::session::VortexSession;
@@ -38,8 +36,8 @@ use vortex::stats::{Stat, StatsProviderExt, StatsSet};
 use super::cache::VortexFileCache;
 use super::sink::VortexSink;
 use super::source::VortexSource;
-use crate::convert::{TryFromDataFusion, TryToDataFusion};
-use crate::{PrecisionExt as _, can_be_pushed_down};
+use crate::PrecisionExt as _;
+use crate::convert::TryToDataFusion;
 
 /// Vortex implementation of a DataFusion [`FileFormat`].
 pub struct VortexFormat {
@@ -298,7 +296,6 @@ impl FileFormat for VortexFormat {
         &self,
         _state: &dyn Session,
         file_scan_config: FileScanConfig,
-        filters: Option<&Arc<dyn PhysicalExpr>>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         if file_scan_config
             .file_groups
@@ -317,11 +314,7 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Vortex doesn't support output ordering");
         }
 
-        let mut source = VortexSource::new(self.file_cache.clone(), self.session.metrics().clone());
-        if let Some(predicate) = make_vortex_predicate(filters) {
-            source = source.with_predicate(predicate);
-        }
-
+        let source = VortexSource::new(self.file_cache.clone(), self.session.metrics().clone());
         Ok(DataSourceExec::from_data_source(
             FileScanConfigBuilder::from(file_scan_config)
                 .with_source(Arc::new(source))
@@ -350,45 +343,12 @@ impl FileFormat for VortexFormat {
         Ok(Arc::new(DataSinkExec::new(input, sink, order_requirements)) as _)
     }
 
-    fn supports_filters_pushdown(
-        &self,
-        _file_schema: &Schema,
-        table_schema: &Schema,
-        filters: &[&Expr],
-    ) -> DFResult<FilePushdownSupport> {
-        let is_pushdown = filters
-            .iter()
-            .all(|expr| can_be_pushed_down(expr, table_schema));
-
-        if is_pushdown {
-            Ok(FilePushdownSupport::Supported)
-        } else {
-            Ok(FilePushdownSupport::NotSupportedForFilter)
-        }
-    }
-
     fn file_source(&self) -> Arc<dyn FileSource> {
         Arc::new(VortexSource::new(
             self.file_cache.clone(),
             VortexMetrics::default(),
         ))
     }
-}
-
-pub(crate) fn make_vortex_predicate(
-    predicate: Option<&Arc<dyn PhysicalExpr>>,
-) -> Option<Arc<dyn VortexExpr>> {
-    predicate
-        // If we cannot convert an expr to a vortex expr, we run no filter, since datafusion
-        // will rerun the filter expression anyway.
-        .and_then(|expr| {
-            // This splits expressions into conjunctions and converts them to vortex expressions.
-            // Any inconvertible expressions are dropped since true /\ a == a.
-            datafusion::physical_expr::split_conjunction(expr)
-                .into_iter()
-                .filter_map(|e| ExprRef::try_from_df(e.as_ref()).ok())
-                .reduce(and)
-        })
 }
 
 #[cfg(test)]
