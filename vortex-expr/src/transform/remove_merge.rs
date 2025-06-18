@@ -77,20 +77,8 @@ mod tests {
             Arc::new(StructFields::new(
                 ["0".into(), "1".into()].into(),
                 vec![
-                    DType::Struct(
-                        Arc::new(StructFields::new(
-                            ["a".into(), "b".into()].into(),
-                            vec![I32.into(), I64.into()],
-                        )),
-                        NonNullable,
-                    ),
-                    DType::Struct(
-                        Arc::new(StructFields::new(
-                            ["b".into(), "c".into()].into(),
-                            vec![U32.into(), U64.into()],
-                        )),
-                        NonNullable,
-                    ),
+                    DType::struct_([("a", I32), ("b", I64)], NonNullable),
+                    DType::struct_([("b", U32), ("c", U64)], NonNullable),
                 ],
             )),
             NonNullable,
@@ -102,29 +90,14 @@ mod tests {
         assert!(e.as_any().is::<Pack>());
         assert_eq!(
             e.return_dtype(&ScopeDType::new(dtype)).unwrap(),
-            DType::Struct(
-                Arc::new(StructFields::new(
-                    ["a".into(), "b".into(), "c".into()].into(),
-                    vec![I32.into(), U32.into(), U64.into()],
-                )),
-                NonNullable,
-            )
+            DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
         );
     }
 
     #[test]
     fn test_remove_merge_nullable() {
-        let dtype = DType::Struct(
-            Arc::new(StructFields::new(
-                ["0".into()].into(),
-                vec![DType::Struct(
-                    Arc::new(StructFields::new(
-                        ["a".into(), "b".into()].into(),
-                        vec![I32.into(), I64.into()],
-                    )),
-                    Nullable,
-                )],
-            )),
+        let dtype = DType::struct_(
+            [("0", DType::struct_([("a", I32), ("b", I64)], Nullable))],
             NonNullable,
         );
 

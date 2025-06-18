@@ -233,11 +233,8 @@ mod tests {
     #[test]
     fn nested_field_single_level() {
         let a_type = DType::Primitive(PType::I32, NonNullable);
-        let dtype = DType::Struct(
-            Arc::from(StructFields::from_iter([
-                ("a", a_type.clone()),
-                ("b", DType::Bool(Nullable)),
-            ])),
+        let dtype = DType::struct_(
+            [("a", a_type.clone()), ("b", DType::Bool(Nullable))],
             NonNullable,
         );
         let path = FieldPath::from_name("a");
@@ -247,11 +244,11 @@ mod tests {
 
     #[test]
     fn nested_field_two_level() {
-        let inner = DType::Struct(
-            Arc::new(StructFields::from_iter([
+        let inner = DType::struct_(
+            [
                 ("inner_a", DType::Primitive(PType::U8, NonNullable)),
                 ("inner_b", DType::Bool(Nullable)),
-            ])),
+            ],
             NonNullable,
         );
 
@@ -272,23 +269,23 @@ mod tests {
 
     #[test]
     fn nested_field_deep_nested() {
-        let level4 = DType::Struct(
-            Arc::new(StructFields::from_iter([(
-                "c",
-                DType::Primitive(PType::F64, Nullable),
-            )])),
-            NonNullable,
-        );
-
-        let level3 = DType::List(Arc::from(level4), Nullable);
-
-        let level2 = DType::Struct(
-            Arc::new(StructFields::from_iter([("b", level3)])),
-            NonNullable,
-        );
-
-        let level1 = DType::Struct(
-            Arc::from(StructFields::from_iter([("a", level2)])),
+        let level1 = DType::struct_(
+            [(
+                "a",
+                DType::struct_(
+                    [(
+                        "b",
+                        DType::list(
+                            DType::struct_(
+                                [("c", DType::Primitive(PType::F64, Nullable))],
+                                NonNullable,
+                            ),
+                            Nullable,
+                        ),
+                    )],
+                    NonNullable,
+                ),
+            )],
             NonNullable,
         );
 
@@ -325,10 +322,7 @@ mod tests {
 
     #[test]
     fn nested_field_not_found() {
-        let dtype = DType::Struct(
-            Arc::from(StructFields::from_iter([("a", DType::Bool(NonNullable))])),
-            NonNullable,
-        );
+        let dtype = DType::struct_([("a", DType::Bool(NonNullable))], NonNullable);
         let path = FieldPath::from_name("b");
         assert!(path.resolve(dtype.clone()).is_err());
         assert!(!path.exists(dtype.clone()));
@@ -340,11 +334,8 @@ mod tests {
 
     #[test]
     fn nested_field_non_struct_intermediate() {
-        let dtype = DType::Struct(
-            Arc::from(StructFields::from_iter([(
-                "a",
-                DType::Primitive(PType::I32, NonNullable),
-            )])),
+        let dtype = DType::struct_(
+            [("a", DType::Primitive(PType::I32, NonNullable))],
             NonNullable,
         );
         let path = FieldPath::from_name("a").push("b");
