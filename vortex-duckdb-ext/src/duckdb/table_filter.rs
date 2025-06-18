@@ -2,6 +2,7 @@ use std::ffi::CStr;
 use std::fmt::{Debug, Formatter};
 use std::ptr;
 
+use bitvec::macros::internal::funty::Fundamental;
 use cpp::duckdb_vx_table_filter;
 use vortex::error::VortexExpect;
 
@@ -16,7 +17,7 @@ impl TableFilterSet {
         let mut filter_set: duckdb_vx_table_filter = ptr::null_mut();
 
         let column_index = unsafe {
-            cpp::duckdb_vx_table_filter_set_get(self.as_ptr(), index as usize, &mut filter_set)
+            cpp::duckdb_vx_table_filter_set_get(self.as_ptr(), index.as_usize(), &mut filter_set)
         };
 
         if filter_set.is_null() {

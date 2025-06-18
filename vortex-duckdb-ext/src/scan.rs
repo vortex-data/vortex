@@ -270,7 +270,6 @@ impl TableFunction for VortexTableFunction {
         bind_data: &mut Self::BindData,
         expr: &Expression,
     ) -> VortexResult<bool> {
-        println!("expr {}", expr);
         let expr = try_from_bound_expression(expr)?;
         bind_data.filter_exprs.push(expr);
         Ok(true)

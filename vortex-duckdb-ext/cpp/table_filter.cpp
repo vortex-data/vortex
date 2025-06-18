@@ -18,8 +18,6 @@ extern "C" idx_t duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set ffi_f
 		return 0;
 	}
 
-	std::cout << "found col: " << it->first << std::endl;
-
 	*table_filter_out = reinterpret_cast<duckdb_vx_table_filter>(it->second.get());
 	return it->first;
 }
