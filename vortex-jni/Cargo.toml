@@ -26,6 +26,7 @@ prost = { workspace = true }
 simplelog = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+tikv-jemallocator = { workspace = true, optional = true, features = ["profiling", "stats"] }
 url = { workspace = true }
 vortex = { workspace = true, features = [
     "object_store",
@@ -36,6 +37,9 @@ vortex = { workspace = true, features = [
 
 [dev-dependencies]
 jni = { version = "0.21.1", features = ["invocation"] }
+
+[features]
+jemalloc = ["dep:tikv-jemallocator"]
 
 [lib]
 crate-type = ["staticlib", "cdylib"]

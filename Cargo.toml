@@ -164,6 +164,7 @@ taffy = "0.8.0"
 tar = "0.4"
 tempfile = "3"
 thiserror = "2.0.3"
+tikv-jemallocator = "0.6.0"
 tokio = "1.44.2"
 tokio-stream = "0.1.17"
 tracing = { version = "0.1.41" }

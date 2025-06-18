@@ -16,6 +16,11 @@ mod errors;
 mod file;
 mod logging;
 
+/// Install jemalloc as the global allocator, to enable runtime profiling and stats collection.
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 // Shared Tokio runtime for all of the async operations in this package.
 static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Builder::new_multi_thread()
