@@ -53,12 +53,7 @@ serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
-vortex-error = { workspace = true, features = [
-    "flatbuffers",
-    "flexbuffers",
-    "prost",
-    "rancor",
-] }
+vortex-error = { workspace = true, features = ["prost"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }

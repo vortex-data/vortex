@@ -27,7 +27,6 @@ object_store = { workspace = true, optional = true }
 parquet = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
-rancor = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }

@@ -463,23 +463,6 @@ pub mod __private {
     }
 }
 
-#[cfg(feature = "rancor")]
-impl rancor::Source for VortexError {
-    fn new<T: Error + Send + Sync + 'static>(source: T) -> Self {
-        VortexError::Generic(Box::new(source), Backtrace::capture())
-    }
-}
-
-#[cfg(feature = "rancor")]
-impl rancor::Trace for VortexError {
-    fn trace<R>(self, trace: R) -> Self
-    where
-        R: Debug + Display + Send + Sync + 'static,
-    {
-        VortexError::Context(trace.to_string().into(), Box::new(self))
-    }
-}
-
 #[cfg(feature = "worker")]
 impl From<VortexError> for worker::Error {
     fn from(value: VortexError) -> Self {
