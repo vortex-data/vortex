@@ -29,8 +29,6 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 vortex = { workspace = true, features = ["files"] }
 vortex-file = { workspace = true, features = ["tokio"] }
-
-[dev-dependencies]
 # duckdb-rs using arrow-rs v55.1.0 with decimal32/64 types cherry-picked on top
 # (https://github.com/apache/arrow-rs/pull/7098)
 # this is will be removed once we hit 56 (hopefully in july).
