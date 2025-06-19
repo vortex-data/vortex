@@ -1,6 +1,10 @@
 #![allow(clippy::missing_safety_doc)]
 use std::ffi::{CStr, c_char};
 
+// **WARNING begin this includes duckdb-rs, which is required to link in the symbol from libduckdb-sys.
+#[allow(unused_imports)]
+use duckdb::*;
+// **WARNING end
 use vortex::error::{VortexExpect, VortexResult};
 
 use crate::duckdb::{Connection, Database};

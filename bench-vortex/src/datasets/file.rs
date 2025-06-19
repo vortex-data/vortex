@@ -66,8 +66,9 @@ pub async fn register_parquet_files(
             info!("Registering table from {}", &parquet_path);
             let table_url = ListingTableUrl::parse(parquet_path)?;
 
-            let config = ListingTableConfig::new(table_url)
-                .with_listing_options(ListingOptions::new(format));
+            let config = ListingTableConfig::new(table_url).with_listing_options(
+                ListingOptions::new(format).with_session_config_options(session.state().config()),
+            );
 
             let config = if let Some(schema) = schema {
                 config.with_schema(schema.into())
@@ -97,8 +98,9 @@ pub async fn register_vortex_files(
             // Register the Vortex file
             let format = Arc::new(VortexFormat::default());
             let table_url = ListingTableUrl::parse(file_url.as_str())?;
-            let config = ListingTableConfig::new(table_url)
-                .with_listing_options(ListingOptions::new(format));
+            let config = ListingTableConfig::new(table_url).with_listing_options(
+                ListingOptions::new(format).with_session_config_options(session.state().config()),
+            );
 
             let config = if let Some(schema) = schema {
                 config.with_schema(schema.into())

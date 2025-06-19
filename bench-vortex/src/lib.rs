@@ -1,4 +1,3 @@
-#![feature(exit_status_error)]
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 

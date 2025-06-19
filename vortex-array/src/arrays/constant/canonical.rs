@@ -91,14 +91,29 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
             }
             DType::Struct(struct_dtype, _) => {
                 let value = StructScalar::try_from(scalar)?;
-                let fields = value.fields().map(|fields| {
-                    fields
+                let fields: Vec<_> = match value.fields() {
+                    Some(fields) => fields
                         .into_iter()
                         .map(|s| ConstantArray::new(s, array.len()).into_array())
-                        .collect::<Vec<_>>()
-                });
+                        .collect(),
+                    None => {
+                        assert!(validity.all_invalid()?);
+                        struct_dtype
+                            .fields()
+                            .map(|dt| {
+                                // TODO(blaginin): remove this workaround once we've decided on the default value for nullable fields (#3553)
+                                let scalar = match dt.nullability() {
+                                    Nullability::NonNullable => Scalar::default_value(dt),
+                                    Nullability::Nullable => Scalar::null(dt),
+                                };
+
+                                ConstantArray::new(scalar, array.len()).into_array()
+                            })
+                            .collect()
+                    }
+                };
                 Canonical::Struct(StructArray::try_new_with_dtype(
-                    fields.unwrap_or_default(),
+                    fields,
                     struct_dtype.clone(),
                     array.len(),
                     validity,
@@ -356,6 +371,31 @@ mod tests {
                 .unwrap()
                 .as_slice::<u64>(),
             [0u64, 0, 0]
+        );
+    }
+
+    #[test]
+    fn test_canonicalize_nullable_struct() {
+        let array = ConstantArray::new(
+            Scalar::null(DType::struct_(
+                [(
+                    "non_null_field",
+                    DType::Primitive(PType::I8, Nullability::NonNullable),
+                )],
+                Nullability::Nullable,
+            )),
+            3,
+        );
+
+        let struct_array = array.to_struct().unwrap();
+        assert_eq!(struct_array.len(), 3);
+        assert_eq!(struct_array.valid_count().unwrap(), 0);
+
+        let field = struct_array.field_by_name("non_null_field").unwrap();
+
+        assert_eq!(
+            field.dtype(),
+            &DType::Primitive(PType::I8, Nullability::NonNullable)
         );
     }
 }

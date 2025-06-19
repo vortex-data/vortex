@@ -92,8 +92,8 @@ impl AnalysisExpr for BinaryExpr {
                 let min_rhs = self.rhs.min(catalog);
                 let max_rhs = self.rhs.max(catalog);
 
-                let left = min_lhs.zip_with(max_rhs, gt);
-                let right = min_rhs.zip_with(max_lhs, gt);
+                let left = min_lhs.zip(max_rhs).map(|(a, b)| gt(a, b));
+                let right = min_rhs.zip(max_lhs).map(|(a, b)| gt(a, b));
                 left.into_iter().chain(right).reduce(or)
             }
             Operator::NotEq => {

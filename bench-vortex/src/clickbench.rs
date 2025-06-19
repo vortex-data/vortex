@@ -216,8 +216,9 @@ pub async fn register_vortex_files(
 
     let table_url = ListingTableUrl::parse(vortex_path)?;
 
-    let config =
-        ListingTableConfig::new(table_url).with_listing_options(ListingOptions::new(format));
+    let config = ListingTableConfig::new(table_url).with_listing_options(
+        ListingOptions::new(format).with_session_config_options(session.state().config()),
+    );
 
     let config = if let Some(schema) = schema {
         config.with_schema(schema.into())
@@ -248,7 +249,9 @@ pub fn register_parquet_files(
     let table_url = ListingTableUrl::parse(table_path)?;
 
     let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format))
+        .with_listing_options(
+            ListingOptions::new(format).with_session_config_options(session.state().config()),
+        )
         .with_schema(schema.clone().into());
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);

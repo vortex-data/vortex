@@ -4,7 +4,9 @@ use std::fmt::Debug;
 
 use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion::common::stats::Precision as DFPrecision;
-use datafusion::logical_expr::{Expr, Operator};
+use datafusion::logical_expr::Operator;
+use datafusion::physical_expr::PhysicalExprRef;
+use datafusion::physical_plan::expressions::{BinaryExpr, Column, LikeExpr, Literal};
 use vortex::stats::Precision;
 
 mod convert;
@@ -47,26 +49,24 @@ fn supported_data_types(dt: DataType) -> bool {
     is_supported
 }
 
-fn can_be_pushed_down(expr: &Expr, schema: &Schema) -> bool {
-    match expr {
-        Expr::BinaryExpr(expr)
-            if expr.op.is_logic_operator() || SUPPORTED_BINARY_OPS.contains(&expr.op) =>
-        {
-            can_be_pushed_down(expr.left.as_ref(), schema)
-                & can_be_pushed_down(expr.right.as_ref(), schema)
-        }
-        Expr::Column(col) => match schema.column_with_name(col.name()) {
-            Some((_, field)) => supported_data_types(field.data_type().clone()),
-            _ => false,
-        },
-        Expr::Like(like) => {
-            can_be_pushed_down(&like.expr, schema) && can_be_pushed_down(&like.pattern, schema)
-        }
-        Expr::Literal(lit) => supported_data_types(lit.data_type()),
-        _ => {
-            log::debug!("DataFusion expression can't be pushed down: {expr:?}");
-            false
-        }
+fn can_be_pushed_down(expr: &PhysicalExprRef, schema: &Schema) -> bool {
+    let expr = expr.as_any();
+    if let Some(binary) = expr.downcast_ref::<BinaryExpr>() {
+        (binary.op().is_logic_operator() || SUPPORTED_BINARY_OPS.contains(binary.op()))
+            && can_be_pushed_down(binary.left(), schema)
+            && can_be_pushed_down(binary.right(), schema)
+    } else if let Some(col) = expr.downcast_ref::<Column>() {
+        schema
+            .column_with_name(col.name())
+            .map(|(_, field)| supported_data_types(field.data_type().clone()))
+            .unwrap_or(false)
+    } else if let Some(like) = expr.downcast_ref::<LikeExpr>() {
+        can_be_pushed_down(like.expr(), schema) && can_be_pushed_down(like.pattern(), schema)
+    } else if let Some(lit) = expr.downcast_ref::<Literal>() {
+        supported_data_types(lit.value().data_type())
+    } else {
+        log::debug!("DataFusion expression can't be pushed down: {expr:?}");
+        false
     }
 }
 
