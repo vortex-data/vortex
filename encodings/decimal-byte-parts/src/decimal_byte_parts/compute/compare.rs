@@ -72,7 +72,6 @@ where
     ScalarValue: From<P>,
 {
     match_each_decimal_value!(decimal_value, |decimal_v| {
-        println!("p {}, d {}, ty {}", P::PTYPE, decimal_v, decimal_value);
         Some(ScalarValue::from(<P as NumCast>::from(decimal_v)?))
     })
 }
@@ -113,6 +112,42 @@ mod tests {
                 .iter()
                 .collect::<Vec<_>>(),
             vec![false, false, true]
+        );
+    }
+
+    #[test]
+    fn compare_decimal_const_unconvertible_comparison() {
+        let decimal_dtype = DecimalDType::new(40, 2);
+        let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
+        let lhs = DecimalBytePartsArray::try_new(
+            PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).to_array(),
+            vec![],
+            decimal_dtype,
+        )
+        .unwrap()
+        .to_array();
+        let rhs = ConstantArray::new(
+            Scalar::new(dtype, DecimalValue::I128(-9999999999999965304).into()),
+            lhs.len(),
+        );
+
+        let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
+
+        assert_eq!(
+            res.to_bool().unwrap().bool_vec().unwrap(),
+            vec![false, false, false]
+        );
+
+        let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
+        assert_eq!(
+            res.to_bool().unwrap().bool_vec().unwrap(),
+            vec![false, false, false]
+        );
+
+        let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
+        assert_eq!(
+            res.to_bool().unwrap().bool_vec().unwrap(),
+            vec![true, true, true]
         );
     }
 }

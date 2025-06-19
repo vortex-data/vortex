@@ -26,3 +26,6 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
+
+[dev-dependencies]
+vortex-array = { workspace = true, features = ["test-harness"] }
