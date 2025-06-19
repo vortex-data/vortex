@@ -1,7 +1,7 @@
 use std::ffi::CStr;
 use std::ptr;
 
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{vortex_bail, VortexExpect, VortexResult};
 
 use crate::cpp::{duckdb_logical_type, duckdb_vx_error};
 use crate::duckdb::{LogicalType, Vector};
@@ -42,15 +42,16 @@ impl DataChunk {
 
     pub fn try_to_string(&self) -> VortexResult<String> {
         let mut err: duckdb_vx_error = ptr::null_mut();
-        debug_assert!(unsafe {
+        #[cfg(debug_assertions)]
+        unsafe {
             cpp::duckdb_data_chunk_verify2(self.as_ptr(), &mut err);
-            true
-        });
-        if !err.is_null() {
-            vortex_bail!("{}", unsafe {
-                CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()
-            })
-        }
+            if !err.is_null() {
+                vortex_bail!(
+                    "{}",
+                    CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()
+                )
+            }
+        };
         let debug = unsafe { cpp::duckdb_data_chunk_to_string2(self.as_ptr(), &mut err) };
         if !err.is_null() {
             vortex_bail!("{}", unsafe {
