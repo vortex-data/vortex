@@ -3,7 +3,6 @@ mod serde;
 
 use std::sync::Arc;
 
-#[cfg(feature = "test-harness")]
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};

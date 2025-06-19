@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 

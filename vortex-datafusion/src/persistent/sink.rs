@@ -127,6 +127,7 @@ mod tests {
     use datafusion::execution::SessionStateBuilder;
     use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, Values};
     use datafusion::prelude::SessionContext;
+    use datafusion::scalar::ScalarValue;
     use tempfile::TempDir;
 
     use crate::persistent::{VortexFormatFactory, register_vortex_format_factory};
@@ -157,8 +158,8 @@ mod tests {
         let values = Values {
             schema: Arc::new(my_tbl.schema().clone()),
             values: vec![vec![
-                Expr::Literal("hello".into()),
-                Expr::Literal(42_i32.into()),
+                Expr::Literal(ScalarValue::new_utf8view("hello"), None),
+                Expr::Literal(42_i32.into(), None),
             ]],
         };
 

@@ -137,8 +137,13 @@ impl VortexExpr for GetItem {
         let input = self.child.return_dtype(scope)?;
         input
             .as_struct()
-            .ok_or_else(|| vortex_err!("GetItem: child dtype is not a struct"))?
-            .field(self.field())
+            .and_then(|st| st.field(self.field()))
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Couldn't find the {} field in the input scope",
+                    self.field()
+                )
+            })
     }
 }
 

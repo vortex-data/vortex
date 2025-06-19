@@ -285,8 +285,8 @@ fn make_object_store(
     property_keys: &[String],
     property_vals: &[String],
 ) -> VortexResult<Arc<dyn ObjectStore>> {
-    let (scheme, _) =
-        ObjectStoreScheme::parse(url).map_err(|error| VortexError::ObjectStore(error.into()))?;
+    let (scheme, _) = ObjectStoreScheme::parse(url)
+        .map_err(|error| VortexError::from(object_store::Error::from(error)))?;
 
     if property_vals.len() != property_keys.len() {
         vortex_bail!(

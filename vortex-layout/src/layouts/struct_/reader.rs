@@ -78,14 +78,17 @@ impl StructReader {
             .field_lookup
             .as_ref()
             .and_then(|lookup| lookup.get(name).copied())
-            .or_else(|| self.struct_fields().find(name).ok())
+            .or_else(|| self.struct_fields().find(name))
             .ok_or_else(|| vortex_err!("Field {} not found in struct layout", name))?;
         self.child_by_idx(idx)
     }
 
     /// Return the child reader for the field, by index.
     fn child_by_idx(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
-        let field_dtype = self.struct_fields().field_by_index(idx)?;
+        let field_dtype = self
+            .struct_fields()
+            .field_by_index(idx)
+            .ok_or_else(|| vortex_err!("Missing field {idx}"))?;
         let name = &self.struct_fields().names()[idx];
         self.lazy_children
             .get(idx, &field_dtype, &format!("{}.{}", self.name, name).into())

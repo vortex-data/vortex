@@ -393,7 +393,10 @@ impl PBIData {
             let path = self.get_file_path(&table.name, file_type);
             let table_url = ListingTableUrl::parse(path.to_str().expect("unicode"))?;
             let config = ListingTableConfig::new(table_url)
-                .with_listing_options(ListingOptions::new(df_format))
+                .with_listing_options(
+                    ListingOptions::new(df_format)
+                        .with_session_config_options(session.state().config()),
+                )
                 .with_schema(schema.into());
 
             let listing_table = Arc::new(ListingTable::try_new(config)?);

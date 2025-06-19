@@ -164,8 +164,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
         // Apply predicate if one was provided
         if !predicate.is_null() {
             let proto_vec = env.convert_byte_array(predicate)?;
-            let expr_proto =
-                Expr::decode(proto_vec.as_slice()).map_err(VortexError::ProstDecodeError)?;
+            let expr_proto = Expr::decode(proto_vec.as_slice()).map_err(VortexError::from)?;
             let expr = deserialize_expr(&expr_proto)?;
             scan_builder = scan_builder.with_filter(expr);
         }
@@ -201,8 +200,8 @@ fn make_object_store(
     static OBJECT_STORES: LazyLock<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
 
-    let (scheme, _) =
-        ObjectStoreScheme::parse(url).map_err(|error| VortexError::ObjectStore(error.into()))?;
+    let (scheme, _) = ObjectStoreScheme::parse(url)
+        .map_err(|error| VortexError::from(object_store::Error::from(error)))?;
 
     let cache_key = url_cache_key(url);
 

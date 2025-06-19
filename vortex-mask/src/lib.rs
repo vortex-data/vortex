@@ -1,4 +1,3 @@
-#![feature(trusted_len)]
 //! A mask is a set of sorted unique positive integers.
 #![deny(missing_docs)]
 mod bitops;
