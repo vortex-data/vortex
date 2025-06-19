@@ -65,7 +65,8 @@ extern "C" void duckdb_vx_expr_get_bound_comparison(duckdb_vx_expr ffi_expr,
     out->type = static_cast<duckdb_vx_expr_type>(expr.type);
 }
 
-extern "C" void duckdb_vx_expr_get_bound_conjunction(duckdb_vx_expr ffi_expr, duckdb_vx_expr_bound_conjunction *out) {
+extern "C" void duckdb_vx_expr_get_bound_conjunction(duckdb_vx_expr ffi_expr,
+                                                     duckdb_vx_expr_bound_conjunction *out) {
     if (!ffi_expr || !out) {
         return;
     }
@@ -75,7 +76,6 @@ extern "C" void duckdb_vx_expr_get_bound_conjunction(duckdb_vx_expr ffi_expr, du
     out->children = reinterpret_cast<duckdb_vx_expr *>(expr.children.data());
     out->type = static_cast<duckdb_vx_expr_type>(expr.type);
 }
-
 
 extern "C" void duckdb_vx_expr_get_bound_between(duckdb_vx_expr ffi_expr, duckdb_vx_expr_bound_between *out) {
     if (!ffi_expr || !out) {

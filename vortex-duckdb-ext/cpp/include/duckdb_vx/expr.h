@@ -224,7 +224,6 @@ typedef struct {
     duckdb_vx_expr_type type;
 } duckdb_vx_expr_bound_conjunction;
 
-
 void duckdb_vx_expr_get_bound_conjunction(duckdb_vx_expr expr, duckdb_vx_expr_bound_conjunction *out);
 
 typedef struct {
