@@ -92,12 +92,3 @@ fn sort_primitive_slice<T: NativePType>(values: &mut [Option<T>]) {
         (Some(_), None) => Ordering::Greater,
     });
 }
-//
-// fn sort_decimal_slice<T: NativeDecimalType>(values: &mut [Option<T>]) {
-//     values.sort_by(|a, b| match (a, b) {
-//         (Some(sa), Some(sb)) => sa.compare(*sb),
-//         (None, None) => Ordering::Equal,
-//         (None, Some(_)) => Ordering::Less,
-//         (Some(_), None) => Ordering::Greater,
-//     });
-// }
