@@ -168,7 +168,7 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_HUGEINT => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_UHUGEINT => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => DType::Utf8(nullability),
-            DUCKDB_TYPE::DUCKDB_TYPE_BLOB => DType::Bool(nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_BLOB => DType::Binary(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => todo!(),
