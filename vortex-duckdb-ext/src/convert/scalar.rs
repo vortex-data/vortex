@@ -22,9 +22,9 @@ use std::sync::Arc;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::PType::{I32, I64};
-use vortex::dtype::datetime::{DATE_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
+use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 use vortex::dtype::half::f16;
-use vortex::dtype::{DType, ExtDType, PType, match_each_native_simd_ptype};
+use vortex::dtype::{DType, DecimalDType, ExtDType, PType, match_each_native_simd_ptype};
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::scalar::{
     BinaryScalar, BoolScalar, DecimalScalar, DecimalValue, ExtScalar, PrimitiveScalar, Scalar,
@@ -268,7 +268,7 @@ impl TryFrom<Value> for Scalar {
                     Arc::new(DType::Primitive(I32, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::S, None).into()),
                 )),
-                Scalar::from(value.as_i32()),
+                Scalar::new(DType::Primitive(I32, Nullable), value.as_i32().into()),
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
@@ -276,7 +276,7 @@ impl TryFrom<Value> for Scalar {
                     Arc::new(DType::Primitive(I32, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
                 )),
-                Scalar::from(value.as_i64()),
+                Scalar::new(DType::Primitive(I32, Nullable), value.as_i32().into()),
             )),
             // Us
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => Ok(Scalar::extension(
@@ -285,7 +285,7 @@ impl TryFrom<Value> for Scalar {
                     Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Us, None).into()),
                 )),
-                Scalar::from(value.as_i64()),
+                Scalar::new(DType::Primitive(I64, Nullable), value.as_i64().into()),
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
@@ -293,16 +293,32 @@ impl TryFrom<Value> for Scalar {
                     Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Ns, None).into()),
                 )),
-                Scalar::from(value.as_i64()),
+                Scalar::new(DType::Primitive(I64, Nullable), value.as_i64().into()),
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_DATE => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     DATE_ID.clone(),
-                    Arc::new(DType::Primitive(I64, Nullable)),
-                    Some(TemporalMetadata::Timestamp(TimeUnit::D, None).into()),
+                    Arc::new(DType::Primitive(I32, Nullable)),
+                    Some(TemporalMetadata::Date(TimeUnit::D).into()),
                 )),
-                Scalar::from(value.as_i64()),
+                Scalar::new(DType::Primitive(I32, Nullable), value.as_i32().into()),
             )),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME => Ok(Scalar::extension(
+                Arc::new(ExtDType::new(
+                    TIME_ID.clone(),
+                    Arc::new(DType::Primitive(I64, Nullable)),
+                    Some(TemporalMetadata::Date(TimeUnit::Us).into()),
+                )),
+                Scalar::new(DType::Primitive(I64, Nullable), value.as_i64().into()),
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
+                let (width, scale) = value.logical_type().as_decimal();
+                Ok(Scalar::decimal(
+                    DecimalValue::I128(value.as_i128()),
+                    DecimalDType::new(width, scale.try_into()?),
+                    Nullable,
+                ))
+            }
 
             _ => todo!("cannot convert value into scalar {value:?}"),
         }

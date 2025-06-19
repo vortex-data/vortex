@@ -163,8 +163,18 @@ impl VortexExpr for Between {
         let lower_dt = self.lower.return_dtype(ctx)?;
         let upper_dt = self.upper.return_dtype(ctx)?;
 
-        assert!(arr_dt.eq_ignore_nullability(&lower_dt));
-        assert!(arr_dt.eq_ignore_nullability(&upper_dt));
+        assert!(
+            arr_dt.eq_ignore_nullability(&lower_dt),
+            "array dtype {}, lower dtype {}",
+            arr_dt,
+            lower_dt
+        );
+        assert!(
+            arr_dt.eq_ignore_nullability(&upper_dt),
+            "array dtype {}, upper dtype {}",
+            arr_dt,
+            upper_dt
+        );
 
         Ok(Bool(
             arr_dt.nullability() | lower_dt.nullability() | upper_dt.nullability(),

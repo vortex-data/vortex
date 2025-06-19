@@ -109,6 +109,7 @@ fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> ExprRe
 /// Creates a table filter expression from the table filter set.
 fn extract_table_filter_expr(
     init: &TableInitInput<VortexTableFunction>,
+    column_ids: &[u64],
 ) -> VortexResult<Option<ExprRef>> {
     let table_filter_expr = init
         .table_filter_set()
@@ -119,7 +120,7 @@ fn extract_table_filter_expr(
                     let name = init
                         .bind_data()
                         .column_names
-                        .get(idx.as_usize())
+                        .get(column_ids[idx.as_usize()].as_usize())
                         .vortex_expect("exists");
                     try_from_table_filter(&ex, name)
                 })
@@ -256,7 +257,7 @@ impl TableFunction for VortexTableFunction {
         let bind_data = init_input.bind_data();
         let file_paths = create_file_paths_queue(bind_data);
         let projection_expr = extract_projection_expr(init_input);
-        let filter_expr = extract_table_filter_expr(init_input)?;
+        let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
 
         Ok(VortexGlobalData {
             file_paths,
@@ -277,7 +278,9 @@ impl TableFunction for VortexTableFunction {
         bind_data: &mut Self::BindData,
         expr: &Expression,
     ) -> VortexResult<bool> {
-        let expr = try_from_bound_expression(expr)?;
+        let Some(expr) = try_from_bound_expression(expr)? else {
+            return Ok(false);
+        };
         bind_data.filter_exprs.push(expr);
         Ok(true)
     }

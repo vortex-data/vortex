@@ -30,6 +30,15 @@ impl LogicalType {
     pub fn varchar() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR)
     }
+
+    pub fn as_decimal(&self) -> (u8, u8) {
+        unsafe {
+            (
+                duckdb_decimal_width(self.as_ptr()),
+                duckdb_decimal_scale(self.as_ptr()),
+            )
+        }
+    }
 }
 
 impl Debug for LogicalType {

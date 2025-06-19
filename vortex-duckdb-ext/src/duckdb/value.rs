@@ -86,6 +86,16 @@ impl Value {
     pub fn as_i64(&self) -> i64 {
         unsafe { cpp::duckdb_get_int64(self.ptr) }
     }
+
+    pub fn as_i128(&self) -> i128 {
+        let huge = unsafe { cpp::duckdb_get_hugeint(self.ptr) };
+        i128_from_parts(huge.upper, huge.lower)
+    }
+}
+
+#[inline]
+pub fn i128_from_parts(high: i64, low: u64) -> i128 {
+    ((high as i128) << 64) | (low as i128)
 }
 
 impl Debug for Value {
