@@ -89,7 +89,7 @@ pub fn slice_canonical_array(
                 match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                     DecimalArray::new(
                         decimal_array.buffer::<D>().slice(start..stop),
-                        decimal_dtype.clone(),
+                        *decimal_dtype,
                         validity,
                     )
                 })

@@ -108,7 +108,7 @@ fn take_decimal<D: NativeDecimalType>(
             .iter()
             .map(|i| vec_values[*i])
             .collect::<Buffer<D>>(),
-        decimal_type.clone(),
+        *decimal_type,
         validity,
     )
     .into_array()

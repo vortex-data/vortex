@@ -48,7 +48,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 opt_values.sort();
-                Ok(DecimalArray::from_option_iter(opt_values, d.clone()).into_array())
+                Ok(DecimalArray::from_option_iter(opt_values, *d).into_array())
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {

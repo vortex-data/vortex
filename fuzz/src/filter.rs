@@ -64,7 +64,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
                         .filter(|(f, _)| **f)
                         .map(|(_, v)| v)
                         .collect::<Buffer<_>>(),
-                    d.clone(),
+                    *d,
                     validity,
                 )
                 .into_array())
