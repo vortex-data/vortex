@@ -1,7 +1,7 @@
 use std::ffi::CStr;
 use std::ptr;
 
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
+use vortex::error::{VortexError, VortexExpect, vortex_bail};
 
 use crate::cpp::{duckdb_logical_type, duckdb_vx_error};
 use crate::duckdb::{LogicalType, Vector};
@@ -39,12 +39,15 @@ impl DataChunk {
     pub fn get_vector(&self, idx: usize) -> Vector {
         unsafe { Vector::borrow(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
     }
+}
+impl TryFrom<DataChunk> for String {
+    type Error = VortexError;
 
-    pub fn try_to_string(&self) -> VortexResult<String> {
+    fn try_from(value: DataChunk) -> Result<Self, Self::Error> {
         let mut err: duckdb_vx_error = ptr::null_mut();
         #[cfg(debug_assertions)]
         unsafe {
-            cpp::duckdb_data_chunk_verify2(self.as_ptr(), &mut err);
+            cpp::duckdb_data_chunk_verify2(value.as_ptr(), &mut err);
             if !err.is_null() {
                 vortex_bail!(
                     "{}",
@@ -52,7 +55,7 @@ impl DataChunk {
                 )
             }
         };
-        let debug = unsafe { cpp::duckdb_data_chunk_to_string2(self.as_ptr(), &mut err) };
+        let debug = unsafe { cpp::duckdb_data_chunk_to_string2(value.as_ptr(), &mut err) };
         if !err.is_null() {
             vortex_bail!("{}", unsafe {
                 CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()
