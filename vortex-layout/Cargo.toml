@@ -27,6 +27,7 @@ futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+once_cell = { workspace = true, features = ["parking_lot"] }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 pin-project-lite = { workspace = true }

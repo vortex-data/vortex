@@ -2,7 +2,7 @@ use std::sync::{Arc, LazyLock};
 
 use arcref::ArcRef;
 use vortex_dtype::{DType, Nullability, StructFields};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::Array;
@@ -36,8 +36,14 @@ impl MinMaxResult {
         if scalar.is_null() {
             Ok(None)
         } else {
-            let min = scalar.as_struct().field_by_idx(0)?;
-            let max = scalar.as_struct().field_by_idx(1)?;
+            let min = scalar
+                .as_struct()
+                .field_by_idx(0)
+                .vortex_expect("missing min field");
+            let max = scalar
+                .as_struct()
+                .field_by_idx(1)
+                .vortex_expect("missing max field");
             Ok(Some(MinMaxResult { min, max }))
         }
     }

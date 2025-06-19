@@ -31,7 +31,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Runtime::new()
-        .map_err(VortexError::IOError)
+        .map_err(VortexError::from)
         .vortex_expect("tokio runtime must not fail to start")
 });
 

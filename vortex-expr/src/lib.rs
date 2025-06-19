@@ -1,5 +1,3 @@
-#![feature(option_zip)]
-
 use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;

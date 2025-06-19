@@ -124,7 +124,7 @@ mod tests {
         let expected_expr = or(
             gt(
                 get_item(
-                    field_path_stat_field_name(&FieldPath::from_name(&name), Stat::Min),
+                    field_path_stat_field_name(&FieldPath::from_name(name.clone()), Stat::Min),
                     root(),
                 ),
                 literal_eq.clone(),
@@ -132,7 +132,7 @@ mod tests {
             gt(
                 literal_eq,
                 get_item_scope(field_path_stat_field_name(
-                    &FieldPath::from_name(&name),
+                    &FieldPath::from_name(name),
                     Stat::Max,
                 )),
             ),

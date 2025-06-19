@@ -116,7 +116,7 @@ impl ComputeFn {
                 "Internal error: compute function {} returned a result of type {} but expected {}",
                 self.id,
                 output.dtype(),
-                &expected_dtype
+                &expected_dtype,
             );
         }
         if output.len() != expected_len {

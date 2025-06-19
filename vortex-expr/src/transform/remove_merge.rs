@@ -62,37 +62,20 @@ impl MutNodeVisitor for RemoveMergeTransform<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
+    use vortex_dtype::DType;
     use vortex_dtype::Nullability::{NonNullable, Nullable};
     use vortex_dtype::PType::{I32, I64, U32, U64};
-    use vortex_dtype::{DType, StructFields};
 
     use crate::transform::remove_merge::remove_merge;
     use crate::{Pack, ScopeDType, get_item, merge, root};
 
     #[test]
     fn test_remove_merge() {
-        let dtype = DType::Struct(
-            Arc::new(StructFields::new(
-                ["0".into(), "1".into()].into(),
-                vec![
-                    DType::Struct(
-                        Arc::new(StructFields::new(
-                            ["a".into(), "b".into()].into(),
-                            vec![I32.into(), I64.into()],
-                        )),
-                        NonNullable,
-                    ),
-                    DType::Struct(
-                        Arc::new(StructFields::new(
-                            ["b".into(), "c".into()].into(),
-                            vec![U32.into(), U64.into()],
-                        )),
-                        NonNullable,
-                    ),
-                ],
-            )),
+        let dtype = DType::struct_(
+            [
+                ("0", DType::struct_([("a", I32), ("b", I64)], NonNullable)),
+                ("1", DType::struct_([("b", U32), ("c", U64)], NonNullable)),
+            ],
             NonNullable,
         );
 
@@ -102,29 +85,14 @@ mod tests {
         assert!(e.as_any().is::<Pack>());
         assert_eq!(
             e.return_dtype(&ScopeDType::new(dtype)).unwrap(),
-            DType::Struct(
-                Arc::new(StructFields::new(
-                    ["a".into(), "b".into(), "c".into()].into(),
-                    vec![I32.into(), U32.into(), U64.into()],
-                )),
-                NonNullable,
-            )
+            DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
         );
     }
 
     #[test]
     fn test_remove_merge_nullable() {
-        let dtype = DType::Struct(
-            Arc::new(StructFields::new(
-                ["0".into()].into(),
-                vec![DType::Struct(
-                    Arc::new(StructFields::new(
-                        ["a".into(), "b".into()].into(),
-                        vec![I32.into(), I64.into()],
-                    )),
-                    Nullable,
-                )],
-            )),
+        let dtype = DType::struct_(
+            [("0", DType::struct_([("a", I32), ("b", I64)], Nullable))],
             NonNullable,
         );
 

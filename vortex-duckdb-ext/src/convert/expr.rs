@@ -1,43 +1,63 @@
+use std::sync::Arc;
+
 use itertools::Itertools;
-use vortex::error::{VortexError, VortexResult, vortex_bail};
-use vortex::expr::{BinaryExpr, ExprRef, Operator, and_collect, get_item_scope, lit, or_collect};
+use vortex::compute::{BetweenOptions, StrictComparison};
+use vortex::dtype::Nullability;
+use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::expr::{
+    Between, BinaryExpr, ExprRef, Like, Literal, Not, Operator, and_collect, get_item_scope,
+    list_contains, lit, or_collect,
+};
 use vortex::scalar::Scalar;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb::{Expression, ExpressionClass, TableFilter, TableFilterClass};
 
-pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<ExprRef> {
+const DUCKDB_FUNCTION_NAME_CONTAINS: &str = "contains";
+
+pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<Option<ExprRef>> {
     let Some(class) = value.as_class() else {
-        vortex_bail!("not implemented")
+        return Ok(None);
     };
-    match class {
+    Ok(Some(match class {
         TableFilterClass::ConstantComparison(const_) => {
             let scalar: Scalar = const_.value.try_into()?;
             let col = get_item_scope(col);
-            Ok(BinaryExpr::new_expr(
-                col,
-                const_.operator.try_into()?,
-                lit(scalar),
-            ))
+            BinaryExpr::new_expr(col, const_.operator.try_into()?, lit(scalar))
         }
         TableFilterClass::ConjunctionAnd(conj_and) => {
-            let children = conj_and
+            let Some(children) = conj_and
                 .children()
                 .map(|child| try_from_table_filter(&child, col))
-                .try_collect::<_, Vec<_>, _>()?;
+                .try_collect::<_, Option<Vec<_>>, _>()?
+            else {
+                return Ok(None);
+            };
 
-            Ok(and_collect(children).unwrap_or_else(|| lit(true)))
+            and_collect(children).unwrap_or_else(|| lit(true))
         }
         // This is a disjunction.
         TableFilterClass::ConjunctionOr(disjuction_or) => {
-            let children = disjuction_or
+            let Some(children) = disjuction_or
                 .children()
                 .map(|child| try_from_table_filter(&child, col))
-                .try_collect::<_, Vec<_>, _>()?;
+                .try_collect::<_, Option<Vec<_>>, _>()?
+            else {
+                return Ok(None);
+            };
 
-            Ok(or_collect(children).unwrap_or_else(|| lit(false)))
+            or_collect(children).unwrap_or_else(|| lit(false))
         }
         _ => todo!("cannot convert table filter {:?}", value),
+    }))
+}
+
+fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
+    match value.as_class().vortex_expect("unknown class") {
+        ExpressionClass::BoundConstant(constant) => {
+            Ok(Some(format!("%{}%", constant.value.as_string().to_str()?)))
+        }
+        _ => Ok(None),
     }
 }
 
@@ -57,9 +77,68 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<ExprRef> {
                 try_from_bound_expression(&compare.right)?,
             )
         }
-        ExpressionClass::BoundBetween(_) => todo!(),
-        ExpressionClass::BoundOperator(_) => todo!(),
-        ExpressionClass::BoundFunction(_) => todo!(),
+        ExpressionClass::BoundBetween(between) => Between::between(
+            try_from_bound_expression(&between.input)?,
+            try_from_bound_expression(&between.lower)?,
+            try_from_bound_expression(&between.upper)?,
+            BetweenOptions {
+                lower_strict: if between.lower_inclusive {
+                    StrictComparison::NonStrict
+                } else {
+                    StrictComparison::Strict
+                },
+                upper_strict: if between.upper_inclusive {
+                    StrictComparison::NonStrict
+                } else {
+                    StrictComparison::Strict
+                },
+            },
+        ),
+        ExpressionClass::BoundOperator(operator) => match operator.op {
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT => {
+                let children = operator.children().collect_vec();
+                assert_eq!(children.len(), 1);
+                let child = try_from_bound_expression(&children[0])?;
+                Not::new_expr(child)
+            }
+            DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
+                // First child is element, rest form the list.
+                let children = operator.children().collect_vec();
+                assert!(children.len() >= 2);
+                let element = try_from_bound_expression(&children[0])?;
+
+                let list_elements = children
+                    .iter()
+                    .skip(1)
+                    .map(|c| {
+                        Ok(Literal::maybe_from(&try_from_bound_expression(c)?)
+                            .ok_or_else(|| vortex_err!("cannot have a non literal in a in_list"))?
+                            .value()
+                            .clone())
+                    })
+                    .collect::<VortexResult<Vec<_>>>()?;
+                let list = Scalar::list(
+                    Arc::new(list_elements[0].dtype().clone()),
+                    list_elements,
+                    Nullability::Nullable,
+                );
+                list_contains(lit(list), element)
+            }
+            _ => todo!("operator {:?}", operator.op),
+        },
+        ExpressionClass::BoundFunction(func) => match func.scalar_function.name() {
+            DUCKDB_FUNCTION_NAME_CONTAINS => {
+                let children = func.children().collect_vec();
+                assert_eq!(children.len(), 2);
+                let value = try_from_bound_expression(&children[0])?;
+                let Some(pattern_lit) = like_pattern_str(&children[1])? else {
+                    vortex_bail!("expected pattern to be bound string")
+                };
+                let pattern = Literal::new_expr(pattern_lit);
+                Like::new_expr(value, pattern, false, false)
+            }
+            _ => todo!(),
+        },
     })
 }
 

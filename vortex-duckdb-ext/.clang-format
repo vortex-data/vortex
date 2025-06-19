@@ -6,7 +6,7 @@ IndentWidth: 4
 ColumnLimit: 110
 AllowShortFunctionsOnASingleLine: false
 ---
-UseTab: ForIndentation
+UseTab: Never
 DerivePointerAlignment: false
 PointerAlignment: Right
 AlignConsecutiveMacros: true
@@ -24,6 +24,7 @@ SpacesInConditionalStatement: false
 AllowShortLambdasOnASingleLine: Inline
 AllowShortLoopsOnASingleLine: false
 AlwaysBreakTemplateDeclarations: Yes
+NamespaceIndentation: Inner
 IncludeBlocks: Regroup
 Language: Cpp
 AccessModifierOffset: -4

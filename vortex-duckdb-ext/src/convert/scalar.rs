@@ -17,12 +17,14 @@
 //! | `ExtScalar` (temporal) | `DATE`/`TIME`/`TIMESTAMP` |
 
 use std::ffi::CStr;
+use std::sync::Arc;
 
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::Nullability::Nullable;
-use vortex::dtype::datetime::{TemporalMetadata, TimeUnit};
+use vortex::dtype::PType::{I32, I64};
+use vortex::dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 use vortex::dtype::half::f16;
-use vortex::dtype::{DType, PType, match_each_native_simd_ptype};
+use vortex::dtype::{DType, ExtDType, PType, match_each_native_simd_ptype};
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::scalar::{
     BinaryScalar, BoolScalar, DecimalScalar, DecimalValue, ExtScalar, PrimitiveScalar, Scalar,
@@ -226,18 +228,9 @@ impl TryFrom<Value> for Scalar {
                 unsafe { cpp::duckdb_get_int16(value.as_ptr()) },
                 Nullable,
             )),
-            DUCKDB_TYPE::DUCKDB_TYPE_INTEGER => Ok(Scalar::primitive(
-                unsafe { cpp::duckdb_get_int32(value.as_ptr()) },
-                Nullable,
-            )),
-            DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => Ok(Scalar::primitive(
-                unsafe { cpp::duckdb_get_int64(value.as_ptr()) },
-                Nullable,
-            )),
-            DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT => Ok(Scalar::primitive(
-                unsafe { cpp::duckdb_get_uint8(value.as_ptr()) },
-                Nullable,
-            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_INTEGER => Ok(Scalar::primitive(value.as_i32(), Nullable)),
+            DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => Ok(Scalar::primitive(value.as_i64(), Nullable)),
+            DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT => Ok(Scalar::primitive(value.as_u8(), Nullable)),
             DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT => Ok(Scalar::primitive(
                 unsafe { cpp::duckdb_get_uint16(value.as_ptr()) },
                 Nullable,
@@ -269,6 +262,40 @@ impl TryFrom<Value> for Scalar {
                 ByteBuffer::copy_from(value.as_string().to_str()?),
                 Nullable,
             )),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => Ok(Scalar::extension(
+                Arc::new(ExtDType::new(
+                    TIMESTAMP_ID.clone(),
+                    Arc::new(DType::Primitive(I32, Nullable)),
+                    Some(TemporalMetadata::Timestamp(TimeUnit::S, None).into()),
+                )),
+                Scalar::from(value.as_i32()),
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => Ok(Scalar::extension(
+                Arc::new(ExtDType::new(
+                    TIMESTAMP_ID.clone(),
+                    Arc::new(DType::Primitive(I32, Nullable)),
+                    Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
+                )),
+                Scalar::from(value.as_i64()),
+            )),
+            // Us
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => Ok(Scalar::extension(
+                Arc::new(ExtDType::new(
+                    TIMESTAMP_ID.clone(),
+                    Arc::new(DType::Primitive(I64, Nullable)),
+                    Some(TemporalMetadata::Timestamp(TimeUnit::Us, None).into()),
+                )),
+                Scalar::from(value.as_i64()),
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => Ok(Scalar::extension(
+                Arc::new(ExtDType::new(
+                    TIMESTAMP_ID.clone(),
+                    Arc::new(DType::Primitive(I64, Nullable)),
+                    Some(TemporalMetadata::Timestamp(TimeUnit::Ns, None).into()),
+                )),
+                Scalar::from(value.as_i64()),
+            )),
+
             _ => todo!("cannot convert value into scalar {value:?}"),
         }
     }

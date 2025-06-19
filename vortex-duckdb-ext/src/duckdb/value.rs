@@ -74,6 +74,18 @@ impl Value {
     pub fn as_string(&self) -> &CStr {
         unsafe { CStr::from_ptr(cpp::duckdb_get_varchar(self.as_ptr())) }
     }
+
+    pub fn as_u8(&self) -> u8 {
+        unsafe { cpp::duckdb_get_uint8(self.ptr) }
+    }
+
+    pub fn as_i32(&self) -> i32 {
+        unsafe { cpp::duckdb_get_int32(self.ptr) }
+    }
+
+    pub fn as_i64(&self) -> i64 {
+        unsafe { cpp::duckdb_get_int64(self.ptr) }
+    }
 }
 
 impl Debug for Value {

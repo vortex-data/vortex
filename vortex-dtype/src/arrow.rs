@@ -257,11 +257,11 @@ mod test {
         );
 
         assert_eq!(
-            DType::Struct(
-                Arc::new(StructFields::from_iter([
+            DType::struct_(
+                [
                     ("field_a", DType::Bool(false.into())),
                     ("field_b", DType::Utf8(true.into()))
-                ])),
+                ],
                 Nullability::NonNullable,
             )
             .to_arrow_dtype()

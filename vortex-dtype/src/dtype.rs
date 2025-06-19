@@ -9,7 +9,7 @@ use vortex_error::vortex_panic;
 
 use crate::decimal::DecimalDType;
 use crate::nullability::Nullability;
-use crate::{ExtDType, PType, StructFields};
+use crate::{ExtDType, FieldDType, PType, StructFields};
 
 /// A name for a field in a struct
 pub type FieldName = Arc<str>;
@@ -227,6 +227,19 @@ impl DType {
             List(s, _) => Some(s),
             _ => None,
         }
+    }
+
+    /// Convenience method for creating a struct dtype
+    pub fn struct_<I: IntoIterator<Item = (impl Into<FieldName>, impl Into<FieldDType>)>>(
+        iter: I,
+        nullability: Nullability,
+    ) -> Self {
+        Struct(Arc::new(StructFields::from_iter(iter)), nullability)
+    }
+
+    /// Convenience method for creating a list dtype
+    pub fn list(dtype: impl Into<DType>, nullability: Nullability) -> Self {
+        List(Arc::new(dtype.into()), nullability)
     }
 }
 

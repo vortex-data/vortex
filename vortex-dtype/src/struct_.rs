@@ -1,7 +1,6 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err, vortex_panic};
 
 use crate::flatbuffers::ViewedDType;
@@ -213,40 +212,26 @@ impl StructFields {
     }
 
     /// Returns the name of the field at the given index
-    pub fn field_name(&self, index: usize) -> VortexResult<&FieldName> {
-        self.names
-            .get(index)
-            .ok_or_else(|| vortex_err!("field index out of bounds"))
+    pub fn field_name(&self, index: usize) -> Option<&FieldName> {
+        self.names.get(index)
     }
 
     /// Find the index of a field by name
     /// Returns `None` if the field is not found
-    pub fn find(&self, name: impl AsRef<str>) -> VortexResult<usize> {
+    pub fn find(&self, name: impl AsRef<str>) -> Option<usize> {
         let name = name.as_ref();
-        self.names
-            .iter()
-            .position(|n| n.as_ref() == name)
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Field {} not found in {}",
-                    name,
-                    self.names.iter().join(", ")
-                )
-            })
+        self.names.iter().position(|n| n.as_ref() == name)
     }
 
     /// Get the [`DType`] of a field.
-    pub fn field(&self, name: impl AsRef<str>) -> VortexResult<DType> {
+    pub fn field(&self, name: impl AsRef<str>) -> Option<DType> {
         let index = self.find(name)?;
-        self.dtypes[index].value()
+        Some(self.dtypes[index].value().vortex_unwrap())
     }
 
     /// Get the [`DType`] of a field by index.
-    pub fn field_by_index(&self, index: usize) -> VortexResult<DType> {
-        self.dtypes
-            .get(index)
-            .vortex_expect("Field index out of bounds")
-            .value()
+    pub fn field_by_index(&self, index: usize) -> Option<DType> {
+        Some(self.dtypes.get(index)?.value().vortex_unwrap())
     }
 
     /// Returns an ordered iterator over the members of Self.
@@ -260,8 +245,10 @@ impl StructFields {
         let mut names = Vec::with_capacity(projection.len());
         let mut dtypes = Vec::with_capacity(projection.len());
 
-        for field in projection.iter() {
-            let idx = self.find(field)?;
+        for field in projection {
+            let idx = self
+                .find(field)
+                .ok_or_else(|| vortex_err!("{field} not found"))?;
             names.push(self.names[idx].clone());
             dtypes.push(self.dtypes[idx].clone());
         }
@@ -362,7 +349,7 @@ mod test {
 
         assert_eq!(sdt.find("A").unwrap(), 0);
         assert_eq!(sdt.find("B").unwrap(), 1);
-        assert!(sdt.find("C").is_err());
+        assert!(sdt.find("C").is_none());
 
         let without_a = sdt.without_field(0);
         assert_eq!(without_a.names()[0], "B".into());

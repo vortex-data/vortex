@@ -2,6 +2,8 @@ use std::ffi::CStr;
 use std::fmt::{Debug, Formatter};
 use std::ptr;
 
+use bitvec::macros::internal::funty::Fundamental;
+use cpp::duckdb_vx_table_filter;
 use vortex::error::VortexExpect;
 
 use crate::cpp::idx_t;
@@ -11,12 +13,17 @@ use crate::{cpp, wrapper};
 wrapper!(TableFilterSet, cpp::duckdb_vx_table_filter_set, |_| {});
 
 impl TableFilterSet {
-    pub fn get(&self, column_idx: u64) -> Option<TableFilter> {
-        let ptr = unsafe { cpp::duckdb_vx_table_filter_set_get(self.as_ptr(), column_idx) };
-        if ptr.is_null() {
+    pub fn get(&self, index: u64) -> Option<(idx_t, TableFilter)> {
+        let mut filter_set: duckdb_vx_table_filter = ptr::null_mut();
+
+        let column_index = unsafe {
+            cpp::duckdb_vx_table_filter_set_get(self.as_ptr(), index.as_usize(), &mut filter_set)
+        };
+
+        if filter_set.is_null() {
             None
         } else {
-            Some(unsafe { TableFilter::borrow(ptr) })
+            Some(unsafe { (column_index, TableFilter::borrow(filter_set)) })
         }
     }
 
@@ -34,10 +41,10 @@ impl<'a> IntoIterator for &'a TableFilterSet {
     type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Box::new(
-            (0..self.len())
-                .map(move |i| (i, self.get(i).vortex_expect("inside filter set bounds"))),
-        )
+        Box::new((0..self.len()).map(move |i| {
+            self.get(i)
+                .vortex_expect(format!("inside filter set bounds {i}").as_str())
+        }))
     }
 }
 
@@ -47,7 +54,7 @@ impl Debug for TableFilterSet {
     }
 }
 
-wrapper!(TableFilter, cpp::duckdb_vx_table_filter, |_| {});
+wrapper!(TableFilter, duckdb_vx_table_filter, |_| {});
 
 impl TableFilter {
     pub fn as_class(&self) -> Option<TableFilterClass> {
@@ -148,7 +155,7 @@ pub struct ConstantComparison {
 }
 
 pub struct Conjunction<'a> {
-    children: &'a [cpp::duckdb_vx_table_filter],
+    children: &'a [duckdb_vx_table_filter],
 }
 
 impl Conjunction<'_> {

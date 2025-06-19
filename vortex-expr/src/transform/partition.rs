@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashMap};
 
 use crate::transform::immediate_access::{FieldAccesses, immediate_scope_accesses};
@@ -133,7 +133,9 @@ impl<'a> StructFieldExpressionSplitter<'a> {
                 )
             };
 
-            let field_dtype = scope_dtype.field(&name)?;
+            let field_dtype = scope_dtype
+                .field(&name)
+                .ok_or_else(|| vortex_err!("Missing field {name}"))?;
             let field_ctx = ScopeDType::new(field_dtype);
             let expr = simplify_typed(expr.clone(), &field_ctx)?;
             let expr_dtype = expr.return_dtype(&field_ctx)?;

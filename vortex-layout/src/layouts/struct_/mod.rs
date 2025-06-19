@@ -50,9 +50,13 @@ impl VTable for StructVTable {
     }
 
     fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
-        layout
-            .children
-            .child(idx, &layout.struct_fields().field_by_index(idx)?)
+        layout.children.child(
+            idx,
+            &layout
+                .struct_fields()
+                .field_by_index(idx)
+                .ok_or_else(|| vortex_err!("Missing field {idx}"))?,
+        )
     }
 
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType {
@@ -150,9 +154,12 @@ impl StructLayout {
                 continue;
             };
             let Field::Name(field_name) = field else {
-                vortex_bail!("Expected field name, got {:?}", field);
+                vortex_bail!("Expected field name, got {field:?}");
             };
-            let idx = self.struct_fields().find(field_name)?;
+            let idx = self
+                .struct_fields()
+                .find(field_name)
+                .ok_or_else(|| vortex_err!("Field not found: {field_name}"))?;
 
             per_child(path.clone().step_into()?, idx)?;
         }

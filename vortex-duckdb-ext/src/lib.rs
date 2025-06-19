@@ -23,6 +23,8 @@ mod scan;
 /// for DuckDB, such as custom data types and functions.
 /// cbindgen:ignore
 mod cpp;
+#[cfg(test)]
+mod scan_tests;
 
 /// Initialize the Vortex extension by registering the `vortex_scan` function.
 pub fn init(conn: &Connection) -> VortexResult<()> {

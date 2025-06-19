@@ -133,9 +133,10 @@ fn main() {
         .file("cpp/data_chunk.cpp")
         .file("cpp/error.cpp")
         .file("cpp/expr.cpp")
+        .file("cpp/logical_type.cpp")
+        .file("cpp/scalar_function.cpp")
         .file("cpp/table_filter.cpp")
         .file("cpp/table_function.cpp")
-        .file("cpp/logical_type.cpp")
         .file("cpp/vector.cpp")
         .compile("vortex-duckdb-ext-extras");
 
