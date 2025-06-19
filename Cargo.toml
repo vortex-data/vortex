@@ -58,16 +58,16 @@ anyhow = "1.0.95"
 arbitrary = "1.3.2"
 arcref = "0.2.0"
 arrayref = "0.3.7"
-arrow = { version = "55", default-features = false }
-arrow-arith = "55"
-arrow-array = "55"
-arrow-buffer = "55"
-arrow-cast = "55"
-arrow-data = "55"
-arrow-ord = "55"
-arrow-schema = "55"
-arrow-select = "55"
-arrow-string = "55"
+arrow = { version = "55.1", default-features = false }
+arrow-arith = "55.1"
+arrow-array = "55.1"
+arrow-buffer = "55.1"
+arrow-cast = "55.1"
+arrow-data = "55.1"
+arrow-ord = "55.1"
+arrow-schema = "55.1"
+arrow-select = "55.1"
+arrow-string = "55.1"
 async-stream = "0.3.6"
 async-trait = "0.1.88"
 bindgen = "0.71.1"
@@ -78,15 +78,15 @@ bzip2 = "0.5.0"
 cbindgen = "0.29.0"
 cc = "1.2"
 cfg-if = "1"
-chrono = "0.4.40"
+chrono = "0.4.41"
 clap = "4.5"
 compio = { version = "0.14", features = ["io-uring"], default-features = false }
 crossbeam-queue = "0.3"
 crossterm = "0.28"
 dashmap = "6.1.0"
-datafusion = { version = "47", default-features = false }
-datafusion-common = { version = "47" }
-datafusion-physical-plan = { version = "47" }
+datafusion = { version = "48", default-features = false }
+datafusion-common = { version = "48" }
+datafusion-physical-plan = { version = "48" }
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
 duckdb = { path = "duckdb-vortex/duckdb-rs/crates/duckdb", features = [
     "vtab-full",
@@ -102,7 +102,7 @@ futures = { version = "0.3.31", default-features = false }
 futures-util = "0.3.31"
 glob = "0.3.2"
 goldenfile = "1"
-half = { version = "2.5", features = ["std", "num-traits"] }
+half = { version = "2.6", features = ["std", "num-traits"] }
 hashbrown = "0.15.1"
 homedir = "0.3.3"
 humansize = "2.1.3"
@@ -124,7 +124,7 @@ once_cell = "1.21"
 opentelemetry = "0.29.0"
 opentelemetry-otlp = "0.29.0"
 opentelemetry_sdk = "0.29.0"
-parquet = "55"
+parquet = "55.1"
 paste = "1.0.15"
 pco = "0.4.4"
 pin-project = "1.1.5"
@@ -163,14 +163,14 @@ taffy = "0.8.0"
 tar = "0.4"
 tempfile = "3"
 thiserror = "2.0.3"
-tokio = "1.44.2"
+tokio = "1.45.1"
 tokio-stream = "0.1.17"
 tracing = { version = "0.1.41" }
 tracing-chrome = "0.7.2"
 tracing-futures = "0.2.5"
 tracing-subscriber = "0.3.19"
 url = "2.5.4"
-uuid = { version = "1.16", features = ["js"] }
+uuid = { version = "1.17", features = ["js"] }
 walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
