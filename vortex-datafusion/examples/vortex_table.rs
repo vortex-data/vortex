@@ -57,7 +57,9 @@ async fn main() -> anyhow::Result<()> {
             .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?,
     )?;
     let config = ListingTableConfig::new(table_url)
-        .with_listing_options(ListingOptions::new(format))
+        .with_listing_options(
+            ListingOptions::new(format).with_session_config_options(ctx.state().config()),
+        )
         .infer_schema(&ctx.state())
         .await?;
 
