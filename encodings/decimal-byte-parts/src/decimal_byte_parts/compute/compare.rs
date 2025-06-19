@@ -126,6 +126,7 @@ mod tests {
         )
         .unwrap()
         .to_array();
+        // This cannot be converted to a i32.
         let rhs = ConstantArray::new(
             Scalar::new(dtype, DecimalValue::I128(-9999999999999965304).into()),
             lhs.len(),
