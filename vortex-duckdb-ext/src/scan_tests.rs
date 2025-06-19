@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::Path;
 
 use duckdb::Connection;
@@ -247,32 +246,4 @@ async fn test_vortex_scan_multiple_files() {
         .unwrap();
 
     assert_eq!(total_sum, 21);
-}
-
-#[tokio::test]
-async fn test_tpch_bench() {
-    let conn = database_connection();
-    conn.execute_batch(r#"
-        create view customer as select * from read_vortex('/Users/joeisaacs/git/spiraldb/vortex/bench-vortex/data/tpch/1/vortex-file-compressed/customer.vortex');
-        create view orders as select * from read_vortex('/Users/joeisaacs/git/spiraldb/vortex/bench-vortex/data/tpch/1/vortex-file-compressed/orders.vortex');
-        create view lineitem as select * from read_vortex('/Users/joeisaacs/git/spiraldb/vortex/bench-vortex/data/tpch/1/vortex-file-compressed/lineitem.vortex');
-        create view supplier as select * from read_vortex('/Users/joeisaacs/git/spiraldb/vortex/bench-vortex/data/tpch/1/vortex-file-compressed/supplier.vortex');
-        create view nation as select * from read_vortex('/Users/joeisaacs/git/spiraldb/vortex/bench-vortex/data/tpch/1/vortex-file-compressed/nation.vortex');
-        create view region as select * from read_vortex('/Users/joeisaacs/git/spiraldb/vortex/bench-vortex/data/tpch/1/vortex-file-compressed/region.vortex');"#).unwrap();
-    // println!("assert table {}", table);
-
-    let dir = "/Users/joeisaacs/git/spiraldb/vortex/bench-vortex/tpch";
-
-    for entry in fs::read_dir(dir).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-
-        if let Some(ext) = path.extension() {
-            if ext == "sql" {
-                let q = fs::read_to_string(&path).unwrap();
-                println!("q {q}");
-                println!("{}", conn.execute(q.as_str(), []).unwrap());
-            }
-        }
-    }
 }

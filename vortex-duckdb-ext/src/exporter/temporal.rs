@@ -51,7 +51,7 @@ mod tests {
         assert_eq!(
             format!("{}", chunk.try_to_string().unwrap()),
             r#"Chunk - [1 Columns]
-- FLAT BOOLEAN: 2 = [ 2025-06-18 16:43:45, 2025-06-18 16:43:46]
+- FLAT TIMESTAMP_S: 2 = [ 2025-06-18 16:43:45, 2025-06-18 16:43:46]
 "#
         );
     }
