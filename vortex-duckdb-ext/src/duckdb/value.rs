@@ -201,3 +201,23 @@ impl From<&[u8]> for Value {
         unsafe { Self::own(cpp::duckdb_create_blob(value.as_ptr(), value.len() as _)) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::duckdb::i128_from_parts;
+
+    #[test]
+    fn test_huge_int_from_parts() {
+        assert_eq!(i128_from_parts(0, 0), 0i128);
+        assert_eq!(i128_from_parts(0, 34534912), 34534912i128);
+        assert_eq!(i128_from_parts(i64::MIN, 0), i128::MIN);
+        assert_eq!(i128_from_parts(i64::MAX, u64::MAX), i128::MAX);
+
+        assert_eq!(i128_from_parts(0, u64::MAX), u64::MAX as i128);
+        assert_eq!(
+            i128_from_parts(1, u64::MAX),
+            (1i128 << 64) + (u64::MAX as i128)
+        );
+    }
+}
