@@ -34,7 +34,7 @@ impl CompareKernel for DecimalBytePartsVTable {
             decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp.as_primitive_typed().ptype())
                 .map(|value| Scalar::new(scalar_type.clone(), value))
         else {
-            // this is a value that is bigger than `msp`.
+            // here the scalar value is bigger than the msp type.
             // TODO(joe): fixme, when allowing lsp values.
             return Ok(Some(
                 ConstantArray::new(unconvertible_value(operator, nullability), lhs.len())
@@ -56,7 +56,7 @@ fn unconvertible_value(operator: Operator, nullability: Nullability) -> Scalar {
     }
 }
 
-// clippy prefers smaller functions
+// this value return None is the decimal scalar cannot be cast the ptype.
 fn decimal_value_wrapper_to_primitive(
     decimal_value: DecimalValue,
     ptype: PType,
