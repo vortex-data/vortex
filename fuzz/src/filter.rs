@@ -105,6 +105,8 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             }
             take_canonical_array(array, &indices)
         }
-        d => unreachable!("DType {d} not supported for fuzzing"),
+        d @ (DType::Null | DType::Extension(_)) => {
+            unreachable!("DType {d} not supported for fuzzing")
+        }
     }
 }

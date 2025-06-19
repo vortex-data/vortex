@@ -73,7 +73,9 @@ pub fn take_canonical_array(array: &dyn Array, indices: &[usize]) -> VortexResul
             }
             Ok(builder.finish())
         }
-        d => unreachable!("DType {d} not supported for fuzzing"),
+        d @ (DType::Null | DType::Extension(_)) => {
+            unreachable!("DType {d} not supported for fuzzing")
+        }
     }
 }
 

@@ -80,7 +80,9 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             });
             take_canonical_array(array, &sort_indices)
         }
-        d => unreachable!("DType {d} not supported for fuzzing"),
+        d @ (DType::Null | DType::Extension(_)) => {
+            unreachable!("DType {d} not supported for fuzzing")
+        }
     }
 }
 

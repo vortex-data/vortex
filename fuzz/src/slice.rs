@@ -96,7 +96,9 @@ pub fn slice_canonical_array(
                 .to_array(),
             )
         }
-        d => unreachable!("DType {d} not supported for fuzzing"),
+        d @ (DType::Null | DType::Extension(_)) => {
+            unreachable!("DType {d} not supported for fuzzing")
+        }
     }
 }
 
