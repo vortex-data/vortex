@@ -1,12 +1,13 @@
 use arrow_buffer::ArrowNativeType;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray, VarBinViewArray};
+use vortex_array::arrays::{BoolArray, DecimalArray, PrimitiveArray, StructArray, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilderExt, builder_with_capacity};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_dtype::{DType, DecimalDType, NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
+use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
 
 pub fn take_canonical_array(array: &dyn Array, indices: &[usize]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
@@ -30,6 +31,13 @@ pub fn take_canonical_array(array: &dyn Array, indices: &[usize]) -> VortexResul
             let primitive_array = array.to_primitive()?;
             match_each_native_ptype!(p, |P| {
                 Ok(take_primitive::<P>(primitive_array, validity, indices))
+            })
+        }
+        DType::Decimal(d, _) => {
+            let decimal_array = array.to_decimal()?;
+
+            match_each_decimal_value_type!(decimal_array.values_type(), |D| {
+                Ok(take_decimal::<D>(decimal_array, d, validity, indices))
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
@@ -80,6 +88,25 @@ fn take_primitive<T: NativePType + ArrowNativeType>(
             .iter()
             .map(|i| vec_values[*i])
             .collect::<Buffer<T>>(),
+        validity,
+    )
+    .into_array()
+}
+
+fn take_decimal<D: NativeDecimalType>(
+    array: DecimalArray,
+    decimal_type: &DecimalDType,
+    validity: Validity,
+    indices: &[usize],
+) -> ArrayRef {
+    let buf = array.buffer::<D>();
+    let vec_values = buf.as_slice();
+    DecimalArray::new(
+        indices
+            .iter()
+            .map(|i| vec_values[*i])
+            .collect::<Buffer<D>>(),
+        decimal_type.clone(),
         validity,
     )
     .into_array()

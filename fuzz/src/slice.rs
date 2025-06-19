@@ -1,11 +1,14 @@
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::{BoolArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray};
+use vortex_array::arrays::{
+    BoolArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinViewArray,
+};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{
     DType, NativePType, Nullability, match_each_integer_ptype, match_each_native_ptype,
 };
 use vortex_error::VortexResult;
+use vortex_scalar::match_each_decimal_value_type;
 
 #[allow(clippy::unnecessary_fallible_conversions)]
 pub fn slice_canonical_array(
@@ -79,6 +82,19 @@ pub fn slice_canonical_array(
             })
             .into_array();
             ListArray::try_new(elements, offsets, validity).map(|a| a.into_array())
+        }
+        DType::Decimal(decimal_dtype, _) => {
+            let decimal_array = array.to_decimal()?;
+            Ok(
+                match_each_decimal_value_type!(decimal_array.values_type(), |D| {
+                    DecimalArray::new(
+                        decimal_array.buffer::<D>().slice(start..stop),
+                        decimal_dtype.clone(),
+                        validity,
+                    )
+                })
+                .to_array(),
+            )
         }
         d => unreachable!("DType {d} not supported for fuzzing"),
     }

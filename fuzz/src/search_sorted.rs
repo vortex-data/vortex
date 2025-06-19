@@ -7,7 +7,7 @@ use vortex_array::{Array, ToCanonical};
 use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
+use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 struct SearchNullableSlice<T>(Vec<Option<T>>);
 
@@ -74,6 +74,22 @@ pub fn search_sorted_canonical_array(
                     .collect::<Vec<_>>();
                 let to_find: P = scalar.try_into()?;
                 Ok(SearchPrimitiveSlice(opt_values).search_sorted(&Some(to_find), side))
+            })
+        }
+        DType::Decimal(..) => {
+            let decimal_array = array.to_decimal()?;
+            let validity = decimal_array.validity_mask()?.to_boolean_buffer();
+            match_each_decimal_value_type!(decimal_array.values_type(), |D| {
+                let buf = decimal_array.buffer::<D>();
+                let opt_values = buf
+                    .as_slice()
+                    .iter()
+                    .copied()
+                    .zip(validity.iter())
+                    .map(|(b, v)| v.then_some(b))
+                    .collect::<Vec<_>>();
+                let to_find: D = scalar.as_decimal().try_into()?;
+                Ok(SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side))
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
