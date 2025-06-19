@@ -2,8 +2,8 @@ use num_traits::NumCast;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
 use vortex_array::{Array, ArrayRef, register_kernel};
-use vortex_dtype::{NativePType, PType, match_each_integer_ptype};
-use vortex_error::VortexResult;
+use vortex_dtype::{NativePType, Nullability, PType, match_each_integer_ptype};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{DecimalValue, Scalar, ScalarValue, match_each_decimal_value};
 
 use crate::DecimalBytePartsVTable;
@@ -23,21 +23,36 @@ impl CompareKernel for DecimalBytePartsVTable {
             return Ok(None);
         };
 
-        let scalar_type = lhs
-            .msp
-            .dtype()
-            .with_nullability(lhs.dtype.nullability() | rhs.dtype().nullability());
+        let nullability = lhs.dtype.nullability() | rhs.dtype().nullability();
+        let scalar_type = lhs.msp.dtype().with_nullability(nullability);
 
-        let encoded_scalar = rhs_const
+        let rhs_decimal = rhs_const
             .as_decimal()
             .decimal_value()
-            .and_then(|value| {
-                decimal_value_wrapper_to_primitive(value, lhs.msp.as_primitive_typed().ptype())
-            })
-            .map(|value| Scalar::new(scalar_type.clone(), value))
-            .unwrap_or_else(|| Scalar::null(scalar_type));
+            .vortex_expect("checked for null in entry func");
+        let Some(encoded_scalar) =
+            decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp.as_primitive_typed().ptype())
+                .map(|value| Scalar::new(scalar_type.clone(), value))
+        else {
+            // this is a value that is bigger than `msp`.
+            // TODO(joe): fixme, when allowing lsp values.
+            return Ok(Some(
+                ConstantArray::new(unconvertible_value(operator, nullability), lhs.len())
+                    .to_array(),
+            ));
+        };
         let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
         compare(&lhs.msp, &encoded_const.to_array(), operator).map(Some)
+    }
+}
+
+fn unconvertible_value(operator: Operator, nullability: Nullability) -> Scalar {
+    // v op unconvertible where unconvertible > v_max
+    match operator {
+        // v is never eq or gt/gte
+        Operator::Eq | Operator::Gt | Operator::Gte => Scalar::bool(false, nullability),
+        // v is always eq or gt/gte
+        Operator::NotEq | Operator::Lt | Operator::Lte => Scalar::bool(true, nullability),
     }
 }
 
@@ -57,6 +72,7 @@ where
     ScalarValue: From<P>,
 {
     match_each_decimal_value!(decimal_value, |decimal_v| {
+        println!("p {}, d {}, ty {}", P::PTYPE, decimal_v, decimal_value);
         Some(ScalarValue::from(<P as NumCast>::from(decimal_v)?))
     })
 }
