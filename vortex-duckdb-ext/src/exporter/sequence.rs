@@ -50,7 +50,7 @@ mod tests {
         chunk.set_len(4);
 
         assert_eq!(
-            format!("{chunk:?}"),
+            format!("{}", chunk.try_to_string().unwrap()),
             r#"Chunk - [1 Columns]
 - SEQUENCE INTEGER: 4 = [ 2, 7, 12, 17]
 "#

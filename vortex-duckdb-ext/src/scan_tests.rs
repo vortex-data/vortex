@@ -252,7 +252,7 @@ async fn test_vortex_scan_multiple_files() {
 #[tokio::test]
 async fn test_tpch_bench() {
     let conn = database_connection();
-    let _table = conn.execute_batch(r#"
+    conn.execute_batch(r#"
         create view customer as select * from read_vortex('/Users/joeisaacs/git/spiraldb/vortex/bench-vortex/data/tpch/1/vortex-file-compressed/customer.vortex');
         create view orders as select * from read_vortex('/Users/joeisaacs/git/spiraldb/vortex/bench-vortex/data/tpch/1/vortex-file-compressed/orders.vortex');
         create view lineitem as select * from read_vortex('/Users/joeisaacs/git/spiraldb/vortex/bench-vortex/data/tpch/1/vortex-file-compressed/lineitem.vortex');

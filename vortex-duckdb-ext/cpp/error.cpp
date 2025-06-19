@@ -3,9 +3,18 @@
 
 #include "duckdb_vx.h"
 
-//! Create a DuckDB vortex error.
 extern "C" duckdb_vx_error duckdb_vx_error_create(const char *message, size_t message_length) {
     return reinterpret_cast<duckdb_vx_error>(new std::string(message, message_length));
+}
+
+extern "C" const char *duckdb_vx_error_value(duckdb_vx_error err) {
+    auto str = reinterpret_cast<std::string *>(err);
+    return str->c_str();
+}
+
+extern "C" void duckdb_vx_error_free(duckdb_vx_error err) {
+    auto str = reinterpret_cast<std::string *>(err);
+    delete str;
 }
 
 namespace vortex {

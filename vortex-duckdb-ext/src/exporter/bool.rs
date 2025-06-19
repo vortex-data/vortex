@@ -62,9 +62,9 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{chunk:?}"),
+            format!("{}", chunk.try_to_string().unwrap()),
             r#"Chunk - [1 Columns]
-- FLAT BOOLEAN: 2 = [ false, true]
+- FLAT TIMESTAMP_S: 2 = [ false, true]
 "#
         );
     }
@@ -82,7 +82,7 @@ mod tests {
         chunk.set_len(65);
 
         assert_eq!(
-            format!("{chunk:?}"),
+            format!("{}", chunk.try_to_string().unwrap()),
             format!(
                 r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 65 = [ {}]
