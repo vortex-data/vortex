@@ -42,8 +42,9 @@ pub fn compute_is_constant<T: NativePType, const WIDTH: usize>(values: &[T]) -> 
     let first_value = values[0];
     let first_vec = &[first_value; WIDTH];
 
-    let mut chunks = values[1..].array_chunks::<WIDTH>();
+    let mut chunks = values[1..].chunks_exact(WIDTH);
     for chunk in &mut chunks {
+        assert_eq!(chunk.len(), WIDTH); // let the compiler know each chunk is WIDTH.
         if first_vec != chunk {
             return false;
         }

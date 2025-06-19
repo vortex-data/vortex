@@ -1,5 +1,3 @@
-#![feature(array_chunks)]
-
 use std::fmt::Debug;
 use std::hash::Hash;
 

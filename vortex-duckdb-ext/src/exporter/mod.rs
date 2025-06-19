@@ -1,3 +1,4 @@
+mod bool;
 mod cache;
 mod constant;
 mod decimal;
@@ -5,17 +6,17 @@ mod dict;
 mod primitive;
 mod run_end;
 mod sequence;
+mod temporal;
 mod varbinview;
 
 use cache::*;
-use duckdb::vtab::arrow::write_arrow_array_to_vector;
 use itertools::Itertools;
-use vortex::arrays::{ConstantVTable, StructArray};
-use vortex::arrow::compute::to_arrow_preferred;
+use vortex::arrays::{ConstantVTable, StructArray, TemporalArray};
+use vortex::dtype::datetime::is_temporal_ext_type;
 use vortex::encodings::dict::DictVTable;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 use vortex::iter::ArrayIterator;
 use vortex::mask::Mask;
 use vortex::{Array, Canonical, ToCanonical};
@@ -153,10 +154,10 @@ fn new_array_exporter(
     // Otherwise, we fall back to canonical
     let array = array.to_canonical()?;
     match array {
-        Canonical::Null(_) => {}
-        Canonical::Bool(_) => {}
-        Canonical::Primitive(array) => return primitive::new_exporter(&array),
-        Canonical::Decimal(array) => return decimal::new_exporter(&array),
+        Canonical::Null(_) => todo!("no null exporter"),
+        Canonical::Bool(array) => bool::new_exporter(&array),
+        Canonical::Primitive(array) => primitive::new_exporter(&array),
+        Canonical::Decimal(array) => decimal::new_exporter(&array),
         Canonical::Struct(_) => {
             // The Arrow exporter does not support struct arrays yet, so we bail out.
             vortex_bail!("Struct arrays are not supported in DuckDB export yet");
@@ -165,24 +166,15 @@ fn new_array_exporter(
             // The Arrow exporter does not support list arrays yet, so we bail out.
             vortex_bail!("List arrays are not supported in DuckDB export yet");
         }
-        Canonical::VarBinView(array) => return varbinview::new_exporter(&array),
-        Canonical::Extension(_) => {}
-    }
-
-    Ok(Box::new(ArrowArrayExporter {
-        array: to_arrow_preferred(array.as_ref())?,
-    }))
-}
-
-struct ArrowArrayExporter {
-    array: arrow_array::ArrayRef,
-}
-
-impl ColumnExporter for ArrowArrayExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
-        let duckdb_vector = vector.as_ptr();
-        write_arrow_array_to_vector(&self.array.slice(offset, len), &mut duckdb_vector.cast())
-            .map_err(|e| vortex_err!("Failed to convert Arrow array to DuckDB vector {e}"))
+        Canonical::VarBinView(array) => varbinview::new_exporter(&array),
+        Canonical::Extension(ext) => {
+            if is_temporal_ext_type(ext.id()) {
+                let temporal_array =
+                    TemporalArray::try_from(ext).vortex_expect("id is a temporal array");
+                return temporal::new_exporter(&temporal_array);
+            }
+            todo!("no non-temporal extension exporter")
+        }
     }
 }
 
