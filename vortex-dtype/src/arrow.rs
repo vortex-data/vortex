@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use arrow_schema::{
-    DECIMAL128_MAX_SCALE, DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef,
+    DECIMAL128_MAX_PRECISION, DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef,
 };
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
@@ -177,7 +177,7 @@ impl DType {
                 PType::F64 => DataType::Float64,
             },
             DType::Decimal(dt, _) => {
-                if dt.scale() > DECIMAL128_MAX_SCALE {
+                if dt.precision() > DECIMAL128_MAX_PRECISION {
                     DataType::Decimal256(dt.precision(), dt.scale())
                 } else {
                     DataType::Decimal128(dt.precision(), dt.scale())
