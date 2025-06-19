@@ -14,7 +14,7 @@ use vortex_array::vtable::{
     ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
 };
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
-use vortex_buffer::{BufferMut, ByteBuffer};
+use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
@@ -186,17 +186,17 @@ impl PcoArray {
                 }
             );
 
-            let mut chunk_meta_buffer = Vec::with_capacity(cc.chunk_meta_size_hint());
+            let mut chunk_meta_buffer = ByteBufferMut::with_capacity(cc.chunk_meta_size_hint());
             cc.write_chunk_meta(&mut chunk_meta_buffer)
                 .map_err(vortex_err_from_pco)?;
-            chunk_meta_buffers.push(ByteBuffer::from(chunk_meta_buffer));
+            chunk_meta_buffers.push(chunk_meta_buffer.freeze());
 
             let mut page_infos = vec![];
             for (page_idx, page_n_values) in cc.n_per_page().into_iter().enumerate() {
-                let mut page = Vec::with_capacity(cc.page_size_hint(page_idx));
+                let mut page = ByteBufferMut::with_capacity(cc.page_size_hint(page_idx));
                 cc.write_page(page_idx, &mut page)
                     .map_err(vortex_err_from_pco)?;
-                page_buffers.push(ByteBuffer::from(page));
+                page_buffers.push(page.freeze());
                 page_infos.push(PcoPageInfo {
                     n_values: u32::try_from(page_n_values)?,
                 });

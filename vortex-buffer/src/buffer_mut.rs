@@ -1,6 +1,7 @@
 use core::mem::MaybeUninit;
 use std::any::type_name;
 use std::fmt::{Debug, Formatter};
+use std::io::Write;
 use std::ops::{Deref, DerefMut};
 
 use bytes::buf::UninitSlice;
@@ -537,6 +538,17 @@ impl AlignedBytesMut for BytesMut {
         // safely set the length to the padding and advance the buffer to the aligned offset.
         unsafe { self.set_len(padding) };
         self.advance(padding);
+    }
+}
+
+impl Write for ByteBufferMut {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
