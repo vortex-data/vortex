@@ -31,6 +31,7 @@ duckdb = { git = "https://github.com/vortex-data/duckdb-rs", rev = "247ffb36c41b
 ] }
 glob = { workspace = true }
 itertools = { workspace = true }
+log = { workspace = true }
 num-traits = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }

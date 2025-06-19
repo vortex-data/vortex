@@ -39,7 +39,7 @@ extern "C" const char *duckdb_vx_expr_get_bound_column_ref_get_name(duckdb_vx_ex
     if (!ffi_expr) {
         return nullptr;
     }
-    auto expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundColumnRefExpression>();
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundColumnRefExpression>();
     auto str = expr.GetName();
     auto result = static_cast<char *>(duckdb_malloc(str.size() + 1));
     memcpy(result, str.c_str(), str.size() + 1);
@@ -50,7 +50,7 @@ extern "C" duckdb_value duckdb_vx_expr_bound_constant_get_value(duckdb_vx_expr f
     if (!ffi_expr) {
         return nullptr;
     }
-    auto expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundConstantExpression>();
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundConstantExpression>();
     return reinterpret_cast<duckdb_value>(&expr.value);
 }
 
@@ -59,7 +59,7 @@ extern "C" void duckdb_vx_expr_get_bound_comparison(duckdb_vx_expr ffi_expr,
     if (!ffi_expr || !out) {
         return;
     }
-    auto expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundComparisonExpression>();
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundComparisonExpression>();
     out->left = reinterpret_cast<duckdb_vx_expr>(expr.left.get());
     out->right = reinterpret_cast<duckdb_vx_expr>(expr.right.get());
     out->type = static_cast<duckdb_vx_expr_type>(expr.type);
@@ -71,7 +71,7 @@ extern "C" void duckdb_vx_expr_get_bound_conjunction(duckdb_vx_expr ffi_expr,
         return;
     }
 
-    auto expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundConjunctionExpression>();
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundConjunctionExpression>();
     out->children_count = expr.children.size();
     out->children = reinterpret_cast<duckdb_vx_expr *>(expr.children.data());
     out->type = static_cast<duckdb_vx_expr_type>(expr.type);
@@ -81,7 +81,7 @@ extern "C" void duckdb_vx_expr_get_bound_between(duckdb_vx_expr ffi_expr, duckdb
     if (!ffi_expr || !out) {
         return;
     }
-    auto expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundBetweenExpression>();
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundBetweenExpression>();
     out->input = reinterpret_cast<duckdb_vx_expr>(expr.input.get());
     out->lower = reinterpret_cast<duckdb_vx_expr>(expr.lower.get());
     out->upper = reinterpret_cast<duckdb_vx_expr>(expr.upper.get());
@@ -94,7 +94,7 @@ extern "C" void duckdb_vx_expr_get_bound_operator(duckdb_vx_expr ffi_expr,
     if (!ffi_expr || !out) {
         return;
     }
-    auto expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundOperatorExpression>();
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundOperatorExpression>();
     out->children_count = expr.children.size();
     out->children = reinterpret_cast<duckdb_vx_expr *>(expr.children.data());
     out->type = static_cast<duckdb_vx_expr_type>(expr.type);
@@ -105,7 +105,7 @@ extern "C" void duckdb_vx_expr_get_bound_function(duckdb_vx_expr ffi_expr,
     if (!ffi_expr || !out) {
         return;
     }
-    auto expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundFunctionExpression>();
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundFunctionExpression>();
     out->children_count = expr.children.size();
     out->children = reinterpret_cast<duckdb_vx_expr *>(expr.children.data());
     out->scalar_function = reinterpret_cast<duckdb_vx_sfunc>(&expr.function);

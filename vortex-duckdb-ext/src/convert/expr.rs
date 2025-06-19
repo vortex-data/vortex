@@ -168,7 +168,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 Like::new_expr(value, pattern, false, false)
             }
             _ => {
-                // todo!("bound function {}", func.scalar_function.name())
+                log::warn!("bound function {}", func.scalar_function.name());
                 return Ok(None);
             }
         },
