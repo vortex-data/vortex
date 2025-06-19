@@ -600,17 +600,17 @@ mod test {
 
     #[test]
     fn zero_for_complex_dtype() {
-        let struct_dtype = DType::Struct(
-            Arc::new(vortex_dtype::StructFields::new(
-                vortex_dtype::FieldNames::from_iter(["a".into(), "b".into()]),
-                vec![
-                    DType::Primitive(PType::I32, Nullability::NonNullable),
-                    DType::List(
-                        Arc::new(DType::Primitive(PType::I8, Nullability::Nullable)),
+        let struct_dtype = DType::struct_(
+            [
+                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                (
+                    "b",
+                    DType::list(
+                        DType::Primitive(PType::I8, Nullability::Nullable),
                         Nullability::NonNullable,
                     ),
-                ],
-            )),
+                ),
+            ],
             Nullability::NonNullable,
         );
 

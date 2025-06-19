@@ -227,7 +227,7 @@ mod tests {
 
     use enum_iterator::all;
     use vortex_dtype::half::f16;
-    use vortex_dtype::{DType, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
     use crate::arrays::ConstantArray;
@@ -377,11 +377,11 @@ mod tests {
     #[test]
     fn test_canonicalize_nullable_struct() {
         let array = ConstantArray::new(
-            Scalar::null(DType::Struct(
-                Arc::new(StructFields::new(
-                    vortex_dtype::FieldNames::from_iter(["non_null_field".into()]),
-                    vec![DType::Primitive(PType::I8, Nullability::NonNullable)],
-                )),
+            Scalar::null(DType::struct_(
+                [(
+                    "non_null_field",
+                    DType::Primitive(PType::I8, Nullability::NonNullable),
+                )],
                 Nullability::Nullable,
             )),
             3,

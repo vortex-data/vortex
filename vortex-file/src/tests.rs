@@ -1127,11 +1127,11 @@ async fn write_nullable_top_level_struct() {
 
 #[tokio::test]
 async fn write_nullable_nested_struct() -> VortexResult<()> {
-    let nested_dtype = DType::Struct(
-        Arc::new(StructFields::new(
-            vortex_dtype::FieldNames::from_iter(["nested_field".into()]),
-            vec![DType::Primitive(PType::F16, Nullability::Nullable)],
-        )),
+    let nested_dtype = DType::struct_(
+        [(
+            "nested_field",
+            DType::Primitive(PType::F16, Nullability::Nullable),
+        )],
         Nullability::Nullable,
     );
 
