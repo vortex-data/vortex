@@ -1,7 +1,7 @@
 use std::ffi::CStr;
 use std::ptr;
 
-use vortex::error::{vortex_bail, VortexExpect, VortexResult};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::cpp::{duckdb_logical_type, duckdb_vx_error};
 use crate::duckdb::{LogicalType, Vector};
