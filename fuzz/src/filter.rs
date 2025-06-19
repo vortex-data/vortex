@@ -1,12 +1,13 @@
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinViewArray,
+    BoolArray, BooleanBuffer, DecimalArray, PrimitiveArray, StructArray, VarBinViewArray,
 };
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::VortexResult;
+use vortex_scalar::match_each_decimal_value_type;
 
 use crate::take::take_canonical_array;
 
@@ -52,6 +53,23 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             )
             .into_array())
         }),
+        DType::Decimal(d, _) => {
+            let decimal_array = array.to_decimal()?;
+            match_each_decimal_value_type!(decimal_array.values_type(), |D| {
+                let buf = decimal_array.buffer::<D>();
+                Ok(DecimalArray::new(
+                    filter
+                        .iter()
+                        .zip(buf.as_slice().iter().copied())
+                        .filter(|(f, _)| **f)
+                        .map(|(_, v)| v)
+                        .collect::<Buffer<_>>(),
+                    d.clone(),
+                    validity,
+                )
+                .into_array())
+            })
+        }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.to_varbinview()?;
             let values = utf8.with_iterator(|iter| {

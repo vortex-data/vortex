@@ -70,7 +70,7 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
                     PType::F64 => random_primitive::<f64>(u, *n, chunk_len),
                 },
                 DType::Decimal(decimal, n) => {
-                    let elem_len = u.int_in_range(0..=20)?;
+                    let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
                     match_each_decimal_value_type!(smallest_storage_type(decimal), |DVT| {
                         let mut builder =
                             DecimalBuilder::new::<DVT>(decimal.precision(), decimal.scale(), *n);

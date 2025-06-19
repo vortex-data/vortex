@@ -8,8 +8,8 @@ use vortex_array::compute::{Operator, scalar_cmp};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::Scalar;
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
 
 pub fn compare_canonical_array(
     array: &dyn Array,
@@ -55,6 +55,27 @@ pub fn compare_canonical_array(
                         .zip(array.validity_mask()?.to_boolean_buffer().iter())
                         .map(|(b, v)| v.then_some(b)),
                     pval,
+                    operator,
+                ))
+            })
+        }
+        DType::Decimal(..) => {
+            let decimal = value.as_decimal();
+            let decimal_array = array.to_decimal()?;
+            match_each_decimal_value_type!(decimal_array.values_type(), |D| {
+                let dval = decimal
+                    .decimal_value()
+                    .vortex_expect("nulls handled before")
+                    .cast::<D>()
+                    .ok_or_else(|| vortex_err!("todo: handle upcast of decimal array"))?;
+                let buf = decimal_array.buffer::<D>();
+                Ok(compare_native_decimal_type(
+                    buf.as_slice()
+                        .iter()
+                        .copied()
+                        .zip(array.validity_mask()?.to_boolean_buffer().iter())
+                        .map(|(b, v)| v.then_some(b)),
+                    dval,
                     operator,
                 ))
             })
@@ -129,6 +150,24 @@ fn compare_native_ptype<T: NativePType>(
             Operator::Gte => v.is_ge(cmp_value),
             Operator::Lt => v.is_lt(cmp_value),
             Operator::Lte => v.is_le(cmp_value),
+        })
+    }))
+    .into_array()
+}
+
+fn compare_native_decimal_type<D: NativeDecimalType>(
+    values: impl Iterator<Item = Option<D>>,
+    cmp_value: D,
+    operator: Operator,
+) -> ArrayRef {
+    BoolArray::from_iter(values.map(|val| {
+        val.map(|v| match operator {
+            Operator::Eq => v == cmp_value,
+            Operator::NotEq => v != cmp_value,
+            Operator::Gt => v > cmp_value,
+            Operator::Gte => v >= cmp_value,
+            Operator::Lt => v < cmp_value,
+            Operator::Lte => v <= cmp_value,
         })
     }))
     .into_array()
