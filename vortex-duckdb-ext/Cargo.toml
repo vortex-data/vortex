@@ -22,13 +22,6 @@ crate-type = ["staticlib", "cdylib"]
 [dependencies]
 bitvec = { workspace = true }
 crossbeam-queue = { workspace = true }
-glob = { workspace = true }
-itertools = { workspace = true }
-num-traits = { workspace = true }
-tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt"] }
-vortex = { workspace = true, features = ["files"] }
-vortex-file = { workspace = true, features = ["tokio"] }
 # duckdb-rs using arrow-rs v55.1.0 with decimal32/64 types cherry-picked on top
 # (https://github.com/apache/arrow-rs/pull/7098)
 # this is will be removed once we hit 56 (hopefully in july).
@@ -36,6 +29,13 @@ vortex-file = { workspace = true, features = ["tokio"] }
 duckdb = { git = "https://github.com/vortex-data/duckdb-rs", rev = "247ffb36c41bd44bb18e586bdd6640a95783bb5e", features = [
     "vtab-full",
 ] }
+glob = { workspace = true }
+itertools = { workspace = true }
+num-traits = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
+vortex = { workspace = true, features = ["files"] }
+vortex-file = { workspace = true, features = ["tokio"] }
 
 [lints]
 workspace = true
