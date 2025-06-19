@@ -697,6 +697,7 @@ dependencies = [
  "uuid",
  "vortex",
  "vortex-datafusion",
+ "vortex-duckdb-ext",
  "xshell",
 ]
 

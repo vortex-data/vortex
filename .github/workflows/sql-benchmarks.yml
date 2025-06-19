@@ -136,10 +136,16 @@ jobs:
         run: GEN=ninja make release
         working-directory: ${{ github.workspace }}/duckdb-vortex
 
+
+      - name: List lib dir
+        shell: bash
+        run: ls target/lib
+
       - name: Generate data
         shell: bash
         env:
           RUST_BACKTRACE: full
+          LD_LIBRARY_PATH: target/lib
         run: |
           # Generate data, running each query once to make sure they don't panic.
           target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json --skip-duckdb-build
@@ -171,6 +177,7 @@ jobs:
           OTEL_EXPORTER_OTLP_ENDPOINT: '${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}'
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
+          LD_LIBRARY_PATH: target/lib
         run: |
           target/release_debug/${{ matrix.binary_name }} \
             -d gh-json \

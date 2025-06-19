@@ -1,5 +1,9 @@
-[target.'(target_familiy="unix")']
-rustflags = ["-C", "force-frame-pointers=yes"]
+[target.'cfg(target_family="unix")']
+rustflags = [
+    "-C", "force-frame-pointers=yes",
+    "-C", "link-arg=-Wl,-rpath,$ORIGIN/target/lib"
+]
+
 [target.wasm32-unknown-unknown]
 rustflags = ['--cfg', 'getrandom_backend="wasm_js"', '-C', 'target-feature=+atomics']
 

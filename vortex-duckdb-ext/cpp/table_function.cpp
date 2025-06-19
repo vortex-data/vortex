@@ -47,8 +47,7 @@ struct CTableGlobalData final : GlobalTableFunctionState {
     optional_ptr<vortex::CData> ffi_data;
 
     idx_t MaxThreads() const override {
-        return 1;
-        // return GlobalTableFunctionState::MAX_THREADS;
+        return GlobalTableFunctionState::MAX_THREADS;
     }
 };
 

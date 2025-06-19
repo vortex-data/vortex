@@ -64,6 +64,7 @@ url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 vortex = { workspace = true, features = ["object_store", "parquet", "files"] }
 vortex-datafusion = { workspace = true }
+vortex-duckdb-ext = { workspace = true }
 xshell = { workspace = true }
 
 [features]
