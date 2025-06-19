@@ -22,7 +22,7 @@ use std::sync::Arc;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::PType::{I32, I64};
-use vortex::dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
+use vortex::dtype::datetime::{DATE_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
 use vortex::dtype::half::f16;
 use vortex::dtype::{DType, ExtDType, PType, match_each_native_simd_ptype};
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -292,6 +292,14 @@ impl TryFrom<Value> for Scalar {
                     TIMESTAMP_ID.clone(),
                     Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Ns, None).into()),
+                )),
+                Scalar::from(value.as_i64()),
+            )),
+            DUCKDB_TYPE::DUCKDB_TYPE_DATE => Ok(Scalar::extension(
+                Arc::new(ExtDType::new(
+                    DATE_ID.clone(),
+                    Arc::new(DType::Primitive(I64, Nullable)),
+                    Some(TemporalMetadata::Timestamp(TimeUnit::D, None).into()),
                 )),
                 Scalar::from(value.as_i64()),
             )),

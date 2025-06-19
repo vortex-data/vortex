@@ -2,6 +2,7 @@ use std::ffi::{CStr, c_void};
 use std::fmt::{Display, Formatter};
 use std::ptr;
 
+use crate::cpp::duckdb_vx_expr_class;
 use crate::duckdb::{ScalarFunction, Value};
 use crate::{cpp, wrapper};
 
@@ -18,6 +19,10 @@ impl Display for Expression {
 }
 
 impl Expression {
+    pub fn as_class_id(&self) -> duckdb_vx_expr_class {
+        unsafe { cpp::duckdb_vx_expr_get_class(self.as_ptr()) }
+    }
+
     /// Match the subclass of the expression.
     pub fn as_class(&self) -> Option<ExpressionClass> {
         Some(
@@ -34,6 +39,22 @@ impl Expression {
                         Value::borrow(cpp::duckdb_vx_expr_bound_constant_get_value(self.as_ptr()))
                     };
                     ExpressionClass::BoundConstant(BoundConstant { value })
+                }
+                cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CONJUNCTION => {
+                    let mut out = cpp::duckdb_vx_expr_bound_conjunction {
+                        children: ptr::null_mut(),
+                        children_count: 0,
+                        type_: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
+                    };
+                    unsafe { cpp::duckdb_vx_expr_get_bound_conjunction(self.as_ptr(), &mut out) };
+
+                    let children =
+                        unsafe { std::slice::from_raw_parts(out.children, out.children_count) };
+
+                    ExpressionClass::BoundConjunction(BoundConjunction {
+                        children,
+                        op: out.type_,
+                    })
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COMPARISON => {
                     let mut out = cpp::duckdb_vx_expr_bound_comparison {
@@ -115,6 +136,7 @@ pub enum ExpressionClass<'a> {
     BoundColumnRef(BoundColumnRef<'a>),
     BoundConstant(BoundConstant),
     BoundComparison(BoundComparison),
+    BoundConjunction(BoundConjunction<'a>),
     BoundBetween(BoundBetween),
     BoundOperator(BoundOperator<'a>),
     BoundFunction(BoundFunction<'a>),
@@ -140,6 +162,20 @@ pub struct BoundBetween {
     pub upper: Expression,
     pub lower_inclusive: bool,
     pub upper_inclusive: bool,
+}
+
+pub struct BoundConjunction<'a> {
+    children: &'a [cpp::duckdb_vx_expr],
+    pub op: cpp::DUCKDB_VX_EXPR_TYPE,
+}
+
+impl BoundConjunction<'_> {
+    /// Returns the children expressions of the bound operator.
+    pub fn children(&self) -> impl Iterator<Item = Expression> {
+        self.children
+            .iter()
+            .map(|&child| unsafe { Expression::borrow(child) })
+    }
 }
 
 pub struct BoundOperator<'a> {

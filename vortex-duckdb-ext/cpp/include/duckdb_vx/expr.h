@@ -219,6 +219,15 @@ typedef struct {
 void duckdb_vx_expr_get_bound_comparison(duckdb_vx_expr expr, duckdb_vx_expr_bound_comparison *out);
 
 typedef struct {
+    duckdb_vx_expr *children;
+    size_t children_count;
+    duckdb_vx_expr_type type;
+} duckdb_vx_expr_bound_conjunction;
+
+
+void duckdb_vx_expr_get_bound_conjunction(duckdb_vx_expr expr, duckdb_vx_expr_bound_conjunction *out);
+
+typedef struct {
     duckdb_vx_expr input;
     duckdb_vx_expr lower;
     duckdb_vx_expr upper;

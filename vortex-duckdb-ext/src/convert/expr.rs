@@ -63,7 +63,7 @@ fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
 
 pub fn try_from_bound_expression(value: &Expression) -> VortexResult<ExprRef> {
     let Some(value) = value.as_class() else {
-        vortex_bail!("no expression class")
+        vortex_bail!("no expression class id {:?}", value.as_class_id())
     };
     Ok(match value {
         ExpressionClass::BoundColumnRef(col) => get_item_scope(col.name.to_str()?),
@@ -139,6 +139,21 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<ExprRef> {
             }
             _ => todo!(),
         },
+        ExpressionClass::BoundConjunction(conj) => {
+            let children = conj
+                .children()
+                .map(|c| try_from_bound_expression(&c))
+                .collect::<VortexResult<Vec<_>>>()?;
+            return match conj.op {
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_CONJUNCTION_AND => {
+                    Ok(and_collect(children).vortex_expect("cannot be empty"))
+                }
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_CONJUNCTION_OR => {
+                    Ok(or_collect(children).vortex_expect("cannot be empty"))
+                }
+                _ => vortex_bail!("unexpected operator {:?} in bound conjunction", conj.op),
+            };
+        }
     })
 }
 

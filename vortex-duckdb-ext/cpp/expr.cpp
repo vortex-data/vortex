@@ -1,5 +1,3 @@
-#include "duckdb/planner/expression.hpp"
-
 #include "duckdb_vx.h"
 #include "duckdb/planner/expression/bound_between_expression.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
@@ -7,6 +5,7 @@
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/planner/expression/bound_operator_expression.hpp"
+#include "duckdb/planner/expression/bound_conjunction_expression.hpp"
 
 using namespace duckdb;
 
@@ -65,6 +64,18 @@ extern "C" void duckdb_vx_expr_get_bound_comparison(duckdb_vx_expr ffi_expr,
     out->right = reinterpret_cast<duckdb_vx_expr>(expr.right.get());
     out->type = static_cast<duckdb_vx_expr_type>(expr.type);
 }
+
+extern "C" void duckdb_vx_expr_get_bound_conjunction(duckdb_vx_expr ffi_expr, duckdb_vx_expr_bound_conjunction *out) {
+    if (!ffi_expr || !out) {
+        return;
+    }
+
+    auto &expr = reinterpret_cast<Expression *>(ffi_expr)->Cast<BoundConjunctionExpression>();
+    out->children_count = expr.children.size();
+    out->children = reinterpret_cast<duckdb_vx_expr *>(expr.children.data());
+    out->type = static_cast<duckdb_vx_expr_type>(expr.type);
+}
+
 
 extern "C" void duckdb_vx_expr_get_bound_between(duckdb_vx_expr ffi_expr, duckdb_vx_expr_bound_between *out) {
     if (!ffi_expr || !out) {
