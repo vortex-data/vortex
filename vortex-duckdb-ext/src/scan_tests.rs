@@ -1,8 +1,6 @@
-use std::io::Write;
 use std::path::Path;
 
 use duckdb::Connection;
-use itertools::Itertools;
 use tempfile::NamedTempFile;
 use vortex::IntoArray;
 use vortex::arrays::{BoolArray, ConstantArray, PrimitiveArray, StructArray, VarBinArray};

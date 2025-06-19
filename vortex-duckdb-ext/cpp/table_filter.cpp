@@ -3,9 +3,6 @@
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/dynamic_filter.hpp"
 
-#include "duckdb/planner/expression/bound_columnref_expression.hpp"
-#include <iostream>
-
 using namespace duckdb;
 
 extern "C" idx_t duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set ffi_filter_set, size_t index,
