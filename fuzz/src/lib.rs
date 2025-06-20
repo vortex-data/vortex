@@ -15,12 +15,12 @@ use std::ops::{Range, RangeInclusive};
 use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::compute::Operator;
 use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
@@ -32,7 +32,7 @@ use crate::compare::compare_canonical_array;
 use crate::filter::filter_canonical_array;
 use crate::search_sorted::search_sorted_canonical_array;
 use crate::slice::slice_canonical_array;
-use crate::take::take_canonical_array_nullable_indices;
+use crate::take::take_canonical_array;
 
 #[derive(Debug)]
 pub enum ExpectedValue {
@@ -116,13 +116,12 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     let indices = random_vec_in_range(u, 0, current_array.len() - 1)?;
-                    current_array = take_canonical_array_nullable_indices(&current_array, &indices)
-                        .vortex_unwrap();
-                    let indices_array = indices
-                        .iter()
-                        .map(|i| *i as u64)
-                        .collect::<Buffer<u64>>()
-                        .into_array();
+                    current_array = take_canonical_array(&current_array, &indices).vortex_unwrap();
+                    let indices_array = PrimitiveArray::from_option_iter(
+                        indices.iter().map(|i| i.map(|i| i as u64)),
+                    )
+                    .into_array();
+
                     let compressed = BtrBlocksCompressor.compress(&indices_array).vortex_unwrap();
                     (
                         Action::Take(compressed),
@@ -197,11 +196,19 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
     }
 }
 
-fn random_vec_in_range(u: &mut Unstructured<'_>, min: usize, max: usize) -> Result<Vec<usize>> {
+fn random_vec_in_range(
+    u: &mut Unstructured<'_>,
+    min: usize,
+    max: usize,
+) -> Result<Vec<Option<usize>>> {
     iter::from_fn(|| {
-        u.arbitrary()
-            .unwrap_or(false)
-            .then(|| u.int_in_range(min..=max))
+        u.arbitrary().unwrap_or(false).then(|| {
+            if u.arbitrary()? {
+                Ok(None)
+            } else {
+                Ok(Some(u.int_in_range(min..=max)?))
+            }
+        })
     })
     .collect::<Result<Vec<_>>>()
 }

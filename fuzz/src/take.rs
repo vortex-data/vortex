@@ -9,7 +9,7 @@ use vortex_dtype::{DType, DecimalDType, NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
 
-pub fn take_canonical_array_nullable_indices(
+pub fn take_canonical_array_non_nullable_indices(
     array: &dyn Array,
     indices: &[usize],
 ) -> VortexResult<ArrayRef> {
@@ -79,7 +79,7 @@ pub fn take_canonical_array(
             let taken_children = struct_array
                 .fields()
                 .iter()
-                .map(|c| take_canonical_array_nullable_indices(c, indices))
+                .map(|c| take_canonical_array_non_nullable_indices(c, indices))
                 .collect::<VortexResult<Vec<_>>>()?;
 
             StructArray::try_new(
