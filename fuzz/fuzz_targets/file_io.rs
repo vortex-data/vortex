@@ -47,7 +47,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .vortex_unwrap()
             .scan()
             .vortex_unwrap()
-            .with_projection(projection.unwrap_or(root()))
+            .with_projection(projection.unwrap_or_else(|| root()))
             .with_some_filter(filter)
             .into_array_stream()
             .vortex_unwrap()

@@ -241,8 +241,8 @@ impl<'a> Arbitrary<'a> for FuzzFileAction {
         let dtype = array.dtype().clone();
         Ok(FuzzFileAction {
             array,
-            projection: projection_expr(u, &dtype).unwrap(),
-            filter: filter_expr(u, &dtype).unwrap(),
+            projection: projection_expr(u, &dtype)?,
+            filter: filter_expr(u, &dtype)?,
         })
     }
 }
@@ -282,11 +282,7 @@ fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> Result<Option<ExprRef
     Ok(and_collect(filters))
 }
 
-fn random_comparison(
-    u: &mut Unstructured<'_>,
-    col: &FieldName,
-    dtype: &DType,
-) -> Result<ExprRef> {
+fn random_comparison(u: &mut Unstructured<'_>, col: &FieldName, dtype: &DType) -> Result<ExprRef> {
     let scalar = random_scalar(u, dtype)?;
     Ok(BinaryExpr::new_expr(
         get_item_scope(col.clone()),
