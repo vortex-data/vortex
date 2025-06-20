@@ -289,11 +289,14 @@ impl StructFields {
 
     /// Merge two [`StructFields`] instances into a new one.
     /// Order of fields in arguments is preserved
-    pub fn merge(first: &Self, second: &Self) -> VortexResult<Self> {
-        let names = first
+    ///
+    /// # Errors
+    /// Returns an error if the merged struct would have duplicate field names.
+    pub fn merge(&self, other: &Self) -> VortexResult<Self> {
+        let names = self
             .names
             .iter()
-            .chain(second.names.iter())
+            .chain(other.names.iter())
             .cloned()
             .collect::<FieldNames>();
 
@@ -301,10 +304,10 @@ impl StructFields {
             vortex_bail!("Can't merge struct fields with duplicate names");
         }
 
-        let dtypes = first
+        let dtypes = self
             .dtypes
             .iter()
-            .chain(second.dtypes.iter())
+            .chain(other.dtypes.iter())
             .cloned()
             .collect::<Vec<_>>();
 
