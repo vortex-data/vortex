@@ -8,7 +8,7 @@ use vortex_array::arrays::{ConstantArray, StructArray};
 use vortex_array::compute::filter;
 use vortex_array::stats::{Precision, Stat};
 use vortex_array::{ArrayRef, IntoArray};
-use vortex_dtype::PType::I64;
+use vortex_dtype::PType::U64;
 use vortex_dtype::{
     DType, Field, FieldMask, FieldName, FieldPath, FieldPathSet, Nullability, StructFields,
 };
@@ -97,8 +97,8 @@ impl RowIdLayoutReader {
             ROW_ID.clone(),
             DType::Struct(
                 Arc::new(StructFields::from_iter([
-                    (FieldName::from("file_row_number"), DType::from(I64)),
-                    ("file_index".into(), I64.into()),
+                    (FieldName::from("file_row_number"), DType::from(U64)),
+                    ("file_index".into(), U64.into()),
                 ])),
                 Nullability::NonNullable,
             ),
