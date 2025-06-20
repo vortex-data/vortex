@@ -1,5 +1,6 @@
 #![feature(error_generic_member_access)]
 
+mod cast;
 mod compare;
 pub mod error;
 mod filter;
@@ -16,18 +17,20 @@ use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
-use vortex_array::compute::Operator;
+use vortex_array::compute::{CastOutcome, Operator, allowed_casting};
 use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
-use vortex_error::{VortexUnwrap, vortex_panic};
+use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::Action::Cast;
+use crate::cast::cast_canonical_array;
 use crate::compare::compare_canonical_array;
 use crate::filter::filter_canonical_array;
 use crate::search_sorted::search_sorted_canonical_array;
@@ -70,6 +73,7 @@ pub enum Action {
     SearchSorted(Scalar, SearchSortedSide),
     Filter(Mask),
     Compare(Scalar, Operator),
+    Cast(DType),
 }
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
@@ -186,7 +190,21 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         ExpectedValue::Array(current_array.to_array()),
                     )
                 }
-                _ => unreachable!(),
+                6 => {
+                    let to: DType = u.arbitrary()?;
+                    if Some(CastOutcome::Infallible) == allowed_casting(current_array.dtype(), &to)
+                    {
+                        return Err(EmptyChoose);
+                    }
+                    let Some(result) = cast_canonical_array(&current_array, &to)
+                        .vortex_expect("should fail to create array")
+                    else {
+                        return Err(EmptyChoose);
+                    };
+
+                    (Cast(to), ExpectedValue::Array(result))
+                }
+                7.. => unreachable!(),
             })
         }
 
