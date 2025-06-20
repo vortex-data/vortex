@@ -16,7 +16,7 @@ fn download_duckdb_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| workspace_root.join("target"));
 
-    let duckdb_dir = target_dir.join(DUCKDB_VERSION);
+    let duckdb_dir = target_dir.join(format!("duckdb-{DUCKDB_VERSION}"));
 
     let target = env::var("TARGET")?;
     let (platform, arch) = match target.as_str() {
@@ -52,27 +52,17 @@ fn extract_duckdb_libraries(archive_path: PathBuf) -> Result<PathBuf, Box<dyn st
         .ok_or("Invalid archive path")?
         .to_path_buf();
 
-    let lib_file = if env::var("TARGET").unwrap().contains("apple") {
-        "libduckdb.dylib"
-    } else {
-        "libduckdb.so"
-    };
-
     // Check if already extracted.
-    if duckdb_dir.join(lib_file).exists() {
+    if duckdb_dir.join("libduckdb.dylib").exists() && duckdb_dir.join("libduckdb.so").exists() {
         println!("DuckDB libraries already extracted, skipping extraction");
         return Ok(duckdb_dir);
     }
 
-    println!("Extracting DuckDB libraries to target/lib");
     let file = fs::File::open(&archive_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
     archive.extract(&duckdb_dir)?;
+    println!("Extracting DuckDB libraries to {}", duckdb_dir.display());
 
-    println!(
-        "cargo:warning=Extracted DuckDB libraries to: {}",
-        duckdb_dir.display()
-    );
     Ok(duckdb_dir)
 }
 
@@ -130,7 +120,6 @@ fn main() {
     // Link against DuckDB dylib.
     println!("cargo:rustc-link-search=native={}", lib_path.display());
     println!("cargo:rustc-link-lib=dylib=duckdb");
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_path.display());
 
     if env::var("TARGET").unwrap().contains("linux") {
         println!("cargo:rustc-link-lib=stdc++");
