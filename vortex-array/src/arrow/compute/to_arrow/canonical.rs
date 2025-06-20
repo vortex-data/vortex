@@ -444,7 +444,6 @@ mod tests {
         let arrow_dt = DataType::Struct(fields.into());
 
         assert!(struct_a.into_array().into_arrow(&arrow_dt).is_err());
-
     }
 
     #[test]
@@ -457,15 +456,20 @@ mod tests {
             5,
             Validity::AllValid,
         )
-            .unwrap();
+        .unwrap();
 
-        let fields = vec![Field::new("xs", DataType::Int8, false), Field::new("ys", DataType::Int64, false)];
+        let fields = vec![
+            Field::new("xs", DataType::Int8, false),
+            Field::new("ys", DataType::Int64, false),
+        ];
         let arrow_dt = DataType::Struct(fields.into());
 
         let err = struct_a.into_array().into_arrow(&arrow_dt).err().unwrap();
-        assert!(err.to_string().contains("StructArray has 1 fields, but target Arrow type has 2 fields"));
+        assert!(
+            err.to_string()
+                .contains("StructArray has 1 fields, but target Arrow type has 2 fields")
+        );
     }
-
 
     #[rstest]
     #[case(0i8)]
@@ -516,5 +520,4 @@ mod tests {
         assert_eq!(arrow_decimal.value(1), i256::from_i128(11));
         assert_eq!(arrow_decimal.value(2), i256::from_i128(12));
     }
-
 }
