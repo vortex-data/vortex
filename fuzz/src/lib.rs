@@ -21,7 +21,7 @@ use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -32,7 +32,7 @@ use crate::compare::compare_canonical_array;
 use crate::filter::filter_canonical_array;
 use crate::search_sorted::search_sorted_canonical_array;
 use crate::slice::slice_canonical_array;
-use crate::take::take_canonical_array;
+use crate::take::take_canonical_array_nullable_indices;
 
 #[derive(Debug)]
 pub enum ExpectedValue {
@@ -116,7 +116,8 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     let indices = random_vec_in_range(u, 0, current_array.len() - 1)?;
-                    current_array = take_canonical_array(&current_array, &indices).vortex_unwrap();
+                    current_array = take_canonical_array_nullable_indices(&current_array, &indices)
+                        .vortex_unwrap();
                     let indices_array = indices
                         .iter()
                         .map(|i| *i as u64)
@@ -175,7 +176,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                             .scalar_at(u.choose_index(current_array.len())?)
                             .vortex_unwrap()
                     } else {
-                        random_scalar(u, current_array.dtype())?
+                        // We can compare arrays with different nullability
+                        let null: Nullability = u.arbitrary()?;
+                        random_scalar(u, &current_array.dtype().union_nullability(null))?
                     };
 
                     let op = u.arbitrary()?;
