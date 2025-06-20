@@ -13,4 +13,5 @@ input with the command `cargo fuzz run array_ops/file_io <path/to/artifact>`
 
 ### ASAN
 
-If there are any linking (on macOS) then run `cargo fuzz run --dev -s none ...`.
+If there are any linking (on macOS) then run `cargo fuzz run --dev --sanitizer=none ...`. `--dev` runs the fuzzer in dev
+profile.
