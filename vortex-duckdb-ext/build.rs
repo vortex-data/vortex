@@ -102,17 +102,6 @@ fn main() {
         .write_to_file(crate_dir.join("src/cpp.rs"))
         .expect("Couldn't write bindings!");
 
-    // To run against a local duckdb library use instead of `lib_path`
-    // println!(
-    //     "cargo:rustc-link-search=native={}",
-    //     "<>"
-    // );
-    // println!(
-    //     "cargo:rustc-link-arg=-Wl,-rpath,{}",
-    //     "<>"
-    // );
-    // println!("cargo:rustc-link-lib=static=duckdb");
-
     // Download and extract prebuilt DuckDB libraries.
     let zip_path = download_duckdb_archive().unwrap();
     let lib_path = extract_duckdb_libraries(zip_path).unwrap();
