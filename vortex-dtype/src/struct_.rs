@@ -292,7 +292,7 @@ impl StructFields {
     ///
     /// # Errors
     /// Returns an error if the merged struct would have duplicate field names.
-    pub fn merge(&self, other: &Self) -> VortexResult<Self> {
+    pub fn disjoint_merge(&self, other: &Self) -> VortexResult<Self> {
         let names = self
             .names
             .iter()
@@ -399,7 +399,7 @@ mod test {
 
         let sf2 = StructFields::from_iter([("C", child_c.clone())]);
 
-        let merged = StructFields::merge(&sf1, &sf2).unwrap();
+        let merged = StructFields::disjoint_merge(&sf1, &sf2).unwrap();
         assert_eq!(
             merged.names(),
             &FieldNames::from_iter(["A".into(), "B".into(), "C".into()])
@@ -409,7 +409,7 @@ mod test {
             vec![child_a, child_b, child_c]
         );
 
-        let err = StructFields::merge(&sf1, &sf1).err().unwrap();
+        let err = StructFields::disjoint_merge(&sf1, &sf1).err().unwrap();
         assert!(err.to_string().contains("duplicate names"),);
     }
 }
