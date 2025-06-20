@@ -401,7 +401,10 @@ mod test {
             merged.names(),
             &FieldNames::from_iter(["A".into(), "B".into(), "C".into()])
         );
-        assert_eq!(merged.fields().collect_vec(), vec![child_a, child_b, child_c]);
+        assert_eq!(
+            merged.fields().collect_vec(),
+            vec![child_a, child_b, child_c]
+        );
 
         let err = StructFields::merge(&sf1, &sf1).err().unwrap();
         assert!(err.to_string().contains("duplicate names"),);
