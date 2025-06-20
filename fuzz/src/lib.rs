@@ -247,7 +247,7 @@ impl<'a> Arbitrary<'a> for FuzzFileAction {
     }
 }
 
-fn projection_expr<'a>(u: &mut Unstructured<'a>, dtype: &DType) -> Result<Option<ExprRef>> {
+fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> Result<Option<ExprRef>> {
     let Some(struct_dtype) = dtype.as_struct() else {
         return Ok(None);
     };
@@ -261,10 +261,10 @@ fn projection_expr<'a>(u: &mut Unstructured<'a>, dtype: &DType) -> Result<Option
         })
         .collect::<Result<Vec<_>>>()?;
 
-    Ok(Some(pack(cols.into_iter(), u.arbitrary()?)))
+    Ok(Some(pack(cols, u.arbitrary()?)))
 }
 
-fn filter_expr<'a>(u: &mut Unstructured<'a>, dtype: &DType) -> Result<Option<ExprRef>> {
+fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> Result<Option<ExprRef>> {
     let Some(struct_dtype) = dtype.as_struct() else {
         return Ok(None);
     };
@@ -282,8 +282,8 @@ fn filter_expr<'a>(u: &mut Unstructured<'a>, dtype: &DType) -> Result<Option<Exp
     Ok(and_collect(filters))
 }
 
-fn random_comparison<'a>(
-    u: &mut Unstructured<'a>,
+fn random_comparison(
+    u: &mut Unstructured<'_>,
     col: &FieldName,
     dtype: &DType,
 ) -> Result<ExprRef> {
@@ -295,7 +295,7 @@ fn random_comparison<'a>(
     ))
 }
 
-fn arbitrary_comparison_operator<'a>(u: &mut Unstructured<'a>) -> Result<vortex_expr::Operator> {
+fn arbitrary_comparison_operator(u: &mut Unstructured<'_>) -> Result<vortex_expr::Operator> {
     Ok(match u.int_in_range(0..=5)? {
         0 => vortex_expr::Operator::Eq,
         1 => vortex_expr::Operator::NotEq,
