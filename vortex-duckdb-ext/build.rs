@@ -145,8 +145,14 @@ fn main() {
         .expect("error: Unable to generate bindings for vortex.h")
         .write_to_file(crate_dir.join("include/vortex.h"));
 
-    for entry in walkdir::WalkDir::new("cpp/") {
-        println!("cargo:rerun-if-changed={}", entry.unwrap().path().display());
+    // Watch C/C++ source files for changes.
+    for entry in walkdir::WalkDir::new("cpp/").into_iter().flatten() {
+        if entry
+            .path()
+            .extension()
+            .is_some_and(|ext| ext == "cpp" || ext == "h" || ext == "hpp")
+        {
+            println!("cargo:rerun-if-changed={}", entry.path().display());
+        }
     }
-    println!("cargo:rerun-if-changed=src/cpp.rs");
 }
