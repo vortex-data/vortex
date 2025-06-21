@@ -129,6 +129,9 @@ jobs:
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
+        env:
+          RUST_BACKTRACE: full
+          LD_LIBRARY_PATH: target/duckdb-v1.3.0
         run: |
           target/release_debug/${{ matrix.benchmark.id }} -d gh-json | tee ${{ matrix.benchmark.id }}.json
 
