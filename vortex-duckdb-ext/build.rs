@@ -52,8 +52,8 @@ fn extract_duckdb_libraries(archive_path: PathBuf) -> Result<PathBuf, Box<dyn st
         .ok_or("Invalid archive path")?
         .to_path_buf();
 
-    // Check if already extracted.
-    if duckdb_dir.join("libduckdb.dylib").exists() && duckdb_dir.join("libduckdb.so").exists() {
+    // Check if already extracted. The archive for Linux only contains a .so library, macOS only .dylib.
+    if duckdb_dir.join("libduckdb.dylib").exists() || duckdb_dir.join("libduckdb.so").exists() {
         println!("DuckDB libraries already extracted, skipping extraction");
         return Ok(duckdb_dir);
     }
