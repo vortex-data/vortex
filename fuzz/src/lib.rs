@@ -1,5 +1,4 @@
 #![feature(error_generic_member_access)]
-extern crate core;
 
 mod compare;
 pub mod error;
@@ -9,7 +8,6 @@ mod slice;
 mod sort;
 mod take;
 
-use std::cmp::max;
 use std::fmt::Debug;
 use std::iter;
 use std::ops::{Range, RangeInclusive};
@@ -23,9 +21,10 @@ use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, FieldName};
+use vortex_dtype::DType;
 use vortex_error::{VortexUnwrap, vortex_panic};
-use vortex_expr::{BinaryExpr, ExprRef, and_collect, get_item_scope, lit, pack};
+use vortex_expr::arbitrary::{filter_expr, projection_expr};
+use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;
@@ -245,60 +244,4 @@ impl<'a> Arbitrary<'a> for FuzzFileAction {
             filter: filter_expr(u, &dtype)?,
         })
     }
-}
-
-fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> Result<Option<ExprRef>> {
-    let Some(struct_dtype) = dtype.as_struct() else {
-        return Ok(None);
-    };
-
-    let column_count = u.int_in_range::<usize>(0..=max(struct_dtype.nfields(), 10))?;
-
-    let cols = (0..column_count)
-        .map(|_| {
-            let get_item = u.choose(struct_dtype.names().iter().as_slice())?;
-            Ok((get_item.clone(), get_item_scope(get_item.clone())))
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    Ok(Some(pack(cols, u.arbitrary()?)))
-}
-
-fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> Result<Option<ExprRef>> {
-    let Some(struct_dtype) = dtype.as_struct() else {
-        return Ok(None);
-    };
-
-    let filter_count = u.int_in_range::<usize>(0..=max(struct_dtype.nfields(), 10))?;
-
-    let filters = (0..filter_count)
-        .map(|_| {
-            let (col, dtype) =
-                u.choose_iter(struct_dtype.names().iter().zip(struct_dtype.fields()))?;
-            random_comparison(u, col, &dtype)
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    Ok(and_collect(filters))
-}
-
-fn random_comparison(u: &mut Unstructured<'_>, col: &FieldName, dtype: &DType) -> Result<ExprRef> {
-    let scalar = random_scalar(u, dtype)?;
-    Ok(BinaryExpr::new_expr(
-        get_item_scope(col.clone()),
-        arbitrary_comparison_operator(u)?,
-        lit(scalar),
-    ))
-}
-
-fn arbitrary_comparison_operator(u: &mut Unstructured<'_>) -> Result<vortex_expr::Operator> {
-    Ok(match u.int_in_range(0..=5)? {
-        0 => vortex_expr::Operator::Eq,
-        1 => vortex_expr::Operator::NotEq,
-        2 => vortex_expr::Operator::Gt,
-        3 => vortex_expr::Operator::Gte,
-        4 => vortex_expr::Operator::Lt,
-        5 => vortex_expr::Operator::Lte,
-        _ => unreachable!("range 0..=5"),
-    })
 }

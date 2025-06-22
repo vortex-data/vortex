@@ -38,7 +38,7 @@ fn split_number_into_parts(n: usize, parts: usize) -> Vec<usize> {
         .collect()
 }
 
-pub fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<ArrayRef> {
+fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<ArrayRef> {
     let num_chunks = u.int_in_range(1..=3)?;
     let chunk_lens = len.map(|l| split_number_into_parts(l, num_chunks));
     let mut chunks = (0..num_chunks)

@@ -17,6 +17,7 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+arbitrary = { workspace = true, optional = true }
 dyn-hash = { workspace = true }
 itertools = { workspace = true }
 prost = { workspace = true, optional = true }
