@@ -6851,6 +6851,7 @@ dependencies = [
  "arrow-ord 55.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures-util",
  "libfuzzer-sys",
+ "strum 0.25.0",
  "thiserror 2.0.12",
  "tokio",
  "vortex-array",

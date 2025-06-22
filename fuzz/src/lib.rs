@@ -11,18 +11,18 @@ mod take;
 
 use std::fmt::Debug;
 use std::iter;
-use std::ops::{Range, RangeInclusive};
+use std::ops::Range;
 
 use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
+use strum::EnumCount;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::compute::{CastOutcome, Operator, allowed_casting};
 use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_mask::Mask;
@@ -66,7 +66,7 @@ pub struct FuzzArrayAction {
     pub actions: Vec<(Action, ExpectedValue)>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, EnumCount)]
 pub enum Action {
     Compress,
     Slice(Range<usize>),
@@ -236,15 +236,15 @@ fn random_value_from_list(u: &mut Unstructured<'_>, vec: &[usize]) -> Result<usi
     u.choose_iter(vec).cloned()
 }
 
-const ALL_ACTIONS: RangeInclusive<usize> = 0..=5;
+const ALL_ACTIONS: Range<usize> = 0..Action::COUNT;
 
 fn actions_for_dtype(dtype: &DType) -> HashSet<usize> {
     match dtype {
-        // All but compare
         DType::Struct(sdt, _) => sdt
             .fields()
             .map(|child| actions_for_dtype(&child))
-            .fold((0..=4).collect(), |acc, actions| {
+            // exclude compare
+            .fold((0..=4).chain(iter::once(6)).collect(), |acc, actions| {
                 acc.intersection(&actions).copied().collect()
             }),
         // Once we support more list operations also recurse here on child dtype
