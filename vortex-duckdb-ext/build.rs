@@ -8,14 +8,7 @@ const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/downloa
 
 fn download_duckdb_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let workspace_root = manifest_dir
-        .parent()
-        .ok_or("Failed to get workspace root")?;
-
-    let target_dir = env::var("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| workspace_root.join("target"));
-
+    let target_dir = manifest_dir.parent().unwrap().join("target");
     let duckdb_dir = target_dir.join(format!("duckdb-{DUCKDB_VERSION}"));
 
     let target = env::var("TARGET")?;

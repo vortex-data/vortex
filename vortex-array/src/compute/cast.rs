@@ -1,7 +1,8 @@
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use vortex_dtype::DType;
+use vortex_dtype::Nullability::Nullable;
+use vortex_dtype::{DType, PType};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
@@ -135,5 +136,69 @@ impl<V: VTable + CastKernel> Kernel for CastKernelAdapter<V> {
             return Ok(None);
         };
         Ok(Some(V::cast(&self.0, array, dtype)?.into()))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CastOutcome {
+    Fallible,
+    Infallible,
+}
+
+pub fn allowed_casting(from: &DType, to: &DType) -> Option<CastOutcome> {
+    // Can cast to include nullability
+    if &from.with_nullability(Nullable) == to {
+        return Some(CastOutcome::Infallible);
+    }
+    match (from, to) {
+        (DType::Primitive(from_ptype, _), DType::Primitive(to_ptype, _)) => {
+            allowed_casting_ptype(*from_ptype, *to_ptype)
+        }
+        _ => None,
+    }
+}
+
+pub fn allowed_casting_ptype(from: PType, to: PType) -> Option<CastOutcome> {
+    use CastOutcome::*;
+    use PType::*;
+
+    match (from, to) {
+        // Identity casts
+        (a, b) if a == b => Some(Infallible),
+
+        // Integer widening (always infallible)
+        (U8, U16 | U32 | U64)
+        | (U16, U32 | U64)
+        | (U32, U64)
+        | (I8, I16 | I32 | I64)
+        | (I16, I32 | I64)
+        | (I32, I64) => Some(Infallible),
+
+        // Integer narrowing (may truncate)
+        (U16 | U32 | U64, U8)
+        | (U32 | U64, U16)
+        | (U64, U32)
+        | (I16 | I32 | I64, I8)
+        | (I32 | I64, I16)
+        | (I64, I32) => Some(Fallible),
+
+        // Between signed and unsigned (fallible if negative or too big)
+        (I8 | I16 | I32 | I64, U8 | U16 | U32 | U64)
+        | (U8 | U16 | U32 | U64, I8 | I16 | I32 | I64) => Some(Fallible),
+
+        // TODO(joe): shall we allow float/int casting?
+        // Integer -> Float
+        // (U8 | U16 | U32 | U64 | I8 | I16 | I32 | I64, F16 | F32 | F64) => Some(Fallible),
+
+        // Float -> Integer (truncates, overflows possible)
+        // (F16 | F32 | F64, U8 | U16 | U32 | U64 | I8 | I16 | I32 | I64) => Some(Fallible),
+
+        // Float widening (safe)
+        (F16, F32 | F64) | (F32, F64) => Some(Infallible),
+
+        // Float narrowing (lossy)
+        (F64, F32 | F16) | (F32, F16) => Some(Fallible),
+
+        _ => None,
     }
 }

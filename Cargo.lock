@@ -6671,6 +6671,7 @@ dependencies = [
  "arrow-ord",
  "futures-util",
  "libfuzzer-sys",
+ "strum 0.25.0",
  "thiserror 2.0.12",
  "tokio",
  "vortex-array",

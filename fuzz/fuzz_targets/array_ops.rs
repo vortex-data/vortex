@@ -6,7 +6,7 @@ use vortex_array::arrays::{
     BoolEncoding, ConstantArray, ListEncoding, PrimitiveEncoding, StructEncoding, VarBinEncoding,
     VarBinViewEncoding,
 };
-use vortex_array::compute::{compare, filter, take};
+use vortex_array::compute::{cast, compare, filter, take};
 use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -73,6 +73,16 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                     )
                 }
                 current_array = compare_result;
+            }
+            Action::Cast(to) => {
+                let cast_result = cast(&current_array, &to).vortex_unwrap();
+                if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i) {
+                    vortex_panic!(
+                        "Failed to cast {} to dtype {to}\nError: {e}",
+                        current_array.tree_display()
+                    )
+                }
+                current_array = cast_result;
             }
         }
     }
