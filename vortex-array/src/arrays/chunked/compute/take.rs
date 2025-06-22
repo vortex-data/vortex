@@ -1,5 +1,5 @@
 use vortex_buffer::BufferMut;
-use vortex_dtype::PType;
+use vortex_dtype::{DType, PType};
 use vortex_error::VortexResult;
 
 use crate::arrays::ChunkedVTable;
@@ -9,7 +9,11 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for ChunkedVTable {
     fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = cast(indices, PType::U64.into())?.to_primitive()?;
+        let indices = cast(
+            indices,
+            &DType::Primitive(PType::U64, indices.dtype().nullability()),
+        )?
+        .to_primitive()?;
 
         // While the chunk idx remains the same, accumulate a list of chunk indices.
         let mut chunks = Vec::new();
@@ -37,7 +41,14 @@ impl TakeKernel for ChunkedVTable {
             chunks.push(take(array.chunk(prev_chunk_idx)?, &indices_in_chunk_array)?);
         }
 
-        Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
+        Ok(ChunkedArray::new_unchecked(
+            chunks,
+            array
+                .dtype()
+                .clone()
+                .union_nullability(indices.dtype().nullability()),
+        )
+        .into_array())
     }
 }
 
@@ -50,8 +61,10 @@ mod test {
     use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
+    use crate::arrays::{BoolArray, PrimitiveArray, StructArray};
     use crate::canonical::ToCanonical;
     use crate::compute::take;
+    use crate::validity::Validity;
 
     #[test]
     fn test_take() {
@@ -67,5 +80,30 @@ mod test {
             .to_primitive()
             .unwrap();
         assert_eq!(result.as_slice::<i32>(), &[1, 1, 1, 2]);
+    }
+
+    #[test]
+    fn test_take_nullability() {
+        let struct_array =
+            StructArray::try_new([].into(), vec![], 100, Validity::NonNullable).unwrap();
+
+        let arr = ChunkedArray::from_iter(vec![struct_array.to_array(), struct_array.to_array()]);
+
+        let result = take(
+            arr.as_ref(),
+            PrimitiveArray::from_option_iter(vec![Some(0), None, Some(101)]).as_ref(),
+        )
+        .unwrap();
+
+        let expect = StructArray::try_new(
+            [].into(),
+            vec![],
+            2,
+            Validity::Array(BoolArray::from_iter(vec![true, false]).to_array()),
+        )
+        .unwrap();
+        assert_eq!(result.dtype(), expect.dtype());
+        assert_eq!(result.scalar_at(0).unwrap(), expect.scalar_at(0).unwrap());
+        assert_eq!(result.scalar_at(1).unwrap(), expect.scalar_at(1).unwrap());
     }
 }
