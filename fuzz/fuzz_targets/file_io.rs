@@ -6,19 +6,25 @@ use arrow_ord::sort::SortOptions;
 use futures_util::TryStreamExt;
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_array::compute::{Operator, compare};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::{DType, StructFields};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
+use vortex_expr::root;
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
+use vortex_fuzz::FuzzFileAction;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
-fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
-    let array_data = array_data.0;
+fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
+    let FuzzFileAction {
+        array,
+        projection,
+        filter,
+    } = fuzz;
+    let array_data = array;
 
     if has_nullable_struct(array_data.dtype()) || has_duplicate_field_names(array_data.dtype()) {
         return Corpus::Reject;
@@ -41,6 +47,8 @@ fuzz_target!(|array_data: ArbitraryArray| -> Corpus {
             .vortex_unwrap()
             .scan()
             .vortex_unwrap()
+            .with_projection(projection.unwrap_or_else(|| root()))
+            .with_some_filter(filter)
             .into_array_stream()
             .vortex_unwrap()
             .try_collect::<Vec<_>>()

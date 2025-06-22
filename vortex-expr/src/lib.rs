@@ -8,6 +8,8 @@ use dyn_hash::DynHash;
 mod binary;
 
 mod analysis;
+#[cfg(feature = "arbitrary")]
+pub mod arbitrary;
 mod between;
 mod cast;
 mod field;
