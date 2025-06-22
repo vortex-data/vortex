@@ -213,6 +213,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 # END crates published by this project
 
 # No version contraints for unpublished crates.
+vortex-duckdb-ext = { path = "./vortex-duckdb-ext", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
 
@@ -275,7 +276,8 @@ use_debug = "deny"
 
 [profile.release]
 codegen-units = 1
-lto = "thin"      # attempts to perform optimizations across all crates within the dependency graph
+# Turn LTO off, as it breaks when vortex-duckdb-ext is linked.
+lto = "off"
 
 [profile.release_debug]
 debug = "full"

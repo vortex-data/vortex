@@ -9,14 +9,38 @@ use vortex_dtype::{DType, DecimalDType, NativePType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
 
-pub fn take_canonical_array(array: &dyn Array, indices: &[usize]) -> VortexResult<ArrayRef> {
+pub fn take_canonical_array_non_nullable_indices(
+    array: &dyn Array,
+    indices: &[usize],
+) -> VortexResult<ArrayRef> {
+    take_canonical_array(
+        array,
+        indices
+            .iter()
+            .map(|i| Some(*i))
+            .collect::<Vec<_>>()
+            .as_slice(),
+    )
+}
+
+pub fn take_canonical_array(
+    array: &dyn Array,
+    indices: &[Option<usize>],
+) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
         let validity_idx = array.validity_mask()?.to_boolean_buffer();
 
-        Validity::from_iter(indices.iter().map(|i| validity_idx.value(*i)))
+        Validity::from_iter(
+            indices
+                .iter()
+                .map(|i| i.is_some_and(|i| validity_idx.value(i))),
+        )
     } else {
         Validity::NonNullable
     };
+
+    let indices = indices.iter().map(|i| i.unwrap_or(0)).collect::<Vec<_>>();
+    let indices = indices.as_slice();
 
     match array.dtype() {
         DType::Bool(_) => {
@@ -55,7 +79,7 @@ pub fn take_canonical_array(array: &dyn Array, indices: &[usize]) -> VortexResul
             let taken_children = struct_array
                 .fields()
                 .iter()
-                .map(|c| take_canonical_array(c, indices))
+                .map(|c| take_canonical_array_non_nullable_indices(c, indices))
                 .collect::<VortexResult<Vec<_>>>()?;
 
             StructArray::try_new(

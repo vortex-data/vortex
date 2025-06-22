@@ -4,14 +4,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
-use bench_vortex::ddb::{DuckDBExecutor, register_tables};
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
+use bench_vortex::engines::ddb2;
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
 use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{
-    BenchmarkDataset, Engine, Format, IdempotentPath, Target, ddb, default_env_filter, df,
+    BenchmarkDataset, Engine, Format, IdempotentPath, Target, default_env_filter, df,
 };
 use clap::{Parser, value_parser};
 use datafusion::prelude;
@@ -86,21 +86,9 @@ struct DataFusionCtx {
     emit_plan: bool,
 }
 
-struct DuckDBCtx {
-    duckdb_path: PathBuf,
-}
-
-impl DuckDBCtx {
-    pub fn duckdb_file(&self, format: Format) -> PathBuf {
-        let dir = format!("clickbench_partitioned/{}", format.name()).to_data_path();
-        std::fs::create_dir_all(&dir).vortex_expect("failed to create duckdb data dir");
-        dir.join("hits.db")
-    }
-}
-
 enum EngineCtx {
     DataFusion(DataFusionCtx),
-    DuckDB(DuckDBCtx),
+    DuckDB(ddb2::DuckDBCtx),
 }
 
 impl EngineCtx {
@@ -113,10 +101,8 @@ impl EngineCtx {
         })
     }
 
-    fn new_with_duckdb(duckdb_path: &Path) -> Self {
-        EngineCtx::DuckDB(DuckDBCtx {
-            duckdb_path: duckdb_path.to_path_buf(),
-        })
+    fn new_with_duckdb() -> anyhow::Result<Self> {
+        Ok(EngineCtx::DuckDB(ddb2::DuckDBCtx::new()?))
     }
 
     fn to_engine(&self) -> Engine {
@@ -202,19 +188,6 @@ fn main() -> anyhow::Result<()> {
 
     let mut query_measurements = Vec::new();
 
-    let resolved_path = args
-        .targets
-        .iter()
-        .any(|t| t.engine() == Engine::DuckDB)
-        .then(|| {
-            let path = ddb::duckdb_executable_path(&args.duckdb_path);
-            // If the path is to the duckdb-vortex extension, try to rebuild
-            if args.duckdb_path.is_none() && !args.skip_duckdb_build {
-                ddb::build_vortex_duckdb();
-            }
-            path
-        });
-
     for target in args.targets.iter() {
         let engine = target.engine();
         let file_format = target.format();
@@ -227,9 +200,7 @@ fn main() -> anyhow::Result<()> {
 
                 EngineCtx::new_with_datafusion(session_ctx, args.emit_plan)
             }
-            Engine::DuckDB => EngineCtx::new_with_duckdb(
-                resolved_path.as_ref().vortex_expect("path resolved above"),
-            ),
+            Engine::DuckDB => EngineCtx::new_with_duckdb()?,
             _ => unreachable!("engine not supported"),
         };
 
@@ -391,12 +362,9 @@ async fn init_data_source(
             }
         },
         EngineCtx::DuckDB(ctx) => match file_format {
-            Format::Parquet | Format::OnDiskVortex | Format::OnDiskDuckDB => register_tables(
-                &DuckDBExecutor::new(ctx.duckdb_path.clone(), ctx.duckdb_file(file_format)),
-                base_url,
-                file_format,
-                dataset,
-            )?,
+            Format::Parquet | Format::OnDiskVortex | Format::OnDiskDuckDB => {
+                ctx.register_tables(base_url, file_format, dataset)?;
+            }
             _ => {
                 vortex_panic!(
                     "Engine {} Format {file_format} isn't supported on ClickBench",
@@ -469,14 +437,8 @@ fn execute_queries(
                     dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }
-
-            EngineCtx::DuckDB(args) => {
-                let fastest_run = benchmark_duckdb_query(
-                    query_idx,
-                    query_string,
-                    iterations,
-                    &DuckDBExecutor::new(args.duckdb_path.clone(), args.duckdb_file(file_format)),
-                );
+            EngineCtx::DuckDB(ctx) => {
+                let fastest_run = benchmark_duckdb_query(query_idx, query_string, iterations, ctx);
 
                 query_measurements.push(QueryMeasurement {
                     query_idx,
@@ -567,10 +529,11 @@ fn benchmark_duckdb_query(
     query_idx: usize,
     query_string: &str,
     iterations: usize,
-    duckdb_executor: &DuckDBExecutor,
+    duckdb_ctx: &ddb2::DuckDBCtx,
 ) -> Duration {
     (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-        let duration = ddb::execute_clickbench_query(query_string, duckdb_executor)
+        let duration = duckdb_ctx
+            .execute_query(query_string)
             .unwrap_or_else(|err| vortex_panic!("query: {query_idx} failed with: {err}"));
 
         fastest.min(duration)

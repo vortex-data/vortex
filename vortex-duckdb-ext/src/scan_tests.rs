@@ -9,17 +9,11 @@ use vortex::scalar::Scalar;
 use vortex::validity::Validity;
 
 use crate::duckdb::Database;
-use crate::scan::VortexTableFunction;
 
 fn database_connection() -> Connection {
     let db = Database::open_in_memory().unwrap();
     let connection = db.connect().unwrap();
-    connection
-        .register_table_function::<VortexTableFunction>(c"vortex_scan")
-        .unwrap();
-    connection
-        .register_table_function::<VortexTableFunction>(c"read_vortex")
-        .unwrap();
+    crate::init(&connection).unwrap();
     unsafe { Connection::open_from_raw(db.as_ptr().cast()) }.unwrap()
 }
 

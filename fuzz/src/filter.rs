@@ -9,7 +9,7 @@ use vortex_dtype::{DType, match_each_native_ptype};
 use vortex_error::VortexResult;
 use vortex_scalar::match_each_decimal_value_type;
 
-use crate::take::take_canonical_array;
+use crate::take::take_canonical_array_non_nullable_indices;
 
 pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
@@ -103,7 +103,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
                     indices.push(idx);
                 }
             }
-            take_canonical_array(array, &indices)
+            take_canonical_array_non_nullable_indices(array, indices.as_slice())
         }
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")

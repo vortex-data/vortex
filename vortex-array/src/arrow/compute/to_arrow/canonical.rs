@@ -258,6 +258,14 @@ fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
 }
 
 fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<ArrowArrayRef> {
+    if array.fields().len() != fields.len() {
+        vortex_bail!(
+            "StructArray has {} fields, but target Arrow type has {} fields",
+            array.fields().len(),
+            fields.len()
+        );
+    }
+
     let field_arrays = fields
         .iter()
         .zip_eq(array.fields())
@@ -436,6 +444,31 @@ mod tests {
         let arrow_dt = DataType::Struct(fields.into());
 
         assert!(struct_a.into_array().into_arrow(&arrow_dt).is_err());
+    }
+
+    #[test]
+    fn struct_to_arrow_with_schema_missmatch() {
+        let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
+
+        let struct_a = StructArray::try_new(
+            FieldNames::from(["xs".into()]),
+            vec![xs.into_array()],
+            5,
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        let fields = vec![
+            Field::new("xs", DataType::Int8, false),
+            Field::new("ys", DataType::Int64, false),
+        ];
+        let arrow_dt = DataType::Struct(fields.into());
+
+        let err = struct_a.into_array().into_arrow(&arrow_dt).err().unwrap();
+        assert!(
+            err.to_string()
+                .contains("StructArray has 1 fields, but target Arrow type has 2 fields")
+        );
     }
 
     #[rstest]
