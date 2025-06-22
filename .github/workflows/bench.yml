@@ -124,6 +124,7 @@ jobs:
         shell: bash
         env:
           RUSTFLAGS: '-C target-cpu=native'
+          LD_LIBRARY_PATH: target/duckdb-v1.3.0
         run: |
           cargo run --bin ${{ matrix.benchmark.id }} --package bench-vortex --release -- -d gh-json | tee ${{ matrix.benchmark.id }}.json
 
