@@ -7,7 +7,7 @@ use duckdb::*;
 // **WARNING end
 use vortex::error::{VortexExpect, VortexResult};
 
-use crate::duckdb::{Connection, Database};
+pub use crate::duckdb::{Connection, Database};
 use crate::scan::VortexTableFunction;
 
 mod convert;
@@ -32,7 +32,8 @@ mod scan_tests;
 
 /// Initialize the Vortex extension by registering the `vortex_scan` function.
 pub fn init(conn: &Connection) -> VortexResult<()> {
-    conn.register_table_function::<VortexTableFunction>(c"vortex_scan")
+    conn.register_table_function::<VortexTableFunction>(c"vortex_scan")?;
+    conn.register_table_function::<VortexTableFunction>(c"read_vortex")
 }
 
 /// The DuckDB extension ABI initialization function.

@@ -1,7 +1,10 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err, vortex_panic};
+use itertools::Itertools;
+use vortex_error::{
+    VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err, vortex_panic,
+};
 
 use crate::flatbuffers::ViewedDType;
 use crate::{DType, FieldName, FieldNames, PType};
@@ -283,6 +286,33 @@ impl StructFields {
 
         StructFields::from_fields(names, dtypes)
     }
+
+    /// Merge two [`StructFields`] instances into a new one.
+    /// Order of fields in arguments is preserved
+    ///
+    /// # Errors
+    /// Returns an error if the merged struct would have duplicate field names.
+    pub fn disjoint_merge(&self, other: &Self) -> VortexResult<Self> {
+        let names = self
+            .names
+            .iter()
+            .chain(other.names.iter())
+            .cloned()
+            .collect::<FieldNames>();
+
+        if !names.iter().all_unique() {
+            vortex_bail!("Can't merge struct fields with duplicate names");
+        }
+
+        let dtypes = self
+            .dtypes
+            .iter()
+            .chain(other.dtypes.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+
+        Ok(Self::from_fields(names, dtypes))
+    }
 }
 
 impl<T, V> FromIterator<(T, V)> for StructFields
@@ -301,8 +331,10 @@ where
 
 #[cfg(test)]
 mod test {
+    use itertools::Itertools;
+
     use crate::dtype::DType;
-    use crate::{Nullability, PType, StructFields};
+    use crate::{FieldNames, Nullability, PType, StructFields};
 
     #[test]
     fn nullability() {
@@ -355,5 +387,29 @@ mod test {
         assert_eq!(without_a.names()[0], "B".into());
         assert_eq!(without_a.field_by_index(0).unwrap(), b_type);
         assert_eq!(without_a.nfields(), 1);
+    }
+
+    #[test]
+    fn test_merge() {
+        let child_a = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let child_b = DType::Bool(Nullability::Nullable);
+        let child_c = DType::Utf8(Nullability::NonNullable);
+
+        let sf1 = StructFields::from_iter([("A", child_a.clone()), ("B", child_b.clone())]);
+
+        let sf2 = StructFields::from_iter([("C", child_c.clone())]);
+
+        let merged = StructFields::disjoint_merge(&sf1, &sf2).unwrap();
+        assert_eq!(
+            merged.names(),
+            &FieldNames::from_iter(["A".into(), "B".into(), "C".into()])
+        );
+        assert_eq!(
+            merged.fields().collect_vec(),
+            vec![child_a, child_b, child_c]
+        );
+
+        let err = StructFields::disjoint_merge(&sf1, &sf1).err().unwrap();
+        assert!(err.to_string().contains("duplicate names"),);
     }
 }

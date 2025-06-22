@@ -1,5 +1,6 @@
 #![feature(error_generic_member_access)]
 
+mod cast;
 mod compare;
 pub mod error;
 mod filter;
@@ -10,19 +11,20 @@ mod take;
 
 use std::fmt::Debug;
 use std::iter;
-use std::ops::{Range, RangeInclusive};
+use std::ops::Range;
 
 use libfuzzer_sys::arbitrary::Error::EmptyChoose;
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 pub use sort::sort_canonical_array;
+use strum::EnumCount;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
-use vortex_array::compute::Operator;
+use vortex_array::compute::{CastOutcome, Operator, allowed_casting};
 use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
 use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_error::{VortexUnwrap, vortex_panic};
+use vortex_dtype::{DType, Nullability};
+use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
 use vortex_expr::ExprRef;
 use vortex_expr::arbitrary::{filter_expr, projection_expr};
 use vortex_mask::Mask;
@@ -30,6 +32,8 @@ use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::Action::Cast;
+use crate::cast::cast_canonical_array;
 use crate::compare::compare_canonical_array;
 use crate::filter::filter_canonical_array;
 use crate::search_sorted::search_sorted_canonical_array;
@@ -64,7 +68,7 @@ pub struct FuzzArrayAction {
     pub actions: Vec<(Action, ExpectedValue)>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, EnumCount)]
 pub enum Action {
     Compress,
     Slice(Range<usize>),
@@ -72,6 +76,7 @@ pub enum Action {
     SearchSorted(Scalar, SearchSortedSide),
     Filter(Mask),
     Compare(Scalar, Operator),
+    Cast(DType),
 }
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
@@ -119,11 +124,11 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 
                     let indices = random_vec_in_range(u, 0, current_array.len() - 1)?;
                     current_array = take_canonical_array(&current_array, &indices).vortex_unwrap();
-                    let indices_array = indices
-                        .iter()
-                        .map(|i| *i as u64)
-                        .collect::<Buffer<u64>>()
-                        .into_array();
+                    let indices_array = PrimitiveArray::from_option_iter(
+                        indices.iter().map(|i| i.map(|i| i as u64)),
+                    )
+                    .into_array();
+
                     let compressed = BtrBlocksCompressor.compress(&indices_array).vortex_unwrap();
                     (
                         Action::Take(compressed),
@@ -177,7 +182,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                             .scalar_at(u.choose_index(current_array.len())?)
                             .vortex_unwrap()
                     } else {
-                        random_scalar(u, current_array.dtype())?
+                        // We can compare arrays with different nullability
+                        let null: Nullability = u.arbitrary()?;
+                        random_scalar(u, &current_array.dtype().union_nullability(null))?
                     };
 
                     let op = u.arbitrary()?;
@@ -188,7 +195,21 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         ExpectedValue::Array(current_array.to_array()),
                     )
                 }
-                _ => unreachable!(),
+                6 => {
+                    let to: DType = u.arbitrary()?;
+                    if Some(CastOutcome::Infallible) == allowed_casting(current_array.dtype(), &to)
+                    {
+                        return Err(EmptyChoose);
+                    }
+                    let Some(result) = cast_canonical_array(&current_array, &to)
+                        .vortex_expect("should fail to create array")
+                    else {
+                        return Err(EmptyChoose);
+                    };
+
+                    (Cast(to), ExpectedValue::Array(result))
+                }
+                7.. => unreachable!(),
             })
         }
 
@@ -196,11 +217,19 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
     }
 }
 
-fn random_vec_in_range(u: &mut Unstructured<'_>, min: usize, max: usize) -> Result<Vec<usize>> {
+fn random_vec_in_range(
+    u: &mut Unstructured<'_>,
+    min: usize,
+    max: usize,
+) -> Result<Vec<Option<usize>>> {
     iter::from_fn(|| {
-        u.arbitrary()
-            .unwrap_or(false)
-            .then(|| u.int_in_range(min..=max))
+        u.arbitrary().unwrap_or(false).then(|| {
+            if u.arbitrary()? {
+                Ok(None)
+            } else {
+                Ok(Some(u.int_in_range(min..=max)?))
+            }
+        })
     })
     .collect::<Result<Vec<_>>>()
 }
@@ -209,15 +238,15 @@ fn random_value_from_list(u: &mut Unstructured<'_>, vec: &[usize]) -> Result<usi
     u.choose_iter(vec).cloned()
 }
 
-const ALL_ACTIONS: RangeInclusive<usize> = 0..=5;
+const ALL_ACTIONS: Range<usize> = 0..Action::COUNT;
 
 fn actions_for_dtype(dtype: &DType) -> HashSet<usize> {
     match dtype {
-        // All but compare
         DType::Struct(sdt, _) => sdt
             .fields()
             .map(|child| actions_for_dtype(&child))
-            .fold((0..=4).collect(), |acc, actions| {
+            // exclude compare
+            .fold((0..=4).chain(iter::once(6)).collect(), |acc, actions| {
                 acc.intersection(&actions).copied().collect()
             }),
         // Once we support more list operations also recurse here on child dtype

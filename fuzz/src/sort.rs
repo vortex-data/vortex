@@ -7,7 +7,7 @@ use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_scalar::match_each_decimal_value_type;
 
-use crate::take::take_canonical_array;
+use crate::take::take_canonical_array_non_nullable_indices;
 
 pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
     match array.dtype() {
@@ -67,7 +67,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
                     .partial_cmp(&array.scalar_at(*b).vortex_unwrap())
                     .vortex_expect("must be a valid comparison")
             });
-            take_canonical_array(array, &sort_indices)
+            take_canonical_array_non_nullable_indices(array, &sort_indices)
         }
         DType::List(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
@@ -78,7 +78,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
                     .partial_cmp(&array.scalar_at(*b).vortex_unwrap())
                     .vortex_expect("must be a valid comparison")
             });
-            take_canonical_array(array, &sort_indices)
+            take_canonical_array_non_nullable_indices(array, &sort_indices)
         }
         d @ (DType::Null | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")

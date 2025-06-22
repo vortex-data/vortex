@@ -159,6 +159,7 @@ similar = "2.7.0"
 simplelog = "0.12"
 sketches-ddsketch = "0.3.0"
 static_assertions = "1.1"
+strum = "0.25"
 tabled = { version = "0.19.0", default-features = false }
 taffy = "0.8.0"
 tar = "0.4"
@@ -213,6 +214,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 # END crates published by this project
 
 # No version contraints for unpublished crates.
+vortex-duckdb-ext = { path = "./vortex-duckdb-ext", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
 
@@ -275,7 +277,8 @@ use_debug = "deny"
 
 [profile.release]
 codegen-units = 1
-lto = "thin"      # attempts to perform optimizations across all crates within the dependency graph
+# Turn LTO off, as it breaks when vortex-duckdb-ext is linked.
+lto = "off"
 
 [profile.release_debug]
 debug = "full"
