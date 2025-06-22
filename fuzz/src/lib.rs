@@ -25,6 +25,8 @@ use vortex_array::{Array, ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
+use vortex_expr::ExprRef;
+use vortex_expr::arbitrary::{filter_expr, projection_expr};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::arbitrary::random_scalar;
@@ -251,5 +253,24 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<usize> {
         // compress, slice
         DType::List(..) => [0, 1].into_iter().collect(),
         _ => ALL_ACTIONS.collect(),
+    }
+}
+
+#[derive(Debug)]
+pub struct FuzzFileAction {
+    pub array: ArrayRef,
+    pub projection: Option<ExprRef>,
+    pub filter: Option<ExprRef>,
+}
+
+impl<'a> Arbitrary<'a> for FuzzFileAction {
+    fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
+        let array = ArbitraryArray::arbitrary(u)?.0;
+        let dtype = array.dtype().clone();
+        Ok(FuzzFileAction {
+            array,
+            projection: projection_expr(u, &dtype)?,
+            filter: filter_expr(u, &dtype)?,
+        })
     }
 }

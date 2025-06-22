@@ -6715,6 +6715,7 @@ dependencies = [
 name = "vortex-expr"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "dyn-hash",
  "itertools 0.14.0",
  "prost",
@@ -6859,6 +6860,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-expr",
  "vortex-file",
  "vortex-mask",
  "vortex-scalar",
