@@ -1,10 +1,12 @@
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, PType};
+use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
-use crate::arrays::ChunkedVTable;
 use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::{ChunkedVTable, PrimitiveArray};
 use crate::compute::{TakeKernel, TakeKernelAdapter, cast, take};
+use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for ChunkedVTable {
@@ -15,41 +17,95 @@ impl TakeKernel for ChunkedVTable {
         )?
         .to_primitive()?;
 
-        // While the chunk idx remains the same, accumulate a list of chunk indices.
-        let mut chunks = Vec::new();
-        let mut indices_in_chunk = BufferMut::<u64>::empty();
-        let mut prev_chunk_idx = array
-            .find_chunk_idx(indices.as_slice::<u64>()[0].try_into()?)
-            .0;
-        for idx in indices.as_slice::<u64>() {
-            let idx = usize::try_from(*idx)?;
-            let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(idx);
-
-            if chunk_idx != prev_chunk_idx {
-                // Start a new chunk
-                let indices_in_chunk_array = indices_in_chunk.clone().into_array();
-                chunks.push(take(array.chunk(prev_chunk_idx)?, &indices_in_chunk_array)?);
-                indices_in_chunk.clear();
-            }
-
-            indices_in_chunk.push(idx_in_chunk as u64);
-            prev_chunk_idx = chunk_idx;
+        if indices.dtype().is_nullable() {
+            take_nullable(array, indices.as_slice::<u64>(), indices.validity_mask()?)
+        } else {
+            take_non_nullable(array, indices.as_slice::<u64>())
         }
-
-        if !indices_in_chunk.is_empty() {
-            let indices_in_chunk_array = indices_in_chunk.into_array();
-            chunks.push(take(array.chunk(prev_chunk_idx)?, &indices_in_chunk_array)?);
-        }
-
-        Ok(ChunkedArray::new_unchecked(
-            chunks,
-            array
-                .dtype()
-                .clone()
-                .union_nullability(indices.dtype().nullability()),
-        )
-        .into_array())
     }
+}
+
+fn take_nullable(
+    array: &ChunkedArray,
+    indices: &[u64],
+    indices_validity: Mask,
+) -> VortexResult<ArrayRef> {
+    // While the chunk idx remains the same, accumulate a list of chunk indices.
+    let mut chunks = Vec::new();
+    let mut indices_in_chunk = BufferMut::<u64>::empty();
+    let mut start = 0;
+    let mut stop = 0;
+    let mut prev_chunk_idx = array.find_chunk_idx(indices[0].try_into()?).0;
+    for idx in indices {
+        let idx = usize::try_from(*idx)?;
+        let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(idx);
+
+        if chunk_idx != prev_chunk_idx {
+            // Start a new chunk
+            let indices_in_chunk_array = PrimitiveArray::new(
+                indices_in_chunk.clone().freeze(),
+                Validity::Array(indices_validity.slice(start, stop - start).into_array()),
+            );
+            chunks.push(take(
+                array.chunk(prev_chunk_idx)?,
+                indices_in_chunk_array.as_ref(),
+            )?);
+            indices_in_chunk.clear();
+            start = stop;
+        }
+
+        indices_in_chunk.push(idx_in_chunk as u64);
+        stop += 1;
+        prev_chunk_idx = chunk_idx;
+    }
+
+    if !indices_in_chunk.is_empty() {
+        let indices_in_chunk_array = PrimitiveArray::new(
+            indices_in_chunk.freeze(),
+            Validity::Array(indices_validity.slice(start, stop - start).into_array()),
+        );
+        chunks.push(take(
+            array.chunk(prev_chunk_idx)?,
+            indices_in_chunk_array.as_ref(),
+        )?);
+    }
+
+    Ok(ChunkedArray::new_unchecked(
+        chunks,
+        array
+            .dtype()
+            .clone()
+            .union_nullability(Nullability::Nullable),
+    )
+    .into_array())
+}
+
+fn take_non_nullable(array: &ChunkedArray, indices: &[u64]) -> VortexResult<ArrayRef> {
+    // While the chunk idx remains the same, accumulate a list of chunk indices.
+    let mut chunks = Vec::new();
+    let mut indices_in_chunk = BufferMut::<u64>::empty();
+    let mut prev_chunk_idx = array.find_chunk_idx(indices[0].try_into()?).0;
+    for idx in indices {
+        let idx = usize::try_from(*idx)?;
+        let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(idx);
+
+        if chunk_idx != prev_chunk_idx {
+            // Start a new chunk
+            let indices_in_chunk_array = indices_in_chunk.clone().into_array();
+            chunks.push(take(array.chunk(prev_chunk_idx)?, &indices_in_chunk_array)?);
+            indices_in_chunk.clear();
+        }
+
+        indices_in_chunk.push(idx_in_chunk as u64);
+        prev_chunk_idx = chunk_idx;
+    }
+
+    if !indices_in_chunk.is_empty() {
+        let indices_in_chunk_array = indices_in_chunk.into_array();
+        chunks.push(take(array.chunk(prev_chunk_idx)?, &indices_in_chunk_array)?);
+    }
+
+    Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
 }
 
 register_kernel!(TakeKernelAdapter(ChunkedVTable).lift());
@@ -98,12 +154,13 @@ mod test {
         let expect = StructArray::try_new(
             [].into(),
             vec![],
-            2,
-            Validity::Array(BoolArray::from_iter(vec![true, false]).to_array()),
+            3,
+            Validity::Array(BoolArray::from_iter(vec![true, false, true]).to_array()),
         )
         .unwrap();
         assert_eq!(result.dtype(), expect.dtype());
         assert_eq!(result.scalar_at(0).unwrap(), expect.scalar_at(0).unwrap());
         assert_eq!(result.scalar_at(1).unwrap(), expect.scalar_at(1).unwrap());
+        assert_eq!(result.scalar_at(2).unwrap(), expect.scalar_at(2).unwrap());
     }
 }
