@@ -35,6 +35,7 @@ vortex-utils = { workspace = true }
 vortex-expr = { path = ".", features = ["test-harness"] }
 
 [features]
+arbitrary = ["dep:arbitrary", "vortex-scalar/arbitrary", "vortex-dtype/arbitrary"]
 serde = ["dep:serde", "vortex-dtype/serde", "vortex-error/serde"]
 proto = ["vortex-proto/expr", "vortex-error/prost", "dep:prost", "serde"]
 test-harness = []
