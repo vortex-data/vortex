@@ -26,9 +26,11 @@
 //! | `Timestamp` | `TIMESTAMP` |
 
 use std::ffi::CString;
+use std::sync::Arc;
 
 use vortex::dtype::PType::{F32, F64, I8, I16, I32, I64, U8, U16, U32, U64};
-use vortex::dtype::{DType, Nullability, PType, datetime};
+use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
+use vortex::dtype::{DType, DecimalDType, ExtDType, Nullability, PType, datetime};
 use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 use crate::cpp::{self, DUCKDB_TYPE, duckdb_logical_type};
@@ -103,7 +105,7 @@ impl LogicalType {
     /// - **Date**: Must use `TimeUnit::D`
     /// - **Time**: Must use `TimeUnit::Us`
     /// - **Timestamp**: Supports `TimeUnit::Ns`, `Us`, `Ms`, `S`
-    fn temporal_type(ext_dtype: &vortex::dtype::ExtDType) -> VortexResult<Self> {
+    fn temporal_type(ext_dtype: &ExtDType) -> VortexResult<Self> {
         use vortex::dtype::datetime::{TemporalMetadata, TimeUnit};
 
         let temporal_metadata = TemporalMetadata::try_from(ext_dtype)
@@ -150,6 +152,7 @@ impl FromLogicalType for DType {
     ) -> VortexResult<DType> {
         Ok(match logical_type.as_type_id() {
             DUCKDB_TYPE::DUCKDB_TYPE_INVALID => vortex_bail!("invalid duckdb type"),
+            DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL => DType::Null,
             DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => DType::Bool(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_TINYINT => DType::Primitive(I8, nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT => DType::Primitive(I16, nullability),
@@ -159,20 +162,48 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT => DType::Primitive(U16, nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER => DType::Primitive(U32, nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT => DType::Primitive(U64, nullability),
-            DUCKDB_TYPE::DUCKDB_TYPE_FLOAT => DType::Primitive(F32, nullability),
-            DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE => DType::Primitive(F64, nullability),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_DATE => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIME => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_HUGEINT => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_UHUGEINT => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_FLOAT => DType::Primitive(F32, nullability),
+            DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE => DType::Primitive(F64, nullability),
+
             DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => DType::Utf8(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_BLOB => DType::Binary(nullability),
-            DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => todo!(),
+            DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
+                let (width, scale) = logical_type.as_decimal();
+                DType::Decimal(DecimalDType::new(width, scale.try_into()?), nullability)
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_DATE => DType::Extension(Arc::new(ExtDType::new(
+                DATE_ID.clone(),
+                Arc::new(DType::Primitive(I32, nullability)),
+                Some(TemporalMetadata::Date(TimeUnit::D).into()),
+            ))),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME => DType::Extension(Arc::new(ExtDType::new(
+                TIME_ID.clone(),
+                Arc::new(DType::Primitive(I64, nullability)),
+                Some(TemporalMetadata::Date(TimeUnit::Us).into()),
+            ))),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => DType::Extension(Arc::new(ExtDType::new(
+                TIMESTAMP_ID.clone(),
+                Arc::new(DType::Primitive(I32, nullability)),
+                Some(TemporalMetadata::Timestamp(TimeUnit::S, None).into()),
+            ))),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => DType::Extension(Arc::new(ExtDType::new(
+                TIMESTAMP_ID.clone(),
+                Arc::new(DType::Primitive(I32, nullability)),
+                Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
+            ))),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => DType::Extension(Arc::new(ExtDType::new(
+                TIMESTAMP_ID.clone(),
+                Arc::new(DType::Primitive(I64, nullability)),
+                Some(TemporalMetadata::Timestamp(TimeUnit::Us, None).into()),
+            ))),
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => DType::Extension(Arc::new(ExtDType::new(
+                TIMESTAMP_ID.clone(),
+                Arc::new(DType::Primitive(I64, nullability)),
+                Some(TemporalMetadata::Timestamp(TimeUnit::Ns, None).into()),
+            ))),
+            DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_ENUM => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_LIST => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => todo!(),
@@ -185,7 +216,6 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_ANY => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_VARINT => todo!(),
-            DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL => DType::Null,
             DUCKDB_TYPE::DUCKDB_TYPE_STRING_LITERAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTEGER_LITERAL => todo!(),
         })

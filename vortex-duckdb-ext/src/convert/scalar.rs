@@ -28,7 +28,7 @@ use vortex::dtype::{DType, DecimalDType, ExtDType, PType, match_each_native_simd
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::scalar::{
     BinaryScalar, BoolScalar, DecimalScalar, DecimalValue, ExtScalar, PrimitiveScalar, Scalar,
-    Utf8Scalar,
+    ScalarValue, Utf8Scalar,
 };
 
 use crate::convert::dtype::FromLogicalType;
@@ -216,6 +216,7 @@ impl TryFrom<Value> for Scalar {
         };
         match value.logical_type().as_type_id() {
             DUCKDB_TYPE::DUCKDB_TYPE_INVALID => vortex_bail!("invalid duckdb type"),
+            DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL => Ok(Scalar::new(DType::Null, ScalarValue::null())),
             DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
                 let bool = unsafe { cpp::duckdb_get_bool(value.as_ptr()) };
                 Ok(Scalar::bool(bool, Nullable))
