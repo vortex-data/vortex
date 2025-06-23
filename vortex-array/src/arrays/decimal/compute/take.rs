@@ -14,8 +14,8 @@ impl TakeKernel for DecimalVTable {
         let indices = indices.to_primitive()?;
         let validity = array.validity().take(indices.as_ref())?;
 
-        // TODO(joe): if the take indicies validity is tc is lower,
-        // we should merge the validity and value lookup also in PrimitiveArray::take.
+        // TODO(joe): if the true count of take indices validity is low, only take array values with
+        // valid indices.
         let decimal = match_each_decimal_value_type!(array.values_type(), |D| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 let buffer =

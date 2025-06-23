@@ -41,8 +41,8 @@ impl TakeKernel for PrimitiveVTable {
             });
         }
 
-        // TODO(joe): if the take indicies validity is tc is lower,
-        // we should merge the validity and value lookup
+        // TODO(joe): if the true count of take indices validity is low, only take array values with
+        // valid indices.
         let validity = array.validity().take(indices.as_ref())?;
         match_each_native_ptype!(array.ptype(), |T| {
             match_each_integer_ptype!(indices.ptype(), |I| {
