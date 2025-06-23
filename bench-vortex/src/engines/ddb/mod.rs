@@ -331,11 +331,3 @@ pub fn execute_tpcds_query(
 ) -> anyhow::Result<Duration> {
     execute_query(&[query_string.to_string()], duckdb_executor)
 }
-
-/// Convenience wrapper for ClickBench benchmarks
-pub fn execute_clickbench_query(
-    query_string: &str,
-    duckdb_executor: &DuckDBExecutor,
-) -> anyhow::Result<Duration> {
-    execute_query(&[query_string.to_string()], duckdb_executor)
-}
