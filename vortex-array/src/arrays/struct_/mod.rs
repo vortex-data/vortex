@@ -171,8 +171,13 @@ impl StructArray {
         Self::try_from_iter(items.iter().map(|(a, b)| (a, b.to_array())))
     }
 
-    pub fn try_from_iter<N: AsRef<str>, A: IntoArray, T: IntoIterator<Item = (N, A)>>(
+    pub fn try_from_iter_with_validity<
+        N: AsRef<str>,
+        A: IntoArray,
+        T: IntoIterator<Item = (N, A)>,
+    >(
         iter: T,
+        validity: Validity,
     ) -> VortexResult<Self> {
         let (names, fields): (Vec<FieldName>, Vec<ArrayRef>) = iter
             .into_iter()
@@ -183,12 +188,13 @@ impl StructArray {
             .map(|f| f.len())
             .ok_or_else(|| vortex_err!("StructArray cannot be constructed from an empty slice of arrays because the length is unspecified"))?;
 
-        Self::try_new(
-            FieldNames::from_iter(names),
-            fields,
-            len,
-            Validity::NonNullable,
-        )
+        Self::try_new(FieldNames::from_iter(names), fields, len, validity)
+    }
+
+    pub fn try_from_iter<N: AsRef<str>, A: IntoArray, T: IntoIterator<Item = (N, A)>>(
+        iter: T,
+    ) -> VortexResult<Self> {
+        Self::try_from_iter_with_validity(iter, Validity::NonNullable)
     }
 
     // TODO(aduffy): Add equivalent function to support field masks for nested column access.
