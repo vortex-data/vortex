@@ -44,7 +44,10 @@ fn take_nullable(
             // Start a new chunk
             let indices_in_chunk_array = PrimitiveArray::new(
                 indices_in_chunk.clone().freeze(),
-                Validity::Array(indices_validity.slice(start, stop - start).into_array()),
+                Validity::from_mask(
+                    indices_validity.slice(start, stop - start),
+                    Nullability::Nullable,
+                ),
             );
             chunks.push(take(
                 array.chunk(prev_chunk_idx)?,
@@ -62,7 +65,10 @@ fn take_nullable(
     if !indices_in_chunk.is_empty() {
         let indices_in_chunk_array = PrimitiveArray::new(
             indices_in_chunk.freeze(),
-            Validity::Array(indices_validity.slice(start, stop - start).into_array()),
+            Validity::from_mask(
+                indices_validity.slice(start, stop - start),
+                Nullability::Nullable,
+            ),
         );
         chunks.push(take(
             array.chunk(prev_chunk_idx)?,
