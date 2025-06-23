@@ -3,7 +3,6 @@ pub mod binary;
 pub mod cast;
 pub mod get_item;
 pub mod is_null;
-pub mod let_;
 pub mod like;
 pub mod list_contains;
 pub mod literal;
