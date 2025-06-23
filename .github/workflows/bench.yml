@@ -1,8 +1,5 @@
 name: Benchmarks
 
-env:
-  DUCKDB_VERSION: v1.3.0
-
 on:
   push:
     branches: [ develop ]
@@ -35,44 +32,7 @@ jobs:
           bash scripts/commit-json.sh > new-commit.json
           bash scripts/cat-s3.sh vortex-benchmark-results-database commits.json new-commit.json
 
-  build-duckdb:
-    timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=c6id.8xlarge
-      - image=ubuntu24-full-x64
-      - spot=false
-      - tag=${{ matrix.id }}
-    steps:
-      - uses: runs-on/action@v1
-      - name: Cache duckdb compiled binary
-        uses: runs-on/cache@v4
-        id: cache-duckdb-binary
-        with:
-          key: "${{ runner.os }}-duckdb-linux_amd64-${{ env.DUCKDB_VERSION }}"
-          path: ${{ github.workspace }}/duckdb/build/release/duckdb
-
-      - name: Install duckdb compile requirements
-        if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
-        run: sudo apt-get update && sudo apt-get install ninja-build cmake build-essential make ccache clang -y
-
-      - name: Build duckdb binary
-        if: steps.cache-duckdb-binary.outputs.cache-hit != 'true'
-        env:
-          CC: clang
-          CXX: clang++
-          GEN: ninja
-          NATIVE_ARCH: 1
-          DUCKDB_PLATFORM: linux_amd64
-          LTO: thin
-        run: |
-          git clone https://github.com/duckdb/duckdb
-          cd duckdb
-          git checkout "$DUCKDB_VERSION"
-          make release
-
   bench:
-    needs: build-duckdb
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -93,31 +53,12 @@ jobs:
         with:
           submodules: "recursive"
 
-      - name: Cache duckdb compiled binary
-        uses: runs-on/cache@v4
-        id: cache-duckdb-binary
-        with:
-          fail-on-cache-miss: true
-          key: "${{ runner.os }}-duckdb-linux_amd64-${{ env.DUCKDB_VERSION }}"
-          path: ${{ github.workspace }}/duckdb/build/release/duckdb
-
-      - name: Add duckdb to path
+      - name: Install DuckDB
         run: |
-          echo "${{ github.workspace }}/duckdb/build/release/" >> $GITHUB_PATH
-
-      # cat-s3 script uses gzip to append to compressed benchmark results
-      # TODO(joe): remove ninja once duckdb is not built by the benchmark
-      - name: Install gzip
-        run: sudo apt-get update && sudo apt-get install -y gzip ninja-build
-
-      - name: DuckDB extension build
-        env:
-          # Build DuckDB and the Vortex extension with `-march=native`.
-          # The `NATIVE_ARCH` environment variable is picked up by `duckdb/Makefile`.
-          NATIVE_ARCH: 1
-          DUCKDB_PLATFORM: linux_amd64
-        run: GEN=ninja make release
-        working-directory: ${{ github.workspace }}/duckdb-vortex
+          sudo apt-get update && sudo apt-get install -y gzip
+          wget -qO- https://github.com/duckdb/duckdb/releases/latest/download/duckdb_cli-linux-amd64.zip | funzip > duckdb
+          chmod +x duckdb
+          echo "$PWD" >> $GITHUB_PATH
 
       # rustup is pre-installed on the ubuntu24-full-x64 image.
       - name: Run ${{ matrix.benchmark.name }} benchmark
