@@ -60,7 +60,7 @@ impl ChunkedReader {
     fn chunk_reader(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
         self.lazy_children.get(
             idx,
-            &self.layout.dtype(),
+            self.layout.dtype(),
             &format!("{}.[{}]", self.name, idx).into(),
         )
     }
@@ -123,7 +123,7 @@ impl LayoutReader for ChunkedReader {
     }
 
     fn scope_dtype(&self) -> &ScopeDType {
-        &self.layout.scope_dtype()
+        self.layout.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {

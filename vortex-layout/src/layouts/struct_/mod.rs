@@ -38,7 +38,7 @@ impl VTable for StructVTable {
         layout
             .scope_dtype
             .dtype(&Identifier::Identity)
-            .expect("flat layout always has an identity")
+            .vortex_expect("flat layout always has an identity")
     }
 
     fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {

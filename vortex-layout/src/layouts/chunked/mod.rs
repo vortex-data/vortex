@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect as _, VortexResult};
 use vortex_expr::{Identifier, ScopeDType};
 
 use crate::children::LayoutChildren;
@@ -35,10 +35,10 @@ impl VTable for ChunkedVTable {
     }
 
     fn dtype(layout: &Self::Layout) -> &DType {
-        &layout
+        layout
             .scope_dtype
             .dtype(&Identifier::Identity)
-            .expect("chunked reader always has a root dtype")
+            .vortex_expect("chunked reader always has a root dtype")
     }
 
     fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {

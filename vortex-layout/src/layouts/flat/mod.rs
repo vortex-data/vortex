@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_panic};
 use vortex_expr::{Identifier, ScopeDType};
 
 use crate::children::LayoutChildren;
@@ -38,7 +38,7 @@ impl VTable for FlatVTable {
         layout
             .scope_dtype
             .dtype(&Identifier::Identity)
-            .expect("flat layout always has an identity")
+            .vortex_expect("flat layout always has an identity")
     }
 
     fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {
