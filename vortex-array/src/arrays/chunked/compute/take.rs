@@ -19,7 +19,7 @@ impl TakeKernel for ChunkedVTable {
 
         let nullability = array.dtype().nullability() | indices.dtype().nullability();
 
-        if indices.dtype().is_nullable() {
+        if !indices.dtype().is_nullable() {
             return take_all_valid(array, indices.as_slice::<u64>(), nullability);
         }
 
