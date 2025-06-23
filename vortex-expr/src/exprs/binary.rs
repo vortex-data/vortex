@@ -4,9 +4,9 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::compute::{Operator as ArrayOperator, and_kleene, compare, or_kleene};
+use vortex_array::compute::{Operator as ArrayOperator, add, and_kleene, compare, or_kleene};
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{AnalysisExpr, ExprRef, Operator, Scope, ScopeDType, StatsCatalog, VortexExpr};
 
@@ -109,7 +109,6 @@ impl AnalysisExpr for BinaryExpr {
             Operator::Gte => Some(lt(self.lhs.max(catalog)?, self.rhs.min(catalog)?)),
             Operator::Lt => Some(gt_eq(self.lhs.min(catalog)?, self.rhs.max(catalog)?)),
             Operator::Lte => Some(gt(self.lhs.min(catalog)?, self.rhs.max(catalog)?)),
-            // We can short circuit pruning expr for and
             Operator::And => self
                 .lhs
                 .stat_falsification(catalog)
@@ -120,6 +119,7 @@ impl AnalysisExpr for BinaryExpr {
                 self.lhs.stat_falsification(catalog)?,
                 self.rhs.stat_falsification(catalog)?,
             )),
+            Operator::CheckedAdd => None,
         }
     }
 }
@@ -142,6 +142,7 @@ impl VortexExpr for BinaryExpr {
             Operator::Gte => compare(&lhs, &rhs, ArrayOperator::Gte),
             Operator::And => and_kleene(&lhs, &rhs),
             Operator::Or => or_kleene(&lhs, &rhs),
+            Operator::CheckedAdd => add(&lhs, &rhs),
         }
     }
 
@@ -157,6 +158,14 @@ impl VortexExpr for BinaryExpr {
     fn return_dtype(&self, ctx: &ScopeDType) -> VortexResult<DType> {
         let lhs = self.lhs.return_dtype(ctx)?;
         let rhs = self.rhs.return_dtype(ctx)?;
+
+        if self.operator == Operator::CheckedAdd {
+            if lhs.is_primitive() && lhs.eq_ignore_nullability(&rhs) {
+                return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
+            }
+            vortex_bail!("incompatible types for checked add: {} {}", lhs, rhs);
+        }
+
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 }
@@ -379,6 +388,33 @@ where
 {
     let iter = iter.into_iter();
     iter.reduce(and)
+}
+
+/// Create a new `BinaryExpr` using the `CheckedAnd` operator.
+///
+/// ## Example usage
+///
+/// ```
+/// use vortex_array::IntoArray;
+/// use vortex_array::arrow::IntoArrowArray as _;
+/// use vortex_buffer::buffer;
+/// use vortex_expr::{Scope, checked_add, lit, root};
+///
+/// let xs = buffer![1, 2, 3].into_array();
+/// let result = checked_add(root(), lit(5))
+///     .evaluate(&Scope::new(xs.to_array()))
+///     .unwrap();
+///
+/// assert_eq!(
+///     &result.into_arrow_preferred().unwrap(),
+///     &buffer![6, 7, 8]
+///         .into_array()
+///         .into_arrow_preferred()
+///         .unwrap()
+/// );
+/// ```
+pub fn checked_add(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
+    BinaryExpr::new_expr(lhs, Operator::CheckedAdd, rhs)
 }
 
 #[cfg(test)]

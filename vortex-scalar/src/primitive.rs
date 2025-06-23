@@ -362,6 +362,8 @@ impl From<usize> for Scalar {
 /// Binary element-wise operations on two arrays or two scalars.
 pub enum NumericOperator {
     /// Binary element-wise addition of two arrays or of two scalars.
+    ///
+    /// Errs at runtime if the sum would overflow or underflow.
     Add,
     /// Binary element-wise subtraction of two arrays or of two scalars.
     Sub,

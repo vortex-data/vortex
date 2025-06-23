@@ -13,6 +13,8 @@ use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
 
 /// Point-wise add two numeric arrays.
+///
+/// Errs at runtime if the sum would overflow or underflow.
 pub fn add(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     numeric(lhs, rhs, NumericOperator::Add)
 }

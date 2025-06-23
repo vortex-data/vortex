@@ -1,4 +1,4 @@
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::traversal::{FoldDown, FoldUp, FolderMut, Node as _};
 use crate::{BinaryExpr, ExprRef, Not, Operator, not};
@@ -115,6 +115,9 @@ impl FolderMut for NNFVisitor {
                     Operator::Lte => Operator::Gt,
                     Operator::And => Operator::Or,
                     Operator::Or => Operator::And,
+                    Operator::CheckedAdd => {
+                        vortex_bail!("nnf: type mismatch: cannot negate addition")
+                    }
                 };
                 let (lhs, rhs) = match binary_expr.op() {
                     Operator::Or | Operator::And => {
