@@ -74,8 +74,6 @@ struct Args {
     export_spans: bool,
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
-    #[arg(long)]
-    skip_duckdb_build: bool,
 }
 
 #[derive(ValueEnum, Default, Clone, Debug, PartialEq, Eq)]
@@ -124,13 +122,8 @@ fn main() -> anyhow::Result<()> {
     };
 
     let formats = args.targets.iter().map(|t| t.format()).collect_vec();
-
     let runtime = new_tokio_runtime(args.threads);
-
     let duckdb_resolved_path = ddb::duckdb_executable_path(&args.duckdb_path);
-    if args.duckdb_path.is_none() && !args.skip_duckdb_build {
-        ddb::build_vortex_duckdb();
-    }
 
     let url = match args.use_remote_data_dir {
         None => {

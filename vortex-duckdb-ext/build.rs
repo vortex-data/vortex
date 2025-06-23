@@ -15,8 +15,8 @@ fn download_duckdb_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let (platform, arch) = match target.as_str() {
         "aarch64-apple-darwin" => ("osx", "universal"),
         "x86_64-apple-darwin" => ("osx", "universal"),
-        "x86_64-unknown-linux-gnu" | "x86_64-unknown-linux-musl" => ("linux", "amd64"),
-        "aarch64-unknown-linux-gnu" | "aarch64-unknown-linux-musl" => ("linux", "arm64"),
+        "x86_64-unknown-linux-gnu" => ("linux", "amd64"),
+        "aarch64-unknown-linux-gnu" => ("linux", "arm64"),
         _ => return Err(format!("Unsupported target: {target}").into()),
     };
 
