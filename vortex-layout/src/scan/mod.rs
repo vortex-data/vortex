@@ -166,7 +166,11 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
     /// Returns the output [`ScopeDType`] of the scan.
     pub fn scope_dtype(&self) -> ScopeDType {
-        RowIdLayoutReader::new(self.layout_reader.clone()).scope_dtype()
+        if self.row_index {
+            RowIdLayoutReader::new(self.layout_reader.clone()).scope_dtype()
+        } else {
+            ScopeDType::new(self.layout_reader.dtype().clone())
+        }
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.

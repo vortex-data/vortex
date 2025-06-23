@@ -15,8 +15,7 @@ use vortex_dtype::{
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::var_partition::{VarPartitionedExpr, var_partitions_with_map};
 use vortex_expr::{
-    ExactExpr, ExprRef, Identifier, Scope, ScopeDType, ScopeDTypeElement, ScopeElement,
-    ScopeFieldPathSetElement,
+    ExactExpr, ExprRef, Identifier, Scope, ScopeDType, ScopeElement, ScopeFieldPathSetElement,
 };
 use vortex_mask::Mask;
 use vortex_sequence::SequenceArray;
