@@ -17,7 +17,11 @@ pub enum Operator {
     And,
     Or,
     // arithmetic
-    /// The sum of the arguments, erring if the sum would overflow or underflow.
+    /// The sum of the arguments.
+    ///
+    /// Errs at runtime if the sum would overflow or underflow.
+    ///
+    /// The result is null at any index that either input is null.
     CheckedAdd,
 }
 
