@@ -12,12 +12,15 @@ use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 impl TakeKernel for DecimalVTable {
     fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
+        let validity = array.validity().take(indices.as_ref())?;
 
+        // TODO(joe): if the take indicies validity is tc is lower,
+        // we should merge the validity and value lookup also in PrimitiveArray::take.
         let decimal = match_each_decimal_value_type!(array.values_type(), |D| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 let buffer =
                     take_to_buffer::<I, D>(indices.as_slice::<I>(), array.buffer::<D>().as_slice());
-                DecimalArray::new(buffer, array.decimal_dtype(), array.validity().clone())
+                DecimalArray::new(buffer, array.decimal_dtype(), validity)
             })
         });
 
