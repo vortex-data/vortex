@@ -5,8 +5,8 @@ use vortex_array::builders::{ArrayBuilderExt, builder_with_capacity};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
-use vortex_dtype::{DType, DecimalDType, NativePType, match_each_native_ptype};
-use vortex_error::VortexResult;
+use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
 
 pub fn take_canonical_array_non_nullable_indices(
@@ -27,7 +27,13 @@ pub fn take_canonical_array(
     array: &dyn Array,
     indices: &[Option<usize>],
 ) -> VortexResult<ArrayRef> {
-    let validity = if array.dtype().is_nullable() {
+    let nullable = if indices.contains(&None) {
+        Nullability::Nullable
+    } else {
+        Nullability::NonNullable
+    };
+
+    let validity = if array.dtype().is_nullable() || nullable == Nullability::Nullable {
         let validity_idx = array.validity_mask()?.to_boolean_buffer();
 
         Validity::from_iter(
@@ -39,29 +45,42 @@ pub fn take_canonical_array(
         Validity::NonNullable
     };
 
-    let indices = indices.iter().map(|i| i.unwrap_or(0)).collect::<Vec<_>>();
-    let indices = indices.as_slice();
+    let indices_non_opt = indices.iter().map(|i| i.unwrap_or(0)).collect::<Vec<_>>();
+    let indices_slice_non_opt = indices_non_opt.as_slice();
 
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool()?;
             let vec_values = bool_array.boolean_buffer().iter().collect::<Vec<_>>();
-            Ok(
-                BoolArray::new(indices.iter().map(|i| vec_values[*i]).collect(), validity)
-                    .into_array(),
+            Ok(BoolArray::new(
+                indices_slice_non_opt
+                    .iter()
+                    .map(|i| vec_values[*i])
+                    .collect(),
+                validity,
             )
+            .into_array())
         }
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive()?;
             match_each_native_ptype!(p, |P| {
-                Ok(take_primitive::<P>(primitive_array, validity, indices))
+                Ok(take_primitive::<P>(
+                    primitive_array,
+                    validity,
+                    indices_slice_non_opt,
+                ))
             })
         }
         DType::Decimal(d, _) => {
             let decimal_array = array.to_decimal()?;
 
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
-                Ok(take_decimal::<D>(decimal_array, d, validity, indices))
+                Ok(take_decimal::<D>(
+                    decimal_array,
+                    d,
+                    validity,
+                    indices_slice_non_opt,
+                ))
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {
@@ -69,8 +88,10 @@ pub fn take_canonical_array(
             let values =
                 utf8.with_iterator(|iter| iter.map(|v| v.map(|u| u.to_vec())).collect::<Vec<_>>())?;
             Ok(VarBinViewArray::from_iter(
-                indices.iter().map(|i| values[*i].clone()),
-                array.dtype().clone(),
+                indices
+                    .iter()
+                    .map(|i| i.map(|idx| values[idx].clone().vortex_expect("idx in values"))),
+                array.dtype().clone().union_nullability(nullable),
             )
             .into_array())
         }
@@ -79,21 +100,25 @@ pub fn take_canonical_array(
             let taken_children = struct_array
                 .fields()
                 .iter()
-                .map(|c| take_canonical_array_non_nullable_indices(c, indices))
+                .map(|c| take_canonical_array_non_nullable_indices(c, indices_slice_non_opt))
                 .collect::<VortexResult<Vec<_>>>()?;
 
             StructArray::try_new(
                 struct_array.names().clone(),
                 taken_children,
-                indices.len(),
+                indices_slice_non_opt.len(),
                 validity,
             )
             .map(|a| a.into_array())
         }
         DType::List(..) => {
-            let mut builder = builder_with_capacity(array.dtype(), indices.len());
+            let mut builder = builder_with_capacity(array.dtype(), indices_slice_non_opt.len());
             for idx in indices {
-                builder.append_scalar(&array.scalar_at(*idx)?)?;
+                if let Some(idx) = idx {
+                    builder.append_scalar(&array.scalar_at(*idx)?)?;
+                } else {
+                    builder.append_null()
+                }
             }
             Ok(builder.finish())
         }
