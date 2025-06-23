@@ -69,10 +69,6 @@ pub fn vortex_duckdb_folder() -> PathBuf {
         .join("duckdb-vortex")
 }
 
-pub fn vortex_duckdb_extension_path() -> PathBuf {
-    vortex_duckdb_folder().join("build/release/extension/vortex/vortex.duckdb_extension")
-}
-
 pub fn duckdb_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
     // User supplied path takes priority.
     if let Some(duckdb_path) = user_supplied_path_flag {
@@ -244,11 +240,9 @@ pub fn register_tables(
     };
 
     let mut command = duckdb_executor.command();
-
-    let vortex_path = vortex_duckdb_extension_path();
     command
         .arg("-c")
-        .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
+        .arg("install vortex from community; load vortex;");
 
     command
         .arg("-c")
@@ -301,10 +295,9 @@ pub fn execute_query(
 ) -> anyhow::Result<Duration> {
     let mut command = duckdb_executor.command();
 
-    let vortex_path = vortex_duckdb_extension_path();
     command
         .arg("-c")
-        .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
+        .arg("install vortex from community; load vortex;");
 
     command
         .arg("-c")

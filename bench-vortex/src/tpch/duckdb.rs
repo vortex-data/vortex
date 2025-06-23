@@ -6,7 +6,7 @@ use anyhow::Result;
 use xshell::Shell;
 
 use crate::Format;
-use crate::ddb::{DuckDBExecutor, vortex_duckdb_extension_path};
+use crate::ddb::DuckDBExecutor;
 
 pub enum TpcDataset {
     TpcH,
@@ -94,15 +94,10 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
         return Ok(output_dir);
     }
 
-    let is_local_duckdb = opts.duckdb_path.is_some();
-
     let mut command = Command::new(opts.duckdb_path.unwrap_or_else(|| PathBuf::from("duckdb")));
-
-    let vortex_path = vortex_duckdb_extension_path();
     command
-        .arg("-unsigned")
         .arg("-c")
-        .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
+        .arg("install vortex from community; load vortex;");
 
     command
         .arg("-c")
@@ -133,12 +128,6 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
             ));
         }
         Format::OnDiskVortex => {
-            if !is_local_duckdb {
-                command
-                    .arg("-c")
-                    .arg("install vortex from community; load vortex;");
-            }
-
             command.arg("-c").arg(format!(
                 "EXPORT DATABASE '{}' (format VORTEX);",
                 output_dir.to_string_lossy(),
