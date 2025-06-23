@@ -16,6 +16,7 @@ impl TakeKernel for ChunkedVTable {
         )?
         .to_primitive()?;
 
+        // TODO(joe): Should we split this implementation based on indices nullability?
         let nullability = indices.dtype().nullability();
         let indices_mask = indices.validity_mask()?;
         let indices = indices.as_slice::<u64>();
