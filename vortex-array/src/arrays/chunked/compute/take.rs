@@ -1,5 +1,5 @@
 use vortex_buffer::BufferMut;
-use vortex_dtype::{DType, Nullability, PType};
+use vortex_dtype::{DType, PType};
 use vortex_error::VortexResult;
 
 use crate::arrays::chunked::ChunkedArray;
@@ -62,10 +62,7 @@ impl TakeKernel for ChunkedVTable {
 
         Ok(ChunkedArray::new_unchecked(
             chunks,
-            array
-                .dtype()
-                .clone()
-                .union_nullability(Nullability::Nullable),
+            array.dtype().clone().union_nullability(nullability),
         )
         .into_array())
     }
