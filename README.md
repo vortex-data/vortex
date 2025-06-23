@@ -71,7 +71,7 @@ cargo add vortex
 #### Python Package
 
 ```bash
-uv add vortex-array
+uv add vortex-data
 ```
 
 #### Command Line UI (vx)
