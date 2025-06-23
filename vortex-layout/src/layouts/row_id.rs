@@ -27,6 +27,7 @@ pub struct RowIdLayoutReader {
     name: Arc<str>,
     partitioned_expr_cache: DashMap<ExactExpr, Arc<VarPartitionedExpr>>,
     file_index: u64,
+    scope_dtype: ScopeDType,
 }
 
 pub static ROW_ID: LazyLock<Identifier> =
@@ -38,11 +39,22 @@ impl RowIdLayoutReader {
     }
 
     pub fn new_with_file_index(child: LayoutReaderRef, file_index: u64) -> Self {
+        let scope_dtype = ScopeDType::new(child.dtype().clone()).with_dtype_element((
+            ROW_ID.clone(),
+            DType::Struct(
+                Arc::new(StructFields::from_iter([
+                    (FieldName::from("file_row_number"), DType::from(U64)),
+                    ("file_index".into(), U64.into()),
+                ])),
+                Nullability::NonNullable,
+            ),
+        ));
         Self {
             child,
             name: Arc::from("row_id_layout_reader"),
             partitioned_expr_cache: Default::default(),
             file_index,
+            scope_dtype,
         }
     }
 }
@@ -89,19 +101,6 @@ impl RowIdLayoutReader {
             .vortex_expect("valid struct array")
             .to_array(),
         )
-    }
-
-    pub fn scope_dtype(&self) -> ScopeDType {
-        ScopeDType::new(self.child.dtype().clone()).with_dtype_element((
-            ROW_ID.clone(),
-            DType::Struct(
-                Arc::new(StructFields::from_iter([
-                    (FieldName::from("file_row_number"), DType::from(U64)),
-                    ("file_index".into(), U64.into()),
-                ])),
-                Nullability::NonNullable,
-            ),
-        ))
     }
 
     pub fn row_id_stats_field_path_set() -> ScopeFieldPathSetElement {
@@ -156,6 +155,10 @@ impl LayoutReader for RowIdLayoutReader {
 
     fn dtype(&self) -> &DType {
         self.child.dtype()
+    }
+
+    fn scope_dtype(&self) -> &ScopeDType {
+        &self.scope_dtype
     }
 
     fn row_count(&self) -> Precision<u64> {

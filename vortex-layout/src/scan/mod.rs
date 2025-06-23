@@ -161,16 +161,12 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
     /// Returns the output [`DType`] of the scan.
     pub fn dtype(&self) -> VortexResult<DType> {
-        self.projection.return_dtype(&self.scope_dtype())
+        self.projection.return_dtype(self.scope_dtype())
     }
 
     /// Returns the output [`ScopeDType`] of the scan.
-    pub fn scope_dtype(&self) -> ScopeDType {
-        if self.row_index {
-            RowIdLayoutReader::new(self.layout_reader.clone()).scope_dtype()
-        } else {
-            ScopeDType::new(self.layout_reader.dtype().clone())
-        }
+    pub fn scope_dtype(&self) -> &ScopeDType {
+        self.layout_reader.scope_dtype()
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
@@ -196,14 +192,14 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
         }
 
-        let ctx = ScopeDType::new(layout_reader.dtype().clone());
+        let scope_dtype = layout_reader.scope_dtype();
 
         // Normalize and simplify the expressions.
-        let projection = simplify_typed(self.projection.clone(), &ctx)?;
+        let projection = simplify_typed(self.projection.clone(), scope_dtype)?;
         let filter = self
             .filter
             .clone()
-            .map(|f| simplify_typed(f, &ctx))
+            .map(|f| simplify_typed(f, scope_dtype))
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.
