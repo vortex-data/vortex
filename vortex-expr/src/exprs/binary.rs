@@ -390,7 +390,7 @@ where
     iter.reduce(and)
 }
 
-/// Create a new `BinaryExpr` using the `CheckedAnd` operator.
+/// Create a new `BinaryExpr` using the `CheckedAdd` operator.
 ///
 /// ## Example usage
 ///
