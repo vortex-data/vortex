@@ -39,6 +39,14 @@ impl DataChunk {
     pub fn get_vector(&self, idx: usize) -> Vector {
         unsafe { Vector::borrow(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
     }
+
+    pub fn len(&self) -> u64 {
+        unsafe { cpp::duckdb_data_chunk_get_size(self.ptr) }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 impl TryFrom<DataChunk> for String {
     type Error = VortexError;

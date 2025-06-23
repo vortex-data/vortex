@@ -1,5 +1,6 @@
 use std::ffi::CStr;
 
+use bitvec::macros::internal::funty::Fundamental;
 use vortex::error::{VortexResult, vortex_err};
 
 use crate::{cpp, wrapper};
@@ -94,6 +95,12 @@ impl QueryResult {
         T::try_from(value)
     }
 
+    pub fn cell_as_str(&self, col_idx: usize, row_idx: usize) -> VortexResult<String> {
+        self.check_bounds(col_idx, row_idx)?;
+
+        unsafe { QueryResultCell::new(self.as_ptr(), col_idx, row_idx) }.to_string()
+    }
+
     /// Check if a value is null.
     pub fn is_null(&self, col_idx: usize, row_idx: usize) -> VortexResult<bool> {
         self.check_bounds(col_idx, row_idx)?;
@@ -134,6 +141,14 @@ impl QueryResultCell {
 
     pub fn column_type(&self) -> cpp::DUCKDB_TYPE {
         self.column_type
+    }
+
+    pub fn to_string(&self) -> VortexResult<String> {
+        let slice = unsafe {
+            let d = cpp::duckdb_value_string(self.result_ptr, self.col_idx, self.row_idx);
+            std::slice::from_raw_parts(d.data as *const u8, d.size.as_usize())
+        };
+        String::from_utf8(slice.to_vec()).map_err(|e| vortex_err!("{e}"))
     }
 }
 
