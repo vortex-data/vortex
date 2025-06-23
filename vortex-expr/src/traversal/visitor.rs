@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
 
-use crate::traversal::{Node, NodeVisitor, TraversalOrder};
+use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
 
 struct FnVisitor<'a, F, T: 'a>
 where
@@ -54,5 +54,42 @@ pub fn pre_order_visit_down<'a, T: 'a + Node>(
         f_down: Some(f),
         f_up: None,
         _data: Default::default(),
+    }
+}
+
+struct MutFnVisitor<F, T>
+where
+    F: FnMut(T) -> VortexResult<TransformResult<T>>,
+{
+    f_up: Option<F>,
+    _data: PhantomData<T>,
+}
+
+pub fn pre_order_mut_visit_up<T: Node>(
+    f: impl FnMut(T) -> VortexResult<TransformResult<T>>,
+) -> impl MutNodeVisitor<NodeTy = T> {
+    MutFnVisitor {
+        f_up: Some(f),
+        _data: Default::default(),
+    }
+}
+
+impl<T, F> MutNodeVisitor for MutFnVisitor<F, T>
+where
+    F: FnMut(T) -> VortexResult<TransformResult<T>>,
+    T: Node,
+{
+    type NodeTy = T;
+
+    fn visit_down(&mut self, _node: &T) -> VortexResult<TraversalOrder> {
+        Ok(TraversalOrder::Continue)
+    }
+
+    fn visit_up(&mut self, node: T) -> VortexResult<TransformResult<Self::NodeTy>> {
+        if let Some(f) = self.f_up.as_mut() {
+            f(node)
+        } else {
+            Ok(TransformResult::no(node))
+        }
     }
 }

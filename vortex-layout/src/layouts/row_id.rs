@@ -27,7 +27,6 @@ pub struct RowIdLayoutReader {
     child: LayoutReaderRef,
     name: Arc<str>,
     partitioned_expr_cache: DashMap<ExactExpr, Arc<VarPartitionedExpr>>,
-    file_index: u64,
 }
 
 pub static ROW_ID: LazyLock<Identifier> =
@@ -35,15 +34,10 @@ pub static ROW_ID: LazyLock<Identifier> =
 
 impl RowIdLayoutReader {
     pub fn new(child: LayoutReaderRef) -> Self {
-        Self::new_with_file_index(child, 0)
-    }
-
-    pub fn new_with_file_index(child: LayoutReaderRef, file_index: u64) -> Self {
         Self {
             child,
             name: Arc::from("row_id_layout_reader"),
             partitioned_expr_cache: Default::default(),
-            file_index,
         }
     }
 }
@@ -75,18 +69,12 @@ impl RowIdLayoutReader {
 
         (
             ROW_ID.clone(),
-            StructArray::from_fields(&[
-                (
-                    "file_row_number",
-                    SequenceArray::typed_new(row_range.start, 1, arr_len)
-                        .vortex_expect("cannot be out of bounds")
-                        .to_array(),
-                ),
-                (
-                    "file_index",
-                    ConstantArray::new(self.file_index, arr_len).to_array(),
-                ),
-            ])
+            StructArray::from_fields(&[(
+                "file_row_number",
+                SequenceArray::typed_new(row_range.start, 1, arr_len)
+                    .vortex_expect("cannot be out of bounds")
+                    .to_array(),
+            )])
             .vortex_expect("valid struct array")
             .to_array(),
         )
@@ -96,10 +84,10 @@ impl RowIdLayoutReader {
         (
             ROW_ID.clone(),
             DType::Struct(
-                Arc::new(StructFields::from_iter([
-                    (FieldName::from("file_row_number"), DType::from(U64)),
-                    ("file_index".into(), U64.into()),
-                ])),
+                Arc::new(StructFields::from_iter([(
+                    FieldName::from("file_row_number"),
+                    DType::from(U64),
+                )])),
                 Nullability::NonNullable,
             ),
         )
@@ -117,19 +105,11 @@ impl RowIdLayoutReader {
                     Field::Name("file_row_number".into()),
                     Field::Name(Stat::Min.name().into()),
                 ]),
-                FieldPath::from_iter([
-                    Field::Name("file_index".into()),
-                    Field::Name(Stat::Max.name().into()),
-                ]),
-                FieldPath::from_iter([
-                    Field::Name("file_index".into()),
-                    Field::Name(Stat::Min.name().into()),
-                ]),
             ]),
         )
     }
 
-    pub fn row_id_stats_set_scope(row_range: &Range<u64>, file_idx: u64) -> (Identifier, ArrayRef) {
+    pub fn row_id_stats_set_scope(row_range: &Range<u64>) -> (Identifier, ArrayRef) {
         (
             ROW_ID.clone(),
             StructArray::from_fields(&[
@@ -141,8 +121,6 @@ impl RowIdLayoutReader {
                     "file_row_number_min",
                     ConstantArray::new(row_range.start, 1).to_array(),
                 ),
-                ("file_index_max", ConstantArray::new(file_idx, 1).to_array()),
-                ("file_index_min", ConstantArray::new(file_idx, 1).to_array()),
             ])
             .vortex_expect("valid struct")
             .to_array(),

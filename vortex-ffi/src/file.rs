@@ -15,7 +15,8 @@ use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, deserialize_expr};
+use vortex::expr::traversal::{Node, TransformResult, pre_order_mut_visit_up};
+use vortex::expr::{ExprRef, GetItem, Var, VortexExpr, deserialize_expr, lit};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::layout::layouts::row_id::RowIdLayoutReader;
@@ -34,6 +35,23 @@ arc_wrapper!(
     VortexFile,
     vx_file
 );
+
+fn replace_file_idx(file_idx: u64, expr: ExprRef) -> VortexResult<ExprRef> {
+    expr.transform(&mut pre_order_mut_visit_up(|e: ExprRef| {
+        if let Some(get_item) = e.as_any().downcast_ref::<GetItem>() {
+            if get_item.field().as_ref() != "file_index" {
+                return Ok(TransformResult::no(e));
+            }
+            if let Some(var) = get_item.as_any().downcast_ref::<Var>() {
+                if var.var() == "$vx.row_id" {
+                    return Ok(TransformResult::yes(lit(file_idx)));
+                }
+            }
+        }
+        return Ok(TransformResult::no(e));
+    }))
+    .map(|r| r.into_inner())
+}
 
 /// Options supplied for opening a file.
 #[repr(C)]
@@ -228,6 +246,9 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
     try_or(error, false, || {
         let file = vx_file::as_ref(file);
         let filter_expr = extract_expression(filter_expression, filter_expression_len)?;
+        let filter_expr = filter_expr
+            .map(|expr| replace_file_idx(file_idx, expr))
+            .transpose()?;
         Ok(filter_expr
             .map(|expr| file.can_prune(&expr, file_idx))
             .transpose()?
@@ -251,10 +272,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         )?;
 
         let layout_reader = file.layout_reader()?;
-        let layout_reader = Arc::new(RowIdLayoutReader::new_with_file_index(
-            layout_reader,
-            scan_options.file_index,
-        ));
+        let layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
         let mut scan_builder = ScanBuilder::new(layout_reader);
 
         // Apply options if provided.
@@ -263,6 +281,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         }
 
         if let Some(expr) = scan_options.filter_expr {
+            let expr = replace_file_idx(scan_options.file_index, expr)?;
             scan_builder = scan_builder.with_filter(expr);
         }
 
