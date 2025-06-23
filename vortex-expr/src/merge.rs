@@ -52,7 +52,11 @@ impl Display for Merge {
             .iter()
             .format_with(", ", |expr, f| f(expr))
             .fmt(f)?;
-        f.write_str("}")
+        f.write_str("}")?;
+        if Nullability::Nullable == self.nullability {
+            f.write_str("?")?;
+        }
+        Ok(())
     }
 }
 

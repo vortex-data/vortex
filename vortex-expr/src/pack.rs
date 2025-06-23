@@ -85,6 +85,10 @@ impl Pack {
             .cloned()
             .ok_or_else(|| vortex_err!("field index out of bounds: {}", idx))
     }
+
+    pub fn nullability(&self) -> Nullability {
+        self.nullability
+    }
 }
 
 pub fn pack(
@@ -107,7 +111,11 @@ impl Display for Pack {
             .zip(&self.values)
             .format_with(", ", |(name, expr), f| f(&format_args!("{name}: {expr}")))
             .fmt(f)?;
-        f.write_str("}")
+        f.write_str("}")?;
+        if Nullability::Nullable == self.nullability {
+            f.write_str("?")?;
+        }
+        Ok(())
     }
 }
 
