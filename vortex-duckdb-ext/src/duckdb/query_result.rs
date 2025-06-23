@@ -137,6 +137,9 @@ impl QueryResultCell {
     }
 }
 
+// TODO(Alex): Revisit the marshalling logic to consider going through arrow by
+// calling `duckdb_query_arrow`. Most likely the marshalling code below will go away.
+
 impl TryFrom<QueryResultCell> for i32 {
     type Error = vortex::error::VortexError;
 
