@@ -92,8 +92,8 @@ impl RowIdLayoutReader {
         )
     }
 
-    pub fn row_id_scope_dtype() -> ScopeDTypeElement {
-        (
+    pub fn scope_dtype(&self) -> ScopeDType {
+        ScopeDType::new(self.child.dtype().clone()).with_dtype_element((
             ROW_ID.clone(),
             DType::Struct(
                 Arc::new(StructFields::from_iter([
@@ -102,7 +102,7 @@ impl RowIdLayoutReader {
                 ])),
                 Nullability::NonNullable,
             ),
-        )
+        ))
     }
 
     pub fn row_id_stats_field_path_set() -> ScopeFieldPathSetElement {

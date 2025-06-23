@@ -23,10 +23,10 @@ use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, ScopeDType, root};
 use vortex_metrics::VortexMetrics;
 
-use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
 use crate::layouts::row_id::RowIdLayoutReader;
 use crate::scan::tasks::{TaskContext, split_exec};
+use crate::{LayoutReader, LayoutReaderRef};
 
 mod executor;
 pub mod row_mask;
@@ -36,7 +36,7 @@ mod tasks;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
-    layout_reader: Arc<dyn LayoutReader>,
+    layout_reader: LayoutReaderRef,
     projection: ExprRef,
     filter: Option<ExprRef>,
     /// Optionally read a subset of the rows in the file.
@@ -166,12 +166,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
     /// Returns the output [`ScopeDType`] of the scan.
     pub fn scope_dtype(&self) -> ScopeDType {
-        let scope_dtype = ScopeDType::new(self.layout_reader.dtype().clone());
-        if self.row_index {
-            scope_dtype.with_dtype_element(RowIdLayoutReader::row_id_scope_dtype())
-        } else {
-            scope_dtype
-        }
+        RowIdLayoutReader::new(self.layout_reader.clone()).scope_dtype()
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
