@@ -47,12 +47,12 @@ pub fn merge(
 
 impl Display for Merge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("{")?;
-        self.values
-            .iter()
-            .format_with(", ", |expr, f| f(expr))
-            .fmt(f)?;
-        f.write_str("}")
+        write!(
+            f,
+            "merge({}){}",
+            self.values.iter().format(", "),
+            self.nullability
+        )
     }
 }
 

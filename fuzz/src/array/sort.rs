@@ -7,7 +7,7 @@ use vortex_dtype::{DType, NativePType, match_each_native_ptype};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_scalar::match_each_decimal_value_type;
 
-use crate::take::take_canonical_array_non_nullable_indices;
+use crate::array::take_canonical_array_non_nullable_indices;
 
 pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
     match array.dtype() {

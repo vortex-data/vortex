@@ -19,7 +19,6 @@ impl TakeKernel for PrimitiveVTable {
     #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let indices = indices.to_primitive()?;
-        let validity = array.validity().take(indices.as_ref())?;
 
         if array.ptype() != PType::F16
             && indices.dtype().is_unsigned_int()
@@ -42,6 +41,9 @@ impl TakeKernel for PrimitiveVTable {
             });
         }
 
+        // TODO(joe): if the true count of take indices validity is low, only take array values with
+        // valid indices.
+        let validity = array.validity().take(indices.as_ref())?;
         match_each_native_ptype!(array.ptype(), |T| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 let values = take_primitive(array.as_slice::<T>(), indices.as_slice::<I>());

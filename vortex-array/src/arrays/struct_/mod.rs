@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::stats::{ArrayStats, StatsSetRef};
@@ -115,6 +115,16 @@ impl StructArray {
             Arc::new(StructFields::new(names, field_dtypes)),
             nullability,
         );
+
+        if length != validity.maybe_len().unwrap_or(length) {
+            vortex_bail!(
+                "array length {} and validity length must match {}",
+                length,
+                validity
+                    .maybe_len()
+                    .vortex_expect("can only fail if maybe is some")
+            )
+        }
 
         Ok(Self {
             len: length,

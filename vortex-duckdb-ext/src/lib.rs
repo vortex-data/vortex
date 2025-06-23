@@ -28,7 +28,7 @@ mod scan;
 /// cbindgen:ignore
 mod cpp;
 #[cfg(test)]
-mod scan_tests;
+mod vortex_scan_tests;
 
 /// Initialize the Vortex extension by registering the `vortex_scan` function.
 pub fn init(conn: &Connection) -> VortexResult<()> {

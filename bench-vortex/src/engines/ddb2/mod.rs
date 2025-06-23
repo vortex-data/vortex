@@ -43,7 +43,7 @@ impl DuckDBCtx {
         // TODO: handle multiple queries
         trace!("execute duckdb query: {}", query);
         let time_instant = Instant::now();
-        self.connection.execute(query)?;
+        self.connection.query(query)?;
         let query_time = time_instant.elapsed();
         trace!("query completed in {:.3}s", query_time.as_secs_f64());
 

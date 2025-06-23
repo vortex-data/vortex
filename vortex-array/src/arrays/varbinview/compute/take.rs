@@ -51,11 +51,13 @@ fn take_views<I: AsPrimitive<usize>>(
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability::NonNullable;
 
     use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
     use crate::array::Array;
-    use crate::arrays::VarBinViewArray;
+    use crate::arrays::{PrimitiveArray, VarBinViewArray};
     use crate::canonical::ToCanonical;
     use crate::compute::take;
 
@@ -82,6 +84,29 @@ mod tests {
                     .collect::<Vec<_>>())
                 .unwrap(),
             [Some("one".to_string()), Some("four".to_string())]
+        );
+    }
+
+    #[test]
+    fn take_nullable_indices() {
+        let arr = VarBinViewArray::from_iter(["one", "two"].map(Some), DType::Utf8(NonNullable));
+
+        let taken = take(
+            arr.as_ref(),
+            PrimitiveArray::from_option_iter(vec![Some(1), None]).as_ref(),
+        )
+        .unwrap();
+
+        assert!(taken.dtype().is_nullable());
+        assert_eq!(
+            taken
+                .to_varbinview()
+                .unwrap()
+                .with_iterator(|it| it
+                    .map(|v| v.map(|b| unsafe { String::from_utf8_unchecked(b.to_vec()) }))
+                    .collect::<Vec<_>>())
+                .unwrap(),
+            [Some("two".to_string()), None]
         );
     }
 }
