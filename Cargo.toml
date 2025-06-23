@@ -9,7 +9,6 @@ members = [
     "vortex-buffer",
     "vortex-datafusion",
     "vortex-dtype",
-    "vortex-duckdb",
     "vortex-duckdb-ext",
     "vortex-error",
     "vortex-expr",
@@ -88,10 +87,6 @@ datafusion = { version = "48", default-features = false }
 datafusion-common = { version = "48" }
 datafusion-physical-plan = { version = "48" }
 divan = { package = "codspeed-divan-compat", version = "2.8.0" }
-duckdb = { path = "duckdb-vortex/duckdb-rs/crates/duckdb", features = [
-    "vtab-full",
-    "bundled",
-] }
 dyn-hash = "0.2.0"
 enum-iterator = "2.0.0"
 fastlanes = "0.1.8"
@@ -215,7 +210,6 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 
 # No version contraints for unpublished crates.
 vortex-duckdb-ext = { path = "./vortex-duckdb-ext", default-features = false }
-vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
 
 worker = "0.5.0"
