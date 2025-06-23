@@ -1,7 +1,9 @@
 use std::any::Any;
+use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use itertools::Itertools as _;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldPathSet};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
@@ -52,7 +54,7 @@ impl Identifier {
     }
 }
 
-impl std::fmt::Display for Identifier {
+impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Identifier::Identity => write!(f, ""),
@@ -174,6 +176,25 @@ impl From<ArrayRef> for Scope {
 pub struct ScopeDType {
     root: Option<DType>,
     types: ExprScope<DType>,
+}
+
+impl Display for ScopeDType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(root) = self.root.as_ref() {
+            write!(f, "$: {}", root)?;
+        }
+        if !self.types.is_empty() {
+            write!(f, ". ")?;
+            write!(
+                f,
+                "{}",
+                self.types
+                    .iter()
+                    .format_with(",", |x, f| f(&format_args!("{}: {}", x.0, x.1)))
+            )?;
+        }
+        Ok(())
+    }
 }
 
 pub type ScopeDTypeElement = (Identifier, DType);
