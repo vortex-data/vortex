@@ -8,7 +8,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::between::proto::BetweenSerde;
 use crate::binary::proto::BinarySerde;
 use crate::get_item::proto::GetItemSerde;
-use crate::let_::proto::LetSerde;
 use crate::like::proto::LikeSerde;
 use crate::list_contains::proto::ListContainsSerde;
 use crate::literal::proto::LiteralSerde;
@@ -24,7 +23,6 @@ const EXPRESSIONS: &[&'static dyn ExprDeserialize] = &[
     &BinarySerde,
     &GetItemSerde,
     &IdentitySerde,
-    &LetSerde,
     &LikeSerde,
     &LiteralSerde,
     &ListContainsSerde,
