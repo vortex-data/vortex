@@ -107,7 +107,7 @@ impl Display for Pack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{{{}}}{}",
+            "pack({{{}}}){}",
             self.names
                 .iter()
                 .zip(&self.values)
