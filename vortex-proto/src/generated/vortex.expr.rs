@@ -89,7 +89,7 @@ pub mod kind {
         Lte = 5,
         And = 6,
         Or = 7,
-        CheckedAdd = 8,
+        Add = 8,
     }
     impl BinaryOp {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -106,7 +106,7 @@ pub mod kind {
                 Self::Lte => "Lte",
                 Self::And => "And",
                 Self::Or => "Or",
-                Self::CheckedAdd => "CheckedAdd",
+                Self::Add => "Add",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -120,7 +120,7 @@ pub mod kind {
                 "Lte" => Some(Self::Lte),
                 "And" => Some(Self::And),
                 "Or" => Some(Self::Or),
-                "CheckedAdd" => Some(Self::CheckedAdd),
+                "Add" => Some(Self::Add),
                 _ => None,
             }
         }

@@ -119,7 +119,7 @@ impl AnalysisExpr for BinaryExpr {
                 self.lhs.stat_falsification(catalog)?,
                 self.rhs.stat_falsification(catalog)?,
             )),
-            Operator::CheckedAdd => None,
+            Operator::Add => None,
         }
     }
 }
@@ -142,7 +142,7 @@ impl VortexExpr for BinaryExpr {
             Operator::Gte => compare(&lhs, &rhs, ArrayOperator::Gte),
             Operator::And => and_kleene(&lhs, &rhs),
             Operator::Or => or_kleene(&lhs, &rhs),
-            Operator::CheckedAdd => add(&lhs, &rhs),
+            Operator::Add => add(&lhs, &rhs),
         }
     }
 
@@ -159,7 +159,7 @@ impl VortexExpr for BinaryExpr {
         let lhs = self.lhs.return_dtype(ctx)?;
         let rhs = self.rhs.return_dtype(ctx)?;
 
-        if self.operator == Operator::CheckedAdd {
+        if self.operator == Operator::Add {
             if lhs.is_primitive() && lhs.eq_ignore_nullability(&rhs) {
                 return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
             }
@@ -414,7 +414,7 @@ where
 /// );
 /// ```
 pub fn checked_add(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::CheckedAdd, rhs)
+    BinaryExpr::new_expr(lhs, Operator::Add, rhs)
 }
 
 #[cfg(test)]

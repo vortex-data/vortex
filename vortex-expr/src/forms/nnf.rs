@@ -115,7 +115,7 @@ impl FolderMut for NNFVisitor {
                     Operator::Lte => Operator::Gt,
                     Operator::And => Operator::Or,
                     Operator::Or => Operator::And,
-                    Operator::CheckedAdd => {
+                    Operator::Add => {
                         vortex_bail!("nnf: type mismatch: cannot negate addition")
                     }
                 };

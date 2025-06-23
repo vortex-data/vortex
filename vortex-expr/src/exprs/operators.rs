@@ -22,7 +22,7 @@ pub enum Operator {
     /// Errs at runtime if the sum would overflow or underflow.
     ///
     /// The result is null at any index that either input is null.
-    CheckedAdd,
+    Add,
 }
 
 #[cfg(feature = "proto")]
@@ -50,7 +50,7 @@ mod proto {
                 Operator::Lte => BinaryOp::Lte,
                 Operator::And => BinaryOp::And,
                 Operator::Or => BinaryOp::Or,
-                Operator::CheckedAdd => BinaryOp::CheckedAdd,
+                Operator::Add => BinaryOp::Add,
             }
         }
     }
@@ -74,7 +74,7 @@ mod proto {
                 BinaryOp::Lte => Operator::Lte,
                 BinaryOp::And => Operator::And,
                 BinaryOp::Or => Operator::Or,
-                BinaryOp::CheckedAdd => Operator::CheckedAdd,
+                BinaryOp::Add => Operator::Add,
             }
         }
     }
@@ -91,7 +91,7 @@ impl Display for Operator {
             Operator::Lte => "<=",
             Operator::And => "and",
             Operator::Or => "or",
-            Operator::CheckedAdd => "+w",
+            Operator::Add => "+w",
         };
         Display::fmt(display, f)
     }
@@ -106,7 +106,7 @@ impl Operator {
             Operator::Gte => Some(Operator::Lt),
             Operator::Lt => Some(Operator::Gte),
             Operator::Lte => Some(Operator::Gt),
-            Operator::And | Operator::Or | Operator::CheckedAdd => None,
+            Operator::And | Operator::Or | Operator::Add => None,
         }
     }
 
@@ -129,7 +129,7 @@ impl Operator {
             Operator::Lte => Operator::Gte,
             Operator::And => Operator::And,
             Operator::Or => Operator::Or,
-            Operator::CheckedAdd => Operator::CheckedAdd,
+            Operator::Add => Operator::Add,
         }
     }
 

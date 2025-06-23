@@ -71,7 +71,7 @@ message Kind {
     Lte = 5;
     And = 6;
     Or = 7;
-    CheckedAdd = 8;
+    Add = 8;
   }
 
   message Between {
