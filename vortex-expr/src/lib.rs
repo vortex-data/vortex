@@ -1,14 +1,14 @@
-pub use core::*;
 use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::sync::Arc;
 
 use dyn_hash::DynHash;
+pub use exprs::*;
 mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
-mod core;
+mod exprs;
 mod field;
 pub mod forms;
 pub mod pruning;
