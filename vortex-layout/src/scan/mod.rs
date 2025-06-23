@@ -57,6 +57,10 @@ pub struct ScanBuilder<A> {
     file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<usize>,
+    /// Include the row and file index in the scope of the scan.
+    ///
+    /// See also [crate::layouts::row_id].
+    row_index: bool,
 }
 
 impl<A: 'static + Send + Sync> ScanBuilder<A> {
@@ -87,6 +91,11 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
     pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
         self.selection = Selection::IncludeByIndex(row_indices);
+        self
+    }
+
+    pub fn with_row_index(mut self) -> Self {
+        self.row_index = true;
         self
     }
 
@@ -146,15 +155,23 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             metrics: self.metrics,
             file_stats: self.file_stats,
             limit: self.limit,
+            row_index: self.row_index,
         }
     }
 
     /// Returns the output [`DType`] of the scan.
     pub fn dtype(&self) -> VortexResult<DType> {
-        self.projection.return_dtype(
-            &ScopeDType::new(self.layout_reader.dtype().clone())
-                .with_dtype_element(RowIdLayoutReader::row_id_scope_dtype()),
-        )
+        self.projection.return_dtype(&self.scope_dtype())
+    }
+
+    /// Returns the output [`ScopeDType`] of the scan.
+    pub fn scope_dtype(&self) -> ScopeDType {
+        let scope_dtype = ScopeDType::new(self.layout_reader.dtype().clone());
+        if self.row_index {
+            scope_dtype.with_dtype_element(RowIdLayoutReader::row_id_scope_dtype())
+        } else {
+            scope_dtype
+        }
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
@@ -176,6 +193,10 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         if self.filter.is_some() {
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
         }
+        if self.row_index {
+            layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
+        }
+
         let ctx = ScopeDType::new(layout_reader.dtype().clone());
 
         // Normalize and simplify the expressions.
@@ -243,6 +264,7 @@ impl ScanBuilder<ArrayRef> {
             metrics: Default::default(),
             file_stats: None,
             limit: None,
+            row_index: false,
         }
     }
 
