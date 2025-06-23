@@ -105,23 +105,20 @@ pub fn pack(
 
 impl Display for Pack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("{")?;
-        self.names
-            .iter()
-            .zip(&self.values)
-            .format_with(", ", |(name, expr), f| f(&format_args!("{name}: {expr}")))
-            .fmt(f)?;
-        f.write_str("}")?;
-        if Nullability::Nullable == self.nullability {
-            f.write_str("?")?;
-        }
-        Ok(())
+        write!(
+            f,
+            "{{{}}}{}",
+            self.names
+                .iter()
+                .zip(&self.values)
+                .format_with(", ", |(name, expr), f| f(&format_args!("{name}: {expr}"))),
+            self.nullability
+        )
     }
 }
 
 #[cfg(feature = "proto")]
 pub(crate) mod proto {
-
     use vortex_error::{VortexResult, vortex_bail};
     use vortex_proto::expr::kind;
     use vortex_proto::expr::kind::Kind;
