@@ -8,7 +8,7 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use anyhow::bail;
-use log::{info, trace};
+use log::trace;
 use path::Path;
 use url::Url;
 use vortex::error::vortex_panic;
@@ -69,10 +69,6 @@ pub fn vortex_duckdb_folder() -> PathBuf {
         .join("duckdb-vortex")
 }
 
-pub fn vortex_duckdb_extension_path() -> PathBuf {
-    vortex_duckdb_folder().join("build/release/extension/vortex/vortex.duckdb_extension")
-}
-
 pub fn duckdb_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> PathBuf {
     // User supplied path takes priority.
     if let Some(duckdb_path) = user_supplied_path_flag {
@@ -80,43 +76,9 @@ pub fn duckdb_executable_path(user_supplied_path_flag: &Option<PathBuf>) -> Path
         return duckdb_path.to_owned();
     };
     // Use the binary
+
+    // TODO: point this to the downloaded binary
     PathBuf::from("duckdb")
-}
-
-/// Finds the path to the DuckDB executable
-pub fn build_vortex_duckdb() {
-    let duckdb_vortex_path = vortex_duckdb_folder();
-
-    let mut command = Command::new("make");
-    command
-        .current_dir(&duckdb_vortex_path)
-        // The version of DuckDB and its Vortex extension is either implicitly set by Git tag, e.g.
-        // v1.2.2, or commit SHA if the current commit does not have a tag. The implicitly set
-        // version can be overridden by defining the `OVERRIDE_GIT_DESCRIBE` environment variable.
-        .env("OVERRIDE_GIT_DESCRIBE", "v1.3.0")
-        .env("GEN", "ninja")
-        .arg("release");
-
-    info!(
-        "Building duckdb vortex extension at {}, with command {:?}",
-        duckdb_vortex_path.display(),
-        command
-    );
-
-    let output = command
-        .output()
-        .expect("Trying to build duckdb vortex extension");
-
-    if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        vortex_panic!("duckdb failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
-    }
-
-    info!(
-        "Built duckdb vortex extension at {}",
-        duckdb_vortex_path.display()
-    );
 }
 
 enum DuckDBObject {
@@ -244,11 +206,9 @@ pub fn register_tables(
     };
 
     let mut command = duckdb_executor.command();
-
-    let vortex_path = vortex_duckdb_extension_path();
     command
         .arg("-c")
-        .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
+        .arg("install vortex from community; load vortex;");
 
     command
         .arg("-c")
@@ -301,10 +261,9 @@ pub fn execute_query(
 ) -> anyhow::Result<Duration> {
     let mut command = duckdb_executor.command();
 
-    let vortex_path = vortex_duckdb_extension_path();
     command
         .arg("-c")
-        .arg(format!("load \"{}\";", vortex_path.to_string_lossy()));
+        .arg("install vortex from community; load vortex;");
 
     command
         .arg("-c")
@@ -367,14 +326,6 @@ pub fn execute_tpch_query(
 
 /// Convenience wrapper for TPC-DS benchmarks
 pub fn execute_tpcds_query(
-    query_string: &str,
-    duckdb_executor: &DuckDBExecutor,
-) -> anyhow::Result<Duration> {
-    execute_query(&[query_string.to_string()], duckdb_executor)
-}
-
-/// Convenience wrapper for ClickBench benchmarks
-pub fn execute_clickbench_query(
     query_string: &str,
     duckdb_executor: &DuckDBExecutor,
 ) -> anyhow::Result<Duration> {
