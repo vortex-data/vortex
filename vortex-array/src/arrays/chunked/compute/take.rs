@@ -17,15 +17,17 @@ impl TakeKernel for ChunkedVTable {
         )?
         .to_primitive()?;
 
-        if indices.dtype().is_nullable() {
-            take_nullable(array, indices.as_slice::<u64>(), indices.validity_mask()?)
+        let nullability = array.dtype().nullability() | indices.dtype().nullability();
+        let mask = indices.validity_mask()?;
+        if mask.all_true() {
+            take_all_valid(array, indices.as_slice::<u64>(), nullability)
         } else {
-            take_non_nullable(array, indices.as_slice::<u64>())
+            take_some_invalid(array, indices.as_slice::<u64>(), mask)
         }
     }
 }
 
-fn take_nullable(
+fn take_some_invalid(
     array: &ChunkedArray,
     indices: &[u64],
     indices_validity: Mask,
@@ -78,15 +80,16 @@ fn take_nullable(
 
     Ok(ChunkedArray::new_unchecked(
         chunks,
-        array
-            .dtype()
-            .clone()
-            .union_nullability(Nullability::Nullable),
+        array.dtype().union_nullability(Nullability::Nullable),
     )
     .into_array())
 }
 
-fn take_non_nullable(array: &ChunkedArray, indices: &[u64]) -> VortexResult<ArrayRef> {
+fn take_all_valid(
+    array: &ChunkedArray,
+    indices: &[u64],
+    nullability: Nullability,
+) -> VortexResult<ArrayRef> {
     // While the chunk idx remains the same, accumulate a list of chunk indices.
     let mut chunks = Vec::new();
     let mut indices_in_chunk = BufferMut::<u64>::empty();
@@ -111,7 +114,10 @@ fn take_non_nullable(array: &ChunkedArray, indices: &[u64]) -> VortexResult<Arra
         chunks.push(take(array.chunk(prev_chunk_idx)?, &indices_in_chunk_array)?);
     }
 
-    Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array())
+    Ok(
+        ChunkedArray::new_unchecked(chunks, array.dtype().union_nullability(nullability))
+            .into_array(),
+    )
 }
 register_kernel!(TakeKernelAdapter(ChunkedVTable).lift());
 
