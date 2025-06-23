@@ -217,7 +217,7 @@ impl TableFunction for VortexTableFunction {
             Ok(ArrayIteratorExporter::new(Box::new(array_iterator)))
         };
 
-        if local_state.exporter.is_none() {
+        while local_state.exporter.is_none() {
             if !global_state
                 .is_first_file_processed
                 .swap(true, atomic::Ordering::SeqCst)
@@ -236,18 +236,18 @@ impl TableFunction for VortexTableFunction {
                 chunk.set_len(0);
                 return Ok(());
             }
-        }
 
-        let Some(ref mut exporter) = local_state.exporter else {
-            vortex_bail!("ArrayIteratorExporter is not set")
-        };
+            let Some(ref mut exporter) = local_state.exporter else {
+                vortex_bail!("ArrayIteratorExporter is not set")
+            };
 
-        let is_data_left_to_scan = !exporter
-            .export(chunk)
-            .map_err(|e| vortex_err!("Failed to export data: {}", e))?;
+            let is_data_left_to_scan = !exporter
+                .export(chunk)
+                .map_err(|e| vortex_err!("Failed to export data: {}", e))?;
 
-        if !is_data_left_to_scan {
-            local_state.exporter = None;
+            if is_data_left_to_scan {
+                local_state.exporter = None;
+            }
         }
 
         Ok(())
