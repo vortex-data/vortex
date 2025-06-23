@@ -217,7 +217,7 @@ impl TableFunction for VortexTableFunction {
             Ok(ArrayIteratorExporter::new(Box::new(array_iterator)))
         };
 
-        while local_state.exporter.is_none() {
+        loop {
             if !global_state
                 .is_first_file_processed
                 .swap(true, atomic::Ordering::SeqCst)
@@ -247,10 +247,11 @@ impl TableFunction for VortexTableFunction {
 
             if is_data_left_to_scan {
                 local_state.exporter = None;
+            } else {
+                assert!(!chunk.is_empty());
+                return Ok(());
             }
         }
-
-        Ok(())
     }
 
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
