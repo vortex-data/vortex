@@ -30,6 +30,7 @@ num-traits = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 vortex = { workspace = true, features = ["files"] }
+vortex-file = { workspace = true, features = ["tokio"] }
 
 [lints]
 workspace = true

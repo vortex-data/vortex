@@ -6252,6 +6252,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "vortex",
+ "vortex-file",
  "walkdir",
  "zip",
 ]
