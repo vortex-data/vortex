@@ -15,7 +15,7 @@ categories = { workspace = true }
 readme = { workspace = true }
 
 [lib]
-name = "vortex_duckdb_ext"
+name = "vortex_duckdb"
 path = "src/lib.rs"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
