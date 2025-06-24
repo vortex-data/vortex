@@ -17,6 +17,8 @@ struct DictExporter<I: NativePType> {
     values_vector: Vector, // NOTE(ngates): not actually flat...
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
+    cache_id: u64,
+    value_id: usize,
 }
 
 pub(crate) fn new_exporter(
@@ -46,6 +48,8 @@ pub(crate) fn new_exporter(
             values_vector,
             codes,
             codes_type: PhantomData::<I>,
+            cache_id: cache.instance_id,
+            value_id: values_key,
         }))
     })
 }
@@ -67,6 +71,9 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         }
 
         vector.slice_to_dictionary(sel_vec, len);
+        // Use a unique id to each dictionary data array -- telling duckdb that the dict value vector
+        // is the same as reuse the hash in a join.
+        vector.set_dictionary_id(format!("{}-{}", self.cache_id, self.value_id));
 
         Ok(())
     }

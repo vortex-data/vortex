@@ -11,6 +11,9 @@ extern "C" {
 void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector, duckdb_selection_vector selection_vector,
                                           idx_t selection_vector_length);
 
+void duckdb_vx_set_dictionary_vector_id(duckdb_vector dict, const char *id, unsigned int id_len);
+
+
 // Add the buffer to the string vector (basically, keep it alive as long as the vector).
 void duckdb_vx_string_vector_add_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer);
 

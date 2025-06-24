@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 
 use bitvec::slice::BitSlice;
 
@@ -39,6 +39,18 @@ impl Vector {
                 sel_vec_length as _,
             )
         }
+    }
+
+    pub fn set_dictionary_id(&mut self, dict_id: String) {
+        let dict_id = CString::new(dict_id).expect("CString::new failed");
+        unsafe {
+            cpp::duckdb_vx_set_dictionary_vector_id(
+                self.ptr,
+                dict_id.as_ptr(),
+                dict_id.as_bytes().len().try_into().unwrap(),
+            )
+        }
+        std::mem::forget(dict_id);
     }
 
     pub fn to_sequence(&mut self, start: i64, stop: i64, capacity: u64) {
