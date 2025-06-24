@@ -1,4 +1,5 @@
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::compute::{CastOutcome, allowed_casting};
 use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
@@ -10,6 +11,11 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
     if !target.is_int() || !array.dtype().is_int() {
         return Ok(None);
     }
+    // TODO(joe): handle fallible casts.
+    if allowed_casting(array.dtype(), target) != Some(CastOutcome::Infallible) {
+        return Ok(None);
+    }
+
     Ok(Some(match_each_integer_ptype!(
         array.dtype().as_ptype(),
         |In| {
