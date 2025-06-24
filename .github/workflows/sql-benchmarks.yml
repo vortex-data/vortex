@@ -41,10 +41,11 @@ jobs:
       - family=c6id.8xlarge
       - image=ubuntu24-full-x64
       - spot=false
+      - extras=s3-cache
       - tag=${{ matrix.id }}
 
     steps:
-      - uses: runs-on/action@v1
+      - uses: runs-on/action@v2
       - uses: actions/checkout@v4
         if: inputs.mode == 'pr'
         with:

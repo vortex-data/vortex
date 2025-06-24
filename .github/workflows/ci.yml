@@ -130,6 +130,7 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
+      - extras=s3-cache
       - tag=rust-docs
     steps:
       - uses: actions/checkout@v4
@@ -150,8 +151,8 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
+      - extras=s3-cache
       - tag=${{ matrix.config.name }}
-
     env:
       # disable lints for build, they will be caught in Rust lint job.
       RUSTFLAGS: '-A warnings'
@@ -181,7 +182,7 @@ jobs:
               rustflags: 'RUSTFLAGS="-A warnings --cfg getrandom_backend=\"wasm_js\""'
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
     steps:
-      - uses: runs-on/action@v1
+      - uses: runs-on/action@v2
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
@@ -203,9 +204,10 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
+      - extras=s3-cache
       - tag=rust-min-deps
     steps:
-      - uses: runs-on/action@v1
+      - uses: runs-on/action@v2
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
@@ -223,9 +225,10 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - image=ubuntu24-full-x64
+      - extras=s3-cache
       - tag=rust-lint
     steps:
-      - uses: runs-on/action@v1
+      - uses: runs-on/action@v2
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
@@ -247,9 +250,10 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - image=ubuntu24-full-x64
+      - extras=s3-cache
       - tag=rust-lint
     steps:
-      - uses: runs-on/action@v1
+      - uses: runs-on/action@v2
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
@@ -270,6 +274,7 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
+      - extras=s3-cache
       - tag=rust-test
     steps:
       # Disable lints when running tests. They will be caught by the Rust lint job.
@@ -347,11 +352,11 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
-      - spot=false
+      - extras=s3-cache
       - image=ubuntu24-full-x64
 
     steps:
-      - uses: runs-on/action@v1
+      - uses: runs-on/action@v2
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"

@@ -39,6 +39,7 @@ jobs:
       - family=c6id.8xlarge
       - image=ubuntu24-full-x64
       - spot=false
+      - extras=s3-cache
       - tag=${{ matrix.benchmark.id }}
     strategy:
       matrix:
@@ -48,7 +49,7 @@ jobs:
           - id: compress
             name: Compression
     steps:
-      - uses: runs-on/action@v1
+      - uses: runs-on/action@v2
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"

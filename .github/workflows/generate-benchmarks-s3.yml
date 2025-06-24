@@ -22,6 +22,7 @@ jobs:
       - family=m7i.2xlarge
       - image=ubuntu24-full-x64
       - disk=large
+      - extras=s3-cache
     steps:
       - uses: actions/checkout@v4
         with:
