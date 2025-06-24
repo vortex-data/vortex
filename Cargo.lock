@@ -6055,7 +6055,6 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.3",
  "goldenfile",
- "hashbrown 0.15.4",
  "humansize",
  "inventory",
  "itertools 0.14.0",
@@ -6253,7 +6252,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "vortex",
- "vortex-file",
  "walkdir",
  "zip",
 ]
@@ -6270,7 +6268,6 @@ dependencies = [
  "prost",
  "pyo3",
  "serde_json",
- "thiserror 2.0.12",
  "tokio",
  "url",
  "worker",
