@@ -11,6 +11,7 @@ mod extension;
 mod list;
 mod null;
 mod primitive;
+mod primitive2;
 mod struct_;
 mod varbin;
 mod varbinview;
