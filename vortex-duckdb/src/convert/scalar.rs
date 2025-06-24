@@ -260,7 +260,7 @@ impl TryFrom<Value> for Scalar {
                 Ok(Scalar::utf8(str, Nullable))
             }
             DUCKDB_TYPE::DUCKDB_TYPE_BLOB => Ok(Scalar::binary(
-                ByteBuffer::copy_from(value.as_string().to_str()?),
+                ByteBuffer::copy_from(value.as_string()),
                 Nullable,
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => Ok(Scalar::extension(
