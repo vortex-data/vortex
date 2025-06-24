@@ -46,6 +46,8 @@ jobs:
 
     steps:
       - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         if: inputs.mode == 'pr'
         with:

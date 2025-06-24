@@ -134,6 +134,8 @@ jobs:
       - tag=rust-docs
     steps:
       - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
@@ -184,6 +186,8 @@ jobs:
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
     steps:
       - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
@@ -209,6 +213,8 @@ jobs:
       - tag=rust-min-deps
     steps:
       - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
@@ -230,6 +236,8 @@ jobs:
       - tag=rust-lint
     steps:
       - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
@@ -255,6 +263,8 @@ jobs:
       - tag=rust-lint
     steps:
       - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
@@ -358,6 +368,8 @@ jobs:
 
     steps:
       - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
