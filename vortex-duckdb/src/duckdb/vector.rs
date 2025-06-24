@@ -1,6 +1,8 @@
 use std::ffi::{CStr, CString};
 
+use bitvec::macros::internal::funty::Fundamental;
 use bitvec::slice::BitSlice;
+use vortex::error::{VortexUnwrap, vortex_err};
 
 use crate::duckdb::data::Data;
 use crate::duckdb::{LogicalType, SelectionVector, Value};
@@ -42,15 +44,16 @@ impl Vector {
     }
 
     pub fn set_dictionary_id(&mut self, dict_id: String) {
-        let dict_id = CString::new(dict_id).expect("CString::new failed");
+        let dict_id = CString::new(dict_id)
+            .map_err(|e| vortex_err!("cstr creation error {e}"))
+            .vortex_unwrap();
         unsafe {
             cpp::duckdb_vx_set_dictionary_vector_id(
                 self.ptr,
                 dict_id.as_ptr(),
-                dict_id.as_bytes().len().try_into().unwrap(),
+                dict_id.as_bytes().len().as_u32(),
             )
         }
-        std::mem::forget(dict_id);
     }
 
     pub fn to_sequence(&mut self, start: i64, stop: i64, capacity: u64) {
