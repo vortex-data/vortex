@@ -12,9 +12,8 @@ wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 
 impl Vector {
     /// Create a new vector with the given type and capacity.
-    /// Takes logical_type by ownership.
     pub fn with_capacity(logical_type: LogicalType, len: usize) -> Self {
-        unsafe { Self::own(cpp::duckdb_create_vector(logical_type.into_ptr(), len as _)) }
+        unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), len as _)) }
     }
 
     /// Converts the vector to a constant value.
