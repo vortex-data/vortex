@@ -17,7 +17,10 @@ impl TakeKernel for VarBinVTable {
         match_each_integer_ptype!(offsets.ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 Ok(take(
-                    array.dtype().clone(),
+                    array
+                        .dtype()
+                        .clone()
+                        .union_nullability(indices.dtype().nullability()),
                     offsets.as_slice::<O>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
