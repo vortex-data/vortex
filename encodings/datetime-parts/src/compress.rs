@@ -20,9 +20,8 @@ pub struct TemporalParts {
 /// cascading compression.
 pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     let temporal_values = array.temporal_values().to_primitive()?;
-    let validity = temporal_values.validity().clone();
 
-    // After this operation, timestamps will be non-nullable PrimitiveArray<i64>
+    // After this operation, timestamps will be a PrimitiveArray<i64>
     let timestamps = cast(
         temporal_values.as_ref(),
         &DType::Primitive(PType::I64, temporal_values.dtype().nullability()),
@@ -34,7 +33,7 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     let mut seconds = BufferMut::with_capacity(length);
     let mut subseconds = BufferMut::with_capacity(length);
 
-    for &ts in timestamps.as_slice::<i64>().iter() {
+    for &ts in timestamps.as_slice::<i64>() {
         let ts_parts = timestamp::split(ts, array.temporal_metadata().time_unit())?;
         days.push(ts_parts.days);
         seconds.push(ts_parts.seconds);
@@ -42,7 +41,7 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     }
 
     Ok(TemporalParts {
-        days: PrimitiveArray::new(days, validity).into_array(),
+        days: PrimitiveArray::new(days, temporal_values.validity().clone()).into_array(),
         seconds: seconds.into_array(),
         subseconds: subseconds.into_array(),
     })

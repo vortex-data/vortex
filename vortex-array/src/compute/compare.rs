@@ -175,9 +175,9 @@ impl ComputeFnVTable for Compare {
         if !(lhs.is_arrow() && (rhs.is_arrow() || right_is_constant)) {
             log::debug!(
                 "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
-                rhs.encoding_id(),
                 lhs.encoding_id(),
-                operator.swap(),
+                rhs.encoding_id(),
+                operator,
             );
         }
 
@@ -206,7 +206,7 @@ impl ComputeFnVTable for Compare {
         }
 
         Ok(DType::Bool(
-            (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into(),
+            lhs.dtype().nullability() | rhs.dtype().nullability(),
         ))
     }
 
@@ -314,10 +314,7 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
             Operator::Lte => lhs <= rhs,
         };
 
-        Scalar::bool(
-            b,
-            (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into(),
-        )
+        Scalar::bool(b, lhs.dtype().nullability() | rhs.dtype().nullability())
     }
 }
 
