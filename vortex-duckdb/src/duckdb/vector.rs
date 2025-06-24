@@ -35,7 +35,7 @@ impl Vector {
         unsafe {
             cpp::duckdb_vx_vector_slice_to_dictionary(
                 self.as_ptr(),
-                sel_vec.into_ptr(),
+                sel_vec.as_ptr(),
                 sel_vec_length as _,
             )
         }

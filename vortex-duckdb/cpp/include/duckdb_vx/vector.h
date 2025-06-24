@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-/// Slice to a dictionary vector, takes ownership of selection vector.
+/// Slice to a dictionary vector.
 void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector, duckdb_selection_vector selection_vector,
                                           idx_t selection_vector_length);
 
