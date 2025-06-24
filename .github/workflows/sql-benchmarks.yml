@@ -58,6 +58,7 @@ jobs:
         if: inputs.mode != 'pr'
         with:
           submodules: "recursive"
+      - uses: ./.github/actions/setup-rust
 
       - name: Install DuckDB
         run: |

@@ -71,7 +71,6 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.11.0
@@ -191,7 +190,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-c++
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
@@ -218,7 +217,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-c++
       - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-minimal-versions
@@ -241,7 +240,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
       - name: Rust Lint - Format
         run: cargo fmt --all --check
       - name: Rustc check
@@ -268,7 +267,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features
@@ -307,7 +306,7 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-c++
       - name: Install grcov
         if: github.ref == 'refs/heads/develop'
@@ -373,7 +372,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      # rustup is pre-installed on the ubuntu24-full-x64 image.
+      - uses: ./.github/actions/setup-rust
 
       - name: Install Codspeed
         shell: bash
@@ -425,7 +424,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
         with:
@@ -445,7 +443,6 @@ jobs:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-backtrace=full -Zmiri-disable-isolation
       RUSTFLAGS: "-A warnings"
     steps:
-      - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
@@ -469,7 +466,6 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-flatc
       - name: Install Protoc
