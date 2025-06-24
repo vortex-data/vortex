@@ -539,7 +539,7 @@ dependencies = [
  "uuid",
  "vortex",
  "vortex-datafusion",
- "vortex-duckdb-ext",
+ "vortex-duckdb",
  "xshell",
 ]
 
@@ -6236,7 +6236,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-duckdb-ext"
+name = "vortex-duckdb"
 version = "0.1.0"
 dependencies = [
  "anyhow",

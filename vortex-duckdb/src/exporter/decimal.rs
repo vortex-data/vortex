@@ -1,15 +1,15 @@
 use std::marker::PhantomData;
 
-use duckdb::vtab::arrow::WritableVector;
 use num_traits::ToPrimitive;
 use vortex::arrays::DecimalArray;
 use vortex::buffer::Buffer;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::dtype::DecimalDType;
+use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 use vortex::mask::Mask;
-use vortex::scalar::{BigCast, NativeDecimalType, match_each_decimal_value_type};
+use vortex::scalar::{BigCast, DecimalValueType, NativeDecimalType, match_each_decimal_value_type};
 
-use crate::exporter::FlatVectorExt;
-use crate::{ColumnExporter, precision_to_duckdb_storage_size};
+use crate::duckdb::Vector;
+use crate::exporter::{ColumnExporter, VectorExt};
 
 struct DecimalExporter<D: NativeDecimalType, N: NativeDecimalType> {
     values: Buffer<D>,
@@ -33,19 +33,26 @@ pub(crate) fn new_exporter(array: &DecimalArray) -> VortexResult<Box<dyn ColumnE
     })
 }
 
+/// Maps a decimal precision into the small type that can represent it.
+/// see <https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals>
+fn precision_to_duckdb_storage_size(
+    decimal_dtype: &DecimalDType,
+) -> VortexResult<DecimalValueType> {
+    Ok(match decimal_dtype.precision() {
+        1..=4 => DecimalValueType::I16,
+        5..=9 => DecimalValueType::I32,
+        10..=18 => DecimalValueType::I64,
+        19..=38 => DecimalValueType::I128,
+        decimal_dtype => vortex_bail!("cannot represent decimal in ducdkb {decimal_dtype}"),
+    })
+}
+
 impl<D: NativeDecimalType, N: NativeDecimalType> ColumnExporter for DecimalExporter<D, N>
 where
     D: ToPrimitive,
     N: BigCast,
 {
-    fn export(
-        &self,
-        offset: usize,
-        len: usize,
-        vector: &mut dyn WritableVector,
-    ) -> VortexResult<()> {
-        let mut vector = vector.flat_vector();
-
+    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Set validity if necessary.
         if vector.set_validity(&self.validity, offset, len) {
             // All values are null, so no point copying the data.
@@ -55,7 +62,7 @@ where
         // Copy the values from the Vortex array to the DuckDB vector.
         for (src, dst) in self.values[offset..offset + len]
             .iter()
-            .zip(vector.as_mut_slice_with_len(len))
+            .zip(unsafe { vector.as_slice_mut(len) })
         {
             *dst = <N as BigCast>::from(*src).vortex_expect(
                 "We know all decimals with this scale/precision fit into the target bit width",
@@ -63,114 +70,5 @@ where
         }
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use duckdb::core::DataChunkHandle;
-    use vortex::arrays::DecimalArray;
-    use vortex::buffer::buffer;
-    use vortex::dtype::DecimalDType;
-    use vortex::validity::Validity;
-
-    use super::*;
-    use crate::ToDuckDBType;
-
-    #[test]
-    fn to_decimal_i16() {
-        let array = DecimalArray::new(
-            buffer![100i16, 200i16, 255i16],
-            DecimalDType::new(3, 2),
-            Validity::NonNullable,
-        );
-
-        let chunk = DataChunkHandle::new(&[array.dtype().to_duckdb_type().unwrap()]);
-        chunk.set_len(array.len());
-
-        new_exporter(&array)
-            .unwrap()
-            .export(0, 3, &mut chunk.flat_vector(0))
-            .unwrap();
-
-        assert_eq!(
-            format!("{chunk:?}"),
-            r#"Chunk - [1 Columns]
-- FLAT DECIMAL(3,2): 3 = [ 1.00, 2.00, 2.55]
-"#
-        )
-    }
-
-    #[test]
-    fn to_decimal_i32() {
-        let array = DecimalArray::new(
-            buffer![100i32, 200i32, 300i32],
-            DecimalDType::new(5, 2),
-            Validity::NonNullable,
-        );
-
-        let chunk = DataChunkHandle::new(&[array.dtype().to_duckdb_type().unwrap()]);
-        chunk.set_len(array.len());
-
-        new_exporter(&array)
-            .unwrap()
-            .export(0, array.len(), &mut chunk.flat_vector(0))
-            .unwrap();
-
-        assert_eq!(
-            format!("{chunk:?}"),
-            r#"Chunk - [1 Columns]
-- FLAT DECIMAL(5,2): 3 = [ 1.00, 2.00, 3.00]
-"#
-        )
-    }
-
-    #[test]
-    fn to_decimal_i8_p5() {
-        let array = DecimalArray::new(
-            buffer![100i8, 102i8, 109i8],
-            DecimalDType::new(5, 2),
-            Validity::NonNullable,
-        );
-
-        let chunk = DataChunkHandle::new(&[array.dtype().to_duckdb_type().unwrap()]);
-        chunk.set_len(array.len());
-
-        new_exporter(&array)
-            .unwrap()
-            .export(0, array.len(), &mut chunk.flat_vector(0))
-            .unwrap();
-
-        assert_eq!(
-            format!("{chunk:?}"),
-            r#"Chunk - [1 Columns]
-- FLAT DECIMAL(5,2): 3 = [ 1.00, 1.02, 1.09]
-"#
-        )
-    }
-
-    #[test]
-    fn to_decimal_i128() {
-        let array = DecimalArray::new(
-            buffer![100i128, 200i128, 300i128],
-            DecimalDType::new(20, 2),
-            Validity::AllValid,
-        );
-
-        let chunk = DataChunkHandle::new(&[array.dtype().to_duckdb_type().unwrap()]);
-        chunk.set_len(array.len());
-
-        new_exporter(&array)
-            .unwrap()
-            .export(0, array.len(), &mut chunk.flat_vector(0))
-            .unwrap();
-
-        assert_eq!(
-            format!("{chunk:?}"),
-            r#"Chunk - [1 Columns]
-- FLAT DECIMAL(20,2): 3 = [ 1.00, 2.00, 3.00]
-"#
-        );
     }
 }

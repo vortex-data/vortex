@@ -1,7 +1,6 @@
-mod array;
+mod dtype;
+mod expr;
 mod scalar;
-mod types;
 
-pub use array::*;
+pub use expr::{try_from_bound_expression, try_from_table_filter};
 pub use scalar::*;
-pub use types::*;

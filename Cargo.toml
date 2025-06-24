@@ -9,7 +9,7 @@ members = [
     "vortex-buffer",
     "vortex-datafusion",
     "vortex-dtype",
-    "vortex-duckdb-ext",
+    "vortex-duckdb",
     "vortex-error",
     "vortex-expr",
     "vortex-ffi",
@@ -209,7 +209,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 # END crates published by this project
 
 # No version contraints for unpublished crates.
-vortex-duckdb-ext = { path = "./vortex-duckdb-ext", default-features = false }
+vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
 
 worker = "0.5.0"
