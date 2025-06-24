@@ -55,7 +55,7 @@ pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<Opt
 fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
     match value.as_class().vortex_expect("unknown class") {
         ExpressionClass::BoundConstant(constant) => {
-            Ok(Some(format!("%{}%", constant.value.as_string().to_str()?)))
+            Ok(Some(format!("%{}%", constant.value.as_string())))
         }
         _ => Ok(None),
     }

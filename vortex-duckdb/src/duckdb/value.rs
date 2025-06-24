@@ -71,8 +71,14 @@ impl Value {
         unsafe { Self::own(cpp::duckdb_create_date(cpp::duckdb_date { days })) }
     }
 
-    pub fn as_string(&self) -> &CStr {
-        unsafe { CStr::from_ptr(cpp::duckdb_get_varchar(self.as_ptr())) }
+    pub fn as_string(&self) -> String {
+        unsafe {
+            let ptr = cpp::duckdb_get_varchar(self.as_ptr());
+            let cstr = CStr::from_ptr(ptr);
+            let result = cstr.to_string_lossy().into_owned();
+            cpp::duckdb_free(ptr.cast());
+            result
+        }
     }
 
     pub fn as_u8(&self) -> u8 {
