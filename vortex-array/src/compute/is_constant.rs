@@ -72,8 +72,7 @@ impl ComputeFnVTable for IsConstant {
 
         let value = is_constant_impl(array, options, kernels)?;
 
-        // TODO(joe): add is_constant for ListArray
-        if options.cost == Cost::Canonicalize && !array.is::<ListVTable>() {
+        if options.cost == Cost::Canonicalize {
             // When we run linear canonicalize, there we must always return an exact answer.
             assert!(
                 value.is_some(),
