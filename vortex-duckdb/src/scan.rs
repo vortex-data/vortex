@@ -170,7 +170,7 @@ impl TableFunction for VortexTableFunction {
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
-        let paths = match glob::glob(file_glob_string.as_string().to_str()?) {
+        let paths = match glob::glob(&file_glob_string.as_string()) {
             Ok(paths) => paths,
             Err(e) => vortex_bail!("Failed to glob files: {}", e),
         };
