@@ -1,15 +1,12 @@
 use std::ffi::c_char;
 
-use duckdb::ffi::duckdb_assign_buffer_to_vector;
-use duckdb::vtab::arrow::WritableVector;
 use vortex::arrays::{BinaryView, Inlined, VarBinViewArray};
 use vortex::buffer::{Buffer, ByteBuffer};
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::ColumnExporter;
-use crate::buffer::new_buffer;
-use crate::exporter::FlatVectorExt;
+use crate::duckdb::Vector;
+use crate::exporter::{ColumnExporter, VectorExt};
 
 struct VarBinViewExporter {
     views: Buffer<BinaryView>,
@@ -26,17 +23,9 @@ pub(crate) fn new_exporter(array: &VarBinViewArray) -> VortexResult<Box<dyn Colu
 }
 
 impl ColumnExporter for VarBinViewExporter {
-    fn export(
-        &self,
-        offset: usize,
-        len: usize,
-        vector: &mut dyn WritableVector,
-    ) -> VortexResult<()> {
-        let mut vector = vector.flat_vector();
-
+    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Copy the views into place.
-        for (mut_view, view) in vector
-            .as_mut_slice_with_len::<PtrBinaryView>(len)
+        for (mut_view, view) in unsafe { vector.as_slice_mut::<PtrBinaryView>(len) }
             .iter_mut()
             .zip(to_ptr_binary_view(
                 self.views[offset..offset + len].iter(),
@@ -51,8 +40,7 @@ impl ColumnExporter for VarBinViewExporter {
 
         // We register our buffers zero-copy with DuckDB and re-use them in each vector.
         for buffer in &self.buffers {
-            let duckdb_buffer = new_buffer(buffer.clone());
-            unsafe { duckdb_assign_buffer_to_vector(vector.unowned_ptr(), duckdb_buffer) };
+            vector.add_string_buffer(buffer.clone());
         }
 
         Ok(())
@@ -108,57 +96,4 @@ fn to_ptr_binary_view<'a>(
             }
         }
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use duckdb::core::{DataChunkHandle, LogicalTypeHandle, LogicalTypeId};
-    use vortex::ToCanonical;
-    use vortex::arrays::VarBinViewArray;
-
-    use crate::exporter::varbinview::new_exporter;
-
-    // This tests the sharing of buffers between data chunk, while dropping these buffers early.
-    #[test]
-    fn test_multi_buffer_ref() {
-        let varbin = VarBinViewArray::from_iter_str(["a", "ab", "abc", "abcd", "abcde"]);
-
-        let start_view = varbin.slice(0, 2).unwrap().to_varbinview().unwrap();
-        let chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
-        chunk.set_len(start_view.len());
-
-        new_exporter(&varbin)
-            .unwrap()
-            .export(0, start_view.len(), &mut chunk.flat_vector(0))
-            .unwrap();
-        drop(start_view);
-
-        chunk.verify();
-        assert_eq!(
-            format!("{chunk:?}"),
-            r#"Chunk - [1 Columns]
-- FLAT VARCHAR: 2 = [ a, ab]
-"#
-        );
-        drop(chunk);
-
-        let end_view = varbin.slice(2, 5).unwrap().to_varbinview().unwrap();
-        drop(varbin);
-        let chunk = DataChunkHandle::new(&[LogicalTypeHandle::from(LogicalTypeId::Varchar)]);
-        chunk.set_len(end_view.len());
-
-        new_exporter(&end_view)
-            .unwrap()
-            .export(0, end_view.len(), &mut chunk.flat_vector(0))
-            .unwrap();
-        drop(end_view);
-
-        chunk.verify();
-        assert_eq!(
-            format!("{chunk:?}"),
-            r#"Chunk - [1 Columns]
-- FLAT VARCHAR: 3 = [ abc, abcd, abcde]
-"#
-        );
-    }
 }

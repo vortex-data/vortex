@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use log::trace;
 use url::Url;
-use vortex_duckdb_ext::duckdb::{Connection, Database};
+use vortex_duckdb::duckdb::{Connection, Database};
 
 use crate::{BenchmarkDataset, Format};
 
@@ -34,7 +34,7 @@ impl DuckDBCtx {
     pub fn new() -> Result<Self> {
         let db = Database::open_in_memory()?;
         let connection = db.connect()?;
-        vortex_duckdb_ext::init(&connection)?;
+        vortex_duckdb::init(&connection)?;
         Ok(Self { db, connection })
     }
 

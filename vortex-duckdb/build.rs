@@ -128,7 +128,7 @@ fn main() {
         .file("cpp/table_filter.cpp")
         .file("cpp/table_function.cpp")
         .file("cpp/vector.cpp")
-        .compile("vortex-duckdb-ext-extras");
+        .compile("vortex-duckdb-extras");
 
     // Generate the _exported_ bindings from our Rust code.
     cbindgen::Builder::new()

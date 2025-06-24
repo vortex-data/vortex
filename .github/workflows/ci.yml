@@ -179,7 +179,7 @@ jobs:
             target: wasm32-unknown-unknown
             env:
               rustflags: 'RUSTFLAGS="-A warnings --cfg getrandom_backend=\"wasm_js\""'
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb-ext --exclude vortex-tui --exclude vortex-zstd"
+            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
     steps:
       - uses: runs-on/action@v1
       - uses: actions/checkout@v4
@@ -368,7 +368,7 @@ jobs:
           cargo codspeed build --features test-harness \
             --exclude bench-vortex \
             --exclude vortex-datafusion \
-            --exclude vortex-duckdb-ext \
+            --exclude vortex-duckdb \
             --exclude vortex-fuzz \
             --exclude vortex-python \
             --exclude vortex-tui \

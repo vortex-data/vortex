@@ -12,7 +12,7 @@ use std::path::PathBuf;
 /// Using an absolute rpath implies that binaries linking against the dynamic
 /// DuckDB library are never published.
 ///
-/// Note that the rpath set in vortex-duckdb-ext's build.rs is not inherited by
+/// Note that the rpath set in vortex-duckdb's build.rs is not inherited by
 /// crates linking against it which is why consumers must set a rpath on their end.
 ///
 /// The dynamic DuckDB library is preferred over the static version, as DuckDB's
