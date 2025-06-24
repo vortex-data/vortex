@@ -89,7 +89,7 @@ impl VortexFile {
     }
 
     /// Returns true if the expression will never match any rows in the file.
-    pub fn can_prune(&self, filter: &ExprRef, file_idx: u64) -> VortexResult<bool> {
+    pub fn can_prune(&self, filter: &ExprRef) -> VortexResult<bool> {
         let Some((stats, fields)) = self
             .footer
             .statistics()
@@ -130,14 +130,12 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let scope =
-            Scope::new(file_stats).with_array_pair(RowIdLayoutReader::row_id_stats_set_scope(
-                &Range {
-                    start: 0,
-                    end: self.row_count(),
-                },
-                file_idx,
-            ));
+        let scope = Scope::new(file_stats).with_array_pair(
+            RowIdLayoutReader::row_id_stats_set_scope(&Range {
+                start: 0,
+                end: self.row_count(),
+            }),
+        );
 
         Ok(predicate
             .evaluate(&scope)?

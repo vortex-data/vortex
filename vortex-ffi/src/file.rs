@@ -250,7 +250,7 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
             .map(|expr| replace_file_idx(file_idx, expr))
             .transpose()?;
         Ok(filter_expr
-            .map(|expr| file.can_prune(&expr, file_idx))
+            .map(|expr| file.can_prune(&expr))
             .transpose()?
             .unwrap_or(false))
     })
