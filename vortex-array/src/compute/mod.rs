@@ -113,10 +113,15 @@ impl ComputeFn {
 
         if output.dtype() != &expected_dtype {
             vortex_bail!(
-                "Internal error: compute function {} returned a result of type {} but expected {}",
+                "Internal error: compute function {} returned a result of type {} but expected {}\n{}",
                 self.id,
                 output.dtype(),
                 &expected_dtype,
+                args.inputs
+                    .iter()
+                    .filter_map(|input| input.array())
+                    .map(|array| array.tree_display())
+                    .join(",")
             );
         }
         if output.len() != expected_len {

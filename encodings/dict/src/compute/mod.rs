@@ -43,8 +43,9 @@ mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
     use vortex_array::compute::conformance::mask::test_mask;
-    use vortex_array::compute::{Operator, compare};
+    use vortex_array::compute::{Operator, compare, take};
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
@@ -188,5 +189,20 @@ mod test {
         )
         .unwrap();
         test_mask(array.as_ref());
+    }
+
+    #[test]
+    fn test_take_dict() {
+        let array = dict_encode(PrimitiveArray::from_iter([1, 2]).as_ref()).unwrap();
+
+        assert_eq!(
+            take(
+                array.as_ref(),
+                PrimitiveArray::from_option_iter([Option::<i32>::None]).as_ref()
+            )
+            .unwrap()
+            .dtype(),
+            &DType::Primitive(I32, Nullability::Nullable)
+        );
     }
 }
