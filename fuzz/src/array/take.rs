@@ -6,7 +6,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::VortexResult;
 use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
 
 pub fn take_canonical_array_non_nullable_indices(
@@ -90,7 +90,7 @@ pub fn take_canonical_array(
             Ok(VarBinViewArray::from_iter(
                 indices
                     .iter()
-                    .map(|i| i.map(|idx| values[idx].clone().vortex_expect("idx in values"))),
+                    .map(|i| i.and_then(|idx| values[idx].clone())),
                 array.dtype().clone().union_nullability(nullable),
             )
             .into_array())
