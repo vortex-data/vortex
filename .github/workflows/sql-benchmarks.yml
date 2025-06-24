@@ -43,7 +43,6 @@ jobs:
       - spot=false
       - extras=s3-cache
       - tag=${{ matrix.id }}
-
     steps:
       - uses: runs-on/action@v2
         with:
@@ -66,13 +65,6 @@ jobs:
           wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.3.0/duckdb_cli-linux-amd64.zip | funzip > duckdb
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
-
-      - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
-          aws-region: us-east-1
-
       - name: Build binary
         shell: bash
         env:
@@ -92,6 +84,12 @@ jobs:
           target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json
           target/release_debug/${{ matrix.binary_name }} --targets datafusion:vortex -i1 -d gh-json
           target/release_debug/${{ matrix.binary_name }} --targets duckdb:vortex -i1 -d gh-json
+
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          aws-region: us-east-1
 
       - name: Upload data
         if: matrix.remote_storage != null

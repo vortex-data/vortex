@@ -24,6 +24,7 @@ jobs:
       - disk=large
       - extras=s3-cache
     steps:
+      - uses: runs-on/action@v2
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
