@@ -7,7 +7,7 @@ mod like;
 mod min_max;
 
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
+    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, cast, filter, take,
 };
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
@@ -17,8 +17,13 @@ use crate::{DictArray, DictVTable};
 
 impl TakeKernel for DictVTable {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+        // TODO(joe): can we remove the cast and allow dict arrays to have nullable codes and values
         let codes = take(array.codes(), indices)?;
-        DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())
+        let values_dtype = array
+            .values()
+            .dtype()
+            .union_nullability(codes.dtype().nullability());
+        DictArray::try_new(codes, cast(array.values(), &values_dtype)?).map(|a| a.into_array())
     }
 }
 

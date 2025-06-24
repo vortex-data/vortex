@@ -52,7 +52,13 @@ impl CompareKernel for VarBinVTable {
                 };
 
                 return Ok(Some(
-                    BoolArray::new(buffer, lhs.validity().clone()).into_array(),
+                    BoolArray::new(
+                        buffer,
+                        lhs.validity()
+                            .clone()
+                            .union_nullability(rhs.dtype().nullability()),
+                    )
+                    .into_array(),
                 ));
             }
 
