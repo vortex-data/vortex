@@ -133,6 +133,7 @@ jobs:
       - extras=s3-cache
       - tag=rust-docs
     steps:
+      - uses: runs-on/action@v2
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
