@@ -7,7 +7,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::arrays::{ConstantVTable, ListVTable, NullVTable};
+use crate::arrays::{ConstantVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;

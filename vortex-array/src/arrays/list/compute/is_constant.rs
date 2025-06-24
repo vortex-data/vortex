@@ -75,27 +75,27 @@ mod tests {
     #[rstest]
     #[case(
         // [1,2], [1, 2], [1, 2]
-        vec![1i32, 2, 1, 2, 1, 2], 
-        vec![0u32, 2, 4, 6],        
-        true                        
+        vec![1i32, 2, 1, 2, 1, 2],
+        vec![0u32, 2, 4, 6],
+        true
     )]
     #[case(
         // [1, 2], [3], [4, 5]
-        vec![1i32, 2, 3, 4, 5],     
-        vec![0u32, 2, 3, 5],        
-        false                       
+        vec![1i32, 2, 3, 4, 5],
+        vec![0u32, 2, 3, 5],
+        false
     )]
     #[case(
         // [1, 2], [3, 4]
-        vec![1i32, 2, 3, 4],        
-        vec![0u32, 2, 4],           
-        false                       
+        vec![1i32, 2, 3, 4],
+        vec![0u32, 2, 4],
+        false
     )]
     #[case(
         // [], [], []
-        vec![],                     
-        vec![0u32, 0, 0, 0],        
-        true                        
+        vec![],
+        vec![0u32, 0, 0, 0],
+        true
     )]
     fn test_list_is_constant(
         #[case] elements: Vec<i32>,
