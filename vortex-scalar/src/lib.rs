@@ -36,7 +36,7 @@ pub use pvalue::*;
 pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].
 ///
@@ -182,8 +182,7 @@ impl Scalar {
     /// Create a "default" scalar value for the given data type.
     pub fn default_value(dtype: DType) -> Self {
         if dtype.is_nullable() {
-            // We need to decide if we want to return "None" or "0"
-            vortex_panic!("default for nullable dtype {dtype} is not implemented");
+            return Self::null(dtype);
         }
 
         match dtype {
@@ -599,7 +598,7 @@ mod test {
     }
 
     #[test]
-    fn zero_for_complex_dtype() {
+    fn default_value_for_complex_dtype() {
         let struct_dtype = DType::struct_(
             [
                 ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
@@ -610,6 +609,7 @@ mod test {
                         Nullability::NonNullable,
                     ),
                 ),
+                ("c", DType::Primitive(PType::I32, Nullability::Nullable)),
             ],
             Nullability::NonNullable,
         );
@@ -623,6 +623,9 @@ mod test {
         assert_eq!(a_field.as_primitive().pvalue().unwrap(), PValue::I32(0));
 
         let b_field = scalar.field("b").unwrap();
-        assert!(b_field.as_list().is_empty())
+        assert!(b_field.as_list().is_empty());
+
+        let c_field = scalar.field("c").unwrap();
+        assert!(c_field.is_null());
     }
 }
