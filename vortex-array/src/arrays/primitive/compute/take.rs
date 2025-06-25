@@ -7,7 +7,7 @@ use vortex_dtype::{
     NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
     match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
 };
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_panic};
 
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
@@ -77,6 +77,11 @@ fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
 /// # Returns
 /// A `PrimitiveArray` containing the gathered values where each index has been replaced with
 /// the corresponding value from the source array.
+///
+/// # Panics
+///
+/// This function does bounds checking on the indices, if any are out of bounds for `values` we
+/// will panic.
 fn take_primitive_simd<I, V, const LANE_COUNT: usize>(
     indices: &[I],
     values: &[V],
@@ -89,6 +94,17 @@ where
     simd::Simd<I, LANE_COUNT>: SimdUint<Cast<usize> = simd::Simd<usize, LANE_COUNT>>,
 {
     let indices_len = indices.len();
+    // Check all indices before gathering.
+    for &idx in indices.iter() {
+        let idx: usize = idx.as_();
+        if idx >= values.len() {
+            vortex_panic!(
+                "cannot take with index {} on array of length {}",
+                idx,
+                values.len()
+            );
+        }
+    }
 
     let mut buffer = BufferMut::<V>::with_capacity_aligned(
         indices_len,
@@ -102,6 +118,8 @@ where
         let mask = simd::Mask::from_bitmask(u64::MAX);
         let codes_chunk = simd::Simd::<I, LANE_COUNT>::from_slice(&indices[offset..]);
 
+        // SAFETY: we have verified that all indices are in-bounds, so gather will not
+        // read invalid memory.
         unsafe {
             let selection = simd::Simd::gather_select_unchecked(
                 values,
