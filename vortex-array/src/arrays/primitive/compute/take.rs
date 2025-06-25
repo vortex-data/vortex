@@ -7,7 +7,7 @@ use vortex_dtype::{
     NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
     match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
 };
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
@@ -28,13 +28,30 @@ impl TakeKernel for PrimitiveVTable {
             // TODO(alex): handle nullable codes & values
             match_each_unsigned_integer_ptype!(indices.ptype(), |C| {
                 match_each_native_simd_ptype!(array.ptype(), |V| {
+                    // Check Indices in-bounds
+                    let max: usize = indices
+                        .statistics()
+                        .compute_max::<C>()
+                        .vortex_expect("all_valid indices must have max")
+                        .as_();
+                    if max >= array.len() {
+                        vortex_bail!(
+                            "take indices with max={} invalid for array of length {}",
+                            max,
+                            array.len()
+                        );
+                    }
+
                     // SIMD types larger than the SIMD register size are beneficial for
                     // performance as this leads to better instruction level parallelism.
-                    let decoded = take_primitive_simd::<C, V, 64>(
-                        indices.as_slice(),
-                        array.as_slice(),
-                        array.dtype().nullability() | indices.dtype().nullability(),
-                    );
+                    // SAFETY: we have checked all indices to be in-bounds above.
+                    let decoded = unsafe {
+                        take_primitive_simd::<C, V, 64>(
+                            indices.as_slice(),
+                            array.as_slice(),
+                            array.dtype().nullability() | indices.dtype().nullability(),
+                        )
+                    };
 
                     return Ok(decoded.into_array()) as VortexResult<ArrayRef>;
                 })
@@ -78,11 +95,11 @@ fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
 /// A `PrimitiveArray` containing the gathered values where each index has been replaced with
 /// the corresponding value from the source array.
 ///
-/// # Panics
+/// # Safety
 ///
-/// This function does bounds checking on the indices, if any are out of bounds for `values` we
-/// will panic.
-fn take_primitive_simd<I, V, const LANE_COUNT: usize>(
+/// This function circumvents bounds checks when accessing the `values` slice, so all `indices`
+/// must be valid or it will result in out of bounds memory access.
+unsafe fn take_primitive_simd<I, V, const LANE_COUNT: usize>(
     indices: &[I],
     values: &[V],
     nullability: Nullability,
