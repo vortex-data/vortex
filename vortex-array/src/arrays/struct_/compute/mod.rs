@@ -31,7 +31,7 @@ impl TakeKernel for StructVTable {
             .map(StructArray::into_array);
         }
         // The validity is applied to the struct validity,
-        let indices = &fill_null(
+        let inner_indices = &fill_null(
             indices,
             &Scalar::default_value(indices.dtype().with_nullability(NonNullable)),
         )?;
@@ -39,7 +39,7 @@ impl TakeKernel for StructVTable {
             array
                 .fields()
                 .iter()
-                .map(|field| take(field, indices))
+                .map(|field| take(field, inner_indices))
                 .try_collect()?,
             array.struct_fields().clone(),
             indices.len(),
