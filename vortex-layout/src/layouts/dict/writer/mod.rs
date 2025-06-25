@@ -93,14 +93,18 @@ impl LayoutStrategy for DictStrategy {
         let executor = self.executor.clone();
         Box::pin(async move {
             // 0. decide if chunks are eligible for dict encoding
-            let (stream, is_dict_encoding) = call_for_first_item(stream, |chunk| {
-                let compressed = BtrBlocksCompressor.compress(chunk)?;
-                Ok(compressed.is_encoding(DictEncoding.id()))
-            })
-            .await?;
+            let (stream, first_chunk) = peek_first_chunk(stream).await?;
             let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
-            if !is_dict_encoding? {
-                // first chunk did not compress to dict, skip dict layout
+
+            let should_fallback = match first_chunk {
+                None => true, // empty stream
+                Some(chunk) => {
+                    let compressed = BtrBlocksCompressor.compress(&chunk)?;
+                    compressed.is_encoding(DictEncoding.id())
+                }
+            };
+            if should_fallback {
+                // first chunk did not compress to dict, or did not exist. Skip dict layout
                 return fallback
                     .write_stream(&ctx, sequence_writer.clone(), stream)
                     .await;
@@ -133,14 +137,12 @@ impl LayoutStrategy for DictStrategy {
                 let mut children = Vec::new();
                 let mut runs = DictEncodedRuns::new(Box::pin(encoded_rx));
                 while let Some((codes_stream, values_future)) = runs.next_run().await {
-                    let (codes_stream, codes_dtype) =
-                        call_for_first_item(codes_stream.boxed(), |chunk| {
-                            Ok(chunk.dtype().clone())
-                        })
-                        .await?;
-                    let Ok(codes_dtype) = codes_dtype else {
+                    let (codes_stream, first_chunk) =
+                        peek_first_chunk(codes_stream.boxed()).await?;
+                    let codes_dtype = match first_chunk {
                         // codes_stream is empty, this would happen if the parent stream end coincided with a dict run end
-                        break;
+                        None => break,
+                        Some(chunk) => chunk.dtype().clone(),
                     };
                     let codes_layout = codes
                         .write_stream(
@@ -415,18 +417,19 @@ impl Drop for DictEncodedRunStream {
     }
 }
 
-async fn call_for_first_item<T>(
+async fn peek_first_chunk(
     mut stream: BoxStream<'static, SequencedChunk>,
-    func: impl Fn(&ArrayRef) -> VortexResult<T>,
-) -> VortexResult<(BoxStream<'static, SequencedChunk>, VortexResult<T>)> {
-    let Some(result) = stream.next().await else {
-        return Ok((stream.boxed(), Err(vortex_err!("empty stream"))));
-    };
-    let (sequence_id, first_chunk) = result?;
-    let res = func(&first_chunk);
-    // reconstruct the stream
-    let stream = once(async { Ok((sequence_id, first_chunk)) }).chain(stream);
-    Ok((stream.boxed(), res))
+) -> VortexResult<(BoxStream<'static, SequencedChunk>, Option<ArrayRef>)> {
+    match stream.next().await {
+        None => Ok((stream.boxed(), None)),
+        Some(Err(e)) => Err(e),
+        Some(Ok((sequence_id, chunk))) => {
+            let chunk_clone = chunk.clone();
+            let reconstructed_stream =
+                once(async move { Ok((sequence_id, chunk_clone)) }).chain(stream);
+            Ok((reconstructed_stream.boxed(), Some(chunk)))
+        }
+    }
 }
 
 pub fn dict_layout_supported(dtype: &DType) -> bool {
