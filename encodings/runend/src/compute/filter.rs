@@ -27,7 +27,7 @@ impl FilterKernel for RunEndVTable {
 
                 if runs_ratio < FILTER_TAKE_THRESHOLD || mask_values.true_count() < 25 {
                     // This strategy is directly proportional to the number of indices.
-                    take_indices_unchecked(array, mask_values.indices())
+                    take_indices_unchecked(array, mask_values.indices(), &Validity::NonNullable)
                 } else {
                     // This strategy ends up being close to fixed cost based on the number of runs,
                     // rather than the number of indices.
