@@ -40,6 +40,8 @@ impl CompareKernel for DecimalBytePartsVTable {
                 let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
                 compare(&lhs.msp, &encoded_const.to_array(), operator).map(Some)
             }
+            // here the scalar value is bigger than the msp type.
+            // TODO(joe): fixme, when allowing lsp values.
             Err(sign) => Ok(Some(
                 ConstantArray::new(unconvertible_value(sign, operator, nullability), lhs.len())
                     .to_array(),
