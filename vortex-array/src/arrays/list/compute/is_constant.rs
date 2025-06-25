@@ -1,7 +1,8 @@
 use vortex_error::VortexResult;
+use vortex_scalar::NumericOperator;
 
 use crate::arrays::{ListArray, ListVTable};
-use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
+use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, numeric};
 use crate::register_kernel;
 
 impl IsConstantKernel for ListVTable {
@@ -14,12 +15,12 @@ impl IsConstantKernel for ListVTable {
             return Ok(None);
         }
 
-        let first_list_len = array.offset_at(1) - array.offset_at(0);
-        for i in 1..array.len() {
-            let current_list_len = array.offset_at(i + 1) - array.offset_at(i);
-            if current_list_len != first_list_len {
-                return Ok(Some(false));
-            }
+        let start_offsets = array.offsets.slice(0, array.len())?;
+        let end_offsets = array.offsets.slice(1, array.len() + 1)?;
+        let list_lengths = numeric(&end_offsets, &start_offsets, NumericOperator::Sub)?;
+
+        if !list_lengths.is_constant() {
+            return Ok(Some(false));
         }
 
         // If all lists have the same length, compare the actual list contents
