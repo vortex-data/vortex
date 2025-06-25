@@ -92,9 +92,10 @@ impl SparseArray {
     pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<Self> {
         if fill_value.dtype() != patches.values().dtype() {
             vortex_bail!(
-                "fill value, {:?}, should be instance of values dtype, {}",
+                "fill value, {:?}, should be instance of values dtype, {} but was {}.",
                 fill_value,
                 patches.values().dtype(),
+                fill_value.dtype(),
             );
         }
         Ok(Self {
