@@ -31,12 +31,9 @@ impl Expression {
                     let ptr =
                         unsafe { cpp::duckdb_vx_expr_get_bound_column_ref_get_name(self.as_ptr()) };
 
-                    let name = unsafe { CStr::from_ptr(ptr) }
-                        .to_string_lossy()
-                        .into_owned();
-
-                    unsafe { cpp::duckdb_free(ptr.cast_mut().cast()) };
-                    ExpressionClass::BoundColumnRef(BoundColumnRef { name })
+                    ExpressionClass::BoundColumnRef(BoundColumnRef {
+                        name: duckdb::string::String::from_ptr(ptr),
+                    })
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CONSTANT => {
                     let value = unsafe {
@@ -137,7 +134,7 @@ impl Expression {
 }
 
 pub enum ExpressionClass<'a> {
-    BoundColumnRef(BoundColumnRef<'a>),
+    BoundColumnRef(BoundColumnRef),
     BoundConstant(BoundConstant),
     BoundComparison(BoundComparison),
     BoundConjunction(BoundConjunction<'a>),
@@ -146,8 +143,8 @@ pub enum ExpressionClass<'a> {
     BoundFunction(BoundFunction<'a>),
 }
 
-pub struct BoundColumnRef<'a> {
-    pub name: duckdb::string::String<'a>,
+pub struct BoundColumnRef {
+    pub name: duckdb::string::String,
 }
 
 pub struct BoundConstant {

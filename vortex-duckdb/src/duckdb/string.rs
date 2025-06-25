@@ -1,21 +1,42 @@
 use std::ffi::{CStr, c_char};
+use std::fmt::{Debug, Display, Formatter};
+use std::str::Utf8Error;
 
 use crate::cpp;
 
-pub struct String<'a> {
-    cstring: &'a CStr,
+/// Wraps a heap allocated DuckDB string.
+pub struct String {
+    ptr: *const c_char,
 }
 
-impl<'a> String<'a> {
+impl String {
     pub fn from_ptr(ptr: *const c_char) -> Self {
-        String {
-            cstring: unsafe { CStr::from_ptr(ptr) },
-        }
+        String { ptr }
+    }
+
+    pub fn as_cstr(&self) -> &CStr {
+        unsafe { CStr::from_ptr(self.ptr) }
+    }
+
+    pub fn to_str(&self) -> Result<&str, Utf8Error> {
+        self.as_cstr().to_str()
     }
 }
 
-impl<'a> Drop for String<'a> {
+impl Debug for String {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.as_cstr())
+    }
+}
+
+impl Display for String {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_cstr().to_string_lossy())
+    }
+}
+
+impl Drop for String {
     fn drop(&mut self) {
-        unsafe { cpp::duckdb_free(self.cstring.as_ptr().cast_mut().cast()) };
+        unsafe { cpp::duckdb_free(self.ptr.cast_mut().cast()) };
     }
 }
