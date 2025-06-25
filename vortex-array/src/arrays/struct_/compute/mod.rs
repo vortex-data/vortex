@@ -3,24 +3,47 @@ mod filter;
 mod mask;
 
 use itertools::Itertools;
+use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::arrays::StructVTable;
 use crate::arrays::struct_::StructArray;
 use crate::compute::{
     IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, MinMaxKernel, MinMaxKernelAdapter,
-    MinMaxResult, TakeKernel, TakeKernelAdapter, is_constant_opts, take,
+    MinMaxResult, TakeKernel, TakeKernelAdapter, fill_null, is_constant_opts, take,
 };
+use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
 impl TakeKernel for StructVTable {
     fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+        // If the struct array is empty then the indices must be all null, otherwise it will access
+        // an out of bounds element
+        if array.len() == 0 {
+            return StructArray::try_new_with_dtype(
+                array.fields().to_vec(),
+                array.struct_fields().clone(),
+                indices.len(),
+                Validity::AllInvalid,
+            )
+            .map(StructArray::into_array);
+        }
         StructArray::try_new_with_dtype(
             array
                 .fields()
                 .iter()
-                .map(|field| take(field, indices))
+                .map(|field| {
+                    take(
+                        field,
+                        // The validity is applied to the struct validity,
+                        &fill_null(
+                            indices,
+                            &Scalar::default_value(indices.dtype().with_nullability(NonNullable)),
+                        )?,
+                    )
+                })
                 .try_collect()?,
             array.struct_fields().clone(),
             indices.len(),
@@ -71,13 +94,15 @@ register_kernel!(IsConstantKernelAdapter(StructVTable).lift());
 mod tests {
     use std::sync::Arc;
 
+    use Nullability::{NonNullable, Nullable};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
     use vortex_mask::Mask;
+    use vortex_scalar::Scalar;
 
     use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::conformance::mask::test_mask;
-    use crate::compute::{cast, filter};
+    use crate::compute::{cast, filter, take};
     use crate::validity::Validity;
     use crate::{Array, IntoArray as _};
 
@@ -90,6 +115,52 @@ mod tests {
         ];
         let filtered = filter(struct_arr.as_ref(), &Mask::from_iter(mask)).unwrap();
         assert_eq!(filtered.len(), 5);
+    }
+
+    #[test]
+    fn take_empty_struct() {
+        let struct_arr =
+            StructArray::try_new(vec![].into(), vec![], 10, Validity::NonNullable).unwrap();
+        let indices = PrimitiveArray::from_option_iter([Some(1), None]);
+        let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
+        assert_eq!(taken.len(), 2);
+
+        assert_eq!(
+            taken.scalar_at(0).unwrap(),
+            Scalar::struct_(
+                DType::Struct(Arc::new(StructFields::new([].into(), vec![])), Nullable),
+                vec![]
+            )
+        );
+        assert_eq!(
+            taken.scalar_at(1).unwrap(),
+            Scalar::null(DType::Struct(
+                Arc::new(StructFields::new([].into(), vec![])),
+                Nullable
+            ))
+        );
+    }
+
+    #[test]
+    fn take_field_struct() {
+        let struct_arr =
+            StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).to_array())])
+                .unwrap();
+        let indices = PrimitiveArray::from_option_iter([Some(1), None]);
+        let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
+        assert_eq!(taken.len(), 2);
+
+        assert_eq!(
+            taken.scalar_at(0).unwrap(),
+            Scalar::struct_(
+                struct_arr.dtype().union_nullability(Nullable),
+                vec![Scalar::primitive(1, NonNullable)],
+            )
+        );
+        assert_eq!(
+            taken.scalar_at(1).unwrap(),
+            Scalar::null(struct_arr.dtype().union_nullability(Nullable),)
+        );
     }
 
     #[test]
@@ -114,7 +185,7 @@ mod tests {
         let xs = buffer![0i64, 1, 2, 3, 4].into_array();
         let ys = VarBinArray::from_iter(
             [Some("a"), Some("b"), None, Some("d"), None],
-            DType::Utf8(Nullability::Nullable),
+            DType::Utf8(Nullable),
         )
         .into_array();
         let zs =
@@ -148,17 +219,13 @@ mod tests {
         let array = StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
             .unwrap()
             .into_array();
-        let non_nullable_dtype = DType::Struct(
-            Arc::from(StructFields::new([].into(), vec![])),
-            Nullability::NonNullable,
-        );
+        let non_nullable_dtype =
+            DType::Struct(Arc::from(StructFields::new([].into(), vec![])), NonNullable);
         let casted = cast(&array, &non_nullable_dtype).unwrap();
         assert_eq!(casted.dtype(), &non_nullable_dtype);
 
-        let nullable_dtype = DType::Struct(
-            Arc::from(StructFields::new([].into(), vec![])),
-            Nullability::Nullable,
-        );
+        let nullable_dtype =
+            DType::Struct(Arc::from(StructFields::new([].into(), vec![])), Nullable);
         let casted = cast(&array, &nullable_dtype).unwrap();
         assert_eq!(casted.dtype(), &nullable_dtype);
     }
@@ -177,7 +244,7 @@ mod tests {
         )
         .unwrap();
 
-        let tu8 = DType::Primitive(PType::U8, Nullability::NonNullable);
+        let tu8 = DType::Primitive(PType::U8, NonNullable);
 
         let result = cast(
             array.as_ref(),
@@ -186,7 +253,7 @@ mod tests {
                     FieldNames::from(["ys".into(), "xs".into(), "zs".into()]),
                     vec![tu8.clone(), tu8.clone(), tu8],
                 )),
-                Nullability::NonNullable,
+                NonNullable,
             ),
         );
         assert!(
@@ -201,10 +268,7 @@ mod tests {
     #[test]
     fn test_cast_complex_struct() {
         let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
-        let ys = VarBinArray::from_vec(
-            vec!["a", "b", "c", "d", "e"],
-            DType::Utf8(Nullability::Nullable),
-        );
+        let ys = VarBinArray::from_vec(vec!["a", "b", "c", "d", "e"], DType::Utf8(Nullable));
         let zs = BoolArray::new(
             BooleanBuffer::from_iter([true, true, false, false, true]),
             Validity::AllValid,
@@ -241,17 +305,17 @@ mod tests {
                         Arc::from(StructFields::new(
                             ["left".into(), "right".into()].into(),
                             vec![
-                                DType::Primitive(PType::I64, Nullability::NonNullable),
-                                DType::Primitive(PType::I64, Nullability::Nullable),
+                                DType::Primitive(PType::I64, NonNullable),
+                                DType::Primitive(PType::I64, Nullable),
                             ],
                         )),
-                        Nullability::Nullable,
+                        Nullable,
                     ),
-                    DType::Utf8(Nullability::Nullable),
-                    DType::Bool(Nullability::Nullable),
+                    DType::Utf8(Nullable),
+                    DType::Bool(Nullable),
                 ],
             )),
-            Nullability::Nullable,
+            Nullable,
         );
         let casted = cast(&fully_nullable_array, &non_null_xs_right).unwrap();
         assert_eq!(casted.dtype(), &non_null_xs_right);
@@ -264,17 +328,17 @@ mod tests {
                         Arc::from(StructFields::new(
                             ["left".into(), "right".into()].into(),
                             vec![
-                                DType::Primitive(PType::I64, Nullability::Nullable),
-                                DType::Primitive(PType::I64, Nullability::Nullable),
+                                DType::Primitive(PType::I64, Nullable),
+                                DType::Primitive(PType::I64, Nullable),
                             ],
                         )),
-                        Nullability::NonNullable,
+                        NonNullable,
                     ),
-                    DType::Utf8(Nullability::Nullable),
-                    DType::Bool(Nullability::Nullable),
+                    DType::Utf8(Nullable),
+                    DType::Bool(Nullable),
                 ],
             )),
-            Nullability::Nullable,
+            Nullable,
         );
         let casted = cast(&fully_nullable_array, &non_null_xs).unwrap();
         assert_eq!(casted.dtype(), &non_null_xs);
