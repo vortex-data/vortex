@@ -21,7 +21,7 @@ impl TakeKernel for StructVTable {
     fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         // If the struct array is empty then the indices must be all null, otherwise it will access
         // an out of bounds element
-        if array.len() == 0 {
+        if array.is_empty() {
             return StructArray::try_new_with_dtype(
                 array.fields().to_vec(),
                 array.struct_fields().clone(),

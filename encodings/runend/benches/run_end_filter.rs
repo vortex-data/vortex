@@ -2,6 +2,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
+use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray};
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
@@ -42,7 +43,9 @@ fn take_indices(bencher: Bencher, (n, run_step, filter_density): (usize, usize, 
 
     bencher
         .with_inputs(|| (&array, indices))
-        .bench_refs(|(array, indices)| take_indices_unchecked(array, indices).unwrap());
+        .bench_refs(|(array, indices)| {
+            take_indices_unchecked(array, indices, &Validity::NonNullable).unwrap()
+        });
 }
 
 #[divan::bench(args = BENCH_ARGS)]
