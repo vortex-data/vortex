@@ -59,9 +59,6 @@ jobs:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
 
-      - name: Install gzip
-        run: sudo apt-get update && sudo apt-get install -y gzip
-
       - name: Install DuckDB
         run: |
           wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.3.1/duckdb_cli-linux-amd64.zip | funzip > duckdb
