@@ -250,12 +250,15 @@ impl LayoutReader for ZonedReader {
 struct ZoneMapPruningEvaluation {
     name: Arc<str>,
     expr: ExprRef,
+    /// A mask indicating zones which have no matching values.
+    ///
+    /// A false value indicates the corresponding zone may have a matching value.
     pruning_mask_future: SharedPruningResult,
-    // The set of zone IDs that are available to the evaluation.
+    /// The set of zone IDs that are available to the evaluation.
     zone_range: Range<u64>,
-    // The lengths of each zone in the zone_range.
+    /// The lengths of each zone in the zone_range.
     zone_lengths: Vec<usize>,
-    // The evaluation of the data child.
+    /// The evaluation of the data child.
     data_eval: Box<dyn PruningEvaluation>,
 }
 
