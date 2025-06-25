@@ -32,8 +32,7 @@ use vortex::scalar::{
 };
 
 use crate::convert::dtype::FromLogicalType;
-use crate::cpp;
-use crate::cpp::DUCKDB_TYPE;
+use crate::cpp::{self, DUCKDB_TYPE, duckdb_free};
 use crate::duckdb::Value;
 
 /// Trait for converting Vortex scalars to DuckDB values.
@@ -253,11 +252,14 @@ impl TryFrom<Value> for Scalar {
                 Nullable,
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => {
-                let str: &str = unsafe {
-                    let str = cpp::duckdb_get_varchar(value.as_ptr());
-                    CStr::from_ptr(str).to_str()?
+                let scalar = unsafe {
+                    let ptr = cpp::duckdb_get_varchar(value.as_ptr());
+                    let scalar = Scalar::utf8(CStr::from_ptr(ptr).to_str()?, Nullable);
+                    duckdb_free(ptr.cast());
+                    scalar
                 };
-                Ok(Scalar::utf8(str, Nullable))
+
+                Ok(scalar)
             }
             DUCKDB_TYPE::DUCKDB_TYPE_BLOB => Ok(Scalar::binary(
                 ByteBuffer::copy_from(value.as_string()),
