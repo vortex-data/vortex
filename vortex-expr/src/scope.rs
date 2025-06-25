@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use itertools::Itertools as _;
+use itertools::Itertools;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldPathSet};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
