@@ -66,7 +66,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
         vortex_bail!("no expression class id {:?}", value.as_class_id())
     };
     Ok(Some(match value {
-        ExpressionClass::BoundColumnRef(col) => get_item_scope(col.name.to_str()?),
+        ExpressionClass::BoundColumnRef(col) => get_item_scope(col.name),
         ExpressionClass::BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
         ExpressionClass::BoundComparison(compare) => {
             let operator: Operator = compare.op.try_into()?;

@@ -4,7 +4,7 @@ use std::ptr;
 
 use crate::cpp::duckdb_vx_expr_class;
 use crate::duckdb::{ScalarFunction, Value};
-use crate::{cpp, wrapper};
+use crate::{cpp, duckdb, wrapper};
 
 wrapper!(Expression, cpp::duckdb_vx_expr, cpp::duckdb_vx_destroy_expr);
 
@@ -30,9 +30,13 @@ impl Expression {
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF => {
                     let ptr =
                         unsafe { cpp::duckdb_vx_expr_get_bound_column_ref_get_name(self.as_ptr()) };
-                    ExpressionClass::BoundColumnRef(BoundColumnRef {
-                        name: unsafe { CStr::from_ptr(ptr) },
-                    })
+
+                    let name = unsafe { CStr::from_ptr(ptr) }
+                        .to_string_lossy()
+                        .into_owned();
+
+                    unsafe { cpp::duckdb_free(ptr.cast_mut().cast()) };
+                    ExpressionClass::BoundColumnRef(BoundColumnRef { name })
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CONSTANT => {
                     let value = unsafe {
@@ -143,7 +147,7 @@ pub enum ExpressionClass<'a> {
 }
 
 pub struct BoundColumnRef<'a> {
-    pub name: &'a CStr,
+    pub name: duckdb::string::String<'a>,
 }
 
 pub struct BoundConstant {
