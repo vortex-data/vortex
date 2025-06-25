@@ -5,22 +5,39 @@ use crate::arrays::{ListArray, ListVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, numeric};
 use crate::register_kernel;
 
+const SMALL_ARRAY_THRESHOLD: usize = 64;
+
 impl IsConstantKernel for ListVTable {
     fn is_constant(&self, array: &ListArray, opts: &IsConstantOpts) -> VortexResult<Option<bool>> {
         // At this point, we're guaranteed:
         // - Array has at least 2 elements
         // - All elements are valid (no nulls)
 
+        let manual_check_until = std::cmp::min(SMALL_ARRAY_THRESHOLD, array.len());
+
+        let first_list_len = array.offset_at(1) - array.offset_at(0);
+        for i in 1..manual_check_until {
+            let current_list_len = array.offset_at(i + 1) - array.offset_at(i);
+            if current_list_len != first_list_len {
+                return Ok(Some(false));
+            }
+        }
+
         if opts.is_negligible_cost() {
             return Ok(None);
         }
 
-        let start_offsets = array.offsets.slice(0, array.len())?;
-        let end_offsets = array.offsets.slice(1, array.len() + 1)?;
-        let list_lengths = numeric(&end_offsets, &start_offsets, NumericOperator::Sub)?;
+        if array.len() > SMALL_ARRAY_THRESHOLD {
+            // check the rest of the element lengths
+            let start_offsets = array.offsets.slice(SMALL_ARRAY_THRESHOLD, array.len())?;
+            let end_offsets = array
+                .offsets
+                .slice(SMALL_ARRAY_THRESHOLD + 1, array.len() + 1)?;
+            let list_lengths = numeric(&end_offsets, &start_offsets, NumericOperator::Sub)?;
 
-        if !list_lengths.is_constant() {
-            return Ok(Some(false));
+            if !list_lengths.is_constant() {
+                return Ok(Some(false));
+            }
         }
 
         // If all lists have the same length, compare the actual list contents
@@ -131,5 +148,49 @@ mod tests {
 
         // Both outer lists contain [[1], [2]], so should be constant
         assert!(is_constant(&outer_list.into_array()).unwrap().unwrap());
+    }
+
+    #[rstest]
+    #[case(
+        // 100 identical [1, 2] lists
+        [1i32, 2].repeat(100),
+        (0..101).map(|i| (i * 2) as u32).collect(),
+        true
+    )]
+    #[case(
+        // Difference after threshold: 64 identical [1, 2] + one [3, 4]
+        {
+            let mut elements = [1i32, 2].repeat(64);
+            elements.extend_from_slice(&[3, 4]);
+            elements
+        },
+        (0..66).map(|i| (i * 2) as u32).collect(),
+        false
+    )]
+    #[case(
+        // Difference in first 64: first 63 identical [1, 2] + one [3, 4] + rest identical [1, 2]
+        {
+            let mut elements = [1i32, 2].repeat(63);
+            elements.extend_from_slice(&[3, 4]);
+            elements.extend([1i32, 2].repeat(37));
+            elements
+        },
+        (0..101).map(|i| (i * 2) as u32).collect(),
+        false
+    )]
+    fn test_large_list_is_constant(
+        #[case] elements: Vec<i32>,
+        #[case] offsets: Vec<u32>,
+        #[case] expected: bool,
+    ) {
+        let list_array = ListArray::try_new(
+            PrimitiveArray::from_iter(elements).into_array(),
+            PrimitiveArray::from_iter(offsets).into_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let result = is_constant(&list_array.into_array()).unwrap();
+        assert_eq!(result.unwrap(), expected);
     }
 }
