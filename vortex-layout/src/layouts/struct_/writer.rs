@@ -5,10 +5,10 @@ use std::task::{Context, Poll, ready};
 
 use arcref::ArcRef;
 use futures::future::try_join_all;
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use parking_lot::Mutex;
-use vortex_array::{ArrayContext, ToCanonical};
+use vortex_array::{Array, ArrayContext, ToCanonical};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -56,6 +56,19 @@ impl LayoutStrategy for StructStrategy {
             };
             Ok((sequence_id, chunk))
         });
+
+        // There are now fields so this is the layout leaf
+        if struct_dtype.nfields() == 0 {
+            return Box::pin(async move {
+                let row_count = stream
+                    .try_fold(
+                        0u64,
+                        |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
+                    )
+                    .await?;
+                Ok(StructLayout::new(row_count, dtype, vec![]).into_layout())
+            });
+        }
 
         // stream<struct_chunk> -> stream<vec<column_chunk>>
         let columns_vec_stream = stream.map(|chunk| {
@@ -192,7 +205,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, IntoArray as _};
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_dtype::{DType, Nullability, PType, StructFields};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
@@ -269,5 +282,44 @@ mod tests {
             format!("{}", res.unwrap_err())
                 .starts_with("Cannot push struct chunks with top level invalid values"),
         )
+    }
+
+    #[test]
+    fn write_empty_field_struct_array() {
+        let strategy =
+            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let res = block_on(
+            strategy.write_stream(
+                &ArrayContext::empty(),
+                SequenceWriter::new(Box::new(TestSegments::default())),
+                SequentialStreamAdapter::new(
+                    DType::Struct(
+                        Arc::new(StructFields::new([].into(), vec![])),
+                        Nullability::NonNullable,
+                    ),
+                    stream::iter([
+                        {
+                            Ok((
+                                SequenceId::root().downgrade(),
+                                StructArray::try_new([].into(), vec![], 3, Validity::NonNullable)
+                                    .unwrap()
+                                    .into_array(),
+                            ))
+                        },
+                        {
+                            Ok((
+                                SequenceId::root().downgrade(),
+                                StructArray::try_new([].into(), vec![], 5, Validity::NonNullable)
+                                    .unwrap()
+                                    .into_array(),
+                            ))
+                        },
+                    ]),
+                )
+                .sendable(),
+            ),
+        );
+
+        assert_eq!(res.unwrap().row_count(), 8);
     }
 }
