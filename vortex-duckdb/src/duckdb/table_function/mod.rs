@@ -96,23 +96,25 @@ pub trait TableFunction: Sized + Debug {
 impl Connection {
     pub fn register_table_function<T: TableFunction>(&self, name: &CStr) -> VortexResult<()> {
         // Set up the parameters.
-        let parameters = T::parameters()
-            .into_iter()
-            .map(|logical_type| logical_type.into_ptr())
+        let parameters = T::parameters();
+        let parameter_ptrs = parameters
+            .iter()
+            .map(|logical_type| logical_type.as_ptr())
             .collect::<Vec<_>>();
 
-        let (param_names, param_types) = T::named_parameters()
+        let param_names = T::named_parameters();
+        let (param_names_ptrs, param_types_ptr) = param_names
             .into_iter()
-            .map(|(name, logical_type)| (name.as_ptr(), logical_type.into_ptr()))
+            .map(|(name, logical_type)| (name.as_ptr(), logical_type.as_ptr()))
             .unzip::<_, _, Vec<_>, Vec<_>>();
 
         let vtab = cpp::duckdb_vx_tfunc_vtab_t {
             name: name.as_ptr(),
-            parameters: parameters.as_ptr(),
+            parameters: parameter_ptrs.as_ptr(),
             parameter_count: parameters.len() as _,
-            named_parameter_names: param_names.as_ptr(),
-            named_parameter_types: param_types.as_ptr(),
-            named_parameter_count: param_names.len() as _,
+            named_parameter_names: param_names_ptrs.as_ptr(),
+            named_parameter_types: param_types_ptr.as_ptr(),
+            named_parameter_count: param_names_ptrs.len() as _,
             bind: Some(bind_callback::<T>),
             bind_data_clone: Some(bind_data_clone_callback::<T>),
             init_global: Some(init_global_callback::<T>),
