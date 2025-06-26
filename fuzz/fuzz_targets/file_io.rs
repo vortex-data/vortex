@@ -34,14 +34,14 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let expected_array = {
         let bool_mask = filter_expr
             .clone()
-            .unwrap_or(lit(true))
+            .unwrap_or_else(|| lit(true))
             .evaluate(&Scope::new(array_data.clone()))
             .vortex_unwrap();
         let mask = Mask::try_from(&bool_mask.to_bool().vortex_unwrap()).vortex_unwrap();
         let filtered = filter(&array_data, &mask).vortex_unwrap();
         projection_expr
             .clone()
-            .unwrap_or(root())
+            .unwrap_or_else(|| root())
             .evaluate(&Scope::new(filtered))
             .vortex_unwrap()
     };
