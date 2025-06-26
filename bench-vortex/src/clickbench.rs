@@ -13,7 +13,7 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::SessionContext;
 use futures::{StreamExt, TryStreamExt, stream};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use reqwest::IntoUrl;
 use reqwest::blocking::Response;
 use tokio::fs::{OpenOptions, create_dir_all};
@@ -314,7 +314,10 @@ impl Flavor {
             Flavor::Partitioned => {
                 // The clickbench-provided file is missing some higher-level type info, so we reprocess it
                 // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
-                let _ = (0_u32..100).into_par_iter().map(|idx| {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .thread_name(|i| format!("clickbench download {i}"))
+                    .build()?;
+                let _ = pool.install(|| (0_u32..100).into_par_iter().map(|idx| {
                     let output_path = basepath.join(Format::Parquet.name()).join(format!("hits_{idx}.parquet"));
                     idempotent(&output_path, |output_path| {
                         info!("Downloading file {idx}");
@@ -325,7 +328,7 @@ impl Flavor {
 
                         anyhow::Ok(())
                     })
-                }).collect::<anyhow::Result<Vec<_>>>()?;
+                }).collect::<anyhow::Result<Vec<_>>>())?;
             }
         }
         Ok(())
