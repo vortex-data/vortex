@@ -100,7 +100,7 @@ impl LayoutStrategy for DictStrategy {
                 None => true, // empty stream
                 Some(chunk) => {
                     let compressed = BtrBlocksCompressor.compress(&chunk)?;
-                    compressed.is_encoding(DictEncoding.id())
+                    !compressed.is_encoding(DictEncoding.id())
                 }
             };
             if should_fallback {
