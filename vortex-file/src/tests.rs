@@ -377,6 +377,33 @@ async fn write_chunked() {
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
+async fn test_empty_varbin_array_roundtrip() {
+    let empty = VarBinArray::from(Vec::<&str>::new()).into_array();
+
+    let st = StructArray::from_fields(&[("a", empty)]).unwrap();
+
+    let buf = VortexWriteOptions::default()
+        .write(ByteBufferMut::empty(), st.to_array_stream())
+        .await
+        .unwrap();
+
+    let file = VortexOpenOptions::in_memory().open(buf).await.unwrap();
+
+    let result = file
+        .scan()
+        .unwrap()
+        .into_array_stream()
+        .unwrap()
+        .read_all()
+        .await
+        .unwrap();
+
+    assert_eq!(result.len(), 0);
+    assert_eq!(result.dtype(), st.dtype());
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn filter_string() {
     let names_orig = VarBinArray::from_iter(
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
