@@ -1,66 +1,66 @@
+use std::mem::{MaybeUninit, transmute};
 use std::simd;
 
 use num_traits::AsPrimitive;
 use simd::num::SimdUint;
 use vortex_buffer::{Alignment, Buffer, BufferMut};
 use vortex_dtype::{
-    NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
-    match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
+    DType, NativePType, PType, match_each_native_simd_ptype, match_each_unsigned_integer_ptype,
 };
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::{TakeKernel, TakeKernelAdapter};
+use crate::compute::{TakeKernel, TakeKernelAdapter, cast};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+
+// SIMD types larger than the SIMD register size are beneficial for
+// performance as this leads to better instruction level parallelism.
+const SIMD_WIDTH: usize = 64;
 
 impl TakeKernel for PrimitiveVTable {
     #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive()?;
+        let unsigned_indices = match indices.dtype() {
+            DType::Primitive(p, n) => {
+                if p.is_unsigned_int() {
+                    indices.to_primitive()?
+                } else {
+                    // This will fail if all values cannot be converted to unsigned
+                    cast(indices, &DType::Primitive(p.to_unsigned(), *n))?.to_primitive()?
+                }
+            }
+            _ => vortex_bail!("Invalid indices dtype: {}", indices.dtype()),
+        };
 
-        if array.ptype() != PType::F16
-            && indices.dtype().is_unsigned_int()
-            && indices.all_valid()?
-            && array.all_valid()?
-        {
-            // TODO(alex): handle nullable codes & values
-            match_each_unsigned_integer_ptype!(indices.ptype(), |C| {
-                match_each_native_simd_ptype!(array.ptype(), |V| {
-                    // SIMD types larger than the SIMD register size are beneficial for
-                    // performance as this leads to better instruction level parallelism.
-                    let decoded = take_primitive_simd::<C, V, 64>(
-                        indices.as_slice(),
-                        array.as_slice(),
-                        array.dtype().nullability() | indices.dtype().nullability(),
-                    );
-
-                    return Ok(decoded.into_array()) as VortexResult<ArrayRef>;
-                })
+        let validity = array.validity().take(unsigned_indices.as_ref())?;
+        if array.ptype() == PType::F16 {
+            // Special handling for f16 to treat as opaque u16
+            let decoded = match_each_unsigned_integer_ptype!(unsigned_indices.ptype(), |C| {
+                take_primitive_simd::<C, u16, SIMD_WIDTH>(
+                    unsigned_indices.as_slice(),
+                    array.reinterpret_cast(PType::U16).as_slice(),
+                )
             });
-        }
-
-        // TODO(joe): if the true count of take indices validity is low, only take array values with
-        // valid indices.
-        let validity = array.validity().take(indices.as_ref())?;
-        match_each_native_ptype!(array.ptype(), |T| {
-            match_each_integer_ptype!(indices.ptype(), |I| {
-                let values = take_primitive(array.as_slice::<T>(), indices.as_slice::<I>());
-                Ok(PrimitiveArray::new(values, validity).into_array())
+            Ok(PrimitiveArray::new(decoded, validity)
+                .reinterpret_cast(PType::F16)
+                .into_array())
+        } else {
+            match_each_unsigned_integer_ptype!(unsigned_indices.ptype(), |C| {
+                match_each_native_simd_ptype!(array.ptype(), |V| {
+                    let decoded = take_primitive_simd::<C, V, SIMD_WIDTH>(
+                        unsigned_indices.as_slice(),
+                        array.as_slice(),
+                    );
+                    Ok(PrimitiveArray::new(decoded, validity).into_array())
+                })
             })
-        })
+        }
     }
 }
 
 register_kernel!(TakeKernelAdapter(PrimitiveVTable).lift());
-
-fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
-    array: &[T],
-    indices: &[I],
-) -> Buffer<T> {
-    indices.iter().map(|idx| array[idx.as_()]).collect()
-}
 
 /// Takes elements from an array using SIMD indexing.
 ///
@@ -77,11 +77,7 @@ fn take_primitive<T: NativePType, I: NativePType + AsPrimitive<usize>>(
 /// # Returns
 /// A `PrimitiveArray` containing the gathered values where each index has been replaced with
 /// the corresponding value from the source array.
-fn take_primitive_simd<I, V, const LANE_COUNT: usize>(
-    indices: &[I],
-    values: &[V],
-    nullability: Nullability,
-) -> PrimitiveArray
+fn take_primitive_simd<I, V, const LANE_COUNT: usize>(indices: &[I], values: &[V]) -> Buffer<V>
 where
     I: simd::SimdElement + AsPrimitive<usize>,
     V: simd::SimdElement + NativePType,
@@ -102,15 +98,18 @@ where
         let mask = simd::Mask::from_bitmask(u64::MAX);
         let codes_chunk = simd::Simd::<I, LANE_COUNT>::from_slice(&indices[offset..]);
 
-        unsafe {
-            let selection = simd::Simd::gather_select_unchecked(
-                values,
-                mask,
-                codes_chunk.cast::<usize>(),
-                simd::Simd::<V, LANE_COUNT>::default(),
-            );
+        let selection = simd::Simd::gather_select(
+            values,
+            mask,
+            codes_chunk.cast::<usize>(),
+            simd::Simd::<V, LANE_COUNT>::default(),
+        );
 
-            selection.store_select_ptr(buf_slice.as_mut_ptr().add(offset) as *mut V, mask.cast());
+        unsafe {
+            selection.store_select_unchecked(
+                transmute::<&mut [MaybeUninit<V>], &mut [V]>(&mut buf_slice[offset..][..64]),
+                mask.cast(),
+            );
         }
     }
 
@@ -126,7 +125,7 @@ where
         buffer.set_len(indices_len);
     }
 
-    PrimitiveArray::new(buffer.freeze(), nullability.into())
+    buffer.freeze()
 }
 
 #[cfg(test)]
@@ -134,7 +133,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::primitive::compute::take::take_primitive;
+    use crate::arrays::primitive::compute::take::take_primitive_simd;
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::take;
     use crate::validity::Validity;
@@ -143,7 +142,7 @@ mod test {
     #[test]
     fn test_take() {
         let a = vec![1i32, 2, 3, 4, 5];
-        let result = take_primitive(&a, &[0, 0, 4, 2]);
+        let result = take_primitive_simd::<u8, i32, 64>(&[0, 0, 4, 2], &a);
         assert_eq!(result.as_slice(), &[1i32, 1, 5, 3]);
     }
 
@@ -163,5 +162,14 @@ mod test {
         assert_eq!(actual.scalar_at(1).unwrap(), Scalar::null_typed::<i32>());
         // the third index is null
         assert_eq!(actual.scalar_at(2).unwrap(), Scalar::null_typed::<i32>());
+    }
+
+    #[test]
+    fn test_take_out_of_bounds() {
+        let indices = vec![2_000_000u32; 64];
+        let values = vec![1i32];
+
+        let result = take_primitive_simd::<u32, i32, 64>(&indices, &values);
+        assert_eq!(result.as_slice(), [0i32; 64]);
     }
 }
