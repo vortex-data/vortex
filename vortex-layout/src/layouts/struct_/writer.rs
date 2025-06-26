@@ -308,7 +308,7 @@ mod tests {
                         },
                         {
                             Ok((
-                                SequenceId::root().downgrade(),
+                                SequenceId::root().advance(),
                                 StructArray::try_new([].into(), vec![], 5, Validity::NonNullable)
                                     .unwrap()
                                     .into_array(),
