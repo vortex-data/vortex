@@ -15,6 +15,10 @@ use crate::compute::{TakeKernel, TakeKernelAdapter, cast};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
+// SIMD types larger than the SIMD register size are beneficial for
+// performance as this leads to better instruction level parallelism.
+const SIMD_WIDTH: usize = 64;
+
 impl TakeKernel for PrimitiveVTable {
     #[allow(clippy::cognitive_complexity)]
     fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -31,23 +35,10 @@ impl TakeKernel for PrimitiveVTable {
         };
 
         let validity = array.validity().take(unsigned_indices.as_ref())?;
-        if array.ptype() != PType::F16 {
-            match_each_unsigned_integer_ptype!(unsigned_indices.ptype(), |C| {
-                match_each_native_simd_ptype!(array.ptype(), |V| {
-                    // SIMD types larger than the SIMD register size are beneficial for
-                    // performance as this leads to better instruction level parallelism.
-                    let decoded = take_primitive_simd::<C, V, 64>(
-                        unsigned_indices.as_slice(),
-                        array.as_slice(),
-                    );
-                    Ok(PrimitiveArray::new(decoded, validity).into_array())
-                })
-            })
-        } else {
+        if array.ptype() == PType::F16 {
+            // Special handling for f16 to treat as opaque u16
             let decoded = match_each_unsigned_integer_ptype!(unsigned_indices.ptype(), |C| {
-                // SIMD types larger than the SIMD register size are beneficial for
-                // performance as this leads to better instruction level parallelism.
-                take_primitive_simd::<C, u16, 64>(
+                take_primitive_simd::<C, u16, SIMD_WIDTH>(
                     unsigned_indices.as_slice(),
                     array.reinterpret_cast(PType::U16).as_slice(),
                 )
@@ -55,6 +46,16 @@ impl TakeKernel for PrimitiveVTable {
             Ok(PrimitiveArray::new(decoded, validity)
                 .reinterpret_cast(PType::F16)
                 .into_array())
+        } else {
+            match_each_unsigned_integer_ptype!(unsigned_indices.ptype(), |C| {
+                match_each_native_simd_ptype!(array.ptype(), |V| {
+                    let decoded = take_primitive_simd::<C, V, SIMD_WIDTH>(
+                        unsigned_indices.as_slice(),
+                        array.as_slice(),
+                    );
+                    Ok(PrimitiveArray::new(decoded, validity).into_array())
+                })
+            })
         }
     }
 }
@@ -161,5 +162,14 @@ mod test {
         assert_eq!(actual.scalar_at(1).unwrap(), Scalar::null_typed::<i32>());
         // the third index is null
         assert_eq!(actual.scalar_at(2).unwrap(), Scalar::null_typed::<i32>());
+    }
+
+    #[test]
+    fn test_take_out_of_bounds() {
+        let indices = vec![2_000_000u32; 64];
+        let values = vec![1i32];
+
+        let result = take_primitive_simd::<u32, i32, 64>(&indices, &values);
+        assert_eq!(result.as_slice(), [0i32; 64]);
     }
 }
