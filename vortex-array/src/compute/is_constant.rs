@@ -136,17 +136,21 @@ fn is_constant_impl(
     }
 
     // We already know here that the array is all valid, so we check for min/max stats.
-    let min = array
-        .statistics()
-        .get_scalar(Stat::Min, array.dtype())
-        .and_then(|p| p.as_exact());
-    let max = array
-        .statistics()
-        .get_scalar(Stat::Max, array.dtype())
-        .and_then(|p| p.as_exact());
+    let min = array.statistics().get_scalar(Stat::Min, array.dtype());
+    let max = array.statistics().get_scalar(Stat::Max, array.dtype());
 
     if let Some((min, max)) = min.zip(max) {
-        if min == max {
+        // min/max are equal and exact and there are no NaNs
+        if min.is_exact()
+            && min == max
+            && array
+                .dtype()
+                .is_float()
+                .then(|| {
+                    array.statistics().get_as::<u64>(Stat::NaNCount) == Some(Precision::exact(0u64))
+                })
+                .unwrap_or(true)
+        {
             return Ok(Some(true));
         }
     }
@@ -281,5 +285,32 @@ impl Options for IsConstantOpts {
 impl IsConstantOpts {
     pub fn is_negligible_cost(&self) -> bool {
         self.cost == Cost::Negligible
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::arrays::PrimitiveArray;
+
+    #[test]
+    fn is_constant_min_max_no_nan() {
+        let arr = PrimitiveArray::from_iter([0, 1]);
+        assert!(!arr.is_constant());
+
+        let arr = PrimitiveArray::from_iter([0, 0]);
+        assert!(arr.is_constant());
+
+        let arr = PrimitiveArray::from_option_iter([Some(0), Some(0)]);
+        assert!(arr.is_constant());
+    }
+
+    #[test]
+    fn is_constant_min_max_with_nan() {
+        let arr = PrimitiveArray::from_option_iter([Some(0.0), Some(f32::NAN)]);
+        assert!(!arr.is_constant());
+
+        let arr =
+            PrimitiveArray::from_option_iter([Some(f32::NEG_INFINITY), Some(f32::NEG_INFINITY)]);
+        assert!(arr.is_constant());
     }
 }

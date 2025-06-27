@@ -11,13 +11,16 @@ use vortex_array::arrays::{
     ChunkedArray, ConstantArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
     VarBinViewArray,
 };
+use vortex_array::stats::Stat::IsConstant;
+use vortex_array::stats::StatsProvider;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_array::{Array, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, ByteBufferMut, buffer};
 use vortex_dtype::PType::I32;
+use vortex_dtype::half::f16;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, VortexUnwrap};
 use vortex_expr::{and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
 use vortex_scalar::Scalar;
 
