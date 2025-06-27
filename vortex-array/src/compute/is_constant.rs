@@ -139,21 +139,15 @@ fn is_constant_impl(
     let min = array.statistics().get_scalar(Stat::Min, array.dtype());
     let max = array.statistics().get_scalar(Stat::Max, array.dtype());
 
-    println!(
-        "min {:?}, max {:?}",
-        array.statistics().get_as::<f32>(Stat::Min),
-        array.statistics().get_as::<f32>(Stat::Max),
-    );
-
     if let Some((min, max)) = min.zip(max) {
         // min/max are equal and exact and there are no NaNs
         if min.is_exact()
             && min == max
-            && if array
-                .dtype()
-                .is_float() { {
-                    array.statistics().get_as::<u64>(Stat::NaNCount) == Some(Precision::exact(0u64))
-                } } else { true }
+            && if array.dtype().is_float() {
+                array.statistics().get_as::<u64>(Stat::NaNCount) == Some(Precision::exact(0u64))
+            } else {
+                true
+            }
         {
             return Ok(Some(true));
         }
