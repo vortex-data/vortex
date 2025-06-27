@@ -40,6 +40,7 @@ impl Compressor for FloatCompressor {
             &ALPScheme,
             &ALPRDScheme,
             &DictScheme,
+            &RunEndScheme,
         ]
     }
 
