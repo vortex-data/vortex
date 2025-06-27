@@ -2,15 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_array::arrays::{BoolArray, BooleanBuffer, ConstantArray, PrimitiveArray, StructArray};
+use vortex_array::arrays::{
+    BoolArray, BooleanBuffer, ConstantArray, NullArray, PrimitiveArray, StructArray,
+};
+use vortex_array::builders::{ArrayBuilder as _, DecimalBuilder};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::{Array, Canonical};
+use vortex_array::{Array, Canonical, ToCanonical};
 use vortex_buffer::buffer;
 use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
-use vortex_scalar::Scalar;
+use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_err};
+use vortex_scalar::{Scalar, match_each_decimal_value_type};
 
 use crate::{SparseArray, SparseVTable};
 
@@ -21,6 +24,10 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
         }
 
         match array.dtype() {
+            DType::Null => {
+                assert!(array.fill_scalar().is_null());
+                Ok(Canonical::Null(NullArray::new(array.len())))
+            }
             DType::Bool(..) => {
                 let resolved_patches = array.resolved_patches()?;
                 canonicalize_sparse_bools(&resolved_patches, array.fill_scalar())
@@ -78,8 +85,40 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
                         .map(Canonical::Struct)
                     })?
             }
+            DType::Decimal(decimal_dtype, nullability) => {
+                let patches_decimal_value_type =
+                    array.patches().values().to_decimal()?.values_type();
+                let fill_value = array.fill_scalar().as_decimal();
 
-            dtype => vortex_bail!("unsupported type: {}", dtype),
+                let filled_array =
+                    match_each_decimal_value_type!(patches_decimal_value_type, |D| {
+                        let mut builder = DecimalBuilder::with_capacity::<D>(
+                            array.len(),
+                            *decimal_dtype,
+                            *nullability,
+                        );
+                        match fill_value.decimal_value() {
+                            Some(fill_value) => {
+                                let fill_value = fill_value
+                                    .cast::<D>()
+                                    .vortex_expect("unexpected value type");
+                                for _ in 0..array.len() {
+                                    builder.append_value(fill_value)
+                                }
+                            }
+                            None => {
+                                builder.append_nulls(array.len());
+                            }
+                        }
+                        builder.finish_into_decimal()
+                    });
+                let array = filled_array.patch(array.patches())?;
+                Ok(Canonical::Decimal(array))
+            }
+            DType::Utf8(_nullability) => todo!(),
+            DType::Binary(_nullability) => todo!(),
+            DType::List(_dtype, _nullability) => todo!(),
+            DType::Extension(_ext_dtype) => todo!(),
         }
     }
 }
@@ -138,16 +177,18 @@ fn canonicalize_sparse_primitives<
 mod test {
 
     use rstest::rstest;
-    use vortex_array::arrays::{BoolArray, BooleanBufferBuilder, PrimitiveArray, StructArray};
+    use vortex_array::arrays::{
+        BoolArray, BooleanBufferBuilder, DecimalArray, PrimitiveArray, StructArray,
+    };
     use vortex_array::arrow::IntoArrowArray as _;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::{DType, FieldNames, PType, StructFields};
+    use vortex_dtype::{DType, DecimalDType, FieldNames, PType, StructFields};
     use vortex_mask::Mask;
-    use vortex_scalar::Scalar;
+    use vortex_scalar::{DecimalValue, Scalar};
 
     use crate::SparseArray;
 
@@ -401,6 +442,41 @@ mod test {
 
         let actual = sparse_struct
             .to_struct()
+            .unwrap()
+            .to_array()
+            .into_arrow_preferred()
+            .unwrap();
+
+        assert_eq!(expected.data_type(), actual.data_type());
+        assert_eq!(&expected, &actual);
+    }
+
+    #[test]
+    fn test_sparse_decimal() {
+        let indices = buffer![0u32, 1u32, 7u32, 8u32].into_array();
+        let decimal_dtype = DecimalDType::new(3, 2);
+        let patch_values = DecimalArray::new(
+            buffer![100i128, 200i128, 300i128, 4000i128],
+            decimal_dtype,
+            Validity::from_iter([true, true, true, false]),
+        )
+        .to_array();
+        let len = 10;
+        let fill_scalar = Scalar::decimal(DecimalValue::I32(123), decimal_dtype, Nullable);
+        let sparse_struct = SparseArray::try_new(indices, patch_values, len, fill_scalar).unwrap();
+
+        let expected = DecimalArray::new(
+            buffer![100i128, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
+            decimal_dtype,
+            // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 0, 1, 7 are valid.
+            Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
+        )
+        .to_array()
+        .into_arrow_preferred()
+        .unwrap();
+
+        let actual = sparse_struct
+            .to_decimal()
             .unwrap()
             .to_array()
             .into_arrow_preferred()

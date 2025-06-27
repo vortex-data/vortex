@@ -3,6 +3,7 @@
 
 mod compute;
 mod ops;
+mod patch;
 mod serde;
 
 use arrow_buffer::BooleanBufferBuilder;
