@@ -139,17 +139,21 @@ fn is_constant_impl(
     let min = array.statistics().get_scalar(Stat::Min, array.dtype());
     let max = array.statistics().get_scalar(Stat::Max, array.dtype());
 
+    println!(
+        "min {:?}, max {:?}",
+        array.statistics().get_as::<f32>(Stat::Min),
+        array.statistics().get_as::<f32>(Stat::Max),
+    );
+
     if let Some((min, max)) = min.zip(max) {
         // min/max are equal and exact and there are no NaNs
         if min.is_exact()
             && min == max
-            && array
+            && if array
                 .dtype()
-                .is_float()
-                .then(|| {
+                .is_float() { {
                     array.statistics().get_as::<u64>(Stat::NaNCount) == Some(Precision::exact(0u64))
-                })
-                .unwrap_or(true)
+                } } else { true }
         {
             return Ok(Some(true));
         }
@@ -291,13 +295,20 @@ impl IsConstantOpts {
 #[cfg(test)]
 mod tests {
     use crate::arrays::PrimitiveArray;
+    use crate::stats::Stat;
 
     #[test]
     fn is_constant_min_max_no_nan() {
         let arr = PrimitiveArray::from_iter([0, 1]);
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max])
+            .unwrap();
         assert!(!arr.is_constant());
 
         let arr = PrimitiveArray::from_iter([0, 0]);
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max])
+            .unwrap();
         assert!(arr.is_constant());
 
         let arr = PrimitiveArray::from_option_iter([Some(0), Some(0)]);
@@ -306,11 +317,17 @@ mod tests {
 
     #[test]
     fn is_constant_min_max_with_nan() {
-        let arr = PrimitiveArray::from_option_iter([Some(0.0), Some(f32::NAN)]);
+        let arr = PrimitiveArray::from_iter([0.0, 0.0, f32::NAN]);
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max])
+            .unwrap();
         assert!(!arr.is_constant());
 
         let arr =
             PrimitiveArray::from_option_iter([Some(f32::NEG_INFINITY), Some(f32::NEG_INFINITY)]);
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max])
+            .unwrap();
         assert!(arr.is_constant());
     }
 }
