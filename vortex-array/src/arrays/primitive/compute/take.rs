@@ -1,6 +1,7 @@
 use std::mem::{MaybeUninit, transmute};
 use std::simd;
 
+use multiversion::multiversion;
 use num_traits::AsPrimitive;
 use simd::num::SimdUint;
 use vortex_buffer::{Alignment, Buffer, BufferMut};
@@ -72,11 +73,11 @@ register_kernel!(TakeKernelAdapter(PrimitiveVTable).lift());
 /// # Parameters
 /// * `indices` - Indices to gather values from
 /// * `values` - Source values to index
-/// * `nullability` - Nullability of the resulting array
 ///
 /// # Returns
 /// A `PrimitiveArray` containing the gathered values where each index has been replaced with
 /// the corresponding value from the source array.
+#[multiversion(targets("x86_64+avx+avx2"))]
 fn take_primitive_simd<I, V, const LANE_COUNT: usize>(indices: &[I], values: &[V]) -> Buffer<V>
 where
     I: simd::SimdElement + AsPrimitive<usize>,

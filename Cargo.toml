@@ -112,6 +112,7 @@ log = { version = "0.4.21" }
 memmap2 = "0.9.5"
 mimalloc = "0.1.42"
 moka = { version = "0.12.10", default-features = false }
+multiversion = "0.8.0"
 num-traits = "0.2.19"
 num_enum = { version = "0.7.3", default-features = false }
 object_store = "0.12.1"
