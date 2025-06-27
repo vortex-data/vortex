@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::{env, fs};
 
-const DUCKDB_VERSION: &str = "v1.3.0";
+const DUCKDB_VERSION: &str = "v1.3.1";
 const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
 
 fn download_duckdb_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -61,8 +61,7 @@ fn extract_duckdb_libraries(archive_path: PathBuf) -> Result<PathBuf, Box<dyn st
 
 fn main() {
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    // Directory of our DuckDB extension.
-    let duckdb_ext_dir = crate_dir.parent().unwrap().join("duckdb-vortex");
+    let duckdb_repo = crate_dir.join("duckdb");
 
     // Generate the _imported_ bindings from our C++ code.
     bindgen::Builder::default()
@@ -79,7 +78,7 @@ fn main() {
         //.generate_cstr(true) // This emits invalid syntax and breaks the Rust formatter
         .clang_arg(format!(
             "-I{}",
-            duckdb_ext_dir.join("duckdb/src/include/").to_str().unwrap()
+            duckdb_repo.join("src/include").to_str().unwrap()
         ))
         .clang_arg(format!(
             "-I{}",
@@ -117,7 +116,7 @@ fn main() {
         .flag("-Wno-c++20-designator")
         .flag("-Wno-unused-parameter")
         // We include DuckDB headers from the DuckDB extension submodule.
-        .include(duckdb_ext_dir.join("duckdb/src/include"))
+        .include(duckdb_repo.join("src/include"))
         .include("cpp/include")
         .file("cpp/data.cpp")
         .file("cpp/data_chunk.cpp")
