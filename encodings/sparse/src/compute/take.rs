@@ -7,7 +7,13 @@ use crate::{SparseArray, SparseVTable};
 
 impl TakeKernel for SparseVTable {
     fn take(&self, array: &SparseArray, take_indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let Some(new_patches) = array.patches().take(take_indices)? else {
+        let patches_take = if array.fill_scalar().is_null() {
+            array.patches().take(take_indices)?
+        } else {
+            array.patches().take_with_nulls(take_indices)?
+        };
+
+        let Some(new_patches) = patches_take else {
             let result_fill_scalar = array.fill_scalar().cast(
                 &array
                     .dtype()
@@ -21,10 +27,15 @@ impl TakeKernel for SparseVTable {
             return Ok(new_patches.into_values());
         }
 
-        Ok(
-            SparseArray::try_new_from_patches(new_patches, array.fill_scalar().clone())?
-                .into_array(),
-        )
+        Ok(SparseArray::try_new_from_patches(
+            new_patches,
+            array.fill_scalar().cast(
+                &array
+                    .dtype()
+                    .union_nullability(take_indices.dtype().nullability()),
+            )?,
+        )?
+        .into_array())
     }
 }
 
@@ -37,6 +48,8 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
+    use vortex_dtype::PType::I32;
+    use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
     use crate::{SparseArray, SparseVTable};
@@ -110,5 +123,67 @@ mod test {
             [0.47f64]
         );
         assert_eq!(taken.len(), 2);
+    }
+
+    #[test]
+    fn nullable_take() {
+        let arr = SparseArray::try_new(
+            buffer![1u32].into_array(),
+            buffer![10].into_array(),
+            10,
+            Scalar::primitive(1, Nullability::NonNullable),
+        )
+        .unwrap();
+
+        let taken = take(
+            arr.as_ref(),
+            PrimitiveArray::from_option_iter([Some(2u32), Some(1u32), Option::<u32>::None])
+                .as_ref(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            taken.scalar_at(0).unwrap(),
+            Scalar::primitive(1, Nullability::Nullable)
+        );
+        assert_eq!(
+            taken.scalar_at(1).unwrap(),
+            Scalar::primitive(10, Nullability::Nullable)
+        );
+        assert_eq!(
+            taken.scalar_at(2).unwrap(),
+            Scalar::null(DType::Primitive(I32, Nullability::Nullable))
+        );
+    }
+
+    #[test]
+    fn nullable_take_with_many_patches() {
+        let arr = SparseArray::try_new(
+            buffer![1u32, 3, 7, 8, 9].into_array(),
+            buffer![10, 8, 3, 2, 1].into_array(),
+            10,
+            Scalar::primitive(1, Nullability::NonNullable),
+        )
+        .unwrap();
+
+        let taken = take(
+            arr.as_ref(),
+            PrimitiveArray::from_option_iter([Some(2u32), Some(1u32), Option::<u32>::None])
+                .as_ref(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            taken.scalar_at(0).unwrap(),
+            Scalar::primitive(1, Nullability::Nullable)
+        );
+        assert_eq!(
+            taken.scalar_at(1).unwrap(),
+            Scalar::primitive(10, Nullability::Nullable)
+        );
+        assert_eq!(
+            taken.scalar_at(2).unwrap(),
+            Scalar::null(DType::Primitive(I32, Nullability::Nullable))
+        );
     }
 }

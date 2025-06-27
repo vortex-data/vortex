@@ -7,8 +7,12 @@ use num_traits::{NumCast, ToPrimitive};
 use serde::{Deserialize, Serialize};
 use vortex_buffer::BufferMut;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_dtype::{
+    DType, NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
+};
+use vortex_error::{
+    VortexError, VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_err,
+};
 use vortex_mask::{AllOr, Mask};
 use vortex_scalar::{PValue, Scalar};
 use vortex_utils::aliases::hash_map::HashMap;
@@ -268,7 +272,7 @@ impl Patches {
             AllOr::None => Ok(None),
             AllOr::Some(mask_indices) => {
                 let flat_indices = self.indices().to_primitive()?;
-                match_each_integer_ptype!(flat_indices.ptype(), |I| {
+                match_each_unsigned_integer_ptype!(flat_indices.ptype(), |I| {
                     filter_patches_with_mask(
                         flat_indices.as_slice::<I>(),
                         self.offset(),
@@ -309,30 +313,54 @@ impl Patches {
             < Self::PREFER_MAP_WHEN_PATCHES_OVER_INDICES_LESS_THAN
     }
 
+    /// Take the indicies from the patches
+    ///
+    /// Any nulls in take_indices are added to the resulting patches.
+    pub fn take_with_nulls(&self, take_indices: &dyn Array) -> VortexResult<Option<Self>> {
+        if take_indices.is_empty() {
+            return Ok(None);
+        }
+
+        let take_indices = take_indices.to_primitive()?;
+        if self.is_map_faster_than_search(&take_indices) {
+            self.take_map(take_indices, true)
+        } else {
+            self.take_search(take_indices, true)
+        }
+    }
+
     /// Take the indices from the patches.
+    ///
+    /// Any nulls in take_indices are ignored.
     pub fn take(&self, take_indices: &dyn Array) -> VortexResult<Option<Self>> {
         if take_indices.is_empty() {
             return Ok(None);
         }
+
         let take_indices = take_indices.to_primitive()?;
         if self.is_map_faster_than_search(&take_indices) {
-            self.take_map(take_indices)
+            self.take_map(take_indices, false)
         } else {
-            self.take_search(take_indices)
+            self.take_search(take_indices, false)
         }
     }
 
-    pub fn take_search(&self, take_indices: PrimitiveArray) -> VortexResult<Option<Self>> {
+    pub fn take_search(
+        &self,
+        take_indices: PrimitiveArray,
+        include_nulls: bool,
+    ) -> VortexResult<Option<Self>> {
         let indices = self.indices.to_primitive()?;
         let new_length = take_indices.len();
 
         let Some((new_indices, values_indices)) =
-            match_each_integer_ptype!(indices.ptype(), |Indices| {
+            match_each_unsigned_integer_ptype!(indices.ptype(), |Indices| {
                 match_each_integer_ptype!(take_indices.ptype(), |TakeIndices| {
                     take_search::<_, TakeIndices>(
                         indices.as_slice::<Indices>(),
                         take_indices,
                         self.offset(),
+                        include_nulls,
                     )?
                 })
             })
@@ -348,12 +376,16 @@ impl Patches {
         )))
     }
 
-    pub fn take_map(&self, take_indices: PrimitiveArray) -> VortexResult<Option<Self>> {
+    pub fn take_map(
+        &self,
+        take_indices: PrimitiveArray,
+        include_nulls: bool,
+    ) -> VortexResult<Option<Self>> {
         let indices = self.indices.to_primitive()?;
         let new_length = take_indices.len();
 
         let Some((new_sparse_indices, value_indices)) =
-            match_each_integer_ptype!(self.indices_ptype(), |Indices| {
+            match_each_unsigned_integer_ptype!(indices.ptype(), |Indices| {
                 match_each_integer_ptype!(take_indices.ptype(), |TakeIndices| {
                     take_map::<_, TakeIndices>(
                         indices.as_slice::<Indices>(),
@@ -361,6 +393,7 @@ impl Patches {
                         self.offset(),
                         self.min_index()?,
                         self.max_index()?,
+                        include_nulls,
                     )?
                 })
             })
@@ -396,6 +429,7 @@ fn take_search<I: NativePType + NumCast + PartialOrd, T: NativePType + NumCast>(
     indices: &[I],
     take_indices: PrimitiveArray,
     indices_offset: usize,
+    include_nulls: bool,
 ) -> VortexResult<Option<(ArrayRef, ArrayRef)>>
 where
     usize: TryFrom<T>,
@@ -407,20 +441,21 @@ where
     let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) = take_indices
         .as_slice::<T>()
         .iter()
-        .map(|v| {
-            match I::from(*v) {
-                None => {
-                    // If the cast failed, then the value is greater than all indices.
-                    SearchResult::NotFound(indices.len())
-                }
-                Some(v) => indices.search_sorted(&(v + indices_offset), SearchSortedSide::Left),
-            }
-        })
         .enumerate()
-        .filter_map(|(idx_in_take, search_result)| {
-            search_result
-                .to_found()
-                .map(|patch_idx| (patch_idx as u64, idx_in_take as u64))
+        .filter_map(|(i, &v)| {
+            I::from(v)
+                .and_then(|v| {
+                    // If we have to take nulls the take index doesn't matter, make it 0 for consistency
+                    if include_nulls && take_indices_validity.is_null(i).vortex_unwrap() {
+                        Some(0)
+                    } else {
+                        indices
+                            .search_sorted(&(v + indices_offset), SearchSortedSide::Left)
+                            .to_found()
+                            .map(|patch_idx| patch_idx as u64)
+                    }
+                })
+                .map(|patch_idx| (patch_idx, i as u64))
         })
         .unzip();
 
@@ -442,6 +477,7 @@ fn take_map<I: NativePType + Hash + Eq + TryFrom<usize>, T: NativePType>(
     indices_offset: usize,
     min_index: usize,
     max_index: usize,
+    include_nulls: bool,
 ) -> VortexResult<Option<(ArrayRef, ArrayRef)>>
 where
     usize: TryFrom<T>,
@@ -458,20 +494,27 @@ where
         .enumerate()
         .map(|(value_index, sparse_index)| (sparse_index, value_index))
         .collect();
+
     let (new_sparse_indices, value_indices): (BufferMut<u64>, BufferMut<u64>) = take_indices
         .iter()
         .copied()
         .map(usize::try_from)
         .process_results(|iter| {
             iter.enumerate()
-                .filter(|(_, ti)| *ti >= min_index && *ti <= max_index)
-                .filter_map(|(new_sparse_index, take_sparse_index)| {
-                    sparse_index_to_value_index
-                        .get(
-                            &I::try_from(take_sparse_index)
-                                .vortex_expect("take_sparse_index is between min and max index"),
-                        )
-                        .map(|value_index| (new_sparse_index as u64, *value_index as u64))
+                .filter_map(|(idx_in_take, ti)| {
+                    // If we have to take nulls the take index doesn't matter, make it 0 for consistency
+                    if include_nulls && take_indices_validity.is_null(idx_in_take).vortex_unwrap() {
+                        Some((idx_in_take as u64, 0))
+                    } else if ti < min_index || ti > max_index {
+                        None
+                    } else {
+                        sparse_index_to_value_index
+                            .get(
+                                &I::try_from(ti)
+                                    .vortex_expect("take index is between min and max index"),
+                            )
+                            .map(|value_index| (idx_in_take as u64, *value_index as u64))
+                    }
                 })
                 .unzip()
         })
