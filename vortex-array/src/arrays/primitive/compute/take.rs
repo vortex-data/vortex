@@ -77,7 +77,7 @@ register_kernel!(TakeKernelAdapter(PrimitiveVTable).lift());
 /// # Returns
 /// A `PrimitiveArray` containing the gathered values where each index has been replaced with
 /// the corresponding value from the source array.
-#[multiversion(targets("x86_64+avx+avx2"))]
+#[multiversion(targets("x86_64+avx2", "x86_64+avx"))]
 fn take_primitive_simd<I, V, const LANE_COUNT: usize>(indices: &[I], values: &[V]) -> Buffer<V>
 where
     I: simd::SimdElement + AsPrimitive<usize>,
