@@ -7,28 +7,44 @@ use futures_util::TryStreamExt;
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::IntoArrowArray;
-use vortex_array::compute::{Operator, compare};
+use vortex_array::compute::{Operator, compare, filter};
 use vortex_array::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::{DType, StructFields};
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_panic};
-use vortex_expr::root;
+use vortex_expr::{Scope, lit, root};
 use vortex_file::{VortexOpenOptions, VortexWriteOptions};
 use vortex_fuzz::FuzzFileAction;
+use vortex_mask::Mask;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
 fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let FuzzFileAction {
         array,
-        projection,
-        filter,
+        projection_expr,
+        filter_expr,
     } = fuzz;
     let array_data = array;
 
     if has_nullable_struct(array_data.dtype()) || has_duplicate_field_names(array_data.dtype()) {
         return Corpus::Reject;
     }
+
+    let expected_array = {
+        let bool_mask = filter_expr
+            .clone()
+            .unwrap_or_else(|| lit(true))
+            .evaluate(&Scope::new(array_data.clone()))
+            .vortex_unwrap();
+        let mask = Mask::try_from(&bool_mask.to_bool().vortex_unwrap()).vortex_unwrap();
+        let filtered = filter(&array_data, &mask).vortex_unwrap();
+        projection_expr
+            .clone()
+            .unwrap_or_else(|| root())
+            .evaluate(&Scope::new(filtered))
+            .vortex_unwrap()
+    };
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -47,8 +63,8 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .vortex_unwrap()
             .scan()
             .vortex_unwrap()
-            .with_projection(projection.unwrap_or_else(|| root()))
-            .with_some_filter(filter)
+            .with_projection(projection_expr.unwrap_or_else(|| root()))
+            .with_some_filter(filter_expr)
             .into_array_stream()
             .vortex_unwrap()
             .try_collect::<Vec<_>>()
@@ -56,39 +72,42 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .vortex_unwrap();
 
         let output_array = match output.len() {
-            0 => Canonical::empty(array_data.dtype()).into_array(),
+            0 => Canonical::empty(expected_array.dtype()).into_array(),
             1 => output.pop().vortex_expect("one output"),
             _ => ChunkedArray::from_iter(output).into_array(),
         };
 
         assert_eq!(
-            array_data.len(),
+            expected_array.len(),
             output_array.len(),
             "Length was not preserved."
         );
         assert_eq!(
-            array_data.dtype(),
+            expected_array.dtype(),
             output_array.dtype(),
             "DTypes aren't preserved expected {}, actual {}",
-            array_data.dtype(),
+            expected_array.dtype(),
             output_array.dtype()
         );
 
-        if matches!(array_data.dtype(), DType::Struct(_, _) | DType::List(_, _)) {
-            compare_struct(array_data, output_array);
+        if matches!(
+            expected_array.dtype(),
+            DType::Struct(_, _) | DType::List(_, _)
+        ) {
+            compare_struct(expected_array, output_array);
         } else {
-            let bool_result = compare(&array_data, &output_array, Operator::Eq)
+            let bool_result = compare(&expected_array, &output_array, Operator::Eq)
                 .vortex_unwrap()
                 .to_bool()
                 .vortex_unwrap();
             let true_count = bool_result.boolean_buffer().count_set_bits();
-            if true_count != array_data.len()
+            if true_count != expected_array.len()
                 && (bool_result.all_valid().vortex_unwrap()
-                    || array_data.all_valid().vortex_unwrap())
+                    || expected_array.all_valid().vortex_unwrap())
             {
                 vortex_panic!(
                     "Failed to match original array {}with{}",
-                    array_data.tree_display(),
+                    expected_array.tree_display(),
                     output_array.tree_display()
                 );
             }
