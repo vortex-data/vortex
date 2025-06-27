@@ -327,6 +327,8 @@ jobs:
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
             --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
+            --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
+            --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
