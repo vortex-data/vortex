@@ -463,7 +463,7 @@ async fn bench_main(
 
 fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow::Result<()> {
     let query_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../duckdb-vortex/duckdb/extension/tpch/dbgen/queries");
+        .join("../vortex-duckdb/duckdb/extension/tpch/dbgen/queries");
 
     let tmp_dir = format!(
         "{}/spiral-tpch",
