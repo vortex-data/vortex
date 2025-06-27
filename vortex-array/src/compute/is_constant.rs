@@ -143,7 +143,7 @@ fn is_constant_impl(
         // min/max are equal and exact and there are no NaNs
         if min.is_exact()
             && min == max
-            && (!array.dtype().is_float()
+            && (Stat::NaNCount.dtype(array.dtype()).is_none()
                 || array.statistics().get_as::<u64>(Stat::NaNCount) == Some(Precision::exact(0u64)))
         {
             return Ok(Some(true));
