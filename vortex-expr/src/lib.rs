@@ -15,6 +15,7 @@ pub mod pruning;
 #[cfg(feature = "proto")]
 mod registry;
 mod scope;
+mod scope_vars;
 pub mod transform;
 pub mod traversal;
 
