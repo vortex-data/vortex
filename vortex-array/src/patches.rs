@@ -124,11 +124,6 @@ impl Patches {
         }
     }
 
-    // TODO(ngates): remove this...
-    pub fn into_parts(self) -> (usize, usize, ArrayRef, ArrayRef) {
-        (self.array_len, self.offset, self.indices, self.values)
-    }
-
     pub fn array_len(&self) -> usize {
         self.array_len
     }
