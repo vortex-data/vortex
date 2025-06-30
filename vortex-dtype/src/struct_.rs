@@ -166,6 +166,12 @@ pub struct StructFields {
     dtypes: Arc<[FieldDType]>,
 }
 
+impl Default for StructFields {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
 impl StructFields {
     /// The fields of the empty struct.
     pub fn empty() -> Self {
