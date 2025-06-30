@@ -23,8 +23,6 @@ pub struct DuckdbTpcOptions {
     pub dataset: TpcDataset,
 
     pub format: Format,
-
-    pub duckdb_path: Option<PathBuf>,
 }
 
 impl DuckdbTpcOptions {
@@ -47,7 +45,6 @@ impl DuckdbTpcOptions {
             base_dir,
             dataset,
             format,
-            duckdb_path: None,
         }
     }
 }
@@ -72,10 +69,6 @@ impl DuckdbTpcOptions {
         self.dataset = dataset;
         self
     }
-    pub fn with_duckdb_path(mut self, path: PathBuf) -> Self {
-        self.duckdb_path = Some(path);
-        self
-    }
 }
 
 pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
@@ -94,7 +87,7 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
         return Ok(output_dir);
     }
 
-    let mut command = Command::new(opts.duckdb_path.unwrap_or_else(|| PathBuf::from("duckdb")));
+    let mut command = Command::new("duckdb");
     command
         .arg("-c")
         .arg("install vortex from community; load vortex;");

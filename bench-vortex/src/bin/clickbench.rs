@@ -40,8 +40,6 @@ struct Args {
         ]
     )]
     targets: Vec<Target>,
-    #[arg(long)]
-    duckdb_path: Option<PathBuf>,
     #[arg(short, long, default_value_t = 5)]
     iterations: usize,
     #[arg(short, long)]
@@ -243,11 +241,6 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn validate_args(engines: &[Engine], args: &Args) {
-    assert!(
-        args.duckdb_path.is_none() || engines.contains(&Engine::DuckDB),
-        "--duckdb-path is only valid when DuckDB engine is used"
-    );
-
     if (args.emit_plan || args.export_spans || args.show_metrics || args.threads.is_some())
         && !engines.contains(&Engine::DataFusion)
     {

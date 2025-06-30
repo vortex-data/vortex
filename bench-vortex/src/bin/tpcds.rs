@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use bench_vortex::ddb::{DuckDBExecutor, register_tables};
@@ -8,7 +8,7 @@ use bench_vortex::tpcds::{benchmark_duckdb_query, run_datafusion_tpcds_query, tp
 use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::tpch::load_datasets;
 use bench_vortex::utils::{TPCDS_DATASET, TPCH_DATASET, new_tokio_runtime};
-use bench_vortex::{BenchmarkDataset, Engine, IdempotentPath, Target, ddb, default_env_filter};
+use bench_vortex::{BenchmarkDataset, Engine, IdempotentPath, Target, default_env_filter};
 use clap::{Parser, value_parser};
 use datafusion::prelude::SessionContext;
 use indicatif::ProgressBar;
@@ -31,8 +31,6 @@ struct Args {
         ]
     )]
     targets: Vec<Target>,
-    #[arg(long)]
-    duckdb_path: Option<PathBuf>,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
     #[arg(short, long, value_delimiter = ',')]
@@ -92,11 +90,8 @@ fn main() -> anyhow::Result<()> {
         .unique()
         .collect_vec();
 
-    let duckdb_resolved_path = ddb::duckdb_executable_path(&args.duckdb_path);
-
     for format in formats {
-        let opts = DuckdbTpcOptions::new("tpcds".to_data_path(), TpcDataset::TpcDs, format)
-            .with_duckdb_path(duckdb_resolved_path.clone());
+        let opts = DuckdbTpcOptions::new("tpcds".to_data_path(), TpcDataset::TpcDs, format);
         generate_tpc(opts).expect("gen tpch-ds");
     }
 
@@ -122,7 +117,6 @@ fn main() -> anyhow::Result<()> {
         args.targets,
         args.display_format,
         url,
-        &duckdb_resolved_path,
     ))?;
 
     // Require trace guard lives until here
@@ -139,7 +133,6 @@ async fn bench_main(
     targets: Vec<Target>,
     display_format: DisplayFormat,
     url: Url,
-    duckdb_resolved_path: &Path,
 ) -> anyhow::Result<()> {
     info!(
         "Benchmarking against these targets: {}.",
@@ -174,7 +167,7 @@ async fn bench_main(
                 let duckdb_file =
                     format!("tpcds/{scale_factor}/{}/db.db", format.name()).to_data_path();
 
-                let executor = DuckDBExecutor::new(duckdb_resolved_path, duckdb_file);
+                let executor = DuckDBExecutor::new(PathBuf::from("duckdb"), duckdb_file);
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcDS)?;
 
                 for (query_idx, sql_query) in tpch_queries.clone() {

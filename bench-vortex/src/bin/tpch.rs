@@ -46,8 +46,6 @@ struct Args {
         ]
     )]
     targets: Vec<Target>,
-    #[arg(long)]
-    duckdb_path: Option<PathBuf>,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
     #[arg(short, long, value_delimiter = ',')]
@@ -123,7 +121,6 @@ fn main() -> anyhow::Result<()> {
 
     let formats = args.targets.iter().map(|t| t.format()).collect_vec();
     let runtime = new_tokio_runtime(args.threads);
-    let duckdb_resolved_path = ddb::duckdb_executable_path(&args.duckdb_path);
 
     let url = match args.use_remote_data_dir {
         None => {
@@ -135,8 +132,7 @@ fn main() -> anyhow::Result<()> {
                     format
                 };
                 let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, format)
-                    .with_scale_factor(args.scale_factor)
-                    .with_duckdb_path(duckdb_resolved_path.clone());
+                    .with_scale_factor(args.scale_factor);
                 generate_tpc(opts)?;
             }
 
@@ -181,7 +177,6 @@ fn main() -> anyhow::Result<()> {
         args.all_metrics,
         args.export_spans,
         args.emit_plan,
-        duckdb_resolved_path,
     ))
 }
 
@@ -299,7 +294,6 @@ async fn bench_main(
     display_all_metrics: bool,
     export_spans: bool,
     emit_plan: bool,
-    duckdb_resolved_path: PathBuf,
 ) -> anyhow::Result<()> {
     let expected_row_counts = if scale_factor == 1 {
         EXPECTED_ROW_COUNTS_SF1
@@ -405,7 +399,7 @@ async fn bench_main(
                 let duckdb_file =
                     format!("tpch/{scale_factor}/{}/duckdb.db", format.name()).to_data_path();
 
-                let executor = DuckDBExecutor::new(duckdb_resolved_path.clone(), duckdb_file);
+                let executor = DuckDBExecutor::new("duckdb", duckdb_file);
                 register_tables(&executor, &url, format, BenchmarkDataset::TpcH)?;
 
                 for (query_idx, sql_queries) in tpch_queries.clone() {
@@ -455,13 +449,13 @@ async fn bench_main(
     // The CI env var is defined by Github Actions.
     // https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables#default-environment-variables
     if targets.iter().any(|t| t.engine() == Engine::DuckDB) && env::var("CI").is_ok() {
-        verify_duckdb_tpch_results(scale_factor, duckdb_resolved_path)?;
+        verify_duckdb_tpch_results(scale_factor)?;
     }
 
     anyhow::Ok(())
 }
 
-fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow::Result<()> {
+fn verify_duckdb_tpch_results(scale_factor: u8) -> anyhow::Result<()> {
     let query_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vortex-duckdb/duckdb/extension/tpch/dbgen/queries");
 
@@ -477,7 +471,7 @@ fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow:
     fs::create_dir(&tmp_dir)?;
     let db_path = format!("{tmp_dir}/tpch_results_sf.db");
 
-    let executor = DuckDBExecutor::new(duckdb_path, &db_path);
+    let executor = DuckDBExecutor::new("duckdb", &db_path);
     ddb::execute_tpch_query(&[format!("CALL dbgen(sf={})", scale_factor)], &executor)?;
 
     let query_files = fs::read_dir(query_dir)?
@@ -530,11 +524,6 @@ fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow:
 }
 
 fn validate_args(engines: &[Engine], args: &Args) {
-    assert!(
-        args.duckdb_path.is_none() || engines.contains(&Engine::DuckDB),
-        "--duckdb-path is only valid if DuckDB is used"
-    );
-
     if (args.all_metrics || args.export_spans || args.emit_plan || args.threads.is_some())
         && !engines.contains(&Engine::DataFusion)
     {
