@@ -97,6 +97,14 @@ impl Value {
         let huge = unsafe { cpp::duckdb_get_hugeint(self.ptr) };
         i128_from_parts(huge.upper, huge.lower)
     }
+
+    pub fn as_date(&self) -> i32 {
+        unsafe { cpp::duckdb_get_date(self.ptr).days }
+    }
+
+    pub fn as_time(&self) -> i64 {
+        unsafe { cpp::duckdb_get_time(self.ptr).micros }
+    }
 }
 
 #[inline]

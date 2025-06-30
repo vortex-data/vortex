@@ -17,7 +17,7 @@ mod tests {
     fn database_connection() -> Connection {
         let db = Database::open_in_memory().unwrap();
         let connection = db.connect().unwrap();
-        crate::init(&connection).unwrap();
+        crate::register_table_functions(&connection).unwrap();
         connection
     }
 

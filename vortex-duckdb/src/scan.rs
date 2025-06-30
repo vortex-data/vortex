@@ -218,23 +218,25 @@ impl TableFunction for VortexTableFunction {
         };
 
         loop {
-            if !global_state
-                .is_first_file_processed
-                .swap(true, atomic::Ordering::SeqCst)
-            {
-                local_state.exporter = Some(exporter_for_file(&bind_data.first_file)?);
-            }
-            // Retrieve a file path from the shared lock-free queue.
-            else if let Some(file_path) = global_state.file_paths.pop() {
-                let file = VortexOpenOptions::file()
-                    .open_blocking(&file_path)
-                    .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
+            if local_state.exporter.is_none() {
+                if !global_state
+                    .is_first_file_processed
+                    .swap(true, atomic::Ordering::SeqCst)
+                {
+                    local_state.exporter = Some(exporter_for_file(&bind_data.first_file)?);
+                }
+                // Retrieve a file path from the shared lock-free queue.
+                else if let Some(file_path) = global_state.file_paths.pop() {
+                    let file = VortexOpenOptions::file()
+                        .open_blocking(&file_path)
+                        .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
-                local_state.exporter = Some(exporter_for_file(&file)?);
-            } else {
-                // If the exporter is None and there are no more files to process, signal that the scan finished.
-                chunk.set_len(0);
-                return Ok(());
+                    local_state.exporter = Some(exporter_for_file(&file)?);
+                } else {
+                    // If the exporter is None and there are no more files to process, signal that the scan finished.
+                    chunk.set_len(0);
+                    return Ok(());
+                }
             }
 
             let Some(ref mut exporter) = local_state.exporter else {
