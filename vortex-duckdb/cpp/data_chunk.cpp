@@ -2,7 +2,7 @@
 
 #include "duckdb_vx.h"
 
-const char *duckdb_data_chunk_to_string2(duckdb_data_chunk chunk, duckdb_vx_error *err) {
+const char *duckdb_data_chunk_to_string(duckdb_data_chunk chunk, duckdb_vx_error *err) {
     try {
         auto dchunk = reinterpret_cast<duckdb::DataChunk *>(chunk);
         auto str = dchunk->ToString();
@@ -17,7 +17,7 @@ const char *duckdb_data_chunk_to_string2(duckdb_data_chunk chunk, duckdb_vx_erro
     }
 }
 
-void duckdb_data_chunk_verify2(duckdb_data_chunk chunk, duckdb_vx_error *err) {
+void duckdb_data_chunk_verify(duckdb_data_chunk chunk, duckdb_vx_error *err) {
     try {
         auto dchunk = reinterpret_cast<duckdb::DataChunk *>(chunk);
         dchunk->Verify();
