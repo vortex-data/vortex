@@ -421,6 +421,15 @@ jobs:
         with:
           command: check ${{ matrix.checks }}
 
+  ffi-test:
+    name: "FFI example test"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - run: cargo build -p vortex-ffi
+      - run: cargo run -p vortex-ffi --example hello_vortex
+
   wasm-integration:
     name: "wasm-integration"
     runs-on: ubuntu-latest
