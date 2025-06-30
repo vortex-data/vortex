@@ -15,8 +15,7 @@ use vortex_dtype::{
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::var_partition::{VarPartitionedExpr, var_partitions_with_map};
 use vortex_expr::{
-    ExactExpr, ExprRef, Identifier, Scope, ScopeDType, ScopeDTypeElement, ScopeElement,
-    ScopeFieldPathSetElement,
+    ExactExpr, ExprRef, Identifier, Scope, ScopeDType, ScopeElement, ScopeFieldPathSetElement,
 };
 use vortex_mask::Mask;
 use vortex_sequence::SequenceArray;
@@ -28,6 +27,7 @@ pub struct RowIdLayoutReader {
     name: Arc<str>,
     partitioned_expr_cache: DashMap<ExactExpr, Arc<VarPartitionedExpr>>,
     file_index: u64,
+    scope_dtype: ScopeDType,
 }
 
 pub static ROW_ID: LazyLock<Identifier> =
@@ -39,11 +39,22 @@ impl RowIdLayoutReader {
     }
 
     pub fn new_with_file_index(child: LayoutReaderRef, file_index: u64) -> Self {
+        let scope_dtype = ScopeDType::new(child.dtype().clone()).with_dtype_element((
+            ROW_ID.clone(),
+            DType::Struct(
+                Arc::new(StructFields::from_iter([
+                    (FieldName::from("file_row_number"), DType::from(U64)),
+                    ("file_index".into(), U64.into()),
+                ])),
+                Nullability::NonNullable,
+            ),
+        ));
         Self {
             child,
             name: Arc::from("row_id_layout_reader"),
             partitioned_expr_cache: Default::default(),
             file_index,
+            scope_dtype,
         }
     }
 }
@@ -89,19 +100,6 @@ impl RowIdLayoutReader {
             ])
             .vortex_expect("valid struct array")
             .to_array(),
-        )
-    }
-
-    pub fn row_id_scope_dtype() -> ScopeDTypeElement {
-        (
-            ROW_ID.clone(),
-            DType::Struct(
-                Arc::new(StructFields::from_iter([
-                    (FieldName::from("file_row_number"), DType::from(U64)),
-                    ("file_index".into(), U64.into()),
-                ])),
-                Nullability::NonNullable,
-            ),
         )
     }
 
@@ -157,6 +155,10 @@ impl LayoutReader for RowIdLayoutReader {
 
     fn dtype(&self) -> &DType {
         self.child.dtype()
+    }
+
+    fn scope_dtype(&self) -> &ScopeDType {
+        &self.scope_dtype
     }
 
     fn row_count(&self) -> Precision<u64> {

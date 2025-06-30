@@ -13,7 +13,7 @@ use vortex_array::{ArrayContext, ToCanonical};
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, Scope, ScopeFieldPathSet, root};
+use vortex_expr::{ExprRef, Scope, ScopeDType, ScopeFieldPathSet, root};
 use vortex_mask::Mask;
 
 use crate::layouts::zoned::ZonedLayout;
@@ -170,6 +170,10 @@ impl LayoutReader for ZonedReader {
 
     fn dtype(&self) -> &DType {
         self.data_child.dtype()
+    }
+
+    fn scope_dtype(&self) -> &ScopeDType {
+        self.data_child.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {
