@@ -167,6 +167,14 @@ pub struct StructFields {
 }
 
 impl StructFields {
+    /// The fields of the empty struct.
+    pub fn empty() -> Self {
+        Self {
+            names: Arc::from(vec![]),
+            dtypes: Arc::from(vec![]),
+        }
+    }
+
     /// Create a new [`StructFields`] from a list of names and dtypes
     pub fn new(names: FieldNames, dtypes: Vec<DType>) -> Self {
         if names.len() != dtypes.len() {
