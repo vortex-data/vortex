@@ -1,12 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
 
 use anyhow::Result;
 use xshell::Shell;
 
 use crate::Format;
-use crate::ddb::DuckDBExecutor;
 
 pub enum TpcDataset {
     TpcH,
@@ -142,12 +140,4 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
     sh.write_file(success_file, vec![])?;
 
     Ok(output_dir)
-}
-
-/// Convenience wrapper for TPC-H benchmarks
-pub fn execute_duckdb_tpch_query(
-    queries: &[String],
-    duckdb_executor: &DuckDBExecutor,
-) -> Result<Duration> {
-    crate::engines::ddb::execute_query(queries, duckdb_executor)
 }
