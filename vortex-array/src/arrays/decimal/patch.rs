@@ -12,9 +12,9 @@ use crate::vtable::ValidityHelper;
 
 impl DecimalArray {
     pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
-        let (_, offset, patch_indices, patch_values) = patches.clone().into_parts();
-        let patch_indices = patch_indices.to_primitive()?;
-        let patch_values = patch_values.to_decimal()?;
+        let offset = patches.offset();
+        let patch_indices = patches.indices().to_primitive()?;
+        let patch_values = patches.values().to_decimal()?;
 
         let patched_validity = self.validity().clone().patch(
             self.len(),
@@ -41,7 +41,6 @@ impl DecimalArray {
     where
         T: NativeDecimalType,
         I: NativePType + ArrowNativeType,
-        //     T: NativePType + ArrowNativeType,
     {
         let mut own_values = self.buffer::<T>().into_mut();
 
