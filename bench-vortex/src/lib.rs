@@ -25,7 +25,7 @@ pub mod tpch;
 pub mod utils;
 
 pub use datasets::{BenchmarkDataset, file};
-pub use engines::{ddb, ddb2, df};
+pub use engines::df;
 pub use vortex::error::vortex_panic;
 
 // All benchmarks run with mimalloc for consistency.

@@ -1,16 +1,14 @@
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
-
-use bench_vortex::ddb::{DuckDBExecutor, register_tables};
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
+use bench_vortex::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_query};
 use bench_vortex::measurements::QueryMeasurement;
-use bench_vortex::tpcds::{benchmark_duckdb_query, run_datafusion_tpcds_query, tpcds_queries};
+use bench_vortex::tpcds::tpcds_queries;
 use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::tpch::load_datasets;
 use bench_vortex::utils::{TPCDS_DATASET, TPCH_DATASET, new_tokio_runtime};
-use bench_vortex::{BenchmarkDataset, Engine, IdempotentPath, Target, ddb, default_env_filter};
+use bench_vortex::{
+    BenchmarkDataset, Engine, IdempotentPath, Target, default_env_filter, vortex_panic,
+};
 use clap::{Parser, value_parser};
-use datafusion::prelude::SessionContext;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::info;
@@ -31,8 +29,6 @@ struct Args {
         ]
     )]
     targets: Vec<Target>,
-    #[arg(long)]
-    duckdb_path: Option<PathBuf>,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
     #[arg(short, long, value_delimiter = ',')]
@@ -92,11 +88,8 @@ fn main() -> anyhow::Result<()> {
         .unique()
         .collect_vec();
 
-    let duckdb_resolved_path = ddb::duckdb_executable_path(&args.duckdb_path);
-
     for format in formats {
-        let opts = DuckdbTpcOptions::new("tpcds".to_data_path(), TpcDataset::TpcDs, format)
-            .with_duckdb_path(duckdb_resolved_path.clone());
+        let opts = DuckdbTpcOptions::new("tpcds".to_data_path(), TpcDataset::TpcDs, format);
         generate_tpc(opts).expect("gen tpch-ds");
     }
 
@@ -122,7 +115,6 @@ fn main() -> anyhow::Result<()> {
         args.targets,
         args.display_format,
         url,
-        &duckdb_resolved_path,
     ))?;
 
     // Require trace guard lives until here
@@ -139,7 +131,6 @@ async fn bench_main(
     targets: Vec<Target>,
     display_format: DisplayFormat,
     url: Url,
-    duckdb_resolved_path: &Path,
 ) -> anyhow::Result<()> {
     info!(
         "Benchmarking against these targets: {}.",
@@ -170,28 +161,27 @@ async fn bench_main(
         match engine {
             // TODO(joe): support datafusion
             Engine::DuckDB => {
-                let scale_factor = 1;
-                let duckdb_file =
-                    format!("tpcds/{scale_factor}/{}/db.db", format.name()).to_data_path();
+                if let EngineCtx::DuckDB(ctx) = &EngineCtx::new_with_duckdb()? {
+                    ctx.register_tables(&url, format, BenchmarkDataset::TpcDS)?;
 
-                let executor = DuckDBExecutor::new(duckdb_resolved_path, duckdb_file);
-                register_tables(&executor, &url, format, BenchmarkDataset::TpcDS)?;
+                    for (query_idx, sql_query) in &tpch_queries {
+                        let fastest_run =
+                            benchmark_duckdb_query(*query_idx, sql_query, iterations, ctx);
 
-                for (query_idx, sql_query) in tpch_queries.clone() {
-                    let fastest_run =
-                        benchmark_duckdb_query(query_idx, &sql_query, iterations, &executor);
+                        let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
 
-                    let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
+                        measurements.push(QueryMeasurement {
+                            query_idx: *query_idx,
+                            target: *target,
+                            storage,
+                            fastest_run,
+                            dataset: TPCDS_DATASET.to_owned(),
+                        });
 
-                    measurements.push(QueryMeasurement {
-                        query_idx,
-                        target: *target,
-                        storage,
-                        fastest_run,
-                        dataset: TPCDS_DATASET.to_owned(),
-                    });
-
-                    progress.inc(1);
+                        progress.inc(1);
+                    }
+                } else {
+                    return Err(anyhow::anyhow!("Expected DuckDB engine context"));
                 }
             }
             Engine::DataFusion => {
@@ -199,9 +189,18 @@ async fn bench_main(
                 let ctx = load_datasets(&url, format, BenchmarkDataset::TpcDS, true).await?;
 
                 for (query_idx, sql_queries) in tpch_queries.clone() {
-                    // Run benchmark as an async function
-                    let fastest_run =
-                        benchmark_datafusion_query(&sql_queries, iterations, &ctx).await;
+                    let (fastest_run, _) = benchmark_datafusion_query(iterations, || async {
+                        let (record_batches, _metrics) =
+                            bench_vortex::df::execute_query(&ctx, &sql_queries)
+                                .await
+                                .unwrap_or_else(|err| {
+                                    vortex_panic!("query: {query_idx} failed with: {err}")
+                                });
+                        let q_row_count =
+                            record_batches.iter().map(|r| r.num_rows()).sum::<usize>();
+                        q_row_count
+                    })
+                    .await;
 
                     let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
 
@@ -231,23 +230,4 @@ async fn bench_main(
         }
     };
     Ok(())
-}
-
-async fn benchmark_datafusion_query(
-    query_string: &str,
-    iterations: usize,
-    context: &SessionContext,
-) -> Duration {
-    let mut fastest_run = Duration::from_millis(u64::MAX);
-
-    for _ in 0..iterations {
-        let start = Instant::now();
-        // TODO(joe): add row count
-        let _q_row_count = run_datafusion_tpcds_query(context, query_string).await;
-        let elapsed = start.elapsed();
-
-        fastest_run = fastest_run.min(elapsed);
-    }
-
-    fastest_run
 }

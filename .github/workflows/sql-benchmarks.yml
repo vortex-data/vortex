@@ -24,7 +24,7 @@ jobs:
             binary_name: tpch
             name: TPC-H on NVME
             local_dir: bench-vortex/data/tpch/1
-            targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
+            targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:duckdb"
           - id: clickbench-nvme
             binary_name: clickbench
             name: Clickbench on NVME
@@ -35,7 +35,7 @@ jobs:
             name: TPC-H on S3
             local_dir: bench-vortex/data/tpch/1
             remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/1/
-            targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex"
+            targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet"
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge

@@ -4,7 +4,6 @@ use vortex::dtype::FieldName;
 use vortex::{ArrayRef, IntoArray, ToCanonical};
 
 use crate::datasets::Dataset;
-use crate::ddb::duckdb_executable_path;
 use crate::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use crate::{Format, IdempotentPath, tpch};
 
@@ -17,9 +16,7 @@ impl Dataset for TPCHLCommentChunked {
     }
 
     async fn to_vortex_array(&self) -> ArrayRef {
-        let duckdb_resolved_path = duckdb_executable_path(&None);
-        let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, Format::Csv)
-            .with_duckdb_path(duckdb_resolved_path.clone());
+        let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, Format::Csv);
         let data_dir = generate_tpc(opts).expect("gen tpch");
 
         let lineitem_vortex = tpch::load_table(data_dir, "lineitem", &tpch::schema::LINEITEM).await;

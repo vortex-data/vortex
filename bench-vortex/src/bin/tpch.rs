@@ -1,12 +1,10 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 use std::{env, fs};
 
 use anyhow::anyhow;
-use bench_vortex::ddb::{DuckDBExecutor, register_tables};
 use bench_vortex::df::write_execution_plan;
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
+use bench_vortex::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_query, ddb};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
@@ -17,11 +15,9 @@ use bench_vortex::tpch::{
 use bench_vortex::utils::constants::TPCH_DATASET;
 use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{
-    BenchmarkDataset, Engine, Format, IdempotentPath, Target, ddb, default_env_filter, vortex_panic,
+    BenchmarkDataset, Engine, Format, IdempotentPath, Target, default_env_filter, vortex_panic,
 };
 use clap::{Parser, ValueEnum, value_parser};
-use datafusion::execution::context::SessionContext;
-use datafusion::physical_plan::execution_plan::ExecutionPlan;
 use datafusion::physical_plan::metrics::{Label, MetricsSet};
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -46,8 +42,6 @@ struct Args {
         ]
     )]
     targets: Vec<Target>,
-    #[arg(long)]
-    duckdb_path: Option<PathBuf>,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
     #[arg(short, long, value_delimiter = ',')]
@@ -123,7 +117,6 @@ fn main() -> anyhow::Result<()> {
 
     let formats = args.targets.iter().map(|t| t.format()).collect_vec();
     let runtime = new_tokio_runtime(args.threads);
-    let duckdb_resolved_path = ddb::duckdb_executable_path(&args.duckdb_path);
 
     let url = match args.use_remote_data_dir {
         None => {
@@ -135,8 +128,7 @@ fn main() -> anyhow::Result<()> {
                     format
                 };
                 let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, format)
-                    .with_scale_factor(args.scale_factor)
-                    .with_duckdb_path(duckdb_resolved_path.clone());
+                    .with_scale_factor(args.scale_factor);
                 generate_tpc(opts)?;
             }
 
@@ -181,7 +173,6 @@ fn main() -> anyhow::Result<()> {
         args.all_metrics,
         args.export_spans,
         args.emit_plan,
-        duckdb_resolved_path,
     ))
 }
 
@@ -242,50 +233,6 @@ fn verify_row_counts(
     mismatched
 }
 
-fn benchmark_duckdb_query(
-    query_idx: usize,
-    queries: &[String],
-    iterations: usize,
-    duckdb_executor: &DuckDBExecutor,
-) -> Duration {
-    (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-        let duration = ddb::execute_tpch_query(queries, duckdb_executor)
-            .unwrap_or_else(|err| vortex_panic!("query: {query_idx} failed with: {err}"));
-
-        fastest.min(duration)
-    })
-}
-
-async fn benchmark_datafusion_query(
-    query_idx: usize,
-    query_string: &[String],
-    iterations: usize,
-    context: &SessionContext,
-) -> (usize, Duration, Arc<dyn ExecutionPlan>) {
-    let mut row_count = usize::MAX;
-    let mut fastest_run = Duration::from_millis(u64::MAX);
-    let mut plan_result = None;
-
-    for _ in 0..iterations {
-        let start = Instant::now();
-        let (q_row_count, plan) = run_tpch_query(context, query_string, query_idx).await;
-        let elapsed = start.elapsed();
-        row_count = q_row_count;
-
-        if plan_result.is_none() {
-            plan_result = Some(plan.clone());
-        }
-
-        fastest_run = fastest_run.min(elapsed);
-    }
-
-    (
-        row_count,
-        fastest_run,
-        plan_result.vortex_expect("Execution plan must be set"),
-    )
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn bench_main(
     queries: Option<Vec<usize>>,
@@ -299,7 +246,6 @@ async fn bench_main(
     display_all_metrics: bool,
     export_spans: bool,
     emit_plan: bool,
-    duckdb_resolved_path: PathBuf,
 ) -> anyhow::Result<()> {
     let expected_row_counts = if scale_factor == 1 {
         EXPECTED_ROW_COUNTS_SF1
@@ -354,9 +300,11 @@ async fn bench_main(
                 let mut plans = Vec::new();
 
                 for (query_idx, sql_queries) in tpch_queries.clone() {
-                    // Run benchmark as an async function
-                    let (row_count, fastest_run, plan) =
-                        benchmark_datafusion_query(query_idx, &sql_queries, iterations, &ctx).await;
+                    let (fastest_run, (row_count, plan)) =
+                        benchmark_datafusion_query(iterations, || async {
+                            run_tpch_query(&ctx, &sql_queries, query_idx).await
+                        })
+                        .await;
 
                     row_counts.push((query_idx, format, row_count));
 
@@ -402,27 +350,33 @@ async fn bench_main(
 
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
-                let duckdb_file =
-                    format!("tpch/{scale_factor}/{}/duckdb.db", format.name()).to_data_path();
+                let engine_ctx = EngineCtx::new_with_duckdb()?;
 
-                let executor = DuckDBExecutor::new(duckdb_resolved_path.clone(), duckdb_file);
-                register_tables(&executor, &url, format, BenchmarkDataset::TpcH)?;
+                if let EngineCtx::DuckDB(ctx) = &engine_ctx {
+                    ctx.register_tables(&url, format, BenchmarkDataset::TpcH)?;
 
-                for (query_idx, sql_queries) in tpch_queries.clone() {
-                    let fastest_run =
-                        benchmark_duckdb_query(query_idx, &sql_queries, iterations, &executor);
+                    for (query_idx, sql_queries) in tpch_queries.clone() {
+                        let fastest_run = benchmark_duckdb_query(
+                            query_idx,
+                            &sql_queries.join(";"),
+                            iterations,
+                            ctx,
+                        );
 
-                    let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
+                        let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
 
-                    measurements.push(QueryMeasurement {
-                        query_idx,
-                        target: *target,
-                        storage,
-                        fastest_run,
-                        dataset: TPCH_DATASET.to_owned(),
-                    });
+                        measurements.push(QueryMeasurement {
+                            query_idx,
+                            target: *target,
+                            storage,
+                            fastest_run,
+                            dataset: TPCH_DATASET.to_owned(),
+                        });
 
-                    progress.inc(1);
+                        progress.inc(1);
+                    }
+                } else {
+                    return Err(anyhow::anyhow!("Expected DuckDB engine context"));
                 }
             }
             _ => {
@@ -455,13 +409,13 @@ async fn bench_main(
     // The CI env var is defined by Github Actions.
     // https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables#default-environment-variables
     if targets.iter().any(|t| t.engine() == Engine::DuckDB) && env::var("CI").is_ok() {
-        verify_duckdb_tpch_results(scale_factor, duckdb_resolved_path)?;
+        verify_duckdb_tpch_results(scale_factor)?;
     }
 
     anyhow::Ok(())
 }
 
-fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow::Result<()> {
+fn verify_duckdb_tpch_results(scale_factor: u8) -> anyhow::Result<()> {
     let query_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vortex-duckdb/duckdb/extension/tpch/dbgen/queries");
 
@@ -475,10 +429,8 @@ fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow:
         fs::remove_dir_all(&tmp_dir)?;
     }
     fs::create_dir(&tmp_dir)?;
-    let db_path = format!("{tmp_dir}/tpch_results_sf.db");
-
-    let executor = DuckDBExecutor::new(duckdb_path, &db_path);
-    ddb::execute_tpch_query(&[format!("CALL dbgen(sf={})", scale_factor)], &executor)?;
+    let duckdb_ctx = ddb::DuckDBCtx::new()?;
+    duckdb_ctx.execute_query(&format!("CALL dbgen(sf={})", scale_factor))?;
 
     let query_files = fs::read_dir(query_dir)?
         .filter_map(Result::ok)
@@ -501,7 +453,8 @@ fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow:
         let write_csv =
             format!("COPY {query_name}_result TO '{csv_actual}' (HEADER, DELIMITER '|');",);
 
-        ddb::execute_tpch_query(&[create_table, write_csv], &executor)?;
+        duckdb_ctx.execute_query(&create_table)?;
+        duckdb_ctx.execute_query(&write_csv)?;
 
         let csv_expected = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(format!("tpch/results/duckdb/{query_name}.csv"));
@@ -530,11 +483,6 @@ fn verify_duckdb_tpch_results(scale_factor: u8, duckdb_path: PathBuf) -> anyhow:
 }
 
 fn validate_args(engines: &[Engine], args: &Args) {
-    assert!(
-        args.duckdb_path.is_none() || engines.contains(&Engine::DuckDB),
-        "--duckdb-path is only valid if DuckDB is used"
-    );
-
     if (args.all_metrics || args.export_spans || args.emit_plan || args.threads.is_some())
         && !engines.contains(&Engine::DataFusion)
     {

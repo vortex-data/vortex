@@ -1,11 +1,8 @@
-use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
-use bench_vortex::engines::ddb2;
+use bench_vortex::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_query};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
@@ -14,15 +11,11 @@ use bench_vortex::{
     BenchmarkDataset, Engine, Format, IdempotentPath, Target, default_env_filter, df,
 };
 use clap::{Parser, value_parser};
-use datafusion::prelude;
-use datafusion_physical_plan::ExecutionPlan;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::warn;
-use prelude::SessionContext;
 use tokio::runtime::Runtime;
-use tracing::{debug, info_span};
-use tracing_futures::Instrument;
+use tracing::debug;
 use url::Url;
 use vortex::error::{VortexExpect, vortex_panic};
 use vortex_datafusion::metrics::VortexMetricsFinder;
@@ -40,8 +33,6 @@ struct Args {
         ]
     )]
     targets: Vec<Target>,
-    #[arg(long)]
-    duckdb_path: Option<PathBuf>,
     #[arg(short, long, default_value_t = 5)]
     iterations: usize,
     #[arg(short, long)]
@@ -70,47 +61,6 @@ struct Args {
     hide_progress_bar: bool,
     #[arg(long, default_value_t = false)]
     show_metrics: bool,
-    #[arg(long)]
-    skip_duckdb_build: bool,
-}
-
-struct DataFusionCtx {
-    execution_plans: Vec<(usize, Arc<dyn ExecutionPlan>)>,
-    metrics: Vec<(
-        usize,
-        Format,
-        Vec<datafusion::physical_plan::metrics::MetricsSet>,
-    )>,
-
-    session: SessionContext,
-    emit_plan: bool,
-}
-
-enum EngineCtx {
-    DataFusion(DataFusionCtx),
-    DuckDB(ddb2::DuckDBCtx),
-}
-
-impl EngineCtx {
-    fn new_with_datafusion(session_ctx: SessionContext, emit_plan: bool) -> Self {
-        EngineCtx::DataFusion(DataFusionCtx {
-            execution_plans: Vec::new(),
-            metrics: Vec::new(),
-            session: session_ctx,
-            emit_plan,
-        })
-    }
-
-    fn new_with_duckdb() -> anyhow::Result<Self> {
-        Ok(EngineCtx::DuckDB(ddb2::DuckDBCtx::new()?))
-    }
-
-    fn to_engine(&self) -> Engine {
-        match &self {
-            EngineCtx::DuckDB(_) => Engine::DuckDB,
-            EngineCtx::DataFusion(_) => Engine::DataFusion,
-        }
-    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -243,11 +193,6 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn validate_args(engines: &[Engine], args: &Args) {
-    assert!(
-        args.duckdb_path.is_none() || engines.contains(&Engine::DuckDB),
-        "--duckdb-path is only valid when DuckDB engine is used"
-    );
-
     if (args.emit_plan || args.export_spans || args.show_metrics || args.threads.is_some())
         && !engines.contains(&Engine::DataFusion)
     {
@@ -383,10 +328,8 @@ async fn init_data_source(
 ///
 /// * `queries` - Query indices and their corresponding SQL strings
 /// * `iterations` - Number of times to execute each query
-/// * `single_file` - Whether to use a single file or multiple files for the dataset
 /// * `tokio_runtime` - Tokio runtime
 /// * `file_format` - Parquet, Vortex, etc.
-/// * `base_url` - Base URL where the dataset is located
 /// * `progress_bar` - Progress indicator for tracking query execution
 /// * `engine_ctx` - DataFusion or DuckDB context
 #[allow(clippy::too_many_arguments)]
@@ -403,13 +346,17 @@ fn execute_queries(
     for &(query_idx, ref query_string) in queries.iter() {
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                let (fastest_run, execution_plan) = benchmark_datafusion_query(
-                    query_idx,
-                    query_string,
-                    iterations,
-                    &ctx.session,
-                    tokio_runtime,
-                );
+                let (fastest_run, execution_plan) = tokio_runtime.block_on(async {
+                    benchmark_datafusion_query(iterations, || async {
+                        df::execute_query(&ctx.session, query_string)
+                            .await
+                            .unwrap_or_else(|err| {
+                                vortex_panic!("query: {query_idx} failed with: {err}")
+                            })
+                            .1
+                    })
+                    .await
+                });
 
                 ctx.execution_plans
                     .push((query_idx, execution_plan.clone()));
@@ -454,88 +401,4 @@ fn execute_queries(
     }
 
     query_measurements
-}
-
-/// Executes a single ClickBench query using DataFusion.
-///
-/// # Returns
-///
-/// - The duration of the fastest execution
-/// - The execution plan used for the query
-#[allow(clippy::unwrap_used)]
-fn benchmark_datafusion_query(
-    query_idx: usize,
-    query_string: &str,
-    iterations: usize,
-    context: &SessionContext,
-    tokio_runtime: &Runtime,
-) -> (Duration, Arc<dyn ExecutionPlan>) {
-    let execution_plan = OnceCell::new();
-
-    let fastest_run =
-        (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, iteration| {
-            tokio_runtime.block_on(async {
-                let (duration, plan) =
-                    execute_datafusion_query(query_idx, query_string, iteration, context.clone())
-                        .await
-                        .unwrap_or_else(|err| {
-                            vortex_panic!("query: {query_idx} failed with: {err}")
-                        });
-
-                if execution_plan.get().is_none() {
-                    execution_plan.set(plan).unwrap();
-                }
-
-                fastest.min(duration)
-            })
-        });
-
-    (
-        fastest_run,
-        execution_plan
-            .into_inner()
-            .vortex_expect("Execution plan must be set"),
-    )
-}
-
-async fn execute_datafusion_query(
-    query_idx: usize,
-    query_string: &str,
-    iteration: usize,
-    session_context: SessionContext,
-) -> anyhow::Result<(Duration, Arc<dyn ExecutionPlan>)> {
-    let query_string = query_string.to_owned();
-
-    let (duration, execution_plan) = tokio::task::spawn(async move {
-        let time_instant = Instant::now();
-        let (_, execution_plan) = df::execute_query(&session_context, &query_string)
-            .instrument(info_span!("execute_query", query_idx, iteration))
-            .await
-            .unwrap_or_else(|e| vortex_panic!("executing query {query_idx}: {e}"));
-
-        (time_instant.elapsed(), execution_plan)
-    })
-    .await?;
-
-    Ok((duration, execution_plan))
-}
-
-/// Executes a single ClickBench query using DuckDB.
-///
-/// # Returns
-///
-/// The duration of the fastest execution
-fn benchmark_duckdb_query(
-    query_idx: usize,
-    query_string: &str,
-    iterations: usize,
-    duckdb_ctx: &ddb2::DuckDBCtx,
-) -> Duration {
-    (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-        let duration = duckdb_ctx
-            .execute_query(query_string)
-            .unwrap_or_else(|err| vortex_panic!("query: {query_idx} failed with: {err}"));
-
-        fastest.min(duration)
-    })
 }
