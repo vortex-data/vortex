@@ -1,34 +1,23 @@
 pub mod ddb;
 pub mod df;
 
-use std::sync::Arc;
+use std::future::Future;
+use std::time::Duration;
 
 use datafusion::prelude::SessionContext;
-use datafusion_physical_plan::ExecutionPlan;
+use vortex::error::VortexExpect;
 
-use crate::bench_vortex::Format;
-pub use crate::bench_vortex::Format;
+pub use crate::Format;
+use crate::{Engine, vortex_panic};
 
-struct DataFusionCtx {
-    execution_plans: Vec<(usize, Arc<dyn ExecutionPlan>)>,
-    metrics: Vec<(
-        usize,
-        Format,
-        Vec<datafusion::physical_plan::metrics::MetricsSet>,
-    )>,
-
-    session: SessionContext,
-    emit_plan: bool,
-}
-
-enum EngineCtx {
-    DataFusion(DataFusionCtx),
+pub enum EngineCtx {
+    DataFusion(df::DataFusionCtx),
     DuckDB(ddb::DuckDBCtx),
 }
 
 impl EngineCtx {
-    fn new_with_datafusion(session_ctx: SessionContext, emit_plan: bool) -> Self {
-        EngineCtx::DataFusion(DataFusionCtx {
+    pub fn new_with_datafusion(session_ctx: SessionContext, emit_plan: bool) -> Self {
+        EngineCtx::DataFusion(df::DataFusionCtx {
             execution_plans: Vec::new(),
             metrics: Vec::new(),
             session: session_ctx,
@@ -36,14 +25,52 @@ impl EngineCtx {
         })
     }
 
-    fn new_with_duckdb() -> anyhow::Result<Self> {
+    pub fn new_with_duckdb() -> anyhow::Result<Self> {
         Ok(EngineCtx::DuckDB(ddb::DuckDBCtx::new()?))
     }
 
-    fn to_engine(&self) -> Engine {
+    pub fn to_engine(&self) -> Engine {
         match &self {
             EngineCtx::DuckDB(_) => Engine::DuckDB,
             EngineCtx::DataFusion(_) => Engine::DataFusion,
         }
     }
+}
+
+pub fn benchmark_duckdb_query(
+    query_idx: usize,
+    query_string: &str,
+    iterations: usize,
+    duckdb_ctx: &ddb::DuckDBCtx,
+) -> Duration {
+    (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
+        let duration = duckdb_ctx
+            .execute_query(query_string)
+            .unwrap_or_else(|err| vortex_panic!("query: {query_idx} failed with: {err}"));
+
+        fastest.min(duration)
+    })
+}
+
+pub async fn benchmark_datafusion_query<T, F, Fut>(iterations: usize, mut f: F) -> (Duration, T)
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = T>,
+{
+    let mut result = None;
+    let mut fastest = Duration::from_millis(u64::MAX);
+
+    for _ in 0..iterations {
+        let start = std::time::Instant::now();
+        let iter_result = f().await;
+        let duration = start.elapsed();
+
+        if result.is_none() {
+            result = Some(iter_result);
+        }
+
+        fastest = fastest.min(duration);
+    }
+
+    (fastest, result.vortex_expect("Result must be set"))
 }
