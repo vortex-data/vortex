@@ -300,7 +300,6 @@ async fn bench_main(
                 let mut plans = Vec::new();
 
                 for (query_idx, sql_queries) in tpch_queries.clone() {
-                    // Run benchmark as an async function
                     let (fastest_run, (row_count, plan)) =
                         benchmark_datafusion_query(iterations, || async {
                             run_tpch_query(&ctx, &sql_queries, query_idx).await
