@@ -2,6 +2,7 @@
 use std::env;
 use std::path::PathBuf;
 
+#[cfg(not(miri))]
 fn main() {
     // Skip cbindgen under Miri.
     if env::var("MIRI").is_ok() {
