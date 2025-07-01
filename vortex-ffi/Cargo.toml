@@ -28,7 +28,7 @@ simplelog = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tokio-stream = { workspace = true }
 url = { workspace = true, features = [] }
-vortex = { workspace = true, features = ["object_store", "proto"] }
+vortex = { workspace = true, features = ["object_store"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

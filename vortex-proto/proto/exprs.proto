@@ -14,7 +14,7 @@ option java_outer_classname = "ExprsProtos";
 message Expr {
   string id = 1;
   repeated Expr children = 2;
-  optional bytes options = 3;
+  optional bytes metadata = 3;
 }
 
 // Options for `vortex.literal`

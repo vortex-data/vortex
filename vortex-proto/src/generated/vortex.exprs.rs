@@ -9,7 +9,7 @@ pub struct Expr {
     #[prost(message, repeated, tag = "2")]
     pub children: ::prost::alloc::vec::Vec<Expr>,
     #[prost(bytes = "vec", optional, tag = "3")]
-    pub options: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    pub metadata: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 /// Options for `vortex.literal`
 #[derive(Clone, PartialEq, ::prost::Message)]

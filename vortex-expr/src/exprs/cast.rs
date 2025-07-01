@@ -2,18 +2,40 @@ use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
 
+use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::compute::cast as compute_cast;
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_proto::exprs as pb;
 
-use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{
+    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, Scope, ScopeDType, VortexExpr,
+};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
 pub struct Cast {
     target: DType,
     child: ExprRef,
+}
+
+pub struct CastEncoding;
+
+impl ExprEncoding for CastEncoding {
+    fn id(&self) -> ExprId {
+        ExprId::new_ref("cast")
+    }
+
+    fn deserialize(&self, options: &[u8], children: Vec<ExprRef>) -> VortexResult<Option<ExprRef>> {
+        let options = pb::CastOpts::decode(options)?;
+        let target: DType = options
+            .target
+            .as_ref()
+            .ok_or_else(|| vortex_err!("empty target dtype"))?
+            .try_into()?;
+        Ok(Some(Cast::new_expr(children[0].clone(), target)))
+    }
 }
 
 impl Cast {
@@ -34,56 +56,24 @@ impl Display for Cast {
     }
 }
 
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use vortex_dtype::DType;
-    use vortex_error::{VortexResult, vortex_bail, vortex_err};
-    use vortex_proto::expr::kind;
-    use vortex_proto::expr::kind::Kind;
-
-    use crate::cast::Cast;
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id};
-
-    pub(crate) struct CastSerde;
-
-    impl Id for CastSerde {
-        fn id(&self) -> &'static str {
-            "cast"
-        }
-    }
-
-    impl ExprDeserialize for CastSerde {
-        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::Cast(kind::Cast { target }) = kind else {
-                vortex_bail!("wrong kind {:?}, want cast", kind)
-            };
-            let target: DType = target
-                .as_ref()
-                .ok_or_else(|| vortex_err!("empty target dtype"))?
-                .try_into()?;
-
-            Ok(Cast::new_expr(children[0].clone(), target))
-        }
-    }
-
-    impl ExprSerializable for Cast {
-        fn id(&self) -> &'static str {
-            CastSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::Cast(kind::Cast {
-                target: Some((&self.target).into()),
-            }))
-        }
-    }
-}
-
 impl AnalysisExpr for Cast {}
 
 impl VortexExpr for Cast {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn encoding(&self) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(&CastEncoding)
+    }
+
+    fn serialize_options(&self) -> Option<Vec<u8>> {
+        Some(
+            pb::CastOpts {
+                target: Some((&self.target).into()),
+            }
+            .encode_to_vec(),
+        )
     }
 
     fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {

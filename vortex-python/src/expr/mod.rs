@@ -4,7 +4,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::{DType, Nullability, PType};
-use vortex::expr::{BinaryExpr, ExprRef, GetItem, Operator, lit};
+use vortex::expr::{Binary, ExprRef, GetItem, Operator, lit};
 
 use crate::dtype::PyDType;
 use crate::install_module;
@@ -66,7 +66,7 @@ fn py_binary_opeartor<'py>(
     Bound::new(
         left.py(),
         PyExpr {
-            inner: BinaryExpr::new_expr(left.inner.clone(), operator, right.borrow().inner.clone()),
+            inner: Binary::new_expr(left.inner.clone(), operator, right.borrow().inner.clone()),
         },
     )
 }

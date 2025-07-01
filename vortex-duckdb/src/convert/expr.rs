@@ -5,7 +5,7 @@ use vortex::compute::{BetweenOptions, StrictComparison};
 use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    Between, BinaryExpr, ExprRef, Like, Literal, Not, Operator, and_collect, get_item_scope,
+    Between, Binary, ExprRef, Like, Literal, Not, Operator, and_collect, get_item_scope,
     list_contains, lit, or_collect,
 };
 use vortex::scalar::Scalar;
@@ -23,7 +23,7 @@ pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<Opt
         TableFilterClass::ConstantComparison(const_) => {
             let scalar: Scalar = const_.value.try_into()?;
             let col = get_item_scope(col);
-            BinaryExpr::new_expr(col, const_.operator.try_into()?, lit(scalar))
+            Binary::new_expr(col, const_.operator.try_into()?, lit(scalar))
         }
         TableFilterClass::ConjunctionAnd(conj_and) => {
             let Some(children) = conj_and
@@ -78,7 +78,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 return Ok(None);
             };
 
-            BinaryExpr::new_expr(left, operator, right)
+            Binary::new_expr(left, operator, right)
         }
         ExpressionClass::BoundBetween(between) => {
             let Some(array) = try_from_bound_expression(&between.input)? else {

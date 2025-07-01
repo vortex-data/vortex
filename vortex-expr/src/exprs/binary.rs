@@ -3,22 +3,44 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
 
+use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::compute::{Operator as ArrayOperator, add, and_kleene, compare, or_kleene};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_proto::exprs as pb;
 
-use crate::{AnalysisExpr, ExprRef, Operator, Scope, ScopeDType, StatsCatalog, VortexExpr};
+use crate::{
+    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, Operator, Scope, ScopeDType,
+    StatsCatalog, VortexExpr,
+};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
-pub struct BinaryExpr {
+pub struct Binary {
     lhs: ExprRef,
     operator: Operator,
     rhs: ExprRef,
 }
 
-impl BinaryExpr {
+pub struct BinaryEncoding;
+
+impl ExprEncoding for BinaryEncoding {
+    fn id(&self) -> ExprId {
+        ExprId::new_ref("binary")
+    }
+
+    fn deserialize(&self, options: &[u8], children: Vec<ExprRef>) -> VortexResult<Option<ExprRef>> {
+        let options = pb::BinaryOpts::decode(options)?;
+        Ok(Binary::new_expr(
+            children[0].clone(),
+            (*options.op()).try_into()?,
+            children[1].clone(),
+        ))
+    }
+}
+
+impl Binary {
     pub fn new_expr(lhs: ExprRef, operator: Operator, rhs: ExprRef) -> ExprRef {
         Arc::new(Self { lhs, operator, rhs })
     }
@@ -36,53 +58,13 @@ impl BinaryExpr {
     }
 }
 
-impl Display for BinaryExpr {
+impl Display for Binary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "({} {} {})", self.lhs, self.operator, self.rhs)
     }
 }
 
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::kind::Kind;
-
-    use crate::{BinaryExpr, ExprDeserialize, ExprRef, ExprSerializable, Id};
-
-    pub(crate) struct BinarySerde;
-
-    impl Id for BinarySerde {
-        fn id(&self) -> &'static str {
-            "binary"
-        }
-    }
-
-    impl ExprDeserialize for BinarySerde {
-        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::BinaryOp(op) = kind else {
-                vortex_bail!("wrong kind {:?}, binary", kind)
-            };
-
-            Ok(BinaryExpr::new_expr(
-                children[0].clone(),
-                (*op).try_into()?,
-                children[1].clone(),
-            ))
-        }
-    }
-
-    impl ExprSerializable for BinaryExpr {
-        fn id(&self) -> &'static str {
-            BinarySerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::BinaryOp(self.operator.into()))
-        }
-    }
-}
-
-impl AnalysisExpr for BinaryExpr {
+impl AnalysisExpr for Binary {
     fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         match self.operator {
             Operator::Eq => {
@@ -124,9 +106,22 @@ impl AnalysisExpr for BinaryExpr {
     }
 }
 
-impl VortexExpr for BinaryExpr {
+impl VortexExpr for Binary {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn encoding(&self) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(&BinaryEncoding)
+    }
+
+    fn serialize_options(&self) -> Option<Vec<u8>> {
+        Some(
+            pb::BinaryOpts {
+                op: self.operator.into(),
+            }
+            .encode_to_vec(),
+        )
     }
 
     fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
@@ -152,7 +147,7 @@ impl VortexExpr for BinaryExpr {
 
     fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 2);
-        BinaryExpr::new_expr(children[0].clone(), self.operator, children[1].clone())
+        Binary::new_expr(children[0].clone(), self.operator, children[1].clone())
     }
 
     fn return_dtype(&self, ctx: &ScopeDType) -> VortexResult<DType> {
@@ -170,8 +165,8 @@ impl VortexExpr for BinaryExpr {
     }
 }
 
-impl PartialEq for BinaryExpr {
-    fn eq(&self, other: &BinaryExpr) -> bool {
+impl PartialEq for Binary {
+    fn eq(&self, other: &Binary) -> bool {
         other.operator == self.operator && other.lhs.eq(&self.lhs) && other.rhs.eq(&self.rhs)
     }
 }
@@ -196,7 +191,7 @@ impl PartialEq for BinaryExpr {
 /// );
 /// ```
 pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Eq, rhs)
+    Binary::new_expr(lhs, Operator::Eq, rhs)
 }
 
 /// Create a new `BinaryExpr` using the `NotEq` operator.
@@ -219,7 +214,7 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// );
 /// ```
 pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::NotEq, rhs)
+    Binary::new_expr(lhs, Operator::NotEq, rhs)
 }
 
 /// Create a new `BinaryExpr` using the `Gte` operator.
@@ -242,7 +237,7 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// );
 /// ```
 pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Gte, rhs)
+    Binary::new_expr(lhs, Operator::Gte, rhs)
 }
 
 /// Create a new `BinaryExpr` using the `Gt` operator.
@@ -265,7 +260,7 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// );
 /// ```
 pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Gt, rhs)
+    Binary::new_expr(lhs, Operator::Gt, rhs)
 }
 
 /// Create a new `BinaryExpr` using the `Lte` operator.
@@ -288,7 +283,7 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// );
 /// ```
 pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Lte, rhs)
+    Binary::new_expr(lhs, Operator::Lte, rhs)
 }
 
 /// Create a new `BinaryExpr` using the `Lt` operator.
@@ -311,7 +306,7 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// );
 /// ```
 pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Lt, rhs)
+    Binary::new_expr(lhs, Operator::Lt, rhs)
 }
 
 /// Create a new `BinaryExpr` using the `Or` operator.
@@ -332,7 +327,7 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// );
 /// ```
 pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Or, rhs)
+    Binary::new_expr(lhs, Operator::Or, rhs)
 }
 
 /// Collects a list of `or`ed values into a single vortex, expr
@@ -365,7 +360,7 @@ where
 /// );
 /// ```
 pub fn and(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::And, rhs)
+    Binary::new_expr(lhs, Operator::And, rhs)
 }
 
 /// Collects a list of `and`ed values into a single vortex, expr
@@ -414,7 +409,7 @@ where
 /// );
 /// ```
 pub fn checked_add(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Add, rhs)
+    Binary::new_expr(lhs, Operator::Add, rhs)
 }
 
 #[cfg(test)]

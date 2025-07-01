@@ -3,18 +3,36 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
+use prost::Message;
 use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, vortex_err};
+use vortex_proto::exprs as pb;
 
-use crate::{AccessPath, AnalysisExpr, ExprRef, Scope, ScopeDType, StatsCatalog, VortexExpr, root};
+use crate::{
+    AccessPath, AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, Scope, ScopeDType,
+    StatsCatalog, VortexExpr, root,
+};
 
 #[derive(Debug, Clone, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
 pub struct GetItem {
     field: FieldName,
     child: ExprRef,
+}
+
+pub struct GetItemEncoding;
+
+impl ExprEncoding for GetItemEncoding {
+    fn id(&self) -> ExprId {
+        ExprId::new_ref("get_item")
+    }
+
+    fn deserialize(&self, options: &[u8], children: Vec<ExprRef>) -> VortexResult<Option<ExprRef>> {
+        let options = pb::GetItemOpts::decode(options)?;
+        Ok(Some(GetItem::new_expr(options.path, children[0].clone())))
+    }
 }
 
 impl GetItem {
@@ -56,45 +74,6 @@ impl Display for GetItem {
     }
 }
 
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::kind;
-    use vortex_proto::expr::kind::Kind;
-
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, GetItem, Id};
-
-    pub(crate) struct GetItemSerde;
-
-    impl Id for GetItemSerde {
-        fn id(&self) -> &'static str {
-            "get_item"
-        }
-    }
-
-    impl ExprDeserialize for GetItemSerde {
-        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::GetItem(kind::GetItem { path }) = kind else {
-                vortex_bail!("wrong kind {:?}, want get_item", kind)
-            };
-
-            Ok(GetItem::new_expr(path.to_string(), children[0].clone()))
-        }
-    }
-
-    impl ExprSerializable for GetItem {
-        fn id(&self) -> &'static str {
-            GetItemSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::GetItem(kind::GetItem {
-                path: self.field.to_string(),
-            }))
-        }
-    }
-}
-
 impl AnalysisExpr for GetItem {
     fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(&self.field_path()?, Stat::Max)
@@ -114,6 +93,19 @@ impl AnalysisExpr for GetItem {
 impl VortexExpr for GetItem {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn encoding(&self) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(&GetItemEncoding)
+    }
+
+    fn serialize_options(&self) -> Option<Vec<u8>> {
+        Some(
+            pb::GetItemOpts {
+                path: self.field.to_string(),
+            }
+            .encode_to_vec(),
+        )
     }
 
     fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {

@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -39,14 +39,17 @@ pub use registry::*;
 pub use scope::*;
 pub use select::*;
 pub use var::*;
-use vortex_array::{Array, ArrayRef, VTableRegistry};
+use vortex_array::{Array, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexResult, VortexUnwrap};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{Node, ReferenceCollector, VarsCollector};
 
-pub type ExprRegistry = VTableRegistry<ExprEncodingRef>;
+pub trait IntoExpr {
+    /// Convert this type into an expression reference.
+    fn into_expr(self) -> ExprRef;
+}
 
 pub type ExprRef = Arc<dyn VortexExpr>;
 
@@ -160,7 +163,7 @@ pub fn split_conjunction(expr: &ExprRef) -> Vec<ExprRef> {
 }
 
 fn split_inner(expr: &ExprRef, exprs: &mut Vec<ExprRef>) {
-    match expr.as_any().downcast_ref::<BinaryExpr>() {
+    match expr.as_any().downcast_ref::<Binary>() {
         Some(bexp) if bexp.op() == Operator::And => {
             split_inner(bexp.lhs(), exprs);
             split_inner(bexp.rhs(), exprs);
