@@ -224,14 +224,12 @@ mod tests {
                 SequenceWriter::new(Box::new(TestSegments::default())),
                 SequentialStreamAdapter::new(
                     DType::Struct(
-                        Arc::new(
-                            [
-                                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                            ]
-                            .into_iter()
-                            .collect(),
-                        ),
+                        [
+                            ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                            ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                        ]
+                        .into_iter()
+                        .collect(),
                         Nullability::NonNullable,
                     ),
                     stream::empty(),
@@ -252,11 +250,9 @@ mod tests {
                 SequenceWriter::new(Box::new(TestSegments::default())),
                 SequentialStreamAdapter::new(
                     DType::Struct(
-                        Arc::new(
-                            [("a", DType::Primitive(PType::I32, Nullability::NonNullable))]
-                                .into_iter()
-                                .collect(),
-                        ),
+                        [("a", DType::Primitive(PType::I32, Nullability::NonNullable))]
+                            .into_iter()
+                            .collect(),
                         Nullability::Nullable,
                     ),
                     stream::once(async move {
@@ -294,7 +290,7 @@ mod tests {
                 SequenceWriter::new(Box::new(TestSegments::default())),
                 SequentialStreamAdapter::new(
                     DType::Struct(
-                        Arc::new(StructFields::new([].into(), vec![])),
+                        StructFields::new([].into(), vec![]),
                         Nullability::NonNullable,
                     ),
                     stream::iter([

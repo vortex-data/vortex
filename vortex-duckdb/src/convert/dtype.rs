@@ -395,7 +395,7 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         ];
         let struct_fields = StructFields::new(field_names, field_types);
-        let dtype = DType::Struct(Arc::new(struct_fields), Nullability::NonNullable);
+        let dtype = DType::Struct(struct_fields, Nullability::NonNullable);
         let logical_type = LogicalType::try_from(&dtype).unwrap();
 
         assert_eq!(
@@ -409,7 +409,7 @@ mod tests {
         let field_names = FieldNames::from([FieldName::from("field\0with_null")]);
         let field_types = vec![DType::Primitive(PType::I32, Nullability::NonNullable)];
         let struct_fields = StructFields::new(field_names, field_types);
-        let dtype = DType::Struct(Arc::new(struct_fields), Nullability::NonNullable);
+        let dtype = DType::Struct(struct_fields, Nullability::NonNullable);
 
         let result = LogicalType::try_from(&dtype);
         assert!(result.is_err());
@@ -418,7 +418,7 @@ mod tests {
     #[test]
     fn test_empty_struct() {
         let struct_fields = StructFields::new([].into(), [].into());
-        let dtype = DType::Struct(Arc::new(struct_fields), Nullability::NonNullable);
+        let dtype = DType::Struct(struct_fields, Nullability::NonNullable);
 
         let logical_type = LogicalType::try_from(&dtype).unwrap();
         assert_eq!(

@@ -42,10 +42,10 @@ impl RowIdLayoutReader {
         let scope_dtype = ScopeDType::new(child.dtype().clone()).with_dtype_element((
             ROW_ID.clone(),
             DType::Struct(
-                Arc::new(StructFields::from_iter([
+                StructFields::from_iter([
                     (FieldName::from("file_row_number"), DType::from(U64)),
                     ("file_index".into(), U64.into()),
-                ])),
+                ]),
                 Nullability::NonNullable,
             ),
         ));

@@ -1,5 +1,4 @@
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
@@ -80,7 +79,7 @@ impl StructArray {
         self.struct_fields().names()
     }
 
-    pub fn struct_fields(&self) -> &Arc<StructFields> {
+    pub fn struct_fields(&self) -> &StructFields {
         let Some(struct_dtype) = &self.dtype.as_struct() else {
             unreachable!(
                 "struct arrays must have be a DType::Struct, this is likely an internal bug."
@@ -111,10 +110,7 @@ impl StructArray {
         }
 
         let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype()).cloned().collect();
-        let dtype = DType::Struct(
-            Arc::new(StructFields::new(names, field_dtypes)),
-            nullability,
-        );
+        let dtype = DType::Struct(StructFields::new(names, field_dtypes), nullability);
 
         if length != validity.maybe_len().unwrap_or(length) {
             vortex_bail!(
@@ -137,7 +133,7 @@ impl StructArray {
 
     pub fn try_new_with_dtype(
         fields: Vec<ArrayRef>,
-        dtype: Arc<StructFields>,
+        dtype: StructFields,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -247,7 +243,7 @@ impl StructArray {
         let field = self.fields.remove(position);
 
         let new_dtype = struct_dtype.without_field(position);
-        self.dtype = DType::Struct(Arc::new(new_dtype), self.dtype.nullability());
+        self.dtype = DType::Struct(new_dtype, self.dtype.nullability());
 
         Some(field)
     }

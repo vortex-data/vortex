@@ -138,7 +138,7 @@ impl StructLayout {
         }
     }
 
-    pub fn struct_fields(&self) -> &Arc<StructFields> {
+    pub fn struct_fields(&self) -> &StructFields {
         let DType::Struct(dtype, _) = self.dtype() else {
             vortex_panic!("Mismatched dtype {} for struct layout", self.dtype());
         };

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, Nullability, PType, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -55,7 +53,7 @@ impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
 fn swizzle_struct_chunks(
     chunks: &[ArrayRef],
     validity: Validity,
-    struct_dtype: &Arc<StructFields>,
+    struct_dtype: &StructFields,
 ) -> VortexResult<StructArray> {
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();

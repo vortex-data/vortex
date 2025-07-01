@@ -356,10 +356,10 @@ mod tests {
                 sequence_writer,
                 SequentialStreamAdapter::new(
                     DType::Struct(
-                        Arc::new(StructFields::new(
+                        StructFields::new(
                             vec!["a".into(), "b".into(), "c".into()].into(),
                             vec![I32.into(), I32.into(), I32.into()],
-                        )),
+                        ),
                         NonNullable,
                     ),
                     stream::once(async {

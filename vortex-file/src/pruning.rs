@@ -14,7 +14,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 pub fn extract_relevant_file_stats_as_struct_row(
     access: &HashMap<FieldPath, HashSet<Stat>>,
     stats_sets: &Arc<[StatsSet]>,
-    struct_dtype: &Arc<StructFields>,
+    struct_dtype: &StructFields,
 ) -> VortexResult<Option<ArrayRef>> {
     if access.is_empty() {
         return StructArray::try_new([].into(), vec![], 1, Validity::NonNullable)

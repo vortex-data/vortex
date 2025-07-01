@@ -34,7 +34,7 @@ impl TryFrom<&pb::DType> for DType {
                         .iter()
                         .map(TryInto::<Self>::try_into)
                         .collect::<VortexResult<Vec<_>>>()?,
-                ).into(),
+                ),
                 s.nullable.into(),
             )),
             DtypeType::List(l) => {

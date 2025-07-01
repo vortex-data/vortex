@@ -176,7 +176,7 @@ impl VortexExpr for Merge {
         }
 
         Ok(DType::Struct(
-            Arc::new(StructFields::new(FieldNames::from(field_names), arrays)),
+            StructFields::new(FieldNames::from(field_names), arrays),
             self.nullability,
         ))
     }

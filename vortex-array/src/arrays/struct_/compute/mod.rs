@@ -88,7 +88,6 @@ register_kernel!(IsConstantKernelAdapter(StructVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use Nullability::{NonNullable, Nullable};
     use vortex_buffer::buffer;
@@ -124,14 +123,14 @@ mod tests {
         assert_eq!(
             taken.scalar_at(0).unwrap(),
             Scalar::struct_(
-                DType::Struct(Arc::new(StructFields::new([].into(), vec![])), Nullable),
+                DType::Struct(StructFields::new([].into(), vec![]), Nullable),
                 vec![]
             )
         );
         assert_eq!(
             taken.scalar_at(1).unwrap(),
             Scalar::null(DType::Struct(
-                Arc::new(StructFields::new([].into(), vec![])),
+                StructFields::new([].into(), vec![]),
                 Nullable
             ))
         );
@@ -215,13 +214,11 @@ mod tests {
         let array = StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
             .unwrap()
             .into_array();
-        let non_nullable_dtype =
-            DType::Struct(Arc::from(StructFields::new([].into(), vec![])), NonNullable);
+        let non_nullable_dtype = DType::Struct(StructFields::new([].into(), vec![]), NonNullable);
         let casted = cast(&array, &non_nullable_dtype).unwrap();
         assert_eq!(casted.dtype(), &non_nullable_dtype);
 
-        let nullable_dtype =
-            DType::Struct(Arc::from(StructFields::new([].into(), vec![])), Nullable);
+        let nullable_dtype = DType::Struct(StructFields::new([].into(), vec![]), Nullable);
         let casted = cast(&array, &nullable_dtype).unwrap();
         assert_eq!(casted.dtype(), &nullable_dtype);
     }
@@ -245,10 +242,10 @@ mod tests {
         let result = cast(
             array.as_ref(),
             &DType::Struct(
-                Arc::from(StructFields::new(
+                StructFields::new(
                     FieldNames::from(["ys".into(), "xs".into(), "zs".into()]),
                     vec![tu8.clone(), tu8.clone(), tu8],
-                )),
+                ),
                 NonNullable,
             ),
         );
@@ -294,46 +291,46 @@ mod tests {
         assert_eq!(casted.dtype(), &top_level_non_nullable);
 
         let non_null_xs_right = DType::Struct(
-            Arc::from(StructFields::new(
+            StructFields::new(
                 ["xs".into(), "ys".into(), "zs".into()].into(),
                 vec![
                     DType::Struct(
-                        Arc::from(StructFields::new(
+                        StructFields::new(
                             ["left".into(), "right".into()].into(),
                             vec![
                                 DType::Primitive(PType::I64, NonNullable),
                                 DType::Primitive(PType::I64, Nullable),
                             ],
-                        )),
+                        ),
                         Nullable,
                     ),
                     DType::Utf8(Nullable),
                     DType::Bool(Nullable),
                 ],
-            )),
+            ),
             Nullable,
         );
         let casted = cast(&fully_nullable_array, &non_null_xs_right).unwrap();
         assert_eq!(casted.dtype(), &non_null_xs_right);
 
         let non_null_xs = DType::Struct(
-            Arc::from(StructFields::new(
+            StructFields::new(
                 ["xs".into(), "ys".into(), "zs".into()].into(),
                 vec![
                     DType::Struct(
-                        Arc::from(StructFields::new(
+                        StructFields::new(
                             ["left".into(), "right".into()].into(),
                             vec![
                                 DType::Primitive(PType::I64, Nullable),
                                 DType::Primitive(PType::I64, Nullable),
                             ],
-                        )),
+                        ),
                         NonNullable,
                     ),
                     DType::Utf8(Nullable),
                     DType::Bool(Nullable),
                 ],
-            )),
+            ),
             Nullable,
         );
         let casted = cast(&fully_nullable_array, &non_null_xs).unwrap();

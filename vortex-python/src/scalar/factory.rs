@@ -127,10 +127,10 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
                 .map(|value| scalar_helper_inner(&value, None))
                 .try_collect()?;
             let dtype = DType::Struct(
-                Arc::new(StructFields::new(
+                StructFields::new(
                     names,
                     values.iter().map(|value| value.dtype().clone()).collect(),
-                )),
+                ),
                 Nullability::NonNullable,
             );
             return Ok(Scalar::struct_(dtype, values));

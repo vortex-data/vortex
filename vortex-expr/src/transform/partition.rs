@@ -289,7 +289,6 @@ impl MutNodeVisitor for ReplaceAccessesWithChild {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
@@ -302,20 +301,17 @@ mod tests {
 
     fn dtype() -> DType {
         DType::Struct(
-            Arc::new(StructFields::from_iter([
+            StructFields::from_iter([
                 (
                     "a",
                     DType::Struct(
-                        Arc::new(StructFields::from_iter([
-                            ("a", I32.into()),
-                            ("b", DType::from(I32)),
-                        ])),
+                        StructFields::from_iter([("a", I32.into()), ("b", DType::from(I32))]),
                         NonNullable,
                     ),
                 ),
                 ("b", I32.into()),
                 ("c", I32.into()),
-            ])),
+            ]),
             NonNullable,
         )
     }

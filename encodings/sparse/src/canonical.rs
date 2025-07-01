@@ -133,7 +133,6 @@ fn canonicalize_sparse_primitives<
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
 
     use rstest::rstest;
     use vortex_array::arrays::{BoolArray, BooleanBufferBuilder, PrimitiveArray, StructArray};
@@ -260,7 +259,7 @@ mod test {
             DType::Primitive(PType::I32, Nullable),
             DType::Primitive(PType::I32, Nullable),
         ];
-        let struct_fields = Arc::new(StructFields::new(field_names, field_types));
+        let struct_fields = StructFields::new(field_names, field_types);
         let struct_dtype = DType::Struct(struct_fields.clone(), Nullable);
 
         let indices = buffer![0u64, 1, 7, 8].into_array();
@@ -339,7 +338,7 @@ mod test {
             DType::Primitive(PType::I32, Nullable),
             DType::Primitive(PType::I32, Nullable),
         ];
-        let struct_fields = Arc::new(StructFields::new(field_names, field_types));
+        let struct_fields = StructFields::new(field_names, field_types);
         let struct_dtype = DType::Struct(struct_fields.clone(), Nullable);
 
         let indices = buffer![0u64, 1, 7, 8].into_array();

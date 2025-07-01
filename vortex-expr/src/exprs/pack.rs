@@ -199,7 +199,7 @@ impl VortexExpr for Pack {
             .map(|value_expr| value_expr.return_dtype(scope))
             .process_results(|it| it.collect())?;
         Ok(DType::Struct(
-            Arc::new(StructFields::new(self.names.clone(), value_dtypes)),
+            StructFields::new(self.names.clone(), value_dtypes),
             self.nullability,
         ))
     }
