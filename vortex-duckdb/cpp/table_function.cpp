@@ -19,8 +19,8 @@ struct CTableFunctionInfo final : TableFunctionInfo {
     duckdb_vx_tfunc_vtab_t vtab;
 };
 
-struct CCopyBindData final : TableFunctionData {
-    CCopyBindData(unique_ptr<CTableFunctionInfo> info_p, unique_ptr<vortex::CData> ffi_data_p)
+struct CTableBindData final : TableFunctionData {
+    CTableBindData(unique_ptr<CTableFunctionInfo> info_p, unique_ptr<vortex::CData> ffi_data_p)
         : info(std::move(info_p)), ffi_data(std::move(ffi_data_p)) {
     }
 
@@ -32,8 +32,8 @@ struct CCopyBindData final : TableFunctionData {
         if (error_out) {
             throw BinderException(IntoErrString(error_out));
         }
-        return make_uniq<CCopyBindData>(make_uniq<CTableFunctionInfo>(info->vtab),
-                                        unique_ptr<CData>(reinterpret_cast<CData *>(copied_ffi_data)));
+        return make_uniq<CTableBindData>(make_uniq<CTableFunctionInfo>(info->vtab),
+                                         unique_ptr<CData>(reinterpret_cast<CData *>(copied_ffi_data)));
     }
 
     unique_ptr<CTableFunctionInfo> info;
@@ -83,12 +83,12 @@ unique_ptr<FunctionData> c_bind(ClientContext &context, TableFunctionBindInput &
         throw BinderException(IntoErrString(error_out));
     }
 
-    return make_uniq<CCopyBindData>(make_uniq<CTableFunctionInfo>(info.vtab),
-                                    unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data)));
+    return make_uniq<CTableBindData>(make_uniq<CTableFunctionInfo>(info.vtab),
+                                     unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data)));
 }
 
 unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, TableFunctionInitInput &input) {
-    const auto &bind = input.bind_data->Cast<CCopyBindData>();
+    const auto &bind = input.bind_data->Cast<CTableBindData>();
 
     duckdb_vx_tfunc_init_input ffi_input = {
         .bind_data = bind.ffi_data->DataPtr(),
@@ -111,7 +111,7 @@ unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, Table
 
 unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, TableFunctionInitInput &input,
                                                  GlobalTableFunctionState *global_state) {
-    const auto &bind = input.bind_data->Cast<CCopyBindData>();
+    const auto &bind = input.bind_data->Cast<CTableBindData>();
     auto global_data = global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
 
     duckdb_vx_tfunc_init_input ffi_input = {
@@ -134,7 +134,7 @@ unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, Tabl
 }
 
 void c_function(ClientContext &context, TableFunctionInput &input, DataChunk &output) {
-    const auto &bind = input.bind_data->Cast<CCopyBindData>();
+    const auto &bind = input.bind_data->Cast<CTableBindData>();
 
     const auto bind_data = bind.ffi_data->DataPtr();
     auto global_data = input.global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
@@ -154,12 +154,12 @@ void c_pushdown_complex_filter(ClientContext &context, LogicalGet &get, Function
         return;
     }
 
-    auto &bind = bind_data->Cast<CCopyBindData>();
+    auto &bind = bind_data->Cast<CTableBindData>();
 
     for (auto iter = filters.begin(); iter != filters.end();) {
         duckdb_vx_error error_out = nullptr;
         auto pushed = bind.info->vtab.pushdown_complex_filter(
-            bind_data->Cast<CCopyBindData>().ffi_data->DataPtr(),
+            bind_data->Cast<CTableBindData>().ffi_data->DataPtr(),
             reinterpret_cast<duckdb_vx_expr>(iter->get()), &error_out);
         if (error_out) {
             throw BinderException(IntoErrString(error_out));

@@ -23,6 +23,7 @@ typedef struct {
     const void *global_state;
 } duckdb_vx_copy_func_init_input;
 
+// TODO(joe): expose via c api
 // typedef enum copy_function_execution_mode_ {
 // REGULAR_COPY_TO_FILE = 1,
 // PARALLEL_COPY_TO_FILE,
@@ -50,6 +51,7 @@ typedef struct {
 
     void (*copy_to_finalize)(const void *bind_data, void *global_data, duckdb_vx_error *error_out);
 
+    // TODO(joe): expose via c api
     // copy_function_execution_mode (*execution_mode)(bool preserve_insertion_order, bool
     // supports_batch_index);
 } duckdb_vx_copy_func_vtab_t;
