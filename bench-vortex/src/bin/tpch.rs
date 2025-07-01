@@ -246,13 +246,10 @@ async fn bench_main(
                         })
                         .await;
 
-                    // Query 15 is flaky for DataFusion: https://github.com/vortex-data/vortex/issues/2395.
-                    if query_idx != 15 {
-                        assert_eq!(
-                            row_count, expected_row_counts[query_idx],
-                            "Error: Row count mismatch for query idx {query_idx} - {engine}:{format}",
-                        );
-                    }
+                    assert_eq!(
+                        row_count, expected_row_counts[query_idx],
+                        "Error: Row count mismatch for query idx {query_idx} - {engine}:{format}",
+                    );
 
                     // Gather metrics.
                     for (idx, metrics_set) in VortexMetricsFinder::find_all(plan.as_ref())
