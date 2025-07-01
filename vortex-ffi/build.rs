@@ -2,14 +2,8 @@
 use std::env;
 use std::path::PathBuf;
 
-#[cfg(not(miri))]
+#[cfg_attr(miri, ignore)]
 fn main() {
-    // Skip cbindgen under Miri.
-    if env::var("MIRI").is_ok() {
-        println!("cargo:warning=Skipping C header generation under miri");
-        return;
-    }
-
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let output_file = PathBuf::from(&crate_dir).join("cinclude").join("vortex.h");
     std::fs::create_dir_all(output_file.parent().unwrap()).unwrap();
