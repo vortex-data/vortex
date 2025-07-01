@@ -197,13 +197,6 @@ typedef struct vx_array_sink vx_array_sink;
  */
 typedef struct vx_dtype vx_dtype;
 
-#if defined(ENABLE_DUCKDB_FFI)
-/**
- * A type for exporting Vortex arrays to a stream of mutable DuckDB vectors.
- */
-typedef struct vx_duckdb_exporter vx_duckdb_exporter;
-#endif
-
 /**
  * The error structure populated by fallible Vortex C functions.
  */
@@ -518,50 +511,6 @@ uint8_t vx_dtype_time_unit(const DType *dtype);
 
 void vx_dtype_time_zone(const DType *dtype, void *dst, int *len);
 
-#if defined(ENABLE_DUCKDB_FFI)
-/**
- * Converts a DType into a duckdb
- */
-duckdb_logical_type vx_dtype_to_duckdb_logical_type(const vx_dtype *dtype, vx_error **error);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-/**
- * Converts a DuckDB type into a vortex type
- */
-const vx_dtype *vx_duckdb_logical_type_to_dtype(const duckdb_logical_type *column_types,
-                                                const unsigned char *column_nullable,
-                                                const char *const *column_names,
-                                                int column_count,
-                                                vx_error **error);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-/**
- * Pushed a single duckdb chunk into a file sink.
- */
-const vx_array *vx_duckdb_chunk_to_array(duckdb_data_chunk chunk,
-                                         const vx_dtype *dtype,
-                                         vx_error **error);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-/**
- * Free an owned [`vx_duckdb_exporter`] object.
- */
-void vx_duckdb_exporter_free(vx_duckdb_exporter *ptr);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-vx_duckdb_exporter *vx_duckdb_exporter_new(vx_array_iterator *iter);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-bool vx_duckdb_exporter_next(vx_duckdb_exporter *exporter,
-                             duckdb_data_chunk data_chunk_ptr,
-                             vx_error **error);
-#endif
-
 /**
  * Free an owned [`vx_error`] object.
  */
@@ -702,7 +651,7 @@ void vx_struct_fields_free(const vx_struct_fields *ptr);
 /**
  * Return the number of fields in the struct dtype.
  */
-size_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
+uint64_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
 
 /**
  * Return a borrowed reference to the name of the field at the given index.
@@ -715,7 +664,7 @@ const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size
  * The return type is owned since struct dtypes can be lazily parsed from a binary format, in
  * which case it's not possible to return a borrowed reference to the field dtype.
  */
-const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, size_t idx);
+const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, uint64_t idx);
 
 /**
  * Free an owned [`vx_struct_fields_builder`] object.

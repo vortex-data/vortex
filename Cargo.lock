@@ -6414,6 +6414,7 @@ dependencies = [
 name = "vortex-ffi"
 version = "0.1.0"
 dependencies = [
+ "cbindgen",
  "itertools 0.14.0",
  "log",
  "mimalloc",
