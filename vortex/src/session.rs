@@ -6,6 +6,7 @@ use vortex_bytebool::ByteBoolEncoding;
 use vortex_datetime_parts::DateTimePartsEncoding;
 use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
 use vortex_dict::DictEncoding;
+use vortex_expr::{ExprRegistry, ExprRegistryExt};
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
@@ -24,7 +25,7 @@ use vortex_zigzag::ZigZagEncoding;
 pub struct VortexSession {
     arrays: ArrayRegistry,
     layouts: LayoutRegistry,
-    exprs:
+    expressions: ExprRegistry,
     metrics: VortexMetrics,
 }
 
@@ -55,9 +56,13 @@ impl Default for VortexSession {
         // Register the layout encodings that Vortex ships with.
         let layouts = LayoutRegistry::default();
 
+        // Register the expression encodings that Vortex ships with.
+        let expressions = ExprRegistry::default();
+
         Self {
             arrays,
             layouts,
+            expressions,
             metrics: VortexMetrics::default(),
         }
     }
@@ -72,6 +77,11 @@ impl VortexSession {
     /// Returns the layout registry for this session.
     pub fn layouts(&self) -> &LayoutRegistry {
         &self.layouts
+    }
+
+    /// Returns the expression registry for this session.
+    pub fn expressions(&self) -> &ExprRegistry {
+        &self.expressions
     }
 
     /// Returns the metrics for this session.
