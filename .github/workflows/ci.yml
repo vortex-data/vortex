@@ -199,6 +199,10 @@ jobs:
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
         run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
+      - name: "Make sure no files changed after build"
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
 
   check-min-deps:
     name: "Check build with minimal dependencies"
