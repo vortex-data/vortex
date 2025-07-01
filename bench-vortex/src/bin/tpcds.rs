@@ -165,7 +165,7 @@ async fn bench_main(
                     ctx.register_tables(&url, format, BenchmarkDataset::TpcDS)?;
 
                     for (query_idx, sql_query) in &tpch_queries {
-                        let fastest_run =
+                        let (fastest_run, _row_count) =
                             benchmark_duckdb_query(*query_idx, sql_query, iterations, ctx);
 
                         let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
