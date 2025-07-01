@@ -159,9 +159,22 @@ impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
 }
 
 /// Contains a list of names and corresponding dtypes
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct StructFields {
+pub struct StructFields(Arc<StructFieldsInner>);
+
+impl std::fmt::Debug for StructFields {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StructFields")
+            .field("names", &self.0.names)
+            .field("dtypes", &self.0.dtypes)
+            .finish()
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+struct StructFieldsInner {
     names: FieldNames,
     dtypes: Arc<[FieldDType]>,
 }
@@ -175,10 +188,10 @@ impl Default for StructFields {
 impl StructFields {
     /// The fields of the empty struct.
     pub fn empty() -> Self {
-        Self {
-            names: Arc::from(vec![]),
-            dtypes: Arc::from(vec![]),
-        }
+        Self(Arc::new(StructFieldsInner {
+            names: Arc::from([]),
+            dtypes: Arc::from([]),
+        }))
     }
 
     /// Create a new [`StructFields`] from a list of names and dtypes
@@ -196,10 +209,9 @@ impl StructFields {
             .map(|dt| FieldDType {
                 inner: FieldDTypeInner::Owned(dt),
             })
-            .collect::<Vec<_>>()
-            .into();
+            .collect::<Vec<_>>();
 
-        Self { names, dtypes }
+        Self::from_fields(names, dtypes)
     }
 
     /// Create a new [`StructFields`] from a  list of names and [`FieldDType`] which can be either lazily or eagerly serialized.
@@ -212,48 +224,50 @@ impl StructFields {
             );
         }
 
-        Self {
+        let inner = Arc::new(StructFieldsInner {
             names,
             dtypes: dtypes.into(),
-        }
+        });
+
+        Self(inner)
     }
 
     /// Get the names of the fields in the struct
     pub fn names(&self) -> &FieldNames {
-        &self.names
+        &self.0.names
     }
 
     /// Returns the number of fields in the struct
     pub fn nfields(&self) -> usize {
-        self.names.len()
+        self.0.names.len()
     }
 
     /// Returns the name of the field at the given index
     pub fn field_name(&self, index: usize) -> Option<&FieldName> {
-        self.names.get(index)
+        self.0.names.get(index)
     }
 
     /// Find the index of a field by name
     /// Returns `None` if the field is not found
     pub fn find(&self, name: impl AsRef<str>) -> Option<usize> {
         let name = name.as_ref();
-        self.names.iter().position(|n| n.as_ref() == name)
+        self.0.names.iter().position(|n| n.as_ref() == name)
     }
 
     /// Get the [`DType`] of a field.
     pub fn field(&self, name: impl AsRef<str>) -> Option<DType> {
         let index = self.find(name)?;
-        Some(self.dtypes[index].value().vortex_unwrap())
+        Some(self.0.dtypes[index].value().vortex_unwrap())
     }
 
     /// Get the [`DType`] of a field by index.
     pub fn field_by_index(&self, index: usize) -> Option<DType> {
-        Some(self.dtypes.get(index)?.value().vortex_unwrap())
+        Some(self.0.dtypes.get(index)?.value().vortex_unwrap())
     }
 
     /// Returns an ordered iterator over the members of Self.
     pub fn fields(&self) -> impl ExactSizeIterator<Item = DType> + '_ {
-        self.dtypes.iter().map(|dt| dt.value().vortex_unwrap())
+        self.0.dtypes.iter().map(|dt| dt.value().vortex_unwrap())
     }
 
     /// Project a subset of fields from the struct
@@ -266,8 +280,8 @@ impl StructFields {
             let idx = self
                 .find(field)
                 .ok_or_else(|| vortex_err!("{field} not found"))?;
-            names.push(self.names[idx].clone());
-            dtypes.push(self.dtypes[idx].clone());
+            names.push(self.0.names[idx].clone());
+            dtypes.push(self.0.dtypes[idx].clone());
         }
 
         Ok(StructFields::from_fields(names.into(), dtypes))
@@ -283,6 +297,7 @@ impl StructFields {
         }
 
         let names = self
+            .0
             .names
             .iter()
             .enumerate()
@@ -291,6 +306,7 @@ impl StructFields {
             .collect::<FieldNames>();
 
         let dtypes = self
+            .0
             .dtypes
             .iter()
             .enumerate()
@@ -308,9 +324,10 @@ impl StructFields {
     /// Returns an error if the merged struct would have duplicate field names.
     pub fn disjoint_merge(&self, other: &Self) -> VortexResult<Self> {
         let names = self
+            .0
             .names
             .iter()
-            .chain(other.names.iter())
+            .chain(other.0.names.iter())
             .cloned()
             .collect::<FieldNames>();
 
@@ -319,9 +336,10 @@ impl StructFields {
         }
 
         let dtypes = self
+            .0
             .dtypes
             .iter()
-            .chain(other.dtypes.iter())
+            .chain(other.0.dtypes.iter())
             .cloned()
             .collect::<Vec<_>>();
 
@@ -354,7 +372,7 @@ mod test {
     fn nullability() {
         assert!(
             !DType::Struct(
-                StructFields::new(vec![].into(), Vec::new()).into(),
+                StructFields::new(vec![].into(), Vec::new()),
                 Nullability::NonNullable
             )
             .is_nullable()
@@ -372,7 +390,7 @@ mod test {
         let b_type = DType::Bool(Nullability::NonNullable);
 
         let dtype = DType::Struct(
-            StructFields::from_iter([("A", a_type.clone()), ("B", b_type.clone())]).into(),
+            StructFields::from_iter([("A", a_type.clone()), ("B", b_type.clone())]),
             Nullability::Nullable,
         );
         assert!(dtype.is_nullable());

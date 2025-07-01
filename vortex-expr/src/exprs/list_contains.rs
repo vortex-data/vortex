@@ -277,13 +277,13 @@ mod tests {
     #[test]
     pub fn test_return_type() {
         let scope = ScopeDType::new(DType::Struct(
-            Arc::new(StructFields::new(
+            StructFields::new(
                 FieldNames::from(["array".into()]),
                 vec![DType::List(
                     Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
                     Nullability::Nullable,
                 )],
-            )),
+            ),
             Nullability::NonNullable,
         ));
 

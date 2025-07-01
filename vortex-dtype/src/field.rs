@@ -139,19 +139,19 @@ impl FieldPath {
     /// use vortex_dtype::Nullability::*;
     ///
     /// let dtype = DType::Struct(
-    ///     Arc::new(StructFields::from_iter([(
+    ///     StructFields::from_iter([(
     ///         "a",
     ///         DType::List(
     ///             Arc::new(DType::Struct(
-    ///                 Arc::new(StructFields::from_iter([(
+    ///                 StructFields::from_iter([(
     ///                     "b",
     ///                     DType::Primitive(PType::U32, NonNullable),
-    ///                 )])),
+    ///                 )]),
     ///                 NonNullable,
     ///             )),
     ///             Nullable,
     ///         ),
-    ///     )])),
+    ///     )]),
     ///     NonNullable,
     /// );
     ///
@@ -271,10 +271,7 @@ mod tests {
         );
 
         let outer = DType::Struct(
-            Arc::from(StructFields::from_iter([
-                ("outer_a", DType::Bool(NonNullable)),
-                ("outer_b", inner),
-            ])),
+            StructFields::from_iter([("outer_a", DType::Bool(NonNullable)), ("outer_b", inner)]),
             NonNullable,
         );
 

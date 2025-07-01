@@ -242,13 +242,12 @@ impl Hash for ExactExpr {
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
-    use std::sync::Arc;
 
     use vortex_dtype::{DType, Nullability, PType, StructFields};
 
     pub fn struct_dtype() -> DType {
         DType::Struct(
-            Arc::new(StructFields::new(
+            StructFields::new(
                 [
                     "a".into(),
                     "col1".into(),
@@ -264,7 +263,7 @@ pub mod test_harness {
                     DType::Bool(Nullability::NonNullable),
                     DType::Bool(Nullability::NonNullable),
                 ],
-            )),
+            ),
             Nullability::NonNullable,
         )
     }
@@ -382,13 +381,13 @@ mod tests {
         assert_eq!(
             lit(Scalar::struct_(
                 DType::Struct(
-                    Arc::new(StructFields::new(
+                    StructFields::new(
                         Arc::from([Arc::from("dog"), Arc::from("cat")]),
                         vec![
                             DType::Primitive(PType::U32, Nullability::NonNullable),
                             DType::Utf8(Nullability::NonNullable)
                         ],
-                    )),
+                    ),
                     Nullability::NonNullable
                 ),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]

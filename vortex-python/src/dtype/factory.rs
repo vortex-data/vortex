@@ -316,18 +316,12 @@ pub(super) fn dtype_struct<'py>(
 
         PyDType::init(
             py,
-            DType::Struct(
-                StructFields::new(names.into(), dtypes).into(),
-                nullable.into(),
-            ),
+            DType::Struct(StructFields::new(names.into(), dtypes), nullable.into()),
         )
     } else {
         PyDType::init(
             py,
-            DType::Struct(
-                StructFields::new(vec![].into(), vec![]).into(),
-                nullable.into(),
-            ),
+            DType::Struct(StructFields::new(vec![].into(), vec![]), nullable.into()),
         )
     }
 }

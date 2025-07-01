@@ -230,10 +230,7 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            Arc::new(StructFields::new(
-                vec!["strings".into()].into(),
-                vec![strings_dtype.clone()]
-            )),
+            StructFields::new(vec!["strings".into()].into(), vec![strings_dtype.clone()]),
             Nullability::NonNullable,
         )
     );
@@ -261,10 +258,7 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            Arc::new(StructFields::new(
-                vec!["numbers".into()].into(),
-                vec![numbers_dtype.clone()]
-            )),
+            StructFields::new(vec!["numbers".into()].into(), vec![numbers_dtype.clone()]),
             Nullability::NonNullable,
         )
     );

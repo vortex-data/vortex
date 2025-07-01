@@ -36,7 +36,7 @@ pub enum DType {
     /// Binary data
     Binary(Nullability),
     /// A struct is composed of an ordered list of fields, each with a corresponding name and DType
-    Struct(Arc<StructFields>, Nullability),
+    Struct(StructFields, Nullability),
     /// A variable-length list type, parameterized by a single element DType
     List(Arc<DType>, Nullability),
     /// User-defined extension types
@@ -214,7 +214,7 @@ impl DType {
     }
 
     /// Get the `StructDType` if `self` is a `StructDType`, otherwise `None`
-    pub fn as_struct(&self) -> Option<&Arc<StructFields>> {
+    pub fn as_struct(&self) -> Option<&StructFields> {
         match self {
             Struct(s, _) => Some(s),
             _ => None,
@@ -234,7 +234,7 @@ impl DType {
         iter: I,
         nullability: Nullability,
     ) -> Self {
-        Struct(Arc::new(StructFields::from_iter(iter)), nullability)
+        Struct(StructFields::from_iter(iter), nullability)
     }
 
     /// Convenience method for creating a list dtype

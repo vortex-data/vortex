@@ -82,7 +82,7 @@ impl<'a> StructScalar<'a> {
     }
 
     #[inline]
-    pub fn struct_fields(&self) -> &Arc<StructFields> {
+    pub fn struct_fields(&self) -> &StructFields {
         self.dtype
             .as_struct()
             .vortex_expect("StructScalar always has struct dtype")
@@ -191,7 +191,7 @@ impl<'a> StructScalar<'a> {
             ScalarValue(InnerScalarValue::Null)
         };
         Ok(Scalar::new(
-            DType::Struct(Arc::new(projected_dtype), self.dtype().nullability()),
+            DType::Struct(projected_dtype, self.dtype().nullability()),
             new_fields,
         ))
     }
@@ -232,10 +232,10 @@ mod tests {
         let f1_dt = DType::Utf8(Nullability::NonNullable);
 
         let dtype = DType::Struct(
-            Arc::new(StructFields::new(
+            StructFields::new(
                 vec!["a".into(), "b".into()].into(),
                 vec![f0_dt.clone(), f1_dt.clone()],
-            )),
+            ),
             Nullability::Nullable,
         );
 

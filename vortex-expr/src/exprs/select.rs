@@ -202,10 +202,7 @@ impl VortexExpr for Select {
                 .collect(),
         };
 
-        Ok(DType::Struct(
-            Arc::new(projected),
-            child_dtype.nullability(),
-        ))
+        Ok(DType::Struct(projected, child_dtype.nullability()))
     }
 }
 
@@ -217,7 +214,6 @@ impl PartialEq for Select {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use vortex_array::arrays::StructArray;
     use vortex_array::{IntoArray, ToCanonical};
@@ -266,7 +262,7 @@ mod tests {
 
         let select_expr = select(vec![FieldName::from("a")], root());
         let expected_dtype = DType::Struct(
-            Arc::new(dtype.as_struct().unwrap().project(&["a".into()]).unwrap()),
+            dtype.as_struct().unwrap().project(&["a".into()]).unwrap(),
             Nullability::NonNullable,
         );
         assert_eq!(
@@ -301,13 +297,11 @@ mod tests {
                 .return_dtype(&ScopeDType::new(dtype.clone()))
                 .unwrap(),
             DType::Struct(
-                Arc::new(
-                    dtype
-                        .as_struct()
-                        .unwrap()
-                        .project(&["a".into(), "bool1".into(), "bool2".into()])
-                        .unwrap()
-                ),
+                dtype
+                    .as_struct()
+                    .unwrap()
+                    .project(&["a".into(), "bool1".into(), "bool2".into()])
+                    .unwrap(),
                 Nullability::NonNullable
             )
         );

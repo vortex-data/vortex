@@ -30,7 +30,7 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         5 => DType::Binary(u.arbitrary()?),
 
         // container types
-        6 => DType::Struct(Arc::new(random_struct_dtype(u, depth - 1)?), u.arbitrary()?),
+        6 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
         7 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
         // Null,
         // Extension(ExtDType, Nullability),
