@@ -20,15 +20,6 @@ pub(super) unsafe extern "C" fn bind_callback<T: CopyFunction>(
     column_type_count: c_ulong,
     error_out: *mut duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
-    // let column_names = unsafe {
-    //     (0..column_name_count).map(|i| {
-    //         CStr::from_ptr(column_names.add(i as usize).cast())
-    //             .to_string_lossy()
-    //             .into_owned()
-    //     })
-    // }
-    // .collect_vec();
-
     let column_names =
         unsafe { std::slice::from_raw_parts(column_names, column_name_count.as_usize()) }
             .iter()

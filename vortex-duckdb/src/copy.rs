@@ -66,7 +66,6 @@ impl CopyFunction for VortexCopyFunction {
             .blocking_send(data_chunk_to_arrow(bind_data.fields.names(), chunk))
             .map_err(|e| vortex_err!("send error {}", e.to_string()))?;
 
-        println!("sink");
         Ok(())
     }
 
@@ -74,7 +73,6 @@ impl CopyFunction for VortexCopyFunction {
         _bind_data: &Self::BindData,
         init_global: &mut Self::GlobalState,
     ) -> VortexResult<()> {
-        println!("copy_to_finalize");
         RUNTIME.block_on(async {
             if let Some(sink) = init_global.sink.take() {
                 drop(sink)
@@ -85,7 +83,6 @@ impl CopyFunction for VortexCopyFunction {
                 .vortex_expect("no file to close")
                 .await??;
             file.sync_all().await?;
-            println!("copy_to_finalize done");
             Ok(())
         })
     }

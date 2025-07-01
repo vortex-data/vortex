@@ -133,7 +133,7 @@ extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_connection 
     }
 
     auto conn = reinterpret_cast<Connection *>(ffi_conn);
-    auto copy_function = CopyFunction("vortex");
+    auto copy_function = CopyFunction(copy_vtab_one->name);
 
     copy_function.copy_to_bind = c_bind_one;
     copy_function.copy_to_initialize_global = c_init_global;
@@ -141,7 +141,7 @@ extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_connection 
 
     copy_function.copy_to_sink = c_copy_to_sink;
     copy_function.copy_to_finalize = copy_to_finalize;
-    copy_function.extension = "vortex";
+    copy_function.extension = copy_vtab_one->extension;
 
     // TODO(joe): expose this via c our api
     copy_function.execution_mode = [](bool preserve_insertion_order, bool supports_batch_index) {
