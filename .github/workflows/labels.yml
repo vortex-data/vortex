@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Get PR Labels from API
         id: get_labels_api
-        uses: octokit/request-action@v2.2.0  # Use an action to make API requests
+        uses: octokit/request-action@v2.4.0  # Use an action to make API requests
         with:
           route: GET /repos/{owner}/{repo}/issues/{pull_number}/labels
           owner: ${{ github.repository_owner }}
