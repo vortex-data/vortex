@@ -9,8 +9,7 @@ use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::tpch::{
-    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, TPC_H_ROW_COUNT_ARRAY_LENGTH, load_datasets,
-    run_tpch_query, tpch_queries,
+    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, load_datasets, run_tpch_query, tpch_queries,
 };
 use bench_vortex::utils::constants::TPCH_DATASET;
 use bench_vortex::utils::new_tokio_runtime;
@@ -25,7 +24,6 @@ use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
 use url::Url;
 use vortex::error::VortexExpect;
-use vortex::utils::aliases::hash_map::HashMap;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
 #[derive(Parser, Debug)]
@@ -176,63 +174,6 @@ fn main() -> anyhow::Result<()> {
     ))
 }
 
-/// Verify row counts against expected values for TPC-H queries
-///
-/// Returns true if there are any row count mismatches.
-fn verify_row_counts(
-    row_counts: &[(usize, Format, usize)],
-    expected_row_counts: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH],
-    queries: &Option<Vec<usize>>,
-    exclude_queries: &Option<Vec<usize>>,
-) -> bool {
-    let format_row_counts =
-        row_counts
-            .iter()
-            .fold(HashMap::new(), |mut acc, &(idx, format, row_count)| {
-                acc.entry(format)
-                    .or_insert_with(|| vec![0; TPC_H_ROW_COUNT_ARRAY_LENGTH])[idx] = row_count;
-                acc
-            });
-
-    let is_query_included = |idx: &usize| {
-        queries.as_ref().is_none_or(|q| q.contains(idx))
-            && exclude_queries
-                .as_ref()
-                .is_none_or(|excluded| !excluded.contains(idx))
-    };
-
-    let mut mismatched = false;
-    for (format, row_counts) in format_row_counts {
-        row_counts
-            .into_iter()
-            .enumerate()
-            .filter(|(idx, _)| is_query_included(idx))
-            .for_each(|(idx, actual_row_count)| {
-                if actual_row_count != expected_row_counts[idx] {
-                    if idx == 15 && actual_row_count == 0 {
-                        warn!(
-                            "*IGNORING* mismatched row count {} instead of {} for format {:?} because Query 15 is flaky. See: https://github.com/vortex-data/vortex/issues/2395",
-                            actual_row_count,
-                            expected_row_counts[idx],
-                            format,
-                        );
-                    } else  {
-                        warn!(
-                            "Mismatched row count {} instead of {} in query {} for format {:?}",
-                            actual_row_count,
-                            expected_row_counts[idx],
-                            idx,
-                            format,
-                        );
-                        mismatched = true;
-                    }
-                }
-            });
-    }
-
-    mismatched
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn bench_main(
     queries: Option<Vec<usize>>,
@@ -265,7 +206,6 @@ async fn bench_main(
 
     let query_count = queries.as_ref().map_or(22, |c| c.len());
     let progress = ProgressBar::new((query_count * targets.len()) as u64);
-    let mut row_counts: Vec<(usize, Format, usize)> = Vec::new();
     let mut measurements = Vec::new();
     let mut metrics = MetricsSet::new();
     let tpch_queries: Vec<_> = tpch_queries()
@@ -306,7 +246,13 @@ async fn bench_main(
                         })
                         .await;
 
-                    row_counts.push((query_idx, format, row_count));
+                    // Query 15 is flaky for DataFusion: https://github.com/vortex-data/vortex/issues/2395.
+                    if query_idx != 15 {
+                        assert_eq!(
+                            row_count, expected_row_counts[query_idx],
+                            "Error: Row count mismatch for query idx {query_idx} - {engine}:{format}",
+                        );
+                    }
 
                     // Gather metrics.
                     for (idx, metrics_set) in VortexMetricsFinder::find_all(plan.as_ref())
@@ -356,11 +302,16 @@ async fn bench_main(
                     ctx.register_tables(&url, format, BenchmarkDataset::TpcH)?;
 
                     for (query_idx, sql_queries) in tpch_queries.clone() {
-                        let fastest_run = benchmark_duckdb_query(
+                        let (fastest_run, row_count) = benchmark_duckdb_query(
                             query_idx,
                             &sql_queries.join(";"),
                             iterations,
                             ctx,
+                        );
+
+                        assert_eq!(
+                            row_count, expected_row_counts[query_idx],
+                            "Error: Row count mismatch for query idx {query_idx} - {engine}:{format}",
                         );
 
                         let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
@@ -400,10 +351,6 @@ async fn bench_main(
         DisplayFormat::GhJson => {
             print_measurements_json(measurements)?;
         }
-    }
-
-    if verify_row_counts(&row_counts, expected_row_counts, &queries, &exclude_queries) {
-        return Err(anyhow!("Mismatched row counts. See logs for details."));
     }
 
     // The CI env var is defined by Github Actions.

@@ -343,20 +343,31 @@ fn execute_queries(
 ) -> Vec<QueryMeasurement> {
     let mut query_measurements = Vec::default();
 
+    const REFERENCE_ROW_COUNTS: [usize; 43] = [
+        1, 1, 1, 1, 1, 1, 1, 18, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 1, 10, 10, 10, 10,
+        10, 10, 25, 25, 1, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+    ];
+
     for &(query_idx, ref query_string) in queries.iter() {
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                let (fastest_run, execution_plan) = tokio_runtime.block_on(async {
+                let (fastest_run, (execution_plan, row_count)) = tokio_runtime.block_on(async {
                     benchmark_datafusion_query(iterations, || async {
-                        df::execute_query(&ctx.session, query_string)
+                        let (batches, plan) = df::execute_query(&ctx.session, query_string)
                             .await
                             .unwrap_or_else(|err| {
                                 vortex_panic!("query: {query_idx} failed with: {err}")
-                            })
-                            .1
+                            });
+                        let row_count: usize = batches.iter().map(|batch| batch.num_rows()).sum();
+                        (plan, row_count)
                     })
                     .await
                 });
+
+                assert_eq!(
+                    row_count, REFERENCE_ROW_COUNTS[query_idx],
+                    "Error: Row count mismatch for query idx {query_idx} - datafusion:{file_format}",
+                );
 
                 ctx.execution_plans
                     .push((query_idx, execution_plan.clone()));
@@ -385,7 +396,13 @@ fn execute_queries(
                 });
             }
             EngineCtx::DuckDB(ctx) => {
-                let fastest_run = benchmark_duckdb_query(query_idx, query_string, iterations, ctx);
+                let (fastest_run, row_count) =
+                    benchmark_duckdb_query(query_idx, query_string, iterations, ctx);
+
+                assert_eq!(
+                    row_count, REFERENCE_ROW_COUNTS[query_idx],
+                    "Error: Row count mismatch for query idx {query_idx} - duckdb:{file_format}",
+                );
 
                 query_measurements.push(QueryMeasurement {
                     query_idx,

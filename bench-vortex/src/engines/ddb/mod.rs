@@ -39,14 +39,14 @@ impl DuckDBCtx {
     }
 
     /// Execute DuckDB queries for benchmarks using the internal connection
-    pub fn execute_query(&self, query: &str) -> Result<Duration> {
+    pub fn execute_query(&self, query: &str) -> Result<(Duration, usize)> {
         trace!("execute duckdb query: {}", query);
         let time_instant = Instant::now();
-        self.connection.query(query)?;
+        let result = self.connection.query(query)?;
         let query_time = time_instant.elapsed();
         trace!("query completed in {:.3}s", query_time.as_secs_f64());
 
-        Ok(query_time)
+        Ok((query_time, result.row_count()?))
     }
 
     /// Register tables for benchmarks using the internal connection
