@@ -23,30 +23,32 @@ typedef struct {
     const void *global_state;
 } duckdb_vx_copy_func_init_input;
 
-typedef enum copy_function_execution_mode_ {
-    REGULAR_COPY_TO_FILE = 1,
-    PARALLEL_COPY_TO_FILE,
-    BATCH_COPY_TO_FILE
-} copy_function_execution_mode;
+// typedef enum copy_function_execution_mode_ {
+// REGULAR_COPY_TO_FILE = 1,
+// PARALLEL_COPY_TO_FILE,
+// BATCH_COPY_TO_FILE
+// } copy_function_execution_mode;
 
 // A transparent DuckDB copy function vtable, which can be used to configure a copy function.
 typedef struct {
-    // The name of the table function.
+    // The name of the copy function.
     const char *name;
 
-    duckdb_vx_data (*bind)(duckdb_vx_copy_func_bind_input input, const char **column_names,
-                           unsigned long column_name_count, duckdb_logical_type *column_types,
+    // The extension of the files written by the copy function.
+    const char *extension;
+
+    duckdb_vx_data (*bind)(duckdb_vx_copy_func_bind_input input, const char *const *column_names,
+                           unsigned long column_name_count, const duckdb_logical_type *column_types,
                            unsigned long column_type_count, duckdb_vx_error *error_out);
 
-    duckdb_vx_data (*init_global)(const void *bind_data, const char *file_path, unsigned long file_path_len,
-                                  duckdb_vx_error *error_out);
+    duckdb_vx_data (*init_global)(const void *bind_data, const char *file_path, duckdb_vx_error *error_out);
 
     duckdb_vx_data (*init_local)(const void *bind_data, duckdb_vx_error *error_out);
 
-    void (*copy_to_sink)(const void *bind_data, const void *global_data, const void *local_data,
+    void (*copy_to_sink)(const void *bind_data, void *global_data, void *local_data,
                          duckdb_data_chunk data_chunk_out, duckdb_vx_error *error_out);
 
-    void (*copy_to_finalize)(const void *bind_data, const void *global_data, duckdb_vx_error *error_out);
+    void (*copy_to_finalize)(const void *bind_data, void *global_data, duckdb_vx_error *error_out);
 
     // copy_function_execution_mode (*execution_mode)(bool preserve_insertion_order, bool
     // supports_batch_index);

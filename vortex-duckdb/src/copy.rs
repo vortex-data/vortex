@@ -1,0 +1,138 @@
+use std::fmt::Debug;
+use std::iter;
+use std::sync::Arc;
+
+use tokio::fs::File;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
+use tokio::task::JoinHandle;
+use tokio_stream::wrappers::ReceiverStream;
+use vortex::ArrayRef;
+use vortex::dtype::Nullability::{NonNullable, Nullable};
+use vortex::dtype::{DType, StructFields};
+use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::stream::ArrayStreamAdapter;
+use vortex_file::VortexWriteOptions;
+
+use crate::RUNTIME;
+use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
+use crate::duckdb::{CopyFunction, DataChunk, LogicalType};
+
+#[derive(Debug)]
+pub struct VortexCopyFunction;
+
+pub struct BindData {
+    dtype: DType,
+    fields: StructFields,
+}
+
+pub struct GlobalState {
+    write_task: Option<JoinHandle<VortexResult<File>>>,
+    sink: Option<Sender<VortexResult<ArrayRef>>>,
+}
+
+impl CopyFunction for VortexCopyFunction {
+    type BindData = BindData;
+    type GlobalState = GlobalState;
+    type LocalState = ();
+
+    fn bind(
+        column_names: Vec<String>,
+        column_types: Vec<LogicalType>,
+    ) -> VortexResult<Self::BindData> {
+        let fields = from_duckdb_table(
+            column_names
+                .iter()
+                .zip(column_types)
+                .zip(iter::repeat(Nullable))
+                .map(|((name, type_), null)| (name, type_, null)),
+        )?;
+
+        Ok(BindData {
+            dtype: DType::Struct(Arc::new(fields.clone()), NonNullable),
+            fields,
+        })
+    }
+
+    fn copy_to_sink(
+        bind_data: &Self::BindData,
+        init_global: &mut Self::GlobalState,
+        _init_local: &mut Self::LocalState,
+        chunk: &mut DataChunk,
+    ) -> VortexResult<()> {
+        init_global
+            .sink
+            .as_ref()
+            .vortex_expect("sink closed early")
+            .blocking_send(data_chunk_to_arrow(bind_data.fields.names(), chunk))
+            .map_err(|e| vortex_err!("send error {}", e.to_string()))?;
+
+        println!("sink");
+        Ok(())
+    }
+
+    fn copy_to_finalize(
+        _bind_data: &Self::BindData,
+        init_global: &mut Self::GlobalState,
+    ) -> VortexResult<()> {
+        println!("copy_to_finalize");
+        RUNTIME.block_on(async {
+            if let Some(sink) = init_global.sink.take() {
+                drop(sink)
+            }
+            let file = init_global
+                .write_task
+                .take()
+                .vortex_expect("no file to close")
+                .await??;
+            file.sync_all().await?;
+            println!("copy_to_finalize done");
+            Ok(())
+        })
+    }
+
+    fn init_global(
+        bind_data: &Self::BindData,
+        file_path: String,
+    ) -> VortexResult<Self::GlobalState> {
+        // The channel size 32 was chosen arbitrarily.
+        let (sink, rx) = mpsc::channel(32);
+        let array_stream =
+            ArrayStreamAdapter::new(bind_data.dtype.clone(), ReceiverStream::new(rx));
+
+        let writer = RUNTIME.spawn(async move {
+            let file = File::create(file_path).await?;
+            VortexWriteOptions::default()
+                .write(file, array_stream)
+                .await
+        });
+
+        Ok(GlobalState {
+            write_task: Some(writer),
+            sink: Some(sink),
+        })
+    }
+
+    fn init_local(_global: &Self::BindData) -> VortexResult<Self::LocalState> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Connection, Database};
+
+    fn database_connection() -> Connection {
+        let db = Database::open_in_memory().unwrap();
+        let connection = db.connect().unwrap();
+        crate::init(&connection).unwrap();
+        connection
+    }
+
+    #[test]
+    fn test_write_file() {
+        let conn = database_connection();
+        conn.query("copy (select * from generate_series(2)) to 'test.vortex' (FORMAT VORTEX);")
+            .unwrap();
+    }
+}

@@ -51,6 +51,28 @@ impl Vector {
         unsafe { std::slice::from_raw_parts_mut(ptr.cast::<T>(), length) }
     }
 
+    pub fn as_slice_with_len<T>(&self, length: usize) -> &[T] {
+        let ptr = unsafe { cpp::duckdb_vector_get_data(self.as_ptr()) };
+        unsafe { std::slice::from_raw_parts_mut(ptr.cast::<T>(), length) }
+    }
+
+    pub fn row_is_null(&self, row: u64) -> bool {
+        // use idx_t entry_idx = row_idx / 64; idx_t idx_in_entry = row_idx % 64; bool is_valid = validity_mask[entry_idx] & (1 « idx_in_entry);
+        // as the row is valid function is slower
+        let valid = unsafe {
+            let validity = cpp::duckdb_vector_get_validity(self.ptr);
+
+            // validity can return a NULL pointer if the entire vector is valid
+            if validity.is_null() {
+                return false;
+            }
+
+            cpp::duckdb_validity_row_is_valid(validity, row)
+        };
+
+        !valid
+    }
+
     pub fn add_string_buffer<T>(&self, buffer: T) {
         let data = Data::from(Box::new(buffer));
         unsafe { cpp::duckdb_vx_string_vector_add_buffer(self.as_ptr(), data.into_ptr()) }

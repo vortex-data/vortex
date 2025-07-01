@@ -6332,6 +6332,7 @@ name = "vortex-duckdb"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrow",
  "bindgen",
  "bitvec",
  "cbindgen",
@@ -6344,6 +6345,7 @@ dependencies = [
  "reqwest",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "vortex",
  "vortex-file",
  "walkdir",

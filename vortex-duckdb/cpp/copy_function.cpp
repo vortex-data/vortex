@@ -44,17 +44,19 @@ struct CCopyLocalData final : LocalFunctionData {
 
 static duckdb_vx_copy_func_vtab_t *copy_vtab_one;
 
-unique_ptr<FunctionData> c_bind_one(ClientContext &context, CopyInfo &info, vector<string> &column_names,
-                                    vector<LogicalType> &column_types) {
+unique_ptr<FunctionData> c_bind_one(ClientContext &context, CopyFunctionBindInput &info,
+                                    const vector<string> &column_names,
+                                    const vector<LogicalType> &column_types) {
 
     auto c_column_names = std::vector<const char *>();
     for (const auto &col_id : column_names) {
-        column_names.push_back(col_id.c_str());
+        c_column_names.push_back(col_id.c_str());
     }
 
-    auto c_column_types = std::vector<duckdb_logical_type>();
+    auto c_column_types = std::vector<const duckdb_logical_type>();
     for (auto &col_type : column_types) {
-        c_column_types.push_back(reinterpret_cast<duckdb_logical_type>(&col_type));
+        c_column_types.push_back(
+            reinterpret_cast<const duckdb_logical_type>(const_cast<LogicalType *>(&col_type)));
     }
 
     duckdb_vx_error error_out = nullptr;
@@ -75,13 +77,12 @@ unique_ptr<GlobalFunctionData> c_init_global(ClientContext &context, FunctionDat
                                              const string &file_path) {
     auto &bind = bind_data.Cast<CCopyBindData>();
     duckdb_vx_error error_out = nullptr;
-    auto global_data = bind.info->vtab.init_global(bind.ffi_data->DataPtr(), file_path.data(),
-                                                   file_path.length(), &error_out);
+    auto global_data = bind.info->vtab.init_global(bind.ffi_data->DataPtr(), file_path.c_str(), &error_out);
     if (error_out) {
         throw ExecutorException(IntoErrString(error_out));
     }
 
-    return make_uniq<CCopyGlobalData>(global_data);
+    return make_uniq<CCopyGlobalData>(unique_ptr<CData>(reinterpret_cast<CData *>(global_data)));
 }
 
 unique_ptr<LocalFunctionData> c_init_local(ExecutionContext &context, FunctionData &bind_data) {
@@ -92,7 +93,7 @@ unique_ptr<LocalFunctionData> c_init_local(ExecutionContext &context, FunctionDa
         throw ExecutorException(IntoErrString(error_out));
     }
 
-    return make_uniq<CCopyLocalData>(data);
+    return make_uniq<CCopyLocalData>(unique_ptr<CData>(reinterpret_cast<CData *>(data)));
 }
 
 void c_copy_to_sink(ExecutionContext &context, FunctionData &bind_data, GlobalFunctionData &gstate,
@@ -120,6 +121,9 @@ void copy_to_finalize(ClientContext &context, FunctionData &bind_data, GlobalFun
 }
 
 extern "C" duckdb_vx_copy_func_vtab_t *get_vtab_one() {
+    if (copy_vtab_one == nullptr) {
+        copy_vtab_one = new duckdb_vx_copy_func_vtab_t;
+    }
     return copy_vtab_one;
 }
 
@@ -129,14 +133,15 @@ extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_connection 
     }
 
     auto conn = reinterpret_cast<Connection *>(ffi_conn);
-    auto copy_function = CopyFunction(copy_vtab_one->name);
+    auto copy_function = CopyFunction("vortex");
 
-    copy_function.copy_from_bind = c_bind_one;
+    copy_function.copy_to_bind = c_bind_one;
     copy_function.copy_to_initialize_global = c_init_global;
     copy_function.copy_to_initialize_local = c_init_local;
 
     copy_function.copy_to_sink = c_copy_to_sink;
     copy_function.copy_to_finalize = copy_to_finalize;
+    copy_function.extension = "vortex";
 
     // TODO(joe): expose this via c our api
     copy_function.execution_mode = [](bool preserve_insertion_order, bool supports_batch_index) {
@@ -145,13 +150,13 @@ extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_connection 
     // TODO(joe): handle parameters as in table_function
 
     try {
-        conn->context->RunFunctionInTransaction([&]() {
-            auto &catalog = Catalog::GetSystemCatalog(*conn->context);
-            CreateCopyFunctionInfo tf_info(copy_function);
-            catalog.CreateCopyFunction(*conn->context, tf_info);
-        });
+        CreateCopyFunctionInfo info(std::move(copy_function));
+        auto &system_catalog = Catalog::GetSystemCatalog(*conn->context->db);
+        auto data = CatalogTransaction::GetSystemTransaction(*conn->context->db);
+        system_catalog.CreateCopyFunction(data, info);
+
     } catch (...) {
-        return DuckDBSuccess;
+        return DuckDBError;
     }
     return DuckDBSuccess;
 }
