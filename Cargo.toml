@@ -79,7 +79,7 @@ cc = "1.2"
 cfg-if = "1"
 chrono = "0.4.41"
 clap = "4.5"
-compio = { version = "0.14", features = ["io-uring"], default-features = false }
+compio = { version = "0.15", features = ["io-uring"], default-features = false }
 crossbeam-queue = "0.3"
 crossterm = "0.28"
 dashmap = "6.1.0"
