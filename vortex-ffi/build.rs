@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 use std::env;
 use std::path::PathBuf;
 
@@ -12,7 +13,7 @@ fn main() {
         .with_crate(&crate_dir)
         .with_config(cbindgen::Config::from_file("cbindgen.toml").unwrap())
         .generate()
-        .expect("Unable to generate bindings")
+        .unwrap()
         .write_to_file(&output_file);
 
     println!("cargo:rerun-if-changed=src/");
