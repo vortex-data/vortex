@@ -408,8 +408,9 @@ async fn bench_main(
 
     // The CI env var is defined by Github Actions.
     // https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables#default-environment-variables
-    if targets.iter().any(|t| t.engine() == Engine::DuckDB)
-        && targets.iter().any(|t| t.format() == Format::OnDiskVortex)
+    if targets
+        .iter()
+        .any(|t| t.engine() == Engine::DuckDB && t.format() == Format::OnDiskVortex)
         && env::var("CI").is_ok()
     {
         verify_duckdb_tpch_results(&url, scale_factor, queries)?;
