@@ -326,16 +326,16 @@ size_t vx_array_len(const vx_array *array);
  */
 const vx_dtype *vx_array_dtype(const vx_array *array);
 
-const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, vx_error **error);
+const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, vx_error **error_out);
 
 const vx_array *vx_array_slice(const vx_array *array,
                                uint32_t start,
                                uint32_t stop,
-                               vx_error **error);
+                               vx_error **error_out);
 
-bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **error);
+bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **error_out);
 
-uint32_t vx_array_null_count(const vx_array *array, vx_error **error);
+uint32_t vx_array_null_count(const vx_array *array, vx_error **error_out);
 
 uint8_t vx_array_get_u8(const vx_array *array, uint32_t index);
 
@@ -407,7 +407,7 @@ void vx_array_iterator_free(vx_array_iterator *ptr);
  * It is an error to call this function again after the iterator is finished.
  */
 const vx_array *vx_array_iterator_next(vx_array_iterator *iter,
-                                       vx_error **error);
+                                       vx_error **error_out);
 
 /**
  * Clone a borrowed [`vx_dtype`], returning an owned [`vx_dtype`].
@@ -539,9 +539,9 @@ void vx_file_free(const vx_file *ptr);
  */
 const vx_file *vx_file_open_reader(const vx_file_open_options *options,
                                    const vx_session *session,
-                                   vx_error **error);
+                                   vx_error **error_out);
 
-void vx_file_write_array(const char *path, const vx_array *array, vx_error **error);
+void vx_file_write_array(const char *path, const vx_array *array, vx_error **error_out);
 
 uint64_t vx_file_row_count(const vx_file *file);
 
@@ -557,14 +557,14 @@ bool vx_file_can_prune(const vx_file *file,
                        const char *filter_expression,
                        unsigned int filter_expression_len,
                        unsigned long file_idx,
-                       vx_error **error);
+                       vx_error **error_out);
 
 /**
  * Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
  */
 vx_array_iterator *vx_file_scan(const vx_file *file,
                                 const vx_file_scan_options *opts,
-                                vx_error **error);
+                                vx_error **error_out);
 
 /**
  * Set the stderr logger to output at the specified level.
@@ -589,18 +589,20 @@ vx_session *vx_session_new(void);
  * Opens a writable array stream, where sink is used to push values into the stream.
  * To close the stream close the sink with `vx_array_sink_close`.
  */
-vx_array_sink *vx_array_sink_open_file(const char *path, const vx_dtype *dtype, vx_error **error);
+vx_array_sink *vx_array_sink_open_file(const char *path,
+                                       const vx_dtype *dtype,
+                                       vx_error **error_out);
 
 /**
  * Pushed a single array chunk into a file sink.
  */
-void vx_array_sink_push(vx_array_sink *sink, const vx_array *array, vx_error **error);
+void vx_array_sink_push(vx_array_sink *sink, const vx_array *array, vx_error **error_out);
 
 /**
  * Closes an array sink, must be called to ensure all the values pushed to the sink are written
  * to the external resource.
  */
-void vx_array_sink_close(vx_array_sink *sink, vx_error **error);
+void vx_array_sink_close(vx_array_sink *sink, vx_error **error_out);
 
 /**
  * Clone a borrowed [`vx_string`], returning an owned [`vx_string`].
