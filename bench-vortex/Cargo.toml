@@ -31,8 +31,8 @@ datafusion = { workspace = true, features = [
 ] }
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
+dirs = { workspace = true }
 futures = { workspace = true }
-homedir = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true }
 itertools = { workspace = true }
