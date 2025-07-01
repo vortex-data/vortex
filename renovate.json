@@ -26,37 +26,37 @@
   ],
   "packageRules": [
     {
-      "matchPackagePrefixes": [
-        "arrow",
-        "parquet",
-        "datafusion",
-        "pyo3"
-      ],
       "matchUpdateTypes": [
         "major",
         "minor",
         "patch"
       ],
-      "groupName": "datafusion and friends"
+      "groupName": "datafusion and friends",
+      "matchPackageNames": [
+        "arrow{/,}**",
+        "parquet{/,}**",
+        "datafusion{/,}**",
+        "pyo3{/,}**"
+      ]
     },
     {
-      "matchPackagePrefixes": [
-        "flatbuffers",
-        "flexbuffers"
-      ],
-      "groupName": "flatbuffers"
+      "groupName": "flatbuffers",
+      "matchPackageNames": [
+        "flatbuffers{/,}**",
+        "flexbuffers{/,}**"
+      ]
     },
     {
-      "matchPackagePrefixes": [
-        "futures"
-      ],
-      "groupName": "futures"
+      "groupName": "futures",
+      "matchPackageNames": [
+        "futures{/,}**"
+      ]
     },
     {
-      "matchPackagePrefixes": [
-        "tonic"
-      ],
-      "groupName": "tonic"
+      "groupName": "tonic",
+      "matchPackageNames": [
+        "tonic{/,}**"
+      ]
     }
   ]
 }
