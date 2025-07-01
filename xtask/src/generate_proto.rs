@@ -6,6 +6,7 @@ pub fn generate_proto() -> anyhow::Result<()> {
         vortex_proto.join("proto").join("dtype.proto"),
         vortex_proto.join("proto").join("scalar.proto"),
         vortex_proto.join("proto").join("expr.proto"),
+        vortex_proto.join("proto").join("exprs.proto"),
     ];
 
     for file in &proto_files {

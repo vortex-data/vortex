@@ -14,3 +14,8 @@ pub mod scalar;
 #[rustfmt::skip]
 #[path = "./generated/vortex.expr.rs"]
 pub mod expr;
+
+#[cfg(feature = "expr")]
+#[rustfmt::skip]
+#[path = "./generated/vortex.exprs.rs"]
+pub mod exprs;

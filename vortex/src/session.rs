@@ -24,6 +24,7 @@ use vortex_zigzag::ZigZagEncoding;
 pub struct VortexSession {
     arrays: ArrayRegistry,
     layouts: LayoutRegistry,
+    exprs:
     metrics: VortexMetrics,
 }
 

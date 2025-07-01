@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package vortex.exprs;
+
+import "scalar.proto";
+import "dtype.proto";
+
+option java_package = "dev.vortex.proto";
+option java_outer_classname = "ExprsProtos";
+
+// Captures a generic representation of expressions in Vortex.
+// Expression deserializers can be registered with a Vortex session to handle parsing this into
+// an in-memory expression for execution.
+message Expr {
+  string id = 1;
+  repeated Expr children = 2;
+  optional bytes options = 3;
+}
+
+// Options for `vortex.literal`
+message LiteralOpts {
+  vortex.scalar.Scalar value = 1;
+}
+
+// Options for `vortex.var`
+message VarOpts {
+  string var = 1;
+}
+
+// Options for `vortex.pack`
+message PackOpts {
+  repeated string paths = 1;
+  bool nullable = 2;
+}
+
+// Options for `vortex.getitem`
+message GetItemOpts {
+  string path = 1;
+}
+
+// Options for `vortex.binary`
+message BinaryOpts {
+  BinaryOp op = 1;
+
+  enum BinaryOp {
+    Eq = 0;
+    NotEq = 1;
+    Gt = 2;
+    Gte = 3;
+    Lt = 4;
+    Lte = 5;
+    And = 6;
+    Or = 7;
+    Add = 8;
+  }
+}
+
+message BetweenOpts {
+  bool lower_strict = 1;
+  bool upper_strict = 2;
+}
+
+message LikeOpts {
+  bool negated = 1;
+  bool case_insensitive = 2;
+}
+
+message CastOpts {
+  vortex.dtype.DType target = 1;
+}

@@ -2,13 +2,17 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 
+use prost::Message;
 use vortex_array::ArrayRef;
-use vortex_array::compute::{BetweenOptions, between};
+use vortex_array::compute::{BetweenOptions, StrictComparison, between};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
 use vortex_error::VortexResult;
+use vortex_proto::exprs as pb;
 
-use crate::{AnalysisExpr, BinaryExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{
+    AnalysisExpr, BinaryExpr, ExprEncoding, ExprId, ExprRef, Scope, ScopeDType, VortexExpr,
+};
 
 #[derive(Debug, Eq, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
@@ -17,6 +21,36 @@ pub struct Between {
     lower: ExprRef,
     upper: ExprRef,
     options: BetweenOptions,
+}
+
+pub struct BetweenEncoding;
+
+impl ExprEncoding for BetweenEncoding {
+    fn id(&self) -> ExprId {
+        ExprId::new_ref("between")
+    }
+
+    fn deserialize(&self, options: &[u8], children: Vec<ExprRef>) -> VortexResult<Option<ExprRef>> {
+        let options = pb::BetweenOpts::decode(options)?;
+
+        Ok(Some(Between::between(
+            children[0].clone(),
+            children[1].clone(),
+            children[2].clone(),
+            BetweenOptions {
+                lower_strict: if options.lower_strict {
+                    StrictComparison::Strict
+                } else {
+                    StrictComparison::NonStrict
+                },
+                upper_strict: if options.upper_strict {
+                    StrictComparison::Strict
+                } else {
+                    StrictComparison::NonStrict
+                },
+            },
+        )))
+    }
 }
 
 impl Between {

@@ -15,7 +15,7 @@ use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, deserialize_expr};
+use vortex::expr::{ExprRef, deserialize_expr_proto};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::layout::layouts::row_id::RowIdLayoutReader;
@@ -91,7 +91,8 @@ fn extract_expression(
             unsafe { slice::from_raw_parts(expression as *const u8, expression_len as usize) };
 
         // Decode the protobuf message.
-        deserialize_expr(&Expr::decode(bytes)?).map_err(|e| e.with_context("deserializing expr"))?
+        deserialize_expr_proto(&Expr::decode(bytes)?)
+            .map_err(|e| e.with_context("deserializing expr"))?
     }))
 }
 

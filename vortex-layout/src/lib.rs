@@ -1,5 +1,5 @@
-mod context;
-pub use context::*;
+mod registry;
+pub use registry::*;
 pub mod layouts;
 
 pub use children::*;

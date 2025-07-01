@@ -8,11 +8,13 @@ pub use exprs::*;
 mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
+mod encoding;
 mod exprs;
 mod field;
 pub mod forms;
-pub mod pruning;
 #[cfg(feature = "proto")]
+pub mod proto;
+pub mod pruning;
 mod registry;
 mod scope;
 mod scope_vars;
@@ -23,6 +25,7 @@ pub use analysis::*;
 pub use between::*;
 pub use binary::*;
 pub use cast::*;
+pub use encoding::*;
 pub use get_item::*;
 pub use is_null::*;
 pub use like::*;
@@ -32,51 +35,40 @@ pub use merge::*;
 pub use not::*;
 pub use operators::*;
 pub use pack::*;
-#[cfg(feature = "proto")]
-pub use registry::deserialize_expr;
+pub use registry::*;
 pub use scope::*;
 pub use select::*;
 pub use var::*;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayRef, VTableRegistry};
 use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexResult, VortexUnwrap};
-#[cfg(feature = "proto")]
-use vortex_proto::expr;
-#[cfg(feature = "proto")]
-use vortex_proto::expr::{Expr, kind};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{Node, ReferenceCollector, VarsCollector};
 
+pub type ExprRegistry = VTableRegistry<ExprEncodingRef>;
+
 pub type ExprRef = Arc<dyn VortexExpr>;
 
-#[cfg(feature = "proto")]
-pub trait Id {
-    fn id(&self) -> &'static str;
-}
-
-#[cfg(feature = "proto")]
-pub trait ExprDeserialize: Id + Sync {
-    fn deserialize(&self, kind: &kind::Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef>;
-}
-
-#[cfg(feature = "proto")]
-pub trait ExprSerializable {
-    fn id(&self) -> &'static str;
-
-    fn serialize_kind(&self) -> VortexResult<kind::Kind>;
-}
-
-#[cfg(not(feature = "proto"))]
-pub trait ExprSerializable {}
-#[cfg(not(feature = "proto"))]
-impl<T> ExprSerializable for T {}
 /// Represents logical operation on [`ArrayRef`]s
-pub trait VortexExpr:
-    Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable + AnalysisExpr
-{
+pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + AnalysisExpr {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
+
+    /// The globally unique ID for this type of expression.
+    fn id(&self) -> ExprId {
+        self.encoding().id()
+    }
+
+    /// Return the encoding of the expression.
+    fn encoding(&self) -> ExprEncodingRef;
+
+    /// Serialize the options of this expression into a bytes vector.
+    ///
+    /// Returns `None` if the expression does not support serialization.
+    fn serialize_options(&self) -> Option<Vec<u8>> {
+        None
+    }
 
     /// Compute result of expression on given batch producing a new batch
     fn evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
@@ -112,9 +104,6 @@ pub trait VortexExprExt {
     fn field_references(&self) -> HashSet<FieldName>;
 
     fn vars(&self) -> HashSet<Identifier>;
-
-    #[cfg(feature = "proto")]
-    fn serialize(&self) -> VortexResult<Expr>;
 }
 
 impl VortexExprExt for ExprRef {
@@ -130,23 +119,6 @@ impl VortexExprExt for ExprRef {
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
         collector.into_vars()
-    }
-
-    #[cfg(feature = "proto")]
-    fn serialize(&self) -> VortexResult<Expr> {
-        let children = self
-            .children()
-            .iter()
-            .map(|e| e.serialize())
-            .collect::<VortexResult<_>>()?;
-
-        Ok(Expr {
-            id: self.id().to_string(),
-            children,
-            kind: Some(expr::Kind {
-                kind: Some(self.serialize_kind()?),
-            }),
-        })
     }
 }
 
@@ -395,19 +367,5 @@ mod tests {
             .to_string(),
             "{dog: 32u32, cat: \"rufus\"}"
         );
-    }
-
-    #[cfg(feature = "proto")]
-    mod tests_proto {
-        use crate::{VortexExprExt, deserialize_expr, eq, lit, root};
-
-        #[test]
-        fn round_trip_serde() {
-            let expr = eq(root(), lit(1));
-            let res = expr.serialize().unwrap();
-            let final_ = deserialize_expr(&res).unwrap();
-
-            assert_eq!(&expr, &final_);
-        }
     }
 }
