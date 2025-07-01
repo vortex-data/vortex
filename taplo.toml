@@ -4,3 +4,11 @@ exclude = ["duckdb-vortex/duckdb-rs/**"]
 [formatting]
 allowed_blank_lines = 1
 indent_string = "    "
+reorder_keys = false
+
+[[rule]]
+include = ["**/Cargo.toml"]
+keys = ["workspace.dependencies", "dependencies", "dev-dependencies"]
+
+[rule.formatting]
+reorder_keys = true
