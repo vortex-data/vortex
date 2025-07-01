@@ -118,6 +118,7 @@ fn main() {
         // We include DuckDB headers from the DuckDB extension submodule.
         .include(duckdb_repo.join("src/include"))
         .include("cpp/include")
+        .file("cpp/copy_function.cpp")
         .file("cpp/data.cpp")
         .file("cpp/data_chunk.cpp")
         .file("cpp/error.cpp")

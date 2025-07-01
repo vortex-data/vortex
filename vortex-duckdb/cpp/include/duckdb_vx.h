@@ -1,5 +1,6 @@
 #pragma once
 
+#include "duckdb_vx/copy_function.h"
 #include "duckdb_vx/data.h"
 #include "duckdb_vx/data_chunk.h"
 #include "duckdb_vx/error.h"
