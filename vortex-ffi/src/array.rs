@@ -42,9 +42,9 @@ pub unsafe extern "C-unwind" fn vx_array_dtype(array: *const vx_array) -> *const
 pub unsafe extern "C-unwind" fn vx_array_get_field(
     array: *const vx_array,
     index: u32,
-    error: *mut *mut vx_error,
+    error_out: *mut *mut vx_error,
 ) -> *const vx_array {
-    try_or(error, ptr::null(), || {
+    try_or(error_out, ptr::null(), || {
         let array = vx_array::as_ref(array);
 
         let field_array = array
@@ -63,10 +63,10 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     array: *const vx_array,
     start: u32,
     stop: u32,
-    error: *mut *mut vx_error,
+    error_out: *mut *mut vx_error,
 ) -> *const vx_array {
     let array = vx_array::as_ref(array);
-    try_or(error, ptr::null_mut(), || {
+    try_or(error_out, ptr::null_mut(), || {
         let sliced = array.slice(start as usize, stop as usize)?;
         Ok(vx_array::new(sliced))
     })
@@ -76,19 +76,19 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
 pub unsafe extern "C-unwind" fn vx_array_is_null(
     array: *const vx_array,
     index: u32,
-    error: *mut *mut vx_error,
+    error_out: *mut *mut vx_error,
 ) -> bool {
     let array = vx_array::as_ref(array);
-    try_or(error, false, || array.is_invalid(index as usize))
+    try_or(error_out, false, || array.is_invalid(index as usize))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_null_count(
     array: *const vx_array,
-    error: *mut *mut vx_error,
+    error_out: *mut *mut vx_error,
 ) -> u32 {
     let array = vx_array::as_ref(array);
-    try_or(error, 0, || Ok(array.invalid_count()?.try_into()?))
+    try_or(error_out, 0, || Ok(array.invalid_count()?.try_into()?))
 }
 
 macro_rules! ffiarray_get_ptype {
