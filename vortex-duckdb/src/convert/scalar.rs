@@ -304,7 +304,7 @@ impl TryFrom<Value> for Scalar {
                     Arc::new(DType::Primitive(I32, Nullable)),
                     Some(TemporalMetadata::Date(TimeUnit::D).into()),
                 )),
-                Scalar::new(DType::Primitive(I32, Nullable), value.as_i32().into()),
+                Scalar::new(DType::Primitive(I32, Nullable), value.as_date().into()),
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_TIME => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
@@ -312,7 +312,7 @@ impl TryFrom<Value> for Scalar {
                     Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Date(TimeUnit::Us).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), value.as_i64().into()),
+                Scalar::new(DType::Primitive(I64, Nullable), value.as_time().into()),
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
                 let (width, scale) = value.logical_type().as_decimal();

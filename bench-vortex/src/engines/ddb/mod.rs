@@ -34,13 +34,12 @@ impl DuckDBCtx {
     pub fn new() -> Result<Self> {
         let db = Database::open_in_memory()?;
         let connection = db.connect()?;
-        vortex_duckdb::init(&connection)?;
+        vortex_duckdb::register_table_functions(&connection)?;
         Ok(Self { db, connection })
     }
 
     /// Execute DuckDB queries for benchmarks using the internal connection
     pub fn execute_query(&self, query: &str) -> Result<Duration> {
-        // TODO: handle multiple queries
         trace!("execute duckdb query: {}", query);
         let time_instant = Instant::now();
         self.connection.query(query)?;

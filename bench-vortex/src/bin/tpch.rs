@@ -409,13 +409,17 @@ async fn bench_main(
     // The CI env var is defined by Github Actions.
     // https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables#default-environment-variables
     if targets.iter().any(|t| t.engine() == Engine::DuckDB) && env::var("CI").is_ok() {
-        verify_duckdb_tpch_results(scale_factor)?;
+        verify_duckdb_tpch_results(&url, scale_factor, queries)?;
     }
 
     anyhow::Ok(())
 }
 
-fn verify_duckdb_tpch_results(scale_factor: u8) -> anyhow::Result<()> {
+fn verify_duckdb_tpch_results(
+    url: &Url,
+    _scale_factor: u8,
+    queries: Option<Vec<usize>>,
+) -> anyhow::Result<()> {
     let query_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vortex-duckdb/duckdb/extension/tpch/dbgen/queries");
 
@@ -430,14 +434,26 @@ fn verify_duckdb_tpch_results(scale_factor: u8) -> anyhow::Result<()> {
     }
     fs::create_dir(&tmp_dir)?;
     let duckdb_ctx = ddb::DuckDBCtx::new()?;
-    duckdb_ctx.execute_query(&format!("CALL dbgen(sf={})", scale_factor))?;
+    duckdb_ctx.register_tables(url, Format::OnDiskVortex, BenchmarkDataset::TpcH)?;
 
-    let query_files = fs::read_dir(query_dir)?
+    let mut query_files = fs::read_dir(query_dir)?
         .filter_map(Result::ok)
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "sql"))
         .collect::<Vec<_>>();
+    query_files.sort_by_key(|entry| entry.file_name());
 
-    for query_file in &query_files {
+    let mut is_matching_ref_result = true;
+
+    for query_file in query_files
+        .iter()
+        .enumerate()
+        .filter(|entry| {
+            queries
+                .as_ref()
+                .is_none_or(|queries| queries.contains(&(entry.0 + 1)))
+        })
+        .map(|query_file| query_file.1)
+    {
         let query_file_path = query_file.path();
         let query_name = query_file_path
             .file_stem()
@@ -473,10 +489,13 @@ fn verify_duckdb_tpch_results(scale_factor: u8) -> anyhow::Result<()> {
                 print!("{}{}", sign, change);
             }
 
-            return Err(anyhow!(format!(
-                "query output does not match the reference for {query_name}"
-            )));
+            eprintln!("query output does not match the reference for {query_name}");
+            is_matching_ref_result = false;
         }
+    }
+
+    if !is_matching_ref_result {
+        return Err(anyhow!("not all queries matched the reference"));
     }
 
     Ok(())

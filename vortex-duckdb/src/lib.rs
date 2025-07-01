@@ -31,7 +31,7 @@ mod cpp;
 mod vortex_scan_tests;
 
 /// Initialize the Vortex extension by registering the `vortex_scan` function.
-pub fn init(conn: &Connection) -> VortexResult<()> {
+pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
     conn.register_table_function::<VortexTableFunction>(c"vortex_scan")?;
     conn.register_table_function::<VortexTableFunction>(c"read_vortex")
 }
@@ -42,7 +42,7 @@ pub unsafe extern "C" fn vortex_init(db: cpp::duckdb_database) {
     let conn = unsafe { Database::borrow(db) }
         .connect()
         .vortex_expect("Failed to connect to DuckDB database");
-    init(&conn).vortex_expect("Failed to initialize Vortex extension");
+    register_table_functions(&conn).vortex_expect("Failed to initialize Vortex extension");
 }
 
 /// The DuckDB extension ABI version function.
