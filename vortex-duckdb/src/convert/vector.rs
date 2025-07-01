@@ -1,3 +1,4 @@
+/// Copied of duckdb-rs (https://github.com/duckdb/duckdb-rs/blob/main/crates/duckdb/src/vtab/arrow.rs)
 use std::sync::Arc;
 
 use arrow::array::{
@@ -21,8 +22,6 @@ use crate::cpp::{
     duckdb_time, duckdb_timestamp,
 };
 use crate::duckdb::{DataChunk, Vector};
-
-/// Copy of duckdb-rs
 
 pub struct DuckString<'a> {
     ptr: &'a mut duckdb_string_t,
