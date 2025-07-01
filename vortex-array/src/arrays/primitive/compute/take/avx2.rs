@@ -140,7 +140,8 @@ macro_rules! impl_gather {
     };
 }
 
-impl_gather!(u8, // index type
+// kernels for u8 indices
+impl_gather!(u8,
     // 32-bit values, loaded 8 at a time
     { u32 =>
         load: _mm_loadu_si128,
@@ -190,6 +191,7 @@ impl_gather!(u8, // index type
     }
 );
 
+// kernels for u16 indices
 impl_gather!(u16,
     // 32-bit values. 8x indices loaded at a time and 8x values written at a time
     { u32 =>
@@ -240,6 +242,7 @@ impl_gather!(u16,
     }
 );
 
+// kernels for u32 indices
 impl_gather!(u32,
     // 32-bit values. 8x indices loaded at a time and 8x values written
     { u32 =>
@@ -289,6 +292,7 @@ impl_gather!(u32,
     }
 );
 
+// kernels for u64 indices
 impl_gather!(u64,
     { u32 =>
         load: _mm256_loadu_si256,
@@ -472,7 +476,7 @@ where
 }
 
 #[cfg(test)]
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+#[cfg(target_arch = "x86_64")]
 mod tests {
     use super::*;
 
