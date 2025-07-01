@@ -21,6 +21,9 @@
   "patch": {
     "groupName": "all patch updates"
   },
+  "labels": [
+    "chore"
+  ],
   "packageRules": [
     {
       "matchPackagePrefixes": [
