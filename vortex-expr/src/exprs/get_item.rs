@@ -22,11 +22,11 @@ pub struct GetItemExpr {
     child: ExprRef,
 }
 
-pub struct GetItemEncoding;
+pub struct GetItemExprEncoding;
 
 impl VTable for GetItemVTable {
     type Expr = GetItemExpr;
-    type Encoding = GetItemEncoding;
+    type Encoding = GetItemExprEncoding;
     type Metadata = ProstMetadata<pb::GetItemOpts>;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
@@ -34,7 +34,7 @@ impl VTable for GetItemVTable {
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&GetItemEncoding)
+        ExprEncodingRef::new_ref(&GetItemExprEncoding)
     }
 
     fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {

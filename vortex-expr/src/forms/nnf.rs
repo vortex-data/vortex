@@ -1,12 +1,12 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::traversal::{FoldDown, FoldUp, FolderMut, Node as _};
-use crate::{ExprRef, Not, Operator, not};
+use crate::{ExprRef, NotExpr, Operator, not};
 
 /// Return an equivalent expression in Negative Normal Form (NNF).
 ///
-/// In NNF, [Not] expressions may only contain terminal nodes such as [Literal](crate::LiteralExpr) or
-/// [GetItem](crate::GetItemExpr). They *may not* contain [Binary], [Not], etc.
+/// In NNF, [NotExpr] expressions may only contain terminal nodes such as [Literal](crate::LiteralExpr) or
+/// [GetItem](crate::GetItemExpr). They *may not* contain [Binary], [NotExpr], etc.
 ///
 /// # Examples
 ///
@@ -77,7 +77,7 @@ impl FolderMut for NNFVisitor {
         negating: bool,
     ) -> VortexResult<FoldDown<ExprRef, bool>> {
         let node_any = node.as_any();
-        if node_any.is::<Not>() {
+        if node_any.is::<NotExpr>() {
             return Ok(FoldDown::Continue(!negating));
         } else if let Some(binary_expr) = node_any.downcast_ref::<Binary>() {
             match binary_expr.op() {
@@ -99,7 +99,7 @@ impl FolderMut for NNFVisitor {
     ) -> VortexResult<FoldUp<ExprRef>> {
         let node_any = node.as_any();
 
-        let new_node = if node_any.is::<Not>() {
+        let new_node = if node_any.is::<NotExpr>() {
             debug_assert_eq!(new_children.len(), 1);
             new_children.remove(0)
         } else if let Some(binary_expr) = node_any.downcast_ref::<Binary>() {

@@ -20,11 +20,11 @@ pub struct IsNullExpr {
     child: ExprRef,
 }
 
-pub struct IsNullEncoding;
+pub struct IsNullExprEncoding;
 
 impl VTable for IsNullVTable {
     type Expr = IsNullExpr;
-    type Encoding = IsNullEncoding;
+    type Encoding = IsNullExprEncoding;
     type Metadata = ();
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
@@ -32,7 +32,7 @@ impl VTable for IsNullVTable {
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&IsNullEncoding)
+        ExprEncodingRef::new_ref(&IsNullExprEncoding)
     }
 
     fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {

@@ -57,7 +57,9 @@ pub trait IntoExpr {
 pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayRef`]s
-pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + AnalysisExpr {
+pub trait VortexExpr:
+    Debug + Send + Sync + DynEq + DynHash + Display + AnalysisExpr + private::Sealed
+{
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 

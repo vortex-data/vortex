@@ -3,7 +3,7 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use super::nnf::nnf;
 use crate::traversal::{Node as _, NodeVisitor, TraversalOrder};
-use crate::{ExprRef, Operator, lit, or};
+use crate::{BinaryVTable, ExprRef, Operator, lit, or};
 
 /// Return an equivalent expression in Conjunctive Normal Form (CNF).
 ///
@@ -77,7 +77,7 @@ impl NodeVisitor<'_> for CNFVisitor {
     type NodeTy = ExprRef;
 
     fn visit_down(&mut self, node: &ExprRef) -> VortexResult<TraversalOrder> {
-        if let Some(binary_expr) = node.as_any().downcast_ref::<Binary>() {
+        if let Some(binary_expr) = node.as_opt::<BinaryVTable>() {
             match binary_expr.op() {
                 Operator::And => return Ok(TraversalOrder::Continue),
                 Operator::Or => {

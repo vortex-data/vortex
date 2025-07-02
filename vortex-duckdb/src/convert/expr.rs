@@ -5,8 +5,8 @@ use vortex::compute::{BetweenOptions, StrictComparison};
 use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    Between, Binary, ExprRef, LikeExpr, LiteralExpr, Not, Operator, and_collect, get_item_scope,
-    list_contains, lit, or_collect,
+    Between, Binary, ExprRef, LikeExpr, LiteralExpr, NotExpr, Operator, and_collect,
+    get_item_scope, list_contains, lit, or_collect,
 };
 use vortex::scalar::Scalar;
 
@@ -115,7 +115,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 let Some(child) = try_from_bound_expression(&children[0])? else {
                     return Ok(None);
                 };
-                Not::new_expr(child)
+                NotExpr::new(child)
             }
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
                 // First child is element, rest form the list.
