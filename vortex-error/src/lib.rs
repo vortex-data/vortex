@@ -106,9 +106,6 @@ pub enum VortexError {
     ParquetError(parquet::errors::ParquetError, Backtrace),
     /// A wrapper for errors from the standard library when converting a slice to an array.
     TryFromSliceError(std::array::TryFromSliceError, Backtrace),
-    /// A wrapper for errors from the Cloudflare Workers library.
-    #[cfg(feature = "worker")]
-    WorkerError(worker::Error, Backtrace),
     /// A wrapper for errors from the Object Store library.
     #[cfg(feature = "object_store")]
     ObjectStore(object_store::Error, Backtrace),
@@ -211,10 +208,6 @@ impl Display for VortexError {
             VortexError::TryFromSliceError(err, backtrace) => {
                 write!(f, "{}\nBacktrace:\n{}", err, backtrace)
             }
-            #[cfg(feature = "worker")]
-            VortexError::WorkerError(err, backtrace) => {
-                write!(f, "{}\nBacktrace:\n{}", err, backtrace)
-            }
             #[cfg(feature = "object_store")]
             VortexError::ObjectStore(err, backtrace) => {
                 write!(f, "{}\nBacktrace:\n{}", err, backtrace)
@@ -267,8 +260,6 @@ impl Error for VortexError {
             #[cfg(feature = "parquet")]
             VortexError::ParquetError(err, _) => Some(err),
             VortexError::TryFromSliceError(err, _) => Some(err),
-            #[cfg(feature = "worker")]
-            VortexError::WorkerError(err, _) => Some(err),
             #[cfg(feature = "object_store")]
             VortexError::ObjectStore(err, _) => Some(err),
             VortexError::JiffError(err, _) => Some(err),
@@ -524,13 +515,6 @@ impl From<std::array::TryFromSliceError> for VortexError {
     }
 }
 
-#[cfg(feature = "worker")]
-impl From<worker::Error> for VortexError {
-    fn from(value: worker::Error) -> Self {
-        VortexError::WorkerError(value, Backtrace::capture())
-    }
-}
-
 #[cfg(feature = "object_store")]
 impl From<object_store::Error> for VortexError {
     fn from(value: object_store::Error) -> Self {
@@ -600,13 +584,6 @@ pub mod __private {
     #[must_use]
     pub const fn must_use(error: crate::VortexError) -> crate::VortexError {
         error
-    }
-}
-
-#[cfg(feature = "worker")]
-impl From<VortexError> for worker::Error {
-    fn from(value: VortexError) -> Self {
-        Self::RustError(value.to_string())
     }
 }
 
