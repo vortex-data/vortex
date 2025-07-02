@@ -5,7 +5,7 @@ use vortex::compute::{BetweenOptions, StrictComparison};
 use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    Between, Binary, ExprRef, Like, Literal, Not, Operator, and_collect, get_item_scope,
+    Between, Binary, ExprRef, LikeExpr, Literal, Not, Operator, and_collect, get_item_scope,
     list_contains, lit, or_collect,
 };
 use vortex::scalar::Scalar;
@@ -165,7 +165,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                     vortex_bail!("expected pattern to be bound string")
                 };
                 let pattern = Literal::new_expr(pattern_lit);
-                Like::new_expr(value, pattern, false, false)
+                LikeExpr::new(value, pattern, false, false)
             }
             _ => {
                 log::debug!("bound function {}", func.scalar_function.name());
