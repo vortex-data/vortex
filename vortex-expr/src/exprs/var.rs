@@ -130,8 +130,7 @@ pub fn root() -> ExprRef {
 }
 
 pub fn is_root(expr: &ExprRef) -> bool {
-    expr.as_any()
-        .downcast_ref::<Var>()
+    expr.as_opt::<VarVTable>()
         .is_some_and(|v| v.var().is_identity())
 }
 
