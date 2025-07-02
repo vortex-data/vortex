@@ -11,7 +11,7 @@ use crate::cpp::{
 };
 use crate::duckdb::{CopyFunction, Data, DataChunk, LogicalType, try_or, try_or_null};
 
-pub(super) unsafe extern "C" fn bind_callback<T: CopyFunction>(
+pub(crate) unsafe extern "C" fn bind_callback<T: CopyFunction>(
     // TODO(joe): pass this into T::bind(..)
     _input: duckdb_vx_copy_func_bind_input,
     column_names: *const *const c_char,
@@ -42,7 +42,7 @@ pub(super) unsafe extern "C" fn bind_callback<T: CopyFunction>(
     })
 }
 
-pub(super) unsafe extern "C" fn global_callback<T: CopyFunction>(
+pub(crate) unsafe extern "C" fn global_callback<T: CopyFunction>(
     bind_data: *const c_void,
     file_path: *const c_char,
     error_out: *mut duckdb_vx_error,
@@ -58,7 +58,7 @@ pub(super) unsafe extern "C" fn global_callback<T: CopyFunction>(
     })
 }
 
-pub(super) unsafe extern "C" fn local_callback<T: CopyFunction>(
+pub(crate) unsafe extern "C" fn local_callback<T: CopyFunction>(
     bind_data: *const c_void,
     error_out: *mut duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
@@ -70,7 +70,7 @@ pub(super) unsafe extern "C" fn local_callback<T: CopyFunction>(
     })
 }
 
-pub(super) unsafe extern "C" fn copy_to_sink_callback<T: CopyFunction>(
+pub(crate) unsafe extern "C" fn copy_to_sink_callback<T: CopyFunction>(
     bind_data: *const c_void,
     global_data: *mut c_void,
     local_data: *mut c_void,
@@ -92,7 +92,7 @@ pub(super) unsafe extern "C" fn copy_to_sink_callback<T: CopyFunction>(
     })
 }
 
-pub(super) unsafe extern "C" fn copy_to_finalize_callback<T: CopyFunction>(
+pub(crate) unsafe extern "C" fn copy_to_finalize_callback<T: CopyFunction>(
     bind_data: *const c_void,
     global_data: *mut c_void,
     error_out: *mut duckdb_vx_error,
