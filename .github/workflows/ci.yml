@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - uses: spiraldb/actions/.github/actions/lint-toml@0.10.0
+      - uses: spiraldb/actions/.github/actions/lint-toml@0.14.0
 
   validate-workflow-yaml:
     runs-on: ubuntu-latest
@@ -52,7 +52,7 @@ jobs:
         with:
           submodules: "recursive"
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.11.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
         with:
           sync: false
       - name: Python Lint - Format
@@ -73,7 +73,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.11.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
         with:
           sync: false
 
