@@ -16,6 +16,9 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[build-dependencies]
+rustversion = { workspace = true }
+
 [dependencies]
 arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
