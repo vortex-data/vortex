@@ -25,6 +25,11 @@ pub struct BindData {
     fields: StructFields,
 }
 
+/// Write to a file has two phases, writing data chunks and then closing the file.
+/// We use a spawned tokio task to actually compress arrays are write it to disk.
+/// Each chunk is pushed into the sink and read from the task.
+/// Once finished we can close all sinks and then the task can be awaited and the file
+/// flushed to disk.
 pub struct GlobalState {
     write_task: Option<JoinHandle<VortexResult<File>>>,
     sink: Option<Sender<VortexResult<ArrayRef>>>,

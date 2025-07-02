@@ -57,6 +57,7 @@ impl Vector {
     }
 
     pub fn row_is_null(&self, row: u64) -> bool {
+        // this is the formula, given a validity vector to extract validity bit as row_idx.
         // use idx_t entry_idx = row_idx / 64; idx_t idx_in_entry = row_idx % 64; bool is_valid = validity_mask[entry_idx] & (1 « idx_in_entry);
         // as the row is valid function is slower
         let valid = unsafe {
