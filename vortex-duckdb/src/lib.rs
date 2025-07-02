@@ -3,8 +3,6 @@ use std::ffi::{CStr, c_char};
 use std::sync::LazyLock;
 
 // **WARNING begin this includes duckdb-rs, which is required to link in the symbol from libduckdb-sys.
-#[allow(unused_imports)]
-use duckdb::*;
 use tokio::runtime;
 use tokio::runtime::Runtime;
 // **WARNING end
@@ -33,7 +31,7 @@ mod scan;
 mod cpp;
 mod copy;
 #[cfg(test)]
-mod vortex_scan_tests;
+mod vortex_e2e_tests;
 
 /// Initialize the Vortex extension by registering the extension functions.
 pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {

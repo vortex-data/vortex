@@ -226,8 +226,6 @@ pub fn flat_vector_to_arrow_array(
         }
         DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => {
             let data = vector.as_slice_with_len::<i64>(len);
-            println!("data {data:?}, len {len}");
-
             Ok(Arc::new(
                 PrimitiveArray::<Int64Type>::from_iter_values_with_nulls(
                     data.iter().copied(),
@@ -299,7 +297,6 @@ pub fn flat_vector_to_arrow_array(
 
 pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> VortexResult<ArrayRef> {
     let len = chunk.len();
-    println!("chunk {:?}", String::try_from(chunk).unwrap());
 
     let columns = (0..chunk.column_count())
         .zip(field_names.iter())
@@ -309,7 +306,6 @@ pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> Vorte
             flat_vector_to_arrow_array(&mut vector, len.as_usize())
                 .map(|array_data| {
                     assert_eq!(array_data.len(), chunk.len().as_usize());
-                    println!("arr {:?}", array_data);
                     (name, ArrayRef::from_arrow(array_data.as_ref(), true))
                 })
                 .map_err(|e| vortex_err!("duckdb to arrow conversion failure {}", e.to_string()))
