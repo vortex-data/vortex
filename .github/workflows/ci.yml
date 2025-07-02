@@ -191,7 +191,6 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-c++
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
         run: rustup target add wasm32-unknown-unknown
@@ -222,7 +221,6 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-c++
       - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-minimal-versions
       - run: cargo minimal-versions check --direct --workspace --ignore-private
@@ -311,7 +309,6 @@ jobs:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-c++
       - name: Install grcov
         if: github.ref == 'refs/heads/develop'
         uses: taiki-e/install-action@grcov
