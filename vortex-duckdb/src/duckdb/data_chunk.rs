@@ -48,10 +48,11 @@ impl DataChunk {
         self.len() == 0
     }
 }
-impl TryFrom<DataChunk> for String {
+
+impl TryFrom<&DataChunk> for String {
     type Error = VortexError;
 
-    fn try_from(value: DataChunk) -> Result<Self, Self::Error> {
+    fn try_from(value: &DataChunk) -> Result<Self, Self::Error> {
         let mut err: duckdb_vx_error = ptr::null_mut();
         #[cfg(debug_assertions)]
         unsafe {

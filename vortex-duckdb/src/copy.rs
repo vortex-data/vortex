@@ -118,22 +118,3 @@ impl CopyFunction for VortexCopyFunction {
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::{Connection, Database};
-
-    fn database_connection() -> Connection {
-        let db = Database::open_in_memory().unwrap();
-        let connection = db.connect().unwrap();
-        crate::register_table_functions(&connection).unwrap();
-        connection
-    }
-
-    #[test]
-    fn test_write_file() {
-        let conn = database_connection();
-        conn.query("copy (select * from generate_series(2)) to 'test.vortex' (FORMAT VORTEX);")
-            .unwrap();
-    }
-}

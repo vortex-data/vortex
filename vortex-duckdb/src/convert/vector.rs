@@ -65,7 +65,7 @@ pub fn flat_vector_to_arrow_array(
                     data.iter().copied(),
                     Some(NullBuffer::new(BooleanBuffer::collect_bool(
                         data.len(),
-                        |row| !vector.row_is_null(row as u64),
+                        |row| !vector.slow_row_is_null(row as u64),
                     ))),
                 ),
             ))
@@ -80,7 +80,7 @@ pub fn flat_vector_to_arrow_array(
                 micros,
                 Some(NullBuffer::new(BooleanBuffer::collect_bool(
                     data.len(),
-                    |row| !vector.row_is_null(row as u64),
+                    |row| !vector.slow_row_is_null(row as u64),
                 ))),
             );
 
@@ -90,7 +90,7 @@ pub fn flat_vector_to_arrow_array(
             let data = vector.as_slice_with_len::<duckdb_string_t>(len);
 
             let duck_strings = data.iter().enumerate().map(|(i, s)| {
-                if vector.row_is_null(i as u64) {
+                if vector.slow_row_is_null(i as u64) {
                     None
                 } else {
                     let mut ptr = *s;
@@ -109,7 +109,7 @@ pub fn flat_vector_to_arrow_array(
                 BooleanBuffer::from_iter(data.iter().copied()),
                 Some(NullBuffer::new(BooleanBuffer::collect_bool(
                     data.len(),
-                    |row| !vector.row_is_null(row as u64),
+                    |row| !vector.slow_row_is_null(row as u64),
                 ))),
             )))
         }
@@ -121,7 +121,7 @@ pub fn flat_vector_to_arrow_array(
                     data.iter().copied(),
                     Some(NullBuffer::new(BooleanBuffer::collect_bool(
                         data.len(),
-                        |row| !vector.row_is_null(row as u64),
+                        |row| !vector.slow_row_is_null(row as u64),
                     ))),
                 ),
             ))
@@ -134,7 +134,7 @@ pub fn flat_vector_to_arrow_array(
                     data.iter().copied(),
                     Some(NullBuffer::new(BooleanBuffer::collect_bool(
                         data.len(),
-                        |row| !vector.row_is_null(row as u64),
+                        |row| !vector.slow_row_is_null(row as u64),
                     ))),
                 ),
             ))
@@ -146,7 +146,7 @@ pub fn flat_vector_to_arrow_array(
                 data.iter().map(|duckdb_date { days }| *days),
                 Some(NullBuffer::new(BooleanBuffer::collect_bool(
                     data.len(),
-                    |row| !vector.row_is_null(row as u64),
+                    |row| !vector.slow_row_is_null(row as u64),
                 ))),
             )))
         }
@@ -158,7 +158,7 @@ pub fn flat_vector_to_arrow_array(
                     data.iter().map(|duckdb_time { micros }| *micros),
                     Some(NullBuffer::new(BooleanBuffer::collect_bool(
                         data.len(),
-                        |row| !vector.row_is_null(row as u64),
+                        |row| !vector.slow_row_is_null(row as u64),
                     ))),
                 ),
             ))
@@ -171,7 +171,7 @@ pub fn flat_vector_to_arrow_array(
                     data.iter().copied(),
                     Some(NullBuffer::new(BooleanBuffer::collect_bool(
                         data.len(),
-                        |row| !vector.row_is_null(row as u64),
+                        |row| !vector.slow_row_is_null(row as u64),
                     ))),
                 ),
             ))
@@ -184,7 +184,7 @@ pub fn flat_vector_to_arrow_array(
                     data.iter().copied(),
                     Some(NullBuffer::new(BooleanBuffer::collect_bool(
                         data.len(),
-                        |row| !vector.row_is_null(row as u64),
+                        |row| !vector.slow_row_is_null(row as u64),
                     ))),
                 ),
             ))
@@ -193,7 +193,7 @@ pub fn flat_vector_to_arrow_array(
             let mut data = vector.as_slice_with_len::<duckdb_string_t>(len).to_vec();
 
             let duck_strings = data.iter_mut().enumerate().map(|(i, ptr)| {
-                if vector.row_is_null(i as u64) {
+                if vector.slow_row_is_null(i as u64) {
                     None
                 } else {
                     Some(DuckString::new(ptr))
@@ -219,20 +219,21 @@ pub fn flat_vector_to_arrow_array(
                     data.iter().copied(),
                     Some(NullBuffer::new(BooleanBuffer::collect_bool(
                         data.len(),
-                        |row| !vector.row_is_null(row as u64),
+                        |row| !vector.slow_row_is_null(row as u64),
                     ))),
                 ),
             ))
         }
         DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => {
             let data = vector.as_slice_with_len::<i64>(len);
+            println!("data {data:?}, len {len}");
 
             Ok(Arc::new(
                 PrimitiveArray::<Int64Type>::from_iter_values_with_nulls(
                     data.iter().copied(),
                     Some(NullBuffer::new(BooleanBuffer::collect_bool(
                         data.len(),
-                        |row| !vector.row_is_null(row as u64),
+                        |row| !vector.slow_row_is_null(row as u64),
                     ))),
                 ),
             ))
@@ -245,7 +246,7 @@ pub fn flat_vector_to_arrow_array(
                     data.iter().copied(),
                     Some(NullBuffer::new(BooleanBuffer::collect_bool(
                         data.len(),
-                        |row| !vector.row_is_null(row as u64),
+                        |row| !vector.slow_row_is_null(row as u64),
                     ))),
                 ),
             ))
@@ -258,7 +259,7 @@ pub fn flat_vector_to_arrow_array(
                     data.iter().copied(),
                     Some(NullBuffer::new(BooleanBuffer::collect_bool(
                         data.len(),
-                        |row| !vector.row_is_null(row as u64),
+                        |row| !vector.slow_row_is_null(row as u64),
                     ))),
                 ),
             ))
@@ -271,7 +272,7 @@ pub fn flat_vector_to_arrow_array(
                     data.iter().copied(),
                     Some(NullBuffer::new(BooleanBuffer::collect_bool(
                         data.len(),
-                        |row| !vector.row_is_null(row as u64),
+                        |row| !vector.slow_row_is_null(row as u64),
                     ))),
                 ),
             ))
@@ -286,7 +287,7 @@ pub fn flat_vector_to_arrow_array(
                 nanos,
                 Some(NullBuffer::new(BooleanBuffer::collect_bool(
                     data.len(),
-                    |row| !vector.row_is_null(row as u64),
+                    |row| !vector.slow_row_is_null(row as u64),
                 ))),
             );
 
@@ -298,14 +299,17 @@ pub fn flat_vector_to_arrow_array(
 
 pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> VortexResult<ArrayRef> {
     let len = chunk.len();
+    println!("chunk {:?}", String::try_from(chunk).unwrap());
 
     let columns = (0..chunk.column_count())
         .zip(field_names.iter())
         .map(|(i, name)| {
             let mut vector = chunk.get_vector(i);
+            vector.flatten(len);
             flat_vector_to_arrow_array(&mut vector, len.as_usize())
                 .map(|array_data| {
                     assert_eq!(array_data.len(), chunk.len().as_usize());
+                    println!("arr {:?}", array_data);
                     (name, ArrayRef::from_arrow(array_data.as_ref(), true))
                 })
                 .map_err(|e| vortex_err!("duckdb to arrow conversion failure {}", e.to_string()))
