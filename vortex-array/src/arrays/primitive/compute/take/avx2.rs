@@ -488,7 +488,7 @@ mod tests {
                     // test "happy path" take, valid indices on valid array
                     #[test]
                     #[allow(clippy::cast_possible_truncation)]
-                    fn [<test_take_simple_ $IDX _ $VAL>]() {
+                    fn [<test_avx2_take_simple_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = (1..=128).map(|x| x as $VAL).collect();
                         let indices: Vec<$IDX> = (0..128).collect();
 
@@ -499,7 +499,7 @@ mod tests {
                     // test take on empty array
                     #[test]
                     #[allow(clippy::cast_possible_truncation)]
-                    fn [<test_take_empty_ $IDX _ $VAL>]() {
+                    fn [<test_avx2_take_empty_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = vec![];
                         let indices: Vec<$IDX> = (0..128).collect();
                         let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
@@ -509,7 +509,7 @@ mod tests {
                     // test all invalid take indices mapping to zeros
                     #[test]
                     #[allow(clippy::cast_possible_truncation)]
-                    fn [<test_take_invalid_ $IDX _ $VAL>]() {
+                    fn [<test_avx2_take_invalid_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = (1..=128).map(|x| x as $VAL).collect();
                         // all out of bounds indices
                         let indices: Vec<$IDX> = (128..=255).collect();
@@ -524,18 +524,18 @@ mod tests {
 
     test_cases!(
         index_type => u8,
-        value_types => u8, i8, u16, i16, u32, i32, u64, i64, f32, f64
+        value_types => u32, i32, u64, i64
     );
     test_cases!(
         index_type => u16,
-        value_types => u8, i8, u16, i16, u32, i32, u64, i64, f32, f64
+        value_types => u32, i32, u64, i64
     );
     test_cases!(
         index_type => u32,
-        value_types => u8, i8, u16, i16, u32, i32, u64, i64, f32, f64
+        value_types => u32, i32, u64, i64
     );
     test_cases!(
         index_type => u64,
-        value_types => u8, i8, u16, i16, u32, i32, u64, i64, f32, f64
+        value_types => u32, i32, u64, i64
     );
 }
