@@ -155,7 +155,7 @@ similar = "2.7.0"
 simplelog = "0.12"
 sketches-ddsketch = "0.3.0"
 static_assertions = "1.1"
-strum = "0.25"
+strum = "0.27"
 tabled = { version = "0.19.0", default-features = false }
 taffy = "0.8.0"
 tar = "0.4"
