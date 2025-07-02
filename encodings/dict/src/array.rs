@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use arrow_buffer::BooleanBuffer;
-use vortex_array::compute::{cast, take};
+use vortex_array::compute::take;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityVTable};
 use vortex_array::{
@@ -46,26 +46,10 @@ pub struct DictArray {
 pub struct DictEncoding;
 
 impl DictArray {
-    pub fn try_new(mut codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+    pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
         if !codes.dtype().is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
         }
-
-        let dtype = values.dtype();
-        if dtype.is_nullable() {
-            // If the values are nullable, we force codes to be nullable as well.
-            codes = cast(&codes, &codes.dtype().as_nullable())?;
-        } else {
-            // If the values are non-nullable, we assert the codes are non-nullable as well.
-            if codes.dtype().is_nullable() {
-                vortex_bail!("Cannot have nullable codes for non-nullable dict array");
-            }
-        }
-        assert_eq!(
-            codes.dtype().nullability(),
-            values.dtype().nullability(),
-            "Mismatched nullability between codes and values"
-        );
 
         Ok(Self {
             codes,
