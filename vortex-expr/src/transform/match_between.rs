@@ -1,7 +1,7 @@
 use vortex_array::compute::{BetweenOptions, StrictComparison};
 
 use crate::forms::cnf::cnf;
-use crate::{BetweenExpr, Binary, ExprRef, GetItem, IntoExpr, Literal, Operator, and, lit};
+use crate::{BetweenExpr, Binary, ExprRef, GetItemExpr, IntoExpr, Literal, Operator, and, lit};
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
@@ -51,42 +51,42 @@ fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
     }
 
     // Extract pairs of comparison of the form (left left_op eq) and (eq right_op right)
-    let (eq, left, left_op, right, right_op) = if GetItem::is(lhs.lhs()) && lhs.lhs().eq(rhs.lhs())
-    {
-        (
-            lhs.lhs().clone(),
-            lhs.rhs().clone(),
-            lhs.op().swap(),
-            rhs.rhs().clone(),
-            rhs.op(),
-        )
-    } else if GetItem::is(lhs.lhs()) && lhs.lhs().eq(rhs.rhs()) {
-        (
-            lhs.lhs().clone(),
-            lhs.rhs().clone(),
-            lhs.op().swap(),
-            rhs.lhs().clone(),
-            rhs.op().swap(),
-        )
-    } else if GetItem::is(lhs.rhs()) && lhs.rhs().eq(rhs.lhs()) {
-        (
-            lhs.rhs().clone(),
-            lhs.lhs().clone(),
-            lhs.op(),
-            rhs.rhs().clone(),
-            rhs.op(),
-        )
-    } else if GetItem::is(lhs.rhs()) && lhs.rhs().eq(rhs.rhs()) {
-        (
-            lhs.rhs().clone(),
-            lhs.lhs().clone(),
-            lhs.op(),
-            rhs.lhs().clone(),
-            rhs.op().swap(),
-        )
-    } else {
-        return None;
-    };
+    let (eq, left, left_op, right, right_op) =
+        if GetItemExpr::is(lhs.lhs()) && lhs.lhs().eq(rhs.lhs()) {
+            (
+                lhs.lhs().clone(),
+                lhs.rhs().clone(),
+                lhs.op().swap(),
+                rhs.rhs().clone(),
+                rhs.op(),
+            )
+        } else if GetItemExpr::is(lhs.lhs()) && lhs.lhs().eq(rhs.rhs()) {
+            (
+                lhs.lhs().clone(),
+                lhs.rhs().clone(),
+                lhs.op().swap(),
+                rhs.lhs().clone(),
+                rhs.op().swap(),
+            )
+        } else if GetItemExpr::is(lhs.rhs()) && lhs.rhs().eq(rhs.lhs()) {
+            (
+                lhs.rhs().clone(),
+                lhs.lhs().clone(),
+                lhs.op(),
+                rhs.rhs().clone(),
+                rhs.op(),
+            )
+        } else if GetItemExpr::is(lhs.rhs()) && lhs.rhs().eq(rhs.rhs()) {
+            (
+                lhs.rhs().clone(),
+                lhs.lhs().clone(),
+                lhs.op(),
+                rhs.lhs().clone(),
+                rhs.op().swap(),
+            )
+        } else {
+            return None;
+        };
 
     // Find the greater op.
     let (Some(left_lit), Some(right_lit)) =

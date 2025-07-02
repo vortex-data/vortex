@@ -299,7 +299,8 @@ mod tests {
     use crate::traversal::visitor::pre_order_visit_down;
     use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
     use crate::{
-        Binary, ExprRef, GetItem, Literal, Operator, VortexExpr, col, get_item_scope, is_root, root,
+        Binary, ExprRef, GetItemExpr, Literal, Operator, VortexExpr, col, get_item_scope, is_root,
+        root,
     };
 
     #[derive(Default)]
@@ -327,7 +328,7 @@ mod tests {
         type NodeTy = ExprRef;
 
         fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<Self::NodeTy>> {
-            let col = node.as_any().downcast_ref::<GetItem>();
+            let col = node.as_any().downcast_ref::<GetItemExpr>();
             if col.is_some() {
                 let id = self.0;
                 self.0 += 1;
@@ -395,7 +396,7 @@ mod tests {
 
         let mut nodes = Vec::new();
         expr.accept(&mut pre_order_visit_down(|node: &ExprRef| {
-            if node.as_any().is::<GetItem>() {
+            if node.as_any().is::<GetItemExpr>() {
                 nodes.push(node)
             }
             if let Some(bin) = node.as_any().downcast_ref::<Binary>() {
@@ -426,7 +427,7 @@ mod tests {
 
         let mut nodes = Vec::new();
         expr.accept(&mut pre_order_visit_down(|node: &ExprRef| {
-            if node.as_any().is::<GetItem>() {
+            if node.as_any().is::<GetItemExpr>() {
                 nodes.push(node)
             }
             if let Some(bin) = node.as_any().downcast_ref::<Binary>() {

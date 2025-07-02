@@ -3,7 +3,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{FoldUp, Folder, Node};
-use crate::{ExprRef, GetItem, Select, is_root};
+use crate::{ExprRef, GetItemExpr, Select, is_root};
 
 /// Returns the field mask for the given expression.
 ///
@@ -39,7 +39,7 @@ impl<'a> Folder<'a> for FieldMaskFolder {
         }
 
         // GetItem pushes an element to each field path
-        if let Some(getitem) = node.as_any().downcast_ref::<GetItem>() {
+        if let Some(getitem) = node.as_any().downcast_ref::<GetItemExpr>() {
             let fields = children
                 .into_iter()
                 .flat_map(|field_mask| field_mask.into_iter())

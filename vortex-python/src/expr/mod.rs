@@ -4,7 +4,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::*;
 use vortex::dtype::{DType, Nullability, PType};
-use vortex::expr::{Binary, ExprRef, GetItem, Operator, lit};
+use vortex::expr::{Binary, ExprRef, GetItemExpr, Operator, lit};
 
 use crate::dtype::PyDType;
 use crate::install_module;
@@ -249,6 +249,6 @@ pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'p
 
 pub fn get_item(field: String, child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: GetItem::new_expr(field, child.inner),
+        inner: GetItemExpr::new_expr(field, child.inner),
     })
 }
