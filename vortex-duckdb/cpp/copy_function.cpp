@@ -48,15 +48,14 @@ unique_ptr<FunctionData> c_bind_one(ClientContext &context, CopyFunctionBindInpu
                                     const vector<string> &column_names,
                                     const vector<LogicalType> &column_types) {
 
-    auto c_column_names = vector<const char *>();
+    auto c_column_names = vector<char *>();
     for (const auto &col_id : column_names) {
-        c_column_names.push_back(col_id.c_str());
+        c_column_names.push_back(const_cast<char *>(col_id.c_str()));
     }
 
-    auto c_column_types = vector<const duckdb_logical_type>();
+    auto c_column_types = vector<duckdb_logical_type>();
     for (auto &col_type : column_types) {
-        c_column_types.push_back(
-            reinterpret_cast<const duckdb_logical_type>(const_cast<LogicalType *>(&col_type)));
+        c_column_types.push_back(reinterpret_cast<duckdb_logical_type>(const_cast<LogicalType *>(&col_type)));
     }
 
     duckdb_vx_error error_out = nullptr;
