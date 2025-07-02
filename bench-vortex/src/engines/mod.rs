@@ -25,8 +25,8 @@ impl EngineCtx {
         })
     }
 
-    pub fn new_with_duckdb() -> anyhow::Result<Self> {
-        Ok(EngineCtx::DuckDB(ddb::DuckDBCtx::new()?))
+    pub fn new_with_duckdb(format: Format) -> anyhow::Result<Self> {
+        Ok(EngineCtx::DuckDB(ddb::DuckDBCtx::new(format)?))
     }
 
     pub fn to_engine(&self) -> Engine {

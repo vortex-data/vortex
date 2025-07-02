@@ -161,7 +161,7 @@ async fn bench_main(
         match engine {
             // TODO(joe): support datafusion
             Engine::DuckDB => {
-                if let EngineCtx::DuckDB(ctx) = &EngineCtx::new_with_duckdb()? {
+                if let EngineCtx::DuckDB(ctx) = &EngineCtx::new_with_duckdb(format)? {
                     ctx.register_tables(&url, format, BenchmarkDataset::TpcDS)?;
 
                     for (query_idx, sql_query) in &tpch_queries {

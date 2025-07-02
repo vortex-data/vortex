@@ -293,7 +293,7 @@ async fn bench_main(
 
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
-                let engine_ctx = EngineCtx::new_with_duckdb()?;
+                let engine_ctx = EngineCtx::new_with_duckdb(format)?;
 
                 if let EngineCtx::DuckDB(ctx) = &engine_ctx {
                     ctx.register_tables(&url, format, BenchmarkDataset::TpcH)?;
@@ -381,7 +381,7 @@ fn verify_duckdb_tpch_results(
         fs::remove_dir_all(&tmp_dir)?;
     }
     fs::create_dir(&tmp_dir)?;
-    let duckdb_ctx = ddb::DuckDBCtx::new()?;
+    let duckdb_ctx = ddb::DuckDBCtx::new_in_memory()?;
     duckdb_ctx.register_tables(url, Format::OnDiskVortex, BenchmarkDataset::TpcH)?;
 
     let mut query_files = fs::read_dir(query_dir)?
