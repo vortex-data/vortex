@@ -492,7 +492,7 @@ mod tests {
                         let values: Vec<$VAL> = (1..=128).map(|x| x as $VAL).collect();
                         let indices: Vec<$IDX> = (0..128).collect();
 
-                        let result = unsafe { take_primitive_avx2(&values, &indices, Validity::NonNullable) };
+                        let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
                         assert_eq!(&values, result.as_slice::<$VAL>());
                     }
 
@@ -502,7 +502,7 @@ mod tests {
                     fn [<test_take_empty_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = vec![];
                         let indices: Vec<$IDX> = (0..128).collect();
-                        let result = unsafe { take_primitive_avx2(&values, &indices, Validity::NonNullable) };
+                        let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
                         assert!(result.is_empty());
                     }
 
@@ -514,7 +514,7 @@ mod tests {
                         // all out of bounds indices
                         let indices: Vec<$IDX> = (128..=255).collect();
 
-                        let result = unsafe { take_primitive_avx2(&values, &indices, Validity::NonNullable) };
+                        let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
                         assert_eq!(&[0 as $VAL; 128], result.as_slice::<$VAL>());
                     }
                 )+
