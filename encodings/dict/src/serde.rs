@@ -16,6 +16,7 @@ pub struct DictMetadata {
     values_len: u32,
     #[prost(enumeration = "PType", tag = "2")]
     codes_ptype: i32,
+    // nullable codes are optional since they were added after stabilisation
     #[prost(optional, bool, tag = "3")]
     is_nullable_codes: Option<bool>,
 }
@@ -50,6 +51,8 @@ impl SerdeVTable<DictVTable> for DictVTable {
         }
         let codes_nullable: Nullability = metadata
             .is_nullable_codes
+            // The old behaviour of (without `is_nullable_codes` metadata) used the nullability
+            // of the values (and whole array).
             .unwrap_or_else(|| dtype.is_nullable())
             .into();
         let codes_dtype = DType::Primitive(metadata.codes_ptype(), codes_nullable);
