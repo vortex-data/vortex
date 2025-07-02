@@ -41,9 +41,9 @@ pub use registry::*;
 pub use scope::*;
 pub use select::*;
 pub use var::*;
-use vortex_array::{Array, ArrayContext, ArrayRef, SerializeMetadata};
+use vortex_array::{Array, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
-use vortex_error::{VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_utils::aliases::hash_set::HashSet;
 pub use vtable::*;
 
@@ -92,8 +92,21 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + Analysis
 }
 
 impl dyn VortexExpr + '_ {
+    pub fn is<V: VTable>(&self) -> bool {
+        self.as_opt::<V>().is_some()
+    }
+
+    pub fn as_<V: VTable>(&self) -> &V::Expr {
+        self.as_opt::<V>()
+            .vortex_expect("Expr is not of the expected type")
+    }
+
+    pub fn as_opt<V: VTable>(&self) -> Option<&V::Expr> {
+        self.as_any().downcast_ref::<ExprAdapter<V>>().map(|e| &e.0)
+    }
+
     /// Compute result of expression on given batch producing a new batch
-    fn evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
+    pub fn evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
         let result = self.unchecked_evaluate(scope)?;
         assert_eq!(
             result.dtype(),
