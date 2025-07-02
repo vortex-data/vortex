@@ -150,7 +150,12 @@ fn main() -> anyhow::Result<()> {
 
                 EngineCtx::new_with_datafusion(session_ctx, args.emit_plan)
             }
-            Engine::DuckDB => EngineCtx::new_with_duckdb(format)?,
+            Engine::DuckDB => EngineCtx::new_with_duckdb(
+                BenchmarkDataset::ClickBench {
+                    single_file: args.single_file,
+                },
+                format,
+            )?,
             _ => unreachable!("engine not supported"),
         };
 

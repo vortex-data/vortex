@@ -32,11 +32,21 @@ pub struct DuckDBCtx {
 }
 
 impl DuckDBCtx {
-    pub fn new(format: Format) -> Result<Self> {
-        let dir = PathBuf::from(format!("clickbench_partitioned/{}", format.name())).to_data_path();
+    pub fn new(dataset: BenchmarkDataset, format: Format) -> Result<Self> {
+        let dir = match dataset {
+            BenchmarkDataset::ClickBench { .. } => {
+                PathBuf::from(format!("clickbench_partitioned/{}", format.name())).to_data_path()
+            }
+            BenchmarkDataset::TpcH => {
+                PathBuf::from(format!("tpch/1/{}", format.name())).to_data_path()
+            }
+            BenchmarkDataset::TpcDS => {
+                anyhow::bail!("TpcDS is not supported, only TpcH and ClickBench")
+            }
+        };
         std::fs::create_dir_all(&dir)?;
-        let db_path = dir.join("hits.db");
-        if !db_path.exists() {
+        let db_path = dir.join("duckdb.db");
+        if db_path.exists() {
             std::fs::remove_file(&db_path)?;
         }
         let db = Database::open(db_path)?;

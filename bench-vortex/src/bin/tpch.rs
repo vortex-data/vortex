@@ -293,7 +293,7 @@ async fn bench_main(
 
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
-                let engine_ctx = EngineCtx::new_with_duckdb(format)?;
+                let engine_ctx = EngineCtx::new_with_duckdb(BenchmarkDataset::TpcH, format)?;
 
                 if let EngineCtx::DuckDB(ctx) = &engine_ctx {
                     ctx.register_tables(&url, format, BenchmarkDataset::TpcH)?;
