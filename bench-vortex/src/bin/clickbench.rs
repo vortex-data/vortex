@@ -101,10 +101,10 @@ fn main() -> anyhow::Result<()> {
             .build();
 
         let fmt_layer = tracing_subscriber::fmt::layer()
-            .with_writer(std::io::stderr)
+            .with_writer(io::stderr)
             .with_level(true)
             .with_line_number(true)
-            .with_ansi(std::io::stderr().is_terminal());
+            .with_ansi(io::stderr().is_terminal());
 
         tracing_subscriber::registry()
             .with(filter)
