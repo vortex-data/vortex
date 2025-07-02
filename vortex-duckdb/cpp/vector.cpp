@@ -55,7 +55,7 @@ const char *duckdb_vector_to_string(duckdb_vector vector, unsigned long len, duc
         memcpy(result, str.c_str(), str.size() + 1);
         err = nullptr;
         return result;
-    } catch (std::runtime_error e) {
+    } catch (std::runtime_error &e) {
         auto s = e.what();
         *err = duckdb_vx_error_create(s, strlen(s));
         return nullptr;
