@@ -57,7 +57,7 @@ impl Debug for TableFilterSet {
 wrapper!(TableFilter, duckdb_vx_table_filter, |_| {});
 
 impl TableFilter {
-    pub fn as_class(&self) -> Option<TableFilterClass> {
+    pub fn as_class(&self) -> Option<TableFilterClass<'_>> {
         Some(
             match unsafe { cpp::duckdb_vx_table_filter_get_type(self.as_ptr()) } {
                 cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_CONSTANT_COMPARISON => {
