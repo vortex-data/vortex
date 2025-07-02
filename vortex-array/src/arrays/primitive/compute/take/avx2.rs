@@ -153,7 +153,7 @@ impl_gather!(u8,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i32gather_epi32,
         store: _mm256_storeu_si256,
-        WIDTH = 8, STRIDE = 8
+        WIDTH = 8, STRIDE = 16
     },
     { i32 =>
         load: _mm_loadu_si128,
@@ -175,9 +175,9 @@ impl_gather!(u8,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
         mask_cvt: |x| { x },
-        gather: _mm256_mask_i32gather_epi32,
+        gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
-        WIDTH = 4, STRIDE = 4
+        WIDTH = 4, STRIDE = 16
     },
     { i64 =>
         load: _mm_loadu_si128,
@@ -186,9 +186,9 @@ impl_gather!(u8,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
         mask_cvt: |x| { x },
-        gather: _mm256_mask_i32gather_epi32,
+        gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
-        WIDTH = 4, STRIDE = 4
+        WIDTH = 4, STRIDE = 16
     }
 );
 
@@ -269,27 +269,28 @@ impl_gather!(u32,
         WIDTH = 8, STRIDE = 8
     },
 
+    // 64-bit values
     { u64 =>
         load: _mm_loadu_si128,
         extend: _mm256_cvtepu32_epi64,
-        splat: _mm256_set1_epi32,
+        splat: _mm256_set1_epi64x,
         zero_vec: _mm256_setzero_si256,
-        mask_indices: _mm256_cmpgt_epi32,
+        mask_indices: _mm256_cmpgt_epi64,
         mask_cvt: |x| { x },
-        gather: _mm256_mask_i32gather_epi32,
+        gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
-        WIDTH = 4, STRIDE = 8
+        WIDTH = 4, STRIDE = 4
     },
     { i64 =>
         load: _mm_loadu_si128,
         extend: _mm256_cvtepu32_epi64,
-        splat: _mm256_set1_epi32,
+        splat: _mm256_set1_epi64x,
         zero_vec: _mm256_setzero_si256,
-        mask_indices: _mm256_cmpgt_epi32,
+        mask_indices: _mm256_cmpgt_epi64,
         mask_cvt: |x| { x },
-        gather: _mm256_mask_i32gather_epi32,
+        gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
-        WIDTH = 4, STRIDE = 8
+        WIDTH = 4, STRIDE = 4
     }
 );
 
@@ -477,6 +478,7 @@ where
 }
 
 #[cfg(test)]
+#[cfg_attr(miri, ignore)]
 #[cfg(target_arch = "x86_64")]
 mod tests {
     use super::*;
@@ -498,6 +500,7 @@ mod tests {
 
                     // test take on empty array
                     #[test]
+                    #[should_panic]
                     #[allow(clippy::cast_possible_truncation)]
                     fn [<test_avx2_take_empty_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = vec![];
@@ -508,6 +511,7 @@ mod tests {
 
                     // test all invalid take indices mapping to zeros
                     #[test]
+                    #[should_panic]
                     #[allow(clippy::cast_possible_truncation)]
                     fn [<test_avx2_take_invalid_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = (1..=128).map(|x| x as $VAL).collect();
