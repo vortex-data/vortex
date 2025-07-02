@@ -25,6 +25,7 @@ use crate::arrays::primitive::compute::take::{TakeImpl, take_primitive_scalar};
 use crate::validity::Validity;
 use crate::{ArrayRef, IntoArray};
 
+#[allow(unused)]
 pub(super) struct TakeKernelAVX2;
 
 impl TakeImpl for TakeKernelAVX2 {
@@ -417,7 +418,7 @@ where
 ///
 /// This function panics if any of the provided `indices` are out of bounds for `values`.
 #[target_feature(enable = "avx2")]
-#[allow(clippy::cognitive_complexity)]
+#[allow(unused, clippy::cognitive_complexity)]
 pub(crate) fn take_primitive_avx2<I, V>(
     indices: &[I],
     values: &[V],
@@ -480,65 +481,61 @@ where
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_take_i32_u32() {
-        let values = [10i32, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-        let indices = [0u32, 2, 4, 6, 8, 1, 3, 5, 7, 9];
+    macro_rules! test_cases {
+        (index_type => $IDX:ty, value_types => $($VAL:ty),+) => {
+            paste::paste! {
+                $(
+                    // test "happy path" take, valid indices on valid array
+                    #[test]
+                    #[allow(clippy::cast_possible_truncation)]
+                    fn [<test_take_simple_ $IDX _ $VAL>]() {
+                        let values: Vec<$VAL> = (1..=128).map(|x| x as $VAL).collect();
+                        let indices: Vec<$IDX> = (0..128).collect();
 
-        let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
-        let expected = [10i32, 30, 50, 70, 90, 20, 40, 60, 80, 100];
-        assert_eq!(result.as_slice::<i32>(), &expected);
+                        let result = unsafe { take_primitive_avx2(&values, &indices, Validity::NonNullable) };
+                        assert_eq!(&values, result.as_slice::<$VAL>());
+                    }
+
+                    // test take on empty array
+                    #[test]
+                    #[allow(clippy::cast_possible_truncation)]
+                    fn [<test_take_empty_ $IDX _ $VAL>]() {
+                        let values: Vec<$VAL> = vec![];
+                        let indices: Vec<$IDX> = (0..128).collect();
+                        let result = unsafe { take_primitive_avx2(&values, &indices, Validity::NonNullable) };
+                        assert!(result.is_empty());
+                    }
+
+                    // test all invalid take indices mapping to zeros
+                    #[test]
+                    #[allow(clippy::cast_possible_truncation)]
+                    fn [<test_take_invalid_ $IDX _ $VAL>]() {
+                        let values: Vec<$VAL> = (1..=128).map(|x| x as $VAL).collect();
+                        // all out of bounds indices
+                        let indices: Vec<$IDX> = (128..=255).collect();
+
+                        let result = unsafe { take_primitive_avx2(&values, &indices, Validity::NonNullable) };
+                        assert_eq!(&[0 as $VAL; 128], result.as_slice::<$VAL>());
+                    }
+                )+
+            }
+        };
     }
 
-    #[test]
-    #[allow(clippy::unwrap_used)]
-    fn test_take_f32_u32() {
-        let values = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-        let indices = [7u32, 0, 3, 2, 1, 4, 6, 5];
-
-        let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
-
-        let expected = [8.0f32, 1.0, 4.0, 3.0, 2.0, 5.0, 7.0, 6.0];
-        assert_eq!(result.as_slice::<f32>(), &expected);
-    }
-
-    #[test]
-    fn test_take_i64_u64() {
-        let values = [100i64, 200, 300, 400, 500];
-        let indices = [4u64, 0, 2, 1, 3];
-
-        let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
-
-        let expected = [500i64, 100, 300, 200, 400];
-        assert_eq!(result.as_slice::<i64>(), &expected);
-    }
-
-    #[test]
-    fn test_take_f64_u64() {
-        let values = [1.1f64, 2.2, 3.3, 4.4, 5.5, 6.6];
-        let indices = [0u64, 5, 2, 1, 4, 3];
-
-        let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
-
-        let expected = [1.1f64, 6.6, 3.3, 2.2, 5.5, 4.4];
-        assert_eq!(result.as_slice::<f64>(), &expected);
-    }
-
-    #[test]
-    fn test_empty_arrays() {
-        let values: [i32; 0] = [];
-        let indices: [u32; 0] = [];
-
-        let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
-        assert_eq!(result.as_slice::<i32>().len(), 0);
-    }
-
-    #[test]
-    fn test_single_element() {
-        let values = [42i32];
-        let indices = [0u32];
-
-        let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
-        assert_eq!(result.as_slice::<i32>(), &[42i32]);
-    }
+    test_cases!(
+        index_type => u8,
+        value_types => u8, i8, u16, i16, u32, i32, u64, i64, f32, f64
+    );
+    test_cases!(
+        index_type => u16,
+        value_types => u8, i8, u16, i16, u32, i32, u64, i64, f32, f64
+    );
+    test_cases!(
+        index_type => u32,
+        value_types => u8, i8, u16, i16, u32, i32, u64, i64, f32, f64
+    );
+    test_cases!(
+        index_type => u64,
+        value_types => u8, i8, u16, i16, u32, i32, u64, i64, f32, f64
+    );
 }
