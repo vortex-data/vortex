@@ -80,7 +80,7 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
 }
 
 /// Build a pruning expr mask an existing bundle of stats
-/// Create a stat based falsification expr using the stats in the `scope_field_paths`.
+/// Creates a stat based falsification expr using the stats in the `scope_field_paths`.
 /// These are of the form
 /// [["col_0", ..., "col_n", "stat_name"], ...] for each stat.
 pub fn checked_pruning_expr(

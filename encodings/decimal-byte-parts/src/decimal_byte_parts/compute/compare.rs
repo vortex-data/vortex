@@ -52,6 +52,7 @@ impl CompareKernel for DecimalBytePartsVTable {
 
 // Used to represent the overflow direction when trying to
 // convert into the scalar type.
+#[derive(Debug)]
 enum Sign {
     Positive,
     Negative,
@@ -61,8 +62,8 @@ fn unconvertible_value(sign: Sign, operator: Operator, nullability: Nullability)
     match operator {
         Operator::Eq => Scalar::bool(false, nullability),
         Operator::NotEq => Scalar::bool(true, nullability),
-        Operator::Gt | Operator::Gte => Scalar::bool(matches!(sign, Positive), nullability),
-        Operator::Lt | Operator::Lte => Scalar::bool(matches!(sign, Negative), nullability),
+        Operator::Gt | Operator::Gte => Scalar::bool(matches!(sign, Negative), nullability),
+        Operator::Lt | Operator::Lte => Scalar::bool(matches!(sign, Positive), nullability),
     }
 }
 
@@ -175,13 +176,13 @@ mod tests {
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
         assert_eq!(
             res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![false, false, false]
+            vec![true, true, true]
         );
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
         assert_eq!(
             res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![true, true, true]
+            vec![false, false, false]
         );
 
         // This cannot be converted to a i32.
@@ -200,13 +201,13 @@ mod tests {
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
         assert_eq!(
             res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![true, true, true]
+            vec![false, false, false]
         );
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
         assert_eq!(
             res.to_bool().unwrap().bool_vec().unwrap(),
-            vec![false, false, false]
+            vec![true, true, true]
         );
     }
 }
