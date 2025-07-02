@@ -333,7 +333,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::row_id::{ROW_ID, RowIdLayoutReader};
+    use crate::layouts::row_id::{FILE_ROW_NUMBER_FIELD, ROW_ID, RowIdLayoutReader};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutReader, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
