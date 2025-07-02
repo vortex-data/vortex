@@ -1,8 +1,7 @@
-use std::any::Any;
 use std::fmt::Display;
 
 use itertools::Itertools;
-use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ToCanonical};
+use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
@@ -31,14 +30,14 @@ pub struct SelectExprEncoding;
 impl VTable for SelectVTable {
     type Expr = SelectExpr;
     type Encoding = SelectExprEncoding;
-    type Metadata = ();
+    type Metadata = EmptyMetadata;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
         ExprId::new_ref("select")
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&SelectExprEncoding)
+        ExprEncodingRef::new_ref(SelectExprEncoding.as_ref())
     }
 
     fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {

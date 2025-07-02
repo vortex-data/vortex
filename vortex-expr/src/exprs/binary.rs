@@ -1,8 +1,6 @@
-use std::any::Any;
 use std::fmt::Display;
 use std::hash::Hash;
 
-use prost::Message;
 use vortex_array::compute::{Operator as ArrayOperator, add, and_kleene, compare, or_kleene};
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
@@ -10,8 +8,8 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::exprs as pb;
 
 use crate::{
-    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope,
-    ScopeDType, StatsCatalog, VTable, VortexExpr, vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, ScopeDType,
+    StatsCatalog, VTable, VortexExpr, vtable,
 };
 
 vtable!(Binary);
@@ -35,7 +33,7 @@ impl VTable for BinaryVTable {
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&BinaryExprEncoding)
+        ExprEncodingRef::new_ref(BinaryExprEncoding.as_ref())
     }
 
     fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
@@ -70,7 +68,7 @@ impl VTable for BinaryVTable {
     ) -> VortexResult<Self::Expr> {
         Ok(BinaryExpr::new(
             children[0].clone(),
-            (*metadata.op()).try_into()?,
+            metadata.op().try_into()?,
             children[1].clone(),
         ))
     }

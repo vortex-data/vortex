@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fmt::Display;
 
 use vortex_array::arrays::ConstantArray;
@@ -32,7 +31,7 @@ impl VTable for LiteralVTable {
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&LiteralExprEncoding)
+        ExprEncodingRef::new_ref(LiteralExprEncoding.as_ref())
     }
 
     fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {

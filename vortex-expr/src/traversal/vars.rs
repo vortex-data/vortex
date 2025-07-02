@@ -2,7 +2,7 @@ use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{NodeVisitor, TraversalOrder};
-use crate::{ExprRef, Identifier, VarExpr, VarVTable};
+use crate::{ExprRef, Identifier, VarVTable};
 
 #[derive(Default)]
 pub struct VarsCollector {

@@ -1,9 +1,8 @@
-use std::any::Any;
 use std::fmt::Display;
 use std::hash::Hash;
 
 use vortex_array::compute::invert;
-use vortex_array::{ArrayRef, DeserializeMetadata};
+use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
@@ -24,18 +23,18 @@ pub struct NotExprEncoding;
 impl VTable for NotVTable {
     type Expr = NotExpr;
     type Encoding = NotExprEncoding;
-    type Metadata = ();
+    type Metadata = EmptyMetadata;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
         ExprId::new_ref("not")
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&NotExprEncoding)
+        ExprEncodingRef::new_ref(NotExprEncoding.as_ref())
     }
 
     fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(())
+        Some(EmptyMetadata)
     }
 
     fn children(expr: &Self::Expr) -> Vec<ExprRef> {
@@ -93,40 +92,6 @@ impl NotExpr {
 impl Display for NotExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "!{}", self.child)
-    }
-}
-
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use expr::kind;
-    use vortex_error::VortexResult;
-    use vortex_proto::expr;
-    use vortex_proto::expr::kind::Kind;
-
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, NotExpr};
-
-    pub struct NotSerde;
-
-    impl Id for NotSerde {
-        fn id(&self) -> &'static str {
-            "not"
-        }
-    }
-
-    impl ExprDeserialize for NotSerde {
-        fn deserialize(&self, _expr: &Kind, mut children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            Ok(NotExpr::new(children.remove(0)))
-        }
-    }
-
-    impl ExprSerializable for NotExpr {
-        fn id(&self) -> &'static str {
-            NotSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::Not(kind::Not {}))
-        }
     }
 }
 

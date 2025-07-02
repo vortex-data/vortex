@@ -3,7 +3,7 @@ use vortex_array::VTableRegistry;
 use crate::{
     BetweenExprEncoding, BinaryExprEncoding, ExprEncodingRef, GetItemExprEncoding,
     LikeExprEncoding, ListContainsExprEncoding, LiteralExprEncoding, MergeExprEncoding,
-    NotExprEncoding, VarExprEncoding,
+    NotExprEncoding, PackExprEncoding, SelectExprEncoding, VarExprEncoding,
 };
 
 pub type ExprRegistry = VTableRegistry<ExprEncodingRef>;

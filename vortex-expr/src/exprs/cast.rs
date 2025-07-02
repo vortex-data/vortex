@@ -1,16 +1,13 @@
-use std::any::Any;
 use std::fmt::Display;
 
-use prost::Message;
 use vortex_array::compute::cast as compute_cast;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::exprs as pb;
 
 use crate::{
-    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
-    VTable, VortexExpr, vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
 };
 
 vtable!(Cast);
@@ -33,7 +30,7 @@ impl VTable for CastVTable {
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&CastExprEncoding)
+        ExprEncodingRef::new_ref(CastExprEncoding.as_ref())
     }
 
     fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {

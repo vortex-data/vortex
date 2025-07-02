@@ -1,4 +1,3 @@
-use std::env::VarError;
 use std::hash::Hash;
 
 use itertools::Itertools;
@@ -7,7 +6,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
-use crate::{ExprRef, Identifier};
+use crate::{ExprRef, Identifier, VarVTable};
 
 pub type Accesses<'a, T> = HashMap<&'a ExprRef, HashSet<T>>;
 
@@ -70,7 +69,7 @@ pub fn variable_scope_accesses<T: Clone + Hash + Eq>(
     f: impl Fn(&Identifier) -> T,
 ) -> VortexResult<Accesses<'_, T>> {
     AccessesAnalysis::analyze(expr, move |node| {
-        if let Some(variable) = node.as_any().downcast_ref::<VarExpr>() {
+        if let Some(variable) = node.as_opt::<VarVTable>() {
             return (TraversalOrder::Skip, vec![f(variable.var())]);
         }
 

@@ -23,7 +23,7 @@ pub trait ExprEncoding: 'static + Send + Sync + Debug + private::Sealed {
     /// Deserializes an expression from its serialized form.
     ///
     /// Returns `None` if the expression is not serializable.
-    fn build(&self, metadata: &[u8], children: Vec<ExprRef>) -> VortexResult<Option<ExprRef>>;
+    fn build(&self, metadata: &[u8], children: Vec<ExprRef>) -> VortexResult<ExprRef>;
 }
 
 #[repr(transparent)]

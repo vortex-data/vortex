@@ -3,14 +3,14 @@ use vortex_error::{VortexResult, vortex_err};
 use vortex_proto::exprs as pb;
 
 use crate::registry::ExprRegistry;
-use crate::{ExprRef, VortexExprExt};
+use crate::{ExprRef, VortexExpr};
 
 pub trait ExprSerializeProtoExt {
     /// Serialize the expression to its protobuf representation.
     fn serialize_proto(&self) -> VortexResult<pb::Expr>;
 }
 
-impl ExprSerializeProtoExt for ExprRef {
+impl ExprSerializeProtoExt for dyn VortexExpr + '_ {
     fn serialize_proto(&self) -> VortexResult<pb::Expr> {
         let children = self
             .children()
@@ -18,14 +18,14 @@ impl ExprSerializeProtoExt for ExprRef {
             .map(|child| child.serialize_proto())
             .try_collect()?;
 
-        let options = self
-            .serialize_options()
+        let metadata = self
+            .metadata()
             .ok_or_else(|| vortex_err!("Expression is not serializable {}", self))?;
 
         Ok(pb::Expr {
             id: self.id().to_string(),
             children,
-            options,
+            metadata,
         })
     }
 }

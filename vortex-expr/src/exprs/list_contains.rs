@@ -1,10 +1,8 @@
-use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-use std::sync::Arc;
 
 use vortex_array::compute::list_contains as compute_list_contains;
-use vortex_array::{ArrayRef, DeserializeMetadata};
+use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
@@ -26,18 +24,18 @@ pub struct ListContainsExprEncoding;
 impl VTable for ListContainsVTable {
     type Expr = ListContainsExpr;
     type Encoding = ListContainsExprEncoding;
-    type Metadata = ();
+    type Metadata = EmptyMetadata;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
         ExprId::new_ref("list_contains")
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&ListContainsExprEncoding)
+        ExprEncodingRef::new_ref(ListContainsExprEncoding.as_ref())
     }
 
     fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(())
+        Some(EmptyMetadata)
     }
 
     fn children(expr: &Self::Expr) -> Vec<ExprRef> {

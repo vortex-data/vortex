@@ -1,6 +1,4 @@
-use std::any::Any;
 use std::fmt::Display;
-use std::sync::Arc;
 
 use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
@@ -9,8 +7,8 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::exprs as pb;
 
 use crate::{
-    AccessPath, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, Identifier, Scope, ScopeDType,
-    StatsCatalog, VTable, VortexExpr, vtable,
+    AccessPath, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, Identifier, IntoExpr, Scope,
+    ScopeDType, StatsCatalog, VTable, vtable,
 };
 
 vtable!(Var);
@@ -32,7 +30,7 @@ impl VTable for VarVTable {
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&VarExprEncoding)
+        ExprEncodingRef::new_ref(VarExprEncoding.as_ref())
     }
 
     fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
@@ -49,7 +47,7 @@ impl VTable for VarVTable {
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
         if !children.is_empty() {
-            return vortex_bail!("Var expression does not have children, got: {:?}", children);
+            vortex_bail!("Var expression does not have children, got: {:?}", children);
         }
         Ok(expr.clone())
     }
@@ -62,14 +60,9 @@ impl VTable for VarVTable {
         if !children.is_empty() {
             vortex_bail!("Var expression does not have children, got: {:?}", children);
         }
-
-        let var = if metadata.var.is_empty() {
-            Identifier::Identity
-        } else {
-            Identifier::from(metadata.var.clone())
-        };
-
-        Ok(VarExpr { identifier: var })
+        Ok(VarExpr {
+            identifier: Identifier::from(metadata.var.as_str()),
+        })
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
@@ -90,8 +83,8 @@ impl VTable for VarVTable {
 /// Used to extract values (Arrays from the Scope).
 /// see `Scope`.
 impl VarExpr {
-    pub fn new_expr(identifier: Identifier) -> ExprRef {
-        Arc::new(Self { identifier })
+    pub fn new(identifier: Identifier) -> Self {
+        Self { identifier }
     }
 
     pub fn var(&self) -> &Identifier {
@@ -120,13 +113,13 @@ impl AnalysisExpr for VarExpr {
 }
 
 pub fn var(ident: impl Into<Identifier>) -> ExprRef {
-    VarExpr::new_expr(ident.into())
+    VarExpr::new(ident.into()).into_expr()
 }
 
 /// Return a global pointer to the identity token.
 /// This is the name of the data found in a vortex array or file.
 pub fn root() -> ExprRef {
-    VarExpr::new_expr(Identifier::Identity)
+    VarExpr::new(Identifier::Identity).into_expr()
 }
 
 pub fn is_root(expr: &ExprRef) -> bool {

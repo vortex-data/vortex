@@ -9,7 +9,7 @@ use vortex_proto::exprs as pb;
 
 use crate::{
     AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
-    VTable, VortexExpr, vtable,
+    VTable, vtable,
 };
 
 vtable!(Between);
@@ -34,7 +34,7 @@ impl VTable for BetweenVTable {
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&BetweenExprEncoding)
+        ExprEncodingRef::new_ref(BetweenExprEncoding.as_ref())
     }
 
     fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
@@ -66,7 +66,7 @@ impl VTable for BetweenVTable {
     fn build(
         _encoding: &Self::Encoding,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
-        children: &[ExprRef],
+        children: Vec<ExprRef>,
     ) -> VortexResult<Self::Expr> {
         Ok(BetweenExpr::new(
             children[0].clone(),

@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fmt::Display;
 use std::hash::Hash;
 
@@ -54,7 +53,7 @@ pub struct PackExpr {
 
 pub struct PackExprEncoding;
 
-impl VTable for PackExpr {
+impl VTable for PackVTable {
     type Expr = PackExpr;
     type Encoding = PackExprEncoding;
     type Metadata = ProstMetadata<pb::PackOpts>;
@@ -64,7 +63,7 @@ impl VTable for PackExpr {
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&PackExprEncoding)
+        ExprEncodingRef::new_ref(PackExprEncoding.as_ref())
     }
 
     fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
@@ -86,7 +85,7 @@ impl VTable for PackExpr {
                 children.len()
             );
         }
-        Self::try_new(expr.names.clone(), children, expr.nullability)
+        PackExpr::try_new(expr.names.clone(), children, expr.nullability)
     }
 
     fn build(
@@ -106,7 +105,7 @@ impl VTable for PackExpr {
             .iter()
             .map(|name| FieldName::from(name.as_str()))
             .collect();
-        Self::try_new(names, children, metadata.nullable.into())
+        PackExpr::try_new(names, children, metadata.nullable.into())
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {

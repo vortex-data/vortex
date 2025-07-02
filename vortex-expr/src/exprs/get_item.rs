@@ -1,8 +1,6 @@
-use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 
-use prost::Message;
 use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, ToCanonical};
 use vortex_dtype::{DType, FieldName};
@@ -34,7 +32,7 @@ impl VTable for GetItemVTable {
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&GetItemExprEncoding)
+        ExprEncodingRef::new_ref(GetItemExprEncoding.as_ref())
     }
 
     fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {

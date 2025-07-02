@@ -13,7 +13,6 @@ mod encoding;
 mod exprs;
 mod field;
 pub mod forms;
-#[cfg(feature = "proto")]
 pub mod proto;
 pub mod pruning;
 mod registry;
@@ -58,7 +57,7 @@ pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayRef`]s
 pub trait VortexExpr:
-    Debug + Send + Sync + DynEq + DynHash + Display + AnalysisExpr + private::Sealed
+    'static + Send + Sync + Debug + Display + private::Sealed + AnalysisExpr
 {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
@@ -84,7 +83,7 @@ pub trait VortexExpr:
     fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef>;
 
     /// Returns the children of this expression.
-    fn children(&self) -> Vec<&ExprRef>;
+    fn children(&self) -> Vec<ExprRef>;
 
     /// Returns a new instance of this expression with the children replaced.
     fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef>;
@@ -94,6 +93,10 @@ pub trait VortexExpr:
 }
 
 impl dyn VortexExpr + '_ {
+    pub fn id(&self) -> ExprId {
+        self.encoding().id()
+    }
+
     pub fn is<V: VTable>(&self) -> bool {
         self.as_opt::<V>().is_some()
     }
@@ -145,7 +148,7 @@ impl VortexExprExt for ExprRef {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone)]
 #[repr(transparent)]
 pub struct ExprAdapter<V: VTable>(V::Expr);
 
@@ -162,16 +165,16 @@ impl<V: VTable> VortexExpr for ExprAdapter<V> {
         V::encoding(&self.0)
     }
 
-    fn children(&self) -> Vec<ExprRef> {
-        V::children(&self.0)
-    }
-
     fn metadata(&self) -> Option<Vec<u8>> {
         V::metadata(&self.0).map(|m| m.serialize())
     }
 
     fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
         V::evaluate(&self.0, ctx)
+    }
+
+    fn children(&self) -> Vec<ExprRef> {
+        V::children(&self.0)
     }
 
     fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
@@ -243,7 +246,7 @@ pub fn split_conjunction(expr: &ExprRef) -> Vec<ExprRef> {
 }
 
 fn split_inner(expr: &ExprRef, exprs: &mut Vec<ExprRef>) {
-    match expr.as_any().downcast_ref::<Binary>() {
+    match expr.as_opt::<BinaryVTable>() {
         Some(bexp) if bexp.op() == Operator::And => {
             split_inner(bexp.lhs(), exprs);
             split_inner(bexp.rhs(), exprs);
@@ -290,7 +293,7 @@ impl PartialEq for ExactExpr {
 impl Eq for ExactExpr {}
 
 impl Hash for ExactExpr {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         Arc::as_ptr(&self.0).hash(state)
     }
 }

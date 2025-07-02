@@ -1,11 +1,10 @@
-use std::any::Any;
 use std::fmt::Display;
 use std::hash::Hash;
 
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
@@ -33,18 +32,18 @@ pub struct MergeExprEncoding;
 impl VTable for MergeVTable {
     type Expr = MergeExpr;
     type Encoding = MergeExprEncoding;
-    type Metadata = ();
+    type Metadata = EmptyMetadata;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
         ExprId::new_ref("merge")
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&MergeExprEncoding)
+        ExprEncodingRef::new_ref(MergeExprEncoding.as_ref())
     }
 
     fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(())
+        Some(EmptyMetadata)
     }
 
     fn children(expr: &Self::Expr) -> Vec<ExprRef> {

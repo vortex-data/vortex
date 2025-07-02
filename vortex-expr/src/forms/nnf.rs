@@ -1,12 +1,12 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::traversal::{FoldDown, FoldUp, FolderMut, Node as _};
-use crate::{BinaryExpr, BinaryVTable, ExprRef, IntoExpr, NotExpr, NotVTable, Operator, not};
+use crate::{BinaryExpr, BinaryVTable, ExprRef, IntoExpr, NotVTable, Operator, not};
 
 /// Return an equivalent expression in Negative Normal Form (NNF).
 ///
-/// In NNF, [NotExpr] expressions may only contain terminal nodes such as [Literal](crate::LiteralExpr) or
-/// [GetItem](crate::GetItemExpr). They *may not* contain [Binary], [NotExpr], etc.
+/// In NNF, [crate::NotExpr] expressions may only contain terminal nodes such as [Literal](crate::LiteralExpr) or
+/// [GetItem](crate::GetItemExpr). They *may not* contain [crate::BinaryExpr], [crate::NotExpr], etc.
 ///
 /// # Examples
 ///

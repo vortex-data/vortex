@@ -1,16 +1,15 @@
-use std::any::Any;
 use std::fmt::Display;
 use std::ops::Not;
-use std::sync::Arc;
 
 use vortex_array::arrays::{BoolArray, ConstantArray};
-use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray};
+use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, Scope, ScopeDType, VTable, VortexExpr, vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable,
+    VortexExpr, vtable,
 };
 
 vtable!(IsNull);
@@ -25,18 +24,18 @@ pub struct IsNullExprEncoding;
 impl VTable for IsNullVTable {
     type Expr = IsNullExpr;
     type Encoding = IsNullExprEncoding;
-    type Metadata = ();
+    type Metadata = EmptyMetadata;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
         ExprId::new_ref("is_null")
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&IsNullExprEncoding)
+        ExprEncodingRef::new_ref(IsNullExprEncoding.as_ref())
     }
 
     fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
-        Some(())
+        Some(EmptyMetadata)
     }
 
     fn children(expr: &Self::Expr) -> Vec<ExprRef> {
@@ -79,10 +78,6 @@ impl IsNullExpr {
     pub fn new(child: ExprRef) -> Self {
         Self { child }
     }
-
-    pub fn new_expr(child: ExprRef) -> ExprRef {
-        Arc::new(Self { child })
-    }
 }
 
 impl Display for IsNullExpr {
@@ -94,7 +89,7 @@ impl Display for IsNullExpr {
 impl AnalysisExpr for IsNullExpr {}
 
 pub fn is_null(child: ExprRef) -> ExprRef {
-    IsNullExpr::new_expr(child)
+    IsNullExpr::new(child).into_expr()
 }
 
 #[cfg(test)]

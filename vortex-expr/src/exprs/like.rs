@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fmt::Display;
 use std::hash::Hash;
 
@@ -34,7 +33,7 @@ impl VTable for LikeVTable {
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&LikeExprEncoding)
+        ExprEncodingRef::new_ref(LikeExprEncoding.as_ref())
     }
 
     fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
