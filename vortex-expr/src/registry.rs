@@ -1,6 +1,6 @@
 use vortex_array::VTableRegistry;
 
-use crate::{BetweenEncoding, ExprEncodingRef};
+use crate::ExprEncodingRef;
 
 pub type ExprRegistry = VTableRegistry<ExprEncodingRef>;
 

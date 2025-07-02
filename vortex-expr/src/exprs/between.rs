@@ -8,8 +8,8 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::exprs as pb;
 
 use crate::{
-    AnalysisExpr, Binary, ExprEncodingRef, ExprId, ExprRef, Scope, ScopeDType, VTable, VortexExpr,
-    vtable,
+    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
+    VTable, VortexExpr, vtable,
 };
 
 vtable!(Between);
@@ -22,11 +22,11 @@ pub struct BetweenExpr {
     options: BetweenOptions,
 }
 
-pub struct BetweenEncoding;
+pub struct BetweenExprEncoding;
 
 impl VTable for BetweenVTable {
     type Expr = BetweenExpr;
-    type Encoding = BetweenEncoding;
+    type Encoding = BetweenExprEncoding;
     type Metadata = ProstMetadata<pb::BetweenOpts>;
 
     fn id(_encoding: &Self::Encoding) -> ExprId {
@@ -34,7 +34,7 @@ impl VTable for BetweenVTable {
     }
 
     fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&BetweenEncoding)
+        ExprEncodingRef::new_ref(&BetweenExprEncoding)
     }
 
     fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
@@ -132,17 +132,17 @@ impl BetweenExpr {
     }
 
     pub fn to_binary_expr(&self) -> ExprRef {
-        let lhs = Binary::new_expr(
+        let lhs = BinaryExpr::new(
             self.lower.clone(),
             self.options.lower_strict.to_operator().into(),
             self.arr.clone(),
         );
-        let rhs = Binary::new_expr(
+        let rhs = BinaryExpr::new(
             self.arr.clone(),
             self.options.upper_strict.to_operator().into(),
             self.upper.clone(),
         );
-        Binary::new_expr(lhs, crate::Operator::And, rhs)
+        BinaryExpr::new(lhs.into_expr(), crate::Operator::And, rhs.into_expr()).into_expr()
     }
 }
 

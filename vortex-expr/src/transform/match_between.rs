@@ -1,7 +1,7 @@
 use vortex_array::compute::{BetweenOptions, StrictComparison};
 
 use crate::forms::cnf::cnf;
-use crate::{BetweenExpr, Binary, ExprRef, GetItemExpr, IntoExpr, LiteralExpr, Operator, and, lit};
+use crate::{BetweenExpr, ExprRef, GetItemExpr, IntoExpr, LiteralExpr, Operator, and, lit};
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
