@@ -63,7 +63,7 @@ impl Vector {
     }
 
     pub fn logical_type(&self) -> LogicalType {
-        unsafe { LogicalType::borrow(cpp::duckdb_vector_get_column_type(self.as_ptr())) }
+        unsafe { LogicalType::own(cpp::duckdb_vector_get_column_type(self.as_ptr())) }
     }
 
     #[allow(clippy::expect_used)]
