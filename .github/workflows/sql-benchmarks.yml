@@ -117,7 +117,7 @@ jobs:
             -d gh-json \
             --targets ${{ matrix.targets }} \
             --export-spans \
-          | tee results.json
+            -o results.json
 
       - name: Run ${{ matrix.name }} benchmark (remote)
         if: matrix.remote_storage != null
@@ -135,7 +135,7 @@ jobs:
               --targets ${{ matrix.targets }} \
               --export-spans \
               -d gh-json \
-            | tee results.json
+              -o results.json
 
       - name: Install uv
         if: inputs.mode == 'pr'

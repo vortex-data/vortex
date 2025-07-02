@@ -1,3 +1,7 @@
+use std::fs::File;
+use std::io::{Write, stdout};
+use std::path::PathBuf;
+
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_query};
 use bench_vortex::measurements::QueryMeasurement;
@@ -45,6 +49,8 @@ struct Args {
     export_spans: bool,
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
+    #[arg(short)]
+    output_path: Option<PathBuf>,
 }
 
 #[allow(clippy::expect_used)]
@@ -115,6 +121,7 @@ fn main() -> anyhow::Result<()> {
         args.targets,
         args.display_format,
         url,
+        &args.output_path,
     ))?;
 
     // Require trace guard lives until here
@@ -131,6 +138,7 @@ async fn bench_main(
     targets: Vec<Target>,
     display_format: DisplayFormat,
     url: Url,
+    output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
     info!(
         "Benchmarking against these targets: {}.",
@@ -221,12 +229,19 @@ async fn bench_main(
 
     progress.finish();
 
+    let mut writer: Box<dyn Write> = if let Some(output_path) = output_path {
+        Box::new(File::create(output_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
+
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements, &targets)?;
+            render_table(&mut writer, measurements, &targets)?;
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements)?;
+            print_measurements_json(&mut writer, measurements)?;
         }
     };
     Ok(())

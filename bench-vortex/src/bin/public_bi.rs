@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::io::{Write, stdout};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
@@ -44,6 +47,8 @@ struct Args {
     dataset: PBIDataset,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
+    #[arg(short)]
+    output_path: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -163,6 +168,13 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    let mut writer: Box<dyn Write> = if let Some(output_path) = args.output_path {
+        Box::new(File::create(output_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
+
     match args.display_format {
         DisplayFormat::Table => {
             if args.display_metrics {
@@ -181,8 +193,8 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            render_table(all_measurements, &args.targets)
+            render_table(&mut writer, all_measurements, &args.targets)
         }
-        DisplayFormat::GhJson => print_measurements_json(all_measurements),
+        DisplayFormat::GhJson => print_measurements_json(&mut writer, all_measurements),
     }
 }

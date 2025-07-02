@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::{Write, stdout};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
@@ -66,6 +68,8 @@ struct Args {
     export_spans: bool,
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
+    #[arg(short)]
+    output_path: Option<PathBuf>,
 }
 
 #[derive(ValueEnum, Default, Clone, Debug, PartialEq, Eq)]
@@ -171,6 +175,7 @@ fn main() -> anyhow::Result<()> {
         args.all_metrics,
         args.export_spans,
         args.emit_plan,
+        &args.output_path,
     ))
 }
 
@@ -187,6 +192,7 @@ async fn bench_main(
     display_all_metrics: bool,
     export_spans: bool,
     emit_plan: bool,
+    output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let expected_row_counts = if scale_factor == 1 {
         EXPECTED_ROW_COUNTS_SF1
@@ -335,6 +341,13 @@ async fn bench_main(
 
     progress.finish();
 
+    let mut writer: Box<dyn Write> = if let Some(output_path) = output_path {
+        Box::new(File::create(output_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
+
     match display_format {
         DisplayFormat::Table => {
             if !display_all_metrics {
@@ -343,10 +356,10 @@ async fn bench_main(
             for m in metrics.timestamps_removed().sorted_for_display().iter() {
                 println!("{m}");
             }
-            render_table(measurements, &targets)?;
+            render_table(&mut writer, measurements, &targets)?;
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements)?;
+            print_measurements_json(&mut writer, measurements)?;
         }
     }
 

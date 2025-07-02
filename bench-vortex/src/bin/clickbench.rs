@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::io;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
@@ -12,6 +15,7 @@ use bench_vortex::{
 };
 use clap::{Parser, value_parser};
 use indicatif::ProgressBar;
+use io::stdout;
 use itertools::Itertools;
 use log::warn;
 use tokio::runtime::Runtime;
@@ -61,6 +65,8 @@ struct Args {
     hide_progress_bar: bool,
     #[arg(long, default_value_t = false)]
     show_metrics: bool,
+    #[arg(short)]
+    output_path: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -70,12 +76,6 @@ fn main() -> anyhow::Result<()> {
         .targets
         .iter()
         .map(|t| t.engine())
-        .unique()
-        .collect_vec();
-    let formats = args
-        .targets
-        .iter()
-        .map(|t| t.format())
         .unique()
         .collect_vec();
 
@@ -133,7 +133,7 @@ fn main() -> anyhow::Result<()> {
     let progress_bar = if args.hide_progress_bar {
         ProgressBar::hidden()
     } else {
-        ProgressBar::new((queries.len() * formats.len() * engines.len()) as u64)
+        ProgressBar::new((queries.len() * args.targets.len()) as u64)
     };
 
     let mut query_measurements = Vec::new();
@@ -189,7 +189,12 @@ fn main() -> anyhow::Result<()> {
         query_measurements.extend(bench_measurements);
     }
 
-    print_results(&args.display_format, query_measurements, &args.targets)
+    print_results(
+        &args.display_format,
+        query_measurements,
+        &args.targets,
+        &args.output_path,
+    )
 }
 
 fn validate_args(engines: &[Engine], args: &Args) {
@@ -230,11 +235,18 @@ fn print_results(
     display_format: &DisplayFormat,
     query_measurements: Vec<QueryMeasurement>,
     targets: &[Target],
+    file_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
+    let mut writer: Box<dyn Write> = if let Some(file_path) = file_path {
+        Box::new(File::create(file_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
     match display_format {
-        DisplayFormat::Table => render_table(query_measurements, targets),
+        DisplayFormat::Table => render_table(&mut writer, query_measurements, targets),
 
-        DisplayFormat::GhJson => print_measurements_json(query_measurements),
+        DisplayFormat::GhJson => print_measurements_json(&mut writer, query_measurements),
     }
 }
 
