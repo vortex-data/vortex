@@ -90,7 +90,7 @@ pub fn render_table<T: ToTable>(
         table.with(color);
     }
 
-    write!(writer, "{table}")?;
+    writeln!(writer, "{table}")?;
 
     Ok(())
 }
@@ -100,7 +100,7 @@ pub fn print_measurements_json<T: ToJson>(
     all_measurements: Vec<T>,
 ) -> anyhow::Result<()> {
     for measurement in all_measurements {
-        write!(writer, "{}", serde_json::to_string(&measurement.to_json())?)?
+        writeln!(writer, "{}", serde_json::to_string(&measurement.to_json())?)?
     }
 
     Ok(())
