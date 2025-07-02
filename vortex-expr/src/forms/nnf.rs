@@ -5,7 +5,7 @@ use crate::{Binary, ExprRef, Not, Operator, not};
 
 /// Return an equivalent expression in Negative Normal Form (NNF).
 ///
-/// In NNF, [Not] expressions may only contain terminal nodes such as [Literal](crate::Literal) or
+/// In NNF, [Not] expressions may only contain terminal nodes such as [Literal](crate::LiteralExpr) or
 /// [GetItem](crate::GetItemExpr). They *may not* contain [Binary], [Not], etc.
 ///
 /// # Examples

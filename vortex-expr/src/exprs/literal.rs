@@ -1,116 +1,117 @@
 use std::any::Any;
 use std::fmt::Display;
-use std::sync::Arc;
 
 use vortex_array::arrays::ConstantArray;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_proto::exprs as pb;
 use vortex_scalar::Scalar;
 
-use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, StatsCatalog, VortexExpr};
+use crate::{
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, StatsCatalog,
+    VTable, VortexExpr, vtable,
+};
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub struct Literal {
+vtable!(Literal);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LiteralExpr {
     value: Scalar,
 }
 
-impl Literal {
-    pub fn new_expr(value: impl Into<Scalar>) -> ExprRef {
-        Arc::new(Self {
+pub struct LiteralExprEncoding;
+
+impl VTable for LiteralVTable {
+    type Expr = LiteralExpr;
+    type Encoding = LiteralExprEncoding;
+    type Metadata = ProstMetadata<pb::LiteralOpts>;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("literal")
+    }
+
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(&LiteralExprEncoding)
+    }
+
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        Some(ProstMetadata(pb::LiteralOpts {
+            value: Some((&expr.value).into()),
+        }))
+    }
+
+    fn children(_expr: &Self::Expr) -> Vec<ExprRef> {
+        vec![]
+    }
+
+    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        if !children.is_empty() {
+            vortex_bail!(
+                "Literal expression does not have children, got: {:?}",
+                children
+            );
+        }
+        Ok(expr.clone())
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        if !children.is_empty() {
+            vortex_bail!(
+                "Literal expression does not have children, got: {:?}",
+                children
+            );
+        }
+        let value: Scalar = metadata
+            .value
+            .as_ref()
+            .ok_or_else(|| vortex_err!("Literal metadata missing value"))?
+            .try_into()?;
+        Ok(LiteralExpr::new(value))
+    }
+
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        Ok(ConstantArray::new(expr.value.clone(), scope.len()).into_array())
+    }
+
+    fn return_dtype(expr: &Self::Expr, _scope: &ScopeDType) -> VortexResult<DType> {
+        Ok(expr.value.dtype().clone())
+    }
+}
+
+impl LiteralExpr {
+    pub fn new(value: impl Into<Scalar>) -> Self {
+        Self {
             value: value.into(),
-        })
+        }
     }
 
     pub fn value(&self) -> &Scalar {
         &self.value
     }
 
-    pub fn maybe_from(expr: &ExprRef) -> Option<&Literal> {
-        expr.as_any().downcast_ref::<Literal>()
+    pub fn maybe_from(expr: &ExprRef) -> Option<&LiteralExpr> {
+        expr.as_any().downcast_ref::<LiteralExpr>()
     }
 }
 
-impl Display for Literal {
+impl Display for LiteralExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.value)
     }
 }
 
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use kind::Kind;
-    use vortex_error::{VortexResult, vortex_bail, vortex_err};
-    use vortex_proto::expr::kind;
-    use vortex_scalar::Scalar;
-
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Literal};
-
-    pub(crate) struct LiteralSerde;
-
-    impl Id for LiteralSerde {
-        fn id(&self) -> &'static str {
-            "literal"
-        }
-    }
-
-    impl ExprDeserialize for LiteralSerde {
-        fn deserialize(&self, kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::Literal(value) = kind else {
-                vortex_bail!("Expected literal kind");
-            };
-            let scalar: Scalar = value
-                .value
-                .as_ref()
-                .ok_or_else(|| vortex_err!("empty literal scalar"))?
-                .try_into()?;
-            Ok(Literal::new_expr(scalar))
-        }
-    }
-
-    impl ExprSerializable for Literal {
-        fn id(&self) -> &'static str {
-            LiteralSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::Literal(kind::Literal {
-                value: Some((&self.value).into()),
-            }))
-        }
-    }
-}
-
-impl AnalysisExpr for Literal {
+impl AnalysisExpr for LiteralExpr {
     fn max(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         Some(lit(self.value.clone()))
     }
 
     fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         Some(lit(self.value.clone()))
-    }
-}
-
-impl VortexExpr for Literal {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(self.value.clone(), ctx.len()).into_array())
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        vec![]
-    }
-
-    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), 0);
-        self
-    }
-
-    fn return_dtype(&self, _ctx: &ScopeDType) -> VortexResult<DType> {
-        Ok(self.value.dtype().clone())
     }
 }
 
@@ -122,18 +123,18 @@ impl VortexExpr for Literal {
 /// ```
 /// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_dtype::Nullability;
-/// use vortex_expr::{lit, Literal};
+/// use vortex_expr::{lit, LiteralExpr};
 /// use vortex_scalar::Scalar;
 ///
 /// let number = lit(34i32);
 ///
 /// let literal = number.as_any()
-///     .downcast_ref::<Literal>()
+///     .downcast_ref::<LiteralExpr>()
 ///     .unwrap();
 /// assert_eq!(literal.value(), &Scalar::primitive(34i32, Nullability::NonNullable));
 /// ```
 pub fn lit(value: impl Into<Scalar>) -> ExprRef {
-    Literal::new_expr(value.into())
+    LiteralExpr::new(value.into()).into_expr()
 }
 
 #[cfg(test)]

@@ -9,8 +9,8 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::{
-    AnalysisExpr, ExprRef, Literal, Scope, ScopeDType, StatsCatalog, VortexExpr, and, gt, lit, lt,
-    or,
+    AnalysisExpr, ExprRef, LiteralExpr, Scope, ScopeDType, StatsCatalog, VortexExpr, and, gt, lit,
+    lt, or,
 };
 
 #[derive(Debug, Clone, Eq, Hash)]
@@ -92,7 +92,7 @@ impl AnalysisExpr for ListContains {
         if min == max {
             let list_ = min
                 .as_any()
-                .downcast_ref::<Literal>()
+                .downcast_ref::<LiteralExpr>()
                 .and_then(|l| l.value().as_list_opt())
                 .and_then(|l| l.elements())?;
             if list_.is_empty() {

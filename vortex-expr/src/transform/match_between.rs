@@ -1,7 +1,7 @@
 use vortex_array::compute::{BetweenOptions, StrictComparison};
 
 use crate::forms::cnf::cnf;
-use crate::{BetweenExpr, Binary, ExprRef, GetItemExpr, IntoExpr, Literal, Operator, and, lit};
+use crate::{BetweenExpr, Binary, ExprRef, GetItemExpr, IntoExpr, LiteralExpr, Operator, and, lit};
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
@@ -89,9 +89,10 @@ fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
         };
 
     // Find the greater op.
-    let (Some(left_lit), Some(right_lit)) =
-        (Literal::maybe_from(&left), Literal::maybe_from(&right))
-    else {
+    let (Some(left_lit), Some(right_lit)) = (
+        LiteralExpr::maybe_from(&left),
+        LiteralExpr::maybe_from(&right),
+    ) else {
         return None;
     };
 

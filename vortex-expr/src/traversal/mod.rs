@@ -299,8 +299,8 @@ mod tests {
     use crate::traversal::visitor::pre_order_visit_down;
     use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
     use crate::{
-        Binary, ExprRef, GetItemExpr, Literal, Operator, VortexExpr, col, get_item_scope, is_root,
-        root,
+        Binary, ExprRef, GetItemExpr, LiteralExpr, Operator, VortexExpr, col, get_item_scope,
+        is_root, root,
     };
 
     #[derive(Default)]
@@ -310,7 +310,7 @@ mod tests {
         type NodeTy = ExprRef;
 
         fn visit_down(&mut self, node: &'a ExprRef) -> VortexResult<TraversalOrder> {
-            if node.as_any().is::<Literal>() {
+            if node.as_any().is::<LiteralExpr>() {
                 self.0.push(node)
             }
             Ok(TraversalOrder::Continue)
@@ -332,7 +332,7 @@ mod tests {
             if col.is_some() {
                 let id = self.0;
                 self.0 += 1;
-                Ok(TransformResult::yes(Literal::new_expr(id)))
+                Ok(TransformResult::yes(LiteralExpr::new(id)))
             } else {
                 Ok(TransformResult::no(node))
             }
@@ -357,9 +357,9 @@ mod tests {
     #[test]
     fn expr_deep_visitor_test() {
         let col1: Arc<dyn VortexExpr> = col("col1");
-        let lit1 = Literal::new_expr(1);
+        let lit1 = LiteralExpr::new(1);
         let expr = Binary::new_expr(col1.clone(), Operator::Eq, lit1.clone());
-        let lit2 = Literal::new_expr(2);
+        let lit2 = LiteralExpr::new(2);
         let expr = Binary::new_expr(expr, Operator::And, lit2);
         let mut printer = ExprLitCollector::default();
         expr.accept(&mut printer).unwrap();
@@ -371,7 +371,7 @@ mod tests {
         let col1: Arc<dyn VortexExpr> = col("col1");
         let col2: Arc<dyn VortexExpr> = col("col2");
         let expr = Binary::new_expr(col1.clone(), Operator::Eq, col2.clone());
-        let lit2 = Literal::new_expr(2);
+        let lit2 = LiteralExpr::new(2);
         let expr = Binary::new_expr(expr, Operator::And, lit2);
         let mut printer = ExprColToLit::default();
         let new = expr.transform(&mut printer).unwrap();

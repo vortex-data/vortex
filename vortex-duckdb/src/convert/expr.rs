@@ -5,7 +5,7 @@ use vortex::compute::{BetweenOptions, StrictComparison};
 use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    Between, Binary, ExprRef, LikeExpr, Literal, Not, Operator, and_collect, get_item_scope,
+    Between, Binary, ExprRef, LikeExpr, LiteralExpr, Not, Operator, and_collect, get_item_scope,
     list_contains, lit, or_collect,
 };
 use vortex::scalar::Scalar;
@@ -133,7 +133,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                             return Ok(None);
                         };
                         Ok(Some(
-                            Literal::maybe_from(&value)
+                            LiteralExpr::maybe_from(&value)
                                 .ok_or_else(|| {
                                     vortex_err!("cannot have a non literal in a in_list")
                                 })?
@@ -164,7 +164,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 let Some(pattern_lit) = like_pattern_str(&children[1])? else {
                     vortex_bail!("expected pattern to be bound string")
                 };
-                let pattern = Literal::new_expr(pattern_lit);
+                let pattern = LiteralExpr::new(pattern_lit);
                 LikeExpr::new(value, pattern, false, false)
             }
             _ => {
