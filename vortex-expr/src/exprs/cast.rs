@@ -1,106 +1,112 @@
 use std::any::Any;
 use std::fmt::Display;
-use std::sync::Arc;
 
 use prost::Message;
-use vortex_array::ArrayRef;
 use vortex_array::compute::cast as compute_cast;
+use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::exprs as pb;
 
 use crate::{
-    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, Scope, ScopeDType, VortexExpr,
+    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
+    VTable, VortexExpr, vtable,
 };
 
-#[derive(Debug, Eq, Hash)]
-#[allow(clippy::derived_hash_with_manual_eq)]
-pub struct Cast {
+vtable!(Cast);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CastExpr {
     target: DType,
     child: ExprRef,
 }
 
-pub struct CastEncoding;
+pub struct CastExprEncoding;
 
-impl ExprEncoding for CastEncoding {
-    fn id(&self) -> ExprId {
+impl VTable for CastVTable {
+    type Expr = CastExpr;
+    type Encoding = CastExprEncoding;
+    type Metadata = ProstMetadata<pb::CastOpts>;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
         ExprId::new_ref("cast")
     }
 
-    fn deserialize(&self, options: &[u8], children: Vec<ExprRef>) -> VortexResult<Option<ExprRef>> {
-        let options = pb::CastOpts::decode(options)?;
-        let target: DType = options
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(&CastExprEncoding)
+    }
+
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        Some(ProstMetadata(pb::CastOpts {
+            target: Some((&expr.target).into()),
+        }))
+    }
+
+    fn children(expr: &Self::Expr) -> Vec<ExprRef> {
+        vec![expr.child.clone()]
+    }
+
+    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        if children.len() != 1 {
+            vortex_bail!(
+                "Cast expression must have exactly 1 child, got {}",
+                children.len()
+            );
+        }
+        Ok(CastExpr {
+            target: expr.target.clone(),
+            child: children[0].clone(),
+        })
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        if children.len() != 1 {
+            vortex_bail!(
+                "Cast expression must have exactly 1 child, got {}",
+                children.len()
+            );
+        }
+        let target: DType = metadata
             .target
             .as_ref()
-            .ok_or_else(|| vortex_err!("empty target dtype"))?
+            .ok_or_else(|| vortex_err!("missing target dtype in CastOpts"))?
             .try_into()?;
-        Ok(Some(Cast::new_expr(children[0].clone(), target)))
+        Ok(CastExpr {
+            target,
+            child: children[0].clone(),
+        })
+    }
+
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        let array = expr.child.evaluate(scope)?;
+        compute_cast(&array, &expr.target)
+    }
+
+    fn return_dtype(expr: &Self::Expr, _scope: &ScopeDType) -> VortexResult<DType> {
+        Ok(expr.target.clone())
     }
 }
 
-impl Cast {
-    pub fn new_expr(child: ExprRef, target: DType) -> ExprRef {
-        Arc::new(Self { target, child })
+impl CastExpr {
+    pub fn new(child: ExprRef, target: DType) -> Self {
+        Self { target, child }
     }
 }
 
-impl PartialEq for Cast {
-    fn eq(&self, other: &Self) -> bool {
-        self.target.eq(&other.target) && self.child.eq(&other.child)
-    }
-}
-
-impl Display for Cast {
+impl Display for CastExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "cast({}, {})", self.child, self.target)
     }
 }
 
-impl AnalysisExpr for Cast {}
-
-impl VortexExpr for Cast {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn encoding(&self) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&CastEncoding)
-    }
-
-    fn serialize_options(&self) -> Option<Vec<u8>> {
-        Some(
-            pb::CastOpts {
-                target: Some((&self.target).into()),
-            }
-            .encode_to_vec(),
-        )
-    }
-
-    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        let array = self.child.evaluate(scope)?;
-        compute_cast(&array, &self.target)
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        vec![&self.child]
-    }
-
-    fn with_children(self: Arc<Self>, mut children: Vec<ExprRef>) -> ExprRef {
-        Self::new_expr(
-            children
-                .pop()
-                .vortex_expect("Cast::replacing_children should have one child"),
-            self.target.clone(),
-        )
-    }
-
-    fn return_dtype(&self, _scope_dtype: &ScopeDType) -> VortexResult<DType> {
-        Ok(self.target.clone())
-    }
-}
+impl AnalysisExpr for CastExpr {}
 
 pub fn cast(child: ExprRef, target: DType) -> ExprRef {
-    Cast::new_expr(child, target)
+    CastExpr::new(child, target).into_expr()
 }
 
 #[cfg(test)]
