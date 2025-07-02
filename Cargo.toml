@@ -213,7 +213,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
 
-worker = "0.5.0"
+worker = "0.6.0"
 xshell = "0.2.6"
 zigzag = "0.1.0"
 zstd = { version = "0.13.3", default-features = false, features = [

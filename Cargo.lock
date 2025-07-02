@@ -5050,17 +5050,6 @@ dependencies = [
 
 [[package]]
 name = "serde-wasm-bindgen"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3b143e2833c57ab9ad3ea280d21fd34e285a42837aeb0ee301f4f41890fa00e"
-dependencies = [
- "js-sys",
- "serde",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "serde-wasm-bindgen"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
@@ -7375,9 +7364,9 @@ dependencies = [
 
 [[package]]
 name = "worker"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "727789ca7eff9733efbea9d0e97779edc1cf1926e98aee7d7d8afe32805458aa"
+checksum = "7f6ac1566a3005b790b974f0621d77431e2a47e5f481276485f5ac0485775de2"
 dependencies = [
  "async-trait",
  "bytes",
@@ -7390,7 +7379,7 @@ dependencies = [
  "matchit",
  "pin-project",
  "serde",
- "serde-wasm-bindgen 0.6.5",
+ "serde-wasm-bindgen",
  "serde_json",
  "serde_urlencoded",
  "tokio",
@@ -7406,24 +7395,24 @@ dependencies = [
 
 [[package]]
 name = "worker-kv"
-version = "0.7.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f06d4d1416a9f8346ee9123b0d9a11b3cfa38e6cfb5a139698017d1597c4d41"
+checksum = "b0d30eb90e8db0657414129624c0d12c6cb480574bc2ddd584822db196cb9a52"
 dependencies = [
  "js-sys",
  "serde",
- "serde-wasm-bindgen 0.5.0",
+ "serde-wasm-bindgen",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
  "wasm-bindgen",
  "wasm-bindgen-futures",
 ]
 
 [[package]]
 name = "worker-macros"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d625c24570ba9207a2617476013335f28a95cbe513e59bb814ffba092a18058"
+checksum = "5ba7478759843ae3d56dc7ba2445e7a514a5d043eaa98cebac2789f7ab5221ee"
 dependencies = [
  "async-trait",
  "proc-macro2",
@@ -7437,9 +7426,9 @@ dependencies = [
 
 [[package]]
 name = "worker-sys"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34563340d41016b4381257c5a16b0d2bc590dbe00500ecfbebcaa16f5f85ce90"
+checksum = "eb4d7a3273dd584b9526aec77bbcf815c51d1a0e17407b1a390cf5a39b6d4fbd"
 dependencies = [
  "cfg-if",
  "js-sys",
