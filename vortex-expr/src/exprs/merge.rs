@@ -145,7 +145,7 @@ impl VortexExpr for Merge {
         self.values.iter().collect()
     }
 
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         Self::new_expr(children, self.nullability)
     }
 

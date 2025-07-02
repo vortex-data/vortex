@@ -133,7 +133,7 @@ impl VortexExpr for ListContains {
         vec![&self.list, &self.value]
     }
 
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 2);
         Self::new_expr(children[0].clone(), children[1].clone())
     }

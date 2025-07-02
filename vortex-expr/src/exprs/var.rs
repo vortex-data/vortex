@@ -124,7 +124,7 @@ impl VortexExpr for Var {
         vec![]
     }
 
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 0);
         Var::new_expr(self.var.clone())
     }

@@ -1,6 +1,6 @@
 use vortex_array::VTableRegistry;
 
-use crate::{Between, ExprEncodingRef};
+use crate::{BetweenEncoding, ExprEncodingRef};
 
 pub type ExprRegistry = VTableRegistry<ExprEncodingRef>;
 
@@ -13,7 +13,7 @@ impl ExprRegistryExt for ExprRegistry {
     fn default() -> Self {
         let mut this = Self::empty();
         this.register_many([
-            ExprEncodingRef::new_ref(&Between),
+            ExprEncodingRef::new_ref(&BetweenEncoding),
             ExprEncodingRef::new_ref(&Binary),
             ExprEncodingRef::new_ref(&GetItem),
             ExprEncodingRef::new_ref(&Identity),

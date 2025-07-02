@@ -1,10 +1,11 @@
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use dyn_hash::DynHash;
 pub use exprs::*;
+pub mod aliases;
 mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
@@ -20,6 +21,7 @@ mod scope;
 mod scope_vars;
 pub mod transform;
 pub mod traversal;
+mod vtable;
 
 pub use analysis::*;
 pub use between::*;
@@ -39,10 +41,11 @@ pub use registry::*;
 pub use scope::*;
 pub use select::*;
 pub use var::*;
-use vortex_array::{Array, ArrayRef, SerializeMetadata};
+use vortex_array::{Array, ArrayContext, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexResult, VortexUnwrap};
 use vortex_utils::aliases::hash_set::HashSet;
+pub use vtable::*;
 
 use crate::traversal::{Node, ReferenceCollector, VarsCollector};
 
@@ -58,21 +61,37 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + Analysis
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 
-    /// The globally unique ID for this type of expression.
-    fn id(&self) -> ExprId {
-        self.encoding().id()
-    }
+    /// Convert the expression to an [`ExprRef`].
+    fn to_expr(&self) -> ExprRef;
 
     /// Return the encoding of the expression.
     fn encoding(&self) -> ExprEncodingRef;
 
-    /// Serialize the options of this expression into a bytes vector.
+    /// Serialize the metadata of this expression into a bytes vector.
     ///
     /// Returns `None` if the expression does not support serialization.
-    fn serialize_options(&self) -> Option<Vec<u8>> {
+    fn metadata(&self) -> Option<Vec<u8>> {
         None
     }
 
+    /// Compute result of expression on given batch producing a new batch
+    ///
+    /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
+    /// the [VortexExpr::return_dtype] method. Use instead the [VortexExpr::evaluate] function which
+    /// includes such an assertion.
+    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef>;
+
+    /// Returns the children of this expression.
+    fn children(&self) -> Vec<&ExprRef>;
+
+    /// Returns a new instance of this expression with the children replaced.
+    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef>;
+
+    /// Compute the type of the array returned by [VortexExpr::evaluate].
+    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType>;
+}
+
+impl dyn VortexExpr + '_ {
     /// Compute result of expression on given batch producing a new batch
     fn evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
         let result = self.unchecked_evaluate(scope)?;
@@ -86,20 +105,6 @@ pub trait VortexExpr: Debug + Send + Sync + DynEq + DynHash + Display + Analysis
         );
         Ok(result)
     }
-
-    /// Compute result of expression on given batch producing a new batch
-    ///
-    /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
-    /// the [VortexExpr::return_dtype] method. Use instead the [VortexExpr::evaluate] function which
-    /// includes such an assertion.
-    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef>;
-
-    fn children(&self) -> Vec<&ExprRef>;
-
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
-
-    /// Compute the type of the array returned by [VortexExpr::evaluate].
-    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType>;
 }
 
 pub trait VortexExprExt {
@@ -123,6 +128,66 @@ impl VortexExprExt for ExprRef {
         self.accept(&mut collector).vortex_unwrap();
         collector.into_vars()
     }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct ExprAdapter<V: VTable>(V::Expr);
+
+impl<V: VTable> VortexExpr for ExprAdapter<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn to_expr(&self) -> ExprRef {
+        Arc::new(ExprAdapter::<V>(self.0.clone()))
+    }
+
+    fn encoding(&self) -> ExprEncodingRef {
+        V::encoding(&self.0)
+    }
+
+    fn children(&self) -> Vec<ExprRef> {
+        V::children(&self.0)
+    }
+
+    fn metadata(&self) -> Option<Vec<u8>> {
+        V::metadata(&self.0).map(|m| m.serialize())
+    }
+
+    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
+        V::evaluate(&self.0, ctx)
+    }
+
+    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+        Ok(V::with_children(&self.0, children)?.to_expr())
+    }
+
+    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType> {
+        V::return_dtype(&self.0, scope)
+    }
+}
+
+impl<V: VTable> Debug for ExprAdapter<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&self.0, f)
+    }
+}
+
+impl<V: VTable> Display for ExprAdapter<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl<V: VTable> AnalysisExpr for ExprAdapter<V> {}
+
+mod private {
+    use super::*;
+
+    pub trait Sealed {}
+
+    impl<V: VTable> Sealed for ExprAdapter<V> {}
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]

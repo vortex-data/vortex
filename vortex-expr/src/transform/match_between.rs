@@ -1,8 +1,7 @@
 use vortex_array::compute::{BetweenOptions, StrictComparison};
 
-use crate::between::Between;
 use crate::forms::cnf::cnf;
-use crate::{Binary, ExprRef, GetItem, Literal, Operator, and, lit};
+use crate::{BetweenExpr, Binary, ExprRef, GetItem, IntoExpr, Literal, Operator, and, lit};
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
@@ -117,7 +116,7 @@ fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
         return None;
     };
 
-    let expr = Between::between(
+    let expr = BetweenExpr::new(
         eq.clone(),
         left,
         right,
@@ -126,7 +125,7 @@ fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
             upper_strict: right_op,
         },
     );
-    Some(expr)
+    Some(expr.into_expr())
 }
 
 fn maybe_strict_comparison(op: Operator) -> Option<StrictComparison> {

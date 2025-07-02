@@ -1,42 +1,134 @@
-use std::any::Any;
 use std::fmt::{Debug, Display};
-use std::sync::Arc;
 
-use prost::Message;
-use vortex_array::ArrayRef;
 use vortex_array::compute::{BetweenOptions, StrictComparison, between};
+use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::exprs as pb;
 
 use crate::{
-    AnalysisExpr, Binary, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, Scope, ScopeDType,
-    VortexExpr,
+    AnalysisExpr, Binary, ExprEncodingRef, ExprId, ExprRef, Scope, ScopeDType, VTable, VortexExpr,
+    vtable,
 };
 
-#[derive(Debug, Eq, Hash)]
-#[allow(clippy::derived_hash_with_manual_eq)]
-pub struct Between {
+vtable!(Between);
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BetweenExpr {
     arr: ExprRef,
     lower: ExprRef,
     upper: ExprRef,
     options: BetweenOptions,
 }
 
-impl Between {
-    pub fn between(
-        arr: ExprRef,
-        lower: ExprRef,
-        upper: ExprRef,
-        options: BetweenOptions,
-    ) -> ExprRef {
-        Arc::new(Self {
+pub struct BetweenEncoding;
+
+impl VTable for BetweenVTable {
+    type Expr = BetweenExpr;
+    type Encoding = BetweenEncoding;
+    type Metadata = ProstMetadata<pb::BetweenOpts>;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("between")
+    }
+
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(&BetweenEncoding)
+    }
+
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        Some(ProstMetadata(pb::BetweenOpts {
+            lower_strict: expr.options.lower_strict == StrictComparison::Strict,
+            upper_strict: expr.options.upper_strict == StrictComparison::Strict,
+        }))
+    }
+
+    fn children(expr: &Self::Expr) -> Vec<ExprRef> {
+        vec![expr.arr.clone(), expr.lower.clone(), expr.upper.clone()]
+    }
+
+    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        if children.len() != 3 {
+            vortex_bail!(
+                "Between expression must have exactly 3 children, got {}",
+                children.len()
+            );
+        }
+        Ok(BetweenExpr::new(
+            children[0].clone(),
+            children[1].clone(),
+            children[2].clone(),
+            expr.options.clone(),
+        ))
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: &[ExprRef],
+    ) -> VortexResult<Self::Expr> {
+        Ok(BetweenExpr::new(
+            children[0].clone(),
+            children[1].clone(),
+            children[2].clone(),
+            BetweenOptions {
+                lower_strict: if metadata.lower_strict {
+                    StrictComparison::Strict
+                } else {
+                    StrictComparison::NonStrict
+                },
+                upper_strict: if metadata.upper_strict {
+                    StrictComparison::Strict
+                } else {
+                    StrictComparison::NonStrict
+                },
+            },
+        ))
+    }
+
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        let arr_val = expr.arr.unchecked_evaluate(scope)?;
+        let lower_arr_val = expr.lower.unchecked_evaluate(scope)?;
+        let upper_arr_val = expr.upper.unchecked_evaluate(scope)?;
+
+        between(&arr_val, &lower_arr_val, &upper_arr_val, &expr.options)
+    }
+
+    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+        let arr_dt = expr.arr.return_dtype(scope)?;
+        let lower_dt = expr.lower.return_dtype(scope)?;
+        let upper_dt = expr.upper.return_dtype(scope)?;
+
+        if !arr_dt.eq_ignore_nullability(&lower_dt) {
+            vortex_bail!(
+                "Array dtype {} does not match lower dtype {}",
+                arr_dt,
+                lower_dt
+            );
+        }
+        if !arr_dt.eq_ignore_nullability(&upper_dt) {
+            vortex_bail!(
+                "Array dtype {} does not match upper dtype {}",
+                arr_dt,
+                upper_dt
+            );
+        }
+
+        Ok(Bool(
+            arr_dt.nullability() | lower_dt.nullability() | upper_dt.nullability(),
+        ))
+    }
+}
+
+impl BetweenExpr {
+    pub fn new(arr: ExprRef, lower: ExprRef, upper: ExprRef, options: BetweenOptions) -> Self {
+        Self {
             arr,
             lower,
             upper,
             options,
-        })
+        }
     }
 
     pub fn to_binary_expr(&self) -> ExprRef {
@@ -54,7 +146,7 @@ impl Between {
     }
 }
 
-impl Display for Between {
+impl Display for BetweenExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -68,107 +160,4 @@ impl Display for Between {
     }
 }
 
-impl PartialEq for Between {
-    fn eq(&self, other: &Between) -> bool {
-        self.arr.eq(&other.arr)
-            && other.lower.eq(&self.lower)
-            && other.upper.eq(&self.upper)
-            && self.options == other.options
-    }
-}
-
-pub struct BetweenEncoding;
-
-impl ExprEncoding for BetweenEncoding {
-    fn id(&self) -> ExprId {
-        ExprId::new_ref("between")
-    }
-
-    fn deserialize(&self, options: &[u8], children: Vec<ExprRef>) -> VortexResult<Option<ExprRef>> {
-        let options = pb::BetweenOpts::decode(options)?;
-
-        Ok(Some(Between::between(
-            children[0].clone(),
-            children[1].clone(),
-            children[2].clone(),
-            BetweenOptions {
-                lower_strict: if options.lower_strict {
-                    StrictComparison::Strict
-                } else {
-                    StrictComparison::NonStrict
-                },
-                upper_strict: if options.upper_strict {
-                    StrictComparison::Strict
-                } else {
-                    StrictComparison::NonStrict
-                },
-            },
-        )))
-    }
-}
-
-impl AnalysisExpr for Between {}
-
-impl VortexExpr for Between {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn encoding(&self) -> ExprEncodingRef {
-        ExprEncodingRef::new_ref(&BetweenEncoding)
-    }
-
-    fn serialize_options(&self) -> Option<Vec<u8>> {
-        Some(
-            pb::BetweenOpts {
-                lower_strict: self.options.lower_strict == StrictComparison::Strict,
-                upper_strict: self.options.upper_strict == StrictComparison::Strict,
-            }
-            .encode_to_vec(),
-        )
-    }
-
-    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        let arr_val = self.arr.unchecked_evaluate(scope)?;
-        let lower_arr_val = self.lower.unchecked_evaluate(scope)?;
-        let upper_arr_val = self.upper.unchecked_evaluate(scope)?;
-
-        between(&arr_val, &lower_arr_val, &upper_arr_val, &self.options)
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        vec![&self.arr, &self.lower, &self.upper]
-    }
-
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        Arc::new(Self {
-            arr: children[0].clone(),
-            lower: children[1].clone(),
-            upper: children[2].clone(),
-            options: self.options.clone(),
-        })
-    }
-
-    fn return_dtype(&self, ctx: &ScopeDType) -> VortexResult<DType> {
-        let arr_dt = self.arr.return_dtype(ctx)?;
-        let lower_dt = self.lower.return_dtype(ctx)?;
-        let upper_dt = self.upper.return_dtype(ctx)?;
-
-        assert!(
-            arr_dt.eq_ignore_nullability(&lower_dt),
-            "array dtype {}, lower dtype {}",
-            arr_dt,
-            lower_dt
-        );
-        assert!(
-            arr_dt.eq_ignore_nullability(&upper_dt),
-            "array dtype {}, upper dtype {}",
-            arr_dt,
-            upper_dt
-        );
-
-        Ok(Bool(
-            arr_dt.nullability() | lower_dt.nullability() | upper_dt.nullability(),
-        ))
-    }
-}
+impl AnalysisExpr for BetweenExpr {}

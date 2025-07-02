@@ -186,7 +186,7 @@ impl VortexExpr for Pack {
         self.values.iter().collect()
     }
 
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), self.values.len());
         Self::try_new_expr(self.names.clone(), children, self.nullability)
             .vortex_expect("children are known to have the same length as names")

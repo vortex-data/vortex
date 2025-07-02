@@ -126,7 +126,7 @@ impl VortexExpr for Like {
         vec![&self.child, &self.pattern]
     }
 
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 2);
         Like::new_expr(
             children[0].clone(),

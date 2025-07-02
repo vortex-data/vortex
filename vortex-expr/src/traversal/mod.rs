@@ -253,7 +253,7 @@ impl Node for ExprRef {
                 }
 
                 if changed {
-                    let up = visitor.visit_up(self.replacing_children(new_children))?;
+                    let up = visitor.visit_up(self.with_children(new_children))?;
                     Ok(TransformResult::yes(up.result))
                 } else {
                     visitor.visit_up(self)

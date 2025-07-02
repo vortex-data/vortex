@@ -85,7 +85,7 @@ impl VortexExpr for Cast {
         vec![&self.child]
     }
 
-    fn replacing_children(self: Arc<Self>, mut children: Vec<ExprRef>) -> ExprRef {
+    fn with_children(self: Arc<Self>, mut children: Vec<ExprRef>) -> ExprRef {
         Self::new_expr(
             children
                 .pop()
@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn replace_children() {
         let expr = cast(root(), DType::Bool(Nullability::Nullable));
-        let _ = expr.replacing_children(vec![root()]);
+        let _ = expr.with_children(vec![root()]);
     }
 
     #[test]

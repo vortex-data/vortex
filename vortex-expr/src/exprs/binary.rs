@@ -145,7 +145,7 @@ impl VortexExpr for Binary {
         vec![&self.lhs, &self.rhs]
     }
 
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 2);
         Binary::new_expr(children[0].clone(), self.operator, children[1].clone())
     }

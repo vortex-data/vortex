@@ -180,7 +180,7 @@ impl VortexExpr for Select {
         vec![&self.child]
     }
 
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
+    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
         assert_eq!(children.len(), 1);
         Self::new_expr(self.fields.clone(), children[0].clone())
     }

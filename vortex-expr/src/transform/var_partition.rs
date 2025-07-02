@@ -186,7 +186,7 @@ impl FolderMut for VariableExpressionSplitter<'_> {
         _context: Self::Context,
         children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>> {
-        Ok(FoldUp::Continue(node.replacing_children(children)))
+        Ok(FoldUp::Continue(node.with_children(children)))
     }
 }
 

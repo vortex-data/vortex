@@ -29,7 +29,6 @@ itertools = { workspace = true }
 log = { workspace = true }
 once_cell = { workspace = true, features = ["parking_lot"] }
 parking_lot = { workspace = true }
-paste = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
 roaring = { workspace = true, optional = true }
