@@ -3,7 +3,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{FoldUp, Folder, Node};
-use crate::{ExprRef, GetItemExpr, Select, is_root};
+use crate::{ExprRef, GetItemExpr, SelectExpr, is_root};
 
 /// Returns the field mask for the given expression.
 ///
@@ -48,7 +48,7 @@ impl<'a> Folder<'a> for FieldMaskFolder {
             return Ok(FoldUp::Continue(fields));
         }
 
-        if node.as_any().is::<Select>() {
+        if node.as_any().is::<SelectExpr>() {
             vortex_bail!("Expression must be simplified")
         }
 

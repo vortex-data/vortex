@@ -1,6 +1,10 @@
 use vortex_array::VTableRegistry;
 
-use crate::ExprEncodingRef;
+use crate::{
+    BetweenExprEncoding, BinaryExprEncoding, ExprEncodingRef, GetItemExprEncoding,
+    LikeExprEncoding, ListContainsExprEncoding, LiteralExprEncoding, MergeExprEncoding,
+    NotExprEncoding, VarExprEncoding,
+};
 
 pub type ExprRegistry = VTableRegistry<ExprEncodingRef>;
 
@@ -13,18 +17,18 @@ impl ExprRegistryExt for ExprRegistry {
     fn default() -> Self {
         let mut this = Self::empty();
         this.register_many([
-            ExprEncodingRef::new_ref(&BetweenEncoding),
-            ExprEncodingRef::new_ref(&Binary),
-            ExprEncodingRef::new_ref(&GetItem),
-            ExprEncodingRef::new_ref(&Identity),
-            ExprEncodingRef::new_ref(&Like),
-            ExprEncodingRef::new_ref(&Literal),
-            ExprEncodingRef::new_ref(&ListContains),
-            ExprEncodingRef::new_ref(&Merge),
-            ExprEncodingRef::new_ref(&Not),
-            ExprEncodingRef::new_ref(&Pack),
-            ExprEncodingRef::new_ref(&Select),
-            ExprEncodingRef::new_ref(&Var),
+            ExprEncodingRef::new_ref(&BetweenExprEncoding),
+            ExprEncodingRef::new_ref(&BinaryExprEncoding),
+            ExprEncodingRef::new_ref(&GetItemExprEncoding),
+            // ExprEncodingRef::new_ref(&IdentityExprEncoding),
+            ExprEncodingRef::new_ref(&LikeExprEncoding),
+            ExprEncodingRef::new_ref(&LiteralExprEncoding),
+            ExprEncodingRef::new_ref(&ListContainsExprEncoding),
+            ExprEncodingRef::new_ref(&MergeExprEncoding),
+            ExprEncodingRef::new_ref(&NotExprEncoding),
+            ExprEncodingRef::new_ref(&PackExprEncoding),
+            ExprEncodingRef::new_ref(&SelectExprEncoding),
+            ExprEncodingRef::new_ref(&VarExprEncoding),
         ]);
         this
     }

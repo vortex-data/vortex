@@ -195,7 +195,7 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
 
     use super::*;
-    use crate::{Pack, Var, and, root, var};
+    use crate::{PackExpr, Var, and, root, var};
 
     #[test]
     fn test_expr_top_level_ref() {
@@ -241,7 +241,7 @@ mod tests {
                 .find_partition(&"".into())
                 .unwrap()
                 .as_any()
-                .is::<Pack>()
+                .is::<PackExpr>()
         );
         assert_eq!(partitioned.find_partition(&"x".into()), Some(&var("x")));
     }

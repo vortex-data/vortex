@@ -1,16 +1,21 @@
 use std::any::Any;
 use std::fmt::Display;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{ArrayRef, IntoArray};
+use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
+use vortex_proto::exprs as pb;
 
-use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable,
+    VortexExpr, vtable,
+};
+
+vtable!(Pack);
 
 /// Pack zero or more expressions into a structure with named fields.
 ///
@@ -19,11 +24,11 @@ use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 /// ```
 /// use vortex_array::{IntoArray, ToCanonical};
 /// use vortex_buffer::buffer;
-/// use vortex_expr::{root, Pack, Scope, VortexExpr};
+/// use vortex_expr::{root, PackExpr, Scope, VortexExpr};
 /// use vortex_scalar::Scalar;
 /// use vortex_dtype::Nullability;
 ///
-/// let example = Pack::try_new_expr(
+/// let example = PackExpr::try_new(
 ///     ["x".into(), "x copy".into(), "second x copy".into()].into(),
 ///     vec![root(), root(), root()],
 ///     Nullability::NonNullable,
@@ -41,26 +46,110 @@ use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 /// ```
 ///
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Pack {
+pub struct PackExpr {
     names: FieldNames,
     values: Vec<ExprRef>,
     nullability: Nullability,
 }
 
-impl Pack {
-    pub fn try_new_expr(
+pub struct PackExprEncoding;
+
+impl VTable for PackExpr {
+    type Expr = PackExpr;
+    type Encoding = PackExprEncoding;
+    type Metadata = ProstMetadata<pb::PackOpts>;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("pack")
+    }
+
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(&PackExprEncoding)
+    }
+
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        Some(ProstMetadata(pb::PackOpts {
+            paths: expr.names.iter().map(|n| n.to_string()).collect(),
+            nullable: expr.nullability.into(),
+        }))
+    }
+
+    fn children(expr: &Self::Expr) -> Vec<ExprRef> {
+        expr.values.clone()
+    }
+
+    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        if children.len() != expr.values.len() {
+            vortex_bail!(
+                "Pack expression expects {} children, got {}",
+                expr.values.len(),
+                children.len()
+            );
+        }
+        Self::try_new(expr.names.clone(), children, expr.nullability)
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        if children.len() != metadata.paths.len() {
+            vortex_bail!(
+                "Pack expression expects {} children, got {}",
+                metadata.paths.len(),
+                children.len()
+            );
+        }
+        let names: FieldNames = metadata
+            .paths
+            .iter()
+            .map(|name| FieldName::from(name.as_str()))
+            .collect();
+        Self::try_new(names, children, metadata.nullable.into())
+    }
+
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        let len = scope.len();
+        let value_arrays = expr
+            .values
+            .iter()
+            .map(|value_expr| value_expr.unchecked_evaluate(scope))
+            .process_results(|it| it.collect::<Vec<_>>())?;
+        let validity = match expr.nullability {
+            Nullability::NonNullable => Validity::NonNullable,
+            Nullability::Nullable => Validity::AllValid,
+        };
+        Ok(StructArray::try_new(expr.names.clone(), value_arrays, len, validity)?.into_array())
+    }
+
+    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+        let value_dtypes = expr
+            .values
+            .iter()
+            .map(|value_expr| value_expr.return_dtype(scope))
+            .process_results(|it| it.collect())?;
+        Ok(DType::Struct(
+            StructFields::new(expr.names.clone(), value_dtypes),
+            expr.nullability,
+        ))
+    }
+}
+
+impl PackExpr {
+    pub fn try_new(
         names: FieldNames,
         values: Vec<ExprRef>,
         nullability: Nullability,
-    ) -> VortexResult<ExprRef> {
+    ) -> VortexResult<Self> {
         if names.len() != values.len() {
             vortex_bail!("length mismatch {} {}", names.len(), values.len());
         }
-        Ok(Arc::new(Pack {
+        Ok(PackExpr {
             names,
             values,
             nullability,
-        }))
+        })
     }
 
     pub fn names(&self) -> &FieldNames {
@@ -99,11 +188,12 @@ pub fn pack(
         .into_iter()
         .map(|(name, value)| (name.into(), value))
         .unzip();
-    Pack::try_new_expr(names.into(), values, nullability)
+    PackExpr::try_new(names.into(), values, nullability)
         .vortex_expect("pack names and values have the same length")
+        .into_expr()
 }
 
-impl Display for Pack {
+impl Display for PackExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -117,93 +207,7 @@ impl Display for Pack {
     }
 }
 
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::kind;
-    use vortex_proto::expr::kind::Kind;
-
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Pack};
-
-    pub struct PackSerde;
-
-    impl Id for PackSerde {
-        fn id(&self) -> &'static str {
-            "pack"
-        }
-    }
-
-    impl ExprDeserialize for PackSerde {
-        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::Pack(op) = kind else {
-                vortex_bail!("wrong kind {:?}, wanted pack", kind)
-            };
-
-            Pack::try_new_expr(
-                op.paths.iter().cloned().map(|p| p.into()).collect(),
-                children,
-                op.nullable.into(),
-            )
-        }
-    }
-
-    impl ExprSerializable for Pack {
-        fn id(&self) -> &'static str {
-            PackSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::Pack(kind::Pack {
-                paths: self.names.iter().map(|n| n.to_string()).collect(),
-                nullable: self.nullability.into(),
-            }))
-        }
-    }
-}
-
-impl AnalysisExpr for Pack {}
-
-impl VortexExpr for Pack {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        let len = scope.len();
-        let value_arrays = self
-            .values
-            .iter()
-            .map(|value_expr| value_expr.unchecked_evaluate(scope))
-            .process_results(|it| it.collect::<Vec<_>>())?;
-        let validity = match self.nullability {
-            Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::AllValid,
-        };
-        Ok(StructArray::try_new(self.names.clone(), value_arrays, len, validity)?.into_array())
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        self.values.iter().collect()
-    }
-
-    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), self.values.len());
-        Self::try_new_expr(self.names.clone(), children, self.nullability)
-            .vortex_expect("children are known to have the same length as names")
-    }
-
-    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType> {
-        let value_dtypes = self
-            .values
-            .iter()
-            .map(|value_expr| value_expr.return_dtype(scope))
-            .process_results(|it| it.collect())?;
-        Ok(DType::Struct(
-            StructFields::new(self.names.clone(), value_dtypes),
-            self.nullability,
-        ))
-    }
-}
+impl AnalysisExpr for PackExpr {}
 
 #[cfg(test)]
 mod tests {
@@ -217,7 +221,7 @@ mod tests {
     use vortex_dtype::{FieldNames, Nullability};
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{Pack, Scope, col};
+    use crate::{IntoExpr, PackExpr, Scope, col};
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[
@@ -244,7 +248,7 @@ mod tests {
 
     #[test]
     pub fn test_empty_pack() {
-        let expr = Pack::try_new_expr(Arc::new([]), Vec::new(), Nullability::NonNullable).unwrap();
+        let expr = PackExpr::try_new(Arc::new([]), Vec::new(), Nullability::NonNullable).unwrap();
 
         let test_array = test_array();
         let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
@@ -257,7 +261,7 @@ mod tests {
 
     #[test]
     pub fn test_simple_pack() {
-        let expr = Pack::try_new_expr(
+        let expr = PackExpr::try_new(
             ["one".into(), "two".into(), "three".into()].into(),
             vec![col("a"), col("b"), col("a")],
             Nullability::NonNullable,
@@ -295,16 +299,17 @@ mod tests {
 
     #[test]
     pub fn test_nested_pack() {
-        let expr = Pack::try_new_expr(
+        let expr = PackExpr::try_new(
             ["one".into(), "two".into(), "three".into()].into(),
             vec![
                 col("a"),
-                Pack::try_new_expr(
+                PackExpr::try_new(
                     ["two_one".into(), "two_two".into()].into(),
                     vec![col("b"), col("b")],
                     Nullability::NonNullable,
                 )
-                .unwrap(),
+                .unwrap()
+                .into_expr(),
                 col("a"),
             ],
             Nullability::NonNullable,
@@ -347,7 +352,7 @@ mod tests {
 
     #[test]
     pub fn test_pack_nullable() {
-        let expr = Pack::try_new_expr(
+        let expr = PackExpr::try_new(
             ["one".into(), "two".into(), "three".into()].into(),
             vec![col("a"), col("b"), col("a")],
             Nullability::Nullable,
