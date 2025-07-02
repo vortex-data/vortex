@@ -24,7 +24,7 @@ impl Expression {
     }
 
     /// Match the subclass of the expression.
-    pub fn as_class(&self) -> Option<ExpressionClass> {
+    pub fn as_class(&self) -> Option<ExpressionClass<'_>> {
         Some(
             match unsafe { cpp::duckdb_vx_expr_get_class(self.as_ptr()) } {
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF => {

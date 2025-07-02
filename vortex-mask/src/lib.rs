@@ -174,7 +174,7 @@ impl MaskValues {
     }
 
     /// Return an iterator over either indices or slices of the mask based on a density threshold.
-    pub fn threshold_iter(&self, threshold: f64) -> MaskIter {
+    pub fn threshold_iter(&self, threshold: f64) -> MaskIter<'_> {
         if self.density >= threshold {
             MaskIter::Slices(self.slices())
         } else {
@@ -494,7 +494,7 @@ impl Mask {
     }
 
     /// Return an iterator over either indices or slices of the mask based on a density threshold.
-    pub fn threshold_iter(&self, threshold: f64) -> AllOr<MaskIter> {
+    pub fn threshold_iter(&self, threshold: f64) -> AllOr<MaskIter<'_>> {
         match &self {
             Self::AllTrue(_) => AllOr::All,
             Self::AllFalse(_) => AllOr::None,
