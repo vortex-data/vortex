@@ -1,4 +1,3 @@
-
 //! A contiguously serialized Vortex array.
 //!
 //! See the `vortex-file` crate for non-contiguous serialization.
