@@ -21,6 +21,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
 anyhow = { workspace = true }
+arrow = { workspace = true }
 bitvec = { workspace = true }
 crossbeam-queue = { workspace = true }
 glob = { workspace = true }
@@ -28,7 +29,8 @@ itertools = { workspace = true }
 log = { workspace = true }
 num-traits = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+tokio-stream = { workspace = true }
 vortex = { workspace = true, features = ["files"] }
 vortex-file = { workspace = true, features = ["tokio"] }
 

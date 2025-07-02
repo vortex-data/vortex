@@ -255,4 +255,25 @@ mod tests {
 
         assert_eq!(total_sum, 21);
     }
+
+    #[test]
+    fn test_write_file() {
+        let conn = database_connection();
+        let tempdir = tempfile::tempdir().unwrap();
+        let file_path = format!("{}/test.vortex", tempdir.path().to_string_lossy());
+
+        conn.query(&format!(
+            "copy (select * as number from generate_series(10)) to '{file_path}' (FORMAT VORTEX);",
+        ))
+        .unwrap();
+
+        let result = conn
+            .query(&format!(
+                "SELECT SUM(number) FROM vortex_scan('{file_path}')",
+            ))
+            .unwrap();
+        let total_sum: i64 = result.get(0, 0).unwrap();
+
+        assert_eq!(total_sum, 55);
+    }
 }

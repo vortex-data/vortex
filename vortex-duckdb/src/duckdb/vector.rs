@@ -1,7 +1,11 @@
 use std::ffi::CStr;
+use std::ptr;
 
+use bitvec::macros::internal::funty::Fundamental;
 use bitvec::slice::BitSlice;
+use vortex::error::{VortexResult, vortex_bail};
 
+use crate::cpp::duckdb_vx_error;
 use crate::duckdb::data::Data;
 use crate::duckdb::{LogicalType, SelectionVector, Value};
 use crate::{cpp, wrapper};
@@ -44,11 +48,40 @@ impl Vector {
         unsafe { cpp::duckdb_vx_sequence_vector(self.ptr, start, stop, capacity) }
     }
 
+    /// Converts a vector into a flat uncompressed vector vortex call this `canonicalize`.
+    pub fn flatten(&self, length: u64) {
+        unsafe { cpp::duckdb_vector_flatten(self.as_ptr(), length) }
+    }
+
     // NOTE(ngates): vector doesn't hold its own length. Which makes writing a safe
     //  Rust API annoying...
     pub unsafe fn as_slice_mut<T>(&mut self, length: usize) -> &mut [T] {
         let ptr = unsafe { cpp::duckdb_vector_get_data(self.as_ptr()) };
         unsafe { std::slice::from_raw_parts_mut(ptr.cast::<T>(), length) }
+    }
+
+    pub fn as_slice_with_len<T>(&self, length: usize) -> &[T] {
+        let ptr = unsafe { cpp::duckdb_vector_get_data(self.as_ptr()) };
+        unsafe { std::slice::from_raw_parts_mut(ptr.cast::<T>(), length) }
+    }
+
+    // TODO(joe): remove this once move away from arrow conversion
+    pub fn slow_row_is_null(&self, row: u64) -> bool {
+        // this is the formula, given a validity vector to extract validity bit as row_idx.
+        // use idx_t entry_idx = row_idx / 64; idx_t idx_in_entry = row_idx % 64; bool is_valid = validity_mask[entry_idx] & (1 « idx_in_entry);
+        // as the row is valid function is slower
+        let valid = unsafe {
+            let validity = cpp::duckdb_vector_get_validity(self.ptr);
+
+            // validity can return a NULL pointer if the entire vector is valid
+            if validity.is_null() {
+                return false;
+            }
+
+            cpp::duckdb_validity_row_is_valid(validity, row)
+        };
+
+        !valid
     }
 
     pub fn add_string_buffer<T>(&self, buffer: T) {
@@ -81,6 +114,19 @@ impl Vector {
             let slice = unsafe { std::slice::from_raw_parts_mut(ptr, len) };
             BitSlice::from_slice_mut(slice)
         })
+    }
+
+    pub fn try_to_string(&self, len: u64) -> VortexResult<String> {
+        let mut err: duckdb_vx_error = ptr::null_mut();
+        let debug = unsafe { cpp::duckdb_vector_to_string(self.as_ptr(), len.as_u64(), &mut err) };
+        if !err.is_null() {
+            vortex_bail!("{}", unsafe {
+                CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()
+            })
+        }
+        let string = unsafe { CStr::from_ptr(debug).to_string_lossy() }.to_string();
+        unsafe { cpp::duckdb_free(debug.cast_mut().cast()) };
+        Ok(string)
     }
 }
 
