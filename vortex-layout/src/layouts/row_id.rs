@@ -32,6 +32,8 @@ pub struct RowIdLayoutReader {
 
 pub static ROW_ID: LazyLock<Identifier> =
     LazyLock::new(|| Identifier::Other(Arc::from("$vx.row_id")));
+pub const FILE_ROW_NUMBER_FIELD: &str = "file_row_number";
+pub const FILE_INDEX_FIELD: &str = "file_index";
 
 impl RowIdLayoutReader {
     pub fn new(child: LayoutReaderRef) -> Self {
@@ -43,8 +45,8 @@ impl RowIdLayoutReader {
             ROW_ID.clone(),
             DType::Struct(
                 StructFields::from_iter([
-                    (FieldName::from("file_row_number"), DType::from(U64)),
-                    ("file_index".into(), U64.into()),
+                    (FieldName::from(FILE_ROW_NUMBER_FIELD), DType::from(U64)),
+                    (FILE_INDEX_FIELD.into(), U64.into()),
                 ]),
                 Nullability::NonNullable,
             ),
@@ -88,13 +90,13 @@ impl RowIdLayoutReader {
             ROW_ID.clone(),
             StructArray::from_fields(&[
                 (
-                    "file_row_number",
+                    FILE_ROW_NUMBER_FIELD,
                     SequenceArray::typed_new(row_range.start, 1, arr_len)
                         .vortex_expect("cannot be out of bounds")
                         .to_array(),
                 ),
                 (
-                    "file_index",
+                    FILE_INDEX_FIELD,
                     ConstantArray::new(self.file_index, arr_len).to_array(),
                 ),
             ])
@@ -108,19 +110,19 @@ impl RowIdLayoutReader {
             ROW_ID.clone(),
             FieldPathSet::from_iter([
                 FieldPath::from_iter([
-                    Field::Name("file_row_number".into()),
+                    Field::Name(FILE_ROW_NUMBER_FIELD.into()),
                     Field::Name(Stat::Max.name().into()),
                 ]),
                 FieldPath::from_iter([
-                    Field::Name("file_row_number".into()),
+                    Field::Name(FILE_ROW_NUMBER_FIELD.into()),
                     Field::Name(Stat::Min.name().into()),
                 ]),
                 FieldPath::from_iter([
-                    Field::Name("file_index".into()),
+                    Field::Name(FILE_INDEX_FIELD.into()),
                     Field::Name(Stat::Max.name().into()),
                 ]),
                 FieldPath::from_iter([
-                    Field::Name("file_index".into()),
+                    Field::Name(FILE_INDEX_FIELD.into()),
                     Field::Name(Stat::Min.name().into()),
                 ]),
             ]),
@@ -398,7 +400,10 @@ mod tests {
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
-            let expr = gt(get_item("file_row_number", var(ROW_ID.clone())), lit(3u64));
+            let expr = gt(
+                get_item(FILE_ROW_NUMBER_FIELD, var(ROW_ID.clone())),
+                lit(3u64),
+            );
             let result =
                 RowIdLayoutReader::new(layout.new_reader("".into(), segments, ctx).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
@@ -441,7 +446,10 @@ mod tests {
             let expr = or(
                 eq(root(), lit(3i32)),
                 or(
-                    gt(get_item("file_row_number", var(ROW_ID.clone())), lit(3u64)),
+                    gt(
+                        get_item(FILE_ROW_NUMBER_FIELD, var(ROW_ID.clone())),
+                        lit(3u64),
+                    ),
                     eq(root(), lit(1i32)),
                 ),
             );
