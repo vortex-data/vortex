@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -35,11 +35,9 @@ impl DuckDBCtx {
     pub fn new(dataset: BenchmarkDataset, format: Format) -> Result<Self> {
         let dir = match dataset {
             BenchmarkDataset::ClickBench { .. } => {
-                PathBuf::from(format!("clickbench_partitioned/{}", format.name())).to_data_path()
+                format!("clickbench_partitioned/{}", format.name()).to_data_path()
             }
-            BenchmarkDataset::TpcH => {
-                PathBuf::from(format!("tpch/1/{}", format.name())).to_data_path()
-            }
+            BenchmarkDataset::TpcH => format!("tpch/1/{}", format.name()).to_data_path(),
             BenchmarkDataset::TpcDS => {
                 anyhow::bail!("TpcDS is not supported, only TpcH and ClickBench")
             }
