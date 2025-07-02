@@ -392,18 +392,7 @@ fn verify_duckdb_tpch_results(
 
     let mut is_matching_ref_result = true;
 
-    for query_file in query_files
-        .iter()
-        .enumerate()
-        .filter(|entry| {
-            queries
-                .as_ref()
-                .is_none_or(|queries| queries.contains(&(entry.0 + 1)))
-                // Skip query 6 until fixed.
-                && entry.0 != 5
-        })
-        .map(|query_file| query_file.1)
-    {
+    for query_file in query_files.iter() {
         let query_file_path = query_file.path();
         let query_name = query_file_path
             .file_stem()
