@@ -296,7 +296,6 @@ pub fn flat_vector_to_arrow_array(
     }
 }
 
-/// converts a `DataChunk` to arrow `RecordBatch`
 pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> VortexResult<ArrayRef> {
     let len = chunk.len();
 
@@ -307,7 +306,6 @@ pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> Vorte
             flat_vector_to_arrow_array(&mut vector, len.as_usize())
                 .map(|array_data| {
                     assert_eq!(array_data.len(), chunk.len().as_usize());
-                    // let array: Arc<dyn Array> = Arc::new(array_data);
                     (name, ArrayRef::from_arrow(array_data.as_ref(), true))
                 })
                 .map_err(|e| vortex_err!("duckdb to arrow conversion failure {}", e.to_string()))

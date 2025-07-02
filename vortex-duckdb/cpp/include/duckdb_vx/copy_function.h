@@ -56,7 +56,7 @@ typedef struct {
     // supports_batch_index);
 } duckdb_vx_copy_func_vtab_t;
 
-// Due to a limitation in the copy function duckdb api we have to have global (copy) vtabs
+// Due to a limitation in the copy function duckdb api we have to have global (copy) vtabs.
 duckdb_vx_copy_func_vtab_t *get_vtab_one();
 
 // A single function for configuring the DuckDB table function vtable.

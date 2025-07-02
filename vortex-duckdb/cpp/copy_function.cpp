@@ -12,19 +12,12 @@ using namespace duckdb;
 
 namespace vortex {
 
-struct CCopyFunctionInfo {
-    explicit CCopyFunctionInfo(const duckdb_vx_copy_func_vtab_t &vtab) : vtab(vtab) {
-    }
-
-    duckdb_vx_copy_func_vtab_t vtab;
-};
-
 struct CCopyBindData final : TableFunctionData {
-    CCopyBindData(unique_ptr<CCopyFunctionInfo> info_p, unique_ptr<CData> ffi_data_p)
-        : info(std::move(info_p)), ffi_data(std::move(ffi_data_p)) {
+    CCopyBindData(const duckdb_vx_copy_func_vtab_t vtab_p, unique_ptr<CData> ffi_data_p)
+        : vtab(vtab_p), ffi_data(std::move(ffi_data_p)) {
     }
 
-    unique_ptr<CCopyFunctionInfo> info;
+    const duckdb_vx_copy_func_vtab_t vtab;
     unique_ptr<CData> ffi_data;
 };
 
@@ -42,7 +35,7 @@ struct CCopyLocalData final : LocalFunctionData {
     unique_ptr<CData> ffi_data;
 };
 
-static duckdb_vx_copy_func_vtab_t *copy_vtab_one;
+static duckdb_vx_copy_func_vtab_t copy_vtab_one;
 
 unique_ptr<FunctionData> c_bind_one(ClientContext &context, CopyFunctionBindInput &info,
                                     const vector<string> &column_names,
@@ -60,23 +53,22 @@ unique_ptr<FunctionData> c_bind_one(ClientContext &context, CopyFunctionBindInpu
 
     duckdb_vx_error error_out = nullptr;
     auto ffi_bind_data =
-        copy_vtab_one->bind(reinterpret_cast<duckdb_vx_copy_func_bind_input>(&info), c_column_names.data(),
-                            c_column_names.size(), c_column_types.data(), c_column_types.size(), &error_out);
+        copy_vtab_one.bind(reinterpret_cast<duckdb_vx_copy_func_bind_input>(&info), c_column_names.data(),
+                           c_column_names.size(), c_column_types.data(), c_column_types.size(), &error_out);
     if (error_out) {
         throw BinderException(IntoErrString(error_out));
     }
 
     return make_uniq<CCopyBindData>(
         // This should only be filled out once
-        make_uniq<CCopyFunctionInfo>(*const_cast<const duckdb_vx_copy_func_vtab_t *>(copy_vtab_one)),
-        unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data)));
+        copy_vtab_one, unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data)));
 }
 
 unique_ptr<GlobalFunctionData> c_init_global(ClientContext &context, FunctionData &bind_data,
                                              const string &file_path) {
     auto &bind = bind_data.Cast<CCopyBindData>();
     duckdb_vx_error error_out = nullptr;
-    auto global_data = bind.info->vtab.init_global(bind.ffi_data->DataPtr(), file_path.c_str(), &error_out);
+    auto global_data = bind.vtab.init_global(bind.ffi_data->DataPtr(), file_path.c_str(), &error_out);
     if (error_out) {
         throw ExecutorException(IntoErrString(error_out));
     }
@@ -87,7 +79,7 @@ unique_ptr<GlobalFunctionData> c_init_global(ClientContext &context, FunctionDat
 unique_ptr<LocalFunctionData> c_init_local(ExecutionContext &context, FunctionData &bind_data) {
     auto &bind = bind_data.Cast<CCopyBindData>();
     duckdb_vx_error error_out = nullptr;
-    auto data = bind.info->vtab.init_local(bind.ffi_data->DataPtr(), &error_out);
+    auto data = bind.vtab.init_local(bind.ffi_data->DataPtr(), &error_out);
     if (error_out) {
         throw ExecutorException(IntoErrString(error_out));
     }
@@ -101,9 +93,8 @@ void c_copy_to_sink(ExecutionContext &context, FunctionData &bind_data, GlobalFu
     auto &global = gstate.Cast<CCopyGlobalData>();
     auto &local = lstate.Cast<CCopyLocalData>();
     duckdb_vx_error error_out = nullptr;
-    bind.info->vtab.copy_to_sink(bind.ffi_data->DataPtr(), global.ffi_data->DataPtr(),
-                                 local.ffi_data->DataPtr(), reinterpret_cast<duckdb_data_chunk>(&input),
-                                 &error_out);
+    bind.vtab.copy_to_sink(bind.ffi_data->DataPtr(), global.ffi_data->DataPtr(), local.ffi_data->DataPtr(),
+                           reinterpret_cast<duckdb_data_chunk>(&input), &error_out);
     if (error_out) {
         throw ExecutorException(IntoErrString(error_out));
     }
@@ -113,17 +104,14 @@ void copy_to_finalize(ClientContext &context, FunctionData &bind_data, GlobalFun
     auto &bind = bind_data.Cast<CCopyBindData>();
     auto &global = gstate.Cast<CCopyGlobalData>();
     duckdb_vx_error error_out = nullptr;
-    bind.info->vtab.copy_to_finalize(bind.ffi_data->DataPtr(), global.ffi_data->DataPtr(), &error_out);
+    bind.vtab.copy_to_finalize(bind.ffi_data->DataPtr(), global.ffi_data->DataPtr(), &error_out);
     if (error_out) {
         throw ExecutorException(IntoErrString(error_out));
     }
 }
 
 extern "C" duckdb_vx_copy_func_vtab_t *get_vtab_one() {
-    if (copy_vtab_one == nullptr) {
-        copy_vtab_one = new duckdb_vx_copy_func_vtab_t;
-    }
-    return copy_vtab_one;
+    return &copy_vtab_one;
 }
 
 extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_connection ffi_conn) {
@@ -132,7 +120,7 @@ extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_connection 
     }
 
     auto conn = reinterpret_cast<Connection *>(ffi_conn);
-    auto copy_function = CopyFunction(copy_vtab_one->name);
+    auto copy_function = CopyFunction(copy_vtab_one.name);
 
     copy_function.copy_to_bind = c_bind_one;
     copy_function.copy_to_initialize_global = c_init_global;
@@ -140,7 +128,7 @@ extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_connection 
 
     copy_function.copy_to_sink = c_copy_to_sink;
     copy_function.copy_to_finalize = copy_to_finalize;
-    copy_function.extension = copy_vtab_one->extension;
+    copy_function.extension = copy_vtab_one.extension;
 
     // TODO(joe): expose this via c our api
     copy_function.execution_mode = [](bool preserve_insertion_order, bool supports_batch_index) {
