@@ -34,7 +34,7 @@ mod tests {
 
     use vortex_dtype::{DType, Nullability};
 
-    use crate::arrays::{ListArray, PrimitiveArray};
+    use crate::arrays::{BoolArray, ListArray, PrimitiveArray};
     use crate::compute::cast;
     use crate::validity::Validity;
 
@@ -61,7 +61,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cast_list_fail() {
+    fn test_cast_to_wrong_type() {
         let list = ListArray::try_new(
             PrimitiveArray::from_iter([0i32, 2, 3, 4]).to_array(),
             PrimitiveArray::from_iter([0, 2, 3]).to_array(),
@@ -70,6 +70,50 @@ mod tests {
         .unwrap();
 
         let target_dtype = DType::Primitive(vortex_dtype::PType::U64, Nullability::NonNullable);
+        // can't cast list to u64
+
+        let result = cast(list.to_array().as_ref(), &target_dtype);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cant_cast_nulls_to_non_null() {
+        // Test that if list has nulls, the conversion will fail
+
+        // Nulls in the list itself
+        let list = ListArray::try_new(
+            PrimitiveArray::from_iter([0i32, 2, 3, 4]).to_array(),
+            PrimitiveArray::from_iter([0, 2, 3]).to_array(),
+            Validity::Array(BoolArray::from_iter(vec![false, true, true]).to_array()),
+        )
+        .unwrap();
+
+        let target_dtype = DType::List(
+            Arc::new(DType::Primitive(
+                vortex_dtype::PType::U64,
+                Nullability::Nullable,
+            )),
+            Nullability::NonNullable,
+        );
+
+        let result = cast(list.to_array().as_ref(), &target_dtype);
+        assert!(result.is_err());
+
+        // Nulls in list element array
+        let list = ListArray::try_new(
+            PrimitiveArray::from_option_iter([Some(0i32), Some(2), None, None]).to_array(),
+            PrimitiveArray::from_iter([0, 2, 3]).to_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let target_dtype = DType::List(
+            Arc::new(DType::Primitive(
+                vortex_dtype::PType::U64,
+                Nullability::NonNullable,
+            )),
+            Nullability::NonNullable,
+        );
 
         let result = cast(list.to_array().as_ref(), &target_dtype);
         assert!(result.is_err());
