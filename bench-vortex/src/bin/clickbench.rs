@@ -140,7 +140,7 @@ fn main() -> anyhow::Result<()> {
 
     for target in args.targets.iter() {
         let engine = target.engine();
-        let file_format = target.format();
+        let format = target.format();
 
         let mut engine_ctx = match engine {
             Engine::DataFusion => {
@@ -150,14 +150,19 @@ fn main() -> anyhow::Result<()> {
 
                 EngineCtx::new_with_datafusion(session_ctx, args.emit_plan)
             }
-            Engine::DuckDB => EngineCtx::new_with_duckdb()?,
+            Engine::DuckDB => EngineCtx::new_with_duckdb(
+                BenchmarkDataset::ClickBench {
+                    single_file: args.single_file,
+                },
+                format,
+            )?,
             _ => unreachable!("engine not supported"),
         };
 
         let tokio_runtime = new_tokio_runtime(args.threads);
 
         tokio_runtime.block_on(init_data_source(
-            file_format,
+            format,
             &base_url,
             args.single_file,
             &engine_ctx,
@@ -167,16 +172,16 @@ fn main() -> anyhow::Result<()> {
             &queries,
             args.iterations,
             &tokio_runtime,
-            file_format,
+            format,
             &progress_bar,
             &mut engine_ctx,
         );
 
         if let EngineCtx::DataFusion(ref ctx) = engine_ctx {
             if args.export_spans {
-                if let Err(err) = tokio_runtime.block_on(async move {
-                    export_plan_spans(file_format, &ctx.execution_plans).await
-                }) {
+                if let Err(err) = tokio_runtime
+                    .block_on(async move { export_plan_spans(format, &ctx.execution_plans).await })
+                {
                     warn!("failed to export spans {err}");
                 }
             }

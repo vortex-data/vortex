@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -5,7 +6,7 @@ use log::trace;
 use url::Url;
 use vortex_duckdb::duckdb::{Connection, Database};
 
-use crate::{BenchmarkDataset, Format};
+use crate::{BenchmarkDataset, Format, IdempotentPath};
 
 // TODO: handle S3
 
@@ -31,7 +32,28 @@ pub struct DuckDBCtx {
 }
 
 impl DuckDBCtx {
-    pub fn new() -> Result<Self> {
+    pub fn new(dataset: BenchmarkDataset, format: Format) -> Result<Self> {
+        let dir = match dataset {
+            BenchmarkDataset::ClickBench { .. } => {
+                format!("clickbench_partitioned/{}", format.name()).to_data_path()
+            }
+            BenchmarkDataset::TpcH => format!("tpch/1/{}", format.name()).to_data_path(),
+            BenchmarkDataset::TpcDS => {
+                anyhow::bail!("TpcDS is not supported, only TpcH and ClickBench")
+            }
+        };
+        std::fs::create_dir_all(&dir)?;
+        let db_path = dir.join("duckdb.db");
+        if db_path.exists() {
+            std::fs::remove_file(&db_path)?;
+        }
+        let db = Database::open(db_path)?;
+        let connection = db.connect()?;
+        vortex_duckdb::register_table_functions(&connection)?;
+        Ok(Self { db, connection })
+    }
+
+    pub fn new_in_memory() -> Result<Self> {
         let db = Database::open_in_memory()?;
         let connection = db.connect()?;
         vortex_duckdb::register_table_functions(&connection)?;
@@ -95,7 +117,7 @@ impl DuckDBCtx {
                 Ok(vortex_url) => {
                     // Check if the directory exists (for file:// URLs)
                     if vortex_url.scheme() == "file" {
-                        let path = std::path::Path::new(vortex_url.path());
+                        let path = Path::new(vortex_url.path());
                         if !path.exists() {
                             log::warn!(
                                 "Vortex directory doesn't exist at: {}. Run with DataFusion engine first to generate Vortex files.",

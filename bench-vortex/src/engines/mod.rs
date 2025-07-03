@@ -8,7 +8,7 @@ use datafusion::prelude::SessionContext;
 use vortex::error::VortexExpect;
 
 pub use crate::Format;
-use crate::{Engine, vortex_panic};
+use crate::{BenchmarkDataset, Engine, vortex_panic};
 
 pub enum EngineCtx {
     DataFusion(df::DataFusionCtx),
@@ -25,8 +25,8 @@ impl EngineCtx {
         })
     }
 
-    pub fn new_with_duckdb() -> anyhow::Result<Self> {
-        Ok(EngineCtx::DuckDB(ddb::DuckDBCtx::new()?))
+    pub fn new_with_duckdb(dataset: BenchmarkDataset, format: Format) -> anyhow::Result<Self> {
+        Ok(EngineCtx::DuckDB(ddb::DuckDBCtx::new(dataset, format)?))
     }
 
     pub fn to_engine(&self) -> Engine {
