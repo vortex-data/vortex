@@ -41,7 +41,8 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, TryIntoArray};
+    use vortex_array::vtable::ValidityHelper;
+    use vortex_array::{IntoArray, ToCanonical, TryIntoArray};
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_expr::{gt, lit, root};
@@ -141,10 +142,9 @@ mod test {
 
     #[tokio::test]
     async fn compact_read_write() -> VortexResult<()> {
-        // [compact_write]
+        // [compact write]
         let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
 
-        // Write a Vortex file with the compact compression strategy.
         VortexWriteOptions::default()
             .with_strategy(VortexLayoutStrategy::compact_with_executor(
                 Arc::new(LocalExecutor),
@@ -156,21 +156,19 @@ mod test {
             )
             .await?;
 
-        // [compact_write]
-
-        // [compact_read]
-        let array = VortexOpenOptions::file()
+        // [compact read]
+        let recovered_array = VortexOpenOptions::file()
             .open("example_compact.vortex")
             .await?
             .scan()?
-            .with_filter(gt(root(), lit(2u64)))
             .into_array_stream()?
             .read_all()
             .await?;
 
-        assert_eq!(array.len(), 2);
-
-        // [compact_read]
+        assert_eq!(recovered_array.len(), array.len());
+        let recovered_primitive = recovered_array.to_primitive().unwrap();
+        assert_eq!(recovered_primitive.validity(), array.validity());
+        assert_eq!(recovered_primitive.buffer::<u64>(), array.buffer::<u64>());
 
         std::fs::remove_file("example_compact.vortex")?;
 
