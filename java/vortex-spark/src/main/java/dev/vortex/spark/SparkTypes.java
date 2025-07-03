@@ -58,15 +58,13 @@ public final class SparkTypes {
                 return DataTypes.createArrayType(toDataType(dType.getElementType()), dType.isNullable());
             case EXTENSION:
                 /*
-                /**
-                  * Spark does not have a direct equivalent for many of the temporal types we support in Vortex or Arrow.
+                 * Spark does not have a direct equivalent for many of the temporal types we support in Vortex or Arrow.
                  * Notably, there is no DATE type, and timestamps can have at most µs-level precision.
-                  * This means that we need to "cheat" a little in how we convert into Spark's type system. We support
+                 * This means that we need to "cheat" a little in how we convert into Spark's type system. We support
                  * the following conversions:
-                  *  1. Vortex DATE -> Spark TIMESTAMP (with 00:00:00 time and local timezone)
+                 *  1. Vortex DATE -> Spark TIMESTAMP (with 00:00:00 time and local timezone)
                  *  2. Vortex TIMSTAMP -> Spark TIMESTAMP, with precision truncated to µs
-                  *  3. Vortex TIME -> not supported
-
+                 *  3. Vortex TIME -> not supported
                  */
                 if (dType.isTime()) {
                     throw new IllegalArgumentException("Spark does not support Vortex TIME data type");
