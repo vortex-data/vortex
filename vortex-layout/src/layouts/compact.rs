@@ -126,7 +126,11 @@ impl Default for CompactCompressor {
         Self {
             pco_level: pco::DEFAULT_COMPRESSION_LEVEL,
             zstd_level: 3,
-            values_per_page: 0, // don't break up pages for faster access
+            // This is probably high enough to not hurt performance or
+            // compression. It also currently aligns with the default strategy's
+            // number of rows per statistic, which allows efficient pushdown
+            // (but nothing enforces this).
+            values_per_page: 8192,
         }
     }
 }
