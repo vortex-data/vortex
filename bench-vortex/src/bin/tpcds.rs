@@ -119,6 +119,7 @@ fn main() -> anyhow::Result<()> {
         args.exclude_queries,
         args.iterations,
         args.targets,
+        1, // scale factor 1 for now
         args.display_format,
         url,
         &args.output_path,
@@ -136,6 +137,7 @@ async fn bench_main(
     exclude_queries: Option<Vec<usize>>,
     iterations: usize,
     targets: Vec<Target>,
+    scale_factor: u32,
     display_format: DisplayFormat,
     url: Url,
     output_path: &Option<PathBuf>,
@@ -169,10 +171,11 @@ async fn bench_main(
         match engine {
             // TODO(joe): support datafusion
             Engine::DuckDB => {
-                if let EngineCtx::DuckDB(ctx) =
-                    &EngineCtx::new_with_duckdb(BenchmarkDataset::TpcDS, format)?
-                {
-                    ctx.register_tables(&url, format, BenchmarkDataset::TpcDS)?;
+                if let EngineCtx::DuckDB(ctx) = &EngineCtx::new_with_duckdb(
+                    BenchmarkDataset::TpcDS { scale_factor: 1 },
+                    format,
+                )? {
+                    ctx.register_tables(&url, format, BenchmarkDataset::TpcDS { scale_factor: 1 })?;
 
                     for (query_idx, sql_query) in &tpch_queries {
                         let (fastest_run, _row_count) =
@@ -196,7 +199,9 @@ async fn bench_main(
             }
             Engine::DataFusion => {
                 // TODO: add schemas for tpcds.
-                let ctx = load_datasets(&url, format, BenchmarkDataset::TpcDS, true).await?;
+                let ctx =
+                    load_datasets(&url, format, BenchmarkDataset::TpcDS { scale_factor }, true)
+                        .await?;
 
                 for (query_idx, sql_queries) in tpch_queries.clone() {
                     let (fastest_run, _) = benchmark_datafusion_query(iterations, || async {

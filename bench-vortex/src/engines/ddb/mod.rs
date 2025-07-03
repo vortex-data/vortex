@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -37,9 +36,11 @@ impl DuckDBCtx {
             BenchmarkDataset::ClickBench { .. } => {
                 format!("clickbench_partitioned/{}", format.name()).to_data_path()
             }
-            BenchmarkDataset::TpcH => format!("tpch/1/{}", format.name()).to_data_path(),
-            BenchmarkDataset::TpcDS => {
-                anyhow::bail!("TpcDS is not supported, only TpcH and ClickBench")
+            BenchmarkDataset::TpcH { scale_factor } => {
+                format!("tpch/{scale_factor}/{}", format.name()).to_data_path()
+            }
+            BenchmarkDataset::TpcDS { scale_factor } => {
+                format!("tpcds/{scale_factor}/{}", format.name()).to_data_path()
             }
         };
         std::fs::create_dir_all(&dir)?;
@@ -112,26 +113,9 @@ impl DuckDBCtx {
         file_format: Format,
         dataset: BenchmarkDataset,
     ) -> Result<Url> {
-        if file_format == Format::OnDiskVortex {
-            match dataset.vortex_path(base_url) {
-                Ok(vortex_url) => {
-                    // Check if the directory exists (for file:// URLs)
-                    if vortex_url.scheme() == "file" {
-                        let path = Path::new(vortex_url.path());
-                        if !path.exists() {
-                            log::warn!(
-                                "Vortex directory doesn't exist at: {}. Run with DataFusion engine first to generate Vortex files.",
-                                path.display()
-                            );
-                        }
-                    }
-                    Ok(vortex_url)
-                }
-                Err(_) => Ok(base_url.clone()),
-            }
-        } else if file_format == Format::Parquet {
-            match dataset.parquet_path(base_url) {
-                Ok(parquet_url) => Ok(parquet_url),
+        if file_format == Format::OnDiskVortex || file_format == Format::Parquet {
+            match dataset.format_path(file_format, base_url) {
+                Ok(vortex_url) => Ok(vortex_url),
                 Err(_) => Ok(base_url.clone()),
             }
         } else {
@@ -150,9 +134,8 @@ impl DuckDBCtx {
         // Base path contains trailing /.
         let base_dir = base_url.as_str();
         let base_dir = base_dir.strip_prefix("file://").unwrap_or(base_dir);
-
         match dataset {
-            BenchmarkDataset::TpcH => {
+            BenchmarkDataset::TpcH { .. } => {
                 let mut commands = String::new();
                 let tables = [
                     "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
@@ -180,9 +163,9 @@ impl DuckDBCtx {
                     duckdb_object.to_str()
                 )
             }
-            BenchmarkDataset::TpcDS => {
+            dataset @ BenchmarkDataset::TpcDS { .. } => {
                 let mut commands = String::new();
-                let tables = BenchmarkDataset::TpcDS.tables();
+                let tables = dataset.tables();
 
                 for table_name in tables {
                     let table_path = format!("{base_dir}{table_name}.{extension}");

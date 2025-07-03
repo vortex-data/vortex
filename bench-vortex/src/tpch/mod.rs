@@ -47,7 +47,7 @@ pub async fn load_datasets(
     let object_store = make_object_store(&context, base_dir)?;
 
     let files = match dataset {
-        BenchmarkDataset::TpcH => vec![
+        BenchmarkDataset::TpcH { .. } => vec![
             ("customer", Some(schema::CUSTOMER.clone())),
             ("lineitem", Some(schema::LINEITEM.clone())),
             ("nation", Some(schema::NATION.clone())),
@@ -58,11 +58,9 @@ pub async fn load_datasets(
             ("supplier", Some(schema::SUPPLIER.clone())),
         ],
 
-        BenchmarkDataset::TpcDS => BenchmarkDataset::TpcDS
-            .tables()
-            .iter()
-            .map(|f| (*f, None))
-            .collect_vec(),
+        dataset @ BenchmarkDataset::TpcDS { .. } => {
+            dataset.tables().iter().map(|f| (*f, None)).collect_vec()
+        }
         BenchmarkDataset::ClickBench { .. } => todo!(),
     };
 
@@ -190,7 +188,7 @@ async fn register_parquet(
         name,
         file,
         schema,
-        BenchmarkDataset::TpcH,
+        BenchmarkDataset::TpcH { scale_factor: 1 },
     )
     .await
 }
@@ -208,7 +206,7 @@ async fn register_vortex_file(
         table_name,
         file,
         schema,
-        BenchmarkDataset::TpcH,
+        BenchmarkDataset::TpcH { scale_factor: 1 },
     )
     .await
 }
