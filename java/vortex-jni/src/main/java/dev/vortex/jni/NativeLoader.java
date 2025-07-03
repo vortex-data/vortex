@@ -15,17 +15,26 @@
  */
 package dev.vortex.jni;
 
-import com.google.common.io.ByteStreams;
-import java.io.*;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Locale;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 public final class NativeLoader {
-    private static boolean loaded = false;
+    private static final String CACHE_FILE_NAME = "libvortex_jni.so";
+    private static final AtomicBoolean LOADED = new AtomicBoolean();
 
     private NativeLoader() {}
 
     public static synchronized void loadJni() {
-        if (loaded) {
+        if (LOADED.get()) {
             return;
         }
 
@@ -49,7 +58,7 @@ public final class NativeLoader {
         }
 
         // Extract the library from classpath
-        // This assumes the library is in the same package as this class
+        // We unpack the library to a temp file, before putting it into a stable location.
         String libPath = "/native/" + osShortName + "-" + osArch + "/" + libName;
         try (InputStream in = NativeLoader.class.getResourceAsStream(libPath)) {
             if (in == null) {
@@ -58,16 +67,34 @@ public final class NativeLoader {
             File tempFile = File.createTempFile("libvortex_jni", ".dylib");
             tempFile.deleteOnExit();
 
-            try (OutputStream out = new FileOutputStream(tempFile)) {
-                ByteStreams.copy(in, out);
-            }
-            libName = tempFile.getAbsolutePath();
+            // Copy the data to temp file
+            Files.copy(in, tempFile.toPath());
+
+            // Atomically move the file into the cache directory.
+            // NOTE: this is only atomic when the tmpdir and the target are on the same file system.
+            Path cacheDir = Files.createDirectories(cacheDir());
+            Path outPath = cacheDir.resolve(CACHE_FILE_NAME);
+            Files.move(tempFile.toPath(), outPath);
+
+            libName = outPath.toAbsolutePath().toString();
         } catch (IOException e) {
             throw new RuntimeException("Failed to load library: " + e.getMessage(), e);
         }
 
         // Load the library
         System.load(libName);
-        loaded = true;
+        LOADED.set(true);
+    }
+
+    private static Path cacheDir() {
+        // If the user home dir is detectable, create the target dir inside of it.
+        // Otherwise we fallback to Java temp dir.
+        // If there is no tmpdir defined, we fallback to the working directory that the JVM was launched from.
+        String rootDir = Stream.of(System.getProperty("user.home"), System.getProperty("java.io.tmpdir"), ".")
+                .filter(Objects::nonNull)
+                .findFirst()
+                .get();
+
+        return Paths.get(rootDir, ".vortex", "jni");
     }
 }

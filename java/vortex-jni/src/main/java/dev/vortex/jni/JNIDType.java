@@ -18,6 +18,7 @@ package dev.vortex.jni;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import dev.vortex.api.DType;
+
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -101,7 +102,7 @@ public final class JNIDType implements DType {
 
     @Override
     public void close() {
-        if (shouldFree) {
+        if (shouldFree && pointer.isPresent()) {
             NativeDTypeMethods.free(pointer.getAsLong());
             pointer = OptionalLong.empty();
         }
