@@ -161,7 +161,7 @@ strum = "0.27"
 tabled = { version = "0.20.0", default-features = false }
 taffy = "0.8.0"
 tar = "0.4"
-target-lexicon = "0.12"
+target-lexicon = "0.13"
 tempfile = "3"
 thiserror = "2.0.3"
 tokio = "1.45.1"
