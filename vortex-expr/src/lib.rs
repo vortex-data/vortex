@@ -3,6 +3,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use dyn_eq::DynEq;
+use dyn_hash::DynHash;
 pub use exprs::*;
 pub mod aliases;
 mod analysis;
@@ -56,7 +58,7 @@ pub type ExprRef = Arc<dyn VortexExpr>;
 
 /// Represents logical operation on [`ArrayRef`]s
 pub trait VortexExpr:
-    'static + Send + Sync + Debug + Display + private::Sealed + AnalysisExpr
+    'static + Send + Sync + Debug + Display + DynEq + DynHash + private::Sealed + AnalysisExpr
 {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
@@ -91,6 +93,9 @@ pub trait VortexExpr:
     fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType>;
 }
 
+dyn_eq::eq_trait_object!(VortexExpr);
+dyn_hash::hash_trait_object!(VortexExpr);
+
 impl dyn VortexExpr + '_ {
     pub fn id(&self) -> ExprId {
         self.encoding().id()
@@ -106,7 +111,9 @@ impl dyn VortexExpr + '_ {
     }
 
     pub fn as_opt<V: VTable>(&self) -> Option<&V::Expr> {
-        self.as_any().downcast_ref::<ExprAdapter<V>>().map(|e| &e.0)
+        VortexExpr::as_any(self)
+            .downcast_ref::<ExprAdapter<V>>()
+            .map(|e| &e.0)
     }
 
     /// Compute result of expression on given batch producing a new batch
@@ -194,6 +201,20 @@ impl<V: VTable> Debug for ExprAdapter<V> {
 impl<V: VTable> Display for ExprAdapter<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.0, f)
+    }
+}
+
+impl<V: VTable> PartialEq for ExprAdapter<V> {
+    fn eq(&self, other: &Self) -> bool {
+        PartialEq::eq(&self.0, &other.0)
+    }
+}
+
+impl<V: VTable> Eq for ExprAdapter<V> {}
+
+impl<V: VTable> Hash for ExprAdapter<V> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(&self.0, state);
     }
 }
 

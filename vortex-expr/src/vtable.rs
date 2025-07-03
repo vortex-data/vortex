@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::hash::Hash;
 use std::ops::Deref;
 
 use vortex_array::{ArrayRef, DeserializeMetadata, SerializeMetadata};
@@ -16,6 +17,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         + Clone
         + Debug
         + Display
+        + PartialEq
+        + Hash
         + Deref<Target = dyn VortexExpr>
         + IntoExpr;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn ExprEncoding>;

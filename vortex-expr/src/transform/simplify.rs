@@ -3,7 +3,7 @@ use vortex_error::VortexResult;
 use crate::transform::match_between::find_between;
 // use crate::transform::match_between::find_between;
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, GetItemExpr, PackExpr};
+use crate::{ExprRef, GetItemVTable, PackVTable};
 
 /// Simplifies an expression into an equivalent expression which is faster and easier to analyze.
 ///
@@ -21,8 +21,8 @@ impl MutNodeVisitor for Simplify {
 
     fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<ExprRef>> {
         // pack(l_1: e_1, ..., l_i: e_i, ..., l_n: e_n).get_item(l_i) = e_i where 0 <= i <= n
-        if let Some(get_item) = node.as_any().downcast_ref::<GetItemExpr>() {
-            if let Some(pack) = get_item.child().as_any().downcast_ref::<PackExpr>() {
+        if let Some(get_item) = node.as_opt::<GetItemVTable>() {
+            if let Some(pack) = get_item.child().as_opt::<PackVTable>() {
                 let expr = pack.field(get_item.field())?;
                 return Ok(TransformResult::yes(expr));
             }

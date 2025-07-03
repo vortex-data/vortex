@@ -5,7 +5,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::transform::access_analysis::AccessesAnalysis;
 use crate::traversal::TraversalOrder;
-use crate::{ExprRef, GetItemExpr, SelectExpr, is_root};
+use crate::{ExprRef, GetItemVTable, SelectVTable, is_root};
 
 pub type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
 
@@ -22,10 +22,10 @@ pub fn immediate_scope_accesses<'a>(
 ) -> VortexResult<FieldAccesses<'a>> {
     AccessesAnalysis::analyze(expr, move |node| {
         assert!(
-            !node.as_any().is::<SelectExpr>(),
+            !node.is::<SelectVTable>(),
             "cannot analyse select, simplify the expression"
         );
-        if let Some(get_item) = node.as_any().downcast_ref::<GetItemExpr>() {
+        if let Some(get_item) = node.as_opt::<GetItemVTable>() {
             if is_root(get_item.child()) {
                 return (TraversalOrder::Skip, vec![get_item.field().clone()]);
             }

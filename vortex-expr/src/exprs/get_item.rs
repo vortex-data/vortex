@@ -14,10 +14,16 @@ use crate::{
 
 vtable!(GetItem);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Hash)]
 pub struct GetItemExpr {
     field: FieldName,
     child: ExprRef,
+}
+
+impl PartialEq for GetItemExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.field == other.field && self.child.eq(&other.child)
+    }
 }
 
 pub struct GetItemExprEncoding;
@@ -117,7 +123,7 @@ impl GetItemExpr {
     }
 
     pub fn is(expr: &ExprRef) -> bool {
-        expr.as_any().is::<Self>()
+        expr.is::<GetItemVTable>()
     }
 }
 

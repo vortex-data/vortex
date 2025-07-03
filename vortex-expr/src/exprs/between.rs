@@ -14,12 +14,21 @@ use crate::{
 
 vtable!(Between);
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Hash)]
 pub struct BetweenExpr {
     arr: ExprRef,
     lower: ExprRef,
     upper: ExprRef,
     options: BetweenOptions,
+}
+
+impl PartialEq for BetweenExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.arr.eq(&other.arr)
+            && self.lower.eq(&other.lower)
+            && self.upper.eq(&other.upper)
+            && self.options == other.options
+    }
 }
 
 pub struct BetweenExprEncoding;

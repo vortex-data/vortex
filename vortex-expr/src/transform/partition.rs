@@ -10,7 +10,7 @@ use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashMap};
 use crate::transform::immediate_access::{FieldAccesses, immediate_scope_accesses};
 use crate::transform::simplify_typed::simplify_typed;
 use crate::traversal::{FoldDown, FoldUp, FolderMut, MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, GetItemExpr, ScopeDType, get_item, is_root, pack, root};
+use crate::{ExprRef, GetItemVTable, ScopeDType, get_item, is_root, pack, root};
 
 static SPLITTER_RANDOM_STATE: LazyLock<DefaultHashBuilder> =
     LazyLock::new(DefaultHashBuilder::default);
@@ -278,7 +278,7 @@ impl MutNodeVisitor for ReplaceAccessesWithChild {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<ExprRef>> {
-        if let Some(item) = node.as_any().downcast_ref::<GetItemExpr>() {
+        if let Some(item) = node.as_opt::<GetItemVTable>() {
             if self.0.contains(item.field()) {
                 return Ok(TransformResult::yes(item.child().clone()));
             }

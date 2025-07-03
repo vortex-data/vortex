@@ -1,9 +1,9 @@
 use vortex_error::{VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, ScopeDType, SelectExpr, get_item, pack};
+use crate::{ExprRef, ScopeDType, SelectVTable, get_item, pack};
 
-/// Replaces [SelectExpr] with combination of [GetItem] and [Pack] expressions.
+/// Replaces [crate::SelectExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_select(e: ExprRef, ctx: &ScopeDType) -> VortexResult<ExprRef> {
     let mut transform = RemoveSelectTransform { ctx };
     e.transform(&mut transform).map(|e| e.into_inner())
@@ -17,7 +17,7 @@ impl MutNodeVisitor for RemoveSelectTransform<'_> {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: ExprRef) -> VortexResult<TransformResult<Self::NodeTy>> {
-        if let Some(select) = node.as_any().downcast_ref::<SelectExpr>() {
+        if let Some(select) = node.as_opt::<SelectVTable>() {
             let child = select.child();
             let child_dtype = child.return_dtype(self.ctx)?;
             let child_nullability = child_dtype.nullability();

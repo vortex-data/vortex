@@ -18,10 +18,16 @@ pub enum SelectField {
 
 vtable!(Select);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Hash)]
 pub struct SelectExpr {
     fields: SelectField,
     child: ExprRef,
+}
+
+impl PartialEq for SelectExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.fields == other.fields && self.child.eq(&other.child)
+    }
 }
 
 pub struct SelectExprEncoding;

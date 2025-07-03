@@ -12,10 +12,16 @@ use crate::{
 
 vtable!(Cast);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Hash)]
 pub struct CastExpr {
     target: DType,
     child: ExprRef,
+}
+
+impl PartialEq for CastExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.target == other.target && self.child.eq(&other.child)
+    }
 }
 
 pub struct CastExprEncoding;

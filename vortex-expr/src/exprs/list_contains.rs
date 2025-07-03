@@ -7,16 +7,22 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, LiteralExpr, Scope, ScopeDType,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, LiteralVTable, Scope, ScopeDType,
     StatsCatalog, VTable, and, gt, lit, lt, or, vtable,
 };
 
 vtable!(ListContains);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Hash)]
 pub struct ListContainsExpr {
     list: ExprRef,
     value: ExprRef,
+}
+
+impl PartialEq for ListContainsExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.list.eq(&other.list) && self.value.eq(&other.value)
+    }
 }
 
 pub struct ListContainsExprEncoding;
@@ -117,8 +123,7 @@ impl AnalysisExpr for ListContainsExpr {
         // If the list is constant when we can compare each element to the value
         if min == max {
             let list_ = min
-                .as_any()
-                .downcast_ref::<LiteralExpr>()
+                .as_opt::<LiteralVTable>()
                 .and_then(|l| l.value().as_list_opt())
                 .and_then(|l| l.elements())?;
             if list_.is_empty() {

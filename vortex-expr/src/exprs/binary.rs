@@ -14,11 +14,17 @@ use crate::{
 
 vtable!(Binary);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Hash)]
 pub struct BinaryExpr {
     lhs: ExprRef,
     operator: Operator,
     rhs: ExprRef,
+}
+
+impl PartialEq for BinaryExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.lhs.eq(&other.lhs) && self.operator == other.operator && self.rhs.eq(&other.rhs)
+    }
 }
 
 pub struct BinaryExprEncoding;

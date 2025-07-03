@@ -94,7 +94,7 @@ impl LiteralExpr {
     }
 
     pub fn maybe_from(expr: &ExprRef) -> Option<&LiteralExpr> {
-        expr.as_any().downcast_ref::<LiteralExpr>()
+        expr.as_opt::<LiteralVTable>()
     }
 }
 

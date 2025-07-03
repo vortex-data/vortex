@@ -12,9 +12,15 @@ use crate::{
 
 vtable!(Not);
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Hash)]
 pub struct NotExpr {
     child: ExprRef,
+}
+
+impl PartialEq for NotExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.child.eq(&other.child)
+    }
 }
 
 pub struct NotExprEncoding;
@@ -40,7 +46,7 @@ impl VTable for NotVTable {
         vec![expr.child.clone()]
     }
 
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+    fn with_children(_expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
         if children.len() != 1 {
             vortex_bail!(
                 "Not expression expects exactly one child, got {}",

@@ -13,9 +13,15 @@ use crate::{
 
 vtable!(IsNull);
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Hash)]
 pub struct IsNullExpr {
     child: ExprRef,
+}
+
+impl PartialEq for IsNullExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.child.eq(&other.child)
+    }
 }
 
 pub struct IsNullExprEncoding;

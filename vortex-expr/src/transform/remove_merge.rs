@@ -1,9 +1,9 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, MergeExpr, ScopeDType, get_item, pack};
+use crate::{ExprRef, MergeVTable, ScopeDType, get_item, pack};
 
-/// Replaces [MergeExpr] with combination of [GetItem] and [Pack] expressions.
+/// Replaces [crate::MergeExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_merge(e: ExprRef, ctx: &ScopeDType) -> VortexResult<ExprRef> {
     let mut transform = RemoveMergeTransform { ctx };
     e.transform(&mut transform).map(|e| e.into_inner())
@@ -17,7 +17,7 @@ impl MutNodeVisitor for RemoveMergeTransform<'_> {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: ExprRef) -> VortexResult<TransformResult<Self::NodeTy>> {
-        if let Some(merge) = node.as_any().downcast_ref::<MergeExpr>() {
+        if let Some(merge) = node.as_opt::<MergeVTable>() {
             // Try to guess the capacity.
             let mut names = Vec::with_capacity(merge.children().len() * 2);
             let mut children = Vec::with_capacity(merge.children().len() * 2);

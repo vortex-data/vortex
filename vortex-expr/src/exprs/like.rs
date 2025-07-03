@@ -11,12 +11,21 @@ use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, Scope, ScopeDType, V
 
 vtable!(Like);
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Hash)]
 pub struct LikeExpr {
     child: ExprRef,
     pattern: ExprRef,
     negated: bool,
     case_insensitive: bool,
+}
+
+impl PartialEq for LikeExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.child.eq(&other.child)
+            && self.pattern.eq(&other.pattern)
+            && self.negated == other.negated
+            && self.case_insensitive == other.case_insensitive
+    }
 }
 
 pub struct LikeExprEncoding;
