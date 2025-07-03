@@ -24,7 +24,7 @@ use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 /// use vortex_dtype::Nullability;
 ///
 /// let example = Pack::try_new_expr(
-///     ["x".into(), "x copy".into(), "second x copy".into()].into(),
+///     ["x", "x copy", "second x copy"].into(),
 ///     vec![root(), root(), root()],
 ///     Nullability::NonNullable,
 /// ).unwrap();

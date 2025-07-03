@@ -61,7 +61,7 @@ fn main() {
 
     // Make the struct array
     let rows = StructArray::try_new(
-        ["Name".into(), "Salary".into(), "State".into()].into(),
+        ["Name", "Salary", "State"].into(),
         vec![names, salary, states],
         10,
         Validity::NonNullable,

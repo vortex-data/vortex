@@ -1,5 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
+use std::ops::Index;
 use std::sync::Arc;
 
 use DType::*;
@@ -50,7 +51,7 @@ impl AsRef<[FieldName]> for FieldNames {
     }
 }
 
-impl std::ops::Index<usize> for FieldNames {
+impl Index<usize> for FieldNames {
     type Output = FieldName;
 
     fn index(&self, index: usize) -> &Self::Output {
