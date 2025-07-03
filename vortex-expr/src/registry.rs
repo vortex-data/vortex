@@ -17,18 +17,18 @@ impl ExprRegistryExt for ExprRegistry {
     fn default() -> Self {
         let mut this = Self::empty();
         this.register_many([
-            ExprEncodingRef::new_ref(&BetweenExprEncoding),
-            ExprEncodingRef::new_ref(&BinaryExprEncoding),
-            ExprEncodingRef::new_ref(&GetItemExprEncoding),
-            // ExprEncodingRef::new_ref(&IdentityExprEncoding),
-            ExprEncodingRef::new_ref(&LikeExprEncoding),
-            ExprEncodingRef::new_ref(&LiteralExprEncoding),
-            ExprEncodingRef::new_ref(&ListContainsExprEncoding),
-            ExprEncodingRef::new_ref(&MergeExprEncoding),
-            ExprEncodingRef::new_ref(&NotExprEncoding),
-            ExprEncodingRef::new_ref(&PackExprEncoding),
-            ExprEncodingRef::new_ref(&SelectExprEncoding),
-            ExprEncodingRef::new_ref(&VarExprEncoding),
+            ExprEncodingRef::new_ref(BetweenExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(BinaryExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(GetItemExprEncoding.as_ref()),
+            // ExprEncodingRef::new_ref(IdentityExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(LikeExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(LiteralExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(ListContainsExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(MergeExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(NotExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(PackExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(SelectExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(VarExprEncoding.as_ref()),
         ]);
         this
     }

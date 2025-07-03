@@ -25,7 +25,7 @@ impl ExprSerializeProtoExt for dyn VortexExpr + '_ {
         Ok(pb::Expr {
             id: self.id().to_string(),
             children,
-            metadata,
+            metadata: Some(metadata),
         })
     }
 }
@@ -43,7 +43,7 @@ pub fn deserialize_expr_proto(expr: &pb::Expr, registry: &ExprRegistry) -> Vorte
         .map(|e| deserialize_expr_proto(e, registry))
         .collect::<VortexResult<Vec<_>>>()?;
 
-    encoding.deserialize(expr.options().unwrap_or(&[]), children)
+    encoding.build(expr.metadata(), children)
 }
 
 #[cfg(test)]

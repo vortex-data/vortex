@@ -9,7 +9,7 @@ use vortex_proto::exprs as pb;
 
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, ScopeDType,
-    StatsCatalog, VTable, VortexExpr, vtable,
+    StatsCatalog, VTable, vtable,
 };
 
 vtable!(Binary);

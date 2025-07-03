@@ -8,7 +8,7 @@ use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, LiteralExpr, Scope, ScopeDType,
-    StatsCatalog, VTable, VortexExpr, and, gt, lit, lt, or, vtable,
+    StatsCatalog, VTable, and, gt, lit, lt, or, vtable,
 };
 
 vtable!(ListContains);

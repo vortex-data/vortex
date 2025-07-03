@@ -7,9 +7,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::exprs as pb;
 
-use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, Scope, ScopeDType, VTable, VortexExpr, vtable,
-};
+use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, Scope, ScopeDType, VTable, vtable};
 
 vtable!(Like);
 

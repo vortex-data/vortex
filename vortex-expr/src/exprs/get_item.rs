@@ -8,8 +8,8 @@ use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::exprs as pb;
 
 use crate::{
-    AccessPath, AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope,
-    ScopeDType, StatsCatalog, VTable, VortexExpr, root, vtable,
+    AccessPath, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
+    StatsCatalog, VTable, root, vtable,
 };
 
 vtable!(GetItem);

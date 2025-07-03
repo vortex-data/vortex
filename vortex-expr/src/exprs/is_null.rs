@@ -8,8 +8,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable,
-    VortexExpr, vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
 };
 
 vtable!(IsNull);

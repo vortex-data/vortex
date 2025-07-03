@@ -9,7 +9,7 @@ use vortex_scalar::Scalar;
 
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, StatsCatalog,
-    VTable, VortexExpr, vtable,
+    VTable, vtable,
 };
 
 vtable!(Literal);

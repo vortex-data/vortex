@@ -10,8 +10,7 @@ use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::exprs as pb;
 
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable,
-    VortexExpr, vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
 };
 
 vtable!(Pack);

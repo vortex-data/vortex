@@ -1,7 +1,7 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, MergeExpr, ScopeDType, VortexExpr, get_item, pack};
+use crate::{ExprRef, MergeExpr, ScopeDType, get_item, pack};
 
 /// Replaces [MergeExpr] with combination of [GetItem] and [Pack] expressions.
 pub(crate) fn remove_merge(e: ExprRef, ctx: &ScopeDType) -> VortexResult<ExprRef> {
