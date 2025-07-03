@@ -84,7 +84,7 @@ pub trait VortexExpr:
     fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef>;
 
     /// Returns the children of this expression.
-    fn children(&self) -> Vec<ExprRef>;
+    fn children(&self) -> Vec<&ExprRef>;
 
     /// Returns a new instance of this expression with the children replaced.
     fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef>;
@@ -179,7 +179,7 @@ impl<V: VTable> VortexExpr for ExprAdapter<V> {
         V::evaluate(&self.0, ctx)
     }
 
-    fn children(&self) -> Vec<ExprRef> {
+    fn children(&self) -> Vec<&ExprRef> {
         V::children(&self.0)
     }
 

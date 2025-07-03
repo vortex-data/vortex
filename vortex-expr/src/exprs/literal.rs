@@ -40,7 +40,7 @@ impl VTable for LiteralVTable {
         }))
     }
 
-    fn children(_expr: &Self::Expr) -> Vec<ExprRef> {
+    fn children(_expr: &Self::Expr) -> Vec<&ExprRef> {
         vec![]
     }
 
@@ -89,6 +89,10 @@ impl LiteralExpr {
         }
     }
 
+    pub fn new_expr(value: impl Into<Scalar>) -> ExprRef {
+        Self::new(value).into_expr()
+    }
+
     pub fn value(&self) -> &Scalar {
         &self.value
     }
@@ -122,14 +126,12 @@ impl AnalysisExpr for LiteralExpr {
 /// ```
 /// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_dtype::Nullability;
-/// use vortex_expr::{lit, LiteralExpr};
+/// use vortex_expr::{lit, LiteralVTable};
 /// use vortex_scalar::Scalar;
 ///
 /// let number = lit(34i32);
 ///
-/// let literal = number.as_any()
-///     .downcast_ref::<LiteralExpr>()
-///     .unwrap();
+/// let literal = number.as_::<LiteralVTable>();
 /// assert_eq!(literal.value(), &Scalar::primitive(34i32, Nullability::NonNullable));
 /// ```
 pub fn lit(value: impl Into<Scalar>) -> ExprRef {

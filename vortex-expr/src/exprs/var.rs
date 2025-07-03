@@ -41,7 +41,7 @@ impl VTable for VarVTable {
         Some(ProstMetadata(pb::VarOpts { var }))
     }
 
-    fn children(_expr: &Self::Expr) -> Vec<ExprRef> {
+    fn children(_expr: &Self::Expr) -> Vec<&ExprRef> {
         vec![]
     }
 

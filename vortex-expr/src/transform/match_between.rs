@@ -141,9 +141,8 @@ fn maybe_strict_comparison(op: Operator) -> Option<StrictComparison> {
 mod tests {
     use vortex_array::compute::{BetweenOptions, StrictComparison};
 
-    use crate::between::Between;
     use crate::transform::match_between::find_between;
-    use crate::{and, col, gt_eq, lit, lt};
+    use crate::{and, between, col, gt_eq, lit, lt};
 
     #[test]
     fn test_match_between() {
@@ -152,7 +151,7 @@ mod tests {
 
         // 2 < x <= 5
         assert_eq!(
-            &Between::between(
+            &between(
                 col("x"),
                 lit(2),
                 lit(5),
@@ -172,7 +171,7 @@ mod tests {
 
         // 2 <= x < 5
         assert_eq!(
-            &Between::between(
+            &between(
                 col("x"),
                 lit(2),
                 lit(5),
@@ -192,7 +191,7 @@ mod tests {
 
         // 2 <= x < 5
         assert_eq!(
-            &Between::between(
+            &between(
                 col("x"),
                 lit(2),
                 lit(5),
@@ -212,7 +211,7 @@ mod tests {
 
         // 2 < x <= 5
         assert_eq!(
-            &Between::between(
+            &between(
                 col("x"),
                 lit(2),
                 lit(5),
@@ -237,7 +236,7 @@ mod tests {
         assert_eq!(
             &and(
                 gt_eq(col("y"), lit(10)),
-                Between::between(
+                between(
                     col("x"),
                     lit(2),
                     lit(5),
@@ -262,7 +261,7 @@ mod tests {
         // $.y >= 10 /\ 2 < $.x <= 5
         assert_eq!(
             &and(
-                Between::between(
+                between(
                     col("x"),
                     lit(2),
                     lit(5),

@@ -60,7 +60,7 @@ mod tests {
     use vortex_dtype::{DType, StructFields};
 
     use crate::transform::remove_select::remove_select;
-    use crate::{PackExpr, ScopeDType, root, select};
+    use crate::{PackVTable, ScopeDType, root, select};
 
     #[test]
     fn test_remove_select() {
@@ -74,7 +74,7 @@ mod tests {
         let e = select(["a".into(), "b".into()], root());
         let e = remove_select(e, &ScopeDType::new(dtype.clone())).unwrap();
 
-        assert!(e.as_any().is::<PackExpr>());
+        assert!(e.is::<PackVTable>());
         assert!(
             e.return_dtype(&ScopeDType::new(dtype))
                 .unwrap()

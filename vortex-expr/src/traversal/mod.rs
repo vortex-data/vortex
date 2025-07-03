@@ -299,8 +299,8 @@ mod tests {
     use crate::traversal::visitor::pre_order_visit_down;
     use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
     use crate::{
-        Binary, ExprRef, GetItemExpr, LiteralExpr, Operator, VortexExpr, col, get_item_scope,
-        is_root, root,
+        BinaryExpr, BinaryVTable, ExprRef, GetItemVTable, IntoExpr, LiteralExpr, LiteralVTable,
+        Operator, VortexExpr, col, get_item_scope, is_root, root,
     };
 
     #[derive(Default)]
@@ -310,7 +310,7 @@ mod tests {
         type NodeTy = ExprRef;
 
         fn visit_down(&mut self, node: &'a ExprRef) -> VortexResult<TraversalOrder> {
-            if node.as_any().is::<LiteralExpr>() {
+            if node.is::<LiteralVTable>() {
                 self.0.push(node)
             }
             Ok(TraversalOrder::Continue)
@@ -328,11 +328,11 @@ mod tests {
         type NodeTy = ExprRef;
 
         fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<Self::NodeTy>> {
-            let col = node.as_any().downcast_ref::<GetItemExpr>();
+            let col = node.as_opt::<GetItemVTable>();
             if col.is_some() {
                 let id = self.0;
                 self.0 += 1;
-                Ok(TransformResult::yes(LiteralExpr::new(id)))
+                Ok(TransformResult::yes(LiteralExpr::new_expr(id)))
             } else {
                 Ok(TransformResult::no(node))
             }
@@ -357,10 +357,10 @@ mod tests {
     #[test]
     fn expr_deep_visitor_test() {
         let col1: Arc<dyn VortexExpr> = col("col1");
-        let lit1 = LiteralExpr::new(1);
-        let expr = Binary::new_expr(col1.clone(), Operator::Eq, lit1.clone());
-        let lit2 = LiteralExpr::new(2);
-        let expr = Binary::new_expr(expr, Operator::And, lit2);
+        let lit1 = LiteralExpr::new(1).into_expr();
+        let expr = BinaryExpr::new(col1.clone(), Operator::Eq, lit1.clone()).into_expr();
+        let lit2 = LiteralExpr::new(2).into_expr();
+        let expr = BinaryExpr::new(expr, Operator::And, lit2).into_expr();
         let mut printer = ExprLitCollector::default();
         expr.accept(&mut printer).unwrap();
         assert_eq!(printer.0.len(), 2);
@@ -370,9 +370,9 @@ mod tests {
     fn expr_deep_mut_visitor_test() {
         let col1: Arc<dyn VortexExpr> = col("col1");
         let col2: Arc<dyn VortexExpr> = col("col2");
-        let expr = Binary::new_expr(col1.clone(), Operator::Eq, col2.clone());
-        let lit2 = LiteralExpr::new(2);
-        let expr = Binary::new_expr(expr, Operator::And, lit2);
+        let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
+        let lit2 = LiteralExpr::new_expr(2);
+        let expr = BinaryExpr::new_expr(expr, Operator::And, lit2);
         let mut printer = ExprColToLit::default();
         let new = expr.transform(&mut printer).unwrap();
         assert!(new.changed);
@@ -388,18 +388,18 @@ mod tests {
     fn expr_skip_test() {
         let col1: Arc<dyn VortexExpr> = col("col1");
         let col2: Arc<dyn VortexExpr> = col("col2");
-        let expr1 = Binary::new_expr(col1.clone(), Operator::Eq, col2.clone());
+        let expr1 = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
         let col3: Arc<dyn VortexExpr> = col("col3");
         let col4: Arc<dyn VortexExpr> = col("col4");
-        let expr2 = Binary::new_expr(col3.clone(), Operator::NotEq, col4.clone());
-        let expr = Binary::new_expr(expr1, Operator::And, expr2);
+        let expr2 = BinaryExpr::new_expr(col3.clone(), Operator::NotEq, col4.clone());
+        let expr = BinaryExpr::new_expr(expr1, Operator::And, expr2);
 
         let mut nodes = Vec::new();
         expr.accept(&mut pre_order_visit_down(|node: &ExprRef| {
-            if node.as_any().is::<GetItemExpr>() {
+            if node.is::<GetItemVTable>() {
                 nodes.push(node)
             }
-            if let Some(bin) = node.as_any().downcast_ref::<Binary>() {
+            if let Some(bin) = node.as_opt::<BinaryVTable>() {
                 if bin.op() == Operator::Eq {
                     return Ok(TraversalOrder::Skip);
                 }
@@ -419,18 +419,18 @@ mod tests {
     fn expr_stop_test() {
         let col1: Arc<dyn VortexExpr> = col("col1");
         let col2: Arc<dyn VortexExpr> = col("col2");
-        let expr1 = Binary::new_expr(col1.clone(), Operator::Eq, col2.clone());
+        let expr1 = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
         let col3: Arc<dyn VortexExpr> = col("col3");
         let col4: Arc<dyn VortexExpr> = col("col4");
-        let expr2 = Binary::new_expr(col3.clone(), Operator::NotEq, col4.clone());
-        let expr = Binary::new_expr(expr1, Operator::And, expr2);
+        let expr2 = BinaryExpr::new_expr(col3.clone(), Operator::NotEq, col4.clone());
+        let expr = BinaryExpr::new_expr(expr1, Operator::And, expr2);
 
         let mut nodes = Vec::new();
         expr.accept(&mut pre_order_visit_down(|node: &ExprRef| {
-            if node.as_any().is::<GetItemExpr>() {
+            if node.is::<GetItemVTable>() {
                 nodes.push(node)
             }
-            if let Some(bin) = node.as_any().downcast_ref::<Binary>() {
+            if let Some(bin) = node.as_opt::<BinaryVTable>() {
                 if bin.op() == Operator::Eq {
                     return Ok(TraversalOrder::Stop);
                 }

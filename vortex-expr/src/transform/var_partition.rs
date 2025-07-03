@@ -195,7 +195,7 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
 
     use super::*;
-    use crate::{PackExpr, Var, and, root, var};
+    use crate::{PackVTable, VarVTable, and, root, var};
 
     #[test]
     fn test_expr_top_level_ref() {
@@ -207,7 +207,7 @@ mod tests {
 
         let partitioned = split.unwrap();
 
-        assert!(partitioned.root.as_any().is::<Var>());
+        assert!(partitioned.root.is::<VarVTable>());
         // Have a single top level pack with all fields in dtype
         assert_eq!(partitioned.partitions.len(), 1)
     }
@@ -240,8 +240,7 @@ mod tests {
             partitioned
                 .find_partition(&"".into())
                 .unwrap()
-                .as_any()
-                .is::<PackExpr>()
+                .is::<PackVTable>()
         );
         assert_eq!(partitioned.find_partition(&"x".into()), Some(&var("x")));
     }

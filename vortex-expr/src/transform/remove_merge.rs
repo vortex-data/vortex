@@ -67,7 +67,7 @@ mod tests {
     use vortex_dtype::PType::{I32, I64, U32, U64};
 
     use crate::transform::remove_merge::remove_merge;
-    use crate::{PackExpr, ScopeDType, get_item, merge, root};
+    use crate::{PackVTable, ScopeDType, get_item, merge, root};
 
     #[test]
     fn test_remove_merge() {
@@ -82,7 +82,7 @@ mod tests {
         let e = merge([get_item("0", root()), get_item("1", root())], NonNullable);
         let e = remove_merge(e, &ScopeDType::new(dtype.clone())).unwrap();
 
-        assert!(e.as_any().is::<PackExpr>());
+        assert!(e.is::<PackVTable>());
         assert_eq!(
             e.return_dtype(&ScopeDType::new(dtype)).unwrap(),
             DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
@@ -99,7 +99,7 @@ mod tests {
         let e = merge([get_item("0", root())], Nullable);
         let e = remove_merge(e, &ScopeDType::new(dtype.clone())).unwrap();
 
-        assert!(e.as_any().is::<PackExpr>());
+        assert!(e.is::<PackVTable>());
         assert!(
             e.return_dtype(&ScopeDType::new(dtype))
                 .unwrap()

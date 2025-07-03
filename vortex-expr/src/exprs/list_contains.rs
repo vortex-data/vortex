@@ -44,8 +44,8 @@ impl VTable for ListContainsVTable {
         Some(EmptyMetadata)
     }
 
-    fn children(expr: &Self::Expr) -> Vec<ExprRef> {
-        vec![expr.list.clone(), expr.value.clone()]
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        vec![&expr.list, &expr.value]
     }
 
     fn with_children(_expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {

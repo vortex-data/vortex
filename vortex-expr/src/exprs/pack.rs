@@ -72,8 +72,8 @@ impl VTable for PackVTable {
         }))
     }
 
-    fn children(expr: &Self::Expr) -> Vec<ExprRef> {
-        expr.values.clone()
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        expr.values.iter().collect()
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {

@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use vortex_array::compute::{BetweenOptions, StrictComparison, between};
+use vortex_array::compute::{BetweenOptions, StrictComparison, between as between_compute};
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
@@ -53,8 +53,8 @@ impl VTable for BetweenVTable {
         }))
     }
 
-    fn children(expr: &Self::Expr) -> Vec<ExprRef> {
-        vec![expr.arr.clone(), expr.lower.clone(), expr.upper.clone()]
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        vec![&expr.arr, &expr.lower, &expr.upper]
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
@@ -101,7 +101,7 @@ impl VTable for BetweenVTable {
         let lower_arr_val = expr.lower.unchecked_evaluate(scope)?;
         let upper_arr_val = expr.upper.unchecked_evaluate(scope)?;
 
-        between(&arr_val, &lower_arr_val, &upper_arr_val, &expr.options)
+        between_compute(&arr_val, &lower_arr_val, &upper_arr_val, &expr.options)
     }
 
     fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
@@ -170,3 +170,7 @@ impl Display for BetweenExpr {
 }
 
 impl AnalysisExpr for BetweenExpr {}
+
+pub fn between(arr: ExprRef, lower: ExprRef, upper: ExprRef, options: BetweenOptions) -> ExprRef {
+    BetweenExpr::new(arr, lower, upper, options).into_expr()
+}

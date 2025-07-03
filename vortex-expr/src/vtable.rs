@@ -35,7 +35,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn metadata(expr: &Self::Expr) -> Option<Self::Metadata>;
 
     /// Returns the children of the expr.
-    fn children(expr: &Self::Expr) -> Vec<ExprRef>;
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef>;
 
     /// Return a new instance of the expression with the children replaced.
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr>;

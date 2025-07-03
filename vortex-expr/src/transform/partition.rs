@@ -297,7 +297,7 @@ mod tests {
     use super::*;
     use crate::transform::simplify::simplify;
     use crate::transform::simplify_typed::simplify_typed;
-    use crate::{PackExpr, and, get_item, lit, pack, root, select};
+    use crate::{PackVTable, and, get_item, lit, pack, root, select};
 
     fn dtype() -> DType {
         DType::Struct(
@@ -328,7 +328,7 @@ mod tests {
 
         let partitioned = split.unwrap();
 
-        assert!(partitioned.root.as_any().is::<PackExpr>());
+        assert!(partitioned.root.is::<PackVTable>());
         // Have a single top level pack with all fields in dtype
         assert_eq!(
             partitioned.partitions.len(),

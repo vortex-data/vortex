@@ -52,15 +52,16 @@ mod tests {
     use vortex_array::compute::{BetweenOptions, StrictComparison};
     use vortex_proto::exprs as pb;
 
-    use crate::proto::ExprSerializeProtoExt;
-    use crate::{Between, ExprRef, and, deserialize_expr_proto, eq, get_item, lit, or, root};
+    use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
+    use crate::registry::ExprRegistryExt;
+    use crate::{ExprRef, ExprRegistry, and, between, eq, get_item, lit, or, root};
 
     #[test]
     fn expression_serde() {
         let registry = ExprRegistry::default();
         let expr: ExprRef = or(
             and(
-                Between::between(
+                between(
                     lit(1),
                     root(),
                     get_item("a", root()),

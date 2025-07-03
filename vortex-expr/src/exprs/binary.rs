@@ -48,8 +48,8 @@ impl VTable for BinaryVTable {
         }))
     }
 
-    fn children(expr: &Self::Expr) -> Vec<ExprRef> {
-        vec![expr.lhs().clone(), expr.rhs().clone()]
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        vec![expr.lhs(), expr.rhs()]
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
@@ -114,6 +114,10 @@ impl VTable for BinaryVTable {
 impl BinaryExpr {
     pub fn new(lhs: ExprRef, operator: Operator, rhs: ExprRef) -> Self {
         Self { lhs, operator, rhs }
+    }
+
+    pub fn new_expr(lhs: ExprRef, operator: impl Into<Operator>, rhs: ExprRef) -> ExprRef {
+        Self::new(lhs, operator.into(), rhs).into_expr()
     }
 
     pub fn lhs(&self) -> &ExprRef {
