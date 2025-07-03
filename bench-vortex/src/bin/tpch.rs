@@ -203,6 +203,7 @@ async fn bench_main(
     emit_plan: bool,
     output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
+    let dataset = BenchmarkDataset::TpcH { scale_factor };
     let expected_row_counts = if scale_factor == 1 {
         Some(EXPECTED_ROW_COUNTS_SF1)
     } else if scale_factor == 10 {
@@ -245,13 +246,7 @@ async fn bench_main(
         let format = target.format();
         match engine {
             Engine::DataFusion => {
-                let ctx = load_datasets(
-                    &url,
-                    format,
-                    BenchmarkDataset::TpcH { scale_factor },
-                    disable_datafusion_cache,
-                )
-                .await?;
+                let ctx = load_datasets(&url, format, dataset, disable_datafusion_cache).await?;
 
                 let mut plans = Vec::new();
 
@@ -294,6 +289,7 @@ async fn bench_main(
                     measurements.push(QueryMeasurement {
                         query_idx,
                         target: *target,
+                        benchmark_dataset: dataset,
                         storage,
                         fastest_run,
                         dataset: TPCH_DATASET.to_owned(),
@@ -311,11 +307,10 @@ async fn bench_main(
 
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
-                let engine_ctx =
-                    EngineCtx::new_with_duckdb(BenchmarkDataset::TpcH { scale_factor }, format)?;
+                let engine_ctx = EngineCtx::new_with_duckdb(dataset, format)?;
 
                 if let EngineCtx::DuckDB(ctx) = &engine_ctx {
-                    ctx.register_tables(&url, format, BenchmarkDataset::TpcH { scale_factor })?;
+                    ctx.register_tables(&url, format, dataset)?;
 
                     for (query_idx, sql_queries) in tpch_queries.clone() {
                         let (fastest_run, row_count) = benchmark_duckdb_query(
@@ -337,6 +332,7 @@ async fn bench_main(
                         measurements.push(QueryMeasurement {
                             query_idx,
                             target: *target,
+                            benchmark_dataset: dataset,
                             storage,
                             fastest_run,
                             dataset: TPCH_DATASET.to_owned(),

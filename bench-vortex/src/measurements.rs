@@ -8,10 +8,10 @@ use serde::{Serialize, Serializer};
 use vortex::error::vortex_panic;
 
 use crate::engines::df::GIT_COMMIT_ID;
-use crate::{Engine, Format, Target};
+use crate::{BenchmarkDataset, Engine, Format, Target};
 
 pub trait ToJson {
-    fn to_json(&self) -> JsonValue;
+    fn to_json(&self) -> Box<dyn erased_serde::Serialize>;
 }
 
 pub trait ToTable {
@@ -172,8 +172,8 @@ impl ToTable for TimingMeasurement {
 }
 
 impl ToJson for TimingMeasurement {
-    fn to_json(&self) -> JsonValue {
-        JsonValue {
+    fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
+        Box::new(JsonValue {
             name: self.name.clone(),
             storage: Some(self.storage.clone()),
             unit: Some(Cow::from("ns")),
@@ -182,7 +182,7 @@ impl ToJson for TimingMeasurement {
             time: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
             target: self.target,
-        }
+        })
     }
 }
 
@@ -190,6 +190,7 @@ impl ToJson for TimingMeasurement {
 pub struct QueryMeasurement {
     pub query_idx: usize,
     pub target: Target,
+    pub benchmark_dataset: BenchmarkDataset,
     /// The storage backend against which this test was run. One of: s3, gcs, nvme.
     pub storage: String,
     pub fastest_run: Duration,
@@ -197,7 +198,7 @@ pub struct QueryMeasurement {
 }
 
 impl ToJson for QueryMeasurement {
-    fn to_json(&self) -> JsonValue {
+    fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
         let name = format!(
             "{dataset}_q{query_idx:02}/{engine}:{format}",
             dataset = self.dataset,
@@ -206,7 +207,7 @@ impl ToJson for QueryMeasurement {
             query_idx = self.query_idx
         );
 
-        JsonValue {
+        Box::new(JsonValue {
             name,
             storage: Some(self.storage.clone()),
             unit: Some(Cow::from("ns")),
@@ -215,7 +216,7 @@ impl ToJson for QueryMeasurement {
             time: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
             target: self.target,
-        }
+        })
     }
 }
 
@@ -239,7 +240,7 @@ pub struct CompressionTimingMeasurement {
 }
 
 impl ToJson for CompressionTimingMeasurement {
-    fn to_json(&self) -> JsonValue {
+    fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
         let name = match self.format {
             Format::OnDiskVortex => self.name.to_string(),
             Format::Parquet => format!("parquet_rs-zstd {}", self.name),
@@ -248,7 +249,7 @@ impl ToJson for CompressionTimingMeasurement {
             ),
         };
 
-        JsonValue {
+        Box::new(JsonValue {
             name,
             storage: None,
             unit: Some(Cow::from("ns")),
@@ -257,7 +258,7 @@ impl ToJson for CompressionTimingMeasurement {
             bytes: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
             target: Target::new(Engine::Vortex, self.format),
-        }
+        })
     }
 }
 
@@ -282,8 +283,8 @@ pub struct CustomUnitMeasurement {
 }
 
 impl ToJson for CustomUnitMeasurement {
-    fn to_json(&self) -> JsonValue {
-        JsonValue {
+    fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
+        Box::new(JsonValue {
             name: self.name.clone(),
             storage: None,
             unit: Some(self.unit.clone()),
@@ -293,7 +294,7 @@ impl ToJson for CustomUnitMeasurement {
             bytes: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
             target: Target::new(Engine::Vortex, self.format),
-        }
+        })
     }
 }
 
