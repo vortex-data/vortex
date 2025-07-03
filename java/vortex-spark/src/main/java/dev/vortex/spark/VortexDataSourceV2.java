@@ -22,9 +22,9 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 /**
  * Spark V2 data source for reading Vortex files.
  * <p>
-    * This class is automatically registered so it can be discovered by the Spark runtime. The current way to
+ * This class is automatically registered so it can be discovered by the Spark runtime. The current way to
  * use it is to do {@link org.apache.spark.sql.SparkSession#read} and specify the format as "vortex".
-     */
+ */
 public final class VortexDataSourceV2 implements TableProvider, DataSourceRegister {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
