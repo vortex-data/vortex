@@ -91,7 +91,7 @@ jobs:
           target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json ${{ matrix.scale_factor }}
           echo "datafusion:vortex"
           target/release_debug/${{ matrix.binary_name }} --targets datafusion:vortex -i1 -d gh-json ${{ matrix.scale_factor }}
-          echo "datafusion:vortex"
+          echo "duckdb:vortex"
           target/release_debug/${{ matrix.binary_name }} --targets duckdb:vortex -i1 -d gh-json ${{ matrix.scale_factor }}
 
       - name: Setup AWS CLI
