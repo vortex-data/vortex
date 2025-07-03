@@ -205,7 +205,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, IntoArray as _};
     use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
@@ -259,7 +259,7 @@ mod tests {
                         Ok((
                             SequenceId::root().downgrade(),
                             StructArray::try_new(
-                                ["a".into()].into(),
+                                ["a"].into(),
                                 vec![buffer![1, 2, 3].into_array()],
                                 3,
                                 Validity::Array(
@@ -290,24 +290,34 @@ mod tests {
                 SequenceWriter::new(Box::new(TestSegments::default())),
                 SequentialStreamAdapter::new(
                     DType::Struct(
-                        StructFields::new([].into(), vec![]),
+                        StructFields::new(FieldNames::default(), vec![]),
                         Nullability::NonNullable,
                     ),
                     stream::iter([
                         {
                             Ok((
                                 SequenceId::root().downgrade(),
-                                StructArray::try_new([].into(), vec![], 3, Validity::NonNullable)
-                                    .unwrap()
-                                    .into_array(),
+                                StructArray::try_new(
+                                    FieldNames::default(),
+                                    vec![],
+                                    3,
+                                    Validity::NonNullable,
+                                )
+                                .unwrap()
+                                .into_array(),
                             ))
                         },
                         {
                             Ok((
                                 SequenceId::root().advance(),
-                                StructArray::try_new([].into(), vec![], 5, Validity::NonNullable)
-                                    .unwrap()
-                                    .into_array(),
+                                StructArray::try_new(
+                                    FieldNames::default(),
+                                    vec![],
+                                    5,
+                                    Validity::NonNullable,
+                                )
+                                .unwrap()
+                                .into_array(),
                             ))
                         },
                     ]),

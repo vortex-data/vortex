@@ -325,7 +325,7 @@ mod test {
         let zs = BoolArray::from_iter([true, true, true, false, false]);
 
         let struct_a = StructArray::try_new(
-            FieldNames::from(["xs".into(), "ys".into(), "zs".into()]),
+            FieldNames::from(["xs", "ys", "zs"]),
             vec![xs.into_array(), ys.into_array(), zs.into_array()],
             5,
             Validity::NonNullable,
@@ -365,7 +365,7 @@ mod test {
         let ys = PrimitiveArray::new(buffer![4u64, 5, 6, 7, 8], Validity::NonNullable);
 
         let mut struct_a = StructArray::try_new(
-            FieldNames::from(["xs".into(), "ys".into()]),
+            FieldNames::from(["xs", "ys"]),
             vec![xs.into_array(), ys.into_array()],
             5,
             Validity::NonNullable,
@@ -382,7 +382,7 @@ mod test {
             [0i64, 1, 2, 3, 4]
         );
 
-        assert_eq!(struct_a.names().as_ref(), [FieldName::from("ys")]);
+        assert_eq!(struct_a.names(), &[FieldName::from("ys")].into());
         assert_eq!(struct_a.fields.len(), 1);
         assert_eq!(struct_a.len(), 5);
         assert_eq!(
@@ -401,6 +401,6 @@ mod test {
             empty.is_none(),
             "Expected None when removing non-existent column"
         );
-        assert_eq!(struct_a.names().as_ref(), [FieldName::from("ys")]);
+        assert_eq!(struct_a.names(), &[FieldName::from("ys")].into());
     }
 }

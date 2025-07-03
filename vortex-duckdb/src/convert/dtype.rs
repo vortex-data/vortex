@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn test_empty_struct() {
-        let struct_fields = StructFields::new([].into(), [].into());
+        let struct_fields = StructFields::new(FieldNames::default(), [].into());
         let dtype = DType::Struct(struct_fields, Nullability::NonNullable);
 
         let logical_type = LogicalType::try_from(&dtype).unwrap();

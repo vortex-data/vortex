@@ -275,7 +275,7 @@ where
 #[cfg(test)]
 mod test {
 
-    use vortex_dtype::{DType, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
 
     use crate::{InnerScalarValue, PValue, ScalarValue};
 
@@ -387,7 +387,7 @@ mod test {
         );
         assert!(
             ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::Struct(
-                StructFields::new([].into(), [].into()),
+                StructFields::new(FieldNames::default(), [].into()),
                 Nullability::Nullable,
             ))
         );

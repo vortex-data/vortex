@@ -92,7 +92,7 @@ mod tests {
     #[test]
     fn display_empty_struct() {
         fn dtype() -> DType {
-            DType::Struct(StructFields::new([].into(), vec![]), Nullable)
+            DType::Struct(StructFields::new(Default::default(), vec![]), Nullable)
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");

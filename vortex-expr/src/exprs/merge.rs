@@ -252,7 +252,7 @@ mod tests {
 
         assert_eq!(
             actual_array.as_struct_typed().names(),
-            &["a".into(), "b".into(), "c".into(), "d".into(), "e".into()].into()
+            &["a", "b", "c", "d", "e"].into()
         );
 
         assert_eq!(
@@ -392,10 +392,7 @@ mod tests {
             .to_struct()
             .unwrap();
 
-        assert_eq!(
-            actual_array.names(),
-            &["a".into(), "c".into(), "b".into(), "d".into()].into()
-        );
+        assert_eq!(actual_array.names(), &["a", "c", "b", "d"].into());
     }
 
     #[test]

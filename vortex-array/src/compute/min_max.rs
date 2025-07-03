@@ -93,7 +93,7 @@ impl ComputeFnVTable for MinMax {
         // that the array is all null or empty.
         Ok(DType::Struct(
             StructFields::new(
-                ["min".into(), "max".into()].into(),
+                ["min", "max"].into(),
                 vec![array.dtype().clone(), array.dtype().clone()],
             ),
             Nullability::Nullable,
@@ -176,7 +176,7 @@ impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
         };
         let dtype = DType::Struct(
             StructFields::new(
-                ["min".into(), "max".into()].into(),
+                ["min", "max"].into(),
                 vec![array.dtype().clone(), array.dtype().clone()],
             ),
             Nullability::Nullable,

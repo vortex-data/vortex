@@ -123,14 +123,14 @@ mod tests {
         assert_eq!(
             taken.scalar_at(0).unwrap(),
             Scalar::struct_(
-                DType::Struct(StructFields::new([].into(), vec![]), Nullable),
+                DType::Struct(StructFields::new(FieldNames::default(), vec![]), Nullable),
                 vec![]
             )
         );
         assert_eq!(
             taken.scalar_at(1).unwrap(),
             Scalar::null(DType::Struct(
-                StructFields::new([].into(), vec![]),
+                StructFields::new(FieldNames::default(), vec![]),
                 Nullable
             ))
         );
@@ -188,10 +188,10 @@ mod tests {
 
         test_mask(
             StructArray::try_new(
-                ["xs".into(), "ys".into(), "zs".into()].into(),
+                ["xs", "ys", "zs"].into(),
                 vec![
                     StructArray::try_new(
-                        ["left".into(), "right".into()].into(),
+                        ["left", "right"].into(),
                         vec![xs.clone(), xs],
                         5,
                         Validity::NonNullable,
@@ -211,14 +211,18 @@ mod tests {
 
     #[test]
     fn test_cast_empty_struct() {
-        let array = StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
+        let array = StructArray::try_new(FieldNames::default(), vec![], 5, Validity::NonNullable)
             .unwrap()
             .into_array();
-        let non_nullable_dtype = DType::Struct(StructFields::new([].into(), vec![]), NonNullable);
+        let non_nullable_dtype = DType::Struct(
+            StructFields::new(FieldNames::default(), vec![]),
+            NonNullable,
+        );
         let casted = cast(&array, &non_nullable_dtype).unwrap();
         assert_eq!(casted.dtype(), &non_nullable_dtype);
 
-        let nullable_dtype = DType::Struct(StructFields::new([].into(), vec![]), Nullable);
+        let nullable_dtype =
+            DType::Struct(StructFields::new(FieldNames::default(), vec![]), Nullable);
         let casted = cast(&array, &nullable_dtype).unwrap();
         assert_eq!(casted.dtype(), &nullable_dtype);
     }
@@ -226,7 +230,7 @@ mod tests {
     #[test]
     fn test_cast_cannot_change_name_order() {
         let array = StructArray::try_new(
-            ["xs".into(), "ys".into(), "zs".into()].into(),
+            ["xs", "ys", "zs"].into(),
             vec![
                 buffer![1u8].into_array(),
                 buffer![1u8].into_array(),
@@ -243,7 +247,7 @@ mod tests {
             array.as_ref(),
             &DType::Struct(
                 StructFields::new(
-                    FieldNames::from(["ys".into(), "xs".into(), "zs".into()]),
+                    FieldNames::from(["ys", "xs", "zs"]),
                     vec![tu8.clone(), tu8.clone(), tu8],
                 ),
                 NonNullable,
@@ -267,10 +271,10 @@ mod tests {
             Validity::AllValid,
         );
         let fully_nullable_array = StructArray::try_new(
-            ["xs".into(), "ys".into(), "zs".into()].into(),
+            ["xs", "ys", "zs"].into(),
             vec![
                 StructArray::try_new(
-                    ["left".into(), "right".into()].into(),
+                    ["left", "right"].into(),
                     vec![xs.to_array(), xs.to_array()],
                     5,
                     Validity::AllValid,
@@ -292,11 +296,11 @@ mod tests {
 
         let non_null_xs_right = DType::Struct(
             StructFields::new(
-                ["xs".into(), "ys".into(), "zs".into()].into(),
+                ["xs", "ys", "zs"].into(),
                 vec![
                     DType::Struct(
                         StructFields::new(
-                            ["left".into(), "right".into()].into(),
+                            ["left", "right"].into(),
                             vec![
                                 DType::Primitive(PType::I64, NonNullable),
                                 DType::Primitive(PType::I64, Nullable),
@@ -315,11 +319,11 @@ mod tests {
 
         let non_null_xs = DType::Struct(
             StructFields::new(
-                ["xs".into(), "ys".into(), "zs".into()].into(),
+                ["xs", "ys", "zs"].into(),
                 vec![
                     DType::Struct(
                         StructFields::new(
-                            ["left".into(), "right".into()].into(),
+                            ["left", "right"].into(),
                             vec![
                                 DType::Primitive(PType::I64, Nullable),
                                 DType::Primitive(PType::I64, Nullable),

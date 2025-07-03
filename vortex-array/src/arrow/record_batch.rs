@@ -15,7 +15,7 @@ impl TryIntoArray for RecordBatch {
             self.schema()
                 .fields()
                 .iter()
-                .map(|f| f.name().as_str().into())
+                .map(|f| f.name().as_str())
                 .collect(),
             self.columns()
                 .iter()

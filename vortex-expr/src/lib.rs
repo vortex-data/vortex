@@ -248,14 +248,7 @@ pub mod test_harness {
     pub fn struct_dtype() -> DType {
         DType::Struct(
             StructFields::new(
-                [
-                    "a".into(),
-                    "col1".into(),
-                    "col2".into(),
-                    "bool1".into(),
-                    "bool2".into(),
-                ]
-                .into(),
+                ["a", "col1", "col2", "bool1", "bool2"].into(),
                 vec![
                     DType::Primitive(PType::I32, Nullability::NonNullable),
                     DType::Primitive(PType::U16, Nullability::Nullable),
@@ -271,7 +264,7 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
     use vortex_scalar::Scalar;
 
     use super::*;
@@ -382,7 +375,7 @@ mod tests {
             lit(Scalar::struct_(
                 DType::Struct(
                     StructFields::new(
-                        Arc::from([Arc::from("dog"), Arc::from("cat")]),
+                        FieldNames::from(["dog", "cat"]),
                         vec![
                             DType::Primitive(PType::U32, Nullability::NonNullable),
                             DType::Utf8(Nullability::NonNullable)
