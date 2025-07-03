@@ -1,3 +1,0 @@
-{
-  "dependencies": [{ "name": "catch2" }, { "name": "protobuf" }]
-}

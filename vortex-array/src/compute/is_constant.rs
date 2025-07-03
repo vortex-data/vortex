@@ -7,7 +7,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::arrays::{ConstantVTable, ListVTable, NullVTable};
+use crate::arrays::{ConstantVTable, NullVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
@@ -72,8 +72,7 @@ impl ComputeFnVTable for IsConstant {
 
         let value = is_constant_impl(array, options, kernels)?;
 
-        // TODO(joe): add is_constant for ListArray
-        if options.cost == Cost::Canonicalize && !array.is::<ListVTable>() {
+        if options.cost == Cost::Canonicalize {
             // When we run linear canonicalize, there we must always return an exact answer.
             assert!(
                 value.is_some(),
@@ -137,17 +136,16 @@ fn is_constant_impl(
     }
 
     // We already know here that the array is all valid, so we check for min/max stats.
-    let min = array
-        .statistics()
-        .get_scalar(Stat::Min, array.dtype())
-        .and_then(|p| p.as_exact());
-    let max = array
-        .statistics()
-        .get_scalar(Stat::Max, array.dtype())
-        .and_then(|p| p.as_exact());
+    let min = array.statistics().get_scalar(Stat::Min, array.dtype());
+    let max = array.statistics().get_scalar(Stat::Max, array.dtype());
 
     if let Some((min, max)) = min.zip(max) {
-        if min == max {
+        // min/max are equal and exact and there are no NaNs
+        if min.is_exact()
+            && min == max
+            && (Stat::NaNCount.dtype(array.dtype()).is_none()
+                || array.statistics().get_as::<u64>(Stat::NaNCount) == Some(Precision::exact(0u64)))
+        {
             return Ok(Some(true));
         }
     }
@@ -282,5 +280,45 @@ impl Options for IsConstantOpts {
 impl IsConstantOpts {
     pub fn is_negligible_cost(&self) -> bool {
         self.cost == Cost::Negligible
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::arrays::PrimitiveArray;
+    use crate::stats::Stat;
+
+    #[test]
+    fn is_constant_min_max_no_nan() {
+        let arr = PrimitiveArray::from_iter([0, 1]);
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max])
+            .unwrap();
+        assert!(!arr.is_constant());
+
+        let arr = PrimitiveArray::from_iter([0, 0]);
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max])
+            .unwrap();
+        assert!(arr.is_constant());
+
+        let arr = PrimitiveArray::from_option_iter([Some(0), Some(0)]);
+        assert!(arr.is_constant());
+    }
+
+    #[test]
+    fn is_constant_min_max_with_nan() {
+        let arr = PrimitiveArray::from_iter([0.0, 0.0, f32::NAN]);
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max])
+            .unwrap();
+        assert!(!arr.is_constant());
+
+        let arr =
+            PrimitiveArray::from_option_iter([Some(f32::NEG_INFINITY), Some(f32::NEG_INFINITY)]);
+        arr.statistics()
+            .compute_all(&[Stat::Min, Stat::Max])
+            .unwrap();
+        assert!(arr.is_constant());
     }
 }

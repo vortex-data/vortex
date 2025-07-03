@@ -52,7 +52,13 @@ impl CompareKernel for VarBinVTable {
                 };
 
                 return Ok(Some(
-                    BoolArray::new(buffer, lhs.validity().clone()).into_array(),
+                    BoolArray::new(
+                        buffer,
+                        lhs.validity()
+                            .clone()
+                            .union_nullability(rhs.dtype().nullability()),
+                    )
+                    .into_array(),
                 ));
             }
 
@@ -174,6 +180,30 @@ mod test {
         assert_eq!(
             result.boolean_buffer(),
             &BooleanBuffer::from_iter([false, true, true])
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::{DType, Nullability};
+    use vortex_scalar::Scalar;
+
+    use crate::Array;
+    use crate::arrays::{ConstantArray, VarBinArray};
+    use crate::compute::{Operator, compare};
+
+    #[test]
+    fn test_null_compare() {
+        let arr = VarBinArray::from_iter([Some("h")], DType::Utf8(Nullability::NonNullable));
+
+        let const_ = ConstantArray::new(Scalar::utf8("", Nullability::Nullable), 1);
+
+        assert_eq!(
+            compare(arr.as_ref(), const_.as_ref(), Operator::Eq)
+                .unwrap()
+                .dtype(),
+            &DType::Bool(Nullability::Nullable)
         );
     }
 }

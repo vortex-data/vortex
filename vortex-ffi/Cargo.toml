@@ -17,8 +17,6 @@ rust-version = { workspace = true }
 categories = { workspace = true }
 
 [dependencies]
-duckdb = { workspace = true, optional = true }
-futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 mimalloc = { workspace = true, optional = true }
@@ -31,12 +29,16 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 tokio-stream = { workspace = true }
 url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["object_store", "proto"] }
-vortex-duckdb = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[build-dependencies]
+cbindgen = { workspace = true }
 
 [features]
 default = ["mimalloc"]
 mimalloc = ["dep:mimalloc"]
-duckdb = ["dep:vortex-duckdb", "dep:duckdb"]
 
 [lib]
 name = "vortex_ffi"

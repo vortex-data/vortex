@@ -1,7 +1,5 @@
 //! A contiguously serialized Vortex array.
 //!
-//! See [message] and [footer] for the flatbuffer specifications.
-//!
 //! See the `vortex-file` crate for non-contiguous serialization.
 
 #[cfg(feature = "array")]
@@ -11,6 +9,9 @@
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::borrow_as_ptr)]
 #[allow(dead_code)]
+// TODO(robert): Remove once we can update toolchain
+#[allow(unknown_lints)]
+#[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -34,6 +35,9 @@ pub mod array;
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::borrow_as_ptr)]
 #[allow(dead_code)]
+// TODO(robert): Remove once we can update toolchain
+#[allow(unknown_lints)]
+#[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -57,6 +61,9 @@ pub mod dtype;
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::borrow_as_ptr)]
 #[allow(dead_code)]
+// TODO(robert): Remove once we can update toolchain
+#[allow(unknown_lints)]
+#[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -80,6 +87,9 @@ pub mod footer;
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::borrow_as_ptr)]
 #[allow(dead_code)]
+// TODO(robert): Remove once we can update toolchain
+#[allow(unknown_lints)]
+#[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]
@@ -103,6 +113,9 @@ pub mod layout;
 #[allow(clippy::unwrap_used)]
 #[allow(clippy::borrow_as_ptr)]
 #[allow(dead_code)]
+// TODO(robert): Remove once we can update toolchain
+#[allow(unknown_lints)]
+#[allow(mismatched_lifetime_syntaxes)]
 #[allow(non_snake_case)]
 #[allow(non_camel_case_types)]
 #[allow(unsafe_op_in_unsafe_fn)]

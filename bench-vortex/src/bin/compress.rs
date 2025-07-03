@@ -1,3 +1,7 @@
+use std::fs::File;
+use std::io::{Write, stdout};
+use std::path::PathBuf;
+
 use bench_vortex::compress::bench::{CompressMeasurements, benchmark_compress};
 use bench_vortex::datasets::Dataset;
 use bench_vortex::datasets::struct_list_of_ints::StructListOfInts;
@@ -29,6 +33,8 @@ struct Args {
     datasets: Option<String>,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
+    #[arg(short)]
+    output_path: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -45,6 +51,7 @@ fn main() -> anyhow::Result<()> {
         args.datasets.map(|d| Regex::new(&d)).transpose()?,
         args.formats,
         args.display_format,
+        &args.output_path,
     )
 }
 
@@ -54,6 +61,7 @@ fn compress(
     datasets_filter: Option<Regex>,
     formats: Vec<Format>,
     display_format: DisplayFormat,
+    output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let targets = formats
         .iter()
@@ -105,10 +113,18 @@ fn compress(
 
     progress.finish();
 
+    let mut writer: Box<dyn Write> = if let Some(output_path) = output_path {
+        Box::new(File::create(output_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
+
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements.timings, &targets)?;
+            render_table(&mut writer, measurements.timings, &targets)?;
             render_table(
+                &mut writer,
                 measurements.ratios,
                 &if formats.contains(&Format::OnDiskVortex) {
                     vec![Target::new(Engine::default(), Format::OnDiskVortex)]
@@ -118,8 +134,8 @@ fn compress(
             )
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements.timings)?;
-            print_measurements_json(measurements.ratios)
+            print_measurements_json(&mut writer, measurements.timings)?;
+            print_measurements_json(&mut writer, measurements.ratios)
         }
     }
 }

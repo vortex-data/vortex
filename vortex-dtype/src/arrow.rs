@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use arrow_schema::{
-    DECIMAL128_MAX_SCALE, DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef,
+    DECIMAL128_MAX_PRECISION, DataType, Field, FieldRef, Fields, Schema, SchemaBuilder, SchemaRef,
 };
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 
@@ -77,7 +77,7 @@ impl FromArrowType<SchemaRef> for DType {
 impl FromArrowType<&Schema> for DType {
     fn from_arrow(value: &Schema) -> Self {
         Self::Struct(
-            Arc::new(StructFields::from_arrow(value.fields())),
+            StructFields::from_arrow(value.fields()),
             Nullability::NonNullable, // Must match From<RecordBatch> for Array
         )
     }
@@ -123,7 +123,7 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
             DataType::List(e) | DataType::LargeList(e) => {
                 List(Arc::new(Self::from_arrow(e.as_ref())), nullability)
             }
-            DataType::Struct(f) => Struct(Arc::new(StructFields::from_arrow(f)), nullability),
+            DataType::Struct(f) => Struct(StructFields::from_arrow(f), nullability),
             _ => unimplemented!("Arrow data type not yet supported: {:?}", data_type),
         }
     }
@@ -177,7 +177,7 @@ impl DType {
                 PType::F64 => DataType::Float64,
             },
             DType::Decimal(dt, _) => {
-                if dt.scale() > DECIMAL128_MAX_SCALE {
+                if dt.precision() > DECIMAL128_MAX_PRECISION {
                     DataType::Decimal256(dt.precision(), dt.scale())
                 } else {
                     DataType::Decimal128(dt.precision(), dt.scale())
@@ -220,6 +220,7 @@ impl DType {
 #[cfg(test)]
 mod test {
     use arrow_schema::{DataType, Field, FieldRef, Fields, Schema};
+    use rstest::{fixture, rstest};
 
     use super::*;
     use crate::{DType, ExtDType, ExtID, FieldName, FieldNames, Nullability, PType, StructFields};
@@ -257,11 +258,11 @@ mod test {
         );
 
         assert_eq!(
-            DType::Struct(
-                Arc::new(StructFields::from_iter([
+            DType::struct_(
+                [
                     ("field_a", DType::Bool(false.into())),
                     ("field_b", DType::Utf8(true.into()))
-                ])),
+                ],
                 Nullability::NonNullable,
             )
             .to_arrow_dtype()
@@ -311,10 +312,25 @@ mod test {
         .unwrap();
     }
 
-    #[test]
-    fn test_schema_conversion() {
-        let struct_dtype = the_struct();
-        let schema_nonnull = DType::Struct(struct_dtype, Nullability::NonNullable);
+    #[fixture]
+    fn the_struct() -> StructFields {
+        StructFields::new(
+            FieldNames::from([
+                FieldName::from("field_a"),
+                FieldName::from("field_b"),
+                FieldName::from("field_c"),
+            ]),
+            vec![
+                DType::Bool(Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+                DType::Primitive(PType::I32, Nullability::Nullable),
+            ],
+        )
+    }
+
+    #[rstest]
+    fn test_schema_conversion(the_struct: StructFields) {
+        let schema_nonnull = DType::Struct(the_struct, Nullability::NonNullable);
 
         assert_eq!(
             schema_nonnull.to_arrow_schema().unwrap(),
@@ -326,26 +342,10 @@ mod test {
         );
     }
 
-    #[test]
+    #[rstest]
     #[should_panic]
-    fn test_schema_conversion_panics() {
-        let struct_dtype = the_struct();
-        let schema_null = DType::Struct(struct_dtype, Nullability::Nullable);
+    fn test_schema_conversion_panics(the_struct: StructFields) {
+        let schema_null = DType::Struct(the_struct, Nullability::Nullable);
         let _ = schema_null.to_arrow_schema().unwrap();
-    }
-
-    fn the_struct() -> Arc<StructFields> {
-        Arc::new(StructFields::new(
-            FieldNames::from([
-                FieldName::from("field_a"),
-                FieldName::from("field_b"),
-                FieldName::from("field_c"),
-            ]),
-            vec![
-                DType::Bool(Nullability::NonNullable),
-                DType::Utf8(Nullability::NonNullable),
-                DType::Primitive(PType::I32, Nullability::Nullable),
-            ],
-        ))
     }
 }

@@ -20,13 +20,13 @@ use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ExprRef, ScopeDType, root};
+use vortex_expr::{ExprRef, root};
 use vortex_metrics::VortexMetrics;
 
-use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
 use crate::layouts::row_id::RowIdLayoutReader;
 use crate::scan::tasks::{TaskContext, split_exec};
+use crate::{LayoutReader, LayoutReaderRef};
 
 mod executor;
 pub mod row_mask;
@@ -36,7 +36,7 @@ mod tasks;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
-    layout_reader: Arc<dyn LayoutReader>,
+    layout_reader: LayoutReaderRef,
     projection: ExprRef,
     filter: Option<ExprRef>,
     /// Optionally read a subset of the rows in the file.
@@ -57,6 +57,10 @@ pub struct ScanBuilder<A> {
     file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<usize>,
+    /// Include the row and file index in the scope of the scan.
+    ///
+    /// See also [crate::layouts::row_id].
+    row_index: bool,
 }
 
 impl<A: 'static + Send + Sync> ScanBuilder<A> {
@@ -87,6 +91,11 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
     pub fn with_row_indices(mut self, row_indices: Buffer<u64>) -> Self {
         self.selection = Selection::IncludeByIndex(row_indices);
+        self
+    }
+
+    pub fn with_row_index(mut self) -> Self {
+        self.row_index = true;
         self
     }
 
@@ -146,27 +155,25 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             metrics: self.metrics,
             file_stats: self.file_stats,
             limit: self.limit,
+            row_index: self.row_index,
         }
-    }
-
-    /// Returns the output [`DType`] of the scan.
-    pub fn dtype(&self) -> VortexResult<DType> {
-        self.projection.return_dtype(
-            &ScopeDType::new(self.layout_reader.dtype().clone())
-                .with_dtype_element(RowIdLayoutReader::row_id_scope_dtype()),
-        )
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
     #[allow(clippy::unused_enumerate_index)]
-    pub fn build(mut self) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<A>>>>> {
+    pub fn build(
+        mut self,
+    ) -> VortexResult<(DType, Vec<impl Future<Output = VortexResult<Option<A>>>>)> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
 
         // The ultimate short circuit
         if self.limit.is_some_and(|l| l == 0) {
-            return Ok(Vec::new());
+            let dtype = self
+                .projection
+                .return_dtype(self.layout_reader.scope_dtype())?;
+            return Ok((dtype, Vec::new()));
         }
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
@@ -176,14 +183,18 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         if self.filter.is_some() {
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
         }
-        let ctx = ScopeDType::new(layout_reader.dtype().clone());
+        if self.row_index {
+            layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
+        }
+
+        let scope_dtype = layout_reader.scope_dtype();
 
         // Normalize and simplify the expressions.
-        let projection = simplify_typed(self.projection.clone(), &ctx)?;
+        let projection = simplify_typed(self.projection.clone(), scope_dtype)?;
         let filter = self
             .filter
             .clone()
-            .map(|f| simplify_typed(f, &ctx))
+            .map(|f| simplify_typed(f, scope_dtype))
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.
@@ -214,13 +225,14 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             })
             .try_collect()?;
 
-        Ok(split_tasks)
+        let dtype = self.projection.return_dtype(layout_reader.scope_dtype())?;
+        Ok((dtype, split_tasks))
     }
 
-    /// Returns a stream over the scan objects.
     pub fn into_stream(self) -> VortexResult<impl Stream<Item = VortexResult<A>> + 'static> {
         let concurrency = self.concurrency;
-        Ok(stream::iter(self.build()?)
+        let (_, split_tasks) = self.build()?;
+        Ok(stream::iter(split_tasks)
             .buffered(concurrency)
             .filter_map(|r| async move { r.transpose() }))
     }
@@ -243,6 +255,7 @@ impl ScanBuilder<ArrayRef> {
             metrics: Default::default(),
             file_stats: None,
             limit: None,
+            row_index: false,
         }
     }
 
@@ -257,9 +270,14 @@ impl ScanBuilder<ArrayRef> {
     /// Returns a stream over the scan with each CPU task polled on the current thread as per
     /// the behaviour of [`futures::stream::Buffered`].
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        let dtype = self.dtype()?;
-        let stream = self.into_stream()?;
-        Ok(ArrayStreamAdapter::new(dtype, stream))
+        let concurrency = self.concurrency;
+        let (dtype, split_tasks) = self.build()?;
+        Ok(ArrayStreamAdapter::new(
+            dtype,
+            stream::iter(split_tasks)
+                .buffered(concurrency)
+                .filter_map(|r| async move { r.transpose() }),
+        ))
     }
 
     /// Returns a blocking iterator over the scan.
@@ -267,13 +285,13 @@ impl ScanBuilder<ArrayRef> {
     /// All work will be performed on the current thread, with tasks interleaved per the
     /// configured concurrency. Any configured executor will be ignored.
     pub fn into_array_iter(self) -> VortexResult<impl ArrayIterator + 'static> {
-        let dtype = self.dtype()?;
         let concurrency = self.concurrency;
 
         let mut local_pool = LocalPool::new();
         let spawner = local_pool.spawner();
 
-        let mut stream = stream::iter(self.build()?)
+        let (dtype, split_tasks) = self.build()?;
+        let mut stream = stream::iter(split_tasks)
             .map(move |task| {
                 spawner
                     .spawn_local_with_handle(task)

@@ -1,32 +1,75 @@
-#![cfg(not(target_arch = "wasm32"))]
 #![allow(clippy::missing_safety_doc)]
+use std::ffi::{CStr, c_char};
+use std::sync::LazyLock;
 
-/// This is the default chunk size for duckdb.
-/// It is best to return data chunks of this size to duckdb.
-/// 2048 is the default chunk size for duckdb.
-pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
+// **WARNING begin this includes duckdb-rs, which is required to link in the symbol from libduckdb-sys.
+use tokio::runtime;
+use tokio::runtime::Runtime;
+// **WARNING end
+use vortex::error::{VortexExpect, VortexResult};
 
-mod buffer;
+use crate::copy::VortexCopyFunction;
+pub use crate::duckdb::{Connection, Database};
+use crate::scan::VortexTableFunction;
+
 mod convert;
-mod exporter;
+pub mod duckdb;
+pub mod exporter;
+mod scan;
 
-pub use convert::*;
-pub use exporter::*;
-
-// Note: To generate C decls to include in vortex_duckdb_extension.cpp,
-// call `cbindgen` from `vortex/vortex-duckdb`.
-
+#[allow(dead_code)]
+#[allow(non_camel_case_types)]
+#[allow(non_upper_case_globals)]
+#[allow(non_snake_case)]
+#[allow(clippy::suspicious_doc_comments)]
+#[allow(clippy::enum_variant_names)]
+#[rustfmt::skip]
+#[path = "./cpp.rs"]
+/// This module provides the FFI interface to our C++ code exposing additional functionality
+/// for DuckDB, such as custom data types and functions.
+/// cbindgen:ignore
+mod cpp;
+mod copy;
 #[cfg(test)]
-mod tests {
-    use duckdb::ffi::duckdb_vector_size;
+mod vortex_e2e_tests;
 
-    use crate::DUCKDB_STANDARD_VECTOR_SIZE;
-
-    #[test]
-    fn assert_duckdb_vector_size_matches() {
-        assert_eq!(
-            Ok(DUCKDB_STANDARD_VECTOR_SIZE),
-            usize::try_from(unsafe { duckdb_vector_size() })
-        );
-    }
+/// Initialize the Vortex extension by registering the extension functions.
+pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
+    conn.register_table_function::<VortexTableFunction>(c"vortex_scan")?;
+    conn.register_table_function::<VortexTableFunction>(c"read_vortex")?;
+    conn.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
 }
+
+/// The DuckDB extension ABI initialization function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vortex_init(db: cpp::duckdb_database) {
+    let conn = unsafe { Database::borrow(db) }
+        .connect()
+        .vortex_expect("Failed to connect to DuckDB database");
+    register_table_functions(&conn).vortex_expect("Failed to initialize Vortex extension");
+}
+
+/// The DuckDB extension ABI version function.
+/// This function returns the version of the DuckDB library the extension is built against.
+#[unsafe(no_mangle)]
+pub extern "C" fn vortex_version() -> *const c_char {
+    unsafe { cpp::duckdb_library_version() }
+}
+
+/// An additional function we export to expose the version of the extension itself to C++ code.
+#[unsafe(no_mangle)]
+pub extern "C" fn vortex_extension_version() -> *const c_char {
+    // We do some fiddly macros here to get ourselves a _static_ C-style string.
+    // Otherwise, we'd be leaking memory.
+    unsafe {
+        CStr::from_bytes_with_nul_unchecked(concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes())
+    }
+    .as_ptr()
+}
+
+static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+    runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .vortex_expect("Cannot start runtime")
+});

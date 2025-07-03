@@ -10,7 +10,7 @@ use crate::{ArrayRef, IntoArray};
 
 impl OperationsVTable<DecimalVTable> for DecimalVTable {
     fn slice(array: &DecimalArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        match_each_decimal_value_type!(array.values_type, |D| {
+        match_each_decimal_value_type!(array.values_type(), |D| {
             slice_typed(
                 array.buffer::<D>(),
                 start,

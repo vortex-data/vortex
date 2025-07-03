@@ -8,7 +8,7 @@ use futures::{StreamExt, TryStreamExt, pin_mut};
 use itertools::Itertools;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
-    ChunkedArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
+    ChunkedArray, ConstantArray, DecimalArray, ListArray, PrimitiveArray, StructArray, VarBinArray,
     VarBinViewArray,
 };
 use vortex_array::stream::ArrayStreamExt;
@@ -19,6 +19,7 @@ use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
 use vortex_expr::{and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
+use vortex_scalar::Scalar;
 
 use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
 
@@ -219,7 +220,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(select(["strings".into()], root()))
+        .with_projection(select(["strings"], root()))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -229,10 +230,7 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            Arc::new(StructFields::new(
-                vec!["strings".into()].into(),
-                vec![strings_dtype.clone()]
-            )),
+            StructFields::new(vec!["strings".into()].into(), vec![strings_dtype.clone()]),
             Nullability::NonNullable,
         )
     );
@@ -250,7 +248,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(select(["numbers".into()], root()))
+        .with_projection(select(["numbers"], root()))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -260,10 +258,7 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            Arc::new(StructFields::new(
-                vec!["numbers".into()].into(),
-                vec![numbers_dtype.clone()]
-            )),
+            StructFields::new(["numbers"].into(), vec![numbers_dtype.clone()]),
             Nullability::NonNullable,
         )
     );
@@ -340,7 +335,7 @@ async fn write_chunked() {
             .unwrap()
             .into_array();
     let st = StructArray::try_new(
-        ["strings".into(), "numbers".into()].into(),
+        ["strings", "numbers"].into(),
         vec![strings_chunked, numbers_chunked],
         16,
         Validity::NonNullable,
@@ -376,6 +371,33 @@ async fn write_chunked() {
 
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
+async fn test_empty_varbin_array_roundtrip() {
+    let empty = VarBinArray::from(Vec::<&str>::new()).into_array();
+
+    let st = StructArray::from_fields(&[("a", empty)]).unwrap();
+
+    let buf = VortexWriteOptions::default()
+        .write(ByteBufferMut::empty(), st.to_array_stream())
+        .await
+        .unwrap();
+
+    let file = VortexOpenOptions::in_memory().open(buf).await.unwrap();
+
+    let result = file
+        .scan()
+        .unwrap()
+        .into_array_stream()
+        .unwrap()
+        .read_all()
+        .await
+        .unwrap();
+
+    assert_eq!(result.len(), 0);
+    assert_eq!(result.dtype(), st.dtype());
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn filter_string() {
     let names_orig = VarBinArray::from_iter(
         vec![Some("Joseph"), None, Some("Angela"), Some("Mikhail"), None],
@@ -385,7 +407,7 @@ async fn filter_string() {
     let ages_orig =
         PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]).into_array();
     let st = StructArray::try_new(
-        ["name".into(), "age".into()].into(),
+        ["name", "age"].into(),
         vec![names_orig, ages_orig],
         5,
         Validity::NonNullable,
@@ -436,7 +458,7 @@ async fn filter_or() {
     );
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
-        ["name".into(), "age".into()].into(),
+        ["name", "age"].into(),
         vec![names.into_array(), ages.into_array()],
         5,
         Validity::NonNullable,
@@ -500,7 +522,7 @@ async fn filter_and() {
     );
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
-        ["name".into(), "age".into()].into(),
+        ["name", "age"].into(),
         vec![names.into_array(), ages.into_array()],
         5,
         Validity::NonNullable,
@@ -1007,7 +1029,7 @@ async fn test_repeated_projection() {
     let actual = file
         .scan()
         .unwrap()
-        .with_projection(select(["strings".into(), "strings".into()], root()))
+        .with_projection(select(["strings", "strings"], root()))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -1098,6 +1120,80 @@ async fn file_take() -> VortexResult<()> {
         .to_primitive()?;
 
     assert_eq!(result.as_slice::<i32>(), &[0, 1, 8]);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[should_panic(
+    expected = "FileStatsAccumulator temporarily does not support nullable top-level structs"
+)]
+async fn write_nullable_top_level_struct() {
+    let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
+
+    let array = StructArray::try_new(
+        ["age"].into(),
+        vec![ages.into_array()],
+        5,
+        Validity::AllValid,
+    )
+    .unwrap()
+    .into_array();
+
+    VortexWriteOptions::default()
+        .write(vec![], array.to_array_stream())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn write_nullable_nested_struct() -> VortexResult<()> {
+    let nested_dtype = DType::struct_(
+        [(
+            "nested_field",
+            DType::Primitive(PType::F16, Nullability::Nullable),
+        )],
+        Nullability::Nullable,
+    );
+
+    let struct_ = ConstantArray::new(Scalar::null(nested_dtype.clone()), 3).to_array();
+
+    let array = StructArray::try_new(
+        ["struct"].into(),
+        vec![struct_.into_array()],
+        3,
+        Validity::NonNullable,
+    )?
+    .into_array();
+
+    let buffer: Bytes = VortexWriteOptions::default()
+        .write(vec![], array.to_array_stream())
+        .await?
+        .into();
+
+    let vxf = VortexOpenOptions::in_memory()
+        .with_dtype(array.dtype().clone())
+        .open(buffer)
+        .await?;
+
+    assert_eq!(vxf.dtype(), array.dtype());
+    assert_eq!(vxf.row_count(), 3);
+
+    let result = vxf
+        .scan()?
+        .into_array_stream()?
+        .read_all()
+        .await?
+        .to_struct()?;
+
+    assert_eq!(result.len(), 3);
+    assert_eq!(result.fields().len(), 1);
+    assert!(result.all_valid()?);
+
+    let nested_struct = result.field_by_name("struct")?.to_struct()?;
+    assert_eq!(nested_struct.dtype(), &nested_dtype);
+    assert_eq!(nested_struct.len(), 3);
+    assert!(nested_struct.all_invalid()?);
 
     Ok(())
 }

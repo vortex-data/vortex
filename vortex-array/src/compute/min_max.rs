@@ -1,8 +1,8 @@
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::{DType, Nullability, StructFields};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::Array;
@@ -10,9 +10,8 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output,
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
 
-/// Computes the min & max of an array, returning the (min, max) values
-/// The return values are (min, max) scalars, where None indicates that the value is non-existent
-/// (e.g. for an empty array).
+/// The minimum and maximum non-null values of an array, or None if there are no non-null values.
+///
 /// The return value dtype is the non-nullable version of the array dtype.
 ///
 /// This will update the stats set of this array (as a side effect).
@@ -37,8 +36,14 @@ impl MinMaxResult {
         if scalar.is_null() {
             Ok(None)
         } else {
-            let min = scalar.as_struct().field_by_idx(0)?;
-            let max = scalar.as_struct().field_by_idx(1)?;
+            let min = scalar
+                .as_struct()
+                .field_by_idx(0)
+                .vortex_expect("missing min field");
+            let max = scalar
+                .as_struct()
+                .field_by_idx(1)
+                .vortex_expect("missing max field");
             Ok(Some(MinMaxResult { min, max }))
         }
     }
@@ -87,10 +92,10 @@ impl ComputeFnVTable for MinMax {
         // We return a min/max struct scalar, where the overall struct is nullable in the case
         // that the array is all null or empty.
         Ok(DType::Struct(
-            Arc::new(StructFields::new(
-                ["min".into(), "max".into()].into(),
+            StructFields::new(
+                ["min", "max"].into(),
                 vec![array.dtype().clone(), array.dtype().clone()],
-            )),
+            ),
             Nullability::Nullable,
         ))
     }
@@ -146,8 +151,7 @@ fn min_max_impl(
     vortex_bail!(NotImplemented: "min_max", array.encoding_id());
 }
 
-/// Computes the min and max of an array, returning the (min, max) values
-/// If the array is empty or has only nulls, the result is `None`.
+/// The minimum and maximum non-null values of an array, or None if there are no non-null values.
 pub trait MinMaxKernel: VTable {
     fn min_max(&self, array: &Self::Array) -> VortexResult<Option<MinMaxResult>>;
 }
@@ -171,10 +175,10 @@ impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
             return Ok(None);
         };
         let dtype = DType::Struct(
-            Arc::new(StructFields::new(
-                ["min".into(), "max".into()].into(),
+            StructFields::new(
+                ["min", "max"].into(),
                 vec![array.dtype().clone(), array.dtype().clone()],
-            )),
+            ),
             Nullability::Nullable,
         );
         Ok(Some(match V::min_max(&self.0, array)? {

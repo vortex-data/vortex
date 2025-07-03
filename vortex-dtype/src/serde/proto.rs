@@ -29,12 +29,12 @@ impl TryFrom<&pb::DType> for DType {
             DtypeType::Binary(b) => Ok(Self::Binary(b.nullable.into())),
             DtypeType::Struct(s) => Ok(Self::Struct(
                 StructFields::new(
-                    s.names.iter().map(|s| s.as_str().into()).collect(),
+                    s.names.iter().map(|s| s.as_str()).collect(),
                     s.dtypes
                         .iter()
                         .map(TryInto::<Self>::try_into)
                         .collect::<VortexResult<Vec<_>>>()?,
-                ).into(),
+                ),
                 s.nullable.into(),
             )),
             DtypeType::List(l) => {

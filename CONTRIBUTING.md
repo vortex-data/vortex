@@ -9,6 +9,11 @@ make the process as streamlined as possible.
 
 Vortex is an independent open-source project and not controlled by any single company. The Vortex Project is a sub-project of the Linux Foundation Projects. As such, the governance is subject to the terms of the [Technical Charter](https://vortex.dev/charter.pdf).
 
+## Project Roles
+* Contributor: anyone who contributes intellectual property to the common endeavor of the project under the project license.
+* Committer: a subset of Contributors, who collectively determine the project's technical direction. Committers have permissions to review & merge code contributions.
+* Maintainer: a subset of Committers, who are additionally responsible for appointing new Committers.
+
 ## Coding style
 
 Our CI process enforces an extensive set of linter (e.g., `clippy`) rules, as well as language-specific formatters (e.g., `cargo fmt`). Beyond that,
@@ -33,6 +38,8 @@ The contribution process is outlined below:
       with the title prefixed with [WIP], and share with the team to get early feedback.
     * Give the PR a clear, brief description; this will be the commit
       message when the PR is merged.
+    * For significant new functionality, ensure that you write tests to cover that new functionality. Similarly,
+      for bugfixes, include a test that reproduces the original bug (and that should now pass after the fix).
     * Make sure the PR passes all CI tests.
 
 3. Open a PR to indicate that the change is ready for review.

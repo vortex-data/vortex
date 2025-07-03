@@ -10,9 +10,9 @@ use crate::vtable::ValidityHelper;
 impl BoolArray {
     pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
         let len = self.len();
-        let (_, offset, indices, values) = patches.clone().into_parts();
-        let indices = indices.to_primitive()?;
-        let values = values.to_bool()?;
+        let offset = patches.offset();
+        let indices = patches.indices().to_primitive()?;
+        let values = patches.values().to_bool()?;
 
         let patched_validity =
             self.validity()

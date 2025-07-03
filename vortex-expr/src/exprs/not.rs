@@ -1,0 +1,148 @@
+use std::any::Any;
+use std::fmt::Display;
+use std::hash::Hash;
+use std::sync::Arc;
+
+use vortex_array::ArrayRef;
+use vortex_array::compute::invert;
+use vortex_dtype::DType;
+use vortex_error::VortexResult;
+
+use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+
+#[derive(Debug, Eq, Hash)]
+// We cannot auto derive PartialEq because ExprRef, since its a Arc<..> and derive doesn't work
+#[allow(clippy::derived_hash_with_manual_eq)]
+pub struct Not {
+    child: ExprRef,
+}
+
+impl Not {
+    pub fn new_expr(child: ExprRef) -> ExprRef {
+        Arc::new(Self { child })
+    }
+
+    pub fn child(&self) -> &ExprRef {
+        &self.child
+    }
+}
+
+impl Display for Not {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "!{}", self.child)
+    }
+}
+
+#[cfg(feature = "proto")]
+pub(crate) mod proto {
+    use expr::kind;
+    use vortex_error::VortexResult;
+    use vortex_proto::expr;
+    use vortex_proto::expr::kind::Kind;
+
+    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Not};
+
+    pub struct NotSerde;
+
+    impl Id for NotSerde {
+        fn id(&self) -> &'static str {
+            "not"
+        }
+    }
+
+    impl ExprDeserialize for NotSerde {
+        fn deserialize(&self, _expr: &Kind, mut children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+            Ok(Not::new_expr(children.remove(0)))
+        }
+    }
+
+    impl ExprSerializable for Not {
+        fn id(&self) -> &'static str {
+            NotSerde.id()
+        }
+
+        fn serialize_kind(&self) -> VortexResult<Kind> {
+            Ok(Kind::Not(kind::Not {}))
+        }
+    }
+}
+
+impl AnalysisExpr for Not {}
+
+impl VortexExpr for Not {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
+        let child_result = self.child.unchecked_evaluate(scope)?;
+        invert(&child_result)
+    }
+
+    fn children(&self) -> Vec<&ExprRef> {
+        vec![&self.child]
+    }
+
+    fn replacing_children(self: Arc<Self>, mut children: Vec<ExprRef>) -> ExprRef {
+        assert_eq!(children.len(), 1);
+        Self::new_expr(children.remove(0))
+    }
+
+    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType> {
+        self.child.return_dtype(scope)
+    }
+}
+
+impl PartialEq for Not {
+    fn eq(&self, other: &Not) -> bool {
+        other.child.eq(&self.child)
+    }
+}
+
+pub fn not(operand: ExprRef) -> ExprRef {
+    Not::new_expr(operand)
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
+    use vortex_dtype::{DType, Nullability};
+
+    use crate::{Scope, ScopeDType, col, not, root, test_harness};
+
+    #[test]
+    fn invert_booleans() {
+        let not_expr = not(root());
+        let bools = BoolArray::from_iter([false, true, false, false, true, true]);
+        assert_eq!(
+            not_expr
+                .evaluate(&Scope::new(bools.to_array()))
+                .unwrap()
+                .to_bool()
+                .unwrap()
+                .boolean_buffer()
+                .iter()
+                .collect::<Vec<_>>(),
+            vec![true, false, true, true, false, false]
+        );
+    }
+
+    #[test]
+    fn dtype() {
+        let not_expr = not(root());
+        let dtype = DType::Bool(Nullability::NonNullable);
+        assert_eq!(
+            not_expr.return_dtype(&ScopeDType::new(dtype)).unwrap(),
+            DType::Bool(Nullability::NonNullable)
+        );
+
+        let dtype = test_harness::struct_dtype();
+        assert_eq!(
+            not(col("bool1"))
+                .return_dtype(&ScopeDType::new(dtype))
+                .unwrap(),
+            DType::Bool(Nullability::NonNullable)
+        );
+    }
+}

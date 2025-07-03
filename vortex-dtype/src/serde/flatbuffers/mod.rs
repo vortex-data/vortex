@@ -49,7 +49,6 @@ impl StructFields {
             .names()
             .ok_or_else(|| vortex_err!("failed to parse struct names from flatbuffer"))?
             .iter()
-            .map(|n| (*n).into())
             .collect();
 
         let dtypes = fb_struct
@@ -137,10 +136,7 @@ impl TryFrom<ViewedDType> for DType {
                     .ok_or_else(|| vortex_err!("failed to parse struct from flatbuffer"))?;
                 let struct_dtype = StructFields::from_fb(fb_struct, vfdt.buffer().clone())?;
 
-                Ok(Self::Struct(
-                    struct_dtype.into(),
-                    fb_struct.nullable().into(),
-                ))
+                Ok(Self::Struct(struct_dtype, fb_struct.nullable().into()))
             }
             fb::Type::Extension => {
                 let fb_ext = fb
@@ -378,13 +374,12 @@ mod test {
         ));
         roundtrip_dtype(DType::Struct(
             StructFields::new(
-                ["strings".into(), "ints".into()].into(),
+                ["strings", "ints"].into(),
                 vec![
                     DType::Utf8(Nullability::NonNullable),
                     DType::Primitive(PType::U16, Nullability::Nullable),
                 ],
-            )
-            .into(),
+            ),
             Nullability::NonNullable,
         ))
     }

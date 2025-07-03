@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashMap};
 
 use crate::transform::immediate_access::{FieldAccesses, immediate_scope_accesses};
@@ -109,7 +109,10 @@ impl<'a> StructFieldExpressionSplitter<'a> {
 
         let mut splitter = StructFieldExpressionSplitter::new(&field_accesses, scope_dtype);
 
-        let split = expr.clone().transform_with_context(&mut splitter, ())?;
+        let split = expr
+            .clone()
+            .transform_with_context(&mut splitter, ())?
+            .result();
 
         let mut remove_accesses: Vec<FieldName> = Vec::new();
 
@@ -133,7 +136,9 @@ impl<'a> StructFieldExpressionSplitter<'a> {
                 )
             };
 
-            let field_dtype = scope_dtype.field(&name)?;
+            let field_dtype = scope_dtype
+                .field(&name)
+                .ok_or_else(|| vortex_err!("Missing field {name}"))?;
             let field_ctx = ScopeDType::new(field_dtype);
             let expr = simplify_typed(expr.clone(), &field_ctx)?;
             let expr_dtype = expr.return_dtype(&field_ctx)?;
@@ -151,13 +156,19 @@ impl<'a> StructFieldExpressionSplitter<'a> {
         debug_assert_eq!(expression_access_counts.unwrap_or(0), partitions.len());
 
         let split = split
-            .result()
-            .transform(&mut ReplaceAccessesWithChild(remove_accesses))?;
+            .transform(&mut ReplaceAccessesWithChild(remove_accesses))?
+            .into_inner();
 
-        let ctx = ScopeDType::new(dtype.clone());
+        let ctx = ScopeDType::new(DType::Struct(
+            StructFields::new(
+                FieldNames::from(partition_names.clone()),
+                partition_dtypes.clone(),
+            ),
+            Nullability::NonNullable,
+        ));
 
         Ok(PartitionedExpr {
-            root: simplify_typed(split.into_inner(), &ctx)?,
+            root: simplify_typed(split, &ctx)?,
             partitions: partitions.into_boxed_slice(),
             partition_names: partition_names.into(),
             partition_dtypes: partition_dtypes.into_boxed_slice(),
@@ -287,33 +298,30 @@ impl MutNodeVisitor for ReplaceAccessesWithChild {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use super::*;
     use crate::transform::simplify::simplify;
     use crate::transform::simplify_typed::simplify_typed;
-    use crate::{Pack, and, get_item, lit, pack, root, select};
+    use crate::{Pack, and, col, get_item, lit, merge, pack, root, select};
 
     fn dtype() -> DType {
         DType::Struct(
-            Arc::new(StructFields::from_iter([
+            StructFields::from_iter([
                 (
                     "a",
                     DType::Struct(
-                        Arc::new(StructFields::from_iter([
-                            ("a", I32.into()),
-                            ("b", DType::from(I32)),
-                        ])),
+                        StructFields::from_iter([("a", I32.into()), ("b", DType::from(I32))]),
                         NonNullable,
                     ),
                 ),
                 ("b", I32.into()),
                 ("c", I32.into()),
-            ])),
+            ]),
             NonNullable,
         )
     }
@@ -449,5 +457,43 @@ mod tests {
                 )
             )
         )
+    }
+
+    #[test]
+    fn test_expr_merge() {
+        let dtype = dtype();
+
+        let expr = merge(
+            [col("a"), pack([("b", col("b"))], NonNullable)],
+            NonNullable,
+        );
+
+        let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
+        let expected = pack(
+            [
+                ("a", get_item("a", col("a"))),
+                ("b", get_item("b", col("b"))),
+            ],
+            NonNullable,
+        );
+        assert_eq!(
+            &partitioned.root, &expected,
+            "{} {}",
+            partitioned.root, expected
+        );
+        let expected = [root(), pack([("b", root())], NonNullable)]
+            .into_iter()
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            &partitioned
+                .partitions
+                .clone()
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            &expected,
+            "{} {}",
+            partitioned.partitions.iter().join(";"),
+            expected.iter().join(";")
+        );
     }
 }

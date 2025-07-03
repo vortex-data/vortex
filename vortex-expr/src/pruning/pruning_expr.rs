@@ -80,7 +80,7 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
 }
 
 /// Build a pruning expr mask an existing bundle of stats
-/// Create a stat based falsification expr using the stats in the `scope_field_paths`.
+/// Creates a stat based falsification expr using the stats in the `scope_field_paths`.
 /// These are of the form
 /// [["col_0", ..., "col_n", "stat_name"], ...] for each stat.
 pub fn checked_pruning_expr(
@@ -124,7 +124,7 @@ mod tests {
         let expected_expr = or(
             gt(
                 get_item(
-                    field_path_stat_field_name(&FieldPath::from_name(&name), Stat::Min),
+                    field_path_stat_field_name(&FieldPath::from_name(name.clone()), Stat::Min),
                     root(),
                 ),
                 literal_eq.clone(),
@@ -132,7 +132,7 @@ mod tests {
             gt(
                 literal_eq,
                 get_item_scope(field_path_stat_field_name(
-                    &FieldPath::from_name(&name),
+                    &FieldPath::from_name(name),
                     Stat::Max,
                 )),
             ),

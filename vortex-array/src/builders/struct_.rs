@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, Nullability, StructFields};
@@ -15,14 +14,14 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,
     validity: LazyNullBufferBuilder,
-    struct_dtype: Arc<StructFields>,
+    struct_dtype: StructFields,
     nullability: Nullability,
     dtype: DType,
 }
 
 impl StructBuilder {
     pub fn with_capacity(
-        struct_dtype: Arc<StructFields>,
+        struct_dtype: StructFields,
         nullability: Nullability,
         capacity: usize,
     ) -> Self {
@@ -169,10 +168,10 @@ mod tests {
 
     #[test]
     fn test_struct_builder() {
-        let sdt = Arc::new(StructFields::new(
+        let sdt = StructFields::new(
             vec![Arc::from("a"), Arc::from("b")].into(),
             vec![I32.into(), I32.into()],
-        ));
+        );
         let dtype = DType::Struct(sdt.clone(), Nullability::NonNullable);
         let mut builder = StructBuilder::with_capacity(sdt, Nullability::NonNullable, 0);
 
@@ -187,10 +186,10 @@ mod tests {
 
     #[test]
     fn test_append_nullable_struct() {
-        let sdt = Arc::new(StructFields::new(
+        let sdt = StructFields::new(
             vec![Arc::from("a"), Arc::from("b")].into(),
             vec![I32.into(), I32.into()],
-        ));
+        );
         let dtype = DType::Struct(sdt.clone(), Nullability::Nullable);
         let mut builder = StructBuilder::with_capacity(sdt, Nullability::Nullable, 0);
 

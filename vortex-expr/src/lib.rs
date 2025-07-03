@@ -1,37 +1,23 @@
-#![feature(option_zip)]
-
 use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::sync::Arc;
 
 use dyn_hash::DynHash;
-
-mod binary;
-
+pub use exprs::*;
 mod analysis;
-mod between;
-mod cast;
+#[cfg(feature = "arbitrary")]
+pub mod arbitrary;
+mod exprs;
 mod field;
 pub mod forms;
-mod get_item;
-mod is_null;
-mod let_;
-mod like;
-mod list_contains;
-mod literal;
-mod merge;
-mod not;
-mod operators;
-mod pack;
 pub mod pruning;
 #[cfg(feature = "proto")]
 mod registry;
 mod scope;
-mod select;
+mod scope_vars;
 pub mod transform;
 pub mod traversal;
-mod var;
 
 pub use analysis::*;
 pub use between::*;
@@ -39,7 +25,6 @@ pub use binary::*;
 pub use cast::*;
 pub use get_item::*;
 pub use is_null::*;
-pub use let_::*;
 pub use like::*;
 pub use list_contains::*;
 pub use literal::*;
@@ -257,21 +242,13 @@ impl Hash for ExactExpr {
 
 #[cfg(feature = "test-harness")]
 pub mod test_harness {
-    use std::sync::Arc;
 
     use vortex_dtype::{DType, Nullability, PType, StructFields};
 
     pub fn struct_dtype() -> DType {
         DType::Struct(
-            Arc::new(StructFields::new(
-                [
-                    "a".into(),
-                    "col1".into(),
-                    "col2".into(),
-                    "bool1".into(),
-                    "bool2".into(),
-                ]
-                .into(),
+            StructFields::new(
+                ["a", "col1", "col2", "bool1", "bool2"].into(),
                 vec![
                     DType::Primitive(PType::I32, Nullability::NonNullable),
                     DType::Primitive(PType::U16, Nullability::Nullable),
@@ -279,7 +256,7 @@ pub mod test_harness {
                     DType::Bool(Nullability::NonNullable),
                     DType::Bool(Nullability::NonNullable),
                 ],
-            )),
+            ),
             Nullability::NonNullable,
         )
     }
@@ -287,7 +264,7 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::{DType, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
     use vortex_scalar::Scalar;
 
     use super::*;
@@ -397,13 +374,13 @@ mod tests {
         assert_eq!(
             lit(Scalar::struct_(
                 DType::Struct(
-                    Arc::new(StructFields::new(
-                        Arc::from([Arc::from("dog"), Arc::from("cat")]),
+                    StructFields::new(
+                        FieldNames::from(["dog", "cat"]),
                         vec![
                             DType::Primitive(PType::U32, Nullability::NonNullable),
                             DType::Utf8(Nullability::NonNullable)
                         ],
-                    )),
+                    ),
                     Nullability::NonNullable
                 ),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]

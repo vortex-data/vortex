@@ -1,15 +1,16 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
+use once_cell::sync::OnceCell;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
-use vortex_expr::ExprRef;
+use vortex_expr::{ExprRef, ScopeDType};
 use vortex_mask::Mask;
 
 use crate::children::LayoutChildren;
@@ -25,6 +26,9 @@ pub trait LayoutReader: 'static + Send + Sync {
 
     /// Returns the un-projected dtype of the layout reader.
     fn dtype(&self) -> &DType;
+
+    /// Pruning, filter, and projections are evaluated in this scope.
+    fn scope_dtype(&self) -> &ScopeDType;
 
     /// Returns the number of rows in the layout reader.
     /// An inexact count may be larger or smaller than the actual row count.
@@ -103,7 +107,7 @@ pub struct LazyReaderChildren {
     ctx: ArrayContext,
 
     // TODO(ngates): we may want a hash map of some sort here?
-    cache: Vec<OnceLock<LayoutReaderRef>>,
+    cache: Vec<OnceCell<LayoutReaderRef>>,
 }
 
 impl LazyReaderChildren {
@@ -113,7 +117,7 @@ impl LazyReaderChildren {
         ctx: ArrayContext,
     ) -> Self {
         let nchildren = children.nchildren();
-        let cache = (0..nchildren).map(|_| OnceLock::new()).collect::<Vec<_>>();
+        let cache = (0..nchildren).map(|_| OnceCell::new()).collect();
         Self {
             children,
             segment_source,
@@ -131,6 +135,7 @@ impl LazyReaderChildren {
         if idx >= self.cache.len() {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());
         }
+
         self.cache[idx].get_or_try_init(|| {
             let child = self.children.child(idx, dtype)?;
             child.new_reader(name.clone(), self.segment_source.clone(), self.ctx.clone())

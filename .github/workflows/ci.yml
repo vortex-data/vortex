@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - uses: spiraldb/actions/.github/actions/lint-toml@0.10.0
+      - uses: spiraldb/actions/.github/actions/lint-toml@0.14.0
 
   validate-workflow-yaml:
     runs-on: ubuntu-latest
@@ -52,7 +52,7 @@ jobs:
         with:
           submodules: "recursive"
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.11.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
         with:
           sync: false
       - name: Python Lint - Format
@@ -71,10 +71,9 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.11.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
         with:
           sync: false
 
@@ -130,8 +129,12 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
+      - extras=s3-cache
       - tag=rust-docs
     steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
@@ -150,8 +153,8 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
+      - extras=s3-cache
       - tag=${{ matrix.config.name }}
-
     env:
       # disable lints for build, they will be caught in Rust lint job.
       RUSTFLAGS: '-A warnings'
@@ -179,14 +182,15 @@ jobs:
             target: wasm32-unknown-unknown
             env:
               rustflags: 'RUSTFLAGS="-A warnings --cfg getrandom_backend=\"wasm_js\""'
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb-ext --exclude vortex-tui --exclude vortex-zstd"
+            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
     steps:
-      - uses: runs-on/action@v1
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-c++
+      - uses: ./.github/actions/setup-rust
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
         run: rustup target add wasm32-unknown-unknown
@@ -194,36 +198,10 @@ jobs:
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
         run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
-
-  build-duckdb:
-    name: "DuckDB extension build"
-    timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - tag=build-duckdb
-
-    steps:
-      - uses: runs-on/action@v1
-      - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
-      - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
-
-      - name: DuckDB extension build
-        run: GEN=ninja make debug
-        working-directory: ${{ github.workspace }}/duckdb-vortex
-
-      - name: DuckDB extension unit tests
-        run: ./vortex_tests
-        working-directory: ${{ github.workspace }}/duckdb-vortex/build/debug/extension/vortex/test
-
-      - name: DuckDB sql unit tests
-        run: make test_debug
-        working-directory: ${{ github.workspace }}/duckdb-vortex
+      - name: "Make sure no files changed after build"
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
 
   check-min-deps:
     name: "Check build with minimal dependencies"
@@ -233,14 +211,16 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
+      - extras=s3-cache
       - tag=rust-min-deps
     steps:
-      - uses: runs-on/action@v1
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-c++
+      - uses: ./.github/actions/setup-rust
       - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-minimal-versions
       - run: cargo minimal-versions check --direct --workspace --ignore-private
@@ -253,13 +233,16 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - image=ubuntu24-full-x64
+      - extras=s3-cache
       - tag=rust-lint
     steps:
-      - uses: runs-on/action@v1
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
       - name: Rust Lint - Format
         run: cargo fmt --all --check
       - name: Rustc check
@@ -277,13 +260,16 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - image=ubuntu24-full-x64
+      - extras=s3-cache
       - tag=rust-lint
     steps:
-      - uses: runs-on/action@v1
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      - uses: rui314/setup-mold@v1
+      - uses: ./.github/actions/setup-rust
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features
@@ -300,6 +286,7 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
+      - extras=s3-cache
       - tag=rust-test
     steps:
       # Disable lints when running tests. They will be caught by the Rust lint job.
@@ -321,13 +308,14 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
-      - uses: ./.github/actions/setup-c++
+      - uses: ./.github/actions/setup-rust
       - name: Install grcov
         if: github.ref == 'refs/heads/develop'
         uses: taiki-e/install-action@grcov
       - name: Install nextest
-        uses: taiki-e/install-action@nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9.98
       - name: Rust Tests
         # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
@@ -340,6 +328,8 @@ jobs:
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
             --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
+            --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
+            --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
@@ -359,8 +349,14 @@ jobs:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      # TODO(ngates): we should run tests here when they pass!
-      - run: ./gradlew shadowJar
+      # Build vortex-jni shared library, and copy into JAR.
+      - name: Build vortex-jni
+        run: |
+          cargo build -p vortex-jni
+          mkdir -p java/vortex-jni/src/main/resources/native/linux-amd64
+          cargo xtask java-test-files
+          cp target/debug/libvortex_jni.so java/vortex-jni/src/main/resources/native/linux-amd64
+      - run: ./gradlew test
         working-directory: ./java
 
   bench-codspeed:
@@ -369,15 +365,17 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=c6id.8xlarge
-      - spot=false
+      - extras=s3-cache
       - image=ubuntu24-full-x64
 
     steps:
-      - uses: runs-on/action@v1
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
-      # rustup is pre-installed on the ubuntu24-full-x64 image.
+      - uses: ./.github/actions/setup-rust
 
       - name: Install Codspeed
         shell: bash
@@ -390,7 +388,7 @@ jobs:
           cargo codspeed build --features test-harness \
             --exclude bench-vortex \
             --exclude vortex-datafusion \
-            --exclude vortex-duckdb-ext \
+            --exclude vortex-duckdb \
             --exclude vortex-fuzz \
             --exclude vortex-python \
             --exclude vortex-tui \
@@ -424,12 +422,20 @@ jobs:
         with:
           command: check ${{ matrix.checks }}
 
+  ffi-test:
+    name: "FFI example test"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - run: cargo build -p vortex-ffi
+      - run: cargo run -p vortex-ffi --example hello_vortex
+
   wasm-integration:
     name: "wasm-integration"
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
         with:
@@ -449,14 +455,13 @@ jobs:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-backtrace=full -Zmiri-disable-isolation
       RUSTFLAGS: "-A warnings"
     steps:
-      - uses: rui314/setup-mold@v1
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - uses: taiki-e/install-action@v2
         with:
-          tool: nextest
+          tool: nextest@0.9.98
       - name: Run all tests with Miri
         run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar --exclude vortex-duckdb --exclude vortex-duckdb-ext
         # For now, we only run Miri against known "fiddly" crates.
@@ -473,7 +478,6 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
-      - uses: rui314/setup-mold@v1
       - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-flatc
       - name: Install Protoc

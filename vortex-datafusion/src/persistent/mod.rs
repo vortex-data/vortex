@@ -66,7 +66,7 @@ mod tests {
         .into_array();
 
         let st = StructArray::try_new(
-            ["strings".into(), "numbers".into()].into(),
+            ["strings", "numbers"].into(),
             vec![strings, numbers],
             8,
             Validity::NonNullable,
@@ -96,7 +96,9 @@ mod tests {
         assert!(table_url.is_collection());
 
         let config = ListingTableConfig::new(table_url)
-            .with_listing_options(ListingOptions::new(format))
+            .with_listing_options(
+                ListingOptions::new(format).with_session_config_options(ctx.state().config()),
+            )
             .infer_schema(&ctx.state())
             .await?;
 

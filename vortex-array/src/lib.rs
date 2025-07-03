@@ -1,9 +1,3 @@
-#![feature(once_cell_try)]
-#![feature(portable_simd)]
-#![feature(substr_range)]
-#![feature(trusted_len)]
-#![feature(array_chunks)]
-#![feature(iterator_try_collect)]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
 //! At the heart of Vortex are [arrays](ArrayRef) and [encodings](EncodingRef).
@@ -13,6 +7,8 @@
 //!
 //! Every data type recognized by Vortex also has a canonical physical encoding format, which
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
+
+#![cfg_attr(feature = "nightly", feature(portable_simd))]
 
 pub use array::*;
 pub use canonical::*;

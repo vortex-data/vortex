@@ -26,7 +26,7 @@ use crate::dtype::PyDType;
 ///     null()
 #[pyfunction(name = "null")]
 #[pyo3(signature = ())]
-pub(super) fn dtype_null(py: Python<'_>) -> PyResult<Bound<PyDType>> {
+pub(super) fn dtype_null(py: Python<'_>) -> PyResult<Bound<'_, PyDType>> {
     PyDType::init(py, DType::Null)
 }
 
@@ -56,7 +56,7 @@ pub(super) fn dtype_null(py: Python<'_>) -> PyResult<Bound<PyDType>> {
 ///     bool(nullable=False)
 #[pyfunction(name = "bool_")]
 #[pyo3(signature = (*, nullable = false))]
-pub(super) fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Bound<PyDType>> {
+pub(super) fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Bound<'_, PyDType>> {
     PyDType::init(py, DType::Bool(nullable.into()))
 }
 
@@ -89,7 +89,11 @@ pub(super) fn dtype_bool(py: Python<'_>, nullable: bool) -> PyResult<Bound<PyDTy
 ///     int(32, nullable=False)
 #[pyfunction(name = "int_")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
-pub(super) fn dtype_int(py: Python<'_>, width: u16, nullable: bool) -> PyResult<Bound<PyDType>> {
+pub(super) fn dtype_int(
+    py: Python<'_>,
+    width: u16,
+    nullable: bool,
+) -> PyResult<Bound<'_, PyDType>> {
     let dtype = match width {
         8 => DType::Primitive(PType::I8, nullable.into()),
         16 => DType::Primitive(PType::I16, nullable.into()),
@@ -129,7 +133,11 @@ pub(super) fn dtype_int(py: Python<'_>, width: u16, nullable: bool) -> PyResult<
 ///     uint(32, nullable=False)
 #[pyfunction(name = "uint")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
-pub(super) fn dtype_uint(py: Python<'_>, width: u16, nullable: bool) -> PyResult<Bound<PyDType>> {
+pub(super) fn dtype_uint(
+    py: Python<'_>,
+    width: u16,
+    nullable: bool,
+) -> PyResult<Bound<'_, PyDType>> {
     let dtype = match width {
         8 => DType::Primitive(PType::U8, nullable.into()),
         16 => DType::Primitive(PType::U16, nullable.into()),
@@ -167,7 +175,11 @@ pub(super) fn dtype_uint(py: Python<'_>, width: u16, nullable: bool) -> PyResult
 ///     float(16, nullable=False)
 #[pyfunction(name = "float_")]
 #[pyo3(signature = (width = 64, *, nullable = false))]
-pub(super) fn dtype_float(py: Python<'_>, width: i8, nullable: bool) -> PyResult<Bound<PyDType>> {
+pub(super) fn dtype_float(
+    py: Python<'_>,
+    width: i8,
+    nullable: bool,
+) -> PyResult<Bound<'_, PyDType>> {
     let dtype = match width {
         16 => DType::Primitive(PType::F16, nullable.into()),
         32 => DType::Primitive(PType::F32, nullable.into()),
@@ -217,7 +229,7 @@ pub(super) fn dtype_decimal(
     precision: u8,
     scale: i8,
     nullable: bool,
-) -> PyResult<Bound<PyDType>> {
+) -> PyResult<Bound<'_, PyDType>> {
     let decimal_type = DType::Decimal(DecimalDType::new(precision, scale), nullable.into());
     PyDType::init(py, decimal_type)
 }
@@ -244,7 +256,7 @@ pub(super) fn dtype_decimal(
 ///     utf8(nullable=False)
 #[pyfunction(name = "utf8")]
 #[pyo3(signature = (*, nullable = false))]
-pub(super) fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Bound<PyDType>> {
+pub(super) fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Bound<'_, PyDType>> {
     PyDType::init(py, DType::Utf8(nullable.into()))
 }
 
@@ -269,7 +281,7 @@ pub(super) fn dtype_utf8(py: Python<'_>, nullable: bool) -> PyResult<Bound<PyDTy
 ///     binary(nullable=False)
 #[pyfunction(name = "binary")]
 #[pyo3(signature = (*, nullable = false))]
-pub(super) fn dtype_binary(py: Python<'_>, nullable: bool) -> PyResult<Bound<PyDType>> {
+pub(super) fn dtype_binary(py: Python<'_>, nullable: bool) -> PyResult<Bound<'_, PyDType>> {
     PyDType::init(py, DType::Binary(nullable.into()))
 }
 
@@ -316,18 +328,12 @@ pub(super) fn dtype_struct<'py>(
 
         PyDType::init(
             py,
-            DType::Struct(
-                StructFields::new(names.into(), dtypes).into(),
-                nullable.into(),
-            ),
+            DType::Struct(StructFields::new(names.into(), dtypes), nullable.into()),
         )
     } else {
         PyDType::init(
             py,
-            DType::Struct(
-                StructFields::new(vec![].into(), vec![]).into(),
-                nullable.into(),
-            ),
+            DType::Struct(StructFields::new(vec![].into(), vec![]), nullable.into()),
         )
     }
 }

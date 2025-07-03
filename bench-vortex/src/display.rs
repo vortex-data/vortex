@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::iter;
 
 use clap::ValueEnum;
@@ -18,6 +19,7 @@ pub enum DisplayFormat {
 }
 
 pub fn render_table<T: ToTable>(
+    writer: &mut Box<dyn Write>,
     all_measurements: Vec<T>,
     targets: &[Target],
 ) -> anyhow::Result<()> {
@@ -88,15 +90,21 @@ pub fn render_table<T: ToTable>(
         table.with(color);
     }
 
-    println!("{table}");
+    writeln!(writer, "{table}")?;
 
     Ok(())
 }
 
-pub fn print_measurements_json<T: ToJson>(all_measurements: Vec<T>) -> anyhow::Result<()> {
+pub fn print_measurements_json<T: ToJson>(
+    writer: &mut Box<dyn Write>,
+    all_measurements: Vec<T>,
+) -> anyhow::Result<()> {
     for measurement in all_measurements {
-        // This has to be `println!` and go to stdout, because we capture it from there.
-        println!("{}", serde_json::to_string(&measurement.to_json())?)
+        erased_serde::serialize(
+            measurement.to_json().as_ref(),
+            &mut serde_json::Serializer::new(&mut *writer),
+        )?;
+        writeln!(writer)?;
     }
 
     Ok(())

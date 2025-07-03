@@ -15,6 +15,7 @@ pub fn simplify_typed(e: ExprRef, ctx: &ScopeDType) -> VortexResult<ExprRef> {
 
     let e = remove_select(e, ctx)?;
     let e = remove_merge(e, ctx)?;
+    let e = simplify(e)?;
 
     Ok(e)
 }

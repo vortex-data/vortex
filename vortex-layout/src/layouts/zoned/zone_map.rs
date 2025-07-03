@@ -48,7 +48,7 @@ impl ZoneMap {
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
         assert!(present_stats.is_sorted(), "Stats must be sorted");
         DType::Struct(
-            Arc::new(StructFields::from_iter(
+            StructFields::from_iter(
                 present_stats
                     .iter()
                     .filter_map(|stat| {
@@ -66,7 +66,7 @@ impl ZoneMap {
                         ],
                         _ => vec![(s.name(), dt)],
                     }),
-            )),
+            ),
             Nullability::NonNullable,
         )
     }

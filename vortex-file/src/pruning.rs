@@ -4,8 +4,8 @@ use vortex_array::ArrayRef;
 use vortex_array::arrays::{ConstantArray, StructArray};
 use vortex_array::stats::{Stat, StatsProvider, StatsSet};
 use vortex_array::validity::Validity;
-use vortex_dtype::{Field, FieldName, FieldPath, StructFields};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::{Field, FieldName, FieldNames, FieldPath, StructFields};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_expr::pruning::field_path_stat_field_name;
 use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -14,10 +14,10 @@ use vortex_utils::aliases::hash_set::HashSet;
 pub fn extract_relevant_file_stats_as_struct_row(
     access: &HashMap<FieldPath, HashSet<Stat>>,
     stats_sets: &Arc<[StatsSet]>,
-    struct_dtype: &Arc<StructFields>,
+    struct_dtype: &StructFields,
 ) -> VortexResult<Option<ArrayRef>> {
     if access.is_empty() {
-        return StructArray::try_new([].into(), vec![], 1, Validity::NonNullable)
+        return StructArray::try_new(FieldNames::default(), vec![], 1, Validity::NonNullable)
             .map(|s| Some(s.to_array()));
     }
 
@@ -30,8 +30,12 @@ pub fn extract_relevant_file_stats_as_struct_row(
             return Ok(None);
         };
 
-        let field_idx = struct_dtype.find(field)?;
-        let field_dtype = struct_dtype.field_by_index(field_idx)?;
+        let field_idx = struct_dtype
+            .find(field)
+            .ok_or_else(|| vortex_err!("Missing field: {field}"))?;
+        let field_dtype = struct_dtype
+            .field_by_index(field_idx)
+            .vortex_expect("Field must exist");
 
         let Some(stat_set) = stats_sets.get(field_idx) else {
             vortex_bail!("missing stat field {} from stats set", field)

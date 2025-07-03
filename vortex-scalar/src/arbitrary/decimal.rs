@@ -1,13 +1,118 @@
+use std::ops::{BitOr, Rem, Shl, Shr, Sub};
+
 use arbitrary::unstructured::Int;
 use arbitrary::{Result, Unstructured};
 use num_traits::{CheckedAdd, WrappingAdd, WrappingSub};
+use primitive_types::U256;
 use vortex_dtype::{DECIMAL128_MAX_PRECISION, DecimalDType};
 
 use crate::{DecimalValue, InnerScalarValue, ScalarValue, i256};
 
+/// Generate an arbitrary decimal scalar confined to the bounds of
+pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Result<ScalarValue> {
+    let precision = decimal_type.precision();
+    if precision <= DECIMAL128_MAX_PRECISION {
+        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I128(
+            u.int_in_range(
+                MIN_DECIMAL128_FOR_EACH_PRECISION[precision as usize]
+                    ..=MAX_DECIMAL128_FOR_EACH_PRECISION[precision as usize],
+            )?,
+        ))))
+    } else {
+        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I256(
+            u.int_in_range(
+                MIN_DECIMAL256_FOR_EACH_PRECISION[precision as usize]
+                    ..=MAX_DECIMAL256_FOR_EACH_PRECISION[precision as usize],
+            )?,
+        ))))
+    }
+}
+
+/// Used only internally to implement `Int` for i256
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct U256Wrapper(U256);
+
+impl Sub for U256Wrapper {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        U256Wrapper(self.0 - rhs.0)
+    }
+}
+
+impl Rem for U256Wrapper {
+    type Output = Self;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        U256Wrapper(self.0 % rhs.0)
+    }
+}
+
+impl Shr for U256Wrapper {
+    type Output = Self;
+
+    fn shr(self, rhs: Self) -> Self::Output {
+        U256Wrapper(self.0 >> rhs.0)
+    }
+}
+
+impl Shl<usize> for U256Wrapper {
+    type Output = Self;
+
+    fn shl(self, rhs: usize) -> Self::Output {
+        U256Wrapper(self.0 << rhs)
+    }
+}
+
+impl BitOr for U256Wrapper {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        U256Wrapper(self.0 | rhs.0)
+    }
+}
+
+impl Int for U256Wrapper {
+    type Unsigned = Self;
+
+    const ZERO: Self = U256Wrapper(U256::zero());
+    const ONE: Self = U256Wrapper(U256::one());
+    const MAX: Self = U256Wrapper(U256::max_value());
+
+    fn from_u8(b: u8) -> Self {
+        Self(U256::from(b))
+    }
+
+    fn from_usize(u: usize) -> Self {
+        Self(U256::from(u))
+    }
+
+    fn checked_add(self, rhs: Self) -> Option<Self> {
+        self.0.checked_add(rhs.0).map(U256Wrapper)
+    }
+
+    fn wrapping_add(self, rhs: Self) -> Self {
+        let (v, _) = self.0.overflowing_add(rhs.0);
+        U256Wrapper(v)
+    }
+
+    fn wrapping_sub(self, rhs: Self) -> Self {
+        let (v, _) = self.0.overflowing_sub(rhs.0);
+        U256Wrapper(v)
+    }
+
+    fn to_unsigned(self) -> Self::Unsigned {
+        self
+    }
+
+    fn from_unsigned(unsigned: Self::Unsigned) -> Self {
+        unsigned
+    }
+}
+
 #[allow(clippy::same_name_method)]
 impl Int for i256 {
-    type Unsigned = i256;
+    type Unsigned = U256Wrapper;
     const ZERO: Self = i256::ZERO;
     const ONE: Self = i256::ONE;
     const MAX: Self = i256::MAX;
@@ -33,31 +138,13 @@ impl Int for i256 {
     }
 
     fn to_unsigned(self) -> Self::Unsigned {
-        self
+        let bytes = self.to_le_bytes(); // or to_be_bytes(), depends on your impl
+        U256Wrapper(U256::from_little_endian(&bytes))
     }
 
     fn from_unsigned(unsigned: Self::Unsigned) -> Self {
-        unsigned
-    }
-}
-
-/// Generate an arbitrary decimal scalar confined to the bounds of
-pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Result<ScalarValue> {
-    let precision = decimal_type.precision();
-    if precision <= DECIMAL128_MAX_PRECISION {
-        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I128(
-            u.int_in_range(
-                MIN_DECIMAL128_FOR_EACH_PRECISION[precision as usize]
-                    ..=MAX_DECIMAL128_FOR_EACH_PRECISION[precision as usize],
-            )?,
-        ))))
-    } else {
-        Ok(ScalarValue(InnerScalarValue::Decimal(DecimalValue::I256(
-            u.int_in_range(
-                MIN_DECIMAL256_FOR_EACH_PRECISION[precision as usize]
-                    ..=MAX_DECIMAL256_FOR_EACH_PRECISION[precision as usize],
-            )?,
-        ))))
+        let bytes = unsigned.0.to_little_endian();
+        i256::from_le_bytes(bytes)
     }
 }
 

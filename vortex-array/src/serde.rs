@@ -3,6 +3,7 @@ use std::iter;
 use std::sync::Arc;
 
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset, root};
+use itertools::Itertools;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::{DType, TryFromBytes};
 use vortex_error::{
@@ -379,7 +380,7 @@ impl ArrayParts {
     }
 
     /// Returns the root ArrayNode flatbuffer.
-    fn flatbuffer(&self) -> fba::ArrayNode {
+    fn flatbuffer(&self) -> fba::ArrayNode<'_> {
         unsafe { fba::ArrayNode::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 

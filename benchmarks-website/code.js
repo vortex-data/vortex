@@ -38,8 +38,10 @@ window.initAndRender = (function () {
             "Random Access": new Map(),
             "Compression": new Map(),
             "Compression Size": new Map(),
-            "TPC-H (NVME)": new Map(),
-            "TPC-H (S3)": new Map(),
+            "TPC-H (NVME) (SF=1)": new Map(),
+            "TPC-H (S3) (SF=1)": new Map(),
+            "TPC-H (NVME) (SF=100)": new Map(),
+            "TPC-H (S3) (SF=100)": new Map(),
             "Clickbench": new Map(),
         };
 
@@ -64,11 +66,28 @@ window.initAndRender = (function () {
 
             let {name, unit, value, commit} = benchmark_result;
             let storage = benchmark_result.storage;
+            let dataset = benchmark_result.dataset;
             let group = undefined;
             let group_id = undefined;
 
 
-            if (name.startsWith("random-access/")) {
+            if (dataset !== undefined) {
+                if (dataset.tpch !== undefined) {
+                    let scale_factor = dataset.tpch.scale_factor;
+                    let nvme = storage === undefined || storage === "nvme";
+                    if (scale_factor === 1) {
+                        group_id = nvme ? "TPC-H (NVME) (SF=1)" : "TPC-H (S3) (SF=1)"
+                    } else if (scale_factor === 100) {
+                        group_id = nvme ? "TPC-H (NVME) (SF=100)" : "TPC-H (S3) (SF=100)"
+                    } else {
+                        console.warn("no scale factor found in benchmark")
+                    }
+                } else if (dataset.clickbench !== undefined) {
+                    group_id = "Clickbench";
+                } else {
+                    console.warn("unknown dataset please implement")
+                }
+            } else if (name.startsWith("random-access/")) {
                 group_id = "Random Access";
             } else if (name.includes("compress time/")) {
                 group_id = "Compression";
@@ -85,9 +104,9 @@ window.initAndRender = (function () {
                 group_id = "Compression Size";
             } else if (name.startsWith("tpch_q")) {
                 if (storage === undefined || storage === "nvme") {
-                    group_id = "TPC-H (NVME)";
+                    group_id = "TPC-H (NVME) (SF=1)";
                 } else {
-                    group_id = "TPC-H (S3)";
+                    group_id = "TPC-H (S3) (SF=1)";
                 }
             } else if (name.startsWith("clickbench")) {
                 group_id = "Clickbench";
@@ -341,8 +360,10 @@ window.initAndRender = (function () {
             setElem.appendChild(graphsElem);
 
             if (keptCharts === undefined) {
-                for (const [benchName, benches] of benchSet.entries()) {
-                    charts.push(renderChart(graphsElem, benchName, benches, hiddenDatasets, removedDatasets, renamedDatasets))
+                if (benchSet !== undefined) {
+                    for (const [benchName, benches] of benchSet.entries()) {
+                        charts.push(renderChart(graphsElem, benchName, benches, hiddenDatasets, removedDatasets, renamedDatasets))
+                    }
                 }
             } else {
                 for (const benchName of keptCharts) {
@@ -378,22 +399,22 @@ window.initAndRender = (function () {
 
     async function fetchAndDecompressGzip(url) {
         const response = await fetch(url);
-        
+
         const decompressedStream = response.body
             .pipeThrough(new DecompressionStream('gzip'));
-        
+
         const reader = decompressedStream.getReader();
         const decoder = new TextDecoder();
         let result = '';
-        
+
         while (true) {
-            const { done, value } = await reader.read();
+            const {done, value} = await reader.read();
             if (done) break;
-            result += decoder.decode(value, { stream: true });
+            result += decoder.decode(value, {stream: true});
         }
-        
+
         result += decoder.decode();
-        
+
         return result;
     }
 
@@ -401,7 +422,7 @@ window.initAndRender = (function () {
         let data = fetchAndDecompressGzip('https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz')
             .then(parse_jsonl)
             .catch(error => console.error('unable to load data.json.gz:', error));
-            
+
         let commit_metadata = fetch('https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json')
             .then(response => response.text())
             .then(parse_jsonl)

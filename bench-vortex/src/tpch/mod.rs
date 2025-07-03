@@ -21,6 +21,7 @@ mod execute;
 pub mod schema;
 
 pub use execute::*;
+use vortex::error::VortexExpect;
 
 pub const TPC_H_ROW_COUNT_ARRAY_LENGTH: usize = 23;
 pub const EXPECTED_ROW_COUNTS_SF1: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
@@ -39,7 +40,7 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
 pub async fn load_datasets(
     base_dir: &Url,
     format: Format,
-    dataset: BenchmarkDataset,
+    dataset: &BenchmarkDataset,
     disable_datafusion_cache: bool,
 ) -> anyhow::Result<SessionContext> {
     let context = get_session_context(disable_datafusion_cache);
@@ -47,7 +48,7 @@ pub async fn load_datasets(
     let object_store = make_object_store(&context, base_dir)?;
 
     let files = match dataset {
-        BenchmarkDataset::TpcH => vec![
+        BenchmarkDataset::TpcH { .. } => vec![
             ("customer", Some(schema::CUSTOMER.clone())),
             ("lineitem", Some(schema::LINEITEM.clone())),
             ("nation", Some(schema::NATION.clone())),
@@ -58,12 +59,10 @@ pub async fn load_datasets(
             ("supplier", Some(schema::SUPPLIER.clone())),
         ],
 
-        BenchmarkDataset::TpcDS => BenchmarkDataset::TpcDS
-            .tables()
-            .iter()
-            .map(|f| (*f, None))
-            .collect_vec(),
-        BenchmarkDataset::ClickBench { .. } => todo!(),
+        dataset @ BenchmarkDataset::TpcDS { .. } => {
+            dataset.tables().iter().map(|f| (*f, None)).collect_vec()
+        }
+        BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
     };
 
     for (name, path, schema) in files.into_iter().map(|(name, schema)| {
@@ -190,7 +189,7 @@ async fn register_parquet(
         name,
         file,
         schema,
-        BenchmarkDataset::TpcH,
+        BenchmarkDataset::TpcH { scale_factor: 1 },
     )
     .await
 }
@@ -208,7 +207,7 @@ async fn register_vortex_file(
         table_name,
         file,
         schema,
-        BenchmarkDataset::TpcH,
+        BenchmarkDataset::TpcH { scale_factor: 1 },
     )
     .await
 }
@@ -239,21 +238,15 @@ pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema)
     ChunkedArray::from_iter(chunks).into_array()
 }
 
-pub fn tpch_queries() -> impl Iterator<Item = (usize, Vec<String>)> {
+pub fn tpch_queries() -> impl Iterator<Item = (usize, String)> {
     (1..=22).map(|q| (q, tpch_query(q)))
 }
 
 // A few tpch queries have multiple statements, this handles that
-fn tpch_query(query_idx: usize) -> Vec<String> {
+fn tpch_query(query_idx: usize) -> String {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tpch")
         .join(format!("q{query_idx}"))
         .with_extension("sql");
-    fs::read_to_string(manifest_dir)
-        .unwrap()
-        .split(';')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .collect()
+    fs::read_to_string(manifest_dir).vortex_expect("cannot load tpch query from file")
 }

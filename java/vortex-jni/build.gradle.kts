@@ -5,7 +5,7 @@ plugins {
     `java-library`
     `jvm-test-suite`
     id("com.google.protobuf")
-    id("com.gradleup.shadow") version "8.3.6"
+    id("com.gradleup.shadow") version "8.3.8"
 }
 
 dependencies {
@@ -29,6 +29,9 @@ testing {
     suites {
         val test by getting(JvmTestSuite::class) {
             useJUnitJupiter()
+            dependencies {
+                implementation("org.junit.jupiter:junit-jupiter-params")
+            }
         }
     }
 }
@@ -80,7 +83,7 @@ tasks.withType<Test>().all {
 
 protobuf {
     protoc {
-        artifact = "com.google.protobuf:protoc:4.30.2"
+        artifact = "com.google.protobuf:protoc:4.31.1"
     }
 }
 

@@ -122,6 +122,8 @@ impl<'a> TryFrom<&'a Scalar> for ExtScalar<'a> {
 
 impl Scalar {
     pub fn extension(ext_dtype: Arc<ExtDType>, value: Scalar) -> Self {
+        // TODO(joe): enable once we use rust duckdb
+        // assert_eq!(ext_dtype.storage_dtype(), value.dtype());
         Self {
             dtype: DType::Extension(ext_dtype),
             value: value.value().clone(),

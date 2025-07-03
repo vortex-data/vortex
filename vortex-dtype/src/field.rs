@@ -9,19 +9,33 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_error::{VortexResult, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::DType;
+use crate::{DType, FieldName};
 
 /// Selects a nested type within either a struct or a list.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Field {
     /// Address a field of a [`crate::DType::Struct`].
-    Name(Arc<str>),
+    Name(FieldName),
     /// Address the element type of a [`crate::DType::List`].
     ElementType,
+}
+
+impl Field {
+    /// Retrieve a field name if it has one
+    pub fn as_name(&self) -> Option<&str> {
+        match self {
+            Field::Name(name) => Some(name),
+            Field::ElementType => None,
+        }
+    }
+
+    /// Returns true if the field is defined by Name
+    pub fn is_named(&self) -> bool {
+        matches!(self, Field::Name(_))
+    }
 }
 
 impl From<&str> for Field {
@@ -36,31 +50,12 @@ impl From<Arc<str>> for Field {
     }
 }
 
-impl From<&Arc<str>> for Field {
-    fn from(value: &Arc<str>) -> Self {
-        Self::Name(value.clone())
-    }
-}
-
-impl From<String> for Field {
-    fn from(value: String) -> Self {
-        Field::Name(value.into())
-    }
-}
-
 impl Display for Field {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Field::Name(name) => write!(f, "${name}"),
             Field::ElementType => write!(f, "[]"),
         }
-    }
-}
-
-impl Field {
-    /// Returns true if the field is defined by Name
-    pub fn is_named(&self) -> bool {
-        matches!(self, Field::Name(_))
     }
 }
 
@@ -124,7 +119,7 @@ impl FieldPath {
         if self.0.is_empty() {
             return None;
         }
-        self.0 = self.0.iter().skip(1).cloned().collect();
+        self.0 = self.0.into_iter().skip(1).collect();
         Some(self)
     }
 
@@ -144,19 +139,19 @@ impl FieldPath {
     /// use vortex_dtype::Nullability::*;
     ///
     /// let dtype = DType::Struct(
-    ///     Arc::new(StructFields::from_iter([(
+    ///     StructFields::from_iter([(
     ///         "a",
     ///         DType::List(
     ///             Arc::new(DType::Struct(
-    ///                 Arc::new(StructFields::from_iter([(
+    ///                 StructFields::from_iter([(
     ///                     "b",
     ///                     DType::Primitive(PType::U32, NonNullable),
-    ///                 )])),
+    ///                 )]),
     ///                 NonNullable,
     ///             )),
     ///             Nullable,
     ///         ),
-    ///     )])),
+    ///     )]),
     ///     NonNullable,
     /// );
     ///
@@ -164,24 +159,24 @@ impl FieldPath {
     /// let resolved = path.resolve(dtype).unwrap();
     /// assert_eq!(resolved, DType::Primitive(PType::U32, NonNullable));
     /// ```
-    pub fn resolve(&self, mut dtype: DType) -> VortexResult<DType> {
+    pub fn resolve(&self, mut dtype: DType) -> Option<DType> {
         for field in &self.0 {
             dtype = match (dtype, field) {
                 (DType::Struct(fields, _), Field::Name(name)) => fields.field(name)?,
-                (DType::List(element_dtype, _), Field::ElementType) => DType::clone(&element_dtype),
-                (other, f) => {
-                    vortex_bail!("FieldPath: invalid index {:?} for DType {:?}", f, other)
+                (DType::List(element_dtype, _), Field::ElementType) => {
+                    element_dtype.as_ref().clone()
                 }
+                (..) => return None,
             }
         }
 
-        Ok(dtype)
+        Some(dtype)
     }
 
     /// Does the field referenced by the field path exist in the given dtype?
     pub fn exists(&self, dtype: DType) -> bool {
         // Indexing a struct type always allocates anyway.
-        self.resolve(dtype).is_ok()
+        self.resolve(dtype).is_some()
     }
 }
 
@@ -210,7 +205,7 @@ impl Display for FieldPath {
 }
 
 #[derive(Default, Clone, Debug)]
-/// Contains a set of field paths, and can answer efficient field path contains queries.
+/// Contains a set of field paths, and can answer an efficient field path contains queries.
 pub struct FieldPathSet {
     /// While this is currently a set wrapper it can be replaced with a trie.
     // TODO(joe): this can be replaced with a `FieldPath` trie
@@ -256,11 +251,8 @@ mod tests {
     #[test]
     fn nested_field_single_level() {
         let a_type = DType::Primitive(PType::I32, NonNullable);
-        let dtype = DType::Struct(
-            Arc::from(StructFields::from_iter([
-                ("a", a_type.clone()),
-                ("b", DType::Bool(Nullable)),
-            ])),
+        let dtype = DType::struct_(
+            [("a", a_type.clone()), ("b", DType::Bool(Nullable))],
             NonNullable,
         );
         let path = FieldPath::from_name("a");
@@ -270,19 +262,16 @@ mod tests {
 
     #[test]
     fn nested_field_two_level() {
-        let inner = DType::Struct(
-            Arc::new(StructFields::from_iter([
+        let inner = DType::struct_(
+            [
                 ("inner_a", DType::Primitive(PType::U8, NonNullable)),
                 ("inner_b", DType::Bool(Nullable)),
-            ])),
+            ],
             NonNullable,
         );
 
         let outer = DType::Struct(
-            Arc::from(StructFields::from_iter([
-                ("outer_a", DType::Bool(NonNullable)),
-                ("outer_b", inner),
-            ])),
+            StructFields::from_iter([("outer_a", DType::Bool(NonNullable)), ("outer_b", inner)]),
             NonNullable,
         );
 
@@ -295,23 +284,23 @@ mod tests {
 
     #[test]
     fn nested_field_deep_nested() {
-        let level4 = DType::Struct(
-            Arc::new(StructFields::from_iter([(
-                "c",
-                DType::Primitive(PType::F64, Nullable),
-            )])),
-            NonNullable,
-        );
-
-        let level3 = DType::List(Arc::from(level4), Nullable);
-
-        let level2 = DType::Struct(
-            Arc::new(StructFields::from_iter([("b", level3)])),
-            NonNullable,
-        );
-
-        let level1 = DType::Struct(
-            Arc::from(StructFields::from_iter([("a", level2)])),
+        let level1 = DType::struct_(
+            [(
+                "a",
+                DType::struct_(
+                    [(
+                        "b",
+                        DType::list(
+                            DType::struct_(
+                                [("c", DType::Primitive(PType::F64, Nullable))],
+                                NonNullable,
+                            ),
+                            Nullable,
+                        ),
+                    )],
+                    NonNullable,
+                ),
+            )],
             NonNullable,
         );
 
@@ -328,54 +317,48 @@ mod tests {
             .push("b")
             .push("c")
             .push(Field::ElementType);
-        assert!(path.resolve(level1.clone()).is_err());
+        assert!(path.resolve(level1.clone()).is_none());
         assert!(!path.exists(level1.clone()));
 
         let path = FieldPath::from_name("a")
             .push(Field::ElementType)
             .push("b")
             .push("c");
-        assert!(path.resolve(level1.clone()).is_err());
+        assert!(path.resolve(level1.clone()).is_none());
         assert!(!path.exists(level1.clone()));
 
         let path = FieldPath::from_name(Field::ElementType)
             .push("a")
             .push("b")
             .push("c");
-        assert!(path.resolve(level1.clone()).is_err());
+        assert!(path.resolve(level1.clone()).is_none());
         assert!(!path.exists(level1));
     }
 
     #[test]
     fn nested_field_not_found() {
-        let dtype = DType::Struct(
-            Arc::from(StructFields::from_iter([("a", DType::Bool(NonNullable))])),
-            NonNullable,
-        );
+        let dtype = DType::struct_([("a", DType::Bool(NonNullable))], NonNullable);
         let path = FieldPath::from_name("b");
-        assert!(path.resolve(dtype.clone()).is_err());
+        assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists(dtype.clone()));
 
         let path = FieldPath::from(Field::ElementType);
-        assert!(path.resolve(dtype.clone()).is_err());
+        assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists(dtype));
     }
 
     #[test]
     fn nested_field_non_struct_intermediate() {
-        let dtype = DType::Struct(
-            Arc::from(StructFields::from_iter([(
-                "a",
-                DType::Primitive(PType::I32, NonNullable),
-            )])),
+        let dtype = DType::struct_(
+            [("a", DType::Primitive(PType::I32, NonNullable))],
             NonNullable,
         );
         let path = FieldPath::from_name("a").push("b");
-        assert!(path.resolve(dtype.clone()).is_err());
+        assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists(dtype.clone()));
 
         let path = FieldPath::from_name("a").push(Field::ElementType);
-        assert!(path.resolve(dtype.clone()).is_err());
+        assert!(path.resolve(dtype.clone()).is_none());
         assert!(!path.exists(dtype));
     }
 }

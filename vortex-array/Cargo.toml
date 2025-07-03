@@ -16,6 +16,9 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[build-dependencies]
+rustversion = { workspace = true }
+
 [dependencies]
 arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
@@ -34,11 +37,11 @@ flatbuffers = { workspace = true }
 futures-util = { workspace = true }
 getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
-hashbrown = { workspace = true }
 humansize = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+multiversion = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
@@ -53,12 +56,7 @@ serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
-vortex-error = { workspace = true, features = [
-    "flatbuffers",
-    "flexbuffers",
-    "prost",
-    "rancor",
-] }
+vortex-error = { workspace = true, features = ["prost"] }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
@@ -71,6 +69,8 @@ arbitrary = [
     "vortex-scalar/arbitrary",
 ]
 canonical_counter = []
+# should only be enabled on nightly compiler
+nightly = []
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 
 [dev-dependencies]

@@ -21,7 +21,7 @@ pub use is_constant::*;
 pub use is_sorted::*;
 use itertools::Itertools;
 pub use like::*;
-pub use list::*;
+pub use list_contains::*;
 pub use mask::*;
 pub use min_max::*;
 pub use nan_count::*;
@@ -51,7 +51,7 @@ mod invert;
 mod is_constant;
 mod is_sorted;
 mod like;
-mod list;
+mod list_contains;
 mod mask;
 mod min_max;
 mod nan_count;
@@ -113,10 +113,14 @@ impl ComputeFn {
 
         if output.dtype() != &expected_dtype {
             vortex_bail!(
-                "Internal error: compute function {} returned a result of type {} but expected {}",
+                "Internal error: compute function {} returned a result of type {} but expected {}\n{}",
                 self.id,
                 output.dtype(),
-                &expected_dtype
+                &expected_dtype,
+                args.inputs
+                    .iter()
+                    .filter_map(|input| input.array())
+                    .format_with(",", |array, f| f(&array.tree_display()))
             );
         }
         if output.len() != expected_len {

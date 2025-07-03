@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::io::{Write, stdout};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
@@ -6,7 +9,7 @@ use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Format, Target, default_env_filter, df};
+use bench_vortex::{BenchmarkDataset, Format, Target, default_env_filter, df};
 use clap::{Parser, value_parser};
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -44,6 +47,8 @@ struct Args {
     dataset: PBIDataset,
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
+    #[arg(short)]
+    output_path: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -154,14 +159,23 @@ fn main() -> anyhow::Result<()> {
             all_measurements.push(QueryMeasurement {
                 query_idx,
                 target: *target,
+                benchmark_dataset: BenchmarkDataset::PublicBi {
+                    name: pbi_dataset.name.clone(),
+                },
                 storage: STORAGE_NVME.to_owned(),
                 fastest_run,
-                dataset: pbi_dataset.name.to_owned(),
             });
 
             progress_bar.inc(1);
         }
     }
+
+    let mut writer: Box<dyn Write> = if let Some(output_path) = args.output_path {
+        Box::new(File::create(output_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
 
     match args.display_format {
         DisplayFormat::Table => {
@@ -181,8 +195,8 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            render_table(all_measurements, &args.targets)
+            render_table(&mut writer, all_measurements, &args.targets)
         }
-        DisplayFormat::GhJson => print_measurements_json(all_measurements),
+        DisplayFormat::GhJson => print_measurements_json(&mut writer, all_measurements),
     }
 }

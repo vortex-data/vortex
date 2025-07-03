@@ -141,6 +141,6 @@ caption: Project Links
 references
 Spiral <https://spiraldb.com>
 GitHub <https://github.com/spiraldb/vortex>
-PyPI <https://pypi.org/project/vortex-array>
+PyPI <https://pypi.org/project/vortex-data>
 Crates <https://crates.io/crates/vortex>
 ```

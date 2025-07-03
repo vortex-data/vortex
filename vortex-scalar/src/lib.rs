@@ -3,7 +3,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 pub use scalar_type::ScalarType;
-use vortex_buffer::{BufferString, ByteBuffer};
+use vortex_buffer::{Buffer, BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DECIMAL128_MAX_PRECISION, DType, Nullability};
 #[cfg(feature = "arbitrary")]
@@ -178,70 +178,99 @@ impl Scalar {
             DType::Extension(_ext_dtype) => self.as_extension().storage().nbytes(),
         }
     }
+
+    /// Create a "default" scalar value for the given data type.
+    pub fn default_value(dtype: DType) -> Self {
+        if dtype.is_nullable() {
+            return Self::null(dtype);
+        }
+
+        match dtype {
+            DType::Null => Self::null(dtype),
+            DType::Bool(nullability) => Self::bool(false, nullability),
+            DType::Primitive(pt, nullability) => {
+                Self::primitive_value(PValue::zero(pt), pt, nullability)
+            }
+            DType::Decimal(dt, nullability) => {
+                Self::decimal(DecimalValue::from(0), dt, nullability)
+            }
+            DType::Utf8(nullability) => Self::utf8("", nullability),
+            DType::Binary(nullability) => Self::binary(Buffer::empty(), nullability),
+            DType::Struct(sf, nullability) => {
+                let fields: Vec<_> = sf.fields().map(Scalar::default_value).collect();
+                Self::struct_(DType::Struct(sf, nullability), fields)
+            }
+            DType::List(dt, nullability) => Self::list(dt, vec![], nullability),
+            DType::Extension(dt) => {
+                let scalar = Self::default_value(dt.storage_dtype().clone());
+                Self::extension(dt, scalar)
+            }
+        }
+    }
 }
 
 impl Scalar {
-    pub fn as_bool(&self) -> BoolScalar {
+    pub fn as_bool(&self) -> BoolScalar<'_> {
         BoolScalar::try_from(self).vortex_expect("Failed to convert scalar to bool")
     }
 
-    pub fn as_bool_opt(&self) -> Option<BoolScalar> {
+    pub fn as_bool_opt(&self) -> Option<BoolScalar<'_>> {
         matches!(self.dtype, DType::Bool(..)).then(|| self.as_bool())
     }
 
-    pub fn as_primitive(&self) -> PrimitiveScalar {
+    pub fn as_primitive(&self) -> PrimitiveScalar<'_> {
         PrimitiveScalar::try_from(self).vortex_expect("Failed to convert scalar to primitive")
     }
 
-    pub fn as_primitive_opt(&self) -> Option<PrimitiveScalar> {
+    pub fn as_primitive_opt(&self) -> Option<PrimitiveScalar<'_>> {
         matches!(self.dtype, DType::Primitive(..)).then(|| self.as_primitive())
     }
 
-    pub fn as_decimal(&self) -> DecimalScalar {
+    pub fn as_decimal(&self) -> DecimalScalar<'_> {
         DecimalScalar::try_from(self).vortex_expect("Failed to convert scalar to decimal")
     }
 
-    pub fn as_decimal_opt(&self) -> Option<DecimalScalar> {
+    pub fn as_decimal_opt(&self) -> Option<DecimalScalar<'_>> {
         matches!(self.dtype, DType::Decimal(..)).then(|| self.as_decimal())
     }
 
-    pub fn as_utf8(&self) -> Utf8Scalar {
+    pub fn as_utf8(&self) -> Utf8Scalar<'_> {
         Utf8Scalar::try_from(self).vortex_expect("Failed to convert scalar to utf8")
     }
 
-    pub fn as_utf8_opt(&self) -> Option<Utf8Scalar> {
+    pub fn as_utf8_opt(&self) -> Option<Utf8Scalar<'_>> {
         matches!(self.dtype, DType::Utf8(..)).then(|| self.as_utf8())
     }
 
-    pub fn as_binary(&self) -> BinaryScalar {
+    pub fn as_binary(&self) -> BinaryScalar<'_> {
         BinaryScalar::try_from(self).vortex_expect("Failed to convert scalar to binary")
     }
 
-    pub fn as_binary_opt(&self) -> Option<BinaryScalar> {
+    pub fn as_binary_opt(&self) -> Option<BinaryScalar<'_>> {
         matches!(self.dtype, DType::Binary(..)).then(|| self.as_binary())
     }
 
-    pub fn as_struct(&self) -> StructScalar {
+    pub fn as_struct(&self) -> StructScalar<'_> {
         StructScalar::try_from(self).vortex_expect("Failed to convert scalar to struct")
     }
 
-    pub fn as_struct_opt(&self) -> Option<StructScalar> {
+    pub fn as_struct_opt(&self) -> Option<StructScalar<'_>> {
         matches!(self.dtype, DType::Struct(..)).then(|| self.as_struct())
     }
 
-    pub fn as_list(&self) -> ListScalar {
+    pub fn as_list(&self) -> ListScalar<'_> {
         ListScalar::try_from(self).vortex_expect("Failed to convert scalar to list")
     }
 
-    pub fn as_list_opt(&self) -> Option<ListScalar> {
+    pub fn as_list_opt(&self) -> Option<ListScalar<'_>> {
         matches!(self.dtype, DType::List(..)).then(|| self.as_list())
     }
 
-    pub fn as_extension(&self) -> ExtScalar {
+    pub fn as_extension(&self) -> ExtScalar<'_> {
         ExtScalar::try_from(self).vortex_expect("Failed to convert scalar to extension")
     }
 
-    pub fn as_extension_opt(&self) -> Option<ExtScalar> {
+    pub fn as_extension_opt(&self) -> Option<ExtScalar<'_>> {
         matches!(self.dtype, DType::Extension(..)).then(|| self.as_extension())
     }
 }
@@ -566,5 +595,37 @@ mod test {
             }),
             "{result:?}"
         );
+    }
+
+    #[test]
+    fn default_value_for_complex_dtype() {
+        let struct_dtype = DType::struct_(
+            [
+                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                (
+                    "b",
+                    DType::list(
+                        DType::Primitive(PType::I8, Nullability::Nullable),
+                        Nullability::NonNullable,
+                    ),
+                ),
+                ("c", DType::Primitive(PType::I32, Nullability::Nullable)),
+            ],
+            Nullability::NonNullable,
+        );
+
+        let scalar = Scalar::default_value(struct_dtype.clone());
+        assert_eq!(scalar.dtype(), &struct_dtype);
+
+        let scalar = scalar.as_struct();
+
+        let a_field = scalar.field("a").unwrap();
+        assert_eq!(a_field.as_primitive().pvalue().unwrap(), PValue::I32(0));
+
+        let b_field = scalar.field("b").unwrap();
+        assert!(b_field.as_list().is_empty());
+
+        let c_field = scalar.field("c").unwrap();
+        assert!(c_field.is_null());
     }
 }

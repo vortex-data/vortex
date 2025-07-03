@@ -9,9 +9,9 @@ use datafusion::execution::cache::cache_manager::CacheManagerConfig;
 use datafusion::execution::cache::cache_unit::{DefaultFileStatisticsCache, DefaultListFilesCache};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::physical_plan::collect;
-use datafusion::physical_plan::execution_plan::ExecutionPlan;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_common::GetExt;
+use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::display::DisplayableExecutionPlan;
 use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
@@ -19,6 +19,20 @@ use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use url::Url;
 use vortex_datafusion::VortexFormatFactory;
+
+pub use crate::Format;
+
+pub struct DataFusionCtx {
+    pub execution_plans: Vec<(usize, Arc<dyn ExecutionPlan>)>,
+    pub metrics: Vec<(
+        usize,
+        Format,
+        Vec<datafusion::physical_plan::metrics::MetricsSet>,
+    )>,
+
+    pub session: SessionContext,
+    pub emit_plan: bool,
+}
 
 pub static GIT_COMMIT_ID: LazyLock<String> = LazyLock::new(|| {
     String::from_utf8(
@@ -123,7 +137,7 @@ pub async fn execute_query(
 /// - A condensed plan with metrics and schema
 pub fn write_execution_plan(
     query_idx: usize,
-    format: crate::Format,
+    format: Format,
     dataset_name: &str,
     execution_plan: &dyn ExecutionPlan,
 ) {

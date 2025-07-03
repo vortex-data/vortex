@@ -274,9 +274,8 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
 
-    use vortex_dtype::{DType, Nullability, PType, StructFields};
+    use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
 
     use crate::{InnerScalarValue, PValue, ScalarValue};
 
@@ -340,10 +339,10 @@ mod test {
 
         fn tstruct(left: &DType, right: &DType) -> DType {
             DType::Struct(
-                Arc::new(StructFields::new(
+                StructFields::new(
                     vec!["left".into(), "right".into()].into(),
                     vec![left.clone(), right.clone()],
-                )),
+                ),
                 Nullability::NonNullable,
             )
         }
@@ -388,7 +387,7 @@ mod test {
         );
         assert!(
             ScalarValue(InnerScalarValue::Null).is_instance_of(&DType::Struct(
-                Arc::new(StructFields::new([].into(), [].into())),
+                StructFields::new(FieldNames::default(), [].into()),
                 Nullability::Nullable,
             ))
         );

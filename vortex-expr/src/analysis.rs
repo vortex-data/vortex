@@ -35,15 +35,20 @@ pub trait AnalysisExpr {
         None
     }
 
-    /// If an expression is returned, its value is an upper bound on the value of `expr`.
+    /// An expression for the upper non-null bound of this expression, if available.
     ///
-    /// We may return `None` for values which have no upper bound or values for which knowing the
-    /// upper bound is difficult.
+    /// This function returns None if there is no upper bound or it is difficult to compute.
+    ///
+    /// The returned expression evaluates to null if the maximum value is unknown. In that case, you
+    /// _must not_ assume the array is empty _nor_ may you assume the array only contains non-null
+    /// values.
     fn max(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         None
     }
-    /// If an expression is returned, its value is an upper bound on the value of `expr`.
-    /// see `AnalysisExpr::max`
+
+    /// An expression for the lower non-null bound of this expression, if available.
+    ///
+    /// See [AnalysisExpr::max] for important details.
     fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         None
     }

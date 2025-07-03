@@ -1,4 +1,3 @@
-#![feature(exit_status_error)]
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
@@ -26,7 +25,7 @@ pub mod tpch;
 pub mod utils;
 
 pub use datasets::{BenchmarkDataset, file};
-pub use engines::{ddb, df};
+pub use engines::df;
 pub use vortex::error::vortex_panic;
 
 // All benchmarks run with mimalloc for consistency.

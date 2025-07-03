@@ -7,7 +7,7 @@ mod like;
 mod min_max;
 
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
+    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, cast, filter, take,
 };
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
@@ -17,8 +17,13 @@ use crate::{DictArray, DictVTable};
 
 impl TakeKernel for DictVTable {
     fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+        // TODO(joe): can we remove the cast and allow dict arrays to have nullable codes and values
         let codes = take(array.codes(), indices)?;
-        DictArray::try_new(codes, array.values().clone()).map(|a| a.into_array())
+        let values_dtype = array
+            .values()
+            .dtype()
+            .union_nullability(codes.dtype().nullability());
+        DictArray::try_new(codes, cast(array.values(), &values_dtype)?).map(|a| a.into_array())
     }
 }
 
@@ -38,8 +43,9 @@ mod test {
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::{ConstantArray, PrimitiveArray, VarBinArray, VarBinViewArray};
     use vortex_array::compute::conformance::mask::test_mask;
-    use vortex_array::compute::{Operator, compare};
+    use vortex_array::compute::{Operator, compare, take};
     use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+    use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
@@ -183,5 +189,20 @@ mod test {
         )
         .unwrap();
         test_mask(array.as_ref());
+    }
+
+    #[test]
+    fn test_take_dict() {
+        let array = dict_encode(PrimitiveArray::from_iter([1, 2]).as_ref()).unwrap();
+
+        assert_eq!(
+            take(
+                array.as_ref(),
+                PrimitiveArray::from_option_iter([Option::<i32>::None]).as_ref()
+            )
+            .unwrap()
+            .dtype(),
+            &DType::Primitive(I32, Nullability::Nullable)
+        );
     }
 }

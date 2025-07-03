@@ -3,7 +3,8 @@ mod macros;
 mod ops;
 mod serde;
 
-use vortex_buffer::{Buffer, ByteBuffer};
+use arrow_buffer::BooleanBufferBuilder;
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_scalar::{DecimalValueType, NativeDecimalType};
@@ -129,6 +130,33 @@ impl DecimalArray {
 
     pub fn scale(&self) -> i8 {
         self.decimal_dtype().scale()
+    }
+
+    pub fn from_option_iter<T: NativeDecimalType, I: IntoIterator<Item = Option<T>>>(
+        iter: I,
+        decimal_dtype: DecimalDType,
+    ) -> Self {
+        let iter = iter.into_iter();
+        let mut values = BufferMut::with_capacity(iter.size_hint().0);
+        let mut validity = BooleanBufferBuilder::new(values.capacity());
+
+        for i in iter {
+            match i {
+                None => {
+                    validity.append(false);
+                    values.push(T::default());
+                }
+                Some(e) => {
+                    validity.append(true);
+                    values.push(e);
+                }
+            }
+        }
+        Self::new(
+            values.freeze(),
+            decimal_dtype,
+            Validity::from(validity.finish()),
+        )
     }
 }
 

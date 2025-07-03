@@ -45,15 +45,11 @@
                 ],
                 "hiddenDatasets": undefined,
             }],
-            ["TPC-H (NVME)", {
+            ["TPC-H (NVME) (SF=1)", {
                 "keptCharts": undefined,
                 "hiddenDatasets": undefined,
                 "removedDatasets": new Set([]),
                 "renamedDatasets": {
-                    "vortex-file-compressed": "datafusion:vortex",
-                    "parquet": "datafusion:parquet",
-                    "arrow": "datafusion:arrow",
-
                     "DataFusion:vortex-file-compressed": "datafusion:vortex",
                     "DataFusion:parquet": "datafusion:parquet",
                     "DataFusion:arrow": "datafusion:arrow",
@@ -63,14 +59,10 @@
                     "DuckDB:duckdb": "duckdb:duckdb",
                 },
             }],
-            ["TPC-H (S3)", {
+            ["TPC-H (S3) (SF=1)", {
                 "keptCharts": undefined,
                 "hiddenDatasets": undefined,
                 "renamedDatasets": {
-                    "vortex-file-compressed": "datafusion:vortex",
-                    "parquet": "datafusion:parquet",
-                    "arrow": "datafusion:arrow",
-
                     "DataFusion:vortex-file-compressed": "datafusion:vortex",
                     "DataFusion:parquet": "datafusion:parquet",
                     "DataFusion:arrow": "datafusion:arrow",
@@ -82,10 +74,6 @@
             }],
             ["Clickbench", {
                 "renamedDatasets": {
-                    "vortex-file-compressed": "datafusion:vortex",
-                    "parquet": "datafusion:parquet",
-                    "arrow": "datafusion:arrow",
-
                     "DataFusion:vortex-file-compressed": "datafusion:vortex",
                     "DataFusion:parquet": "datafusion:parquet",
                     "DataFusion:arrow": "datafusion:arrow",
@@ -95,6 +83,28 @@
                     "DuckDB:duckdb": "duckdb:duckdb",
                 }
             }],
+            ["TPCH (NVME) (SF=100)", {
+                "renamedDatasets": {
+                    "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                    "DataFusion:parquet": "datafusion:parquet",
+                    "DataFusion:arrow": "datafusion:arrow",
+
+                    "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                    "DuckDB:parquet": "duckdb:parquet",
+                    "DuckDB:duckdb": "duckdb:duckdb",
+                }
+            }],
+            ["TPC-H (S3) (SF=100)", {
+                "renamedDatasets": {
+                    "DataFusion:vortex-file-compressed": "datafusion:vortex",
+                    "DataFusion:parquet": "datafusion:parquet",
+                    "DataFusion:arrow": "datafusion:arrow",
+
+                    "DuckDB:vortex-file-compressed": "duckdb:vortex",
+                    "DuckDB:parquet": "duckdb:parquet",
+                    "DuckDB:duckdb": "duckdb:duckdb",
+                },
+            }]
         ]);
     </script>
 </head>
