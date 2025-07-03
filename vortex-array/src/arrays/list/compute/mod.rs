@@ -2,6 +2,7 @@ mod cast;
 mod filter;
 mod is_constant;
 mod mask;
+mod take;
 
 use vortex_error::VortexResult;
 
