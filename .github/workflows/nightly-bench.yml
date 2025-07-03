@@ -3,6 +3,7 @@ name: Nightly Benchmarks
 on:
   schedule:
     - cron: '0 0 * * *'  # daily
+  workflow_dispatch:
 
 permissions:
   id-token: write  # enables AWS-GitHub OIDC
