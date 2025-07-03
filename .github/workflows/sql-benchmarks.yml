@@ -32,7 +32,7 @@ jobs:
             binary_name: tpch
             name: TPC-H on NVME
             targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
-            scale_factor: "--scale_factor ${{inputs.scale_factor}}"
+            scale_factor: "--scale-factor ${{inputs.scale_factor}}"
           - id: clickbench-nvme
             binary_name: clickbench
             name: Clickbench on NVME
@@ -44,7 +44,7 @@ jobs:
             local_dir: bench-vortex/data/tpch/${{inputs.scale_factor}}
             remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/${{inputs.scale_factor}}/
             targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet"
-            scale_factor: "--scale_factor ${{inputs.scale_factor}}"
+            scale_factor: "--scale-factor ${{inputs.scale_factor}}"
 
     runs-on:
       - runs-on=${{ github.run_id }}
