@@ -189,7 +189,7 @@ impl StructFields {
     /// The fields of the empty struct.
     pub fn empty() -> Self {
         Self(Arc::new(StructFieldsInner {
-            names: Arc::from([]),
+            names: FieldNames::default(),
             dtypes: Arc::from([]),
         }))
     }
@@ -372,7 +372,7 @@ mod test {
     fn nullability() {
         assert!(
             !DType::Struct(
-                StructFields::new(vec![].into(), Vec::new()),
+                StructFields::new(FieldNames::default(), Vec::new()),
                 Nullability::NonNullable
             )
             .is_nullable()
@@ -432,10 +432,7 @@ mod test {
         let sf2 = StructFields::from_iter([("C", child_c.clone())]);
 
         let merged = StructFields::disjoint_merge(&sf1, &sf2).unwrap();
-        assert_eq!(
-            merged.names(),
-            &FieldNames::from_iter(["A".into(), "B".into(), "C".into()])
-        );
+        assert_eq!(merged.names(), &FieldNames::from_iter(["A", "B", "C"]));
         assert_eq!(
             merged.fields().collect_vec(),
             vec![child_a, child_b, child_c]

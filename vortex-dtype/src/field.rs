@@ -11,14 +11,14 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::DType;
+use crate::{DType, FieldName};
 
 /// Selects a nested type within either a struct or a list.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Field {
     /// Address a field of a [`crate::DType::Struct`].
-    Name(Arc<str>),
+    Name(FieldName),
     /// Address the element type of a [`crate::DType::List`].
     ElementType,
 }
