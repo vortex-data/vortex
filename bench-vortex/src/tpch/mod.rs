@@ -21,6 +21,7 @@ mod execute;
 pub mod schema;
 
 pub use execute::*;
+use vortex::error::VortexExpect;
 
 pub const TPC_H_ROW_COUNT_ARRAY_LENGTH: usize = 23;
 pub const EXPECTED_ROW_COUNTS_SF1: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
@@ -239,21 +240,15 @@ pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema)
     ChunkedArray::from_iter(chunks).into_array()
 }
 
-pub fn tpch_queries() -> impl Iterator<Item = (usize, Vec<String>)> {
+pub fn tpch_queries() -> impl Iterator<Item = (usize, String)> {
     (1..=22).map(|q| (q, tpch_query(q)))
 }
 
 // A few tpch queries have multiple statements, this handles that
-fn tpch_query(query_idx: usize) -> Vec<String> {
+fn tpch_query(query_idx: usize) -> String {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tpch")
         .join(format!("q{query_idx}"))
         .with_extension("sql");
-    fs::read_to_string(manifest_dir)
-        .unwrap()
-        .split(';')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .collect()
+    fs::read_to_string(manifest_dir).vortex_expect("cannot load tpch query from file")
 }
