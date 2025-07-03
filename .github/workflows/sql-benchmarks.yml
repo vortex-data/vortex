@@ -6,6 +6,10 @@ on:
       mode:
         required: true
         type: string
+      machine_type:
+        required: false
+        type: string
+        default: c6id.8xlarge
 
 jobs:
   bench:
@@ -38,7 +42,7 @@ jobs:
             targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c6id.8xlarge
+      - family=${{ inputs.machine_type }}
       - image=ubuntu24-full-x64
       - spot=false
       - extras=s3-cache
