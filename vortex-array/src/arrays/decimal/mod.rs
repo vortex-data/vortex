@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod compute;
-mod macros;
 mod ops;
 mod serde;
 
