@@ -1,33 +1,49 @@
-use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
 
+use clap::{Parser, ValueEnum};
 use futures_util::StreamExt;
 use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
 use vortex::TryIntoArray;
+use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect, VortexResult};
-use vortex::file::VortexWriteOptions;
+use vortex::file::{VortexLayoutStrategy, VortexWriteOptions};
 use vortex::stream::ArrayStreamAdapter;
+use vortex_layout::scan::LocalExecutor;
 
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum Strategy {
+    Btrblocks,
+    Compact,
+}
+#[derive(Debug, Clone, Parser)]
 pub struct Flags {
-    pub quiet: bool,
+    /// Path to the Parquet file on disk to convert to Vortex
+    pub file: PathBuf,
+
+    /// Execute quietly. No output will be printed.
+    #[arg(short, long)]
+    quiet: bool,
+
+    /// Compression strategy.
+    #[arg(short, long, default_value = "btrblocks")]
+    strategy: Strategy,
 }
 
 const BATCH_SIZE: usize = 8192;
 
 /// Convert Parquet files to Vortex.
-pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexResult<()> {
+pub async fn exec_convert(flags: Flags) -> VortexResult<()> {
+    let input_path = flags.file.clone();
     if !flags.quiet {
-        eprintln!(
-            "Converting input Parquet file: {}",
-            input_path.as_ref().display()
-        );
+        eprintln!("Converting input Parquet file: {}", input_path.display());
     }
 
-    let output_path = input_path.as_ref().with_extension("vortex");
+    let output_path = input_path.with_extension("vortex");
     let file = File::open(input_path).await?;
 
     let parquet = ParquetRecordBatchStreamBuilder::new(file)
@@ -56,7 +72,15 @@ pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexR
             .boxed();
     }
 
+    let executor = Arc::new(LocalExecutor);
+    let strategy = match flags.strategy {
+        Strategy::Btrblocks => VortexLayoutStrategy::with_executor(executor),
+        Strategy::Compact => {
+            VortexLayoutStrategy::compact_with_executor(executor, CompactCompressor::default())
+        }
+    };
     VortexWriteOptions::default()
+        .with_strategy(strategy)
         .write(
             File::create(output_path).await?,
             ArrayStreamAdapter::new(dtype, vortex_stream),

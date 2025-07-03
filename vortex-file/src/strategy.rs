@@ -119,9 +119,19 @@ impl VortexLayoutStrategy {
             compressor,
         ));
 
+        // 3. apply dict encoding or fallback
+        // let dict = arcref(DictStrategy::new(
+        //     coalescing.clone(),
+        //     compress_then_flat.clone(),
+        //     coalescing,
+        //     Default::default(),
+        //     executor.clone(),
+        // ));
+
         // 2. calculate stats for each row group
         let stats = arcref(ZonedStrategy::new(
             coalescing,
+            // dict,
             compress_then_flat.clone(),
             ZonedLayoutOptions {
                 block_size: ROW_BLOCK_SIZE,

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use futures::{FutureExt as _, StreamExt as _};
-use vortex_array::arrays::{ListArray, StructArray};
+use vortex_array::arrays::{ExtensionArray, ListArray, StructArray};
 use vortex_array::stats::Stat;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{Array, ArrayContext, ArrayRef, Canonical, IntoArray};
@@ -115,6 +115,19 @@ impl CompactCompressor {
                 )?
                 .into_array())
             }
+            Canonical::VarBinView(strings) => {
+                let zstd_array =
+                    ZstdArray::from_var_bin_view(&strings, self.zstd_level, self.values_per_page)?;
+                Ok(zstd_array.into_array())
+            }
+            Canonical::Extension(ext_array) => {
+                let compressed_storage = self.compress(ext_array.storage())?;
+
+                Ok(
+                    ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)
+                        .into_array(),
+                )
+            }
             // For non-primitive arrays, return as-is for now.
             other => Ok(other.into_array()),
         }
@@ -130,7 +143,8 @@ impl Default for CompactCompressor {
             // compression. It also currently aligns with the default strategy's
             // number of rows per statistic, which allows efficient pushdown
             // (but nothing enforces this).
-            values_per_page: 8192,
+            // TODO
+            values_per_page: 0,
         }
     }
 }
