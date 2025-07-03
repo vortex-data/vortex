@@ -10,6 +10,10 @@ on:
         required: false
         type: string
         default: c6id.8xlarge
+      scale_factor:
+        required: false
+        type: number
+        default: 1
 
 jobs:
   bench:
@@ -27,19 +31,23 @@ jobs:
           - id: tpch-nvme
             binary_name: tpch
             name: TPC-H on NVME
-            local_dir: bench-vortex/data/tpch/1
+            local_dir: bench-vortex/data/tpch/${{inputs.scale_factor}}
             targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
+            scale_factor: "--scale_factor ${{inputs.scale_factor}}"
           - id: clickbench-nvme
             binary_name: clickbench
             name: Clickbench on NVME
             local_dir: bench-vortex/data/clickbench_partitioned
             targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
+            scale_factor: ""
           - id: tpch-s3
             binary_name: tpch
             name: TPC-H on S3
-            local_dir: bench-vortex/data/tpch/1
-            remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/1/
+            local_dir: bench-vortex/data/tpch/${{inputs.scale_factor}}
+            remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/${{inputs.scale_factor}}/
             targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet"
+            scale_factor: "--scale_factor ${{inputs.scale_factor}}"
+
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=${{ inputs.machine_type }}
@@ -81,9 +89,9 @@ jobs:
           RUST_BACKTRACE: full
         run: |
           # Generate data, running each query once to make sure they don't panic.
-          target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json
-          target/release_debug/${{ matrix.binary_name }} --targets datafusion:vortex -i1 -d gh-json
-          target/release_debug/${{ matrix.binary_name }} --targets duckdb:vortex -i1 -d gh-json
+          target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json ${{ matrix.scale_factor }}
+          target/release_debug/${{ matrix.binary_name }} --targets datafusion:vortex -i1 -d gh-json ${{ matrix.scale_factor }}
+          target/release_debug/${{ matrix.binary_name }} --targets duckdb:vortex -i1 -d gh-json ${{ matrix.scale_factor }}
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
@@ -121,6 +129,7 @@ jobs:
             -d gh-json \
             --targets ${{ matrix.targets }} \
             --export-spans \
+            ${{ matrix.scale_factor }} \
             -o results.json
 
       - name: Run ${{ matrix.name }} benchmark (remote)
@@ -138,6 +147,7 @@ jobs:
               --use-remote-data-dir ${{ matrix.remote_storage }} \
               --targets ${{ matrix.targets }} \
               --export-spans \
+              ${{ matrix.scale_factor }} \
               -d gh-json \
               -o results.json
 
