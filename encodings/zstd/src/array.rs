@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::filter;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
@@ -9,12 +9,12 @@ use vortex_array::vtable::{
     ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
 };
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
+use vortex_buffer::{Alignment, Buffer, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
+use crate::serde::{CanonicalArrayType, ZstdFrameMetadata, ZstdMetadata};
 
 // Zstd doesn't support training dictionaries on very few samples.
 const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;
@@ -79,6 +79,12 @@ pub struct ZstdArray {
     slice_stop: usize,
 }
 
+struct Frames {
+    dictionary: Option<Buffer<u8>>,
+    frames: Vec<Buffer<u8>>,
+    frame_metas: Vec<ZstdFrameMetadata>,
+}
+
 fn choose_max_dict_size(uncompressed_size: usize) -> usize {
     // following recommendations from
     // https://github.com/facebook/zstd/blob/v1.5.5/lib/zdict.h#L190
@@ -114,32 +120,18 @@ impl ZstdArray {
         }
     }
 
-    pub fn from_primitive(
-        parray: &PrimitiveArray,
+    fn build_frames(
+        value_bytes: &Buffer<u8>,
+        mut frame_byte_starts: Vec<usize>,
         level: i32,
-        values_per_frame: usize,
-    ) -> VortexResult<Self> {
-        let dtype = parray.dtype().clone();
-        let byte_width = parray.ptype().byte_width();
-
-        // We compress only the valid elements.
-        let values = collect_valid(parray)?;
-        let n_values = values.len();
-        let values_per_frame = if values_per_frame > 0 {
-            values_per_frame
-        } else {
-            n_values
-        };
-
-        let mut frame_value_starts = (0..n_values).step_by(values_per_frame).collect::<Vec<_>>();
-        let n_frames = frame_value_starts.len();
-        frame_value_starts.push(values.len()); // for convenience, include the stop of the last frame
-        let value_bytes = values.byte_buffer();
+    ) -> VortexResult<Frames> {
+        let n_frames = frame_byte_starts.len();
+        frame_byte_starts.push(value_bytes.len()); // for convenience, include the stop of the last frame
 
         // Would-be sample sizes if we end up applying zstd dictionary
-        let sample_sizes: Vec<usize> = frame_value_starts
+        let sample_sizes: Vec<usize> = frame_byte_starts
             .windows(2)
-            .map(|pair| (pair[1] - pair[0]) * byte_width)
+            .map(|pair| pair[1] - pair[0])
             .collect();
         debug_assert_eq!(sample_sizes.iter().sum::<usize>(), value_bytes.len());
 
@@ -159,8 +151,7 @@ impl ZstdArray {
         let mut frame_metas = vec![];
         let mut frames = vec![];
         for i in 0..n_frames {
-            let uncompressed = &value_bytes
-                .slice(frame_value_starts[i] * byte_width..frame_value_starts[i + 1] * byte_width);
+            let uncompressed = &value_bytes.slice(frame_byte_starts[i]..frame_byte_starts[i + 1]);
             let compressed = compressor
                 .compress(uncompressed)
                 .map_err(|err| VortexError::from(err).with_context("while compressing"))?;
@@ -170,12 +161,47 @@ impl ZstdArray {
             frames.push(ByteBuffer::from(compressed));
         }
 
+        Ok(Frames {
+            dictionary,
+            frames,
+            frame_metas,
+        })
+    }
+
+    pub fn from_primitive(
+        parray: &PrimitiveArray,
+        level: i32,
+        values_per_frame: usize,
+    ) -> VortexResult<Self> {
+        let dtype = parray.dtype().clone();
+        let byte_width = parray.ptype().byte_width();
+
+        // We compress only the valid elements.
+        let values = collect_valid(parray)?;
+        let n_values = values.len();
+        let values_per_frame = if values_per_frame > 0 {
+            values_per_frame
+        } else {
+            n_values
+        };
+
+        let value_bytes = values.byte_buffer();
+        let frame_byte_starts = (0..n_values * byte_width)
+            .step_by(values_per_frame * byte_width)
+            .collect::<Vec<_>>();
+        let Frames {
+            dictionary,
+            frames,
+            frame_metas,
+        } = Self::build_frames(value_bytes, frame_byte_starts, level)?;
+
         let metadata = ZstdMetadata {
             dictionary_size: dictionary
                 .as_ref()
                 .map_or(0, |dict| dict.len())
                 .try_into()?,
             frames: frame_metas,
+            canonical_array_type: CanonicalArrayType::Primitive as i32,
         };
 
         Ok(ZstdArray::new(
@@ -188,12 +214,25 @@ impl ZstdArray {
         ))
     }
 
-    pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            Self::from_primitive(parray, level, values_per_frame)
-        } else {
-            Err(vortex_err!("Zstd can only encode primitive arrays"))
+    pub fn from_canonical(
+        canonical: &Canonical,
+        level: i32,
+        values_per_frame: usize,
+    ) -> VortexResult<Option<Self>> {
+        match canonical {
+            Canonical::Primitive(parray) => Ok(Some(ZstdArray::from_primitive(
+                parray,
+                level,
+                values_per_frame,
+            )?)),
+            // Canonical::VarBinView(vbv) => Ok(Some(ZstdArray::from_var_bin_view(vbv, 3, 0)?)),
+            _ => Ok(None),
         }
+    }
+
+    pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
+        Self::from_canonical(&array.to_canonical()?, level, values_per_frame)?
+            .ok_or_else(|| vortex_err!("Zstd can only encode primitive  arrays"))
     }
 
     pub fn decompress(&self) -> VortexResult<ArrayRef> {

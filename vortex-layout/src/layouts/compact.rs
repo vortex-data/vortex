@@ -115,11 +115,6 @@ impl CompactCompressor {
                 )?
                 .into_array())
             }
-            Canonical::VarBinView(strings) => {
-                let zstd_array =
-                    ZstdArray::from_var_bin_view(&strings, self.zstd_level, self.values_per_page)?;
-                Ok(zstd_array.into_array())
-            }
             Canonical::Extension(ext_array) => {
                 let compressed_storage = self.compress(ext_array.storage())?;
 
