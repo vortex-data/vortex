@@ -74,20 +74,13 @@ window.initAndRender = (function () {
             if (dataset !== undefined) {
                 if (dataset.tpch !== undefined) {
                     let scale_factor = dataset.tpch.scale_factor;
+                    let nvme = storage === undefined || storage === "nvme";
                     if (scale_factor === 1) {
-                        if (storage === undefined || storage === "nvme") {
-                            group_id = "TPC-H (NVME) (SF=1)";
-                        } else {
-                            group_id = "TPC-H (S3) (SF=1)";
-                        }
+                        group_id = nvme ? "TPC-H (NVME) (SF=1)" : "TPC-H (S3) (SF=1)"
                     } else if (scale_factor === 100) {
-                        if (storage === undefined || storage === "nvme") {
-                            group_id = "TPC-H (NVME) (SF=100)";
-                        } else {
-                            group_id = "TPC-H (S3) (SF=100)";
-                        }
+                        group_id = nvme ? "TPC-H (NVME) (SF=100)" : "TPC-H (S3) (SF=100)"
                     } else {
-                        console.warn("no sf")
+                        console.warn("no scale factor found in benchmark")
                     }
                 } else if (dataset.clickbench !== undefined) {
                     group_id = "Clickbench";
