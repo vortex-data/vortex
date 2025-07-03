@@ -1,7 +1,7 @@
 # 🌪️ Vortex
 
 [![Build Status](https://github.com/vortex-data/vortex/actions/workflows/ci.yml/badge.svg)](https://github.com/vortex-data/vortex/actions)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/10567/badge)](https://www.bestpractices.dev/projects/10567)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/badge_static/gold)](https://www.bestpractices.dev/projects/10567)
 [![Documentation](https://docs.rs/vortex/badge.svg)](https://docs.vortex.dev)
 [![CodSpeed Badge](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://codspeed.io/vortex-data/vortex)
 [![Crates.io](https://img.shields.io/crates/v/vortex.svg)](https://crates.io/crates/vortex)
