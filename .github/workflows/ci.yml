@@ -342,10 +342,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
