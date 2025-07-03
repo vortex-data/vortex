@@ -32,6 +32,7 @@ datafusion = { workspace = true, features = [
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 dirs = { workspace = true }
+erased-serde = { workspace = true }
 futures = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true }

@@ -154,19 +154,20 @@ fn main() -> anyhow::Result<()> {
 
                 EngineCtx::new_with_datafusion(session_ctx, args.emit_plan)
             }
-            Engine::DuckDB => EngineCtx::new_with_duckdb(dataset, format)?,
+            Engine::DuckDB => EngineCtx::new_with_duckdb(dataset.clone(), format)?,
             _ => unreachable!("engine not supported"),
         };
 
         let tokio_runtime = new_tokio_runtime(args.threads);
 
-        tokio_runtime.block_on(init_data_source(format, &base_url, dataset, &engine_ctx))?;
+        tokio_runtime.block_on(init_data_source(format, &base_url, &dataset, &engine_ctx))?;
 
         let bench_measurements = execute_queries(
             &queries,
             args.iterations,
             &tokio_runtime,
             format,
+            dataset,
             &progress_bar,
             &mut engine_ctx,
         );
@@ -291,7 +292,7 @@ fn data_source_base_url(remote_data_dir: &Option<String>, flavor: Flavor) -> any
 async fn init_data_source(
     file_format: Format,
     base_url: &Url,
-    dataset: BenchmarkDataset,
+    dataset: &BenchmarkDataset,
     engine_ctx: &EngineCtx,
 ) -> anyhow::Result<()> {
     if file_format == Format::OnDiskVortex && base_url.scheme() == "file" {
@@ -347,6 +348,7 @@ fn execute_queries(
     iterations: usize,
     tokio_runtime: &Runtime,
     file_format: Format,
+    dataset: BenchmarkDataset,
     progress_bar: &ProgressBar,
     engine_ctx: &mut EngineCtx,
 ) -> Vec<QueryMeasurement> {
@@ -399,9 +401,9 @@ fn execute_queries(
                 query_measurements.push(QueryMeasurement {
                     query_idx,
                     target: Target::new(Engine::DataFusion, file_format),
+                    benchmark_dataset: dataset.clone(),
                     storage: STORAGE_NVME.to_owned(),
                     fastest_run,
-                    dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }
             EngineCtx::DuckDB(ctx) => {
@@ -416,9 +418,9 @@ fn execute_queries(
                 query_measurements.push(QueryMeasurement {
                     query_idx,
                     target: Target::new(Engine::DuckDB, file_format),
+                    benchmark_dataset: dataset.clone(),
                     storage: STORAGE_NVME.to_owned(),
                     fastest_run,
-                    dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }
         };

@@ -13,7 +13,6 @@ use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, load_datasets, run_tpch_query, tpch_queries,
 };
-use bench_vortex::utils::constants::TPCH_DATASET;
 use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{
     BenchmarkDataset, Engine, Format, IdempotentPath, Target, default_env_filter, vortex_panic,
@@ -52,8 +51,8 @@ struct Args {
     use_remote_data_dir: Option<String>,
     #[arg(short, long, default_value_t = 10)]
     iterations: usize,
-    #[arg(long, default_value_t = 1)]
-    scale_factor: u8,
+    #[arg(long, default_value_t = 1, value_parser=validate_scale_factor)]
+    scale_factor: u32,
     #[arg(short)]
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
@@ -70,6 +69,15 @@ struct Args {
     emit_plan: bool,
     #[arg(short)]
     output_path: Option<PathBuf>,
+}
+
+fn validate_scale_factor(val: &str) -> Result<u32, String> {
+    match val.parse::<u32>() {
+        Ok(n) if [1, 10, 100, 1000].contains(&n) => Ok(n),
+        _ => Err(String::from(
+            "Value must be a scale factor of 1, 10, 100 or 1000",
+        )),
+    }
 }
 
 #[derive(ValueEnum, Default, Clone, Debug, PartialEq, Eq)]
@@ -187,22 +195,24 @@ async fn bench_main(
     targets: Vec<Target>,
     display_format: DisplayFormat,
     disable_datafusion_cache: bool,
-    scale_factor: u8,
+    scale_factor: u32,
     url: Url,
     display_all_metrics: bool,
     export_spans: bool,
     emit_plan: bool,
     output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
+    let dataset = BenchmarkDataset::TpcH { scale_factor };
     let expected_row_counts = if scale_factor == 1 {
-        EXPECTED_ROW_COUNTS_SF1
+        Some(EXPECTED_ROW_COUNTS_SF1)
     } else if scale_factor == 10 {
-        EXPECTED_ROW_COUNTS_SF10
+        Some(EXPECTED_ROW_COUNTS_SF10)
     } else {
-        vortex_panic!(
+        warn!(
             "Scale factor {} not supported due to lack of expected row counts.",
             scale_factor
         );
+        None
     };
 
     info!(
@@ -235,13 +245,7 @@ async fn bench_main(
         let format = target.format();
         match engine {
             Engine::DataFusion => {
-                let ctx = load_datasets(
-                    &url,
-                    format,
-                    BenchmarkDataset::TpcH,
-                    disable_datafusion_cache,
-                )
-                .await?;
+                let ctx = load_datasets(&url, format, &dataset, disable_datafusion_cache).await?;
 
                 let mut plans = Vec::new();
 
@@ -252,10 +256,12 @@ async fn bench_main(
                         })
                         .await;
 
-                    assert_eq!(
-                        row_count, expected_row_counts[query_idx],
-                        "Error: Row count mismatch for query idx {query_idx} - {engine}:{format}",
-                    );
+                    if let Some(expected_row_counts) = &expected_row_counts {
+                        assert_eq!(
+                            row_count, expected_row_counts[query_idx],
+                            "Error: Row count mismatch for query idx {query_idx} - {engine}:{format}",
+                        );
+                    }
 
                     // Gather metrics.
                     for (idx, metrics_set) in VortexMetricsFinder::find_all(plan.as_ref())
@@ -272,7 +278,7 @@ async fn bench_main(
                     }
 
                     if emit_plan {
-                        write_execution_plan(query_idx, format, TPCH_DATASET, plan.as_ref());
+                        write_execution_plan(query_idx, format, dataset.name(), plan.as_ref());
                     }
 
                     plans.push((query_idx, plan.clone()));
@@ -282,9 +288,9 @@ async fn bench_main(
                     measurements.push(QueryMeasurement {
                         query_idx,
                         target: *target,
+                        benchmark_dataset: dataset.clone(),
                         storage,
                         fastest_run,
-                        dataset: TPCH_DATASET.to_owned(),
                     });
 
                     progress.inc(1);
@@ -299,28 +305,30 @@ async fn bench_main(
 
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
-                let engine_ctx = EngineCtx::new_with_duckdb(BenchmarkDataset::TpcH, format)?;
+                let engine_ctx = EngineCtx::new_with_duckdb(dataset.clone(), format)?;
 
                 if let EngineCtx::DuckDB(ctx) = &engine_ctx {
-                    ctx.register_tables(&url, format, BenchmarkDataset::TpcH)?;
+                    ctx.register_tables(&url, format, &dataset)?;
 
                     for (query_idx, sql_query) in tpch_queries.clone() {
                         let (fastest_run, row_count) =
                             benchmark_duckdb_query(query_idx, &sql_query, iterations, ctx);
 
-                        assert_eq!(
-                            row_count, expected_row_counts[query_idx],
-                            "Error: Row count mismatch for query idx {query_idx} - {engine}:{format}",
-                        );
+                        if let Some(expected_row_counts) = &expected_row_counts {
+                            assert_eq!(
+                                row_count, expected_row_counts[query_idx],
+                                "Error: Row count mismatch for query idx {query_idx} - {engine}:{format}",
+                            );
+                        }
 
                         let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
 
                         measurements.push(QueryMeasurement {
                             query_idx,
                             target: *target,
+                            benchmark_dataset: dataset.clone(),
                             storage,
                             fastest_run,
-                            dataset: TPCH_DATASET.to_owned(),
                         });
 
                         progress.inc(1);
@@ -374,9 +382,13 @@ async fn bench_main(
 
 fn verify_duckdb_tpch_results(
     url: &Url,
-    _scale_factor: u8,
+    scale_factor: u32,
     queries: Option<Vec<usize>>,
 ) -> anyhow::Result<()> {
+    // omit validation for sf != 1.
+    if scale_factor != 1 {
+        return Ok(());
+    }
     let query_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vortex-duckdb/duckdb/extension/tpch/dbgen/queries");
 
@@ -391,7 +403,11 @@ fn verify_duckdb_tpch_results(
     }
     fs::create_dir(&tmp_dir)?;
     let duckdb_ctx = ddb::DuckDBCtx::new_in_memory()?;
-    duckdb_ctx.register_tables(url, Format::OnDiskVortex, BenchmarkDataset::TpcH)?;
+    duckdb_ctx.register_tables(
+        url,
+        Format::OnDiskVortex,
+        &BenchmarkDataset::TpcH { scale_factor },
+    )?;
 
     let mut query_files = fs::read_dir(query_dir)?
         .filter_map(Result::ok)

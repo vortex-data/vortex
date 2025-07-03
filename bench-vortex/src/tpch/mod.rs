@@ -40,7 +40,7 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
 pub async fn load_datasets(
     base_dir: &Url,
     format: Format,
-    dataset: BenchmarkDataset,
+    dataset: &BenchmarkDataset,
     disable_datafusion_cache: bool,
 ) -> anyhow::Result<SessionContext> {
     let context = get_session_context(disable_datafusion_cache);
@@ -48,7 +48,7 @@ pub async fn load_datasets(
     let object_store = make_object_store(&context, base_dir)?;
 
     let files = match dataset {
-        BenchmarkDataset::TpcH => vec![
+        BenchmarkDataset::TpcH { .. } => vec![
             ("customer", Some(schema::CUSTOMER.clone())),
             ("lineitem", Some(schema::LINEITEM.clone())),
             ("nation", Some(schema::NATION.clone())),
@@ -59,12 +59,10 @@ pub async fn load_datasets(
             ("supplier", Some(schema::SUPPLIER.clone())),
         ],
 
-        BenchmarkDataset::TpcDS => BenchmarkDataset::TpcDS
-            .tables()
-            .iter()
-            .map(|f| (*f, None))
-            .collect_vec(),
-        BenchmarkDataset::ClickBench { .. } => todo!(),
+        dataset @ BenchmarkDataset::TpcDS { .. } => {
+            dataset.tables().iter().map(|f| (*f, None)).collect_vec()
+        }
+        BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
     };
 
     for (name, path, schema) in files.into_iter().map(|(name, schema)| {
@@ -191,7 +189,7 @@ async fn register_parquet(
         name,
         file,
         schema,
-        BenchmarkDataset::TpcH,
+        BenchmarkDataset::TpcH { scale_factor: 1 },
     )
     .await
 }
@@ -209,7 +207,7 @@ async fn register_vortex_file(
         table_name,
         file,
         schema,
-        BenchmarkDataset::TpcH,
+        BenchmarkDataset::TpcH { scale_factor: 1 },
     )
     .await
 }

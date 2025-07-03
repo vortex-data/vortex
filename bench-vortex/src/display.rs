@@ -100,7 +100,11 @@ pub fn print_measurements_json<T: ToJson>(
     all_measurements: Vec<T>,
 ) -> anyhow::Result<()> {
     for measurement in all_measurements {
-        writeln!(writer, "{}", serde_json::to_string(&measurement.to_json())?)?
+        erased_serde::serialize(
+            measurement.to_json().as_ref(),
+            &mut serde_json::Serializer::new(&mut *writer),
+        )?;
+        writeln!(writer)?;
     }
 
     Ok(())

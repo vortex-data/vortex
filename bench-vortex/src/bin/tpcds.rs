@@ -8,7 +8,7 @@ use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::tpcds::tpcds_queries;
 use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::tpch::load_datasets;
-use bench_vortex::utils::{TPCDS_DATASET, TPCH_DATASET, new_tokio_runtime};
+use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{
     BenchmarkDataset, Engine, IdempotentPath, Target, default_env_filter, vortex_panic,
 };
@@ -119,6 +119,7 @@ fn main() -> anyhow::Result<()> {
         args.exclude_queries,
         args.iterations,
         args.targets,
+        1, // scale factor 1 for now
         args.display_format,
         url,
         &args.output_path,
@@ -136,10 +137,12 @@ async fn bench_main(
     exclude_queries: Option<Vec<usize>>,
     iterations: usize,
     targets: Vec<Target>,
+    scale_factor: u32,
     display_format: DisplayFormat,
     url: Url,
     output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
+    let dataset = BenchmarkDataset::TpcDS { scale_factor };
     info!(
         "Benchmarking against these targets: {}.",
         targets.iter().join(", ")
@@ -170,9 +173,9 @@ async fn bench_main(
             // TODO(joe): support datafusion
             Engine::DuckDB => {
                 if let EngineCtx::DuckDB(ctx) =
-                    &EngineCtx::new_with_duckdb(BenchmarkDataset::TpcDS, format)?
+                    &EngineCtx::new_with_duckdb(dataset.clone(), format)?
                 {
-                    ctx.register_tables(&url, format, BenchmarkDataset::TpcDS)?;
+                    ctx.register_tables(&url, format, &dataset)?;
 
                     for (query_idx, sql_query) in &tpch_queries {
                         let (fastest_run, _row_count) =
@@ -183,9 +186,9 @@ async fn bench_main(
                         measurements.push(QueryMeasurement {
                             query_idx: *query_idx,
                             target: *target,
+                            benchmark_dataset: dataset.clone(),
                             storage,
                             fastest_run,
-                            dataset: TPCDS_DATASET.to_owned(),
                         });
 
                         progress.inc(1);
@@ -196,7 +199,7 @@ async fn bench_main(
             }
             Engine::DataFusion => {
                 // TODO: add schemas for tpcds.
-                let ctx = load_datasets(&url, format, BenchmarkDataset::TpcDS, true).await?;
+                let ctx = load_datasets(&url, format, &dataset, true).await?;
 
                 for (query_idx, sql_queries) in tpch_queries.clone() {
                     let (fastest_run, _) = benchmark_datafusion_query(iterations, || async {
@@ -217,9 +220,9 @@ async fn bench_main(
                     measurements.push(QueryMeasurement {
                         query_idx,
                         target: *target,
+                        benchmark_dataset: dataset.clone(),
                         storage,
                         fastest_run,
-                        dataset: TPCH_DATASET.to_owned(),
                     });
 
                     progress.inc(1);
