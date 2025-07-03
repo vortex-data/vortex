@@ -42,6 +42,7 @@ impl DuckDBCtx {
             BenchmarkDataset::TpcDS { scale_factor } => {
                 format!("tpcds/{scale_factor}/{}", format.name()).to_data_path()
             }
+            BenchmarkDataset::PublicBi { .. } => todo!(),
         };
         std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");
@@ -91,7 +92,7 @@ impl DuckDBCtx {
             f => f,
         };
 
-        let effective_url = self.resolve_storage_url(base_url, load_format, dataset)?;
+        let effective_url = self.resolve_storage_url(base_url, load_format, &dataset)?;
         let extension = match load_format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
@@ -99,7 +100,7 @@ impl DuckDBCtx {
         };
 
         // Generate and execute table registration commands
-        let commands = self.generate_table_commands(&effective_url, extension, dataset, object);
+        let commands = self.generate_table_commands(&effective_url, extension, &dataset, object);
         self.execute_query(&commands)?;
         trace!("Executing table registration commands: {}", commands);
 
@@ -111,7 +112,7 @@ impl DuckDBCtx {
         &self,
         base_url: &Url,
         file_format: Format,
-        dataset: BenchmarkDataset,
+        dataset: &BenchmarkDataset,
     ) -> Result<Url> {
         if file_format == Format::OnDiskVortex || file_format == Format::Parquet {
             match dataset.format_path(file_format, base_url) {
@@ -128,7 +129,7 @@ impl DuckDBCtx {
         &self,
         base_url: &Url,
         extension: &str,
-        dataset: BenchmarkDataset,
+        dataset: &BenchmarkDataset,
         duckdb_object: DuckDBObject,
     ) -> String {
         // Base path contains trailing /.
@@ -152,7 +153,7 @@ impl DuckDBCtx {
                 commands
             }
             BenchmarkDataset::ClickBench { single_file, .. } => {
-                let file_glob = if single_file {
+                let file_glob = if *single_file {
                     format!("{base_dir}hits.{extension}")
                 } else {
                     format!("{base_dir}*.{extension}")
@@ -176,6 +177,7 @@ impl DuckDBCtx {
                 }
                 commands
             }
+            BenchmarkDataset::PublicBi { .. } => todo!(),
         }
     }
 }

@@ -104,7 +104,7 @@ pub fn print_measurements_json<T: ToJson>(
             measurement.to_json().as_ref(),
             &mut serde_json::Serializer::new(&mut *writer),
         )?;
-        writeln!(writer, "")?;
+        writeln!(writer)?;
     }
 
     Ok(())

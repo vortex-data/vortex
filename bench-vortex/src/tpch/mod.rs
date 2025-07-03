@@ -39,7 +39,7 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
 pub async fn load_datasets(
     base_dir: &Url,
     format: Format,
-    dataset: BenchmarkDataset,
+    dataset: &BenchmarkDataset,
     disable_datafusion_cache: bool,
 ) -> anyhow::Result<SessionContext> {
     let context = get_session_context(disable_datafusion_cache);
@@ -61,7 +61,7 @@ pub async fn load_datasets(
         dataset @ BenchmarkDataset::TpcDS { .. } => {
             dataset.tables().iter().map(|f| (*f, None)).collect_vec()
         }
-        BenchmarkDataset::ClickBench { .. } => todo!(),
+        BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
     };
 
     for (name, path, schema) in files.into_iter().map(|(name, schema)| {

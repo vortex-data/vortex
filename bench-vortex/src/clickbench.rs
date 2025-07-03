@@ -16,6 +16,7 @@ use futures::{StreamExt, TryStreamExt, stream};
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use reqwest::IntoUrl;
 use reqwest::blocking::Response;
+use serde::Serialize;
 use tokio::fs::{OpenOptions, create_dir_all};
 use tracing::{debug, info, warn};
 use url::Url;
@@ -272,7 +273,7 @@ pub fn clickbench_queries(queries_file_path: PathBuf) -> Vec<(usize, String)> {
         .collect()
 }
 
-#[derive(ValueEnum, Default, Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(ValueEnum, Default, Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub enum Flavor {
     #[default]
     Partitioned,

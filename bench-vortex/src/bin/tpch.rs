@@ -13,7 +13,6 @@ use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, load_datasets, run_tpch_query, tpch_queries,
 };
-use bench_vortex::utils::constants::TPCH_DATASET;
 use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{
     BenchmarkDataset, Engine, Format, IdempotentPath, Target, default_env_filter, vortex_panic,
@@ -246,7 +245,7 @@ async fn bench_main(
         let format = target.format();
         match engine {
             Engine::DataFusion => {
-                let ctx = load_datasets(&url, format, dataset, disable_datafusion_cache).await?;
+                let ctx = load_datasets(&url, format, &dataset, disable_datafusion_cache).await?;
 
                 let mut plans = Vec::new();
 
@@ -279,7 +278,7 @@ async fn bench_main(
                     }
 
                     if emit_plan {
-                        write_execution_plan(query_idx, format, TPCH_DATASET, plan.as_ref());
+                        write_execution_plan(query_idx, format, dataset.name(), plan.as_ref());
                     }
 
                     plans.push((query_idx, plan.clone()));
@@ -289,10 +288,9 @@ async fn bench_main(
                     measurements.push(QueryMeasurement {
                         query_idx,
                         target: *target,
-                        benchmark_dataset: dataset,
+                        benchmark_dataset: dataset.clone(),
                         storage,
                         fastest_run,
-                        dataset: TPCH_DATASET.to_owned(),
                     });
 
                     progress.inc(1);
@@ -307,10 +305,10 @@ async fn bench_main(
 
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
-                let engine_ctx = EngineCtx::new_with_duckdb(dataset, format)?;
+                let engine_ctx = EngineCtx::new_with_duckdb(dataset.clone(), format)?;
 
                 if let EngineCtx::DuckDB(ctx) = &engine_ctx {
-                    ctx.register_tables(&url, format, dataset)?;
+                    ctx.register_tables(&url, format, dataset.clone())?;
 
                     for (query_idx, sql_queries) in tpch_queries.clone() {
                         let (fastest_run, row_count) = benchmark_duckdb_query(
@@ -332,10 +330,9 @@ async fn bench_main(
                         measurements.push(QueryMeasurement {
                             query_idx,
                             target: *target,
-                            benchmark_dataset: dataset,
+                            benchmark_dataset: dataset.clone(),
                             storage,
                             fastest_run,
-                            dataset: TPCH_DATASET.to_owned(),
                         });
 
                         progress.inc(1);

@@ -9,7 +9,7 @@ use bench_vortex::metrics::MetricsSetExt;
 use bench_vortex::public_bi::{FileType, PBI_DATASETS, PBIDataset};
 use bench_vortex::utils::constants::STORAGE_NVME;
 use bench_vortex::utils::new_tokio_runtime;
-use bench_vortex::{Format, Target, default_env_filter, df};
+use bench_vortex::{BenchmarkDataset, Format, Target, default_env_filter, df};
 use clap::{Parser, value_parser};
 use indicatif::ProgressBar;
 use itertools::Itertools;
@@ -159,9 +159,11 @@ fn main() -> anyhow::Result<()> {
             all_measurements.push(QueryMeasurement {
                 query_idx,
                 target: *target,
+                benchmark_dataset: BenchmarkDataset::PublicBi {
+                    name: pbi_dataset.name.clone(),
+                },
                 storage: STORAGE_NVME.to_owned(),
                 fastest_run,
-                dataset: pbi_dataset.name.to_owned(),
             });
 
             progress_bar.inc(1);

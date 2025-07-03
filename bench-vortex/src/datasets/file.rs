@@ -20,7 +20,10 @@ use crate::conversions::parquet_to_vortex;
 use crate::datasets::BenchmarkDataset;
 use crate::{Format, idempotent_async};
 
-pub async fn convert_parquet_to_vortex(input_path: &Path, dataset: BenchmarkDataset) -> Result<()> {
+pub async fn convert_parquet_to_vortex(
+    input_path: &Path,
+    dataset: &BenchmarkDataset,
+) -> Result<()> {
     match dataset {
         BenchmarkDataset::TpcH { .. } => {
             // This is done on-demand by the register_vortex_file function
@@ -121,6 +124,7 @@ pub async fn register_vortex_files(
             )
             .await?;
         }
+        BenchmarkDataset::PublicBi { .. } => todo!(),
     }
 
     Ok(())

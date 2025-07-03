@@ -194,26 +194,35 @@ pub struct QueryMeasurement {
     /// The storage backend against which this test was run. One of: s3, gcs, nvme.
     pub storage: String,
     pub fastest_run: Duration,
-    pub dataset: String,
+}
+
+#[derive(Serialize)]
+pub struct QueryMeasurementJson {
+    pub name: String,
+    pub storage: String,
+    pub dataset: BenchmarkDataset,
+    pub unit: Cow<'static, str>,
+    pub value: MeasurementValue,
+    pub target: Target,
+    pub commit_id: Cow<'static, str>,
 }
 
 impl ToJson for QueryMeasurement {
     fn to_json(&self) -> Box<dyn erased_serde::Serialize> {
         let name = format!(
             "{dataset}_q{query_idx:02}/{engine}:{format}",
-            dataset = self.dataset,
+            dataset = self.benchmark_dataset.name(),
             engine = self.target.engine,
             format = self.target.format.name(),
             query_idx = self.query_idx
         );
 
-        Box::new(JsonValue {
+        Box::new(QueryMeasurementJson {
             name,
-            storage: Some(self.storage.clone()),
-            unit: Some(Cow::from("ns")),
+            storage: self.storage.clone(),
+            dataset: self.benchmark_dataset.clone(),
+            unit: Cow::from("ns"),
             value: MeasurementValue::Int(self.fastest_run.as_nanos()),
-            bytes: None,
-            time: None,
             commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
             target: self.target,
         })
