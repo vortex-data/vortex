@@ -132,15 +132,14 @@ jobs:
 
   prepare-java:
     runs-on: ${{ matrix.target.runs-on }}
-    container: ${{ matrix.target.container }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         target:
-          - { os: macos, runs-on: "macos-latest", container: {}, target: aarch64-apple-darwin }
-          - { os: ubuntu, runs-on: "ubuntu-24.04-arm", container: { image: "amazonlinux:2023" }, target: aarch64-unknown-linux-gnu }
-          - { os: ubuntu, runs-on: "ubuntu-latest", container: { image: "amazonlinux:2023" }, target: x86_64-unknown-linux-gnu }
+          - { os: macos, runs-on: "macos-latest", target: aarch64-apple-darwin }
+          - { os: ubuntu, runs-on: "ubuntu-24.04-arm", target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "ubuntu-latest", target: x86_64-unknown-linux-gnu }
     steps:
       - uses: actions/checkout@v4
         with:
