@@ -26,6 +26,8 @@ impl Database {
     }
 
     /// Opens a DuckDB database from a file path.
+    ///
+    /// Creates a new file in case the path does not exist.
     pub fn open<P: AsRef<Path>>(path: P) -> VortexResult<Self> {
         let path_str = path
             .as_ref()
