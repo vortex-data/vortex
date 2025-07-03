@@ -33,8 +33,8 @@ pub struct DuckDBCtx {
 impl DuckDBCtx {
     pub fn new(dataset: BenchmarkDataset, format: Format) -> Result<Self> {
         let dir = match dataset {
-            BenchmarkDataset::ClickBench { .. } => {
-                format!("clickbench_partitioned/{}", format.name()).to_data_path()
+            BenchmarkDataset::ClickBench { flavor, .. } => {
+                format!("clickbench_{}/{}", flavor, format.name()).to_data_path()
             }
             BenchmarkDataset::TpcH { scale_factor } => {
                 format!("tpch/{scale_factor}/{}", format.name()).to_data_path()
@@ -151,7 +151,7 @@ impl DuckDBCtx {
                 }
                 commands
             }
-            BenchmarkDataset::ClickBench { single_file } => {
+            BenchmarkDataset::ClickBench { single_file, .. } => {
                 let file_glob = if single_file {
                     format!("{base_dir}hits.{extension}")
                 } else {
