@@ -5,6 +5,7 @@ use std::ops::{Add, Div, Sub};
 use std::time::Duration;
 
 use serde::{Serialize, Serializer};
+use target_lexicon::Triple;
 use vortex::error::vortex_panic;
 
 use crate::engines::df::GIT_COMMIT_ID;
@@ -205,6 +206,14 @@ pub struct QueryMeasurementJson {
     pub value: MeasurementValue,
     pub target: Target,
     pub commit_id: String,
+    pub env_triple: TripleJson,
+}
+
+#[derive(Serialize)]
+pub struct TripleJson {
+    pub architecture: String,
+    pub operating_system: String,
+    pub environment: String,
 }
 
 impl ToJson for QueryMeasurement {
@@ -217,6 +226,8 @@ impl ToJson for QueryMeasurement {
             query_idx = self.query_idx
         );
 
+        let host = Triple::host();
+
         Box::new(QueryMeasurementJson {
             name,
             storage: self.storage.clone(),
@@ -225,6 +236,11 @@ impl ToJson for QueryMeasurement {
             value: MeasurementValue::Int(self.fastest_run.as_nanos()),
             commit_id: GIT_COMMIT_ID.to_string(),
             target: self.target,
+            env_triple: TripleJson {
+                architecture: host.architecture.to_string(),
+                operating_system: host.operating_system.to_string(),
+                environment: host.environment.to_string(),
+            },
         })
     }
 }
