@@ -354,7 +354,7 @@ jobs:
           mkdir -p java/vortex-jni/src/main/resources/native/linux-amd64
           cargo xtask java-test-files
           cp target/debug/libvortex_jni.so java/vortex-jni/src/main/resources/native/linux-amd64
-      - run: ./gradlew test --offline --build-cache --parallel
+      - run: ./gradlew test --parallel
         working-directory: ./java
 
   bench-codspeed:
