@@ -11,12 +11,12 @@ use std::arch::x86_64::{
     _mm256_mask_i64gather_epi32, _mm256_mask_i64gather_epi64, _mm256_set1_epi32,
     _mm256_set1_epi64x, _mm256_setzero_si256, _mm256_storeu_si256,
 };
+use std::convert::identity;
 
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_buffer::{Alignment, Buffer, BufferMut};
 use vortex_dtype::{
-    NativePType, PType, match_each_integer_ptype, match_each_native_ptype,
-    match_each_unsigned_integer_ptype,
+    NativePType, PType, match_each_native_ptype, match_each_unsigned_integer_ptype,
 };
 use vortex_error::VortexResult;
 
@@ -37,35 +37,17 @@ impl TakeImpl for TakeKernelAVX2 {
         indices: &PrimitiveArray,
         validity: Validity,
     ) -> VortexResult<ArrayRef> {
-        if values.ptype() != PType::F16
-            && indices.dtype().is_unsigned_int()
-            && indices.all_valid()?
-            && values.all_valid()?
-        {
-            match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-                match_each_native_ptype!(values.ptype(), |V| {
-                    // SAFETY: this kernel is only selected when avx2 cpu-feature is detected
-                    Ok(unsafe {
-                        take_primitive_avx2(
-                            indices.as_slice::<I>(),
-                            values.as_slice::<V>(),
-                            validity,
-                        )
-                    }
-                    .into_array())
-                })
+        assert!(indices.ptype().is_unsigned_int());
+
+        match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+            match_each_native_ptype!(values.ptype(), |V| {
+                // SAFETY: this kernel is only selected when avx2 cpu-feature is detected
+                Ok(unsafe {
+                    take_primitive_avx2(indices.as_slice::<I>(), values.as_slice::<V>(), validity)
+                }
+                .into_array())
             })
-        } else {
-            match_each_native_ptype!(values.ptype(), |T| {
-                match_each_integer_ptype!(indices.ptype(), |I| {
-                    // NOTE: we don't need to pre-scan the indices here, because
-                    //  the slice indexing inside of take_primitive_scalar will do bounds checks.
-                    let result =
-                        take_primitive_scalar(values.as_slice::<T>(), indices.as_slice::<I>());
-                    Ok(PrimitiveArray::new(result, validity).into_array())
-                })
-            })
-        }
+        })
     }
 }
 
@@ -91,11 +73,6 @@ pub(crate) trait GatherFn<Idx, Values> {
 /// AVX2 version of GatherFn defined for 32- and 64-bit value types.
 enum AVX2Gather {}
 
-#[inline(always)]
-unsafe fn identity<T>(input: T) -> T {
-    input
-}
-
 macro_rules! impl_gather {
     ($idx:ty, $({$value:ty => load: $load:ident, extend: $extend:ident, splat: $splat:ident, zero_vec: $zero_vec:ident, mask_indices: $mask_indices:ident, mask_cvt: |$mask_var:ident| $mask_cvt:block, gather: $masked_gather:ident, store: $store:ident, WIDTH = $WIDTH:literal, STRIDE = $STRIDE:literal }),+) => {
         $(
@@ -107,7 +84,7 @@ macro_rules! impl_gather {
                 const WIDTH: usize = $WIDTH;
                 const STRIDE: usize = $STRIDE;
 
-                #[allow(clippy::cast_possible_truncation)]
+                #[allow(unused_unsafe, clippy::cast_possible_truncation)]
                 #[inline(always)]
                 unsafe fn gather(indices: *const $idx, max_idx: $idx, src: *const $value, dst: *mut $value) {
                     const {
@@ -419,7 +396,7 @@ where
 ///
 /// This function panics if any of the provided `indices` are out of bounds for `values`.
 #[target_feature(enable = "avx2")]
-#[allow(unused, clippy::cognitive_complexity)]
+#[allow(unused, clippy::cognitive_complexity, clippy::useless_transmute)]
 pub(crate) fn take_primitive_avx2<I, V>(
     indices: &[I],
     values: &[V],
@@ -430,11 +407,16 @@ where
     V: NativePType,
 {
     macro_rules! dispatch_avx2 {
-        ($indices:ty, $values:ty) => {{
+        ($indices:ty, $values:ty) => {
+            { let result = dispatch_avx2!($indices, $values, cast: $values); result }
+        };
+        ($indices:ty, $values:ty, cast: $cast:ty) => {{
             let indices = unsafe { std::mem::transmute::<&[I], &[$indices]>(indices) };
-            let values = unsafe { std::mem::transmute::<&[V], &[$values]>(values) };
+            let values = unsafe { std::mem::transmute::<&[V], &[$cast]>(values) };
 
-            let result = exec_take::<$indices, $values, AVX2Gather>(indices, values);
+            let result = exec_take::<$indices, $cast, AVX2Gather>(indices, values);
+            let result = unsafe { std::mem::transmute::<Buffer<$cast>, Buffer<$values>>(result) };
+
             PrimitiveArray::new(
                 unsafe { std::mem::transmute::<Buffer<$values>, Buffer<V>>(result) },
                 validity,
@@ -443,6 +425,7 @@ where
     }
 
     match (I::PTYPE, V::PTYPE) {
+        // Int value types. Only 32 and 64 bit types are supported.
         (PType::U8, PType::I32) => dispatch_avx2!(u8, i32),
         (PType::U8, PType::U32) => dispatch_avx2!(u8, u32),
         (PType::U8, PType::I64) => dispatch_avx2!(u8, i64),
@@ -456,8 +439,24 @@ where
         (PType::U32, PType::I64) => dispatch_avx2!(u32, i64),
         (PType::U32, PType::U64) => dispatch_avx2!(u32, u64),
 
+        // Float value types, treat them as if they were corresponding int types.
+        (PType::U8, PType::F32) => dispatch_avx2!(u8, f32, cast: u32),
+        (PType::U16, PType::F32) => dispatch_avx2!(u16, f32, cast: u32),
+        (PType::U32, PType::F32) => dispatch_avx2!(u32, f32, cast: u32),
+        (PType::U64, PType::F32) => dispatch_avx2!(u64, f32, cast: u32),
+
+        (PType::U8, PType::F64) => dispatch_avx2!(u8, f64, cast: u64),
+        (PType::U16, PType::F64) => dispatch_avx2!(u16, f64, cast: u64),
+        (PType::U32, PType::F64) => dispatch_avx2!(u32, f64, cast: u64),
+        (PType::U64, PType::F64) => dispatch_avx2!(u64, f64, cast: u64),
+
         // Scalar fallback for unsupported value types.
         _ => {
+            log::trace!(
+                "take AVX2 kernel missing for indices {} values {}, falling back to scalar",
+                I::PTYPE,
+                V::PTYPE
+            );
             let result = take_primitive_scalar(values, indices);
             PrimitiveArray::new(result, validity)
         }
@@ -528,18 +527,18 @@ mod tests {
 
     test_cases!(
         index_type => u8,
-        value_types => u32, i32, u64, i64
+        value_types => u32, i32, u64, i64, f32, f64
     );
     test_cases!(
         index_type => u16,
-        value_types => u32, i32, u64, i64
+        value_types => u32, i32, u64, i64, f32, f64
     );
     test_cases!(
         index_type => u32,
-        value_types => u32, i32, u64, i64
+        value_types => u32, i32, u64, i64, f32, f64
     );
     test_cases!(
         index_type => u64,
-        value_types => u32, i32, u64, i64
+        value_types => u32, i32, u64, i64, f32, f64
     );
 }
