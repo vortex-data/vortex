@@ -141,6 +141,10 @@ fn main() -> anyhow::Result<()> {
     for target in args.targets.iter() {
         let engine = target.engine();
         let format = target.format();
+        let dataset = BenchmarkDataset::ClickBench {
+            single_file: args.single_file,
+            flavor: args.flavor,
+        };
 
         let mut engine_ctx = match engine {
             Engine::DataFusion => {
@@ -150,25 +154,13 @@ fn main() -> anyhow::Result<()> {
 
                 EngineCtx::new_with_datafusion(session_ctx, args.emit_plan)
             }
-            Engine::DuckDB => EngineCtx::new_with_duckdb(
-                BenchmarkDataset::ClickBench {
-                    single_file: args.single_file,
-                    flavor: args.flavor,
-                },
-                format,
-            )?,
+            Engine::DuckDB => EngineCtx::new_with_duckdb(dataset, format)?,
             _ => unreachable!("engine not supported"),
         };
 
         let tokio_runtime = new_tokio_runtime(args.threads);
 
-        tokio_runtime.block_on(init_data_source(
-            format,
-            &base_url,
-            args.single_file,
-            args.flavor,
-            &engine_ctx,
-        ))?;
+        tokio_runtime.block_on(init_data_source(format, &base_url, dataset, &engine_ctx))?;
 
         let bench_measurements = execute_queries(
             &queries,
@@ -299,15 +291,9 @@ fn data_source_base_url(remote_data_dir: &Option<String>, flavor: Flavor) -> any
 async fn init_data_source(
     file_format: Format,
     base_url: &Url,
-    single_file: bool,
-    flavor: Flavor,
+    dataset: BenchmarkDataset,
     engine_ctx: &EngineCtx,
 ) -> anyhow::Result<()> {
-    let dataset = BenchmarkDataset::ClickBench {
-        single_file,
-        flavor,
-    };
-
     if file_format == Format::OnDiskVortex && base_url.scheme() == "file" {
         let file_path = base_url
             .to_file_path()
