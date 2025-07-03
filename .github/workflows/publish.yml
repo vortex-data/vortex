@@ -105,7 +105,7 @@ jobs:
           path: dist/
 
   publish-python:
-    needs: [ prepare-python, publish-rust ]
+    needs: [ prepare-python ]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -158,7 +158,7 @@ jobs:
           if-no-files-found: error
 
   publish-java:
-    needs: [ prepare-java, publish-rust ]
+    needs: [ prepare-java ]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
