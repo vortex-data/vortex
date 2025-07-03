@@ -31,13 +31,11 @@ jobs:
           - id: tpch-nvme
             binary_name: tpch
             name: TPC-H on NVME
-            local_dir: bench-vortex/data/tpch/${{inputs.scale_factor}}
             targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
             scale_factor: "--scale_factor ${{inputs.scale_factor}}"
           - id: clickbench-nvme
             binary_name: clickbench
             name: Clickbench on NVME
-            local_dir: bench-vortex/data/clickbench_partitioned
             targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
             scale_factor: ""
           - id: tpch-s3
