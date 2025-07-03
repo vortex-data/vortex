@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! An implementation of the Take kernel for primitive Arrays that uses
 //! the nightly-only `portable_simd` feature.
 //!

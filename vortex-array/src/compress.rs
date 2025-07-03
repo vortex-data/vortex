@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 // TODO(ngates): make this a function on a PrimitiveArray
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult};

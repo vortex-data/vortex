@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Equal, Greater, Less};
 use std::fmt::{Debug, Display, Formatter};
@@ -240,7 +243,6 @@ fn search_sorted_side_idx<F: FnMut(usize) -> Ordering>(
         // comparison returns Greater: the mid element still gets included
         // by `size` even though it's known to be larger than the element
         // being searched for.
-        //
         // This is fine though: we gain more performance by keeping the
         // loop iteration count invariant (and thus predictable) than we
         // lose from considering one additional element.

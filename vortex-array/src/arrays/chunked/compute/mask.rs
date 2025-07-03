@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use itertools::Itertools as _;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect as _, VortexResult};

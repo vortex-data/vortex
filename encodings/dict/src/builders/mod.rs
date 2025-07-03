@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use bytes::bytes_dict_builder;
 use primitive::primitive_dict_builder;
 use vortex_array::arrays::{PrimitiveVTable, VarBinVTable, VarBinViewVTable};

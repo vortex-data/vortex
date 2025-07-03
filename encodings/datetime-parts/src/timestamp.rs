@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_dtype::datetime::TimeUnit;
 use vortex_error::{VortexResult, vortex_bail};
 

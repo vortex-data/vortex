@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Compute kernels on top of Vortex Arrays.
 //!
 //! We aim to provide a basic set of compute kernels that can be used to efficiently index, slice,

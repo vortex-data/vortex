@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
 

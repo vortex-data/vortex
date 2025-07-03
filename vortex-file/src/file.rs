@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! This module defines the [`VortexFile`] struct, which represents a Vortex file on disk or in memory.
 //!
 //! The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading

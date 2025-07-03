@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use flatbuffers::{FlatBufferBuilder, Follow, WIPOffset};
 use vortex_error::{VortexError, vortex_bail};
 use vortex_flatbuffers::{ReadFlatBuffer, WriteFlatBuffer, array as fba};

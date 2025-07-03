@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::Debug;
 
 use vortex_array::arrays::{PrimitiveArray, PrimitiveVTable};
@@ -28,14 +31,12 @@ const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;
 
 // Visually, during decompression, we have an interval of frames we're
 // decompressing and a tighter interval of the slice we actually care about.
-//
 // |=============values (all valid elements)==============|
 // |<-skipped_uncompressed->|----decompressed-------------|
 //                              |------slice-------|
 //                              ^                  ^
 // |<-slice_uncompressed_start->|                  |
 // |<------------slice_uncompressed_stop---------->|
-//
 // We then insert these values to the correct position using a primitive array
 // constructor.
 

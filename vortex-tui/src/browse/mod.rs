@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::path::Path;
 
 use app::{AppState, KeyMode, Tab, create_file_app};
@@ -136,7 +139,6 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
         match (key.code, key.modifiers) {
             (KeyCode::Esc, _) | (KeyCode::Char('g'), KeyModifiers::CONTROL) => {
                 // Exit search mode.
-                //
                 // Kill the search bar and search filtering and return to normal input processing.
                 app.key_mode = KeyMode::Normal;
                 app.clear_search();
@@ -178,7 +180,6 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
 
             (KeyCode::Enter, _) => {
                 // Change back to normal mode.
-                //
                 // We can eliminate the search filter when we do this
                 if app.current_tab == Tab::Layout && app.cursor.layout().nchildren() > 0 {
                     // Descend into the layout subtree for the selected child, do nothing if there's nothing to select.

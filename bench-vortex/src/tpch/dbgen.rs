@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 /// Download TPC-H data via Docker.
 ///
 /// This is a simple wrapper around the `dbgen` tool.

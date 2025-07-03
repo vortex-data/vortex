@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::compute::{filter, take};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use Sign::Negative;
 use num_traits::{Bounded, NumCast};
 use vortex_array::arrays::ConstantArray;

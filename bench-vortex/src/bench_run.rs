@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::future::Future;
 use std::hint::black_box;
 use std::time::{Duration, Instant};

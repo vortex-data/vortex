@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Views into arrays of individual values.
 //!
 //! Vortex, like Arrow, avoids copying data. The classes in this package are returned by

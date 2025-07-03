@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #[cfg(feature = "compio")]
 mod compio;
 #[cfg(not(target_arch = "wasm32"))]

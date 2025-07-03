@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_dtype::DType;

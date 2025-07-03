@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use num_traits::{AsPrimitive, NumCast};
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};

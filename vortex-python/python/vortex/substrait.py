@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 import operator
 from collections.abc import Callable
 
@@ -95,7 +98,6 @@ def field_reference(substrait_object, schema: NamedStruct) -> _expr.Expr:
 
 def reference_segment(substrait_object) -> list[int]:
     # NB: The field ids are returned in reverse order i.e. [deepest, next_deepest, ..., top_level]
-    #
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/algebra.proto#L1312
     match substrait_object.WhichOneof("reference_type"):
         case "map_key":

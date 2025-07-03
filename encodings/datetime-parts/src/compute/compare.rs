@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
     CompareKernel, CompareKernelAdapter, Operator, and, cast, compare, or,
@@ -47,7 +50,6 @@ impl CompareKernel for DateTimePartsVTable {
             Operator::NotEq => compare_ne(lhs, &ts_parts, nullability),
             // lt and lte have identical behavior, as we optimize
             // for the case that all days on the lhs are smaller.
-            //
             // If that special case is not hit, we return `Ok(None)` to
             // signal that the comparison wasn't handled within dtp.
             Operator::Lt => compare_lt(lhs, &ts_parts, nullability),

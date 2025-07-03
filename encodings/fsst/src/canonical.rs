@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use fsst::Decompressor;
 use vortex_array::arrays::{BinaryView, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
@@ -40,11 +43,9 @@ fn fsst_into_varbin_view(
     block_offset: usize,
 ) -> VortexResult<VarBinViewArray> {
     // FSSTArray has two child arrays:
-    //
     //  1. A VarBinArray, which holds the string heap of the compressed codes.
     //  2. An uncompressed_lengths primitive array, storing the length of each original
     //     string element.
-    //
     // To speed up canonicalization, we can decompress the entire string-heap in a single
     // call. We then turn our uncompressed_lengths into an offsets buffer
     // necessary for a VarBinViewArray and construct the canonical array.

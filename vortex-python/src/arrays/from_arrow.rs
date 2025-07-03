@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow::array::{ArrayData as ArrowArrayData, make_array};
 use arrow::datatypes::{DataType, Field};
 use arrow::ffi_stream::ArrowArrayStreamReader;

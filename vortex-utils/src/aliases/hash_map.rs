@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 pub type DefaultHashBuilder = hashbrown::DefaultHashBuilder;
 pub type RandomState = hashbrown::DefaultHashBuilder;
 pub type HashMap<K, V, S = DefaultHashBuilder> = hashbrown::HashMap<K, V, S>;

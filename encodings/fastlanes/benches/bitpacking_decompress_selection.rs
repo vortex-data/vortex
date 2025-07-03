@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Benchmarking filter-then-canonicalize versus canonicalize-then-filter.
 //!
 //! Before running these benchmarks, modify filter_primitive to unconditionally call

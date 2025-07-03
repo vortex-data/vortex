@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fs::File;
 use std::io::{Write, stdout};
 use std::path::{Path, PathBuf};
@@ -150,9 +153,7 @@ fn main() -> anyhow::Result<()> {
         }
         Some(tpch_benchmark_remote_data_dir) => {
             // e.g. "s3://vortex-bench-dev-eu/parquet/"
-            //
             // The trailing slash is significant!
-            //
             // The folder must already be populated with data!
             if !tpch_benchmark_remote_data_dir.ends_with("/") {
                 warn!(

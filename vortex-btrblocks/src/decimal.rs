@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use itertools::{Itertools, MinMaxResult};
 use vortex_array::ArrayRef;
 use vortex_array::arrays::{DecimalArray, PrimitiveArray};

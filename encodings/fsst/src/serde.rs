@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use fsst::{Compressor, Symbol};
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::serde::ArrayChildren;

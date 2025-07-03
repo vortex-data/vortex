@@ -1,30 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 // spotless:disabled
-/*
- * Copyright 2025 SpiralDB Inc. All rights reserved.
- *
- * This file contains code modified from Apache Spark to adjust file imports
- * to use shaded packages from the vortex-jni library.
- *
- * The original work is available online at:
- * https://github.com/apache/spark/blob/825682d3c95e078ba744a29880d5939f3634c915/sql/catalyst/src/main/java/org/apache/spark/sql/vectorized/ArrowColumnVector.java
- *
- * The original license is as follows:
- *
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package dev.vortex.spark.read;
 
 import com.jakewharton.nopen.annotation.Open;

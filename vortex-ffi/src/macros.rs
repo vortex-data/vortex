@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Macros for defining FFI wrapper types.
 //!
 //! These macros make it easy to wrap Rust types in a way that can be used in C FFI contexts.

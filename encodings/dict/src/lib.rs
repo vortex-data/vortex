@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Implementation of Dictionary encoding.
 //!
 //! Expose a [DictArray] which is zero-copy equivalent to Arrow's

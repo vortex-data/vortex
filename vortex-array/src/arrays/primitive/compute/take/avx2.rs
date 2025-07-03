@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! An AVX2 implementation of take operation using gather instructions.
 //!
 //! Only enabled for x86_64 hosts and it is gated at runtime behind feature detection to

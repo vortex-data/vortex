@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Metadata serialization tests for all builtin array types.
 //!
 //! This test suite checks for when metadata format changes for one of the core

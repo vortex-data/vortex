@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Dictionary compressor that reuses the unique values in the `IntegerStats`.
 
 use vortex_array::IntoArray;

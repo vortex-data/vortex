@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use divan::Bencher;
 use rand::distr::{Distribution, StandardUniform};
 use vortex_array::arrays::ChunkedArray;
