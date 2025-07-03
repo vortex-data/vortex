@@ -19,7 +19,6 @@ import com.google.common.base.Preconditions;
 import dev.vortex.api.Array;
 import dev.vortex.api.ArrayIterator;
 import dev.vortex.api.DType;
-
 import java.util.Optional;
 import java.util.OptionalLong;
 

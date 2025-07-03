@@ -21,7 +21,6 @@ import dev.vortex.api.DType;
 import dev.vortex.api.File;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.api.expressions.proto.ExpressionProtoSerializer;
-
 import java.util.OptionalLong;
 
 public final class JNIFile implements File {
