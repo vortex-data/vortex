@@ -218,7 +218,23 @@ impl<V: VTable> Hash for ExprAdapter<V> {
     }
 }
 
-impl<V: VTable> AnalysisExpr for ExprAdapter<V> {}
+impl<V: VTable> AnalysisExpr for ExprAdapter<V> {
+    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        <V::Expr as AnalysisExpr>::stat_falsification(&self.0, catalog)
+    }
+
+    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        <V::Expr as AnalysisExpr>::max(&self.0, catalog)
+    }
+
+    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        <V::Expr as AnalysisExpr>::min(&self.0, catalog)
+    }
+
+    fn field_path(&self) -> Option<AccessPath> {
+        <V::Expr as AnalysisExpr>::field_path(&self.0)
+    }
+}
 
 mod private {
     use super::*;

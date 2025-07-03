@@ -7,7 +7,8 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::{
-    ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VortexExpr,
+    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
+    VortexExpr,
 };
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
@@ -20,7 +21,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         + PartialEq
         + Hash
         + Deref<Target = dyn VortexExpr>
-        + IntoExpr;
+        + IntoExpr
+        + AnalysisExpr;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn ExprEncoding>;
     type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
 
