@@ -199,7 +199,6 @@ mod tests {
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 
-    // use vortex_dtype::{DType, Nullability, StructFields};
     use super::*;
 
     #[test]

@@ -51,12 +51,14 @@ vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-pco = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
+vortex-zstd = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }

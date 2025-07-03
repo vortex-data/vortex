@@ -35,6 +35,8 @@ pub mod encodings {
 /// get too verbose if we include _everything_.
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stream::ArrayStreamExt;
@@ -43,7 +45,9 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_expr::{gt, lit, root};
-    use vortex_file::{VortexOpenOptions, VortexWriteOptions};
+    use vortex_file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
+    use vortex_layout::layouts::compact::CompactCompressor;
+    use vortex_layout::scan::LocalExecutor;
 
     use crate as vortex;
 
@@ -142,7 +146,10 @@ mod test {
 
         // Write a Vortex file with the compact compression strategy.
         VortexWriteOptions::default()
-            .with_compact_compression()
+            .with_strategy(VortexLayoutStrategy::compact_with_executor(
+                Arc::new(LocalExecutor),
+                CompactCompressor::default(),
+            ))
             .write(
                 tokio::fs::File::create("example_compact.vortex").await?,
                 array.to_array_stream(),
