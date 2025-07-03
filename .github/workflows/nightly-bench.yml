@@ -17,13 +17,13 @@ jobs:
     secrets: inherit
     with:
       mode: 'develop'
-      machine_type: ${{ matrix.machine_type }}
+      machine_type: ${{ matrix.machine_type.instance_name }}
       scale_factor: 100
     strategy:
       matrix:
         machine_type:
           - id: x86
-            name: c6id.8xlarge
+            instance_name: c6id.8xlarge
 # TODO(joe): support other arch
 #          - id: arm64
-#            name: c6gd.8xlarge
+#            instance_name: c6gd.8xlarge
