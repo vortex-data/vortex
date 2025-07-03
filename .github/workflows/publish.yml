@@ -28,7 +28,7 @@ jobs:
 
       - name: Release
         run: |
-          cargo publish -Z package-workspace --allow-dirty --workspace \
+          cargo publish -Z package-workspace --no-verify --allow-dirty --workspace \
           --exclude bench-vortex \
           --exclude vortex-python \
           --exclude vortex-duckdb \
