@@ -153,6 +153,7 @@ fn main() -> anyhow::Result<()> {
             Engine::DuckDB => EngineCtx::new_with_duckdb(
                 BenchmarkDataset::ClickBench {
                     single_file: args.single_file,
+                    flavor: args.flavor,
                 },
                 format,
             )?,
@@ -165,6 +166,7 @@ fn main() -> anyhow::Result<()> {
             format,
             &base_url,
             args.single_file,
+            args.flavor,
             &engine_ctx,
         ))?;
 
@@ -298,9 +300,13 @@ async fn init_data_source(
     file_format: Format,
     base_url: &Url,
     single_file: bool,
+    flavor: Flavor,
     engine_ctx: &EngineCtx,
 ) -> anyhow::Result<()> {
-    let dataset = BenchmarkDataset::ClickBench { single_file };
+    let dataset = BenchmarkDataset::ClickBench {
+        single_file,
+        flavor,
+    };
 
     if file_format == Format::OnDiskVortex && base_url.scheme() == "file" {
         let file_path = base_url

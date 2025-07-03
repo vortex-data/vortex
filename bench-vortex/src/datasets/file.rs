@@ -54,7 +54,7 @@ pub async fn register_parquet_files(
                 )
                 .await?;
         }
-        BenchmarkDataset::ClickBench { single_file } => {
+        BenchmarkDataset::ClickBench { single_file, .. } => {
             // For ClickBench, we use simplified pre-built Parquet registration
             let format = Arc::new(ParquetFormat::new());
             let mut parquet_path = dataset.parquet_path(file_url)?;
@@ -111,7 +111,7 @@ pub async fn register_vortex_files(
             let listing_table = Arc::new(ListingTable::try_new(config)?);
             session.register_table(table_name, listing_table)?;
         }
-        BenchmarkDataset::ClickBench { single_file } => {
+        BenchmarkDataset::ClickBench { single_file, .. } => {
             crate::clickbench::register_vortex_files(
                 session.clone(),
                 table_name,

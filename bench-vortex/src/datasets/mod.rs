@@ -6,6 +6,7 @@ use datafusion::prelude::SessionContext;
 use url::Url;
 use vortex::ArrayRef;
 
+use crate::clickbench::Flavor;
 use crate::{Format, clickbench};
 
 pub mod data_downloads;
@@ -25,7 +26,7 @@ pub trait Dataset {
 pub enum BenchmarkDataset {
     TpcH,
     TpcDS,
-    ClickBench { single_file: bool },
+    ClickBench { single_file: bool, flavor: Flavor },
 }
 
 impl Display for BenchmarkDataset {
@@ -33,7 +34,7 @@ impl Display for BenchmarkDataset {
         match self {
             BenchmarkDataset::TpcH => write!(f, "tpch"),
             BenchmarkDataset::TpcDS => write!(f, "tpcds"),
-            BenchmarkDataset::ClickBench { single_file } => {
+            BenchmarkDataset::ClickBench { single_file, .. } => {
                 if *single_file {
                     write!(f, "clickbench-single")
                 } else {
@@ -102,7 +103,7 @@ impl BenchmarkDataset {
             (BenchmarkDataset::TpcH, _) | (BenchmarkDataset::TpcDS, _) => {
                 // TPC-H tables are handled separately
             }
-            (BenchmarkDataset::ClickBench { single_file }, Format::Parquet) => {
+            (BenchmarkDataset::ClickBench { single_file, .. }, Format::Parquet) => {
                 clickbench::register_parquet_files(
                     session,
                     "hits",
@@ -111,7 +112,7 @@ impl BenchmarkDataset {
                     *single_file,
                 )?;
             }
-            (BenchmarkDataset::ClickBench { single_file }, Format::OnDiskVortex) => {
+            (BenchmarkDataset::ClickBench { single_file, .. }, Format::OnDiskVortex) => {
                 clickbench::register_vortex_files(
                     session.clone(),
                     "hits",
