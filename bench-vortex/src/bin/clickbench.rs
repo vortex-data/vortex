@@ -318,7 +318,7 @@ async fn init_data_source(
         },
         EngineCtx::DuckDB(ctx) => match file_format {
             Format::Parquet | Format::OnDiskVortex | Format::OnDiskDuckDB => {
-                ctx.register_tables(base_url, file_format, dataset.clone())?;
+                ctx.register_tables(base_url, file_format, dataset)?;
             }
             _ => {
                 vortex_panic!(

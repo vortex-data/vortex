@@ -172,11 +172,10 @@ async fn bench_main(
         match engine {
             // TODO(joe): support datafusion
             Engine::DuckDB => {
-                if let EngineCtx::DuckDB(ctx) = &EngineCtx::new_with_duckdb(
-                    BenchmarkDataset::TpcDS { scale_factor: 1 },
-                    format,
-                )? {
-                    ctx.register_tables(&url, format, BenchmarkDataset::TpcDS { scale_factor: 1 })?;
+                if let EngineCtx::DuckDB(ctx) =
+                    &EngineCtx::new_with_duckdb(dataset.clone(), format)?
+                {
+                    ctx.register_tables(&url, format, &dataset)?;
 
                     for (query_idx, sql_query) in &tpch_queries {
                         let (fastest_run, _row_count) =
@@ -200,13 +199,7 @@ async fn bench_main(
             }
             Engine::DataFusion => {
                 // TODO: add schemas for tpcds.
-                let ctx = load_datasets(
-                    &url,
-                    format,
-                    &BenchmarkDataset::TpcDS { scale_factor },
-                    true,
-                )
-                .await?;
+                let ctx = load_datasets(&url, format, &dataset, true).await?;
 
                 for (query_idx, sql_queries) in tpch_queries.clone() {
                     let (fastest_run, _) = benchmark_datafusion_query(iterations, || async {

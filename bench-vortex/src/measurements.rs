@@ -201,10 +201,10 @@ pub struct QueryMeasurementJson {
     pub name: String,
     pub storage: String,
     pub dataset: BenchmarkDataset,
-    pub unit: Cow<'static, str>,
+    pub unit: String,
     pub value: MeasurementValue,
     pub target: Target,
-    pub commit_id: Cow<'static, str>,
+    pub commit_id: String,
 }
 
 impl ToJson for QueryMeasurement {
@@ -221,9 +221,9 @@ impl ToJson for QueryMeasurement {
             name,
             storage: self.storage.clone(),
             dataset: self.benchmark_dataset.clone(),
-            unit: Cow::from("ns"),
+            unit: "ns".to_string(),
             value: MeasurementValue::Int(self.fastest_run.as_nanos()),
-            commit_id: Cow::from(GIT_COMMIT_ID.as_str()),
+            commit_id: GIT_COMMIT_ID.to_string(),
             target: self.target,
         })
     }

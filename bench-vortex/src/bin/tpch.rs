@@ -308,7 +308,7 @@ async fn bench_main(
                 let engine_ctx = EngineCtx::new_with_duckdb(dataset.clone(), format)?;
 
                 if let EngineCtx::DuckDB(ctx) = &engine_ctx {
-                    ctx.register_tables(&url, format, dataset.clone())?;
+                    ctx.register_tables(&url, format, &dataset)?;
 
                     for (query_idx, sql_queries) in tpch_queries.clone() {
                         let (fastest_run, row_count) = benchmark_duckdb_query(
@@ -410,7 +410,7 @@ fn verify_duckdb_tpch_results(
     duckdb_ctx.register_tables(
         url,
         Format::OnDiskVortex,
-        BenchmarkDataset::TpcH { scale_factor },
+        &BenchmarkDataset::TpcH { scale_factor },
     )?;
 
     let mut query_files = fs::read_dir(query_dir)?

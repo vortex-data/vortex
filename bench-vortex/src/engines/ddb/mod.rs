@@ -78,7 +78,7 @@ impl DuckDBCtx {
         &self,
         base_url: &Url,
         file_format: Format,
-        dataset: BenchmarkDataset,
+        dataset: &BenchmarkDataset,
     ) -> Result<()> {
         let object = match file_format {
             Format::Parquet | Format::OnDiskVortex => DuckDBObject::View,
@@ -92,7 +92,7 @@ impl DuckDBCtx {
             f => f,
         };
 
-        let effective_url = self.resolve_storage_url(base_url, load_format, &dataset)?;
+        let effective_url = self.resolve_storage_url(base_url, load_format, dataset)?;
         let extension = match load_format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
@@ -100,7 +100,7 @@ impl DuckDBCtx {
         };
 
         // Generate and execute table registration commands
-        let commands = self.generate_table_commands(&effective_url, extension, &dataset, object);
+        let commands = self.generate_table_commands(&effective_url, extension, dataset, object);
         self.execute_query(&commands)?;
         trace!("Executing table registration commands: {}", commands);
 
