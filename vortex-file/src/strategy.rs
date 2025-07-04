@@ -10,7 +10,6 @@ use vortex_array::stats::PRUNING_STATS;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
-use vortex_layout::layouts::compact::{CompactCompressedStrategy, CompactCompressor};
 use vortex_layout::layouts::compressed::BtrBlocksCompressedStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -89,10 +88,13 @@ impl VortexLayoutStrategy {
         arcref(StructStrategy::new(repartition))
     }
 
+    #[cfg(feature = "zstd")]
     pub fn compact_with_executor(
         executor: Arc<dyn TaskExecutor>,
-        compressor: CompactCompressor,
+        compressor: vortex_layout::layouts::compact::CompactCompressor,
     ) -> ArcRef<dyn LayoutStrategy> {
+        use vortex_layout::layouts::compact::CompactCompressedStrategy;
+
         // 6. for each chunk create a flat layout
         let chunked = arcref(ChunkedLayoutStrategy::default());
         // 5. buffer chunks so they end up with closer segment ids physically

@@ -129,7 +129,6 @@ use vortex_runend::RunEndEncoding;
 use vortex_sequence::SequenceEncoding;
 use vortex_sparse::SparseEncoding;
 use vortex_zigzag::ZigZagEncoding;
-use vortex_zstd::ZstdEncoding;
 pub use writer::*;
 
 /// The current version of the Vortex file format
@@ -184,7 +183,8 @@ pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
         EncodingRef::new_ref(SequenceEncoding.as_ref()),
         EncodingRef::new_ref(SparseEncoding.as_ref()),
         EncodingRef::new_ref(ZigZagEncoding.as_ref()),
-        EncodingRef::new_ref(ZstdEncoding.as_ref()),
+        #[cfg(feature = "zstd")]
+        EncodingRef::new_ref(vortex_zstd::ZstdEncoding.as_ref()),
     ]);
     Arc::new(registry)
 });

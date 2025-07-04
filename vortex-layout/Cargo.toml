@@ -54,7 +54,7 @@ vortex-pco = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-utils = { workspace = true }
-vortex-zstd = { workspace = true }
+vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
@@ -66,6 +66,7 @@ vortex-layout = { path = ".", features = ["tokio"] }
 roaring = ["dep:roaring"]
 tokio = ["dep:tokio", "vortex-error/tokio"]
 tracing = ["dep:tracing", "dep:tracing-futures"]
+zstd = ["dep:vortex-zstd"]
 
 [lints]
 workspace = true
