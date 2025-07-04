@@ -72,7 +72,10 @@ impl CompactCompressor {
     /// Compress a single array using the compact strategy
     pub fn compress_canonical(&self, canonical: Canonical) -> VortexResult<ArrayRef> {
         match canonical {
+            // TODO compress BoolArrays
+            // TODO compress DecimalArrays
             Canonical::Primitive(primitive) => {
+                // pco for applicable numbers, zstd for everything else
                 let ptype = primitive.ptype();
 
                 if is_pco_number_type(ptype) {
@@ -88,7 +91,15 @@ impl CompactCompressor {
                     Ok(zstd_array.into_array())
                 }
             }
+            Canonical::VarBinView(vbv) => {
+                // always zstd
+                Ok(
+                    ZstdArray::from_var_bin_view(&vbv, self.zstd_level, self.values_per_page)?
+                        .into_array(),
+                )
+            }
             Canonical::Struct(struct_array) => {
+                // recurse
                 let fields = struct_array
                     .fields()
                     .iter()
@@ -104,7 +115,7 @@ impl CompactCompressor {
                 .into_array())
             }
             Canonical::List(list_array) => {
-                // Compress the inner
+                // recurse
                 let compressed_elems = self.compress(list_array.elements())?;
                 let compressed_offsets = self.compress(list_array.offsets())?;
 
@@ -116,6 +127,7 @@ impl CompactCompressor {
                 .into_array())
             }
             Canonical::Extension(ext_array) => {
+                // recurse
                 let compressed_storage = self.compress(ext_array.storage())?;
 
                 Ok(
@@ -123,7 +135,6 @@ impl CompactCompressor {
                         .into_array(),
                 )
             }
-            // For non-primitive arrays, return as-is for now.
             other => Ok(other.into_array()),
         }
     }
@@ -138,8 +149,7 @@ impl Default for CompactCompressor {
             // compression. It also currently aligns with the default strategy's
             // number of rows per statistic, which allows efficient pushdown
             // (but nothing enforces this).
-            // TODO
-            values_per_page: 0,
+            values_per_page: 8192,
         }
     }
 }

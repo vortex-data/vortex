@@ -12,7 +12,6 @@ use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCa
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::serde::{CanonicalArrayType, ZstdFrameMetadata, ZstdMetadata};
@@ -115,21 +114,21 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(Buffer<u8>, Vec<usi
     Ok((buffer.freeze(), value_byte_indices))
 }
 
-fn reconstruct_views(buffer: &Buffer<u8>, mask: Mask) -> VortexResult<Buffer<BinaryView>> {
+fn reconstruct_views(buffer: Buffer<u8>) -> VortexResult<Buffer<BinaryView>> {
     let mut res = BufferMut::<BinaryView>::empty();
-    let mut start = 0;
-    for i in 0..mask.len() {
-        if mask.value(i) {
-            let str_len = u32::from_le_bytes(buffer[start..start + 4].try_into()?) as usize;
-            start += 4;
-            let stop = start + str_len;
-            let value = &buffer[start..stop];
-            // slightly surprising that binary views only support u32 offsets?
-            res.push(BinaryView::make_view(value, 0, u32::try_from(start)?));
-            start = stop;
-        } else {
-            res.push(BinaryView::empty_view());
-        }
+    let mut offset = 0;
+    while offset < buffer.len() {
+        let str_len = u32::from_le_bytes(
+            buffer
+                .get(offset..offset + 4)
+                .ok_or_else(|| vortex_err!("Zstd buffer for VarBinView was corrupt"))?
+                .try_into()?,
+        ) as usize;
+        offset += 4;
+        let value = &buffer[offset..offset + str_len];
+        // slightly surprising that binary views only support u32 offsets?
+        res.push(BinaryView::make_view(value, 0, u32::try_from(offset)?));
+        offset += str_len;
     }
     Ok(res.freeze())
 }
@@ -330,7 +329,6 @@ impl ZstdArray {
                 level,
                 values_per_frame,
             )?)),
-            // Canonical::VarBinView(vbv) => Ok(Some(ZstdArray::from_var_bin_view(vbv, 3, 0)?)),
             _ => Ok(None),
         }
     }
@@ -340,11 +338,18 @@ impl ZstdArray {
             .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
     }
 
+    fn byte_width(&self) -> usize {
+        if self.dtype.is_primitive() {
+            self.dtype.as_ptype().byte_width()
+        } else {
+            1
+        }
+    }
+
     pub fn decompress(&self) -> VortexResult<ArrayRef> {
         // To start, we figure out which frames we need to decompress, and with
         // what row offset into the first such frame.
-        let ptype = self.dtype.as_ptype();
-        let byte_width = ptype.byte_width();
+        let byte_width = self.byte_width();
         let slice_n_rows = self.slice_stop - self.slice_start;
         let slice_value_indices = self
             .unsliced_validity
@@ -381,7 +386,6 @@ impl ZstdArray {
             }
             value_idx_start = value_idx_stop;
         }
-        let n_skipped_or_decompressed_values = value_idx_start;
 
         // then we actually decompress those frames
         let mut decompressor = if let Some(dictionary) = &self.dictionary {
@@ -427,7 +431,7 @@ impl ZstdArray {
                 );
                 let primitive = PrimitiveArray::from_values_byte_buffer(
                     slice_values_buffer,
-                    ptype,
+                    self.dtype.as_ptype(),
                     slice_validity,
                     slice_n_rows,
                 )?;
@@ -438,12 +442,7 @@ impl ZstdArray {
                 // The decompressed buffer is a bunch of interleaved u32 lengths
                 // and strings of those lengths, we we need to reconstruct the
                 // views into those strings by passing through the buffer.
-                let n_decompressed_values = n_skipped_or_decompressed_values - n_skipped_values;
-                let decompressed_mask = self
-                    .unsliced_validity
-                    .slice(n_skipped_values, n_skipped_or_decompressed_values)?
-                    .to_mask(n_decompressed_values)?;
-                let views = reconstruct_views(&decompressed, decompressed_mask)?.slice(
+                let views = reconstruct_views(decompressed.clone())?.slice(
                     slice_value_idx_start - n_skipped_values
                         ..slice_value_idx_stop - n_skipped_values,
                 );
