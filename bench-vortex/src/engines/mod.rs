@@ -8,7 +8,7 @@ use datafusion::prelude::SessionContext;
 use vortex::error::VortexExpect;
 
 pub use crate::Format;
-use crate::{Engine, vortex_panic};
+use crate::{BenchmarkDataset, Engine, vortex_panic};
 
 pub enum EngineCtx {
     DataFusion(df::DataFusionCtx),
@@ -25,8 +25,8 @@ impl EngineCtx {
         })
     }
 
-    pub fn new_with_duckdb() -> anyhow::Result<Self> {
-        Ok(EngineCtx::DuckDB(ddb::DuckDBCtx::new()?))
+    pub fn new_with_duckdb(dataset: BenchmarkDataset, format: Format) -> anyhow::Result<Self> {
+        Ok(EngineCtx::DuckDB(ddb::DuckDBCtx::new(dataset, format)?))
     }
 
     pub fn to_engine(&self) -> Engine {
@@ -42,14 +42,22 @@ pub fn benchmark_duckdb_query(
     query_string: &str,
     iterations: usize,
     duckdb_ctx: &ddb::DuckDBCtx,
-) -> Duration {
-    (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-        let duration = duckdb_ctx
+) -> (Duration, usize) {
+    let mut fastest = Duration::from_millis(u64::MAX);
+    let mut row_count = 0;
+
+    for _ in 0..iterations {
+        let (duration, current_row_count) = duckdb_ctx
             .execute_query(query_string)
             .unwrap_or_else(|err| vortex_panic!("query: {query_idx} failed with: {err}"));
 
-        fastest.min(duration)
-    })
+        if duration < fastest {
+            fastest = duration;
+            row_count = current_row_count;
+        }
+    }
+
+    (fastest, row_count)
 }
 
 pub async fn benchmark_datafusion_query<T, F, Fut>(iterations: usize, mut f: F) -> (Duration, T)

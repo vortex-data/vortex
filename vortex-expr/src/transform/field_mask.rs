@@ -71,7 +71,7 @@ mod test {
     fn dtype() -> DType {
         DType::Struct(
             StructFields::new(
-                ["A".into(), "B".into(), "C".into()].into(),
+                ["A", "B", "C"].into(),
                 iter::repeat_n(DType::Primitive(PType::I32, NonNullable), 3).collect(),
             ),
             NonNullable,

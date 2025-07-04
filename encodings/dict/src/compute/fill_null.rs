@@ -28,7 +28,10 @@ impl FillNullKernel for DictVTable {
         let codes = fill_null(
             array.codes(),
             &Scalar::new(
-                array.codes().dtype().clone(),
+                array
+                    .codes()
+                    .dtype()
+                    .with_nullability(fill_value.dtype().nullability()),
                 ScalarValue::from(first_fill_value),
             ),
         )?;
@@ -40,3 +43,40 @@ impl FillNullKernel for DictVTable {
 }
 
 register_kernel!(FillNullKernelAdapter(DictVTable).lift());
+
+#[cfg(test)]
+mod tests {
+    use arrow_buffer::BooleanBuffer;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::fill_null;
+    use vortex_array::validity::Validity;
+    use vortex_array::{IntoArray, ToCanonical};
+    use vortex_buffer::buffer;
+    use vortex_dtype::Nullability;
+    use vortex_error::VortexUnwrap;
+    use vortex_scalar::Scalar;
+
+    use crate::DictArray;
+
+    #[test]
+    fn nullable_codes_fill_in_values() {
+        let dict = DictArray::try_new(
+            PrimitiveArray::new(
+                buffer![0u32, 1, 2],
+                Validity::from(BooleanBuffer::from(vec![true, false, true])),
+            )
+            .into_array(),
+            PrimitiveArray::new(buffer![10, 20, 20], Validity::AllValid).into_array(),
+        )
+        .vortex_unwrap();
+
+        let filled = fill_null(
+            dict.as_ref(),
+            &Scalar::primitive(20, Nullability::NonNullable),
+        )
+        .vortex_unwrap();
+        let filled_primitive = filled.to_primitive().vortex_unwrap();
+        assert_eq!(filled_primitive.as_slice::<i32>(), [10, 20, 20]);
+        assert!(filled_primitive.all_valid().vortex_unwrap());
+    }
+}

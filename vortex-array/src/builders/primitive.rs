@@ -84,7 +84,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     ///
     /// assert_eq!(built.as_slice::<i32>(), &[0i32, 1, 2, 3, 4]);
     /// ```
-    pub fn uninit_range(&mut self, len: usize) -> UninitRange<T> {
+    pub fn uninit_range(&mut self, len: usize) -> UninitRange<'_, T> {
         let offset = self.values.len();
         assert!(
             offset + len <= self.values.capacity(),

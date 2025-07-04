@@ -13,7 +13,7 @@ pub enum TpcDataset {
 
 pub struct DuckdbTpcOptions {
     /// Scale factor of the data in GB.
-    pub scale_factor: u8,
+    pub scale_factor: u32,
 
     /// Location on-disk to store generated files.
     pub base_dir: PathBuf,
@@ -53,7 +53,7 @@ impl DuckdbTpcOptions {
         self
     }
 
-    pub fn with_scale_factor(mut self, scale_factor: u8) -> Self {
+    pub fn with_scale_factor(mut self, scale_factor: u32) -> Self {
         self.scale_factor = scale_factor;
         self
     }

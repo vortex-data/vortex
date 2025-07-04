@@ -101,7 +101,7 @@ public final class JNIDType implements DType {
 
     @Override
     public void close() {
-        if (shouldFree) {
+        if (shouldFree && pointer.isPresent()) {
             NativeDTypeMethods.free(pointer.getAsLong());
             pointer = OptionalLong.empty();
         }

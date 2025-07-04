@@ -76,7 +76,7 @@ mod tests {
         .unwrap();
 
         let struct_of_lists = StructArray::try_new(
-            FieldNames::from(["xs".into()]),
+            FieldNames::from(["xs"]),
             vec![xs.into_array()],
             2,
             Validity::NonNullable,

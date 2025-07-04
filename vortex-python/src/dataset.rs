@@ -70,7 +70,7 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRe
             let fields = columns
                 .iter()
                 .map(field_from_pyany)
-                .collect::<PyResult<Arc<[FieldName]>>>()?;
+                .collect::<PyResult<_>>()?;
 
             SelectExpr::include_expr(fields, root())
         }

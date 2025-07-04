@@ -210,67 +210,67 @@ impl Scalar {
 }
 
 impl Scalar {
-    pub fn as_bool(&self) -> BoolScalar {
+    pub fn as_bool(&self) -> BoolScalar<'_> {
         BoolScalar::try_from(self).vortex_expect("Failed to convert scalar to bool")
     }
 
-    pub fn as_bool_opt(&self) -> Option<BoolScalar> {
+    pub fn as_bool_opt(&self) -> Option<BoolScalar<'_>> {
         matches!(self.dtype, DType::Bool(..)).then(|| self.as_bool())
     }
 
-    pub fn as_primitive(&self) -> PrimitiveScalar {
+    pub fn as_primitive(&self) -> PrimitiveScalar<'_> {
         PrimitiveScalar::try_from(self).vortex_expect("Failed to convert scalar to primitive")
     }
 
-    pub fn as_primitive_opt(&self) -> Option<PrimitiveScalar> {
+    pub fn as_primitive_opt(&self) -> Option<PrimitiveScalar<'_>> {
         matches!(self.dtype, DType::Primitive(..)).then(|| self.as_primitive())
     }
 
-    pub fn as_decimal(&self) -> DecimalScalar {
+    pub fn as_decimal(&self) -> DecimalScalar<'_> {
         DecimalScalar::try_from(self).vortex_expect("Failed to convert scalar to decimal")
     }
 
-    pub fn as_decimal_opt(&self) -> Option<DecimalScalar> {
+    pub fn as_decimal_opt(&self) -> Option<DecimalScalar<'_>> {
         matches!(self.dtype, DType::Decimal(..)).then(|| self.as_decimal())
     }
 
-    pub fn as_utf8(&self) -> Utf8Scalar {
+    pub fn as_utf8(&self) -> Utf8Scalar<'_> {
         Utf8Scalar::try_from(self).vortex_expect("Failed to convert scalar to utf8")
     }
 
-    pub fn as_utf8_opt(&self) -> Option<Utf8Scalar> {
+    pub fn as_utf8_opt(&self) -> Option<Utf8Scalar<'_>> {
         matches!(self.dtype, DType::Utf8(..)).then(|| self.as_utf8())
     }
 
-    pub fn as_binary(&self) -> BinaryScalar {
+    pub fn as_binary(&self) -> BinaryScalar<'_> {
         BinaryScalar::try_from(self).vortex_expect("Failed to convert scalar to binary")
     }
 
-    pub fn as_binary_opt(&self) -> Option<BinaryScalar> {
+    pub fn as_binary_opt(&self) -> Option<BinaryScalar<'_>> {
         matches!(self.dtype, DType::Binary(..)).then(|| self.as_binary())
     }
 
-    pub fn as_struct(&self) -> StructScalar {
+    pub fn as_struct(&self) -> StructScalar<'_> {
         StructScalar::try_from(self).vortex_expect("Failed to convert scalar to struct")
     }
 
-    pub fn as_struct_opt(&self) -> Option<StructScalar> {
+    pub fn as_struct_opt(&self) -> Option<StructScalar<'_>> {
         matches!(self.dtype, DType::Struct(..)).then(|| self.as_struct())
     }
 
-    pub fn as_list(&self) -> ListScalar {
+    pub fn as_list(&self) -> ListScalar<'_> {
         ListScalar::try_from(self).vortex_expect("Failed to convert scalar to list")
     }
 
-    pub fn as_list_opt(&self) -> Option<ListScalar> {
+    pub fn as_list_opt(&self) -> Option<ListScalar<'_>> {
         matches!(self.dtype, DType::List(..)).then(|| self.as_list())
     }
 
-    pub fn as_extension(&self) -> ExtScalar {
+    pub fn as_extension(&self) -> ExtScalar<'_> {
         ExtScalar::try_from(self).vortex_expect("Failed to convert scalar to extension")
     }
 
-    pub fn as_extension_opt(&self) -> Option<ExtScalar> {
+    pub fn as_extension_opt(&self) -> Option<ExtScalar<'_>> {
         matches!(self.dtype, DType::Extension(..)).then(|| self.as_extension())
     }
 }

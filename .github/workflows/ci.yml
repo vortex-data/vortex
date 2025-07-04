@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - uses: spiraldb/actions/.github/actions/lint-toml@0.10.0
+      - uses: spiraldb/actions/.github/actions/lint-toml@0.14.0
 
   validate-workflow-yaml:
     runs-on: ubuntu-latest
@@ -52,7 +52,7 @@ jobs:
         with:
           submodules: "recursive"
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.11.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
         with:
           sync: false
       - name: Python Lint - Format
@@ -73,7 +73,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.11.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
         with:
           sync: false
 
@@ -191,7 +191,6 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-c++
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
         run: rustup target add wasm32-unknown-unknown
@@ -199,6 +198,10 @@ jobs:
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
         run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
+      - name: "Make sure no files changed after build"
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
 
   check-min-deps:
     name: "Check build with minimal dependencies"
@@ -218,7 +221,6 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-c++
       - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-minimal-versions
       - run: cargo minimal-versions check --direct --workspace --ignore-private
@@ -307,7 +309,6 @@ jobs:
           submodules: "recursive"
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
-      - uses: ./.github/actions/setup-c++
       - name: Install grcov
         if: github.ref == 'refs/heads/develop'
         uses: taiki-e/install-action@grcov
@@ -341,11 +342,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: "recursive"
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       # Build vortex-jni shared library, and copy into JAR.
@@ -355,7 +352,7 @@ jobs:
           mkdir -p java/vortex-jni/src/main/resources/native/linux-amd64
           cargo xtask java-test-files
           cp target/debug/libvortex_jni.so java/vortex-jni/src/main/resources/native/linux-amd64
-      - run: ./gradlew test
+      - run: ./gradlew test --parallel
         working-directory: ./java
 
   bench-codspeed:

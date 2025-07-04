@@ -51,6 +51,10 @@ public final class JNIArrayIterator implements ArrayIterator {
 
     @Override
     public void close() {
+        if (pointer.isEmpty()) {
+            return;
+        }
+
         NativeArrayIteratorMethods.free(pointer.getAsLong());
         pointer = OptionalLong.empty();
         next = Optional.empty();

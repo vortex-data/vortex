@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::{Write, stdout};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
@@ -9,10 +11,8 @@ use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::tpch::{
-    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, TPC_H_ROW_COUNT_ARRAY_LENGTH, load_datasets,
-    run_tpch_query, tpch_queries,
+    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, load_datasets, run_tpch_query, tpch_queries,
 };
-use bench_vortex::utils::constants::TPCH_DATASET;
 use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{
     BenchmarkDataset, Engine, Format, IdempotentPath, Target, default_env_filter, vortex_panic,
@@ -25,7 +25,6 @@ use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
 use url::Url;
 use vortex::error::VortexExpect;
-use vortex::utils::aliases::hash_map::HashMap;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
 #[derive(Parser, Debug)]
@@ -52,8 +51,8 @@ struct Args {
     use_remote_data_dir: Option<String>,
     #[arg(short, long, default_value_t = 10)]
     iterations: usize,
-    #[arg(long, default_value_t = 1)]
-    scale_factor: u8,
+    #[arg(long, default_value_t = 1, value_parser=validate_scale_factor)]
+    scale_factor: u32,
     #[arg(short)]
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
@@ -68,6 +67,17 @@ struct Args {
     export_spans: bool,
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
+    #[arg(short)]
+    output_path: Option<PathBuf>,
+}
+
+fn validate_scale_factor(val: &str) -> Result<u32, String> {
+    match val.parse::<u32>() {
+        Ok(n) if [1, 10, 100, 1000].contains(&n) => Ok(n),
+        _ => Err(String::from(
+            "Value must be a scale factor of 1, 10, 100 or 1000",
+        )),
+    }
 }
 
 #[derive(ValueEnum, Default, Clone, Debug, PartialEq, Eq)]
@@ -173,64 +183,8 @@ fn main() -> anyhow::Result<()> {
         args.all_metrics,
         args.export_spans,
         args.emit_plan,
+        &args.output_path,
     ))
-}
-
-/// Verify row counts against expected values for TPC-H queries
-///
-/// Returns true if there are any row count mismatches.
-fn verify_row_counts(
-    row_counts: &[(usize, Format, usize)],
-    expected_row_counts: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH],
-    queries: &Option<Vec<usize>>,
-    exclude_queries: &Option<Vec<usize>>,
-) -> bool {
-    let format_row_counts =
-        row_counts
-            .iter()
-            .fold(HashMap::new(), |mut acc, &(idx, format, row_count)| {
-                acc.entry(format)
-                    .or_insert_with(|| vec![0; TPC_H_ROW_COUNT_ARRAY_LENGTH])[idx] = row_count;
-                acc
-            });
-
-    let is_query_included = |idx: &usize| {
-        queries.as_ref().is_none_or(|q| q.contains(idx))
-            && exclude_queries
-                .as_ref()
-                .is_none_or(|excluded| !excluded.contains(idx))
-    };
-
-    let mut mismatched = false;
-    for (format, row_counts) in format_row_counts {
-        row_counts
-            .into_iter()
-            .enumerate()
-            .filter(|(idx, _)| is_query_included(idx))
-            .for_each(|(idx, actual_row_count)| {
-                if actual_row_count != expected_row_counts[idx] {
-                    if idx == 15 && actual_row_count == 0 {
-                        warn!(
-                            "*IGNORING* mismatched row count {} instead of {} for format {:?} because Query 15 is flaky. See: https://github.com/vortex-data/vortex/issues/2395",
-                            actual_row_count,
-                            expected_row_counts[idx],
-                            format,
-                        );
-                    } else  {
-                        warn!(
-                            "Mismatched row count {} instead of {} in query {} for format {:?}",
-                            actual_row_count,
-                            expected_row_counts[idx],
-                            idx,
-                            format,
-                        );
-                        mismatched = true;
-                    }
-                }
-            });
-    }
-
-    mismatched
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -241,21 +195,24 @@ async fn bench_main(
     targets: Vec<Target>,
     display_format: DisplayFormat,
     disable_datafusion_cache: bool,
-    scale_factor: u8,
+    scale_factor: u32,
     url: Url,
     display_all_metrics: bool,
     export_spans: bool,
     emit_plan: bool,
+    output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
+    let dataset = BenchmarkDataset::TpcH { scale_factor };
     let expected_row_counts = if scale_factor == 1 {
-        EXPECTED_ROW_COUNTS_SF1
+        Some(EXPECTED_ROW_COUNTS_SF1)
     } else if scale_factor == 10 {
-        EXPECTED_ROW_COUNTS_SF10
+        Some(EXPECTED_ROW_COUNTS_SF10)
     } else {
-        vortex_panic!(
+        warn!(
             "Scale factor {} not supported due to lack of expected row counts.",
             scale_factor
         );
+        None
     };
 
     info!(
@@ -265,7 +222,6 @@ async fn bench_main(
 
     let query_count = queries.as_ref().map_or(22, |c| c.len());
     let progress = ProgressBar::new((query_count * targets.len()) as u64);
-    let mut row_counts: Vec<(usize, Format, usize)> = Vec::new();
     let mut measurements = Vec::new();
     let mut metrics = MetricsSet::new();
     let tpch_queries: Vec<_> = tpch_queries()
@@ -289,24 +245,23 @@ async fn bench_main(
         let format = target.format();
         match engine {
             Engine::DataFusion => {
-                let ctx = load_datasets(
-                    &url,
-                    format,
-                    BenchmarkDataset::TpcH,
-                    disable_datafusion_cache,
-                )
-                .await?;
+                let ctx = load_datasets(&url, format, &dataset, disable_datafusion_cache).await?;
 
                 let mut plans = Vec::new();
 
-                for (query_idx, sql_queries) in tpch_queries.clone() {
+                for (query_idx, sql_query) in tpch_queries.clone() {
                     let (fastest_run, (row_count, plan)) =
                         benchmark_datafusion_query(iterations, || async {
-                            run_tpch_query(&ctx, &sql_queries, query_idx).await
+                            run_tpch_query(&ctx, &sql_query).await
                         })
                         .await;
 
-                    row_counts.push((query_idx, format, row_count));
+                    if let Some(expected_row_counts) = &expected_row_counts {
+                        assert_eq!(
+                            row_count, expected_row_counts[query_idx],
+                            "Error: Row count mismatch for query idx {query_idx} - {engine}:{format}",
+                        );
+                    }
 
                     // Gather metrics.
                     for (idx, metrics_set) in VortexMetricsFinder::find_all(plan.as_ref())
@@ -323,7 +278,7 @@ async fn bench_main(
                     }
 
                     if emit_plan {
-                        write_execution_plan(query_idx, format, TPCH_DATASET, plan.as_ref());
+                        write_execution_plan(query_idx, format, dataset.name(), plan.as_ref());
                     }
 
                     plans.push((query_idx, plan.clone()));
@@ -333,9 +288,9 @@ async fn bench_main(
                     measurements.push(QueryMeasurement {
                         query_idx,
                         target: *target,
+                        benchmark_dataset: dataset.clone(),
                         storage,
                         fastest_run,
-                        dataset: TPCH_DATASET.to_owned(),
                     });
 
                     progress.inc(1);
@@ -350,27 +305,30 @@ async fn bench_main(
 
             // TODO(joe); ensure that files are downloaded before running duckdb.
             Engine::DuckDB => {
-                let engine_ctx = EngineCtx::new_with_duckdb()?;
+                let engine_ctx = EngineCtx::new_with_duckdb(dataset.clone(), format)?;
 
                 if let EngineCtx::DuckDB(ctx) = &engine_ctx {
-                    ctx.register_tables(&url, format, BenchmarkDataset::TpcH)?;
+                    ctx.register_tables(&url, format, &dataset)?;
 
-                    for (query_idx, sql_queries) in tpch_queries.clone() {
-                        let fastest_run = benchmark_duckdb_query(
-                            query_idx,
-                            &sql_queries.join(";"),
-                            iterations,
-                            ctx,
-                        );
+                    for (query_idx, sql_query) in tpch_queries.clone() {
+                        let (fastest_run, row_count) =
+                            benchmark_duckdb_query(query_idx, &sql_query, iterations, ctx);
+
+                        if let Some(expected_row_counts) = &expected_row_counts {
+                            assert_eq!(
+                                row_count, expected_row_counts[query_idx],
+                                "Error: Row count mismatch for query idx {query_idx} - {engine}:{format}",
+                            );
+                        }
 
                         let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
 
                         measurements.push(QueryMeasurement {
                             query_idx,
                             target: *target,
+                            benchmark_dataset: dataset.clone(),
                             storage,
                             fastest_run,
-                            dataset: TPCH_DATASET.to_owned(),
                         });
 
                         progress.inc(1);
@@ -387,6 +345,13 @@ async fn bench_main(
 
     progress.finish();
 
+    let mut writer: Box<dyn Write> = if let Some(output_path) = output_path {
+        Box::new(File::create(output_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
+
     match display_format {
         DisplayFormat::Table => {
             if !display_all_metrics {
@@ -395,20 +360,20 @@ async fn bench_main(
             for m in metrics.timestamps_removed().sorted_for_display().iter() {
                 println!("{m}");
             }
-            render_table(measurements, &targets)?;
+            render_table(&mut writer, measurements, &targets)?;
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements)?;
+            print_measurements_json(&mut writer, measurements)?;
         }
-    }
-
-    if verify_row_counts(&row_counts, expected_row_counts, &queries, &exclude_queries) {
-        return Err(anyhow!("Mismatched row counts. See logs for details."));
     }
 
     // The CI env var is defined by Github Actions.
     // https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables#default-environment-variables
-    if targets.iter().any(|t| t.engine() == Engine::DuckDB) && env::var("CI").is_ok() {
+    if targets
+        .iter()
+        .any(|t| t.engine() == Engine::DuckDB && t.format() == Format::OnDiskVortex)
+        && env::var("CI").is_ok()
+    {
         verify_duckdb_tpch_results(&url, scale_factor, queries)?;
     }
 
@@ -417,9 +382,13 @@ async fn bench_main(
 
 fn verify_duckdb_tpch_results(
     url: &Url,
-    _scale_factor: u8,
+    scale_factor: u32,
     queries: Option<Vec<usize>>,
 ) -> anyhow::Result<()> {
+    // omit validation for sf != 1.
+    if scale_factor != 1 {
+        return Ok(());
+    }
     let query_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../vortex-duckdb/duckdb/extension/tpch/dbgen/queries");
 
@@ -433,8 +402,12 @@ fn verify_duckdb_tpch_results(
         fs::remove_dir_all(&tmp_dir)?;
     }
     fs::create_dir(&tmp_dir)?;
-    let duckdb_ctx = ddb::DuckDBCtx::new()?;
-    duckdb_ctx.register_tables(url, Format::OnDiskVortex, BenchmarkDataset::TpcH)?;
+    let duckdb_ctx = ddb::DuckDBCtx::new_in_memory()?;
+    duckdb_ctx.register_tables(
+        url,
+        Format::OnDiskVortex,
+        &BenchmarkDataset::TpcH { scale_factor },
+    )?;
 
     let mut query_files = fs::read_dir(query_dir)?
         .filter_map(Result::ok)

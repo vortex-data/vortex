@@ -22,7 +22,7 @@ jobs:
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Install uv
-        uses: spiraldb/actions/.github/actions/setup-uv@0.11.0
+        uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
         with:
           sync: false
       - name: build Python and Rust docs

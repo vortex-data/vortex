@@ -105,6 +105,10 @@ impl Value {
     pub fn as_time(&self) -> i64 {
         unsafe { cpp::duckdb_get_time(self.ptr).micros }
     }
+
+    pub fn as_decimal(&self) -> cpp::duckdb_decimal {
+        unsafe { cpp::duckdb_get_decimal(self.ptr) }
+    }
 }
 
 #[inline]

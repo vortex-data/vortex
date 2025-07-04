@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::io;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
@@ -12,6 +15,7 @@ use bench_vortex::{
 };
 use clap::{Parser, value_parser};
 use indicatif::ProgressBar;
+use io::stdout;
 use itertools::Itertools;
 use log::warn;
 use tokio::runtime::Runtime;
@@ -61,6 +65,8 @@ struct Args {
     hide_progress_bar: bool,
     #[arg(long, default_value_t = false)]
     show_metrics: bool,
+    #[arg(short)]
+    output_path: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -70,12 +76,6 @@ fn main() -> anyhow::Result<()> {
         .targets
         .iter()
         .map(|t| t.engine())
-        .unique()
-        .collect_vec();
-    let formats = args
-        .targets
-        .iter()
-        .map(|t| t.format())
         .unique()
         .collect_vec();
 
@@ -101,10 +101,10 @@ fn main() -> anyhow::Result<()> {
             .build();
 
         let fmt_layer = tracing_subscriber::fmt::layer()
-            .with_writer(std::io::stderr)
+            .with_writer(io::stderr)
             .with_level(true)
             .with_line_number(true)
-            .with_ansi(std::io::stderr().is_terminal());
+            .with_ansi(io::stderr().is_terminal());
 
         tracing_subscriber::registry()
             .with(filter)
@@ -133,14 +133,18 @@ fn main() -> anyhow::Result<()> {
     let progress_bar = if args.hide_progress_bar {
         ProgressBar::hidden()
     } else {
-        ProgressBar::new((queries.len() * formats.len() * engines.len()) as u64)
+        ProgressBar::new((queries.len() * args.targets.len()) as u64)
     };
 
     let mut query_measurements = Vec::new();
 
     for target in args.targets.iter() {
         let engine = target.engine();
-        let file_format = target.format();
+        let format = target.format();
+        let dataset = BenchmarkDataset::ClickBench {
+            single_file: args.single_file,
+            flavor: args.flavor,
+        };
 
         let mut engine_ctx = match engine {
             Engine::DataFusion => {
@@ -150,33 +154,29 @@ fn main() -> anyhow::Result<()> {
 
                 EngineCtx::new_with_datafusion(session_ctx, args.emit_plan)
             }
-            Engine::DuckDB => EngineCtx::new_with_duckdb()?,
+            Engine::DuckDB => EngineCtx::new_with_duckdb(dataset.clone(), format)?,
             _ => unreachable!("engine not supported"),
         };
 
         let tokio_runtime = new_tokio_runtime(args.threads);
 
-        tokio_runtime.block_on(init_data_source(
-            file_format,
-            &base_url,
-            args.single_file,
-            &engine_ctx,
-        ))?;
+        tokio_runtime.block_on(init_data_source(format, &base_url, &dataset, &engine_ctx))?;
 
         let bench_measurements = execute_queries(
             &queries,
             args.iterations,
             &tokio_runtime,
-            file_format,
+            format,
+            dataset,
             &progress_bar,
             &mut engine_ctx,
         );
 
         if let EngineCtx::DataFusion(ref ctx) = engine_ctx {
             if args.export_spans {
-                if let Err(err) = tokio_runtime.block_on(async move {
-                    export_plan_spans(file_format, &ctx.execution_plans).await
-                }) {
+                if let Err(err) = tokio_runtime
+                    .block_on(async move { export_plan_spans(format, &ctx.execution_plans).await })
+                {
                     warn!("failed to export spans {err}");
                 }
             }
@@ -189,7 +189,12 @@ fn main() -> anyhow::Result<()> {
         query_measurements.extend(bench_measurements);
     }
 
-    print_results(&args.display_format, query_measurements, &args.targets)
+    print_results(
+        &args.display_format,
+        query_measurements,
+        &args.targets,
+        &args.output_path,
+    )
 }
 
 fn validate_args(engines: &[Engine], args: &Args) {
@@ -230,11 +235,18 @@ fn print_results(
     display_format: &DisplayFormat,
     query_measurements: Vec<QueryMeasurement>,
     targets: &[Target],
+    file_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
+    let mut writer: Box<dyn Write> = if let Some(file_path) = file_path {
+        Box::new(File::create(file_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
     match display_format {
-        DisplayFormat::Table => render_table(query_measurements, targets),
+        DisplayFormat::Table => render_table(&mut writer, query_measurements, targets),
 
-        DisplayFormat::GhJson => print_measurements_json(query_measurements),
+        DisplayFormat::GhJson => print_measurements_json(&mut writer, query_measurements),
     }
 }
 
@@ -280,11 +292,9 @@ fn data_source_base_url(remote_data_dir: &Option<String>, flavor: Flavor) -> any
 async fn init_data_source(
     file_format: Format,
     base_url: &Url,
-    single_file: bool,
+    dataset: &BenchmarkDataset,
     engine_ctx: &EngineCtx,
 ) -> anyhow::Result<()> {
-    let dataset = BenchmarkDataset::ClickBench { single_file };
-
     if file_format == Format::OnDiskVortex && base_url.scheme() == "file" {
         let file_path = base_url
             .to_file_path()
@@ -338,25 +348,37 @@ fn execute_queries(
     iterations: usize,
     tokio_runtime: &Runtime,
     file_format: Format,
+    dataset: BenchmarkDataset,
     progress_bar: &ProgressBar,
     engine_ctx: &mut EngineCtx,
 ) -> Vec<QueryMeasurement> {
     let mut query_measurements = Vec::default();
 
+    const REFERENCE_ROW_COUNTS: [usize; 43] = [
+        1, 1, 1, 1, 1, 1, 1, 18, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 1, 10, 10, 10, 10,
+        10, 10, 25, 25, 1, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+    ];
+
     for &(query_idx, ref query_string) in queries.iter() {
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                let (fastest_run, execution_plan) = tokio_runtime.block_on(async {
+                let (fastest_run, (execution_plan, row_count)) = tokio_runtime.block_on(async {
                     benchmark_datafusion_query(iterations, || async {
-                        df::execute_query(&ctx.session, query_string)
+                        let (batches, plan) = df::execute_query(&ctx.session, query_string)
                             .await
                             .unwrap_or_else(|err| {
                                 vortex_panic!("query: {query_idx} failed with: {err}")
-                            })
-                            .1
+                            });
+                        let row_count: usize = batches.iter().map(|batch| batch.num_rows()).sum();
+                        (plan, row_count)
                     })
                     .await
                 });
+
+                assert_eq!(
+                    row_count, REFERENCE_ROW_COUNTS[query_idx],
+                    "Error: Row count mismatch for query idx {query_idx} - datafusion:{file_format}",
+                );
 
                 ctx.execution_plans
                     .push((query_idx, execution_plan.clone()));
@@ -379,20 +401,26 @@ fn execute_queries(
                 query_measurements.push(QueryMeasurement {
                     query_idx,
                     target: Target::new(Engine::DataFusion, file_format),
+                    benchmark_dataset: dataset.clone(),
                     storage: STORAGE_NVME.to_owned(),
                     fastest_run,
-                    dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }
             EngineCtx::DuckDB(ctx) => {
-                let fastest_run = benchmark_duckdb_query(query_idx, query_string, iterations, ctx);
+                let (fastest_run, row_count) =
+                    benchmark_duckdb_query(query_idx, query_string, iterations, ctx);
+
+                assert_eq!(
+                    row_count, REFERENCE_ROW_COUNTS[query_idx],
+                    "Error: Row count mismatch for query idx {query_idx} - duckdb:{file_format}",
+                );
 
                 query_measurements.push(QueryMeasurement {
                     query_idx,
                     target: Target::new(Engine::DuckDB, file_format),
+                    benchmark_dataset: dataset.clone(),
                     storage: STORAGE_NVME.to_owned(),
                     fastest_run,
-                    dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }
         };

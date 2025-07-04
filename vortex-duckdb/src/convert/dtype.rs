@@ -30,7 +30,9 @@ use std::sync::Arc;
 
 use vortex::dtype::PType::{F32, F64, I8, I16, I32, I64, U8, U16, U32, U64};
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex::dtype::{DType, DecimalDType, ExtDType, Nullability, PType, datetime};
+use vortex::dtype::{
+    DType, DecimalDType, ExtDType, FieldName, Nullability, PType, StructFields, datetime,
+};
 use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 use crate::cpp::{self, DUCKDB_TYPE, duckdb_logical_type};
@@ -220,6 +222,20 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_INTEGER_LITERAL => todo!(),
         })
     }
+}
+
+pub fn from_duckdb_table<I, S>(iter: I) -> VortexResult<StructFields>
+where
+    I: Iterator<Item = (S, LogicalType, Nullability)>,
+    S: AsRef<str>,
+{
+    iter.map(|(name, type_, nullability)| {
+        Ok((
+            FieldName::from(name.as_ref()),
+            DType::from_logical_type(type_, nullability)?,
+        ))
+    })
+    .collect::<VortexResult<StructFields>>()
 }
 
 impl TryFrom<&DType> for LogicalType {
@@ -417,7 +433,7 @@ mod tests {
 
     #[test]
     fn test_empty_struct() {
-        let struct_fields = StructFields::new([].into(), [].into());
+        let struct_fields = StructFields::new(FieldNames::default(), [].into());
         let dtype = DType::Struct(struct_fields, Nullability::NonNullable);
 
         let logical_type = LogicalType::try_from(&dtype).unwrap();

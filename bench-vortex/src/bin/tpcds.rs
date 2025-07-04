@@ -1,10 +1,14 @@
+use std::fs::File;
+use std::io::{Write, stdout};
+use std::path::PathBuf;
+
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_query};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::tpcds::tpcds_queries;
 use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::tpch::load_datasets;
-use bench_vortex::utils::{TPCDS_DATASET, TPCH_DATASET, new_tokio_runtime};
+use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{
     BenchmarkDataset, Engine, IdempotentPath, Target, default_env_filter, vortex_panic,
 };
@@ -45,6 +49,8 @@ struct Args {
     export_spans: bool,
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
+    #[arg(short)]
+    output_path: Option<PathBuf>,
 }
 
 #[allow(clippy::expect_used)]
@@ -113,8 +119,10 @@ fn main() -> anyhow::Result<()> {
         args.exclude_queries,
         args.iterations,
         args.targets,
+        1, // scale factor 1 for now
         args.display_format,
         url,
+        &args.output_path,
     ))?;
 
     // Require trace guard lives until here
@@ -129,9 +137,12 @@ async fn bench_main(
     exclude_queries: Option<Vec<usize>>,
     iterations: usize,
     targets: Vec<Target>,
+    scale_factor: u32,
     display_format: DisplayFormat,
     url: Url,
+    output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
+    let dataset = BenchmarkDataset::TpcDS { scale_factor };
     info!(
         "Benchmarking against these targets: {}.",
         targets.iter().join(", ")
@@ -161,11 +172,13 @@ async fn bench_main(
         match engine {
             // TODO(joe): support datafusion
             Engine::DuckDB => {
-                if let EngineCtx::DuckDB(ctx) = &EngineCtx::new_with_duckdb()? {
-                    ctx.register_tables(&url, format, BenchmarkDataset::TpcDS)?;
+                if let EngineCtx::DuckDB(ctx) =
+                    &EngineCtx::new_with_duckdb(dataset.clone(), format)?
+                {
+                    ctx.register_tables(&url, format, &dataset)?;
 
                     for (query_idx, sql_query) in &tpch_queries {
-                        let fastest_run =
+                        let (fastest_run, _row_count) =
                             benchmark_duckdb_query(*query_idx, sql_query, iterations, ctx);
 
                         let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
@@ -173,9 +186,9 @@ async fn bench_main(
                         measurements.push(QueryMeasurement {
                             query_idx: *query_idx,
                             target: *target,
+                            benchmark_dataset: dataset.clone(),
                             storage,
                             fastest_run,
-                            dataset: TPCDS_DATASET.to_owned(),
                         });
 
                         progress.inc(1);
@@ -186,7 +199,7 @@ async fn bench_main(
             }
             Engine::DataFusion => {
                 // TODO: add schemas for tpcds.
-                let ctx = load_datasets(&url, format, BenchmarkDataset::TpcDS, true).await?;
+                let ctx = load_datasets(&url, format, &dataset, true).await?;
 
                 for (query_idx, sql_queries) in tpch_queries.clone() {
                     let (fastest_run, _) = benchmark_datafusion_query(iterations, || async {
@@ -207,9 +220,9 @@ async fn bench_main(
                     measurements.push(QueryMeasurement {
                         query_idx,
                         target: *target,
+                        benchmark_dataset: dataset.clone(),
                         storage,
                         fastest_run,
-                        dataset: TPCH_DATASET.to_owned(),
                     });
 
                     progress.inc(1);
@@ -221,12 +234,19 @@ async fn bench_main(
 
     progress.finish();
 
+    let mut writer: Box<dyn Write> = if let Some(output_path) = output_path {
+        Box::new(File::create(output_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
+
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements, &targets)?;
+            render_table(&mut writer, measurements, &targets)?;
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements)?;
+            print_measurements_json(&mut writer, measurements)?;
         }
     };
     Ok(())

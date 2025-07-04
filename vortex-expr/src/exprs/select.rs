@@ -6,6 +6,7 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::field::DisplayFieldNames;
+use crate::scope_vars::ScopeVar;
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
 };
@@ -78,7 +79,7 @@ impl VTable for SelectVTable {
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
         let batch = expr.child.unchecked_evaluate(scope)?.to_struct()?;
         Ok(match &expr.fields {
-            SelectField::Include(f) => batch.project(f),
+            SelectField::Include(f) => batch.project(f.as_ref()),
             SelectField::Exclude(names) => {
                 let included_names = batch
                     .names()
@@ -99,7 +100,7 @@ impl VTable for SelectVTable {
             .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
 
         let projected = match &expr.fields {
-            SelectField::Include(fields) => child_struct_dtype.project(fields)?,
+            SelectField::Include(fields) => child_struct_dtype.project(fields.as_ref())?,
             SelectField::Exclude(fields) => child_struct_dtype
                 .names()
                 .iter()
@@ -178,7 +179,11 @@ impl SelectField {
     }
 
     pub fn as_include_names(&self, field_names: &FieldNames) -> VortexResult<FieldNames> {
-        if self.fields().iter().any(|f| !field_names.contains(f)) {
+        if self
+            .fields()
+            .iter()
+            .any(|f| !field_names.iter().contains(f))
+        {
             vortex_bail!(
                 "Field {:?} in select not in field names {:?}",
                 self,
@@ -189,7 +194,7 @@ impl SelectField {
             SelectField::Include(fields) => Ok(fields.clone()),
             SelectField::Exclude(exc_fields) => Ok(field_names
                 .iter()
-                .filter(|f| exc_fields.contains(f))
+                .filter(|f| exc_fields.iter().contains(f))
                 .cloned()
                 .collect()),
         }

@@ -1,4 +1,5 @@
 mod connection;
+mod copy_function;
 mod data;
 mod data_chunk;
 mod database;
@@ -17,6 +18,7 @@ use std::ffi::c_void;
 use std::ptr;
 
 pub use connection::*;
+pub use copy_function::*;
 pub use data::*;
 pub use data_chunk::*;
 pub use database::*;

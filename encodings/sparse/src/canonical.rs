@@ -254,7 +254,7 @@ mod test {
 
     #[test]
     fn test_sparse_struct_valid_fill() {
-        let field_names = FieldNames::from_iter(["a".into(), "b".into()]);
+        let field_names = FieldNames::from_iter(["a", "b"]);
         let field_types = vec![
             DType::Primitive(PType::I32, Nullable),
             DType::Primitive(PType::I32, Nullable),
@@ -333,7 +333,7 @@ mod test {
 
     #[test]
     fn test_sparse_struct_invalid_fill() {
-        let field_names = FieldNames::from_iter(["a".into(), "b".into()]);
+        let field_names = FieldNames::from_iter(["a", "b"]);
         let field_types = vec![
             DType::Primitive(PType::I32, Nullable),
             DType::Primitive(PType::I32, Nullable),

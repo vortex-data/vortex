@@ -33,7 +33,7 @@ use vortex::scalar::{
 
 use crate::convert::dtype::FromLogicalType;
 use crate::cpp::{self, DUCKDB_TYPE, duckdb_free};
-use crate::duckdb::Value;
+use crate::duckdb::{Value, i128_from_parts};
 
 /// Trait for converting Vortex scalars to DuckDB values.
 pub trait ToDuckDBScalar {
@@ -315,9 +315,13 @@ impl TryFrom<Value> for Scalar {
                 Scalar::new(DType::Primitive(I64, Nullable), value.as_time().into()),
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
-                let (width, scale) = value.logical_type().as_decimal();
+                let cpp::duckdb_decimal {
+                    value,
+                    width,
+                    scale,
+                } = value.as_decimal();
                 Ok(Scalar::decimal(
-                    DecimalValue::I128(value.as_i128()),
+                    DecimalValue::I128(i128_from_parts(value.upper, value.lower)),
                     DecimalDType::new(width, scale.try_into()?),
                     Nullable,
                 ))

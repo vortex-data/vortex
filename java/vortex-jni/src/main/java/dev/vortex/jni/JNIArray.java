@@ -153,6 +153,10 @@ public final class JNIArray implements Array {
 
     @Override
     public void close() {
+        if (pointer.isEmpty()) {
+            return;
+        }
+
         NativeArrayMethods.free(pointer.getAsLong());
         pointer = OptionalLong.empty();
     }

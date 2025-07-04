@@ -1,3 +1,7 @@
+use std::fs::File;
+use std::io::{Write, stdout};
+use std::path::PathBuf;
+
 use bench_vortex::bench_run::run_with_setup;
 use bench_vortex::datasets::taxi_data::{taxi_data_parquet, taxi_data_vortex};
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
@@ -25,6 +29,8 @@ struct Args {
     verbose: bool,
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
+    #[arg(short)]
+    output_path: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -39,6 +45,7 @@ fn main() -> anyhow::Result<()> {
         args.display_format,
         args.verbose,
         indices,
+        &args.output_path,
     )
 }
 
@@ -49,6 +56,7 @@ fn random_access(
     display_format: DisplayFormat,
     verbose: bool,
     indices: Buffer<u64>,
+    output_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
     // Capture `RUST_LOG` configuration
     let filter = default_env_filter(verbose);
@@ -94,12 +102,19 @@ fn random_access(
         progress.inc(1);
     }
 
+    let mut writer: Box<dyn Write> = if let Some(output_path) = output_path {
+        Box::new(File::create(output_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
+
     match display_format {
         DisplayFormat::Table => {
-            render_table(measurements, &targets)?;
+            render_table(&mut writer, measurements, &targets)?;
         }
         DisplayFormat::GhJson => {
-            print_measurements_json(measurements)?;
+            print_measurements_json(&mut writer, measurements)?;
         }
     }
 

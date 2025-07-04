@@ -32,13 +32,12 @@ struct CTableBindData final : TableFunctionData {
         if (error_out) {
             throw BinderException(IntoErrString(error_out));
         }
-        return make_uniq<CTableBindData>(
-            make_uniq<CTableFunctionInfo>(info->vtab),
-            unique_ptr<vortex::CData>(reinterpret_cast<vortex::CData *>(copied_ffi_data)));
+        return make_uniq<CTableBindData>(make_uniq<CTableFunctionInfo>(info->vtab),
+                                         unique_ptr<CData>(reinterpret_cast<CData *>(copied_ffi_data)));
     }
 
     unique_ptr<CTableFunctionInfo> info;
-    unique_ptr<vortex::CData> ffi_data;
+    unique_ptr<CData> ffi_data;
 };
 
 struct CTableGlobalData final : GlobalTableFunctionState {
@@ -84,9 +83,8 @@ unique_ptr<FunctionData> c_bind(ClientContext &context, TableFunctionBindInput &
         throw BinderException(IntoErrString(error_out));
     }
 
-    return make_uniq<CTableBindData>(
-        make_uniq<CTableFunctionInfo>(info.vtab),
-        unique_ptr<vortex::CData>(reinterpret_cast<vortex::CData *>(ffi_bind_data)));
+    return make_uniq<CTableBindData>(make_uniq<CTableFunctionInfo>(info.vtab),
+                                     unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data)));
 }
 
 unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, TableFunctionInitInput &input) {

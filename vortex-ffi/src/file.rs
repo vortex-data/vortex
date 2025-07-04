@@ -133,11 +133,11 @@ impl vx_file_scan_options {
 pub unsafe extern "C-unwind" fn vx_file_open_reader(
     options: *const vx_file_open_options,
     session: *const vx_session,
-    error: *mut *mut vx_error,
+    error_out: *mut *mut vx_error,
 ) -> *const vx_file {
     let session = vx_session::as_ref(session);
 
-    try_or(error, ptr::null_mut(), || {
+    try_or(error_out, ptr::null_mut(), || {
         let options = unsafe {
             options
                 .as_ref()
@@ -184,10 +184,10 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 pub unsafe extern "C-unwind" fn vx_file_write_array(
     path: *const c_char,
     array: *const vx_array,
-    error: *mut *mut vx_error,
+    error_out: *mut *mut vx_error,
 ) {
     let array = vx_array::as_ref(array);
-    try_or(error, (), || {
+    try_or(error_out, (), || {
         let path = unsafe { CStr::from_ptr(path).to_str()? };
 
         RUNTIME.block_on(async {
@@ -229,9 +229,9 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
     filter_expression: *const c_char,
     filter_expression_len: c_uint,
     file_idx: c_ulong,
-    error: *mut *mut vx_error,
+    error_out: *mut *mut vx_error,
 ) -> bool {
-    try_or(error, false, || {
+    try_or(error_out, false, || {
         let file = vx_file::as_ref(file);
         let filter_expr = extract_expression(filter_expression, filter_expression_len)?;
         Ok(filter_expr
@@ -246,9 +246,9 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
 pub unsafe extern "C-unwind" fn vx_file_scan(
     file: *const vx_file,
     opts: *const vx_file_scan_options,
-    error: *mut *mut vx_error,
+    error_out: *mut *mut vx_error,
 ) -> *mut vx_array_iterator {
-    try_or(error, ptr::null_mut(), || {
+    try_or(error_out, ptr::null_mut(), || {
         let file = vx_file::as_ref(file);
 
         let scan_options = unsafe { opts.as_ref() }.map_or_else(

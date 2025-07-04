@@ -27,7 +27,7 @@ vtable!(Pack);
 /// use vortex_dtype::Nullability;
 ///
 /// let example = PackExpr::try_new(
-///     ["x".into(), "x copy".into(), "second x copy".into()].into(),
+///     ["x", "x copy", "second x copy"].into(),
 ///     vec![root(), root(), root()],
 ///     Nullability::NonNullable,
 /// ).unwrap();
@@ -209,7 +209,6 @@ impl AnalysisExpr for PackExpr {}
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::validity::Validity;
@@ -246,7 +245,8 @@ mod tests {
 
     #[test]
     pub fn test_empty_pack() {
-        let expr = PackExpr::try_new(Arc::new([]), Vec::new(), Nullability::NonNullable).unwrap();
+        let expr =
+            PackExpr::try_new(FieldNames::default(), Vec::new(), Nullability::NonNullable).unwrap();
 
         let test_array = test_array();
         let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
@@ -259,8 +259,8 @@ mod tests {
 
     #[test]
     pub fn test_simple_pack() {
-        let expr = PackExpr::try_new(
-            ["one".into(), "two".into(), "three".into()].into(),
+        let expr = PackExpr::try_new_expr(
+            ["one", "two", "three"].into(),
             vec![col("a"), col("b"), col("a")],
             Nullability::NonNullable,
         )
@@ -271,7 +271,7 @@ mod tests {
             .unwrap()
             .to_struct()
             .unwrap();
-        let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
+        let expected_names: FieldNames = ["one", "two", "three"].into();
         assert_eq!(actual_array.names(), &expected_names);
         assert_eq!(actual_array.validity(), &Validity::NonNullable);
 
@@ -297,12 +297,12 @@ mod tests {
 
     #[test]
     pub fn test_nested_pack() {
-        let expr = PackExpr::try_new(
-            ["one".into(), "two".into(), "three".into()].into(),
+        let expr = Pack::try_new(
+            ["one", "two", "three"].into(),
             vec![
                 col("a"),
                 PackExpr::try_new(
-                    ["two_one".into(), "two_two".into()].into(),
+                    ["two_one", "two_two"].into(),
                     vec![col("b"), col("b")],
                     Nullability::NonNullable,
                 )
@@ -319,7 +319,7 @@ mod tests {
             .unwrap()
             .to_struct()
             .unwrap();
-        let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
+        let expected_names = FieldNames::from(["one", "two", "three"]);
         assert_eq!(actual_array.names(), &expected_names);
 
         assert_eq!(
@@ -350,8 +350,8 @@ mod tests {
 
     #[test]
     pub fn test_pack_nullable() {
-        let expr = PackExpr::try_new(
-            ["one".into(), "two".into(), "three".into()].into(),
+        let expr = PackExpr::try_new_expr(
+            ["one", "two", "three"].into(),
             vec![col("a"), col("b"), col("a")],
             Nullability::Nullable,
         )
@@ -362,7 +362,7 @@ mod tests {
             .unwrap()
             .to_struct()
             .unwrap();
-        let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
+        let expected_names: FieldNames = ["one", "two", "three"].into();
         assert_eq!(actual_array.names(), &expected_names);
         assert_eq!(actual_array.validity(), &Validity::AllValid);
     }

@@ -18,11 +18,14 @@ use vortex_datafusion::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::BenchmarkDataset;
-use crate::idempotent_async;
+use crate::{Format, idempotent_async};
 
-pub async fn convert_parquet_to_vortex(input_path: &Path, dataset: BenchmarkDataset) -> Result<()> {
+pub async fn convert_parquet_to_vortex(
+    input_path: &Path,
+    dataset: &BenchmarkDataset,
+) -> Result<()> {
     match dataset {
-        BenchmarkDataset::TpcH => {
+        BenchmarkDataset::TpcH { .. } => {
             // This is done on-demand by the register_vortex_file function
             Ok(())
         }
@@ -42,7 +45,7 @@ pub async fn register_parquet_files(
     dataset: BenchmarkDataset,
 ) -> Result<()> {
     match dataset {
-        BenchmarkDataset::TpcH => {
+        BenchmarkDataset::TpcH { .. } => {
             let parquet_url = file_url.clone();
             ensure_parquet_file_exists(object_store.as_ref(), &parquet_url).await?;
 
@@ -54,10 +57,10 @@ pub async fn register_parquet_files(
                 )
                 .await?;
         }
-        BenchmarkDataset::ClickBench { single_file } => {
+        BenchmarkDataset::ClickBench { single_file, .. } => {
             // For ClickBench, we use simplified pre-built Parquet registration
             let format = Arc::new(ParquetFormat::new());
-            let mut parquet_path = dataset.parquet_path(file_url)?;
+            let mut parquet_path = dataset.format_path(Format::Parquet, file_url)?;
 
             if single_file {
                 parquet_path = parquet_path.join("hits.parquet")?;
@@ -94,7 +97,7 @@ pub async fn register_vortex_files(
     dataset: BenchmarkDataset,
 ) -> Result<()> {
     match dataset {
-        BenchmarkDataset::TpcH | BenchmarkDataset::TpcDS => {
+        BenchmarkDataset::TpcH { .. } | BenchmarkDataset::TpcDS { .. } => {
             // Register the Vortex file
             let format = Arc::new(VortexFormat::default());
             let table_url = ListingTableUrl::parse(file_url.as_str())?;
@@ -111,7 +114,7 @@ pub async fn register_vortex_files(
             let listing_table = Arc::new(ListingTable::try_new(config)?);
             session.register_table(table_name, listing_table)?;
         }
-        BenchmarkDataset::ClickBench { single_file } => {
+        BenchmarkDataset::ClickBench { single_file, .. } => {
             crate::clickbench::register_vortex_files(
                 session.clone(),
                 table_name,
@@ -121,6 +124,7 @@ pub async fn register_vortex_files(
             )
             .await?;
         }
+        BenchmarkDataset::PublicBi { .. } => todo!(),
     }
 
     Ok(())

@@ -17,6 +17,10 @@ void duckdb_vx_string_vector_add_buffer(duckdb_vector ffi_vector, duckdb_vx_data
 // Converts a duckdb flat vector into a Sequence vector.
 void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step, idx_t capacity);
 
+void duckdb_vector_flatten(duckdb_vector vector, unsigned long len);
+
+const char *duckdb_vector_to_string(duckdb_vector vector, unsigned long len, duckdb_vx_error *err);
+
 #ifdef __cplusplus /* End C ABI */
 }
 #endif

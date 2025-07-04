@@ -66,7 +66,7 @@ mod tests {
         .into_array();
 
         let st = StructArray::try_new(
-            ["strings".into(), "numbers".into()].into(),
+            ["strings", "numbers"].into(),
             vec![strings, numbers],
             8,
             Validity::NonNullable,

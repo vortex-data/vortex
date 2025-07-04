@@ -73,6 +73,7 @@ register_kernel!(TakeKernelAdapter(ChunkedVTable).lift());
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
+    use vortex_dtype::FieldNames;
 
     use crate::IntoArray;
     use crate::array::Array;
@@ -101,7 +102,8 @@ mod test {
     #[test]
     fn test_take_nullability() {
         let struct_array =
-            StructArray::try_new([].into(), vec![], 100, Validity::NonNullable).unwrap();
+            StructArray::try_new(FieldNames::default(), vec![], 100, Validity::NonNullable)
+                .unwrap();
 
         let arr = ChunkedArray::from_iter(vec![struct_array.to_array(), struct_array.to_array()]);
 
@@ -112,7 +114,7 @@ mod test {
         .unwrap();
 
         let expect = StructArray::try_new(
-            [].into(),
+            FieldNames::default(),
             vec![],
             3,
             Validity::Array(BoolArray::from_iter(vec![true, false, true]).to_array()),

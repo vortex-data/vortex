@@ -220,7 +220,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(select(["strings".into()], root()))
+        .with_projection(select(["strings"], root()))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -248,7 +248,7 @@ async fn test_read_projection() {
     let array = file
         .scan()
         .unwrap()
-        .with_projection(select(["numbers".into()], root()))
+        .with_projection(select(["numbers"], root()))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -258,7 +258,7 @@ async fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            StructFields::new(vec!["numbers".into()].into(), vec![numbers_dtype.clone()]),
+            StructFields::new(["numbers"].into(), vec![numbers_dtype.clone()]),
             Nullability::NonNullable,
         )
     );
@@ -335,7 +335,7 @@ async fn write_chunked() {
             .unwrap()
             .into_array();
     let st = StructArray::try_new(
-        ["strings".into(), "numbers".into()].into(),
+        ["strings", "numbers"].into(),
         vec![strings_chunked, numbers_chunked],
         16,
         Validity::NonNullable,
@@ -407,7 +407,7 @@ async fn filter_string() {
     let ages_orig =
         PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]).into_array();
     let st = StructArray::try_new(
-        ["name".into(), "age".into()].into(),
+        ["name", "age"].into(),
         vec![names_orig, ages_orig],
         5,
         Validity::NonNullable,
@@ -458,7 +458,7 @@ async fn filter_or() {
     );
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
-        ["name".into(), "age".into()].into(),
+        ["name", "age"].into(),
         vec![names.into_array(), ages.into_array()],
         5,
         Validity::NonNullable,
@@ -522,7 +522,7 @@ async fn filter_and() {
     );
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
     let st = StructArray::try_new(
-        ["name".into(), "age".into()].into(),
+        ["name", "age"].into(),
         vec![names.into_array(), ages.into_array()],
         5,
         Validity::NonNullable,
@@ -1029,7 +1029,7 @@ async fn test_repeated_projection() {
     let actual = file
         .scan()
         .unwrap()
-        .with_projection(select(["strings".into(), "strings".into()], root()))
+        .with_projection(select(["strings", "strings"], root()))
         .into_array_stream()
         .unwrap()
         .read_all()
@@ -1132,7 +1132,7 @@ async fn write_nullable_top_level_struct() {
     let ages = PrimitiveArray::from_option_iter([Some(25), Some(31), None, Some(57), None]);
 
     let array = StructArray::try_new(
-        ["age".into()].into(),
+        ["age"].into(),
         vec![ages.into_array()],
         5,
         Validity::AllValid,
@@ -1159,7 +1159,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
     let struct_ = ConstantArray::new(Scalar::null(nested_dtype.clone()), 3).to_array();
 
     let array = StructArray::try_new(
-        ["struct".into()].into(),
+        ["struct"].into(),
         vec![struct_.into_array()],
         3,
         Validity::NonNullable,

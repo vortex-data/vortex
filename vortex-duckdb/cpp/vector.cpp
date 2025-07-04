@@ -41,3 +41,23 @@ extern "C" void duckdb_vx_string_vector_add_buffer(duckdb_vector ffi_vector, duc
     auto ext_buffer = duckdb::make_shared_ptr<vortex::ExternalVectorBuffer>(unique_ptr<vortex::CData>(data));
     StringVector::AddBuffer(*vector, ext_buffer);
 }
+
+void duckdb_vector_flatten(duckdb_vector vector, unsigned long len) {
+    auto dvector = reinterpret_cast<Vector *>(vector);
+    dvector->Flatten(len);
+}
+
+const char *duckdb_vector_to_string(duckdb_vector vector, unsigned long len, duckdb_vx_error *err) {
+    try {
+        auto dvector = reinterpret_cast<Vector *>(vector);
+        auto str = dvector->ToString(len);
+        auto result = static_cast<char *>(duckdb_malloc(str.size() + 1));
+        memcpy(result, str.c_str(), str.size() + 1);
+        err = nullptr;
+        return result;
+    } catch (std::runtime_error &e) {
+        auto s = e.what();
+        *err = duckdb_vx_error_create(s, strlen(s));
+        return nullptr;
+    }
+}

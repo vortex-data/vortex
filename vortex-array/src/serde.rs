@@ -380,7 +380,7 @@ impl ArrayParts {
     }
 
     /// Returns the root ArrayNode flatbuffer.
-    fn flatbuffer(&self) -> fba::ArrayNode {
+    fn flatbuffer(&self) -> fba::ArrayNode<'_> {
         unsafe { fba::ArrayNode::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 

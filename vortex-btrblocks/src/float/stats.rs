@@ -48,6 +48,7 @@ pub struct FloatStats {
     pub(super) null_count: u32,
     // cache for validity.true_count()
     pub(super) value_count: u32,
+    #[allow(dead_code)]
     pub(super) average_run_length: u32,
     pub(super) distinct_values: ErasedDistinctValues,
     pub(super) distinct_values_count: u32,

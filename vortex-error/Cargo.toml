@@ -29,7 +29,6 @@ pyo3 = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 url = { workspace = true }
-worker = { workspace = true, optional = true }
 
 [lints]
 workspace = true

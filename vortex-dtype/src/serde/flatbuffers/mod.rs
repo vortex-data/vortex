@@ -49,7 +49,6 @@ impl StructFields {
             .names()
             .ok_or_else(|| vortex_err!("failed to parse struct names from flatbuffer"))?
             .iter()
-            .map(|n| (*n).into())
             .collect();
 
         let dtypes = fb_struct
@@ -375,7 +374,7 @@ mod test {
         ));
         roundtrip_dtype(DType::Struct(
             StructFields::new(
-                ["strings".into(), "ints".into()].into(),
+                ["strings", "ints"].into(),
                 vec![
                     DType::Utf8(Nullability::NonNullable),
                     DType::Primitive(PType::U16, Nullability::Nullable),
