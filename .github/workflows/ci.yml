@@ -343,8 +343,6 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       # Build vortex-jni shared library, and copy into JAR.
