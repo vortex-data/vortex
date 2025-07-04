@@ -150,7 +150,7 @@ fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
 
     let elements_to_take = elements_to_take.finish();
     let new_offsets = new_offsets.finish();
-    let new_elements = crate::compute::take(array.elements(), elements_to_take.as_ref())?;
+    let new_elements = take(array.elements(), elements_to_take.as_ref())?;
 
     let new_validity: Validity = Validity::Array(new_validity.finish());
     // data are indexes are nullable, so the final result is also nullable.
