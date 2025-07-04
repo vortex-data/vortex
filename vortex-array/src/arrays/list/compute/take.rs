@@ -1,10 +1,11 @@
+use arrow_buffer::BooleanBufferBuilder;
 use num_traits::PrimInt;
 use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_mask::Mask;
 
 use crate::arrays::{ListArray, ListVTable, OffsetPType, PrimitiveArray};
-use crate::builders::{ArrayBuilder, BoolBuilder, PrimitiveBuilder};
+use crate::builders::{ArrayBuilder, PrimitiveBuilder};
 use crate::compute::{TakeKernel, TakeKernelAdapter, take};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -112,12 +113,12 @@ fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
 
     let mut current_offset = O::zero();
     new_offsets.append_zero();
-    let mut new_validity = BoolBuilder::with_capacity(Nullability::NonNullable, 2 * indices.len());
+    let mut new_validity = BooleanBufferBuilder::new(2 * indices.len());
 
     for (idx, data_idx) in indices.iter().enumerate() {
         if !indices_validity.value(idx) {
             new_offsets.append_value(current_offset);
-            new_validity.append_value(false);
+            new_validity.append(false);
             continue;
         }
 
@@ -141,10 +142,10 @@ fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
             }
             current_offset = current_offset + (stop - start);
             new_offsets.append_value(current_offset);
-            new_validity.append_value(true);
+            new_validity.append(true);
         } else {
             new_offsets.append_value(current_offset);
-            new_validity.append_value(false);
+            new_validity.append(false);
         }
     }
 
@@ -152,7 +153,7 @@ fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
     let new_offsets = new_offsets.finish();
     let new_elements = take(array.elements(), elements_to_take.as_ref())?;
 
-    let new_validity: Validity = Validity::Array(new_validity.finish());
+    let new_validity: Validity = Validity::from(new_validity.finish());
     // data are indexes are nullable, so the final result is also nullable.
 
     Ok(ListArray::try_new(new_elements, new_offsets, new_validity)?.to_array())
