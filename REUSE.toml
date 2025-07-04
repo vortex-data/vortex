@@ -3,14 +3,7 @@
 
 version = 1
 
-# Everything is licensed under Apache-2.0 by default.
-[[annotations]]
-path = "**"
-precedence = "closest"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
-# Docs are the exception, and are licensed under CC-BY-4.0.
+# Docs are licensed under CC-BY-4.0
 [[annotations]]
 path = "docs/**"
 precedence = "override"
@@ -28,3 +21,71 @@ path = "benchmarks-website/**"
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
+
+# Everything else is licensed under Apache-2.0
+[[annotations]]
+path = "**/*.lock"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "renovate.json"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "**/*.toml"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "**/.gitignore"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "**/.gitmodules"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "**/.python-version"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "**/*.metadata"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "**/*.pyi"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "**/generated/**"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ".github/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "bench-vortex/**/*.sql"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "bench-vortex/**/*.csv"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "java/gradle/**"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright the Gradle authors"
+SPDX-License-Identifier = "Apache-2.0"
