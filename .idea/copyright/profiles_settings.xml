@@ -1,7 +1,15 @@
+<!--
+ SPDX-License-Identifier: Apache-2.0
+ SPDX-FileCopyrightText: Copyright the Vortex contributors
+-->
 <component name="CopyrightManager">
   <settings default="spdx">
     <module2copyright>
       <element module="All" copyright="spdx" />
     </module2copyright>
+    <LanguageOptions name="Rust">
+      <option name="fileTypeOverride" value="3" />
+      <option name="block" value="false" />
+    </LanguageOptions>
   </settings>
 </component>
