@@ -3,7 +3,14 @@
 
 version = 1
 
-# Docs are licensed under CC-BY-4.0
+# Everything is licensed under Apache-2.0 by default.
+[[annotations]]
+path = "**"
+precedence = "closest"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+# Docs are the exception, and are licensed under CC-BY-4.0.
 [[annotations]]
 path = "docs/**"
 precedence = "override"
@@ -16,88 +23,8 @@ precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
-# Computer-generated configuration files are licensed under CC0-1.0
 [[annotations]]
-path = "**/*.lock"
-precedence = "override"
-SPDX-FileCopyrightText = "None"
-SPDX-License-Identifier = "CC0-1.0"
-
-# Everything else is licensed under Apache-2.0
-[[annotations]]
-path = "**/*.toml"
+path = "benchmarks-website/**"
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
-path = "**/.gitignore"
-precedence = "override"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
-path = "**/.gitmodules"
-precedence = "override"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
-path = "**/.python-version"
-precedence = "override"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
-path = ".github/**"
-precedence = "override"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
-path = "**/*.proto"
-precedence = "override"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
-path = "**/*.fbs"
-precedence = "override"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
-path = "**/generated/**"
-precedence = "override"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
-path = "bench-vortex/**/*.sql"
-precedence = "override"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
-path = "bench-vortex/**/*.csv"
-precedence = "override"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
-# [[annotations]]
-# path = "benchmarks-website/**"
-# precedence = "override"
-# SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-# SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
-path = "**/*.metadata"
-precedence = "override"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
-path = "**/*.pyi"
-precedence = "override"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
+SPDX-License-Identifier = "CC-BY-4.0"
