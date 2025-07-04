@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::{BinaryView, PrimitiveArray, VarBinViewArray};
 use vortex_array::compute::filter;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::validity::Validity;
@@ -9,9 +9,10 @@ use vortex_array::vtable::{
     ValiditySliceHelper, ValidityVTableFromValiditySliceHelper,
 };
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
-use vortex_buffer::{Alignment, Buffer, ByteBuffer, ByteBufferMut};
+use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::serde::{CanonicalArrayType, ZstdFrameMetadata, ZstdMetadata};
@@ -93,9 +94,44 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
     (uncompressed_size / 100).clamp(256, 100 * 1024)
 }
 
-fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
+fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask()?;
     filter(&parray.to_array(), &mask)?.to_primitive()
+}
+
+fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(Buffer<u8>, Vec<usize>)> {
+    let mask = vbv.validity_mask()?;
+    let mut buffer = BufferMut::empty();
+    let mut value_byte_indices = Vec::new();
+    for i in 0..vbv.len() {
+        if mask.value(i) {
+            value_byte_indices.push(buffer.len());
+            // here's where we write the string lengths
+            let value = vbv.bytes_at(i);
+            buffer.extend((value.len() as u32).to_le_bytes());
+            buffer.extend(value);
+        }
+    }
+    Ok((buffer.freeze(), value_byte_indices))
+}
+
+fn reconstruct_views(buffer: &Buffer<u8>, mask: Mask) -> VortexResult<Buffer<BinaryView>> {
+    let mut res = BufferMut::<BinaryView>::empty();
+    let mut start = 0;
+    for i in 0..mask.len() {
+        if mask.value(i) {
+            let str_len = u32::from_le_bytes(buffer[start..start + 4].try_into()?) as usize;
+            start += 4;
+            let stop = start + str_len;
+            let value = &buffer[start..stop];
+            // slightly surprising that binary views only support u32 offsets?
+            res.push(BinaryView::make_view(value, 0, u32::try_from(start)?));
+            start = stop;
+        } else {
+            res.push(BinaryView::empty_view());
+        }
+    }
+    Ok(res.freeze())
 }
 
 impl ZstdArray {
@@ -120,10 +156,12 @@ impl ZstdArray {
         }
     }
 
-    fn build_frames(
+    fn compress_values(
         value_bytes: &Buffer<u8>,
         mut frame_byte_starts: Vec<usize>,
         level: i32,
+        values_per_frame: usize,
+        n_values: usize,
     ) -> VortexResult<Frames> {
         let n_frames = frame_byte_starts.len();
         frame_byte_starts.push(value_bytes.len()); // for convenience, include the stop of the last frame
@@ -157,6 +195,7 @@ impl ZstdArray {
                 .map_err(|err| VortexError::from(err).with_context("while compressing"))?;
             frame_metas.push(ZstdFrameMetadata {
                 uncompressed_size: uncompressed.len() as u64,
+                n_values: values_per_frame.min(n_values - i * values_per_frame) as u64,
             });
             frames.push(ByteBuffer::from(compressed));
         }
@@ -177,7 +216,7 @@ impl ZstdArray {
         let byte_width = parray.ptype().byte_width();
 
         // We compress only the valid elements.
-        let values = collect_valid(parray)?;
+        let values = collect_valid_primitive(parray)?;
         let n_values = values.len();
         let values_per_frame = if values_per_frame > 0 {
             values_per_frame
@@ -193,7 +232,13 @@ impl ZstdArray {
             dictionary,
             frames,
             frame_metas,
-        } = Self::build_frames(value_bytes, frame_byte_starts, level)?;
+        } = Self::compress_values(
+            value_bytes,
+            frame_byte_starts,
+            level,
+            values_per_frame,
+            n_values,
+        )?;
 
         let metadata = ZstdMetadata {
             dictionary_size: dictionary
@@ -214,6 +259,61 @@ impl ZstdArray {
         ))
     }
 
+    pub fn from_var_bin_view(
+        vbv: &VarBinViewArray,
+        level: i32,
+        values_per_frame: usize,
+    ) -> VortexResult<Self> {
+        // Approach for strings: we prefix each string with its length as a u32.
+        // This is the same as what Parquet does. In some cases it may be better
+        // to separate the binary data and lengths as two separate streams, but
+        // this approach is simpler and can be best in cases when there is
+        // mutual information between strings and their lengths.
+        let dtype = vbv.dtype().clone();
+
+        // We compress only the valid elements.
+        let (value_bytes, value_byte_indices) = collect_valid_vbv(vbv)?;
+        let n_values = value_byte_indices.len();
+        let values_per_frame = if values_per_frame > 0 {
+            values_per_frame
+        } else {
+            n_values
+        };
+
+        let frame_byte_starts = (0..n_values)
+            .step_by(values_per_frame)
+            .map(|i| value_byte_indices[i])
+            .collect::<Vec<_>>();
+        let Frames {
+            dictionary,
+            frames,
+            frame_metas,
+        } = Self::compress_values(
+            &value_bytes,
+            frame_byte_starts,
+            level,
+            values_per_frame,
+            n_values,
+        )?;
+
+        let metadata = ZstdMetadata {
+            dictionary_size: dictionary
+                .as_ref()
+                .map_or(0, |dict| dict.len())
+                .try_into()?,
+            frames: frame_metas,
+            canonical_array_type: CanonicalArrayType::VarBinView as i32,
+        };
+        Ok(ZstdArray::new(
+            dictionary,
+            frames,
+            dtype,
+            metadata,
+            vbv.len(),
+            vbv.validity().clone(),
+        ))
+    }
+
     pub fn from_canonical(
         canonical: &Canonical,
         level: i32,
@@ -225,6 +325,11 @@ impl ZstdArray {
                 level,
                 values_per_frame,
             )?)),
+            Canonical::VarBinView(vbv) => Ok(Some(ZstdArray::from_var_bin_view(
+                vbv,
+                level,
+                values_per_frame,
+            )?)),
             // Canonical::VarBinView(vbv) => Ok(Some(ZstdArray::from_var_bin_view(vbv, 3, 0)?)),
             _ => Ok(None),
         }
@@ -232,7 +337,7 @@ impl ZstdArray {
 
     pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
         Self::from_canonical(&array.to_canonical()?, level, values_per_frame)?
-            .ok_or_else(|| vortex_err!("Zstd can only encode primitive  arrays"))
+            .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
     }
 
     pub fn decompress(&self) -> VortexResult<ArrayRef> {
@@ -245,29 +350,38 @@ impl ZstdArray {
             .unsliced_validity
             .to_mask(self.unsliced_n_rows)?
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop])?;
-        let slice_uncompressed_start = slice_value_indices[0] * byte_width;
-        let slice_uncompressed_stop = slice_value_indices[1] * byte_width;
+
+        let slice_value_idx_start = slice_value_indices[0];
+        let slice_value_idx_stop = slice_value_indices[1];
 
         let mut frames_to_decompress = vec![];
-        let mut uncompressed_start = 0;
+        let mut value_idx_start = 0;
         let mut uncompressed_size_to_decompress = 0;
-        let mut skipped_uncompressed = 0;
+        let mut n_skipped_values = 0;
         for (frame, frame_meta) in self.frames.iter().zip(&self.metadata.frames) {
-            if uncompressed_start >= slice_uncompressed_stop {
+            if value_idx_start >= slice_value_idx_stop {
                 break;
             }
-            let frame_uncompressed = usize::try_from(frame_meta.uncompressed_size)?;
 
-            let uncompressed_stop = uncompressed_start + frame_uncompressed;
-            if uncompressed_stop > slice_uncompressed_start {
+            let frame_uncompressed_size = usize::try_from(frame_meta.uncompressed_size)?;
+            let frame_n_values = if frame_meta.n_values == 0 {
+                // possibly older primitive-only metadata that just didn't store this
+                frame_uncompressed_size / byte_width
+            } else {
+                usize::try_from(frame_meta.n_values)?
+            };
+
+            let value_idx_stop = value_idx_start + frame_n_values;
+            if value_idx_stop > slice_value_idx_start {
                 // we need this frame
                 frames_to_decompress.push(frame);
-                uncompressed_size_to_decompress += frame_uncompressed;
+                uncompressed_size_to_decompress += frame_uncompressed_size;
             } else {
-                skipped_uncompressed += frame_uncompressed;
+                n_skipped_values += frame_n_values;
             }
-            uncompressed_start = uncompressed_stop;
+            value_idx_start = value_idx_stop;
         }
+        let n_skipped_or_decompressed_values = value_idx_start;
 
         // then we actually decompress those frames
         let mut decompressor = if let Some(dictionary) = &self.dictionary {
@@ -287,34 +401,62 @@ impl ZstdArray {
         let mut uncompressed_start = 0;
         for frame in frames_to_decompress {
             let uncompressed_written = decompressor
-                .decompress_to_buffer(frame.as_slice(), &mut decompressed[uncompressed_start..])?;
+                .decompress_to_buffer(frame.as_slice(), &mut decompressed[uncompressed_start..])
+                .map_err(|err| VortexError::from(err).with_context("while decompressing"))?;
             uncompressed_start += uncompressed_written;
         }
         if uncompressed_start != uncompressed_size_to_decompress {
             vortex_bail!(
-                "Zstd metadata or frames were corrupt; expected {} byte but decompressed {}",
+                "Zstd metadata or frames were corrupt; expected {} bytes but decompressed {}",
                 uncompressed_size_to_decompress,
                 uncompressed_start
             );
         }
 
+        let decompressed = decompressed.freeze();
         // Last, we slice the exact values requested out of the decompressed data.
         let slice_validity = self
             .unsliced_validity
             .slice(self.slice_start, self.slice_stop)?;
-        let slice_values_buffer = decompressed.freeze().slice(
-            slice_uncompressed_start - skipped_uncompressed
-                ..slice_uncompressed_stop - skipped_uncompressed,
-        );
 
-        let primitive = PrimitiveArray::from_values_byte_buffer(
-            slice_values_buffer,
-            ptype,
-            slice_validity,
-            slice_n_rows,
-        )?;
+        match self.metadata.canonical_array_type() {
+            CanonicalArrayType::Primitive => {
+                let slice_values_buffer = decompressed.slice(
+                    (slice_value_idx_start - n_skipped_values) * byte_width
+                        ..(slice_value_idx_stop - n_skipped_values) * byte_width,
+                );
+                let primitive = PrimitiveArray::from_values_byte_buffer(
+                    slice_values_buffer,
+                    ptype,
+                    slice_validity,
+                    slice_n_rows,
+                )?;
 
-        Ok(primitive.into_array())
+                Ok(primitive.into_array())
+            }
+            CanonicalArrayType::VarBinView => {
+                // The decompressed buffer is a bunch of interleaved u32 lengths
+                // and strings of those lengths, we we need to reconstruct the
+                // views into those strings by passing through the buffer.
+                let n_decompressed_values = n_skipped_or_decompressed_values - n_skipped_values;
+                let decompressed_mask = self
+                    .unsliced_validity
+                    .slice(n_skipped_values, n_skipped_or_decompressed_values)?
+                    .to_mask(n_decompressed_values)?;
+                let views = reconstruct_views(&decompressed, decompressed_mask)?.slice(
+                    slice_value_idx_start - n_skipped_values
+                        ..slice_value_idx_stop - n_skipped_values,
+                );
+
+                let vbv = VarBinViewArray::try_new(
+                    views,
+                    vec![decompressed],
+                    self.dtype.clone(),
+                    slice_validity,
+                )?;
+                Ok(vbv.into_array())
+            }
+        }
     }
 
     fn _slice(&self, start: usize, stop: usize) -> ZstdArray {

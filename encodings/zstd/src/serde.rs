@@ -12,6 +12,8 @@ use crate::{ZstdArray, ZstdEncoding, ZstdVTable};
 pub struct ZstdFrameMetadata {
     #[prost(uint64, tag = "1")]
     pub uncompressed_size: u64,
+    #[prost(uint64, tag = "2")]
+    pub n_values: u64,
 }
 
 #[derive(Clone, prost::Message)]
