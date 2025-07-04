@@ -108,7 +108,7 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(Buffer<u8>, Vec<usi
             value_byte_indices.push(buffer.len());
             // here's where we write the string lengths
             let value = vbv.bytes_at(i);
-            buffer.extend((value.len() as u32).to_le_bytes());
+            buffer.extend(u32::try_from(value.len())?.to_le_bytes());
             buffer.extend(value);
         }
     }
