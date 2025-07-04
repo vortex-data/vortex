@@ -37,7 +37,7 @@ jobs:
           AWS_REGION: 'us-east-1'
           AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
       - name: Run fuzzing target
-        run: RUST_BACKTRACE=1 cargo fuzz run file_io -- -max_total_time=7200
+        run: RUST_BACKTRACE=1 cargo fuzz run file_io -j "$(nproc)" -- -max_total_time=7200
         continue-on-error: true
       - name: Archive crash artifacts
         uses: actions/upload-artifact@v4
@@ -86,7 +86,7 @@ jobs:
           AWS_REGION: 'us-east-1'
           AWS_ENDPOINT_URL: 'https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com'
       - name: Run fuzzing target
-        run: RUST_BACKTRACE=1 cargo fuzz run array_ops -- -max_total_time=7200
+        run: RUST_BACKTRACE=1 cargo fuzz run array_ops -j "$(nproc)" -- -max_total_time=7200
         continue-on-error: true
       - name: Archive crash artifacts
         uses: actions/upload-artifact@v4

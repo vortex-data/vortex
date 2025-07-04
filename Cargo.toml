@@ -102,7 +102,7 @@ goldenfile = "1"
 half = { version = "2.6", features = ["std", "num-traits"] }
 hashbrown = "0.15.1"
 humansize = "2.1.3"
-indicatif = "0.17.8"
+indicatif = "0.18.0"
 inventory = "0.3.20"
 itertools = "0.14.0"
 jiff = "0.2.0"
