@@ -9,4 +9,4 @@ com.google.protobuf:protobuf-java = 4.31.1
 org.apache.arrow:* = 18.3.0
 
 # Test dependencies
-org.junit.jupiter:* = 5.13.2
+org.junit.jupiter:* = 5.13.3
