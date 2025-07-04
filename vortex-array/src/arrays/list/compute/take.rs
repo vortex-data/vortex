@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_buffer::BooleanBufferBuilder;
 use num_traits::PrimInt;
 use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
