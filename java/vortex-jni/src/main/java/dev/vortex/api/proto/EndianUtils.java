@@ -13,14 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package dev.vortex.api.expressions.proto;
+package dev.vortex.api.proto;
 
 import com.google.protobuf.ByteString;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 
-final class EndianUtils {
-    static byte[] reverse(ByteString src) {
+public final class EndianUtils {
+    public static byte[] reverse(ByteString src) {
         byte[] dst = new byte[src.size()];
         for (int i = 0; i < dst.length; i++) {
             dst[i] = src.byteAt(dst.length - 1 - i);
@@ -28,7 +28,7 @@ final class EndianUtils {
         return dst;
     }
 
-    static byte[] littleEndianDecimal(BigDecimal decimal) {
+    public static byte[] littleEndianDecimal(BigDecimal decimal) {
         BigInteger unscaled = decimal.unscaledValue();
         byte[] bigEndianBytes = unscaled.toByteArray();
 

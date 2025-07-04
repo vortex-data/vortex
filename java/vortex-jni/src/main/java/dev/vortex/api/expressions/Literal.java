@@ -16,8 +16,19 @@
 package dev.vortex.api.expressions;
 
 import com.google.common.base.Preconditions;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
 import dev.vortex.api.Expression;
+import dev.vortex.api.proto.EndianUtils;
+import dev.vortex.api.proto.TemporalMetadatas;
+import dev.vortex.proto.DTypeProtos;
+import dev.vortex.proto.ExprProtos;
+import dev.vortex.proto.ScalarProtos;
+import dev.vortex.api.proto.Scalars;
+
 import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -28,13 +39,38 @@ public abstract class Literal<T> implements Expression {
         this.value = value;
     }
 
+    public static Literal<?> parse(byte[] metadata, List<Expression> children) {
+        if (!children.isEmpty()) {
+            throw new IllegalArgumentException("Literal expression must have no children, found: " + children.size());
+        }
+        try {
+            ExprProtos.LiteralOpts opts = ExprProtos.LiteralOpts.parseFrom(metadata);
+            return deserializeLiteral(opts, children);
+        } catch (InvalidProtocolBufferException e) {
+            throw new IllegalArgumentException("Failed to parse literal metadata", e);
+        }
+    }
+
     public T getValue() {
         return this.value;
     }
 
     @Override
-    public String type() {
+    public String id() {
         return "literal";
+    }
+
+    @Override
+    public List<Expression> children() {
+        return List.of();
+    }
+
+    @Override
+    public Optional<byte[]> metadata() {
+        return Optional.of(ExprProtos.LiteralOpts.newBuilder()
+                .setValue(this.acceptLiteralVisitor(LiteralToScalar.INSTANCE))
+                .build()
+                .toByteArray());
     }
 
     @Override
@@ -414,6 +450,329 @@ public abstract class Literal<T> implements Expression {
         @Override
         public <U> U acceptLiteralVisitor(LiteralVisitor<U> visitor) {
             return visitor.visitTimestampNanos(getValue(), timeZone);
+        }
+    }
+
+    static final class LiteralToScalar implements LiteralVisitor<ScalarProtos.Scalar> {
+        static final LiteralToScalar INSTANCE = new LiteralToScalar();
+
+        private LiteralToScalar() {}
+
+        @Override
+        public ScalarProtos.Scalar visitNull() {
+            return Scalars.nullNull();
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitBoolean(Boolean literal) {
+            if (Objects.isNull(literal)) {
+                return Scalars.nullBool();
+            } else {
+                return Scalars.bool(literal);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitInt8(Byte literal) {
+            if (Objects.isNull(literal)) {
+                return Scalars.nullInt8();
+            } else {
+                return Scalars.int8(literal);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitInt16(Short literal) {
+            if (Objects.isNull(literal)) {
+                return Scalars.nullInt16();
+            } else {
+                return Scalars.int16(literal);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitInt32(Integer literal) {
+            if (Objects.isNull(literal)) {
+                return Scalars.nullInt32();
+            } else {
+                return Scalars.int32(literal);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitInt64(Long literal) {
+            if (Objects.isNull(literal)) {
+                return Scalars.nullInt64();
+            } else {
+                return Scalars.int64(literal);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitDateDays(Integer days) {
+            if (Objects.isNull(days)) {
+                return Scalars.nullDateDays();
+            } else {
+                return Scalars.dateDays(days);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitDateMillis(Long millis) {
+            if (Objects.isNull(millis)) {
+                return Scalars.nullDateMillis();
+            } else {
+                return Scalars.dateMillis(millis);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitTimeSeconds(Integer seconds) {
+            if (Objects.isNull(seconds)) {
+                return Scalars.nullTimeSeconds();
+            } else {
+                return Scalars.timeSeconds(seconds);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitTimeMillis(Integer seconds) {
+            if (Objects.isNull(seconds)) {
+                return Scalars.nullTimeMillis();
+            } else {
+                return Scalars.timeMillis(seconds);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitTimeMicros(Long seconds) {
+            if (Objects.isNull(seconds)) {
+                return Scalars.nullTimeMicros();
+            } else {
+                return Scalars.timeMicros(seconds);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitTimeNanos(Long seconds) {
+            if (Objects.isNull(seconds)) {
+                return Scalars.nullTimeNanos();
+            } else {
+                return Scalars.timeNanos(seconds);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitTimestampMillis(Long epochMillis, Optional<String> timeZone) {
+            if (Objects.isNull(epochMillis)) {
+                return Scalars.nullTimestampMillis(timeZone);
+            } else {
+                return Scalars.timestampMillis(epochMillis, timeZone);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitTimestampMicros(Long epochMicros, Optional<String> timeZone) {
+            if (Objects.isNull(epochMicros)) {
+                return Scalars.nullTimestampMicros(timeZone);
+            } else {
+                return Scalars.timestampMicros(epochMicros, timeZone);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitTimestampNanos(Long epochNanos, Optional<String> timeZone) {
+            if (Objects.isNull(epochNanos)) {
+                return Scalars.nullTimestampNanos(timeZone);
+            } else {
+                return Scalars.timestampNanos(epochNanos, timeZone);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitFloat32(Float literal) {
+            if (Objects.isNull(literal)) {
+                return Scalars.nullFloat32();
+            } else {
+                return Scalars.float32(literal);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitFloat64(Double literal) {
+            if (Objects.isNull(literal)) {
+                return Scalars.nullFloat64();
+            } else {
+                return Scalars.float64(literal);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitDecimal(BigDecimal decimal, int precision, int scale) {
+            if (Objects.isNull(decimal)) {
+                return Scalars.nullDecimal(precision, scale);
+            } else {
+                return Scalars.decimal(decimal, precision, scale);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitString(String literal) {
+            if (Objects.isNull(literal)) {
+                return Scalars.nullString();
+            } else {
+                return Scalars.string(literal);
+            }
+        }
+
+        @Override
+        public ScalarProtos.Scalar visitBytes(byte[] literal) {
+            if (Objects.isNull(literal)) {
+                return Scalars.nullBytes();
+            } else {
+                return Scalars.bytes(literal);
+            }
+        }
+    }
+
+    private static Literal<?> deserializeLiteral(ExprProtos.LiteralOpts literal, List<Expression> children) {
+        ScalarProtos.Scalar literalScalar = literal.getValue();
+        DTypeProtos.DType dtype = literalScalar.getDtype();
+
+        // Special handling of extension types
+        if (dtype.hasExtension()) {
+            return deserializeExtensionLiteral(literal);
+        }
+
+        ScalarProtos.ScalarValue scalarValue = literalScalar.getValue();
+
+        switch (scalarValue.getKindCase()) {
+            case NULL_VALUE:
+                return nullLiteral(dtype);
+            case BOOL_VALUE:
+                return Literal.bool(scalarValue.getBoolValue());
+            case INT64_VALUE:
+                return Literal.int64(scalarValue.getInt64Value());
+            case UINT64_VALUE:
+                return Literal.int64(scalarValue.getUint64Value());
+            case F32_VALUE:
+                return Literal.float32(scalarValue.getF32Value());
+            case F64_VALUE:
+                return Literal.float64(scalarValue.getF64Value());
+            case STRING_VALUE:
+                return Literal.string(scalarValue.getStringValue());
+            case BYTES_VALUE:
+                if (dtype.hasDecimal()) {
+                    ByteString littleEndian = scalarValue.getBytesValue();
+                    byte[] bigEndian = EndianUtils.reverse(littleEndian);
+                    BigDecimal value = new BigDecimal(
+                            new BigInteger(bigEndian), dtype.getDecimal().getScale());
+                    return Literal.decimal(
+                            value,
+                            dtype.getDecimal().getPrecision(),
+                            dtype.getDecimal().getScale());
+                } else {
+                    return Literal.bytes(scalarValue.getBytesValue().toByteArray());
+                }
+            default:
+                throw new UnsupportedOperationException("Unsupported ScalarValue type encountered: " + scalarValue);
+        }
+    }
+
+    private static Literal<?> deserializeExtensionLiteral(ExprProtos.LiteralOpts literal) {
+        ScalarProtos.Scalar scalar = literal.getValue();
+        DTypeProtos.DType scalarType = scalar.getDtype();
+
+        Preconditions.checkArgument(scalarType.hasExtension());
+
+        DTypeProtos.Extension extType = scalarType.getExtension();
+        String extId = scalarType.getExtension().getId();
+
+        switch (extId) {
+            case "vortex.time": {
+                byte timeUnit =
+                        TemporalMetadatas.getTimeUnit(extType.getMetadata().toByteArray());
+                if (timeUnit == TemporalMetadatas.TIME_UNIT_SECONDS) {
+                    return Literal.timeSeconds(Math.toIntExact(scalar.getValue().getInt64Value()));
+                } else if (timeUnit == TemporalMetadatas.TIME_UNIT_MILLIS) {
+                    return Literal.timeMillis(Math.toIntExact(scalar.getValue().getInt64Value()));
+                } else if (timeUnit == TemporalMetadatas.TIME_UNIT_MICROS) {
+                    return Literal.timeMicros(scalar.getValue().getInt64Value());
+                } else if (timeUnit == TemporalMetadatas.TIME_UNIT_NANOS) {
+                    return Literal.timeNanos(scalar.getValue().getInt64Value());
+                } else {
+                    throw new UnsupportedOperationException("Unsupported TIME time unit: " + timeUnit);
+                }
+            }
+            case "vortex.date": {
+                byte timeUnit =
+                        TemporalMetadatas.getTimeUnit(extType.getMetadata().toByteArray());
+                if (timeUnit == TemporalMetadatas.TIME_UNIT_DAYS) {
+                    return Literal.dateDays(Math.toIntExact(scalar.getValue().getInt64Value()));
+                } else if (timeUnit == TemporalMetadatas.TIME_UNIT_MILLIS) {
+                    return Literal.dateMillis(scalar.getValue().getInt64Value());
+                } else {
+                    throw new UnsupportedOperationException("Unsupported DATE time unit: " + timeUnit);
+                }
+            }
+            case "vortex.timestamp": {
+                byte timeUnit =
+                        TemporalMetadatas.getTimeUnit(extType.getMetadata().toByteArray());
+                Optional<String> timeZone =
+                        TemporalMetadatas.getTimeZone(extType.getMetadata().toByteArray());
+                if (timeUnit == TemporalMetadatas.TIME_UNIT_MILLIS) {
+                    return Literal.timestampMillis(scalar.getValue().getInt64Value(), timeZone);
+                } else if (timeUnit == TemporalMetadatas.TIME_UNIT_MICROS) {
+                    return Literal.timestampMicros(scalar.getValue().getInt64Value(), timeZone);
+                } else if (timeUnit == TemporalMetadatas.TIME_UNIT_NANOS) {
+                    return Literal.timestampNanos(scalar.getValue().getInt64Value(), timeZone);
+                } else {
+                    throw new UnsupportedOperationException("Unsupported TIMESTAMP time unit: " + timeUnit);
+                }
+            }
+            default:
+                throw new UnsupportedOperationException("Unsupported extension type: " + extId);
+        }
+    }
+
+    private static Literal<?> nullLiteral(DTypeProtos.DType type) {
+        switch (type.getDtypeTypeCase()) {
+            case NULL:
+                return Literal.nullLit();
+            case BOOL:
+                return Literal.bool(null);
+            case PRIMITIVE:
+                switch (type.getPrimitive().getType()) {
+                    case U8:
+                    case I8:
+                        return Literal.int8(null);
+                    case U16:
+                    case I16:
+                        return Literal.int16(null);
+                    case U32:
+                    case I32:
+                        return Literal.int32(null);
+                    case U64:
+                    case I64:
+                        return Literal.int64(null);
+                    case F32:
+                        return Literal.float32(null);
+                    case F64:
+                        return Literal.float64(null);
+                    default:
+                        throw new UnsupportedOperationException("Unsupported ScalarValue type encountered: " + type);
+                }
+            case DECIMAL:
+                return Literal.decimal(
+                        null,
+                        type.getDecimal().getPrecision(),
+                        type.getDecimal().getScale());
+            case UTF8:
+                return Literal.string(null);
+            case BINARY:
+                return Literal.bytes(null);
+            default:
+                throw new UnsupportedOperationException("Unsupported ScalarValue type encountered: " + type);
         }
     }
 }

@@ -15,8 +15,13 @@
  */
 package dev.vortex.api.expressions;
 
+import com.google.protobuf.InvalidProtocolBufferException;
 import dev.vortex.api.Expression;
+import dev.vortex.proto.ExprProtos;
+
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 public final class Binary implements Expression {
@@ -28,6 +33,20 @@ public final class Binary implements Expression {
         this.operator = operator;
         this.left = left;
         this.right = right;
+    }
+
+    public static Binary parse(byte[] metadata, List<Expression> children) {
+        if (children.size() != 2) {
+            throw new IllegalArgumentException(
+                    "Binary expression must have exactly two children, found: " + children.size());
+        }
+        try {
+            ExprProtos.BinaryOpts opts = ExprProtos.BinaryOpts.parseFrom(metadata);
+            BinaryOp operator = BinaryOp.fromProto(opts.getOp());
+            return new Binary(operator, children.get(0), children.get(1));
+        } catch (InvalidProtocolBufferException e) {
+            throw new IllegalArgumentException("Failed to parse Binary metadata", e);
+        }
     }
 
     public static Binary of(BinaryOp operator, Expression left, Expression right) {
@@ -69,8 +88,21 @@ public final class Binary implements Expression {
     }
 
     @Override
-    public String type() {
+    public String id() {
         return "binary";
+    }
+
+    @Override
+    public List<Expression> children() {
+        return List.of(left, right);
+    }
+
+    @Override
+    public Optional<byte[]> metadata() {
+        return Optional.of(ExprProtos.BinaryOpts.newBuilder()
+                .setOp(operator.toProto())
+                .build()
+                .toByteArray());
     }
 
     @Override
@@ -141,6 +173,52 @@ public final class Binary implements Expression {
                     return "||";
                 default:
                     throw new IllegalStateException("Unknown Operator: " + this);
+            }
+        }
+
+        static BinaryOp fromProto(ExprProtos.BinaryOpts.BinaryOp proto) {
+            switch (proto) {
+                case Eq:
+                    return EQ;
+                case NotEq:
+                    return NOT_EQ;
+                case Gt:
+                    return GT;
+                case Gte:
+                    return GT_EQ;
+                case Lt:
+                    return LT;
+                case Lte:
+                    return LT_EQ;
+                case And:
+                    return AND;
+                case Or:
+                    return OR;
+                default:
+                    throw new IllegalArgumentException("Unsupported binary operator proto: " + proto);
+            }
+        }
+
+        ExprProtos.BinaryOpts.BinaryOp toProto() {
+            switch (this) {
+                case EQ:
+                    return ExprProtos.BinaryOpts.BinaryOp.Eq;
+                case NOT_EQ:
+                    return ExprProtos.BinaryOpts.BinaryOp.NotEq;
+                case GT:
+                    return ExprProtos.BinaryOpts.BinaryOp.Gt;
+                case GT_EQ:
+                    return ExprProtos.BinaryOpts.BinaryOp.Gte;
+                case LT:
+                    return ExprProtos.BinaryOpts.BinaryOp.Lt;
+                case LT_EQ:
+                    return ExprProtos.BinaryOpts.BinaryOp.Lte;
+                case AND:
+                    return ExprProtos.BinaryOpts.BinaryOp.And;
+                case OR:
+                    return ExprProtos.BinaryOpts.BinaryOp.Or;
+                default:
+                    throw new IllegalArgumentException("Unsupported binary operator: " + this);
             }
         }
     }

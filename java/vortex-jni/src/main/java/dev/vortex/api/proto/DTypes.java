@@ -13,16 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package dev.vortex.api.expressions.proto;
+package dev.vortex.api.proto;
 
-import static dev.vortex.api.expressions.proto.TemporalMetadatas.TIME_UNIT_MICROS;
-import static dev.vortex.api.expressions.proto.TemporalMetadatas.TIME_UNIT_NANOS;
+import static dev.vortex.api.proto.TemporalMetadatas.TIME_UNIT_MICROS;
+import static dev.vortex.api.proto.TemporalMetadatas.TIME_UNIT_NANOS;
 
 import com.google.protobuf.ByteString;
 import dev.vortex.proto.DTypeProtos;
+
 import java.util.Optional;
 
-final class DTypes {
+public final class DTypes {
     private DTypes() {}
 
     static DTypeProtos.DType nullType() {

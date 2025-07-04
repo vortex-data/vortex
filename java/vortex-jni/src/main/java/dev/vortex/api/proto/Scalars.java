@@ -1,30 +1,19 @@
-/**
- * (c) Copyright 2025 SpiralDB Inc. All rights reserved.
- * <p>
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-package dev.vortex.api.expressions.proto;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+package dev.vortex.api.proto;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.NullValue;
 import dev.vortex.proto.ScalarProtos;
+
 import java.math.BigDecimal;
 import java.util.Optional;
 
-final class Scalars {
+public final class Scalars {
     private Scalars() {}
 
-    static ScalarProtos.Scalar nullNull() {
+    public static ScalarProtos.Scalar nullNull() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -33,7 +22,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar bool(boolean value) {
+    public static ScalarProtos.Scalar bool(boolean value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setBoolValue(value)
@@ -42,7 +31,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullBool() {
+    public static ScalarProtos.Scalar nullBool() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -51,7 +40,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar int8(byte value) {
+    public static ScalarProtos.Scalar int8(byte value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -60,7 +49,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullInt8() {
+    public static ScalarProtos.Scalar nullInt8() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -69,7 +58,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar int16(short value) {
+    public static ScalarProtos.Scalar int16(short value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -78,7 +67,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullInt16() {
+    public static ScalarProtos.Scalar nullInt16() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -87,7 +76,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar int32(int value) {
+    public static ScalarProtos.Scalar int32(int value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -96,7 +85,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullInt32() {
+    public static ScalarProtos.Scalar nullInt32() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -105,7 +94,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar int64(long value) {
+    public static ScalarProtos.Scalar int64(long value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -114,7 +103,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullInt64() {
+    public static ScalarProtos.Scalar nullInt64() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -123,7 +112,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar float32(float value) {
+    public static ScalarProtos.Scalar float32(float value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(
                         ScalarProtos.ScalarValue.newBuilder().setF32Value(value).build())
@@ -131,7 +120,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullFloat32() {
+    public static ScalarProtos.Scalar nullFloat32() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -140,7 +129,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar float64(double value) {
+    public static ScalarProtos.Scalar float64(double value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(
                         ScalarProtos.ScalarValue.newBuilder().setF64Value(value).build())
@@ -148,7 +137,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullFloat64() {
+    public static ScalarProtos.Scalar nullFloat64() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -157,7 +146,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar string(String value) {
+    public static ScalarProtos.Scalar string(String value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setStringValue(value)
@@ -166,7 +155,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullString() {
+    public static ScalarProtos.Scalar nullString() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -175,7 +164,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar decimal(BigDecimal decimal, int precision, int scale) {
+    public static ScalarProtos.Scalar decimal(BigDecimal decimal, int precision, int scale) {
         var littleEndian = EndianUtils.littleEndianDecimal(decimal);
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
@@ -185,14 +174,14 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullDecimal(int precision, int scale) {
+    public static ScalarProtos.Scalar nullDecimal(int precision, int scale) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder().setNullValue(NullValue.NULL_VALUE))
                 .setDtype(DTypes.decimal(true, precision, scale))
                 .build();
     }
 
-    static ScalarProtos.Scalar bytes(byte[] value) {
+    public static ScalarProtos.Scalar bytes(byte[] value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setBytesValue(ByteString.copyFrom(value))
@@ -201,7 +190,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullBytes() {
+    public static ScalarProtos.Scalar nullBytes() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -210,7 +199,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar dateDays(int value) {
+    public static ScalarProtos.Scalar dateDays(int value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -219,7 +208,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullDateDays() {
+    public static ScalarProtos.Scalar nullDateDays() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -228,7 +217,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar dateMillis(long value) {
+    public static ScalarProtos.Scalar dateMillis(long value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -237,7 +226,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullDateMillis() {
+    public static ScalarProtos.Scalar nullDateMillis() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -246,7 +235,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar timeSeconds(int value) {
+    public static ScalarProtos.Scalar timeSeconds(int value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -255,7 +244,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullTimeSeconds() {
+    public static ScalarProtos.Scalar nullTimeSeconds() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -264,7 +253,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar timeMillis(int value) {
+    public static ScalarProtos.Scalar timeMillis(int value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -273,7 +262,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullTimeMillis() {
+    public static ScalarProtos.Scalar nullTimeMillis() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -282,7 +271,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar timeMicros(long value) {
+    public static ScalarProtos.Scalar timeMicros(long value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -291,7 +280,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullTimeMicros() {
+    public static ScalarProtos.Scalar nullTimeMicros() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -300,7 +289,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar timeNanos(long value) {
+    public static ScalarProtos.Scalar timeNanos(long value) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -309,7 +298,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullTimeNanos() {
+    public static ScalarProtos.Scalar nullTimeNanos() {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -318,7 +307,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar timestampMillis(long value, Optional<String> timeZone) {
+    public static ScalarProtos.Scalar timestampMillis(long value, Optional<String> timeZone) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -327,7 +316,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullTimestampMillis(Optional<String> timeZone) {
+    public static ScalarProtos.Scalar nullTimestampMillis(Optional<String> timeZone) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -336,7 +325,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar timestampMicros(long value, Optional<String> timeZone) {
+    public static ScalarProtos.Scalar timestampMicros(long value, Optional<String> timeZone) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -345,7 +334,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullTimestampMicros(Optional<String> timeZone) {
+    public static ScalarProtos.Scalar nullTimestampMicros(Optional<String> timeZone) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
@@ -354,7 +343,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar timestampNanos(long value, Optional<String> timeZone) {
+    public static ScalarProtos.Scalar timestampNanos(long value, Optional<String> timeZone) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setInt64Value(value)
@@ -363,7 +352,7 @@ final class Scalars {
                 .build();
     }
 
-    static ScalarProtos.Scalar nullTimestampNanos(Optional<String> timeZone) {
+    public static ScalarProtos.Scalar nullTimestampNanos(Optional<String> timeZone) {
         return ScalarProtos.Scalar.newBuilder()
                 .setValue(ScalarProtos.ScalarValue.newBuilder()
                         .setNullValue(NullValue.NULL_VALUE)
