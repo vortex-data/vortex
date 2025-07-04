@@ -1,7 +1,7 @@
 use datafusion::logical_expr::Operator as DFOperator;
 use datafusion::physical_expr::{PhysicalExpr, expressions};
 use vortex::error::{VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{Binary, ExprRef, LikeExpr, Operator, get_item, lit, root};
+use vortex::expr::{BinaryExpr, ExprRef, IntoExpr, LikeExpr, Operator, get_item, lit, root};
 use vortex::scalar::Scalar;
 
 use crate::convert::{FromDataFusion, TryFromDataFusion};
@@ -15,7 +15,7 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
             let right = ExprRef::try_from_df(binary_expr.right().as_ref())?;
             let operator = Operator::try_from_df(binary_expr.op())?;
 
-            return Ok(Binary::new_expr(left, operator, right));
+            return Ok(BinaryExpr::new_expr(left, operator, right));
         }
 
         if let Some(col_expr) = df.as_any().downcast_ref::<expressions::Column>() {
@@ -25,12 +25,9 @@ impl TryFromDataFusion<dyn PhysicalExpr> for ExprRef {
         if let Some(like) = df.as_any().downcast_ref::<expressions::LikeExpr>() {
             let child = ExprRef::try_from_df(like.expr().as_ref())?;
             let pattern = ExprRef::try_from_df(like.pattern().as_ref())?;
-            return Ok(LikeExpr::new(
-                child,
-                pattern,
-                like.negated(),
-                like.case_insensitive(),
-            ));
+            return Ok(
+                LikeExpr::new(child, pattern, like.negated(), like.case_insensitive()).into_expr(),
+            );
         }
 
         if let Some(literal) = df.as_any().downcast_ref::<expressions::Literal>() {

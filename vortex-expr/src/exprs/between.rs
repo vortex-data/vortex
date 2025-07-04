@@ -5,7 +5,7 @@ use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_proto::exprs as pb;
+use vortex_proto::expr as pb;
 
 use crate::{
     AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
@@ -138,6 +138,15 @@ impl BetweenExpr {
             upper,
             options,
         }
+    }
+
+    pub fn new_expr(
+        arr: ExprRef,
+        lower: ExprRef,
+        upper: ExprRef,
+        options: BetweenOptions,
+    ) -> ExprRef {
+        Self::new(arr, lower, upper, options).into_expr()
     }
 
     pub fn to_binary_expr(&self) -> ExprRef {

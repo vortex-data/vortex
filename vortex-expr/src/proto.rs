@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use vortex_error::{VortexResult, vortex_err};
-use vortex_proto::exprs as pb;
+use vortex_proto::expr as pb;
 
 use crate::registry::ExprRegistry;
 use crate::{ExprRef, VortexExpr};
@@ -50,7 +50,7 @@ pub fn deserialize_expr_proto(expr: &pb::Expr, registry: &ExprRegistry) -> Vorte
 mod tests {
     use prost::Message;
     use vortex_array::compute::{BetweenOptions, StrictComparison};
-    use vortex_proto::exprs as pb;
+    use vortex_proto::expr as pb;
 
     use crate::proto::{ExprSerializeProtoExt, deserialize_expr_proto};
     use crate::registry::ExprRegistryExt;

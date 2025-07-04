@@ -5,7 +5,7 @@ use vortex_array::compute::{Operator as ArrayOperator, add, and_kleene, compare,
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_proto::exprs as pb;
+use vortex_proto::expr as pb;
 
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, ScopeDType,
@@ -116,8 +116,8 @@ impl BinaryExpr {
         Self { lhs, operator, rhs }
     }
 
-    pub fn new_expr(lhs: ExprRef, operator: impl Into<Operator>, rhs: ExprRef) -> ExprRef {
-        Self::new(lhs, operator.into(), rhs).into_expr()
+    pub fn new_expr(lhs: ExprRef, operator: Operator, rhs: ExprRef) -> ExprRef {
+        Self::new(lhs, operator, rhs).into_expr()
     }
 
     pub fn lhs(&self) -> &ExprRef {

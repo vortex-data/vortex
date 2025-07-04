@@ -5,9 +5,11 @@ use vortex_array::compute::{LikeOptions, like};
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
-use vortex_proto::exprs as pb;
+use vortex_proto::expr as pb;
 
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, Scope, ScopeDType, VTable, vtable};
+use crate::{
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
+};
 
 vtable!(Like);
 
@@ -119,6 +121,15 @@ impl LikeExpr {
             negated,
             case_insensitive,
         }
+    }
+
+    pub fn new_expr(
+        child: ExprRef,
+        pattern: ExprRef,
+        negated: bool,
+        case_insensitive: bool,
+    ) -> ExprRef {
+        Self::new(child, pattern, negated, case_insensitive).into_expr()
     }
 
     pub fn child(&self) -> &ExprRef {

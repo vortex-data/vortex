@@ -89,6 +89,10 @@ impl NotExpr {
         Self { child }
     }
 
+    pub fn new_expr(child: ExprRef) -> ExprRef {
+        Self::new(child).into_expr()
+    }
+
     pub fn child(&self) -> &ExprRef {
         &self.child
     }

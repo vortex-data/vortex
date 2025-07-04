@@ -6676,6 +6676,7 @@ dependencies = [
  "log",
  "once_cell",
  "parking_lot",
+ "paste",
  "pin-project-lite",
  "prost",
  "roaring",

@@ -5,7 +5,7 @@ use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, ToCanonical};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_proto::exprs as pb;
+use vortex_proto::expr as pb;
 
 use crate::{
     AccessPath, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,

@@ -5,7 +5,7 @@ use vortex::compute::{BetweenOptions, StrictComparison};
 use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    Between, Binary, ExprRef, LikeExpr, LiteralExpr, NotExpr, Operator, and_collect,
+    BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, NotExpr, Operator, and_collect,
     get_item_scope, list_contains, lit, or_collect,
 };
 use vortex::scalar::Scalar;
@@ -23,7 +23,7 @@ pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<Opt
         TableFilterClass::ConstantComparison(const_) => {
             let scalar: Scalar = const_.value.try_into()?;
             let col = get_item_scope(col);
-            Binary::new_expr(col, const_.operator.try_into()?, lit(scalar))
+            BinaryExpr::new_expr(col, const_.operator.try_into()?, lit(scalar))
         }
         TableFilterClass::ConjunctionAnd(conj_and) => {
             let Some(children) = conj_and
@@ -78,7 +78,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 return Ok(None);
             };
 
-            Binary::new_expr(left, operator, right)
+            BinaryExpr::new_expr(left, operator, right)
         }
         ExpressionClass::BoundBetween(between) => {
             let Some(array) = try_from_bound_expression(&between.input)? else {
@@ -90,7 +90,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
             let Some(upper) = try_from_bound_expression(&between.upper)? else {
                 return Ok(None);
             };
-            Between::between(
+            BetweenExpr::new_expr(
                 array,
                 lower,
                 upper,
@@ -115,7 +115,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 let Some(child) = try_from_bound_expression(&children[0])? else {
                     return Ok(None);
                 };
-                NotExpr::new(child)
+                NotExpr::new_expr(child)
             }
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
                 // First child is element, rest form the list.
@@ -164,8 +164,8 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 let Some(pattern_lit) = like_pattern_str(&children[1])? else {
                     vortex_bail!("expected pattern to be bound string")
                 };
-                let pattern = LiteralExpr::new(pattern_lit);
-                LikeExpr::new(value, pattern, false, false)
+                let pattern = LiteralExpr::new_expr(pattern_lit);
+                LikeExpr::new_expr(value, pattern, false, false)
             }
             _ => {
                 log::debug!("bound function {}", func.scalar_function.name());

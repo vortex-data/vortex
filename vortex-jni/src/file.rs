@@ -19,7 +19,7 @@ use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::{root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::proto::exprs as pb;
+use vortex::proto::expr as pb;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::array_iter::NativeArrayIterator;

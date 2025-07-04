@@ -42,7 +42,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Return a new instance of the expression with the children replaced.
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr>;
 
-    /// Construct a new [`Expr`] from the provided parts.
+    /// Construct a new [`VortexExpr`] from the provided parts.
     fn build(
         encoding: &Self::Encoding,
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,

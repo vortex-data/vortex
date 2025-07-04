@@ -4,7 +4,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_proto::exprs as pb;
+use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
 use crate::{

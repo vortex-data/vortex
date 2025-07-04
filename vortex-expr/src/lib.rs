@@ -79,8 +79,8 @@ pub trait VortexExpr:
     /// Compute result of expression on given batch producing a new batch
     ///
     /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
-    /// the [VortexExpr::return_dtype] method. Use instead the [VortexExpr::evaluate] function which
-    /// includes such an assertion.
+    /// the [VortexExpr::return_dtype] method. Use instead the [`\<dyn VortexExpr\>::evaluate`]
+    /// function which includes such an assertion.
     fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef>;
 
     /// Returns the children of this expression.
@@ -89,7 +89,7 @@ pub trait VortexExpr:
     /// Returns a new instance of this expression with the children replaced.
     fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef>;
 
-    /// Compute the type of the array returned by [VortexExpr::evaluate].
+    /// Compute the type of the array returned by [`\<dyn VortexExpr\>::evaluate`].
     fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType>;
 }
 

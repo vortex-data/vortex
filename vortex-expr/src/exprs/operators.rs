@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use vortex_array::compute;
 use vortex_error::VortexError;
-use vortex_proto::exprs::binary_opts::BinaryOp;
+use vortex_proto::expr::binary_opts::BinaryOp;
 
 /// Equalities, inequalities, and boolean operations over possibly null values.
 ///
