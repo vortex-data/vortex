@@ -84,7 +84,7 @@ impl VTable for SelectVTable {
                 let included_names = batch
                     .names()
                     .iter()
-                    .filter(|&f| !names.contains(f))
+                    .filter(|&f| !names.as_ref().contains(f))
                     .cloned()
                     .collect::<Vec<_>>();
                 batch.project(included_names.as_slice())
@@ -106,7 +106,7 @@ impl VTable for SelectVTable {
                 .iter()
                 .cloned()
                 .zip_eq(child_struct_dtype.fields())
-                .filter(|(name, _)| !fields.contains(name))
+                .filter(|(name, _)| !fields.as_ref().contains(name))
                 .collect(),
         };
 
