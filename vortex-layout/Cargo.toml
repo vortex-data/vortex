@@ -30,6 +30,7 @@ log = { workspace = true }
 once_cell = { workspace = true, features = ["parking_lot"] }
 parking_lot = { workspace = true }
 paste = { workspace = true }
+pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
 roaring = { workspace = true, optional = true }
@@ -43,6 +44,8 @@ vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dict = { workspace = true }
+vortex-pco = { workspace = true }
+vortex-zstd = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true }

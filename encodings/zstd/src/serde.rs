@@ -15,6 +15,8 @@ use crate::{ZstdArray, ZstdEncoding, ZstdVTable};
 pub struct ZstdFrameMetadata {
     #[prost(uint64, tag = "1")]
     pub uncompressed_size: u64,
+    #[prost(uint64, tag = "2")]
+    pub n_values: u64,
 }
 
 #[derive(Clone, prost::Message)]
@@ -24,6 +26,16 @@ pub struct ZstdMetadata {
     pub dictionary_size: u32,
     #[prost(message, repeated, tag = "2")]
     pub frames: Vec<ZstdFrameMetadata>,
+    // Tracks the canonical array type stored in the compressed data
+    #[prost(enumeration = "CanonicalArrayType", tag = "3")]
+    pub canonical_array_type: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, prost::Enumeration)]
+#[repr(i32)]
+pub enum CanonicalArrayType {
+    Primitive = 0,
+    VarBinView = 1,
 }
 
 impl SerdeVTable<ZstdVTable> for ZstdVTable {
@@ -75,9 +87,7 @@ impl EncodeVTable<ZstdVTable> for ZstdVTable {
         canonical: &vortex_array::Canonical,
         _like: Option<&ZstdArray>,
     ) -> VortexResult<Option<ZstdArray>> {
-        let parray = canonical.clone().into_primitive()?;
-
-        Ok(Some(ZstdArray::from_primitive(&parray, 3, 0)?))
+        ZstdArray::from_canonical(canonical, 3, 0)
     }
 }
 

@@ -6526,12 +6526,14 @@ dependencies = [
  "vortex-io",
  "vortex-layout",
  "vortex-metrics",
+ "vortex-pco",
  "vortex-runend",
  "vortex-scalar",
  "vortex-sequence",
  "vortex-sparse",
  "vortex-utils",
  "vortex-zigzag",
+ "vortex-zstd",
 ]
 
 [[package]]
@@ -6657,6 +6659,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "paste",
+ "pco",
  "pin-project-lite",
  "prost 0.14.1",
  "roaring",
@@ -6676,9 +6679,11 @@ dependencies = [
  "vortex-layout",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-pco",
  "vortex-scalar",
  "vortex-sequence",
  "vortex-utils",
+ "vortex-zstd",
 ]
 
 [[package]]
