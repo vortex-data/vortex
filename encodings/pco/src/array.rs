@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::cmp;
 use std::fmt::Debug;
 
@@ -32,13 +35,11 @@ use crate::{PcoChunkInfo, PcoPageInfo};
 
 // Visually, during decompression, we have an interval of pages we're
 // decompressing and a tighter interval of the slice we actually care about.
-//
 // |=============values (all valid elements)==============|
 // |<-n_skipped_values->|----decompressed_values------|
 //                          |----slice_values----|
 //                          ^                    ^
 // |<---slice_value_start-->|<--slice_n_values-->|
-//
 // We then insert these values to the correct position using a primitive array
 // constructor.
 

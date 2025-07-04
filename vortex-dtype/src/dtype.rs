@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::ops::Index;
@@ -77,13 +80,14 @@ impl<'a> Iterator for FieldNamesIter<'a> {
         self.idx += 1;
         Some(i)
     }
-}
 
-impl ExactSizeIterator for FieldNamesIter<'_> {
-    fn len(&self) -> usize {
-        self.inner.len() - self.idx
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.inner.len() - self.idx;
+        (len, Some(len))
     }
 }
+
+impl ExactSizeIterator for FieldNamesIter<'_> {}
 
 /// Owned iterator of field names.
 pub struct FieldNamesIntoIter {
@@ -103,13 +107,14 @@ impl Iterator for FieldNamesIntoIter {
         self.idx += 1;
         Some(i)
     }
-}
 
-impl ExactSizeIterator for FieldNamesIntoIter {
-    fn len(&self) -> usize {
-        self.inner.len() - self.idx
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.inner.len() - self.idx;
+        (len, Some(len))
     }
 }
+
+impl ExactSizeIterator for FieldNamesIntoIter {}
 
 impl IntoIterator for FieldNames {
     type Item = FieldName;
@@ -419,5 +424,32 @@ impl Display for DType {
                 ext.storage_dtype().nullability(),
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_field_names_iter() {
+        let names = ["a", "b"];
+        let field_names = FieldNames::from(names);
+        assert_eq!(field_names.iter().len(), names.len());
+        let mut iter = field_names.iter();
+        assert_eq!(iter.next(), Some(&"a".into()));
+        assert_eq!(iter.next(), Some(&"b".into()));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_field_names_owned_iter() {
+        let names = ["a", "b"];
+        let field_names = FieldNames::from(names);
+        assert_eq!(field_names.clone().into_iter().len(), names.len());
+        let mut iter = field_names.into_iter();
+        assert_eq!(iter.next(), Some("a".into()));
+        assert_eq!(iter.next(), Some("b".into()));
+        assert_eq!(iter.next(), None);
     }
 }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: CC-BY-4.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! This example shows usage of the Vortex C FFI to read a Vortex file written by a Rust client.
 //!

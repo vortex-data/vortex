@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_buffer::ArrowNativeType;
 use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::VortexResult;

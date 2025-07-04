@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use std::ops::Deref;

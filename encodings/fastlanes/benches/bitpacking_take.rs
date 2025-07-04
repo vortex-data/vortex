@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::cast_possible_truncation)]
 
@@ -99,12 +102,10 @@ fn fixture(len: usize, bits: usize) -> Buffer<u32> {
 // There are currently 2 magic parameters of note:
 // 1. the threshold at which sparse take will switch from search_sorted to map (currently 128)
 // 2. the threshold at which bitpacked take will switch from bulk patching to per chunk patching (currently 64)
-//
 // There are thus 3 cases to consider:
 // 1. N < 64 per chunk, covered by patched_take_10K_random
 // 2. N > 128 per chunk, covered by patched_take_10K_contiguous_*
 // 3. 64 < N < 128 per chunk, which is what we're trying to cover here (with 100 per chunk).
-//
 // As a result of the above, we get both search_sorted and per chunk patching, almost entirely on patches.
 // I've iterated on both thresholds (1) and (2) using this collection of benchmarks, and those
 // were roughly the best values that I found.

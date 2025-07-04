@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! This module contains tests for the `vortex_scan` table function.
 
 #[cfg(test)]

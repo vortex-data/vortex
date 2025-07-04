@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use jni::JNIEnv;
 use jni::objects::{JClass, JObject, JValue};
 use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyte, jint, jlong, jobject, jstring};

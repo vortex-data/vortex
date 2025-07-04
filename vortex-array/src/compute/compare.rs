@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use core::fmt;
 use std::any::Any;
 use std::fmt::{Display, Formatter};

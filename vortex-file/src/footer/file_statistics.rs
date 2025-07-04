@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! This module defines the file statistics component of the Vortex file footer.
 //!
 //! File statistics provide metadata about the data in the file, such as min/max values,

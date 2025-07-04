@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! A mask is a set of sorted unique positive integers.
 #![deny(missing_docs)]
 mod bitops;

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use core::mem::MaybeUninit;
 use std::any::type_name;
 use std::fmt::{Debug, Formatter};

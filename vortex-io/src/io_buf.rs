@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Provides types that can be used by I/O frameworks to work with byte buffer-shaped data.
 
 use std::ops::Range;

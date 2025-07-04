@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Traits and utilities to compute and access array statistics.
 
 use std::fmt::{Debug, Display, Formatter};

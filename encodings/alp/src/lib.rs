@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! This crate contains an implementation of the floating point compression algorithm from the
 //! paper ["ALP: Adaptive Lossless floating-Point Compression"][paper] by Afroozeh et al.
 //!

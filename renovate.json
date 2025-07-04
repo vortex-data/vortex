@@ -21,16 +21,10 @@
   "patch": {
     "groupName": "all patch updates"
   },
-  "labels": [
-    "chore"
-  ],
+  "labels": ["chore"],
   "packageRules": [
     {
-      "matchUpdateTypes": [
-        "major",
-        "minor",
-        "patch"
-      ],
+      "matchUpdateTypes": ["major", "minor", "patch"],
       "groupName": "datafusion and friends",
       "matchPackageNames": [
         "arrow{/,}**",
@@ -41,22 +35,15 @@
     },
     {
       "groupName": "flatbuffers",
-      "matchPackageNames": [
-        "flatbuffers{/,}**",
-        "flexbuffers{/,}**"
-      ]
+      "matchPackageNames": ["flatbuffers{/,}**", "flexbuffers{/,}**"]
     },
     {
       "groupName": "futures",
-      "matchPackageNames": [
-        "futures{/,}**"
-      ]
+      "matchPackageNames": ["futures{/,}**"]
     },
     {
       "groupName": "tonic",
-      "matchPackageNames": [
-        "tonic{/,}**"
-      ]
+      "matchPackageNames": ["tonic{/,}**"]
     }
   ]
 }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::future::Future;
 use std::panic::resume_unwind;
 use std::thread::JoinHandle;
@@ -87,7 +90,6 @@ impl Dispatch for CompioDispatcher {
 
     fn shutdown(self) -> VortexResult<()> {
         // drop the submitter.
-        //
         // Each worker thread will receive an `Err(Canceled)`
         drop(self.submitter);
         for thread in self.threads {

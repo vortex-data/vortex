@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! This module defines the footer of a Vortex file, which contains metadata about the file's contents.
 //!
 //! The footer includes:

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Core traits and implementations for asynchronous IO.
 //!
 //! Vortex implements an IPC streaming format as well as a file format, both of which

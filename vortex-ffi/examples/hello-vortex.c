@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: CC-BY-4.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #include <stdbool.h>
 #include <stdio.h>
 #include "vortex.h"

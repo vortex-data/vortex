@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_schema::{DataType, Schema};

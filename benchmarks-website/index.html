@@ -1,14 +1,28 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
+
 <!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1, user-scalable=yes"/>
-    <link rel="preload" href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz" as="fetch"
-          crossorigin>
-    <link rel="preload" href="https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json" as="fetch"
-          crossorigin>
-    <link rel="icon" type="image/x-icon" href="favicon.png">
-    <link rel="stylesheet" href="style.css">
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link
+      rel="preload"
+      href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz"
+      as="fetch"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json"
+      as="fetch"
+      crossorigin
+    />
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
+    <link rel="manifest" href="site.webmanifest" />
+    <link rel="stylesheet" href="style.css" />
     <title>Benchmarks</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
     <script src="https://cdn.rawgit.com/h2non/jsHashes/master/hashes.js"></script>
@@ -20,105 +34,130 @@
     <!-- <script src="data.js"></script> -->
     <script src="code.js"></script>
     <script id="main-script">
-        initAndRender([
-            ["Random Access", undefined],
-            ["Compression", {
-                "keptCharts": [
-                    "COMPRESS TIME",
-                    "PARQUET RS-ZSTD COMPRESS TIME",
-                    "DECOMPRESS TIME",
-                    "PARQUET RS-ZSTD DECOMPRESS TIME",
-                    "VORTEX:PARQUET-ZSTD RATIO COMPRESS TIME",
-                    "VORTEX:PARQUET-ZSTD RATIO DECOMPRESS TIME",
-                ],
-                "hiddenDatasets": undefined,
-                "removedDatasets": new Set([
-                    "TPC-H l_comment canonical",
-                    "TPC-H l_comment chunked without fsst",
-                ]),
-                "renamedDatasets": undefined,
-            }],
-            ["Compression Size", {
-                "keptCharts": [
-                    "VORTEX SIZE",
-                    "VORTEX:PARQUET-ZSTD SIZE RATIO",
-                ],
-                "hiddenDatasets": undefined,
-            }],
-            ["TPC-H (NVME) (SF=1)", {
-                "keptCharts": undefined,
-                "hiddenDatasets": undefined,
-                "removedDatasets": new Set([]),
-                "renamedDatasets": {
-                    "DataFusion:vortex-file-compressed": "datafusion:vortex",
-                    "DataFusion:parquet": "datafusion:parquet",
-                    "DataFusion:arrow": "datafusion:arrow",
+      initAndRender([
+        ["Random Access", undefined],
+        [
+          "Compression",
+          {
+            keptCharts: [
+              "COMPRESS TIME",
+              "PARQUET RS-ZSTD COMPRESS TIME",
+              "DECOMPRESS TIME",
+              "PARQUET RS-ZSTD DECOMPRESS TIME",
+              "VORTEX:PARQUET-ZSTD RATIO COMPRESS TIME",
+              "VORTEX:PARQUET-ZSTD RATIO DECOMPRESS TIME",
+            ],
+            hiddenDatasets: undefined,
+            removedDatasets: new Set([
+              "TPC-H l_comment canonical",
+              "TPC-H l_comment chunked without fsst",
+            ]),
+            renamedDatasets: undefined,
+          },
+        ],
+        [
+          "Compression Size",
+          {
+            keptCharts: ["VORTEX SIZE", "VORTEX:PARQUET-ZSTD SIZE RATIO"],
+            hiddenDatasets: undefined,
+          },
+        ],
+        [
+          "TPC-H (NVME) (SF=1)",
+          {
+            keptCharts: undefined,
+            hiddenDatasets: undefined,
+            removedDatasets: new Set([]),
+            renamedDatasets: {
+              "DataFusion:vortex-file-compressed": "datafusion:vortex",
+              "DataFusion:parquet": "datafusion:parquet",
+              "DataFusion:arrow": "datafusion:arrow",
 
-                    "DuckDB:vortex-file-compressed": "duckdb:vortex",
-                    "DuckDB:parquet": "duckdb:parquet",
-                    "DuckDB:duckdb": "duckdb:duckdb",
-                },
-            }],
-            ["TPC-H (S3) (SF=1)", {
-                "keptCharts": undefined,
-                "hiddenDatasets": undefined,
-                "renamedDatasets": {
-                    "DataFusion:vortex-file-compressed": "datafusion:vortex",
-                    "DataFusion:parquet": "datafusion:parquet",
-                    "DataFusion:arrow": "datafusion:arrow",
+              "DuckDB:vortex-file-compressed": "duckdb:vortex",
+              "DuckDB:parquet": "duckdb:parquet",
+              "DuckDB:duckdb": "duckdb:duckdb",
+            },
+          },
+        ],
+        [
+          "TPC-H (S3) (SF=1)",
+          {
+            keptCharts: undefined,
+            hiddenDatasets: undefined,
+            renamedDatasets: {
+              "DataFusion:vortex-file-compressed": "datafusion:vortex",
+              "DataFusion:parquet": "datafusion:parquet",
+              "DataFusion:arrow": "datafusion:arrow",
 
-                    "DuckDB:vortex-file-compressed": "duckdb:vortex",
-                    "DuckDB:parquet": "duckdb:parquet",
-                    "DuckDB:duckdb": "duckdb:duckdb",
-                },
-            }],
-            ["Clickbench", {
-                "renamedDatasets": {
-                    "DataFusion:vortex-file-compressed": "datafusion:vortex",
-                    "DataFusion:parquet": "datafusion:parquet",
-                    "DataFusion:arrow": "datafusion:arrow",
+              "DuckDB:vortex-file-compressed": "duckdb:vortex",
+              "DuckDB:parquet": "duckdb:parquet",
+              "DuckDB:duckdb": "duckdb:duckdb",
+            },
+          },
+        ],
+        [
+          "Clickbench",
+          {
+            renamedDatasets: {
+              "DataFusion:vortex-file-compressed": "datafusion:vortex",
+              "DataFusion:parquet": "datafusion:parquet",
+              "DataFusion:arrow": "datafusion:arrow",
 
-                    "DuckDB:vortex-file-compressed": "duckdb:vortex",
-                    "DuckDB:parquet": "duckdb:parquet",
-                    "DuckDB:duckdb": "duckdb:duckdb",
-                }
-            }],
-            ["TPCH (NVME) (SF=100)", {
-                "renamedDatasets": {
-                    "DataFusion:vortex-file-compressed": "datafusion:vortex",
-                    "DataFusion:parquet": "datafusion:parquet",
-                    "DataFusion:arrow": "datafusion:arrow",
+              "DuckDB:vortex-file-compressed": "duckdb:vortex",
+              "DuckDB:parquet": "duckdb:parquet",
+              "DuckDB:duckdb": "duckdb:duckdb",
+            },
+          },
+        ],
+        [
+          "TPCH (NVME) (SF=100)",
+          {
+            renamedDatasets: {
+              "DataFusion:vortex-file-compressed": "datafusion:vortex",
+              "DataFusion:parquet": "datafusion:parquet",
+              "DataFusion:arrow": "datafusion:arrow",
 
-                    "DuckDB:vortex-file-compressed": "duckdb:vortex",
-                    "DuckDB:parquet": "duckdb:parquet",
-                    "DuckDB:duckdb": "duckdb:duckdb",
-                }
-            }],
-            ["TPC-H (S3) (SF=100)", {
-                "renamedDatasets": {
-                    "DataFusion:vortex-file-compressed": "datafusion:vortex",
-                    "DataFusion:parquet": "datafusion:parquet",
-                    "DataFusion:arrow": "datafusion:arrow",
+              "DuckDB:vortex-file-compressed": "duckdb:vortex",
+              "DuckDB:parquet": "duckdb:parquet",
+              "DuckDB:duckdb": "duckdb:duckdb",
+            },
+          },
+        ],
+        [
+          "TPC-H (S3) (SF=100)",
+          {
+            renamedDatasets: {
+              "DataFusion:vortex-file-compressed": "datafusion:vortex",
+              "DataFusion:parquet": "datafusion:parquet",
+              "DataFusion:arrow": "datafusion:arrow",
 
-                    "DuckDB:vortex-file-compressed": "duckdb:vortex",
-                    "DuckDB:parquet": "duckdb:parquet",
-                    "DuckDB:duckdb": "duckdb:duckdb",
-                },
-            }]
-        ]);
+              "DuckDB:vortex-file-compressed": "duckdb:vortex",
+              "DuckDB:parquet": "duckdb:parquet",
+              "DuckDB:duckdb": "duckdb:duckdb",
+            },
+          },
+        ],
+      ]);
     </script>
-</head>
+  </head>
 
-<body>
-<div class="header-item">
-    <strong class="header-label">Repository:</strong>
-    <a id="repository-link" rel="noopener"
-       href="https://github.com/spiraldb/vortex">https://github.com/spiraldb/vortex</a>
-</div>
-<div id="main">
-    <ul id="toc"></ul>
-    <a href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz" class="button">Download data as
-        Gzipped JSON</a>
-</div>
-</body>
+  <body>
+    <div class="header-item">
+      <strong class="header-label">Repository:</strong>
+      <a
+        id="repository-link"
+        rel="noopener"
+        href="https://github.com/vortex-data/vortex"
+        >https://github.com/vortex-data/vortex</a
+      >
+    </div>
+    <div id="main">
+      <ul id="toc"></ul>
+      <a
+        href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz"
+        class="button"
+        >Download data as Gzipped JSON</a
+      >
+    </div>
+  </body>
 </html>

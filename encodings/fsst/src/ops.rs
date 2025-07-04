@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::arrays::{VarBinVTable, varbin_scalar};
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::{Array, ArrayRef, IntoArray};

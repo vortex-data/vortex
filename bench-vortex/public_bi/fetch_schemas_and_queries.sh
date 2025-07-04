@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 # fetch all table definitions and queries from the public-bi benchmark
 set -Eeuox pipefail
 

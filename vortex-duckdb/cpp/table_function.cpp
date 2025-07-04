@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #include "duckdb.h"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/main/connection.hpp"

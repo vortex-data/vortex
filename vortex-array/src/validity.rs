@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Array validity and nullability behavior, used by arrays and compute functions.
 
 use std::fmt::Debug;

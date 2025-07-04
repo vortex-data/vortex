@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 import doctest
 import re
 from pathlib import Path
@@ -8,7 +11,6 @@ from sphinx.util import logging
 log = logging.getLogger("vortex.docs.conf")
 
 # Configuration file for the Sphinx documentation builder.
-#
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! This module defines extension functionality specific to each Vortex DType.
 use std::cmp::Ordering;
 use std::sync::Arc;

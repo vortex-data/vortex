@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_buffer::NullBufferBuilder;
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_buffer::BufferMut;

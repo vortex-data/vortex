@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::encodings::sequence::SequenceArray;
 use vortex::error::{VortexExpect, VortexResult};

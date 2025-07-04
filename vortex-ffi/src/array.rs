@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! FFI interface for working with Vortex Arrays.
 use std::ffi::{c_int, c_void};
 use std::ptr;

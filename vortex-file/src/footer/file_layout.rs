@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! This module defines the file layout component of the Vortex file footer.
 //!
 //! The file layout describes the structure of the data in the file, including:

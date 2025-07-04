@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use pyo3::{PyRef, PyResult, pyclass, pymethods};
 use vortex::arrays::StructVTable;
 

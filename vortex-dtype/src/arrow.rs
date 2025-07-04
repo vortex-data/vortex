@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Convert between Vortex [`crate::DType`] and Apache Arrow [`arrow_schema::DataType`].
 //!
 //! Apache Arrow's type system includes physical information, which could lead to ambiguities as

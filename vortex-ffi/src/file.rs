@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! FFI interface for Vortex File I/O.
 
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};

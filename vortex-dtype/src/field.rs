@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Selectors for fields or elements in (possibly nested) `DType`s
 //!
 //! A `Field` indexes a single layer of `DType`, for example: a name in a struct or the element of a

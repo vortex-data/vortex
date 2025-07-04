@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use num_traits::PrimInt;
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
