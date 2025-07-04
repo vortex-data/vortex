@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ffi::{CStr, CString, c_void};
 use std::fmt::Debug;
 use std::ptr;

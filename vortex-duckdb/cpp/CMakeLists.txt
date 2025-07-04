@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 # This CMake project is only used for IDE support.
 # See build.rs for the actual build definition.
 

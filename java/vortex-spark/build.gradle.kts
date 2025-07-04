@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 import com.vanniktech.maven.publish.SonatypeHost
 
 apply(plugin = "com.vanniktech.maven.publish")

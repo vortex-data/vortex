@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(clippy::missing_safety_doc)]
 use std::ffi::{CStr, c_char};
 use std::sync::LazyLock;

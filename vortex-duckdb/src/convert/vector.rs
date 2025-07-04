@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 /// Copied of duckdb-rs (https://github.com/duckdb/duckdb-rs/blob/main/crates/duckdb/src/vtab/arrow.rs)
 use std::sync::Arc;
 

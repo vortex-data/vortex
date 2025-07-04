@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Logical type conversion between Vortex and DuckDB.
 //!
 //! This module provides functionality to convert Vortex data types (`DType`) to DuckDB logical types.

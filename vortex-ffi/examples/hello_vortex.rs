@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: CC-BY-4.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]

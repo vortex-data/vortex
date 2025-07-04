@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 /**
  * We redefine a C API for DuckDB Table Functions in order to expose the full functionality of the C++ API.
  *
