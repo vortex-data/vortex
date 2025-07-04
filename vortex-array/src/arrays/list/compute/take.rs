@@ -5,7 +5,7 @@ use vortex_mask::Mask;
 
 use crate::arrays::{ListArray, ListVTable, OffsetPType, PrimitiveArray};
 use crate::builders::{ArrayBuilder, BoolBuilder, PrimitiveBuilder};
-use crate::compute::{TakeKernel, TakeKernelAdapter};
+use crate::compute::{TakeKernel, TakeKernelAdapter, take};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
@@ -17,7 +17,7 @@ impl TakeKernel for ListVTable {
 
         match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
-                Ok(take::<I, O>(
+                Ok(_take::<I, O>(
                     array,
                     offsets.as_slice::<O>(),
                     &indices,
@@ -32,7 +32,7 @@ impl TakeKernel for ListVTable {
 
 register_kernel!(TakeKernelAdapter(ListVTable).lift());
 
-fn take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
+fn _take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
     array: &ListArray,
     offsets: &[O],
     indices_array: &PrimitiveArray,
@@ -42,7 +42,7 @@ fn take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
     let indices: &[I] = indices_array.as_slice::<I>();
 
     if !indices_validity_mask.all_true() || !data_validity.all_true() {
-        return take_nullable::<I, O>(
+        return _take_nullable::<I, O>(
             array,
             offsets,
             indices,
@@ -86,7 +86,7 @@ fn take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
     let elements_to_take = elements_to_take.finish();
     let new_offsets = new_offsets.finish();
 
-    let new_elements = crate::compute::take(array.elements(), elements_to_take.as_ref())?;
+    let new_elements = take(array.elements(), elements_to_take.as_ref())?;
 
     Ok(ListArray::try_new(
         new_elements,
@@ -99,7 +99,7 @@ fn take<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
     .to_array())
 }
 
-fn take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
+fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
     array: &ListArray,
     offsets: &[O],
     indices: &[I],
