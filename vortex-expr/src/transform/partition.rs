@@ -307,7 +307,7 @@ mod tests {
     use super::*;
     use crate::transform::simplify::simplify;
     use crate::transform::simplify_typed::simplify_typed;
-    use crate::{PackVTable, and, get_item, lit, pack, root, select};
+    use crate::{PackVTable, and, col, get_item, lit, merge, pack, root, select};
 
     fn dtype() -> DType {
         DType::Struct(

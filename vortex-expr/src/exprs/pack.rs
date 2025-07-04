@@ -43,6 +43,7 @@ vtable!(Pack);
 /// assert_eq!(x_copy.scalar_at(2).unwrap(), Scalar::from(200));
 /// ```
 ///
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PackExpr {
     names: FieldNames,
@@ -259,7 +260,7 @@ mod tests {
 
     #[test]
     pub fn test_simple_pack() {
-        let expr = PackExpr::try_new_expr(
+        let expr = PackExpr::try_new(
             ["one", "two", "three"].into(),
             vec![col("a"), col("b"), col("a")],
             Nullability::NonNullable,
@@ -297,7 +298,7 @@ mod tests {
 
     #[test]
     pub fn test_nested_pack() {
-        let expr = Pack::try_new(
+        let expr = PackExpr::try_new(
             ["one", "two", "three"].into(),
             vec![
                 col("a"),
@@ -350,7 +351,7 @@ mod tests {
 
     #[test]
     pub fn test_pack_nullable() {
-        let expr = PackExpr::try_new_expr(
+        let expr = PackExpr::try_new(
             ["one", "two", "three"].into(),
             vec![col("a"), col("b"), col("a")],
             Nullability::Nullable,

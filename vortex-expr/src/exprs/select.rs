@@ -6,7 +6,6 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::field::DisplayFieldNames;
-use crate::scope_vars::ScopeVar;
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
 };
@@ -20,6 +19,7 @@ pub enum SelectField {
 vtable!(Select);
 
 #[derive(Debug, Clone, Hash)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 pub struct SelectExpr {
     fields: SelectField,
     child: ExprRef,

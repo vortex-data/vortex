@@ -13,6 +13,7 @@ use crate::{
 
 vtable!(ListContains);
 
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Debug, Clone, Hash)]
 pub struct ListContainsExpr {
     list: ExprRef,

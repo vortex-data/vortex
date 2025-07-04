@@ -13,6 +13,7 @@ use crate::{
 
 vtable!(IsNull);
 
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Debug, Hash)]
 pub struct IsNullExpr {
     child: ExprRef,

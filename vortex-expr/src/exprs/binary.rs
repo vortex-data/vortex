@@ -14,6 +14,7 @@ use crate::{
 
 vtable!(Binary);
 
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Debug, Clone, Hash)]
 pub struct BinaryExpr {
     lhs: ExprRef,
@@ -74,7 +75,7 @@ impl VTable for BinaryVTable {
     ) -> VortexResult<Self::Expr> {
         Ok(BinaryExpr::new(
             children[0].clone(),
-            metadata.op().try_into()?,
+            metadata.op().into(),
             children[1].clone(),
         ))
     }

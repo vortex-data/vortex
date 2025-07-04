@@ -18,7 +18,7 @@ mod file;
 mod logging;
 
 /// Shared Vortex session for the JNI instance.
-static SESSION: LazyLock<VortexSession> = LazyLock::new(|| VortexSession::default());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
 // Shared Tokio runtime for all the async operations in this package.
 static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {

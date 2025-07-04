@@ -20,6 +20,7 @@ vtable!(Merge);
 ///
 /// NOTE: Fields are not recursively merged, i.e. the later field REPLACES the earlier field.
 /// This makes struct fields behaviour consistent with other dtypes.
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MergeExpr {
     values: Vec<ExprRef>,
@@ -213,7 +214,7 @@ mod tests {
         for field in field_path {
             array = array.to_struct()?.field_by_name(field)?.clone();
         }
-        Ok(array.to_primitive()?)
+        array.to_primitive()
     }
 
     #[test]

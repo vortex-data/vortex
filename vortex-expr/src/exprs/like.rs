@@ -13,6 +13,7 @@ use crate::{
 
 vtable!(Like);
 
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Debug, Hash)]
 pub struct LikeExpr {
     child: ExprRef,
