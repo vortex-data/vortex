@@ -342,11 +342,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: "recursive"
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       # Build vortex-jni shared library, and copy into JAR.
@@ -356,7 +352,7 @@ jobs:
           mkdir -p java/vortex-jni/src/main/resources/native/linux-amd64
           cargo xtask java-test-files
           cp target/debug/libvortex_jni.so java/vortex-jni/src/main/resources/native/linux-amd64
-      - run: ./gradlew test
+      - run: ./gradlew test --parallel
         working-directory: ./java
 
   bench-codspeed:
