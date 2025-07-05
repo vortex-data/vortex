@@ -1,0 +1,6 @@
+version = 1
+
+[[annotations]]
+path = "*.rs"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"

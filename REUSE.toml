@@ -1,36 +1,31 @@
 version = 1
 
-# By default, everything is Apache 2.0 licensed.
-#[[annotations]]
-#path = "**"
-#SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-#SPDX-License-Identifier = "Apache-2.0"
-
 # Docs are licensed under CC-BY-4.0.
 [[annotations]]
 path = "docs/**"
-precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
-#
-#[[annotations]]
-#path = "**/*.md"
-#precedence = "override"
-#SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-#SPDX-License-Identifier = "CC-BY-4.0"
 
 [[annotations]]
 path = "benchmarks-website/**"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
-# Vendored code.
+# Golden files are licensed under CC-BY-4.0.
 [[annotations]]
-path = "java/vortex-jni/src/main/proto/google/protobuf/*.proto"
-SPDX-FileCopyrightText = "Copyright 2008 Google Inc."
-SPDX-License-Identifier = "MIT"
+path = "**/goldenfiles/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# Utility code.
 
 [[annotations]]
-path = "java/gradle/**"
-SPDX-FileCopyrightText = "Copyright the Gradle authors"
+path = ["**/README.md", "CLAUDE.md", "CONTRIBUTING.md", "STYLE.md"]
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["**/.gitignore", ".gitmodules", ".python-version", "**/*.lock", "**/*.lockfile", "**/*.toml", "renovate.json", ".idea/**", ".github/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
