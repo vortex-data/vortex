@@ -4,6 +4,7 @@
 package dev.vortex.api.expressions;
 
 import dev.vortex.api.Expression;
+import dev.vortex.proto.ExprProtos;
 
 import java.util.List;
 import java.util.Optional;
@@ -17,15 +18,21 @@ public final class Identity implements Expression {
         if (!children.isEmpty()) {
             throw new IllegalArgumentException("Identity expression must have no children, found: " + children.size());
         }
-        if (metadata.length > 0) {
-            throw new IllegalArgumentException("Identity expression must not have metadata, found: " + metadata.length);
+        try {
+            ExprProtos.VarOpts varOpts = ExprProtos.VarOpts.parseFrom(metadata);
+            if (!varOpts.getVar().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Identity expression must have empty var name, found: " + varOpts.getVar());
+            }
+            return INSTANCE;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to parse metadata for Identity expression", e);
         }
-        return INSTANCE;
     }
 
     @Override
     public String id() {
-        return "identity";
+        return "var";
     }
 
     @Override
@@ -35,7 +42,13 @@ public final class Identity implements Expression {
 
     @Override
     public Optional<byte[]> metadata() {
-        return Optional.of(new byte[] {}); // No metadata, but still serializable
+        // TODO(ngates): currently Vortex has a Var expression, but this will be reverted back
+        //  to an Identity expression in the future.
+        return Optional.of(ExprProtos.VarOpts.newBuilder()
+                // Identity has empty var name
+                .setVar("")
+                .build()
+                .toByteArray());
     }
 
     @Override

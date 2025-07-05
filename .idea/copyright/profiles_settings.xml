@@ -1,7 +1,0 @@
-<component name="CopyrightManager">
-  <settings default="spdx">
-    <module2copyright>
-      <element module="All" copyright="spdx" />
-    </module2copyright>
-  </settings>
-</component>
