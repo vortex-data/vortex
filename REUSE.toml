@@ -1,10 +1,10 @@
 version = 1
 
 # By default, everything is Apache 2.0 licensed.
-[[annotations]]
-path = "**"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "Apache-2.0"
+#[[annotations]]
+#path = "**"
+#SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+#SPDX-License-Identifier = "Apache-2.0"
 
 # Docs are licensed under CC-BY-4.0.
 [[annotations]]
@@ -12,12 +12,12 @@ path = "docs/**"
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
-
-[[annotations]]
-path = "**/*.md"
-precedence = "override"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "CC-BY-4.0"
+#
+#[[annotations]]
+#path = "**/*.md"
+#precedence = "override"
+#SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+#SPDX-License-Identifier = "CC-BY-4.0"
 
 [[annotations]]
 path = "benchmarks-website/**"
@@ -32,10 +32,5 @@ SPDX-License-Identifier = "MIT"
 
 [[annotations]]
 path = "java/gradle/**"
-SPDX-FileCopyrightText = "Copyright the Gradle authors"
-SPDX-License-Identifier = "Apache-2.0"
-
-[[annotations]]
-path = "java/gradlew*"
 SPDX-FileCopyrightText = "Copyright the Gradle authors"
 SPDX-License-Identifier = "Apache-2.0"
