@@ -1,7 +1,7 @@
 <component name="CopyrightManager">
-  <settings default="spdx">
+  <settings>
     <module2copyright>
-      <element module="All" copyright="spdx" />
+      <element module="rust-files" copyright="spdx-apache" />
     </module2copyright>
     <LanguageOptions name="Rust">
       <option name="fileTypeOverride" value="3" />

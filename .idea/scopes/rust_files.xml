@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="rust-files" pattern="file[vortex]:*/*.rs" />
+</component>
