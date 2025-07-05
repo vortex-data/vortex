@@ -1,6 +1,3 @@
-# SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: Copyright the Vortex contributors
-
 import doctest
 import re
 from pathlib import Path

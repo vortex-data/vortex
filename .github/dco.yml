@@ -1,0 +1,12 @@
+allowRemediationCommits:
+  # Allow individual remediation commits
+  # https://github.com/dcoapp/app#individual-remediation-commit-support
+  individual: true
+  # Allow third-party remediation commits
+  # https://github.com/dcoapp/app#third-party-remediation-support
+  thirdParty: false
+
+require:
+  # Members are required to sign-off commits
+  # https://github.com/dcoapp/app#skipping-sign-off-for-organization-members
+  members: true
