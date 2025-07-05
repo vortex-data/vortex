@@ -13,6 +13,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
 use vortex_array::stats::Precision;
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
 use vortex_expr::forms::cnf::cnf;
@@ -106,16 +107,13 @@ impl LayoutReader for FilterLayoutReader {
 
         // Otherwise, we create a new evaluation of the filter expression for this particular
         // row range.
-        let conjunct_evals: Vec<_> = filter_expr
+        let _conjunct_evals: Vec<_> = filter_expr
             .conjuncts
             .iter()
             .map(|expr| self.child.filter_evaluation(row_range, expr))
             .try_collect()?;
 
-        Ok(Box::new(FilterEvaluation {
-            filter_expr,
-            conjunct_evals,
-        }))
+        unimplemented!("FilterLayoutReader::filter_evaluation is deprecated");
     }
 
     fn projection_evaluation(
@@ -123,8 +121,30 @@ impl LayoutReader for FilterLayoutReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        // Pass-through all projection expressions to the child layout reader.
-        self.child.projection_evaluation(row_range, expr)
+        // If the expression resolves to a boolean, we split it into conjuncts for evaluation.
+        if let DType::Bool(_) = expr.return_dtype(self.scope_dtype())? {
+            let filter_expr = self
+                .cache
+                .entry(expr.clone())
+                .or_insert_with(|| Arc::new(FilterExpr::new(expr.clone())))
+                .clone();
+
+            // Otherwise, we create a new evaluation of the filter expression for this particular
+            // row range.
+            let conjunct_evals: Vec<_> = filter_expr
+                .conjuncts
+                .iter()
+                .map(|expr| self.child.projection_evaluation(row_range, expr))
+                .try_collect()?;
+
+            Ok(Box::new(FilterEvaluation {
+                filter_expr,
+                conjunct_evals,
+            }))
+        } else {
+            // If the expression is not a boolean, we can pass it through to the child layout reader.
+            self.child.projection_evaluation(row_range, expr)
+        }
     }
 }
 
@@ -244,13 +264,13 @@ impl PruningEvaluation for FilterPruningEvaluation {
 struct FilterEvaluation {
     /// The parent filter expression.
     filter_expr: Arc<FilterExpr>,
-    /// The mask evaluations for each conjunct
-    conjunct_evals: Vec<Box<dyn MaskEvaluation>>,
+    /// The evaluations for each conjunct
+    conjunct_evals: Vec<Box<dyn ArrayEvaluation>>,
 }
 
 #[async_trait]
-impl MaskEvaluation for FilterEvaluation {
-    async fn invoke(&self, mut mask: Mask) -> VortexResult<Mask> {
+impl ArrayEvaluation for FilterEvaluation {
+    async fn invoke(&self, mut mask: Mask) -> VortexResult<ArrayRef> {
         let mut remaining = BitVec::from_elem(self.conjunct_evals.len(), true);
 
         // Loop over the conjuncts in order of selectivity.
@@ -259,10 +279,11 @@ impl MaskEvaluation for FilterEvaluation {
 
             if mask.all_false() {
                 // If the mask is all false, we can short-circuit the evaluation.
-                return Ok(mask);
+                return Ok(mask.into_array());
             }
 
-            let conjunct_mask = self.conjunct_evals[idx].invoke(mask.clone()).await?;
+            let conjunct_result = self.conjunct_evals[idx].invoke(mask.clone()).await?;
+            let conjunct_mask = Mask::try_from(conjunct_result.as_ref())?;
 
             // TODO(ngates): what stats do we even report? We could invoke the conjunct using an
             //  all true mask in order to get a true selectivity estimate, because computing
@@ -276,6 +297,6 @@ impl MaskEvaluation for FilterEvaluation {
             mask = mask.bitand(&conjunct_mask);
         }
 
-        Ok(mask)
+        Ok(mask.into_array())
     }
 }

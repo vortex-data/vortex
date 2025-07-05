@@ -80,7 +80,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
             // of the future. Registering these row ranges eagerly is a hint to the IO system that
             // we want to start prefetching the IO for this split.
             let prune = ctx.reader.pruning_evaluation(&row_range, filter)?;
-            let eval = ctx.reader.filter_evaluation(&row_range, filter)?;
+            let eval = ctx.reader.projection_evaluation(&row_range, filter)?;
 
             async move {
                 let pruned_mask = prune.invoke(row_mask).await?;
@@ -88,7 +88,10 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
                 // Step 3: apply exact filtering. The pruning step has already eliminated entire blocks
                 // where we know the filter won't match any rows, so the amount of work to do here
                 // should be a lot less.
-                eval.invoke(pruned_mask).await
+                let filter_result = eval.invoke(pruned_mask).await?;
+
+                // Finally, convert the filter result into a mask.
+                Mask::try_from(filter_result.as_ref())
             }
             .boxed()
         }
