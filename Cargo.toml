@@ -23,6 +23,7 @@ members = [
     "vortex-metrics",
     "vortex-proto",
     "vortex-python",
+    "vortex-scan",
     "vortex-scalar",
     "vortex-tui",
     "vortex-utils",
@@ -209,6 +210,7 @@ vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = f
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scalar = { version = "0.1.0", path = "./vortex-scalar", default-features = false }
+vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-tui = { version = "0.1.0", path = "./vortex-tui", default-features = false }
