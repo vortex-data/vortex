@@ -33,6 +33,7 @@ tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 tokio-stream = { workspace = true }
 vortex = { workspace = true, features = ["files"] }
 vortex-file = { workspace = true, features = ["tokio"] }
+vortex-scan = { workspace = true }
 
 [lints]
 workspace = true

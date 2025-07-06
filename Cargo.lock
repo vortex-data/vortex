@@ -6335,6 +6335,7 @@ dependencies = [
  "tokio-stream",
  "vortex",
  "vortex-file",
+ "vortex-scan",
  "walkdir",
  "zip",
 ]
@@ -6708,6 +6709,29 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-proto",
+]
+
+[[package]]
+name = "vortex-scan"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "crossbeam-queue",
+ "dashmap",
+ "futures",
+ "itertools 0.14.0",
+ "tokio",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-file",
+ "vortex-layout",
+ "vortex-mask",
+ "vortex-metrics",
 ]
 
 [[package]]
