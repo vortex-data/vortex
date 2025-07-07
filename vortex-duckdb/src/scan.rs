@@ -2,8 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering::SeqCst;
 use std::sync::*;
 
+use atomic::AtomicBool;
 use bitvec::macros::internal::funty::Fundamental;
 use crossbeam_queue::SegQueue;
 use vortex::dtype::FieldNames;
@@ -52,7 +55,8 @@ impl std::fmt::Debug for VortexBindData {
 
 pub struct VortexGlobalData {
     file_paths: SegQueue<PathBuf>,
-    is_first_file_processed: atomic::AtomicBool,
+    is_first_file_processed: AtomicBool,
+    cache_id: AtomicU64,
     filter_expr: Option<ExprRef>,
     projection_expr: ExprRef,
 }
@@ -223,11 +227,10 @@ impl TableFunction for VortexTableFunction {
 
         loop {
             if local_state.exporter.is_none() {
-                if !global_state
-                    .is_first_file_processed
-                    .swap(true, atomic::Ordering::SeqCst)
-                {
-                    local_state.exporter = Some(exporter_for_file(&bind_data.first_file, 0)?);
+                if !global_state.is_first_file_processed.swap(true, SeqCst) {
+                    let cache_id = global_state.cache_id.fetch_add(1, SeqCst);
+                    local_state.exporter =
+                        Some(exporter_for_file(&bind_data.first_file, cache_id)?);
                 }
                 // Retrieve a file path from the shared lock-free queue.
                 else if let Some(file_path) = global_state.file_paths.pop() {
@@ -235,10 +238,8 @@ impl TableFunction for VortexTableFunction {
                         .open_blocking(&file_path)
                         .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
-                    local_state.exporter = Some(exporter_for_file(
-                        &file,
-                        global_state.file_paths.len() as u64,
-                    )?);
+                    let cache_id = global_state.cache_id.fetch_add(1, SeqCst);
+                    local_state.exporter = Some(exporter_for_file(&file, cache_id)?);
                 } else {
                     // If the exporter is None and there are no more files to process, signal that the scan finished.
                     chunk.set_len(0);
@@ -271,7 +272,8 @@ impl TableFunction for VortexTableFunction {
 
         Ok(VortexGlobalData {
             file_paths,
-            is_first_file_processed: atomic::AtomicBool::new(false),
+            is_first_file_processed: AtomicBool::new(false),
+            cache_id: AtomicU64::new(0),
             filter_expr,
             projection_expr,
         })
