@@ -214,7 +214,7 @@ pub struct QueryMeasurementJson {
     pub dataset: BenchmarkDataset,
     pub unit: String,
     pub value: u128,
-    pub values: Vec<u128>,
+    pub all_runtimes: Vec<u128>,
     pub target: Target,
     pub commit_id: String,
     pub env_triple: TripleJson,
@@ -245,7 +245,7 @@ impl ToJson for QueryMeasurement {
             dataset: self.benchmark_dataset.clone(),
             unit: "ns".to_string(),
             value: self.fastest_run().as_nanos(),
-            values: self.runs.iter().map(|r| r.as_nanos()).collect_vec(),
+            all_runtimes: self.runs.iter().map(|r| r.as_nanos()).collect_vec(),
             commit_id: GIT_COMMIT_ID.to_string(),
             target: self.target,
             env_triple: TripleJson {
