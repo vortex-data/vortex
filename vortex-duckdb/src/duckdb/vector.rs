@@ -47,6 +47,10 @@ impl Vector {
         }
     }
 
+    pub fn set_dictionary_len(&mut self, len: u32) {
+        unsafe { cpp::duckdb_vx_set_dictionary_length(self.as_ptr(), len) }
+    }
+
     pub fn set_dictionary_id(&mut self, dict_id: String) {
         let dict_id = CString::new(dict_id)
             .map_err(|e| vortex_err!("cstr creation error {e}"))

@@ -18,8 +18,13 @@ extern "C" void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector,
 }
 
 extern "C" void duckdb_vx_set_dictionary_vector_id(duckdb_vector dict, const char *id, unsigned int id_len) {
-	auto ddict = reinterpret_cast<duckdb::Vector *>(dict);
-	duckdb::DictionaryVector::SetDictionaryId(*ddict, std::string(id, id_len));
+    auto ddict = reinterpret_cast<duckdb::Vector *>(dict);
+    DictionaryVector::SetDictionaryId(*ddict, std::string(id, id_len));
+}
+
+extern "C" void duckdb_vx_set_dictionary_length(duckdb_vector dict, unsigned int len) {
+    auto ddict = reinterpret_cast<duckdb::Vector *>(dict);
+    ddict->GetBuffer()->Cast<DictionaryBuffer>().SetDictionarySize(len);
 }
 
 extern "C" void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step,

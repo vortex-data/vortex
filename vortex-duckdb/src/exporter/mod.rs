@@ -35,10 +35,10 @@ pub struct ArrayIteratorExporter {
 }
 
 impl ArrayIteratorExporter {
-    pub fn new(iter: Box<dyn ArrayIterator>) -> Self {
+    pub fn new(iter: Box<dyn ArrayIterator>, id: u64) -> Self {
         Self {
             iter,
-            cache: ConversionCache::default(),
+            cache: ConversionCache::new(id),
             array_exporter: None,
         }
     }

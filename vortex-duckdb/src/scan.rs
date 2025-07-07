@@ -209,16 +209,17 @@ impl TableFunction for VortexTableFunction {
         global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
-        let exporter_for_file = |file: &VortexFile| -> VortexResult<ArrayIteratorExporter> {
-            let array_iterator = file
-                .scan()?
-                .with_projection(global_state.projection_expr.clone())
-                .with_some_filter(global_state.filter_expr.clone())
-                .into_array_iter()
-                .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
+        let exporter_for_file =
+            |file: &VortexFile, id: u64| -> VortexResult<ArrayIteratorExporter> {
+                let array_iterator = file
+                    .scan()?
+                    .with_projection(global_state.projection_expr.clone())
+                    .with_some_filter(global_state.filter_expr.clone())
+                    .into_array_iter()
+                    .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
 
-            Ok(ArrayIteratorExporter::new(Box::new(array_iterator)))
-        };
+                Ok(ArrayIteratorExporter::new(Box::new(array_iterator), id))
+            };
 
         loop {
             if local_state.exporter.is_none() {
@@ -226,7 +227,7 @@ impl TableFunction for VortexTableFunction {
                     .is_first_file_processed
                     .swap(true, atomic::Ordering::SeqCst)
                 {
-                    local_state.exporter = Some(exporter_for_file(&bind_data.first_file)?);
+                    local_state.exporter = Some(exporter_for_file(&bind_data.first_file, 0)?);
                 }
                 // Retrieve a file path from the shared lock-free queue.
                 else if let Some(file_path) = global_state.file_paths.pop() {
@@ -234,7 +235,10 @@ impl TableFunction for VortexTableFunction {
                         .open_blocking(&file_path)
                         .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
-                    local_state.exporter = Some(exporter_for_file(&file)?);
+                    local_state.exporter = Some(exporter_for_file(
+                        &file,
+                        global_state.file_paths.len() as u64,
+                    )?);
                 } else {
                     // If the exporter is None and there are no more files to process, signal that the scan finished.
                     chunk.set_len(0);
