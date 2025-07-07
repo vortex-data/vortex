@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef, Datum as ArrowDatum};
 use arrow_schema::DataType;
 use vortex_error::{VortexResult, vortex_panic};

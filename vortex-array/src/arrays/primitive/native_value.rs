@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_dtype::{NativePType, half};
 
 /// NativeValue serves as a wrapper type to allow us to implement Hash and Eq on all primitive types.

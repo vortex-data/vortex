@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use itertools::Itertools;
 use vortex::arrays::BoolArray;
 use vortex::error::VortexResult;
@@ -62,7 +65,7 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(chunk).unwrap()),
+            format!("{}", String::try_from(&chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 2 = [ false, true]
 "#
@@ -82,7 +85,7 @@ mod tests {
         chunk.set_len(65);
 
         assert_eq!(
-            format!("{}", String::try_from(chunk).unwrap()),
+            format!("{}", String::try_from(&chunk).unwrap()),
             format!(
                 r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 65 = [ {}]

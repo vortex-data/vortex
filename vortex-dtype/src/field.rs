@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Selectors for fields or elements in (possibly nested) `DType`s
 //!
 //! A `Field` indexes a single layer of `DType`, for example: a name in a struct or the element of a
@@ -11,14 +14,14 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::DType;
+use crate::{DType, FieldName};
 
 /// Selects a nested type within either a struct or a list.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Field {
     /// Address a field of a [`crate::DType::Struct`].
-    Name(Arc<str>),
+    Name(FieldName),
     /// Address the element type of a [`crate::DType::List`].
     ElementType,
 }
@@ -139,19 +142,19 @@ impl FieldPath {
     /// use vortex_dtype::Nullability::*;
     ///
     /// let dtype = DType::Struct(
-    ///     Arc::new(StructFields::from_iter([(
+    ///     StructFields::from_iter([(
     ///         "a",
     ///         DType::List(
     ///             Arc::new(DType::Struct(
-    ///                 Arc::new(StructFields::from_iter([(
+    ///                 StructFields::from_iter([(
     ///                     "b",
     ///                     DType::Primitive(PType::U32, NonNullable),
-    ///                 )])),
+    ///                 )]),
     ///                 NonNullable,
     ///             )),
     ///             Nullable,
     ///         ),
-    ///     )])),
+    ///     )]),
     ///     NonNullable,
     /// );
     ///
@@ -271,10 +274,7 @@ mod tests {
         );
 
         let outer = DType::Struct(
-            Arc::from(StructFields::from_iter([
-                ("outer_a", DType::Bool(NonNullable)),
-                ("outer_b", inner),
-            ])),
+            StructFields::from_iter([("outer_a", DType::Bool(NonNullable)), ("outer_b", inner)]),
             NonNullable,
         );
 

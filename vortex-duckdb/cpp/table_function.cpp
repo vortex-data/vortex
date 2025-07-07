@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #include "duckdb.h"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/main/connection.hpp"
@@ -20,8 +23,8 @@ struct CTableFunctionInfo final : TableFunctionInfo {
 };
 
 struct CTableBindData final : TableFunctionData {
-    CTableBindData(unique_ptr<CTableFunctionInfo> info_p, optional_ptr<vortex::CData> ffi_data_p)
-        : info(std::move(info_p)), ffi_data(ffi_data_p) {
+    CTableBindData(unique_ptr<CTableFunctionInfo> info_p, unique_ptr<vortex::CData> ffi_data_p)
+        : info(std::move(info_p)), ffi_data(std::move(ffi_data_p)) {
     }
 
     unique_ptr<FunctionData> Copy() const override {
@@ -33,18 +36,18 @@ struct CTableBindData final : TableFunctionData {
             throw BinderException(IntoErrString(error_out));
         }
         return make_uniq<CTableBindData>(make_uniq<CTableFunctionInfo>(info->vtab),
-                                         optional_ptr(reinterpret_cast<vortex::CData *>(copied_ffi_data)));
+                                         unique_ptr<CData>(reinterpret_cast<CData *>(copied_ffi_data)));
     }
 
     unique_ptr<CTableFunctionInfo> info;
-    optional_ptr<vortex::CData> ffi_data;
+    unique_ptr<CData> ffi_data;
 };
 
 struct CTableGlobalData final : GlobalTableFunctionState {
-    explicit CTableGlobalData(optional_ptr<vortex::CData> ffi_data_p) : ffi_data(ffi_data_p) {
+    explicit CTableGlobalData(unique_ptr<vortex::CData> ffi_data_p) : ffi_data(std::move(ffi_data_p)) {
     }
 
-    optional_ptr<vortex::CData> ffi_data;
+    unique_ptr<vortex::CData> ffi_data;
 
     idx_t MaxThreads() const override {
         return GlobalTableFunctionState::MAX_THREADS;
@@ -52,10 +55,10 @@ struct CTableGlobalData final : GlobalTableFunctionState {
 };
 
 struct CTableLocalData final : LocalTableFunctionState {
-    explicit CTableLocalData(optional_ptr<vortex::CData> ffi_data_p) : ffi_data(ffi_data_p) {
+    explicit CTableLocalData(unique_ptr<vortex::CData> ffi_data_p) : ffi_data(std::move(ffi_data_p)) {
     }
 
-    optional_ptr<vortex::CData> ffi_data;
+    unique_ptr<vortex::CData> ffi_data;
 };
 
 /**
@@ -84,7 +87,7 @@ unique_ptr<FunctionData> c_bind(ClientContext &context, TableFunctionBindInput &
     }
 
     return make_uniq<CTableBindData>(make_uniq<CTableFunctionInfo>(info.vtab),
-                                     optional_ptr(reinterpret_cast<vortex::CData *>(ffi_bind_data)));
+                                     unique_ptr<CData>(reinterpret_cast<CData *>(ffi_bind_data)));
 }
 
 unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, TableFunctionInitInput &input) {
@@ -105,7 +108,8 @@ unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, Table
         throw BinderException(IntoErrString(error_out));
     }
 
-    return make_uniq<CTableGlobalData>(optional_ptr(reinterpret_cast<vortex::CData *>(ffi_global_data)));
+    return make_uniq<CTableGlobalData>(
+        unique_ptr<vortex::CData>(reinterpret_cast<vortex::CData *>(ffi_global_data)));
 }
 
 unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, TableFunctionInitInput &input,
@@ -128,7 +132,8 @@ unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, Tabl
         throw BinderException(IntoErrString(error_out));
     }
 
-    return make_uniq<CTableLocalData>(optional_ptr(reinterpret_cast<vortex::CData *>(ffi_local_data)));
+    return make_uniq<CTableLocalData>(
+        unique_ptr<vortex::CData>(reinterpret_cast<vortex::CData *>(ffi_local_data)));
 }
 
 void c_function(ClientContext &context, TableFunctionInput &input, DataChunk &output) {
@@ -223,34 +228,34 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
     }
 
     auto conn = reinterpret_cast<Connection *>(ffi_conn);
-    auto tf = new TableFunction(vtab->name, {}, c_function, c_bind, c_init_global, c_init_local);
+    auto tf = TableFunction(vtab->name, {}, c_function, c_bind, c_init_global, c_init_local);
 
-    tf->pushdown_complex_filter = c_pushdown_complex_filter;
+    tf.pushdown_complex_filter = c_pushdown_complex_filter;
 
-    tf->projection_pushdown = vtab->projection_pushdown;
-    tf->filter_pushdown = vtab->filter_pushdown;
-    tf->filter_prune = vtab->filter_prune;
-    tf->sampling_pushdown = vtab->sampling_pushdown;
-    tf->late_materialization = vtab->late_materialization;
+    tf.projection_pushdown = vtab->projection_pushdown;
+    tf.filter_pushdown = vtab->filter_pushdown;
+    tf.filter_prune = vtab->filter_prune;
+    tf.sampling_pushdown = vtab->sampling_pushdown;
+    tf.late_materialization = vtab->late_materialization;
 
     // Set up the parameters
     for (size_t i = 0; i < vtab->parameter_count; i++) {
         auto logical_type = reinterpret_cast<LogicalType *>(vtab->parameters[i]);
-        tf->arguments.push_back(*logical_type);
+        tf.arguments.push_back(*logical_type);
     }
     // And the named parameters
     for (size_t i = 0; i < vtab->named_parameter_count; i++) {
         auto logical_type = reinterpret_cast<LogicalType *>(vtab->named_parameter_types[i]);
-        tf->named_parameters.insert({vtab->named_parameter_names[i], *logical_type});
+        tf.named_parameters.insert({vtab->named_parameter_names[i], *logical_type});
     }
 
     // Assign the VTable to the function info so we can access it later to invoke the callbacks.
-    tf->function_info = make_shared_ptr<CTableFunctionInfo>(*vtab);
+    tf.function_info = make_shared_ptr<CTableFunctionInfo>(*vtab);
 
     try {
         conn->context->RunFunctionInTransaction([&]() {
             auto &catalog = Catalog::GetSystemCatalog(*conn->context);
-            CreateTableFunctionInfo tf_info(*tf);
+            CreateTableFunctionInfo tf_info(tf);
             catalog.CreateTableFunction(*conn->context, tf_info);
         });
     } catch (...) {

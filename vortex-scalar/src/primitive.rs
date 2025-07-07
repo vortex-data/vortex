@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::type_name;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};

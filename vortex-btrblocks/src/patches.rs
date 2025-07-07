@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compress::downscale_integer_array;
 use vortex_array::patches::Patches;

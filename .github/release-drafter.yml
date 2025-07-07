@@ -33,23 +33,6 @@ version-resolver:
       - 'wire-break'
   default: patch
 
-autolabeler:
-  - label: 'break'
-    title:
-      - '/break/i'
-  - label: 'chore'
-    title:
-      - '/chore/i'
-  - label: 'fix'
-    title:
-      - '/fix/i'
-  - label: 'feature'
-    title:
-      - '/feat/i'
-  - label: 'performance'
-    title:
-      - '/perf/i'
-
 template: |
   ## Changes
 

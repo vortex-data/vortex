@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::encodings::sequence::SequenceArray;
 use vortex::error::{VortexExpect, VortexResult};
@@ -50,7 +53,7 @@ mod tests {
         chunk.set_len(4);
 
         assert_eq!(
-            format!("{}", String::try_from(chunk).unwrap()),
+            format!("{}", String::try_from(&chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - SEQUENCE INTEGER: 4 = [ 2, 7, 12, 17]
 "#

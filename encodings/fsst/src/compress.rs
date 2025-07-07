@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 // Compress a set of values into an Array.
 
 use fsst::{Compressor, Symbol};

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::{Display, Formatter};
 use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::LazyLock;
@@ -109,7 +112,10 @@ impl<'a> StructFieldExpressionSplitter<'a> {
 
         let mut splitter = StructFieldExpressionSplitter::new(&field_accesses, scope_dtype);
 
-        let split = expr.clone().transform_with_context(&mut splitter, ())?;
+        let split = expr
+            .clone()
+            .transform_with_context(&mut splitter, ())?
+            .result();
 
         let mut remove_accesses: Vec<FieldName> = Vec::new();
 
@@ -153,13 +159,19 @@ impl<'a> StructFieldExpressionSplitter<'a> {
         debug_assert_eq!(expression_access_counts.unwrap_or(0), partitions.len());
 
         let split = split
-            .result()
-            .transform(&mut ReplaceAccessesWithChild(remove_accesses))?;
+            .transform(&mut ReplaceAccessesWithChild(remove_accesses))?
+            .into_inner();
 
-        let ctx = ScopeDType::new(dtype.clone());
+        let ctx = ScopeDType::new(DType::Struct(
+            StructFields::new(
+                FieldNames::from(partition_names.clone()),
+                partition_dtypes.clone(),
+            ),
+            Nullability::NonNullable,
+        ));
 
         Ok(PartitionedExpr {
-            root: simplify_typed(split.into_inner(), &ctx)?,
+            root: simplify_typed(split, &ctx)?,
             partitions: partitions.into_boxed_slice(),
             partition_names: partition_names.into(),
             partition_dtypes: partition_dtypes.into_boxed_slice(),
@@ -289,33 +301,30 @@ impl MutNodeVisitor for ReplaceAccessesWithChild {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use super::*;
     use crate::transform::simplify::simplify;
     use crate::transform::simplify_typed::simplify_typed;
-    use crate::{Pack, and, get_item, lit, pack, root, select};
+    use crate::{Pack, and, col, get_item, lit, merge, pack, root, select};
 
     fn dtype() -> DType {
         DType::Struct(
-            Arc::new(StructFields::from_iter([
+            StructFields::from_iter([
                 (
                     "a",
                     DType::Struct(
-                        Arc::new(StructFields::from_iter([
-                            ("a", I32.into()),
-                            ("b", DType::from(I32)),
-                        ])),
+                        StructFields::from_iter([("a", I32.into()), ("b", DType::from(I32))]),
                         NonNullable,
                     ),
                 ),
                 ("b", I32.into()),
                 ("c", I32.into()),
-            ])),
+            ]),
             NonNullable,
         )
     }
@@ -451,5 +460,43 @@ mod tests {
                 )
             )
         )
+    }
+
+    #[test]
+    fn test_expr_merge() {
+        let dtype = dtype();
+
+        let expr = merge(
+            [col("a"), pack([("b", col("b"))], NonNullable)],
+            NonNullable,
+        );
+
+        let partitioned = StructFieldExpressionSplitter::split(expr, &dtype).unwrap();
+        let expected = pack(
+            [
+                ("a", get_item("a", col("a"))),
+                ("b", get_item("b", col("b"))),
+            ],
+            NonNullable,
+        );
+        assert_eq!(
+            &partitioned.root, &expected,
+            "{} {}",
+            partitioned.root, expected
+        );
+        let expected = [root(), pack([("b", root())], NonNullable)]
+            .into_iter()
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            &partitioned
+                .partitions
+                .clone()
+                .into_iter()
+                .collect::<HashSet<_>>(),
+            &expected,
+            "{} {}",
+            partitioned.partitions.iter().join(";"),
+            expected.iter().join(";")
+        );
     }
 }

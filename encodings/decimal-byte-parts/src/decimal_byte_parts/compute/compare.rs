@@ -1,12 +1,17 @@
-use num_traits::NumCast;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use Sign::Negative;
+use num_traits::{Bounded, NumCast};
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{CompareKernel, CompareKernelAdapter, Operator, compare};
 use vortex_array::{Array, ArrayRef, register_kernel};
 use vortex_dtype::{NativePType, Nullability, PType, match_each_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_scalar::{DecimalValue, Scalar, ScalarValue, match_each_decimal_value};
+use vortex_scalar::{DecimalValue, Scalar, ScalarValue, ToPrimitive, match_each_decimal_value};
 
 use crate::DecimalBytePartsVTable;
+use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 
 impl CompareKernel for DecimalBytePartsVTable {
     fn compare(
@@ -30,29 +35,38 @@ impl CompareKernel for DecimalBytePartsVTable {
             .as_decimal()
             .decimal_value()
             .vortex_expect("checked for null in entry func");
-        let Some(encoded_scalar) =
-            decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp.as_primitive_typed().ptype())
-                .map(|value| Scalar::new(scalar_type.clone(), value))
-        else {
+
+        match decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp.as_primitive_typed().ptype())
+            .map(|value| Scalar::new(scalar_type.clone(), value))
+        {
+            Ok(encoded_scalar) => {
+                let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
+                compare(&lhs.msp, &encoded_const.to_array(), operator).map(Some)
+            }
             // here the scalar value is bigger than the msp type.
             // TODO(joe): fixme, when allowing lsp values.
-            return Ok(Some(
-                ConstantArray::new(unconvertible_value(operator, nullability), lhs.len())
+            Err(sign) => Ok(Some(
+                ConstantArray::new(unconvertible_value(sign, operator, nullability), lhs.len())
                     .to_array(),
-            ));
-        };
-        let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
-        compare(&lhs.msp, &encoded_const.to_array(), operator).map(Some)
+            )),
+        }
     }
 }
 
-fn unconvertible_value(operator: Operator, nullability: Nullability) -> Scalar {
-    // v op unconvertible where unconvertible > v_max
+// Used to represent the overflow direction when trying to
+// convert into the scalar type.
+#[derive(Debug)]
+enum Sign {
+    Positive,
+    Negative,
+}
+
+fn unconvertible_value(sign: Sign, operator: Operator, nullability: Nullability) -> Scalar {
     match operator {
-        // v is never eq or gt/gte
-        Operator::Eq | Operator::Gt | Operator::Gte => Scalar::bool(false, nullability),
-        // v is always eq or gt/gte
-        Operator::NotEq | Operator::Lt | Operator::Lte => Scalar::bool(true, nullability),
+        Operator::Eq => Scalar::bool(false, nullability),
+        Operator::NotEq => Scalar::bool(true, nullability),
+        Operator::Gt | Operator::Gte => Scalar::bool(matches!(sign, Negative), nullability),
+        Operator::Lt | Operator::Lte => Scalar::bool(matches!(sign, Positive), nullability),
     }
 }
 
@@ -60,19 +74,39 @@ fn unconvertible_value(operator: Operator, nullability: Nullability) -> Scalar {
 fn decimal_value_wrapper_to_primitive(
     decimal_value: DecimalValue,
     ptype: PType,
-) -> Option<ScalarValue> {
+) -> Result<ScalarValue, Sign> {
     match_each_integer_ptype!(ptype, |P| {
         decimal_value_to_primitive::<P>(decimal_value)
     })
 }
 
-fn decimal_value_to_primitive<P>(decimal_value: DecimalValue) -> Option<ScalarValue>
+fn decimal_value_to_primitive<P>(decimal_value: DecimalValue) -> Result<ScalarValue, Sign>
 where
-    P: NativePType + NumCast,
+    P: NativePType + NumCast + Bounded + ToPrimitive,
     ScalarValue: From<P>,
 {
     match_each_decimal_value!(decimal_value, |decimal_v| {
-        Some(ScalarValue::from(<P as NumCast>::from(decimal_v)?))
+        let Some(encoded) = <P as NumCast>::from(decimal_v) else {
+            let decimal_i256 = decimal_v
+                .to_i256()
+                .vortex_expect("i256 is big enough for any DecimalValue");
+            return if decimal_i256
+                > P::max_value()
+                    .to_i256()
+                    .vortex_expect("i256 is big enough for any PType")
+            {
+                Err(Positive)
+            } else {
+                assert!(
+                    decimal_i256
+                        < P::min_value()
+                            .to_i256()
+                            .vortex_expect("i256 is big enough for any PType")
+                );
+                Err(Negative)
+            };
+        };
+        Ok(ScalarValue::from(encoded))
     })
 }
 
@@ -128,7 +162,35 @@ mod tests {
         .to_array();
         // This cannot be converted to a i32.
         let rhs = ConstantArray::new(
-            Scalar::new(dtype, DecimalValue::I128(-9999999999999965304).into()),
+            Scalar::new(
+                dtype.clone(),
+                DecimalValue::I128(-9999999999999965304).into(),
+            ),
+            lhs.len(),
+        );
+
+        let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
+
+        assert_eq!(
+            res.to_bool().unwrap().bool_vec().unwrap(),
+            vec![false, false, false]
+        );
+
+        let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
+        assert_eq!(
+            res.to_bool().unwrap().bool_vec().unwrap(),
+            vec![true, true, true]
+        );
+
+        let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
+        assert_eq!(
+            res.to_bool().unwrap().bool_vec().unwrap(),
+            vec![false, false, false]
+        );
+
+        // This cannot be converted to a i32.
+        let rhs = ConstantArray::new(
+            Scalar::new(dtype, DecimalValue::I128(9999999999999965304).into()),
             lhs.len(),
         );
 

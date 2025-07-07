@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use arbitrary::{Arbitrary, Result, Unstructured};
@@ -30,7 +33,7 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         5 => DType::Binary(u.arbitrary()?),
 
         // container types
-        6 => DType::Struct(Arc::new(random_struct_dtype(u, depth - 1)?), u.arbitrary()?),
+        6 => DType::Struct(random_struct_dtype(u, depth - 1)?, u.arbitrary()?),
         7 => DType::List(Arc::new(random_dtype(u, depth - 1)?), u.arbitrary()?),
         // Null,
         // Extension(ExtDType, Nullability),
@@ -91,7 +94,7 @@ fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructFiel
     let field_count = u.choose_index(3)?;
     let names: FieldNames = (0..field_count)
         .map(|_| FieldName::arbitrary(u))
-        .collect::<Result<Arc<_>>>()?;
+        .collect::<Result<FieldNames>>()?;
     let dtypes = (0..names.len())
         .map(|_| random_dtype(u, depth))
         .collect::<Result<Vec<_>>>()?;

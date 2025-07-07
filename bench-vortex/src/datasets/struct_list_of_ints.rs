@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use async_trait::async_trait;
 use rand::{Rng, SeedableRng};
 use vortex::arrays::{ChunkedArray, ListArray, PrimitiveArray, StructArray};
@@ -36,7 +39,7 @@ impl Dataset for StructListOfInts {
 
     async fn to_vortex_array(&self) -> ArrayRef {
         let names: FieldNames = (0..self.num_columns)
-            .map(|col_idx| (col_idx.to_string().into()))
+            .map(|col_idx| (col_idx.to_string()))
             .collect();
         let mut rng = rand::rngs::StdRng::seed_from_u64(0);
 

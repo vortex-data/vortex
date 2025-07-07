@@ -1,7 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use num_traits::{AsPrimitive, NumCast};
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
 use vortex_array::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use vortex_array::validity::Validity;
+use vortex_array::vtable::ValidityHelper;
+use vortex_array::{Array, ArrayRef, ToCanonical, register_kernel};
 use vortex_buffer::Buffer;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::{VortexResult, vortex_bail};
@@ -28,7 +34,7 @@ impl TakeKernel for RunEndVTable {
                 .collect::<VortexResult<Vec<_>>>()?
         });
 
-        take_indices_unchecked(array, &checked_indices)
+        take_indices_unchecked(array, &checked_indices, primitive_indices.validity())
     }
 }
 
@@ -38,13 +44,15 @@ register_kernel!(TakeKernelAdapter(RunEndVTable).lift());
 pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     array: &RunEndArray,
     indices: &[T],
+    validity: &Validity,
 ) -> VortexResult<ArrayRef> {
     let ends = array.ends().to_primitive()?;
     let ends_len = ends.len();
 
+    // TODO(joe): use the validity mask to skip search sorted.
     let physical_indices = match_each_integer_ptype!(ends.ptype(), |I| {
         let end_slices = ends.as_slice::<I>();
-        indices
+        let buffer = indices
             .iter()
             .map(|idx| idx.as_() + array.offset())
             .map(|idx| {
@@ -57,11 +65,12 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
                 }
             })
             .map(|result| result.to_ends_index(ends_len) as u64)
-            .collect::<Buffer<u64>>()
-            .into_array()
+            .collect::<Buffer<u64>>();
+
+        PrimitiveArray::new(buffer, validity.clone())
     });
 
-    take(array.values(), &physical_indices)
+    take(array.values(), physical_indices.as_ref())
 }
 
 #[cfg(test)]
@@ -69,6 +78,8 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::take;
     use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_scalar::{Scalar, ScalarValue};
 
     use crate::RunEndArray;
 
@@ -125,5 +136,26 @@ mod test {
         assert_eq!(taken.scalar_at(0).unwrap(), 4.into());
         assert_eq!(taken.scalar_at(1).unwrap(), 2.into());
         assert_eq!(taken.scalar_at(2).unwrap(), 5.into());
+    }
+
+    #[test]
+    fn ree_take_nullable() {
+        let taken = take(
+            ree_array().as_ref(),
+            PrimitiveArray::from_option_iter([Some(1), None]).as_ref(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            taken.scalar_at(0).unwrap(),
+            Scalar::new(
+                DType::Primitive(PType::I32, Nullability::Nullable),
+                ScalarValue::from(1i32)
+            )
+        );
+        assert_eq!(
+            taken.scalar_at(1).unwrap(),
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
+        );
     }
 }

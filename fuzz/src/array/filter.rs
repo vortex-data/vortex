@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{
     BoolArray, BooleanBuffer, DecimalArray, PrimitiveArray, StructArray, VarBinViewArray,

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Persistent implementation of a Vortex table provider.
 mod cache;
 mod config;
@@ -66,7 +69,7 @@ mod tests {
         .into_array();
 
         let st = StructArray::try_new(
-            ["strings".into(), "numbers".into()].into(),
+            ["strings", "numbers"].into(),
             vec![strings, numbers],
             8,
             Validity::NonNullable,

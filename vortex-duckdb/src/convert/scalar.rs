@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Scalar value conversion between Vortex and DuckDB.
 //!
 //! This module provides functionality to convert Vortex scalar values to DuckDB values.
@@ -32,9 +35,8 @@ use vortex::scalar::{
 };
 
 use crate::convert::dtype::FromLogicalType;
-use crate::cpp;
-use crate::cpp::DUCKDB_TYPE;
-use crate::duckdb::Value;
+use crate::cpp::{self, DUCKDB_TYPE, duckdb_free};
+use crate::duckdb::{Value, i128_from_parts};
 
 /// Trait for converting Vortex scalars to DuckDB values.
 pub trait ToDuckDBScalar {
@@ -253,14 +255,17 @@ impl TryFrom<Value> for Scalar {
                 Nullable,
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => {
-                let str: &str = unsafe {
-                    let str = cpp::duckdb_get_varchar(value.as_ptr());
-                    CStr::from_ptr(str).to_str()?
+                let scalar = unsafe {
+                    let ptr = cpp::duckdb_get_varchar(value.as_ptr());
+                    let scalar = Scalar::utf8(CStr::from_ptr(ptr).to_str()?, Nullable);
+                    duckdb_free(ptr.cast());
+                    scalar
                 };
-                Ok(Scalar::utf8(str, Nullable))
+
+                Ok(scalar)
             }
             DUCKDB_TYPE::DUCKDB_TYPE_BLOB => Ok(Scalar::binary(
-                ByteBuffer::copy_from(value.as_string().to_str()?),
+                ByteBuffer::copy_from(value.as_string()),
                 Nullable,
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => Ok(Scalar::extension(
@@ -302,7 +307,7 @@ impl TryFrom<Value> for Scalar {
                     Arc::new(DType::Primitive(I32, Nullable)),
                     Some(TemporalMetadata::Date(TimeUnit::D).into()),
                 )),
-                Scalar::new(DType::Primitive(I32, Nullable), value.as_i32().into()),
+                Scalar::new(DType::Primitive(I32, Nullable), value.as_date().into()),
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_TIME => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
@@ -310,12 +315,16 @@ impl TryFrom<Value> for Scalar {
                     Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Date(TimeUnit::Us).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), value.as_i64().into()),
+                Scalar::new(DType::Primitive(I64, Nullable), value.as_time().into()),
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
-                let (width, scale) = value.logical_type().as_decimal();
+                let cpp::duckdb_decimal {
+                    value,
+                    width,
+                    scale,
+                } = value.as_decimal();
                 Ok(Scalar::decimal(
-                    DecimalValue::I128(value.as_i128()),
+                    DecimalValue::I128(i128_from_parts(value.upper, value.lower)),
                     DecimalDType::new(width, scale.try_into()?),
                     Nullable,
                 ))

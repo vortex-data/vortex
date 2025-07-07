@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! A collection of built-in layouts for Vortex
 
 use futures::future::{BoxFuture, Shared};

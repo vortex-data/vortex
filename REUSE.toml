@@ -1,0 +1,31 @@
+version = 1
+
+# Docs are licensed under CC-BY-4.0.
+[[annotations]]
+path = "docs/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = "benchmarks-website/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# Golden files are licensed under CC-BY-4.0.
+[[annotations]]
+path = "**/goldenfiles/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# Utility code.
+
+[[annotations]]
+path = ["**/README.md", "CLAUDE.md", "CONTRIBUTING.md", "STYLE.md"]
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = ["**/.gitignore", ".gitmodules", ".python-version", "**/*.lock", "**/*.lockfile", "**/*.toml", "renovate.json", ".idea/**", ".github/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"

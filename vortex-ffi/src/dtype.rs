@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ffi::{c_int, c_void};
 use std::sync::Arc;
 
@@ -113,7 +116,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_struct(
     struct_dtype: *const vx_struct_fields,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    let struct_dtype = vx_struct_fields::into_arc(struct_dtype);
+    let struct_dtype = vx_struct_fields::as_ref(struct_dtype).clone();
     vx_dtype::new(Arc::new(DType::Struct(struct_dtype, is_nullable.into())))
 }
 

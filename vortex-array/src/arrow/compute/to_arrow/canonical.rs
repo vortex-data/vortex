@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use arrow_array::types::{
@@ -414,7 +417,7 @@ mod tests {
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(
-            FieldNames::from(["xs".into()]),
+            FieldNames::from(["xs"]),
             vec![xs.into_array()],
             5,
             Validity::AllValid,
@@ -433,7 +436,7 @@ mod tests {
             PrimitiveArray::from_option_iter(vec![Some(0_i64), Some(1), Some(2), None, Some(3)]);
 
         let struct_a = StructArray::try_new(
-            FieldNames::from(["xs".into()]),
+            FieldNames::from(["xs"]),
             vec![xs.into_array()],
             5,
             Validity::AllValid,
@@ -451,7 +454,7 @@ mod tests {
         let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
 
         let struct_a = StructArray::try_new(
-            FieldNames::from(["xs".into()]),
+            FieldNames::from(["xs"]),
             vec![xs.into_array()],
             5,
             Validity::AllValid,

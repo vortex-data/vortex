@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 import json
 import operator
 
@@ -71,8 +74,8 @@ def _polars_to_vortex(expr: dict) -> ve.Expr:
 
         if "Null" in value:
             value = None
-        elif "StringOwned" in value:
-            value = value["StringOwned"]
+        elif "String" in value:
+            value = value["String"]
         else:
             raise ValueError(f"Unsupported Polars scalar value type {value}")
 

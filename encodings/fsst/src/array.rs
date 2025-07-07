@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, LazyLock};
 
@@ -156,7 +159,7 @@ impl FSSTArray {
     /// this array.
     ///
     /// This is private to the crate to avoid leaking `fsst-rs` types as part of the public API.
-    pub(crate) fn decompressor(&self) -> Decompressor {
+    pub(crate) fn decompressor(&self) -> Decompressor<'_> {
         Decompressor::new(self.symbols().as_slice(), self.symbol_lengths().as_slice())
     }
 

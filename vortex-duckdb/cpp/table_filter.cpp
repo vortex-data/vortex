@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #include "duckdb/planner/table_filter.hpp"
 #include "duckdb_vx.h"
 #include "duckdb/planner/filter/conjunction_filter.hpp"

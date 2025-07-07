@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ffi::CStr;
 
 use vortex::error::vortex_err;
@@ -7,7 +10,7 @@ use crate::duckdb::{LogicalType, TableFunction, Value, try_or_null};
 use crate::{cpp, wrapper};
 
 /// The native bind callback for a table function.
-pub(super) unsafe extern "C" fn bind_callback<T: TableFunction>(
+pub(crate) unsafe extern "C" fn bind_callback<T: TableFunction>(
     bind_input: cpp::duckdb_vx_tfunc_bind_input,
     bind_result: cpp::duckdb_vx_tfunc_bind_result,
     error_out: *mut cpp::duckdb_vx_error,
@@ -22,7 +25,7 @@ pub(super) unsafe extern "C" fn bind_callback<T: TableFunction>(
 }
 
 /// The native copy callback for bind data.
-pub(super) unsafe extern "C" fn bind_data_clone_callback<T: TableFunction>(
+pub(crate) unsafe extern "C" fn bind_data_clone_callback<T: TableFunction>(
     bind_data: *const std::ffi::c_void,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {

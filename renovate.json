@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:base",
+    "config:recommended",
     ":automergeMinor",
     ":automergePr",
     ":automergeRequireAllStatusChecks",
@@ -21,39 +21,29 @@
   "patch": {
     "groupName": "all patch updates"
   },
+  "labels": ["chore"],
   "packageRules": [
     {
-      "matchPackagePrefixes": [
-        "arrow",
-        "parquet",
-        "datafusion",
-        "pyo3"
-      ],
-      "matchUpdateTypes": [
-        "major",
-        "minor",
-        "patch"
-      ],
-      "groupName": "datafusion and friends"
+      "matchUpdateTypes": ["major", "minor", "patch"],
+      "groupName": "datafusion and friends",
+      "matchPackageNames": [
+        "arrow{/,}**",
+        "parquet{/,}**",
+        "datafusion{/,}**",
+        "pyo3{/,}**"
+      ]
     },
     {
-      "matchPackagePrefixes": [
-        "flatbuffers",
-        "flexbuffers"
-      ],
-      "groupName": "flatbuffers"
+      "groupName": "flatbuffers",
+      "matchPackageNames": ["flatbuffers{/,}**", "flexbuffers{/,}**"]
     },
     {
-      "matchPackagePrefixes": [
-        "futures"
-      ],
-      "groupName": "futures"
+      "groupName": "futures",
+      "matchPackageNames": ["futures{/,}**"]
     },
     {
-      "matchPackagePrefixes": [
-        "tonic"
-      ],
-      "groupName": "tonic"
+      "groupName": "tonic",
+      "matchPackageNames": ["tonic{/,}**"]
     }
   ]
 }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
@@ -84,7 +87,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     ///
     /// assert_eq!(built.as_slice::<i32>(), &[0i32, 1, 2, 3, 4]);
     /// ```
-    pub fn uninit_range(&mut self, len: usize) -> UninitRange<T> {
+    pub fn uninit_range(&mut self, len: usize) -> UninitRange<'_, T> {
         let offset = self.values.len();
         assert!(
             offset + len <= self.values.capacity(),

@@ -1,4 +1,6 @@
-#![feature(portable_simd)]
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
 //! At the heart of Vortex are [arrays](ArrayRef) and [encodings](EncodingRef).
@@ -8,6 +10,8 @@
 //!
 //! Every data type recognized by Vortex also has a canonical physical encoding format, which
 //! arrays can be [canonicalized](Canonical) into for ease of access in compute functions.
+
+#![cfg_attr(feature = "nightly", feature(portable_simd))]
 
 pub use array::*;
 pub use canonical::*;

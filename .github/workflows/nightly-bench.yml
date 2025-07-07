@@ -1,0 +1,29 @@
+name: Nightly Benchmarks
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # daily
+  workflow_dispatch:
+
+permissions:
+  id-token: write  # enables AWS-GitHub OIDC
+  actions: read
+  contents: write
+  deployments: write
+
+jobs:
+  sql:
+    uses: ./.github/workflows/sql-benchmarks.yml
+    secrets: inherit
+    with:
+      mode: 'develop'
+      machine_type: ${{ matrix.machine_type.instance_name }}
+      scale_factor: 100
+    strategy:
+      matrix:
+        machine_type:
+          - id: x86
+            instance_name: c6id.8xlarge
+# TODO(joe): support other arch
+#          - id: arm64
+#            instance_name: c6gd.8xlarge

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
 use vortex_dtype::DType;

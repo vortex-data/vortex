@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($expected:expr, $actual:expr) => {

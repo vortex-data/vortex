@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -24,7 +27,7 @@ use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 /// use vortex_dtype::Nullability;
 ///
 /// let example = Pack::try_new_expr(
-///     ["x".into(), "x copy".into(), "second x copy".into()].into(),
+///     ["x", "x copy", "second x copy"].into(),
 ///     vec![root(), root(), root()],
 ///     Nullability::NonNullable,
 /// ).unwrap();
@@ -140,7 +143,7 @@ pub(crate) mod proto {
             };
 
             Pack::try_new_expr(
-                op.paths.iter().cloned().map(|p| p.into()).collect(),
+                op.paths.iter().map(|p| p.as_str()).collect(),
                 children,
                 op.nullable.into(),
             )
@@ -199,7 +202,7 @@ impl VortexExpr for Pack {
             .map(|value_expr| value_expr.return_dtype(scope))
             .process_results(|it| it.collect())?;
         Ok(DType::Struct(
-            Arc::new(StructFields::new(self.names.clone(), value_dtypes)),
+            StructFields::new(self.names.clone(), value_dtypes),
             self.nullability,
         ))
     }
@@ -207,7 +210,6 @@ impl VortexExpr for Pack {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::validity::Validity;
@@ -244,7 +246,8 @@ mod tests {
 
     #[test]
     pub fn test_empty_pack() {
-        let expr = Pack::try_new_expr(Arc::new([]), Vec::new(), Nullability::NonNullable).unwrap();
+        let expr = Pack::try_new_expr(FieldNames::default(), Vec::new(), Nullability::NonNullable)
+            .unwrap();
 
         let test_array = test_array();
         let actual_array = expr.evaluate(&Scope::new(test_array.clone())).unwrap();
@@ -258,7 +261,7 @@ mod tests {
     #[test]
     pub fn test_simple_pack() {
         let expr = Pack::try_new_expr(
-            ["one".into(), "two".into(), "three".into()].into(),
+            ["one", "two", "three"].into(),
             vec![col("a"), col("b"), col("a")],
             Nullability::NonNullable,
         )
@@ -269,7 +272,7 @@ mod tests {
             .unwrap()
             .to_struct()
             .unwrap();
-        let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
+        let expected_names: FieldNames = ["one", "two", "three"].into();
         assert_eq!(actual_array.names(), &expected_names);
         assert_eq!(actual_array.validity(), &Validity::NonNullable);
 
@@ -296,11 +299,11 @@ mod tests {
     #[test]
     pub fn test_nested_pack() {
         let expr = Pack::try_new_expr(
-            ["one".into(), "two".into(), "three".into()].into(),
+            ["one", "two", "three"].into(),
             vec![
                 col("a"),
                 Pack::try_new_expr(
-                    ["two_one".into(), "two_two".into()].into(),
+                    ["two_one", "two_two"].into(),
                     vec![col("b"), col("b")],
                     Nullability::NonNullable,
                 )
@@ -316,7 +319,7 @@ mod tests {
             .unwrap()
             .to_struct()
             .unwrap();
-        let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
+        let expected_names = FieldNames::from(["one", "two", "three"]);
         assert_eq!(actual_array.names(), &expected_names);
 
         assert_eq!(
@@ -348,7 +351,7 @@ mod tests {
     #[test]
     pub fn test_pack_nullable() {
         let expr = Pack::try_new_expr(
-            ["one".into(), "two".into(), "three".into()].into(),
+            ["one", "two", "three"].into(),
             vec![col("a"), col("b"), col("a")],
             Nullability::Nullable,
         )
@@ -359,7 +362,7 @@ mod tests {
             .unwrap()
             .to_struct()
             .unwrap();
-        let expected_names: FieldNames = ["one".into(), "two".into(), "three".into()].into();
+        let expected_names: FieldNames = ["one", "two", "three"].into();
         assert_eq!(actual_array.names(), &expected_names);
         assert_eq!(actual_array.validity(), &Validity::AllValid);
     }

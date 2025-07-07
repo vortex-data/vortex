@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod cast;
 mod compare;
 mod filter;
@@ -21,7 +24,7 @@ use strum::EnumCount;
 pub(crate) use take::*;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
-use vortex_array::compute::{CastOutcome, Operator, allowed_casting};
+use vortex_array::compute::Operator;
 use vortex_array::search_sorted::{SearchResult, SearchSortedSide};
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_btrblocks::BtrBlocksCompressor;

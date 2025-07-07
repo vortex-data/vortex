@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::iter;
 
 use itertools::Itertools;
@@ -80,7 +83,7 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
 }
 
 /// Build a pruning expr mask an existing bundle of stats
-/// Create a stat based falsification expr using the stats in the `scope_field_paths`.
+/// Creates a stat based falsification expr using the stats in the `scope_field_paths`.
 /// These are of the form
 /// [["col_0", ..., "col_n", "stat_name"], ...] for each stat.
 pub fn checked_pruning_expr(
@@ -388,37 +391,25 @@ mod tests {
     #[test]
     fn test_gt_eq_with_booleans() {
         // Consider this unusual, but valid (in Arrow, BooleanArray implements ArrayOrd), filter expression:
-        //
         // x > (y > z)
-        //
         // The x column is a Boolean-valued column. The y and z columns are numeric. True > False.
         // Suppose we had a Vortex zone whose min/max statistics for each column were:
-        //
         // x: [True, True]
         // y: [1, 2]
         // z: [0, 2]
-        //
         // The pruning predicate will convert the aforementioned expression into:
-        //
         // x_max <= (y_min > z_min)
-        //
         // If we evaluate that pruning expression on our zone we get:
-        //
         // x_max <= (y_min > z_min)
         // x_max <= (1     > 0    )
         // x_max <= True
         // True <= True
         // True
-        //
         // If a pruning predicate evaluates to true then, as stated in PruningPredicate::evaluate:
-        //
         // > a true value means the chunk can be pruned.
-        //
         // But, the following record lies within the above intervals and *passes* the filter expression! We
         // cannot prune this zone because we need this record!
-        //
         // {x: True, y: 1, z: 2}
-        //
         // x > (y > z)
         // True > (1 > 2)
         // True > False

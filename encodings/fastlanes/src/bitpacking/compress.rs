@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::mem::MaybeUninit;
 
 use arrow_buffer::ArrowNativeType;
@@ -317,11 +320,10 @@ pub(crate) fn unpack_into<T: BitPacked>(
 }
 
 fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) -> VortexResult<()> {
-    let (array_len, indices_offset, indices, values) = patches.clone().into_parts();
-    assert_eq!(array_len, dst.len());
+    assert_eq!(patches.array_len(), dst.len());
 
-    let indices = indices.to_primitive()?;
-    let values = values.to_primitive()?;
+    let indices = patches.indices().to_primitive()?;
+    let values = patches.values().to_primitive()?;
     let validity = values.validity_mask()?;
     let values = values.as_slice::<T>();
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
@@ -330,7 +332,7 @@ fn apply_patches<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) ->
             indices.as_slice::<P>(),
             values,
             validity,
-            indices_offset,
+            patches.offset(),
         )
     });
     Ok(())

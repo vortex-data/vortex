@@ -1,12 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 #![allow(clippy::missing_safety_doc)]
 use std::ffi::{CStr, c_char};
+use std::sync::LazyLock;
 
 // **WARNING begin this includes duckdb-rs, which is required to link in the symbol from libduckdb-sys.
-#[allow(unused_imports)]
-use duckdb::*;
+use tokio::runtime;
+use tokio::runtime::Runtime;
 // **WARNING end
 use vortex::error::{VortexExpect, VortexResult};
 
+use crate::copy::VortexCopyFunction;
 pub use crate::duckdb::{Connection, Database};
 use crate::scan::VortexTableFunction;
 
@@ -27,13 +32,15 @@ mod scan;
 /// for DuckDB, such as custom data types and functions.
 /// cbindgen:ignore
 mod cpp;
+mod copy;
 #[cfg(test)]
-mod vortex_scan_tests;
+mod vortex_e2e_tests;
 
-/// Initialize the Vortex extension by registering the `vortex_scan` function.
-pub fn init(conn: &Connection) -> VortexResult<()> {
+/// Initialize the Vortex extension by registering the extension functions.
+pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
     conn.register_table_function::<VortexTableFunction>(c"vortex_scan")?;
-    conn.register_table_function::<VortexTableFunction>(c"read_vortex")
+    conn.register_table_function::<VortexTableFunction>(c"read_vortex")?;
+    conn.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
 }
 
 /// The DuckDB extension ABI initialization function.
@@ -42,7 +49,7 @@ pub unsafe extern "C" fn vortex_init(db: cpp::duckdb_database) {
     let conn = unsafe { Database::borrow(db) }
         .connect()
         .vortex_expect("Failed to connect to DuckDB database");
-    init(&conn).vortex_expect("Failed to initialize Vortex extension");
+    register_table_functions(&conn).vortex_expect("Failed to initialize Vortex extension");
 }
 
 /// The DuckDB extension ABI version function.
@@ -62,3 +69,10 @@ pub extern "C" fn vortex_extension_version() -> *const c_char {
     }
     .as_ptr()
 }
+
+static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+    runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .vortex_expect("Cannot start runtime")
+});

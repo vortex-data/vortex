@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 /// Download TPC-H data via Docker.
 ///
 /// This is a simple wrapper around the `dbgen` tool.
@@ -9,6 +12,7 @@ use std::io::copy;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use dirs::cache_dir;
 use itertools::Itertools;
 use tar::Archive;
 use xshell::Shell;
@@ -40,12 +44,7 @@ impl Default for DBGenOptions {
         Self {
             scale_factor: 1,
             base_dir: "tpch".to_data_path(),
-            cache_dir: homedir::my_home()
-                .unwrap()
-                .unwrap()
-                .join(".cache")
-                .join("vortex")
-                .join("dbgen"),
+            cache_dir: cache_dir().unwrap().join("vortex").join("dbgen"),
         }
     }
 }

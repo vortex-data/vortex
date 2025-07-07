@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use num_traits::PrimInt;
 use vortex_dtype::{DType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexResult, vortex_err, vortex_panic};
@@ -17,7 +20,10 @@ impl TakeKernel for VarBinVTable {
         match_each_integer_ptype!(offsets.ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 Ok(take(
-                    array.dtype().clone(),
+                    array
+                        .dtype()
+                        .clone()
+                        .union_nullability(indices.dtype().nullability()),
                     offsets.as_slice::<O>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
@@ -100,4 +106,32 @@ fn take_nullable<I: NativePType, O: NativePType + PrimInt>(
         }
     }
     builder.finish(dtype)
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::{DType, Nullability};
+
+    use crate::Array;
+    use crate::arrays::{PrimitiveArray, VarBinArray};
+    use crate::compute::take;
+
+    #[test]
+    fn test_null_take() {
+        let arr = VarBinArray::from_iter([Some("h")], DType::Utf8(Nullability::NonNullable));
+
+        let idx1: PrimitiveArray = (0..1).collect();
+
+        assert_eq!(
+            take(arr.as_ref(), idx1.as_ref()).unwrap().dtype(),
+            &DType::Utf8(Nullability::NonNullable)
+        );
+
+        let idx2: PrimitiveArray = PrimitiveArray::from_option_iter(vec![Some(0)]);
+
+        assert_eq!(
+            take(arr.as_ref(), idx2.as_ref()).unwrap().dtype(),
+            &DType::Utf8(Nullability::Nullable)
+        );
+    }
 }

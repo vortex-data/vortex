@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use rstest::rstest;
 use vortex_buffer::buffer;
 use vortex_dtype::datetime::{TemporalMetadata, TimeUnit};

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::Display;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -13,9 +16,10 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::SessionContext;
 use futures::{StreamExt, TryStreamExt, stream};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use reqwest::IntoUrl;
 use reqwest::blocking::Response;
+use serde::Serialize;
 use tokio::fs::{OpenOptions, create_dir_all};
 use tracing::{debug, info, warn};
 use url::Url;
@@ -272,7 +276,7 @@ pub fn clickbench_queries(queries_file_path: PathBuf) -> Vec<(usize, String)> {
         .collect()
 }
 
-#[derive(ValueEnum, Default, Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(ValueEnum, Default, Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub enum Flavor {
     #[default]
     Partitioned,
@@ -314,7 +318,10 @@ impl Flavor {
             Flavor::Partitioned => {
                 // The clickbench-provided file is missing some higher-level type info, so we reprocess it
                 // to add that info, see https://github.com/ClickHouse/ClickBench/issues/7.
-                let _ = (0_u32..100).into_par_iter().map(|idx| {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .thread_name(|i| format!("clickbench download {i}"))
+                    .build()?;
+                let _ = pool.install(|| (0_u32..100).into_par_iter().map(|idx| {
                     let output_path = basepath.join(Format::Parquet.name()).join(format!("hits_{idx}.parquet"));
                     idempotent(&output_path, |output_path| {
                         info!("Downloading file {idx}");
@@ -325,7 +332,7 @@ impl Flavor {
 
                         anyhow::Ok(())
                     })
-                }).collect::<anyhow::Result<Vec<_>>>()?;
+                }).collect::<anyhow::Result<Vec<_>>>())?;
             }
         }
         Ok(())

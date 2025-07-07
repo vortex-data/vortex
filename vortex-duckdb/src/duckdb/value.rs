@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ffi::CStr;
 use std::fmt::{Debug, Formatter};
 
@@ -71,8 +74,14 @@ impl Value {
         unsafe { Self::own(cpp::duckdb_create_date(cpp::duckdb_date { days })) }
     }
 
-    pub fn as_string(&self) -> &CStr {
-        unsafe { CStr::from_ptr(cpp::duckdb_get_varchar(self.as_ptr())) }
+    pub fn as_string(&self) -> String {
+        unsafe {
+            let ptr = cpp::duckdb_get_varchar(self.as_ptr());
+            let cstr = CStr::from_ptr(ptr);
+            let result = cstr.to_string_lossy().into_owned();
+            cpp::duckdb_free(ptr.cast());
+            result
+        }
     }
 
     pub fn as_u8(&self) -> u8 {
@@ -90,6 +99,18 @@ impl Value {
     pub fn as_i128(&self) -> i128 {
         let huge = unsafe { cpp::duckdb_get_hugeint(self.ptr) };
         i128_from_parts(huge.upper, huge.lower)
+    }
+
+    pub fn as_date(&self) -> i32 {
+        unsafe { cpp::duckdb_get_date(self.ptr).days }
+    }
+
+    pub fn as_time(&self) -> i64 {
+        unsafe { cpp::duckdb_get_time(self.ptr).micros }
+    }
+
+    pub fn as_decimal(&self) -> cpp::duckdb_decimal {
+        unsafe { cpp::duckdb_get_decimal(self.ptr) }
     }
 }
 

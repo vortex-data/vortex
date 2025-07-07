@@ -1,10 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ffi::{CStr, c_void};
 use std::fmt::{Display, Formatter};
 use std::ptr;
 
 use crate::cpp::duckdb_vx_expr_class;
 use crate::duckdb::{ScalarFunction, Value};
-use crate::{cpp, wrapper};
+use crate::{cpp, duckdb, wrapper};
 
 wrapper!(Expression, cpp::duckdb_vx_expr, cpp::duckdb_vx_destroy_expr);
 
@@ -24,14 +27,15 @@ impl Expression {
     }
 
     /// Match the subclass of the expression.
-    pub fn as_class(&self) -> Option<ExpressionClass> {
+    pub fn as_class(&self) -> Option<ExpressionClass<'_>> {
         Some(
             match unsafe { cpp::duckdb_vx_expr_get_class(self.as_ptr()) } {
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF => {
                     let ptr =
                         unsafe { cpp::duckdb_vx_expr_get_bound_column_ref_get_name(self.as_ptr()) };
+
                     ExpressionClass::BoundColumnRef(BoundColumnRef {
-                        name: unsafe { CStr::from_ptr(ptr) },
+                        name: duckdb::string::String::from_ptr(ptr),
                     })
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CONSTANT => {
@@ -133,7 +137,7 @@ impl Expression {
 }
 
 pub enum ExpressionClass<'a> {
-    BoundColumnRef(BoundColumnRef<'a>),
+    BoundColumnRef(BoundColumnRef),
     BoundConstant(BoundConstant),
     BoundComparison(BoundComparison),
     BoundConjunction(BoundConjunction<'a>),
@@ -142,8 +146,8 @@ pub enum ExpressionClass<'a> {
     BoundFunction(BoundFunction<'a>),
 }
 
-pub struct BoundColumnRef<'a> {
-    pub name: &'a CStr,
+pub struct BoundColumnRef {
+    pub name: duckdb::string::String,
 }
 
 pub struct BoundConstant {

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
@@ -159,7 +162,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray};
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{Field, FieldNames, FieldPath, FieldPathSet, Nullability, StructFields};
+    use vortex_dtype::{Field, FieldPath, FieldPathSet, Nullability, StructFields};
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
 
@@ -277,13 +280,13 @@ mod tests {
     #[test]
     pub fn test_return_type() {
         let scope = ScopeDType::new(DType::Struct(
-            Arc::new(StructFields::new(
-                FieldNames::from(["array".into()]),
+            StructFields::new(
+                ["array"].into(),
                 vec![DType::List(
                     Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
                     Nullability::Nullable,
                 )],
-            )),
+            ),
             Nullability::NonNullable,
         ));
 

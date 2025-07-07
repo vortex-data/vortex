@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod reader;
 pub mod writer;
 
@@ -7,6 +10,7 @@ use reader::StructReader;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Field, FieldMask, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_expr::{Identifier, ScopeDType};
 
 use crate::children::{LayoutChildren, OwnedLayoutChildren};
 use crate::segments::{SegmentId, SegmentSource};
@@ -34,7 +38,14 @@ impl VTable for StructVTable {
     }
 
     fn dtype(layout: &Self::Layout) -> &DType {
-        &layout.dtype
+        layout
+            .scope_dtype
+            .dtype(&Identifier::Identity)
+            .vortex_expect("flat layout always has an identity")
+    }
+
+    fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {
+        &layout.scope_dtype
     }
 
     fn metadata(_layout: &Self::Layout) -> Self::Metadata {
@@ -101,9 +112,10 @@ impl VTable for StructVTable {
                 struct_dt.nfields()
             );
         }
+        let scope_dtype = ScopeDType::new(dtype.clone());
         Ok(StructLayout {
             row_count,
-            dtype: dtype.clone(),
+            scope_dtype,
             children: children.to_arc(),
         })
     }
@@ -115,20 +127,21 @@ pub struct StructLayoutEncoding;
 #[derive(Clone, Debug)]
 pub struct StructLayout {
     row_count: u64,
-    dtype: DType,
+    scope_dtype: ScopeDType,
     children: Arc<dyn LayoutChildren>,
 }
 
 impl StructLayout {
     pub fn new(row_count: u64, dtype: DType, children: Vec<LayoutRef>) -> Self {
+        let scope_dtype = ScopeDType::new(dtype);
         Self {
             row_count,
-            dtype,
+            scope_dtype,
             children: OwnedLayoutChildren::layout_children(children),
         }
     }
 
-    pub fn struct_fields(&self) -> &Arc<StructFields> {
+    pub fn struct_fields(&self) -> &StructFields {
         let DType::Struct(dtype, _) = self.dtype() else {
             vortex_panic!("Mismatched dtype {} for struct layout", self.dtype());
         };

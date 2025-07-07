@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::cmp::Ordering;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -36,7 +39,7 @@ pub use pvalue::*;
 pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].
 ///
@@ -182,8 +185,7 @@ impl Scalar {
     /// Create a "default" scalar value for the given data type.
     pub fn default_value(dtype: DType) -> Self {
         if dtype.is_nullable() {
-            // We need to decide if we want to return "None" or "0"
-            vortex_panic!("default for nullable dtype {dtype} is not implemented");
+            return Self::null(dtype);
         }
 
         match dtype {
@@ -211,67 +213,67 @@ impl Scalar {
 }
 
 impl Scalar {
-    pub fn as_bool(&self) -> BoolScalar {
+    pub fn as_bool(&self) -> BoolScalar<'_> {
         BoolScalar::try_from(self).vortex_expect("Failed to convert scalar to bool")
     }
 
-    pub fn as_bool_opt(&self) -> Option<BoolScalar> {
+    pub fn as_bool_opt(&self) -> Option<BoolScalar<'_>> {
         matches!(self.dtype, DType::Bool(..)).then(|| self.as_bool())
     }
 
-    pub fn as_primitive(&self) -> PrimitiveScalar {
+    pub fn as_primitive(&self) -> PrimitiveScalar<'_> {
         PrimitiveScalar::try_from(self).vortex_expect("Failed to convert scalar to primitive")
     }
 
-    pub fn as_primitive_opt(&self) -> Option<PrimitiveScalar> {
+    pub fn as_primitive_opt(&self) -> Option<PrimitiveScalar<'_>> {
         matches!(self.dtype, DType::Primitive(..)).then(|| self.as_primitive())
     }
 
-    pub fn as_decimal(&self) -> DecimalScalar {
+    pub fn as_decimal(&self) -> DecimalScalar<'_> {
         DecimalScalar::try_from(self).vortex_expect("Failed to convert scalar to decimal")
     }
 
-    pub fn as_decimal_opt(&self) -> Option<DecimalScalar> {
+    pub fn as_decimal_opt(&self) -> Option<DecimalScalar<'_>> {
         matches!(self.dtype, DType::Decimal(..)).then(|| self.as_decimal())
     }
 
-    pub fn as_utf8(&self) -> Utf8Scalar {
+    pub fn as_utf8(&self) -> Utf8Scalar<'_> {
         Utf8Scalar::try_from(self).vortex_expect("Failed to convert scalar to utf8")
     }
 
-    pub fn as_utf8_opt(&self) -> Option<Utf8Scalar> {
+    pub fn as_utf8_opt(&self) -> Option<Utf8Scalar<'_>> {
         matches!(self.dtype, DType::Utf8(..)).then(|| self.as_utf8())
     }
 
-    pub fn as_binary(&self) -> BinaryScalar {
+    pub fn as_binary(&self) -> BinaryScalar<'_> {
         BinaryScalar::try_from(self).vortex_expect("Failed to convert scalar to binary")
     }
 
-    pub fn as_binary_opt(&self) -> Option<BinaryScalar> {
+    pub fn as_binary_opt(&self) -> Option<BinaryScalar<'_>> {
         matches!(self.dtype, DType::Binary(..)).then(|| self.as_binary())
     }
 
-    pub fn as_struct(&self) -> StructScalar {
+    pub fn as_struct(&self) -> StructScalar<'_> {
         StructScalar::try_from(self).vortex_expect("Failed to convert scalar to struct")
     }
 
-    pub fn as_struct_opt(&self) -> Option<StructScalar> {
+    pub fn as_struct_opt(&self) -> Option<StructScalar<'_>> {
         matches!(self.dtype, DType::Struct(..)).then(|| self.as_struct())
     }
 
-    pub fn as_list(&self) -> ListScalar {
+    pub fn as_list(&self) -> ListScalar<'_> {
         ListScalar::try_from(self).vortex_expect("Failed to convert scalar to list")
     }
 
-    pub fn as_list_opt(&self) -> Option<ListScalar> {
+    pub fn as_list_opt(&self) -> Option<ListScalar<'_>> {
         matches!(self.dtype, DType::List(..)).then(|| self.as_list())
     }
 
-    pub fn as_extension(&self) -> ExtScalar {
+    pub fn as_extension(&self) -> ExtScalar<'_> {
         ExtScalar::try_from(self).vortex_expect("Failed to convert scalar to extension")
     }
 
-    pub fn as_extension_opt(&self) -> Option<ExtScalar> {
+    pub fn as_extension_opt(&self) -> Option<ExtScalar<'_>> {
         matches!(self.dtype, DType::Extension(..)).then(|| self.as_extension())
     }
 }
@@ -599,7 +601,7 @@ mod test {
     }
 
     #[test]
-    fn zero_for_complex_dtype() {
+    fn default_value_for_complex_dtype() {
         let struct_dtype = DType::struct_(
             [
                 ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
@@ -610,6 +612,7 @@ mod test {
                         Nullability::NonNullable,
                     ),
                 ),
+                ("c", DType::Primitive(PType::I32, Nullability::Nullable)),
             ],
             Nullability::NonNullable,
         );
@@ -623,6 +626,9 @@ mod test {
         assert_eq!(a_field.as_primitive().pvalue().unwrap(), PValue::I32(0));
 
         let b_field = scalar.field("b").unwrap();
-        assert!(b_field.as_list().is_empty())
+        assert!(b_field.as_list().is_empty());
+
+        let c_field = scalar.field("c").unwrap();
+        assert!(c_field.is_null());
     }
 }

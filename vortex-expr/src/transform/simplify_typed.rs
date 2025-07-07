@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_error::VortexResult;
 
 use crate::transform::remove_merge::remove_merge;
@@ -15,6 +18,7 @@ pub fn simplify_typed(e: ExprRef, ctx: &ScopeDType) -> VortexResult<ExprRef> {
 
     let e = remove_select(e, ctx)?;
     let e = remove_merge(e, ctx)?;
+    let e = simplify(e)?;
 
     Ok(e)
 }

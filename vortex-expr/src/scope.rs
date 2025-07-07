@@ -1,11 +1,18 @@
-use std::any::Any;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::any::{Any, TypeId};
+use std::fmt::{Debug, Display};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldPathSet};
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_utils::aliases::hash_map::HashMap;
+
+use crate::scope_vars::{ScopeVar, ScopeVars};
 
 type ExprScope<T> = HashMap<Identifier, T>;
 
@@ -52,7 +59,7 @@ impl Identifier {
     }
 }
 
-impl std::fmt::Display for Identifier {
+impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Identifier::Identity => write!(f, ""),
@@ -86,6 +93,8 @@ pub struct Scope {
     /// A map identifiers to opaque values used by expressions, but
     /// cannot affect the result type/shape.
     vars: ExprScope<Arc<dyn Any + Send + Sync>>,
+    /// Variables that can be set on the scope during expression evaluation.
+    scope_vars: ScopeVars,
 }
 
 pub type ScopeElement = (Identifier, ArrayRef);
@@ -154,6 +163,26 @@ impl Scope {
         self
     }
 
+    /// Returns a new evaluation scope with the given variable applied.
+    pub fn with_scope_var<V: ScopeVar>(mut self, var: V) -> Self {
+        self.scope_vars.insert(TypeId::of::<V>(), Box::new(var));
+        self
+    }
+
+    /// Returns the scope variable of type `V` if it exists.
+    pub fn scope_var<V: ScopeVar>(&self) -> Option<&V> {
+        self.scope_vars
+            .get(&TypeId::of::<V>())
+            .and_then(|boxed| (**boxed).as_any().downcast_ref::<V>())
+    }
+
+    /// Returns the mutable scope variable of type `V` if it exists.
+    pub fn scope_var_mut<V: ScopeVar>(&mut self) -> Option<&mut V> {
+        self.scope_vars
+            .get_mut(&TypeId::of::<V>())
+            .and_then(|boxed| (**boxed).as_any_mut().downcast_mut::<V>())
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&Identifier, &ArrayRef)> {
         let values = self.arrays.iter();
 
@@ -174,6 +203,25 @@ impl From<ArrayRef> for Scope {
 pub struct ScopeDType {
     root: Option<DType>,
     types: ExprScope<DType>,
+}
+
+impl Display for ScopeDType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(root) = self.root.as_ref() {
+            write!(f, "$: {}", root)?;
+        }
+        if !self.types.is_empty() {
+            write!(f, ". ")?;
+            write!(
+                f,
+                "{}",
+                self.types
+                    .iter()
+                    .format_with(",", |x, f| f(&format_args!("{}: {}", x.0, x.1)))
+            )?;
+        }
+        Ok(())
+    }
 }
 
 pub type ScopeDTypeElement = (Identifier, DType);
@@ -262,5 +310,28 @@ impl ScopeFieldPathSet {
 
     pub fn with_set_element(self, (ident, set): ScopeFieldPathSetElement) -> Self {
         self.with_set(ident, set)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_scope_var() {
+        use super::*;
+
+        #[derive(Clone, PartialEq, Eq, Debug)]
+        struct TestVar {
+            value: i32,
+        }
+
+        let scope = Scope::empty(100);
+        assert!(scope.scope_var::<TestVar>().is_none());
+
+        let var = TestVar { value: 42 };
+        let mut scope = scope.with_scope_var(var.clone());
+        assert_eq!(scope.scope_var::<TestVar>(), Some(&var));
+
+        scope.scope_var_mut::<TestVar>().unwrap().value = 43;
+        assert_eq!(scope.scope_var::<TestVar>(), Some(&TestVar { value: 43 }));
     }
 }

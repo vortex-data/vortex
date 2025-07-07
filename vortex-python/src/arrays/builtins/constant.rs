@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use pyo3::{Bound, PyRef, PyResult, pyclass, pymethods};
 use vortex::arrays::ConstantVTable;
 
@@ -15,7 +18,7 @@ impl EncodingSubclass for PyConstantArray {
 #[pymethods]
 impl PyConstantArray {
     /// Return the scalar value of the constant array.
-    pub fn scalar(self_: PyRef<'_, Self>) -> PyResult<Bound<PyScalar>> {
+    pub fn scalar(self_: PyRef<'_, Self>) -> PyResult<Bound<'_, PyScalar>> {
         PyScalar::init(self_.py(), self_.as_array_ref().scalar().clone())
     }
 }

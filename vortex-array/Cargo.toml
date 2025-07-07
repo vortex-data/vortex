@@ -16,6 +16,9 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[build-dependencies]
+rustversion = { workspace = true }
+
 [dependencies]
 arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
@@ -38,6 +41,7 @@ humansize = { workspace = true }
 inventory = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+multiversion = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 parking_lot = { workspace = true }
@@ -65,6 +69,8 @@ arbitrary = [
     "vortex-scalar/arbitrary",
 ]
 canonical_counter = []
+# should only be enabled on nightly compiler
+nightly = []
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 
 [dev-dependencies]

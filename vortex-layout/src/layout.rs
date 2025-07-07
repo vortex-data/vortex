@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -7,6 +10,7 @@ use itertools::Itertools;
 use vortex_array::{ArrayContext, SerializeMetadata};
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
+use vortex_expr::ScopeDType;
 
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{LayoutEncodingId, LayoutEncodingRef, LayoutReaderRef, VTable};
@@ -30,6 +34,9 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
 
     /// The dtype of this layout.
     fn dtype(&self) -> &DType;
+
+    /// The layout evaluates expressions in this scope.
+    fn scope_dtype(&self) -> &ScopeDType;
 
     /// The number of children in this layout.
     fn nchildren(&self) -> usize;
@@ -219,6 +226,10 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
 
     fn dtype(&self) -> &DType {
         V::dtype(&self.0)
+    }
+
+    fn scope_dtype(&self) -> &ScopeDType {
+        V::scope_dtype(&self.0)
     }
 
     fn nchildren(&self) -> usize {

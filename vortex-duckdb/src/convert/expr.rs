@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -55,7 +58,7 @@ pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<Opt
 fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
     match value.as_class().vortex_expect("unknown class") {
         ExpressionClass::BoundConstant(constant) => {
-            Ok(Some(format!("%{}%", constant.value.as_string().to_str()?)))
+            Ok(Some(format!("%{}%", constant.value.as_string())))
         }
         _ => Ok(None),
     }
@@ -168,7 +171,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 Like::new_expr(value, pattern, false, false)
             }
             _ => {
-                log::warn!("bound function {}", func.scalar_function.name());
+                log::debug!("bound function {}", func.scalar_function.name());
                 return Ok(None);
             }
         },

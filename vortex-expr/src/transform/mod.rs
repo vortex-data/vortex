@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! A collection of transformations that can be applied to a [`crate::ExprRef`].
 mod access_analysis;
 pub mod field_mask;

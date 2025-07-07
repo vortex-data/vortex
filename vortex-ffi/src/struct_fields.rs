@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -16,8 +19,11 @@ arc_wrapper!(
 
 /// Return the number of fields in the struct dtype.
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn vx_struct_fields_nfields(dtype: *const vx_struct_fields) -> usize {
-    vx_struct_fields::as_ref(dtype).nfields()
+pub unsafe extern "C-unwind" fn vx_struct_fields_nfields(dtype: *const vx_struct_fields) -> u64 {
+    unsafe { dtype.as_ref() }
+        .vortex_expect("null ptr")
+        .0
+        .nfields() as u64
 }
 
 /// Return a borrowed reference to the name of the field at the given index.
@@ -26,7 +32,8 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
     dtype: *const vx_struct_fields,
     idx: usize,
 ) -> *const vx_string {
-    let struct_dtype = vx_struct_fields::as_ref(dtype);
+    let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
+    let struct_dtype = &ptr.0;
     if idx >= struct_dtype.nfields() {
         vortex_panic!("Field index out of bounds");
     }
@@ -42,12 +49,13 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_field_dtype(
     dtype: *const vx_struct_fields,
-    idx: usize,
+    idx: u64,
 ) -> *const vx_dtype {
-    let struct_dtype = vx_struct_fields::as_ref(dtype);
+    let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
+    let struct_dtype = &ptr.0;
     vx_dtype::new(Arc::new(
         struct_dtype
-            .field_by_index(idx)
+            .field_by_index(usize::try_from(idx).vortex_expect("Unsupported cast"))
             .vortex_expect("Failed to parse lazy field dtype"),
     ))
 }

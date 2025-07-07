@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, LazyLock};
@@ -15,8 +18,7 @@ use vortex_dtype::{
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::var_partition::{VarPartitionedExpr, var_partitions_with_map};
 use vortex_expr::{
-    ExactExpr, ExprRef, Identifier, Scope, ScopeDType, ScopeDTypeElement, ScopeElement,
-    ScopeFieldPathSetElement,
+    ExactExpr, ExprRef, Identifier, Scope, ScopeDType, ScopeElement, ScopeFieldPathSetElement,
 };
 use vortex_mask::Mask;
 use vortex_sequence::SequenceArray;
@@ -28,10 +30,13 @@ pub struct RowIdLayoutReader {
     name: Arc<str>,
     partitioned_expr_cache: DashMap<ExactExpr, Arc<VarPartitionedExpr>>,
     file_index: u64,
+    scope_dtype: ScopeDType,
 }
 
 pub static ROW_ID: LazyLock<Identifier> =
     LazyLock::new(|| Identifier::Other(Arc::from("$vx.row_id")));
+pub const FILE_ROW_NUMBER_FIELD: &str = "file_row_number";
+pub const FILE_INDEX_FIELD: &str = "file_index";
 
 impl RowIdLayoutReader {
     pub fn new(child: LayoutReaderRef) -> Self {
@@ -39,11 +44,22 @@ impl RowIdLayoutReader {
     }
 
     pub fn new_with_file_index(child: LayoutReaderRef, file_index: u64) -> Self {
+        let scope_dtype = ScopeDType::new(child.dtype().clone()).with_dtype_element((
+            ROW_ID.clone(),
+            DType::Struct(
+                StructFields::from_iter([
+                    (FieldName::from(FILE_ROW_NUMBER_FIELD), DType::from(U64)),
+                    (FILE_INDEX_FIELD.into(), U64.into()),
+                ]),
+                Nullability::NonNullable,
+            ),
+        ));
         Self {
             child,
             name: Arc::from("row_id_layout_reader"),
             partitioned_expr_cache: Default::default(),
             file_index,
+            scope_dtype,
         }
     }
 }
@@ -77,13 +93,13 @@ impl RowIdLayoutReader {
             ROW_ID.clone(),
             StructArray::from_fields(&[
                 (
-                    "file_row_number",
+                    FILE_ROW_NUMBER_FIELD,
                     SequenceArray::typed_new(row_range.start, 1, arr_len)
                         .vortex_expect("cannot be out of bounds")
                         .to_array(),
                 ),
                 (
-                    "file_index",
+                    FILE_INDEX_FIELD,
                     ConstantArray::new(self.file_index, arr_len).to_array(),
                 ),
             ])
@@ -92,37 +108,24 @@ impl RowIdLayoutReader {
         )
     }
 
-    pub fn row_id_scope_dtype() -> ScopeDTypeElement {
-        (
-            ROW_ID.clone(),
-            DType::Struct(
-                Arc::new(StructFields::from_iter([
-                    (FieldName::from("file_row_number"), DType::from(U64)),
-                    ("file_index".into(), U64.into()),
-                ])),
-                Nullability::NonNullable,
-            ),
-        )
-    }
-
     pub fn row_id_stats_field_path_set() -> ScopeFieldPathSetElement {
         (
             ROW_ID.clone(),
             FieldPathSet::from_iter([
                 FieldPath::from_iter([
-                    Field::Name("file_row_number".into()),
+                    Field::Name(FILE_ROW_NUMBER_FIELD.into()),
                     Field::Name(Stat::Max.name().into()),
                 ]),
                 FieldPath::from_iter([
-                    Field::Name("file_row_number".into()),
+                    Field::Name(FILE_ROW_NUMBER_FIELD.into()),
                     Field::Name(Stat::Min.name().into()),
                 ]),
                 FieldPath::from_iter([
-                    Field::Name("file_index".into()),
+                    Field::Name(FILE_INDEX_FIELD.into()),
                     Field::Name(Stat::Max.name().into()),
                 ]),
                 FieldPath::from_iter([
-                    Field::Name("file_index".into()),
+                    Field::Name(FILE_INDEX_FIELD.into()),
                     Field::Name(Stat::Min.name().into()),
                 ]),
             ]),
@@ -157,6 +160,10 @@ impl LayoutReader for RowIdLayoutReader {
 
     fn dtype(&self) -> &DType {
         self.child.dtype()
+    }
+
+    fn scope_dtype(&self) -> &ScopeDType {
+        &self.scope_dtype
     }
 
     fn row_count(&self) -> Precision<u64> {
@@ -329,7 +336,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::layouts::row_id::{ROW_ID, RowIdLayoutReader};
+    use crate::layouts::row_id::{FILE_ROW_NUMBER_FIELD, ROW_ID, RowIdLayoutReader};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutReader, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
@@ -396,7 +403,10 @@ mod tests {
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
-            let expr = gt(get_item("file_row_number", var(ROW_ID.clone())), lit(3u64));
+            let expr = gt(
+                get_item(FILE_ROW_NUMBER_FIELD, var(ROW_ID.clone())),
+                lit(3u64),
+            );
             let result =
                 RowIdLayoutReader::new(layout.new_reader("".into(), segments, ctx).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
@@ -439,7 +449,10 @@ mod tests {
             let expr = or(
                 eq(root(), lit(3i32)),
                 or(
-                    gt(get_item("file_row_number", var(ROW_ID.clone())), lit(3u64)),
+                    gt(
+                        get_item(FILE_ROW_NUMBER_FIELD, var(ROW_ID.clone())),
+                        lit(3u64),
+                    ),
                     eq(root(), lit(1i32)),
                 ),
             );

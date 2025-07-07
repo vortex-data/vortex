@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::cmp::max;
 
 use arbitrary::{Result as AResult, Unstructured};
@@ -15,7 +18,7 @@ pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Optio
 
     let cols = (0..column_count)
         .map(|_| {
-            let get_item = u.choose(struct_dtype.names().iter().as_slice())?;
+            let get_item = u.choose_iter(struct_dtype.names().iter())?;
             Ok((get_item.clone(), get_item_scope(get_item.clone())))
         })
         .collect::<AResult<Vec<_>>>()?;

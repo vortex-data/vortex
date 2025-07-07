@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Utilities to work with `Arrow` data and types.
 
 use arrow_array::ArrayRef as ArrowArrayRef;

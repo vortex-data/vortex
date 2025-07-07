@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{
     CompareKernel, CompareKernelAdapter, Operator, and, cast, compare, or,
@@ -47,7 +50,6 @@ impl CompareKernel for DateTimePartsVTable {
             Operator::NotEq => compare_ne(lhs, &ts_parts, nullability),
             // lt and lte have identical behavior, as we optimize
             // for the case that all days on the lhs are smaller.
-            //
             // If that special case is not hit, we return `Ok(None)` to
             // signal that the comparison wasn't handled within dtp.
             Operator::Lt => compare_lt(lhs, &ts_parts, nullability),
@@ -168,7 +170,11 @@ fn compare_dtp(
     operator: Operator,
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    match cast(ConstantArray::new(rhs, lhs.len()).as_ref(), lhs.dtype()) {
+    // Since nullability is stripped from RHS and carried forward through nullability argument we want to incorporate it into lhs.dtype() that we cast rhs into
+    match cast(
+        ConstantArray::new(rhs, lhs.len()).as_ref(),
+        &lhs.dtype().with_nullability(nullability),
+    ) {
         Ok(casted) => compare(lhs, &casted, operator),
         // The narrowing cast failed. Therefore, we know lhs < rhs.
         _ => {
@@ -186,6 +192,7 @@ fn compare_dtp(
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::compute::Operator;
     use vortex_array::validity::Validity;
@@ -195,75 +202,101 @@ mod test {
 
     use super::*;
 
-    fn dtp_array_from_timestamp<T: NativePType>(value: T) -> DateTimePartsArray {
+    fn dtp_array_from_timestamp<T: NativePType>(
+        value: T,
+        validity: Validity,
+    ) -> DateTimePartsArray {
         DateTimePartsArray::try_from(TemporalArray::new_timestamp(
-            PrimitiveArray::new(buffer![value], Validity::NonNullable).into_array(),
+            PrimitiveArray::new(buffer![value], validity).into_array(),
             TimeUnit::S,
             Some("UTC".to_string()),
         ))
         .expect("Failed to construct DateTimePartsArray from TemporalArray")
     }
 
-    #[test]
-    fn compare_date_time_parts_eq() {
-        let lhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
-        let rhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
+    #[rstest]
+    #[case(Validity::NonNullable, Validity::NonNullable)]
+    #[case(Validity::NonNullable, Validity::AllValid)]
+    #[case(Validity::AllValid, Validity::NonNullable)]
+    #[case(Validity::AllValid, Validity::AllValid)]
+    fn compare_date_time_parts_eq(#[case] lhs_validity: Validity, #[case] rhs_validity: Validity) {
+        let lhs = dtp_array_from_timestamp(86400i64, lhs_validity); // January 2, 1970, 00:00:00 UTC
+        let rhs = dtp_array_from_timestamp(86400i64, rhs_validity.clone()); // January 2, 1970, 00:00:00 UTC
         let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
-        let rhs = dtp_array_from_timestamp(0i64); // January 1, 1970, 00:00:00 UTC
+        let rhs = dtp_array_from_timestamp(0i64, rhs_validity); // January 1, 1970, 00:00:00 UTC
         let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
     }
 
-    #[test]
-    fn compare_date_time_parts_ne() {
-        let lhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
-        let rhs = dtp_array_from_timestamp(86401i64); // January 2, 1970, 00:00:01 UTC
+    #[rstest]
+    #[case(Validity::NonNullable, Validity::NonNullable)]
+    #[case(Validity::NonNullable, Validity::AllValid)]
+    #[case(Validity::AllValid, Validity::NonNullable)]
+    #[case(Validity::AllValid, Validity::AllValid)]
+    fn compare_date_time_parts_ne(#[case] lhs_validity: Validity, #[case] rhs_validity: Validity) {
+        let lhs = dtp_array_from_timestamp(86400i64, lhs_validity); // January 2, 1970, 00:00:00 UTC
+        let rhs = dtp_array_from_timestamp(86401i64, rhs_validity.clone()); // January 2, 1970, 00:00:01 UTC
         let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::NotEq).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
-        let rhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
+        let rhs = dtp_array_from_timestamp(86400i64, rhs_validity); // January 2, 1970, 00:00:00 UTC
         let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::NotEq).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
     }
 
-    #[test]
-    fn compare_date_time_parts_lt() {
-        let lhs = dtp_array_from_timestamp(0i64); // January 1, 1970, 01:00:00 UTC
-        let rhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 00:00:00 UTC
+    #[rstest]
+    #[case(Validity::NonNullable, Validity::NonNullable)]
+    #[case(Validity::NonNullable, Validity::AllValid)]
+    #[case(Validity::AllValid, Validity::NonNullable)]
+    #[case(Validity::AllValid, Validity::AllValid)]
+    fn compare_date_time_parts_lt(#[case] lhs_validity: Validity, #[case] rhs_validity: Validity) {
+        let lhs = dtp_array_from_timestamp(0i64, lhs_validity); // January 1, 1970, 01:00:00 UTC
+        let rhs = dtp_array_from_timestamp(86400i64, rhs_validity); // January 2, 1970, 00:00:00 UTC
 
         let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lt).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
     }
 
-    #[test]
-    fn compare_date_time_parts_gt() {
-        let lhs = dtp_array_from_timestamp(86400i64); // January 2, 1970, 02:00:00 UTC
-        let rhs = dtp_array_from_timestamp(0i64); // January 1, 1970, 01:00:00 UTC
+    #[rstest]
+    #[case(Validity::NonNullable, Validity::NonNullable)]
+    #[case(Validity::NonNullable, Validity::AllValid)]
+    #[case(Validity::AllValid, Validity::NonNullable)]
+    #[case(Validity::AllValid, Validity::AllValid)]
+    fn compare_date_time_parts_gt(#[case] lhs_validity: Validity, #[case] rhs_validity: Validity) {
+        let lhs = dtp_array_from_timestamp(86400i64, lhs_validity); // January 2, 1970, 02:00:00 UTC
+        let rhs = dtp_array_from_timestamp(0i64, rhs_validity); // January 1, 1970, 01:00:00 UTC
 
         let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::Gt).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
     }
 
-    #[test]
-    fn compare_date_time_parts_narrowing() {
+    #[rstest]
+    #[case(Validity::NonNullable, Validity::NonNullable)]
+    #[case(Validity::NonNullable, Validity::AllValid)]
+    #[case(Validity::AllValid, Validity::NonNullable)]
+    #[case(Validity::AllValid, Validity::AllValid)]
+    fn compare_date_time_parts_narrowing(
+        #[case] lhs_validity: Validity,
+        #[case] rhs_validity: Validity,
+    ) {
         let temporal_array = TemporalArray::new_timestamp(
-            PrimitiveArray::new(buffer![0i64], Validity::NonNullable).into_array(),
+            PrimitiveArray::new(buffer![0i64], lhs_validity.clone()).into_array(),
             TimeUnit::S,
             Some("UTC".to_string()),
         );
 
         let lhs = DateTimePartsArray::try_new(
             DType::Extension(temporal_array.ext_dtype()),
-            PrimitiveArray::new(buffer![0i32], Validity::NonNullable).into_array(),
+            PrimitiveArray::new(buffer![0i32], lhs_validity).into_array(),
             PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array(),
             PrimitiveArray::new(buffer![0i64], Validity::NonNullable).into_array(),
         )
         .unwrap();
 
         // Timestamp with a value larger than i32::MAX.
-        let rhs = dtp_array_from_timestamp(i64::MAX);
+        let rhs = dtp_array_from_timestamp(i64::MAX, rhs_validity);
 
         let comparison = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);

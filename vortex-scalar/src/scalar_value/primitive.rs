@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use paste::paste;
 use vortex_dtype::half::f16;
 use vortex_error::{VortexError, vortex_err};

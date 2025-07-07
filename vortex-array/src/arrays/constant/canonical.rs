@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Buffer, BufferMut, buffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
@@ -101,12 +104,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                         struct_dtype
                             .fields()
                             .map(|dt| {
-                                // TODO(blaginin): remove this workaround once we've decided on the default value for nullable fields (#3553)
-                                let scalar = match dt.nullability() {
-                                    Nullability::NonNullable => Scalar::default_value(dt),
-                                    Nullability::Nullable => Scalar::null(dt),
-                                };
-
+                                let scalar = Scalar::default_value(dt);
                                 ConstantArray::new(scalar, array.len()).into_array()
                             })
                             .collect()

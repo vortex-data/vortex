@@ -1,12 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
 
 use anyhow::Result;
 use xshell::Shell;
 
 use crate::Format;
-use crate::ddb::DuckDBExecutor;
 
 pub enum TpcDataset {
     TpcH,
@@ -15,7 +16,7 @@ pub enum TpcDataset {
 
 pub struct DuckdbTpcOptions {
     /// Scale factor of the data in GB.
-    pub scale_factor: u8,
+    pub scale_factor: u32,
 
     /// Location on-disk to store generated files.
     pub base_dir: PathBuf,
@@ -23,8 +24,6 @@ pub struct DuckdbTpcOptions {
     pub dataset: TpcDataset,
 
     pub format: Format,
-
-    pub duckdb_path: Option<PathBuf>,
 }
 
 impl DuckdbTpcOptions {
@@ -47,7 +46,6 @@ impl DuckdbTpcOptions {
             base_dir,
             dataset,
             format,
-            duckdb_path: None,
         }
     }
 }
@@ -58,7 +56,7 @@ impl DuckdbTpcOptions {
         self
     }
 
-    pub fn with_scale_factor(mut self, scale_factor: u8) -> Self {
+    pub fn with_scale_factor(mut self, scale_factor: u32) -> Self {
         self.scale_factor = scale_factor;
         self
     }
@@ -70,10 +68,6 @@ impl DuckdbTpcOptions {
 
     pub fn with_dataset(mut self, dataset: TpcDataset) -> Self {
         self.dataset = dataset;
-        self
-    }
-    pub fn with_duckdb_path(mut self, path: PathBuf) -> Self {
-        self.duckdb_path = Some(path);
         self
     }
 }
@@ -94,7 +88,7 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
         return Ok(output_dir);
     }
 
-    let mut command = Command::new(opts.duckdb_path.unwrap_or_else(|| PathBuf::from("duckdb")));
+    let mut command = Command::new("duckdb");
     command
         .arg("-c")
         .arg("install vortex from community; load vortex;");
@@ -149,12 +143,4 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
     sh.write_file(success_file, vec![])?;
 
     Ok(output_dir)
-}
-
-/// Convenience wrapper for TPC-H benchmarks
-pub fn execute_duckdb_tpch_query(
-    queries: &[String],
-    duckdb_executor: &DuckDBExecutor,
-) -> Result<Duration> {
-    crate::engines::ddb::execute_query(queries, duckdb_executor)
 }

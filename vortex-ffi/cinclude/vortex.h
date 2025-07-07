@@ -1,21 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
 //
-
-
-// (c) Copyright 2025 SpiralDB Inc. All rights reserved.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
 
 #pragma once
@@ -197,13 +185,6 @@ typedef struct vx_array_sink vx_array_sink;
  */
 typedef struct vx_dtype vx_dtype;
 
-#if defined(ENABLE_DUCKDB_FFI)
-/**
- * A type for exporting Vortex arrays to a stream of mutable DuckDB vectors.
- */
-typedef struct vx_duckdb_exporter vx_duckdb_exporter;
-#endif
-
 /**
  * The error structure populated by fallible Vortex C functions.
  */
@@ -333,16 +314,16 @@ size_t vx_array_len(const vx_array *array);
  */
 const vx_dtype *vx_array_dtype(const vx_array *array);
 
-const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, vx_error **error);
+const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, vx_error **error_out);
 
 const vx_array *vx_array_slice(const vx_array *array,
                                uint32_t start,
                                uint32_t stop,
-                               vx_error **error);
+                               vx_error **error_out);
 
-bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **error);
+bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **error_out);
 
-uint32_t vx_array_null_count(const vx_array *array, vx_error **error);
+uint32_t vx_array_null_count(const vx_array *array, vx_error **error_out);
 
 uint8_t vx_array_get_u8(const vx_array *array, uint32_t index);
 
@@ -414,7 +395,7 @@ void vx_array_iterator_free(vx_array_iterator *ptr);
  * It is an error to call this function again after the iterator is finished.
  */
 const vx_array *vx_array_iterator_next(vx_array_iterator *iter,
-                                       vx_error **error);
+                                       vx_error **error_out);
 
 /**
  * Clone a borrowed [`vx_dtype`], returning an owned [`vx_dtype`].
@@ -518,50 +499,6 @@ uint8_t vx_dtype_time_unit(const DType *dtype);
 
 void vx_dtype_time_zone(const DType *dtype, void *dst, int *len);
 
-#if defined(ENABLE_DUCKDB_FFI)
-/**
- * Converts a DType into a duckdb
- */
-duckdb_logical_type vx_dtype_to_duckdb_logical_type(const vx_dtype *dtype, vx_error **error);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-/**
- * Converts a DuckDB type into a vortex type
- */
-const vx_dtype *vx_duckdb_logical_type_to_dtype(const duckdb_logical_type *column_types,
-                                                const unsigned char *column_nullable,
-                                                const char *const *column_names,
-                                                int column_count,
-                                                vx_error **error);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-/**
- * Pushed a single duckdb chunk into a file sink.
- */
-const vx_array *vx_duckdb_chunk_to_array(duckdb_data_chunk chunk,
-                                         const vx_dtype *dtype,
-                                         vx_error **error);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-/**
- * Free an owned [`vx_duckdb_exporter`] object.
- */
-void vx_duckdb_exporter_free(vx_duckdb_exporter *ptr);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-vx_duckdb_exporter *vx_duckdb_exporter_new(vx_array_iterator *iter);
-#endif
-
-#if defined(ENABLE_DUCKDB_FFI)
-bool vx_duckdb_exporter_next(vx_duckdb_exporter *exporter,
-                             duckdb_data_chunk data_chunk_ptr,
-                             vx_error **error);
-#endif
-
 /**
  * Free an owned [`vx_error`] object.
  */
@@ -590,9 +527,9 @@ void vx_file_free(const vx_file *ptr);
  */
 const vx_file *vx_file_open_reader(const vx_file_open_options *options,
                                    const vx_session *session,
-                                   vx_error **error);
+                                   vx_error **error_out);
 
-void vx_file_write_array(const char *path, const vx_array *array, vx_error **error);
+void vx_file_write_array(const char *path, const vx_array *array, vx_error **error_out);
 
 uint64_t vx_file_row_count(const vx_file *file);
 
@@ -608,14 +545,14 @@ bool vx_file_can_prune(const vx_file *file,
                        const char *filter_expression,
                        unsigned int filter_expression_len,
                        unsigned long file_idx,
-                       vx_error **error);
+                       vx_error **error_out);
 
 /**
  * Build a new `vx_array_iterator` that returns a series of `vx_array`s from a scan over a `vx_layout_reader`.
  */
 vx_array_iterator *vx_file_scan(const vx_file *file,
                                 const vx_file_scan_options *opts,
-                                vx_error **error);
+                                vx_error **error_out);
 
 /**
  * Set the stderr logger to output at the specified level.
@@ -640,18 +577,20 @@ vx_session *vx_session_new(void);
  * Opens a writable array stream, where sink is used to push values into the stream.
  * To close the stream close the sink with `vx_array_sink_close`.
  */
-vx_array_sink *vx_array_sink_open_file(const char *path, const vx_dtype *dtype, vx_error **error);
+vx_array_sink *vx_array_sink_open_file(const char *path,
+                                       const vx_dtype *dtype,
+                                       vx_error **error_out);
 
 /**
  * Pushed a single array chunk into a file sink.
  */
-void vx_array_sink_push(vx_array_sink *sink, const vx_array *array, vx_error **error);
+void vx_array_sink_push(vx_array_sink *sink, const vx_array *array, vx_error **error_out);
 
 /**
  * Closes an array sink, must be called to ensure all the values pushed to the sink are written
  * to the external resource.
  */
-void vx_array_sink_close(vx_array_sink *sink, vx_error **error);
+void vx_array_sink_close(vx_array_sink *sink, vx_error **error_out);
 
 /**
  * Clone a borrowed [`vx_string`], returning an owned [`vx_string`].
@@ -702,7 +641,7 @@ void vx_struct_fields_free(const vx_struct_fields *ptr);
 /**
  * Return the number of fields in the struct dtype.
  */
-size_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
+uint64_t vx_struct_fields_nfields(const vx_struct_fields *dtype);
 
 /**
  * Return a borrowed reference to the name of the field at the given index.
@@ -715,7 +654,7 @@ const vx_string *vx_struct_fields_field_name(const vx_struct_fields *dtype, size
  * The return type is owned since struct dtypes can be lazily parsed from a binary format, in
  * which case it's not possible to return a borrowed reference to the field dtype.
  */
-const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, size_t idx);
+const vx_dtype *vx_struct_fields_field_dtype(const vx_struct_fields *dtype, uint64_t idx);
 
 /**
  * Free an owned [`vx_struct_fields_builder`] object.

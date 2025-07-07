@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::arrays::{PrimitiveArray, TemporalArray};
 use vortex_array::compute::cast;
 use vortex_array::validity::Validity;

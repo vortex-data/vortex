@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use num_traits::ToBytes;
@@ -282,10 +285,10 @@ mod tests {
     #[case(Scalar::list(Arc::new(PType::U8.into()), vec![Scalar::primitive(1u8, Nullability::NonNullable)], Nullability::NonNullable
     ))]
     #[case(Scalar::struct_(DType::Struct(
-        Arc::new(StructFields::from_iter([
+        StructFields::from_iter([
             ("a", FieldDType::from(DType::Primitive(PType::U32, Nullability::NonNullable))),
             ("b", FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable))),
-        ])),
+        ]),
         Nullability::NonNullable),
         vec![
             Scalar::primitive(23592960, Nullability::NonNullable),
@@ -293,11 +296,11 @@ mod tests {
         ],
     ))]
     #[case(Scalar::struct_(DType::Struct(
-        Arc::new(StructFields::from_iter([
+        StructFields::from_iter([
             ("a", FieldDType::from(DType::Primitive(PType::U64, Nullability::NonNullable))),
             ("b", FieldDType::from(DType::Primitive(PType::F32, Nullability::NonNullable))),
             ("c", FieldDType::from(DType::Primitive(PType::F16, Nullability::NonNullable))),
-        ])),
+        ]),
         Nullability::NonNullable),
         vec![
             Scalar::primitive(415118687234i64, Nullability::NonNullable),

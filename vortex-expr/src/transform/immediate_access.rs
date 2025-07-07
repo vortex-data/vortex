@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_dtype::{FieldName, StructFields};
 use vortex_error::{VortexResult, vortex_err};
 use vortex_utils::aliases::hash_map::HashMap;

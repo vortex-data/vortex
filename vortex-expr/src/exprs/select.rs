@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::any::Any;
 use std::fmt::Display;
 use std::sync::Arc;
@@ -87,7 +90,11 @@ impl SelectField {
     }
 
     pub fn as_include_names(&self, field_names: &FieldNames) -> VortexResult<FieldNames> {
-        if self.fields().iter().any(|f| !field_names.contains(f)) {
+        if self
+            .fields()
+            .iter()
+            .any(|f| !field_names.iter().contains(f))
+        {
             vortex_bail!(
                 "Field {:?} in select not in field names {:?}",
                 self,
@@ -98,7 +105,7 @@ impl SelectField {
             SelectField::Include(fields) => Ok(fields.clone()),
             SelectField::Exclude(exc_fields) => Ok(field_names
                 .iter()
-                .filter(|f| exc_fields.contains(f))
+                .filter(|f| exc_fields.iter().contains(f))
                 .cloned()
                 .collect()),
         }
@@ -162,12 +169,12 @@ impl VortexExpr for Select {
     fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
         let batch = self.child.unchecked_evaluate(scope)?.to_struct()?;
         Ok(match &self.fields {
-            SelectField::Include(f) => batch.project(f),
+            SelectField::Include(f) => batch.project(f.as_ref()),
             SelectField::Exclude(names) => {
                 let included_names = batch
                     .names()
                     .iter()
-                    .filter(|&f| !names.contains(f))
+                    .filter(|&f| !names.iter().contains(f))
                     .cloned()
                     .collect::<Vec<_>>();
                 batch.project(included_names.as_slice())
@@ -192,20 +199,17 @@ impl VortexExpr for Select {
             .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
 
         let projected = match &self.fields {
-            SelectField::Include(fields) => child_struct_dtype.project(fields)?,
+            SelectField::Include(fields) => child_struct_dtype.project(fields.as_ref())?,
             SelectField::Exclude(fields) => child_struct_dtype
                 .names()
                 .iter()
                 .cloned()
                 .zip_eq(child_struct_dtype.fields())
-                .filter(|(name, _)| !fields.contains(name))
+                .filter(|(name, _)| !fields.iter().contains(name))
                 .collect(),
         };
 
-        Ok(DType::Struct(
-            Arc::new(projected),
-            child_dtype.nullability(),
-        ))
+        Ok(DType::Struct(projected, child_dtype.nullability()))
     }
 }
 
@@ -217,7 +221,6 @@ impl PartialEq for Select {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use vortex_array::arrays::StructArray;
     use vortex_array::{IntoArray, ToCanonical};
@@ -266,7 +269,7 @@ mod tests {
 
         let select_expr = select(vec![FieldName::from("a")], root());
         let expected_dtype = DType::Struct(
-            Arc::new(dtype.as_struct().unwrap().project(&["a".into()]).unwrap()),
+            dtype.as_struct().unwrap().project(&["a".into()]).unwrap(),
             Nullability::NonNullable,
         );
         assert_eq!(
@@ -301,13 +304,11 @@ mod tests {
                 .return_dtype(&ScopeDType::new(dtype.clone()))
                 .unwrap(),
             DType::Struct(
-                Arc::new(
-                    dtype
-                        .as_struct()
-                        .unwrap()
-                        .project(&["a".into(), "bool1".into(), "bool2".into()])
-                        .unwrap()
-                ),
+                dtype
+                    .as_struct()
+                    .unwrap()
+                    .project(&["a".into(), "bool1".into(), "bool2".into()])
+                    .unwrap(),
                 Nullability::NonNullable
             )
         );

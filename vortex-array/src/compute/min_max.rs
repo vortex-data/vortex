@@ -1,4 +1,7 @@
-use std::sync::{Arc, LazyLock};
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::{DType, Nullability, StructFields};
@@ -92,10 +95,10 @@ impl ComputeFnVTable for MinMax {
         // We return a min/max struct scalar, where the overall struct is nullable in the case
         // that the array is all null or empty.
         Ok(DType::Struct(
-            Arc::new(StructFields::new(
-                ["min".into(), "max".into()].into(),
+            StructFields::new(
+                ["min", "max"].into(),
                 vec![array.dtype().clone(), array.dtype().clone()],
-            )),
+            ),
             Nullability::Nullable,
         ))
     }
@@ -175,10 +178,10 @@ impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
             return Ok(None);
         };
         let dtype = DType::Struct(
-            Arc::new(StructFields::new(
-                ["min".into(), "max".into()].into(),
+            StructFields::new(
+                ["min", "max"].into(),
                 vec![array.dtype().clone(), array.dtype().clone()],
-            )),
+            ),
             Nullability::Nullable,
         );
         Ok(Some(match V::min_max(&self.0, array)? {

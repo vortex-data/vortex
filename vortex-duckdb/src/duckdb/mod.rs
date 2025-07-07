@@ -1,4 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 mod connection;
+mod copy_function;
 mod data;
 mod data_chunk;
 mod database;
@@ -7,6 +11,7 @@ mod logical_type;
 mod query_result;
 mod scalar_function;
 mod selection_vector;
+mod string;
 mod table_filter;
 mod table_function;
 mod value;
@@ -16,6 +21,7 @@ use std::ffi::c_void;
 use std::ptr;
 
 pub use connection::*;
+pub use copy_function::*;
 pub use data::*;
 pub use data_chunk::*;
 pub use database::*;
@@ -24,6 +30,7 @@ pub use logical_type::*;
 pub use query_result::*;
 pub use scalar_function::*;
 pub use selection_vector::*;
+pub use string::*;
 pub use table_filter::*;
 pub use table_function::*;
 pub use value::*;

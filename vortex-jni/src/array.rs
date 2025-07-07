@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow::datatypes::{DataType, FieldRef, Fields};
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use jni::JNIEnv;

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! First-class chunked arrays.
 //!
 //! Vortex is a chunked array library that's able to

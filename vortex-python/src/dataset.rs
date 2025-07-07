@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::sync::Arc;
 
 use arrow::array::RecordBatchReader;
@@ -70,7 +73,7 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRe
             let fields = columns
                 .iter()
                 .map(field_from_pyany)
-                .collect::<PyResult<Arc<[FieldName]>>>()?;
+                .collect::<PyResult<_>>()?;
 
             Select::include_expr(fields, root())
         }

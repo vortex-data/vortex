@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Logical type conversion between Vortex and DuckDB.
 //!
 //! This module provides functionality to convert Vortex data types (`DType`) to DuckDB logical types.
@@ -30,7 +33,9 @@ use std::sync::Arc;
 
 use vortex::dtype::PType::{F32, F64, I8, I16, I32, I64, U8, U16, U32, U64};
 use vortex::dtype::datetime::{DATE_ID, TIME_ID, TIMESTAMP_ID, TemporalMetadata, TimeUnit};
-use vortex::dtype::{DType, DecimalDType, ExtDType, Nullability, PType, datetime};
+use vortex::dtype::{
+    DType, DecimalDType, ExtDType, FieldName, Nullability, PType, StructFields, datetime,
+};
 use vortex::error::{VortexError, VortexResult, vortex_bail, vortex_err};
 
 use crate::cpp::{self, DUCKDB_TYPE, duckdb_logical_type};
@@ -222,6 +227,20 @@ impl FromLogicalType for DType {
     }
 }
 
+pub fn from_duckdb_table<I, S>(iter: I) -> VortexResult<StructFields>
+where
+    I: Iterator<Item = (S, LogicalType, Nullability)>,
+    S: AsRef<str>,
+{
+    iter.map(|(name, type_, nullability)| {
+        Ok((
+            FieldName::from(name.as_ref()),
+            DType::from_logical_type(type_, nullability)?,
+        ))
+    })
+    .collect::<VortexResult<StructFields>>()
+}
+
 impl TryFrom<&DType> for LogicalType {
     type Error = VortexError;
 
@@ -395,7 +414,7 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         ];
         let struct_fields = StructFields::new(field_names, field_types);
-        let dtype = DType::Struct(Arc::new(struct_fields), Nullability::NonNullable);
+        let dtype = DType::Struct(struct_fields, Nullability::NonNullable);
         let logical_type = LogicalType::try_from(&dtype).unwrap();
 
         assert_eq!(
@@ -409,7 +428,7 @@ mod tests {
         let field_names = FieldNames::from([FieldName::from("field\0with_null")]);
         let field_types = vec![DType::Primitive(PType::I32, Nullability::NonNullable)];
         let struct_fields = StructFields::new(field_names, field_types);
-        let dtype = DType::Struct(Arc::new(struct_fields), Nullability::NonNullable);
+        let dtype = DType::Struct(struct_fields, Nullability::NonNullable);
 
         let result = LogicalType::try_from(&dtype);
         assert!(result.is_err());
@@ -417,8 +436,8 @@ mod tests {
 
     #[test]
     fn test_empty_struct() {
-        let struct_fields = StructFields::new([].into(), [].into());
-        let dtype = DType::Struct(Arc::new(struct_fields), Nullability::NonNullable);
+        let struct_fields = StructFields::new(FieldNames::default(), [].into());
+        let dtype = DType::Struct(struct_fields, Nullability::NonNullable);
 
         let logical_type = LogicalType::try_from(&dtype).unwrap();
         assert_eq!(

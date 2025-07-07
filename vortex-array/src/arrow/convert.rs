@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_array::array::{
     Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray, GenericByteArray,
     NullArray as ArrowNullArray, OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray,
@@ -279,7 +282,7 @@ fn remove_nulls(data: arrow_data::ArrayData) -> arrow_data::ArrayData {
 impl FromArrowArray<&ArrowStructArray> for ArrayRef {
     fn from_arrow(value: &ArrowStructArray, nullable: bool) -> Self {
         StructArray::try_new(
-            value.column_names().iter().map(|s| (*s).into()).collect(),
+            value.column_names().iter().copied().collect(),
             value
                 .columns()
                 .iter()

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex_array::arrays::BoolArray;
 use vortex_array::compute::{ListContainsKernel, ListContainsKernelAdapter};
 use vortex_array::{Array, ArrayRef, register_kernel};

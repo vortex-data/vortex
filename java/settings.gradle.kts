@@ -1,5 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 plugins {
-    id("org.gradle.toolchains.foojay-resolver") version "0.10.0"
+    id("org.gradle.toolchains.foojay-resolver") version "1.0.0"
 }
 
 toolchainManagement {

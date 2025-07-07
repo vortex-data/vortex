@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
@@ -11,7 +14,7 @@ use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_expr::{ExprRef, Scope, ScopeDType, root};
 use vortex_mask::Mask;
 
 use super::DictLayout;
@@ -108,6 +111,10 @@ impl LayoutReader for DictReader {
 
     fn dtype(&self) -> &DType {
         self.layout.dtype()
+    }
+
+    fn scope_dtype(&self) -> &ScopeDType {
+        self.layout.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {

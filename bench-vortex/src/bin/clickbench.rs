@@ -1,11 +1,14 @@
-use std::cell::OnceCell;
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::fs::File;
+use std::io;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use bench_vortex::clickbench::{Flavor, clickbench_queries};
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
-use bench_vortex::engines::ddb2;
+use bench_vortex::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_query};
 use bench_vortex::measurements::QueryMeasurement;
 use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
@@ -14,15 +17,12 @@ use bench_vortex::{
     BenchmarkDataset, Engine, Format, IdempotentPath, Target, default_env_filter, df,
 };
 use clap::{Parser, value_parser};
-use datafusion::prelude;
-use datafusion_physical_plan::ExecutionPlan;
 use indicatif::ProgressBar;
+use io::stdout;
 use itertools::Itertools;
 use log::warn;
-use prelude::SessionContext;
 use tokio::runtime::Runtime;
-use tracing::{debug, info_span};
-use tracing_futures::Instrument;
+use tracing::debug;
 use url::Url;
 use vortex::error::{VortexExpect, vortex_panic};
 use vortex_datafusion::metrics::VortexMetricsFinder;
@@ -40,8 +40,6 @@ struct Args {
         ]
     )]
     targets: Vec<Target>,
-    #[arg(long)]
-    duckdb_path: Option<PathBuf>,
     #[arg(short, long, default_value_t = 5)]
     iterations: usize,
     #[arg(short, long)]
@@ -70,47 +68,8 @@ struct Args {
     hide_progress_bar: bool,
     #[arg(long, default_value_t = false)]
     show_metrics: bool,
-    #[arg(long)]
-    skip_duckdb_build: bool,
-}
-
-struct DataFusionCtx {
-    execution_plans: Vec<(usize, Arc<dyn ExecutionPlan>)>,
-    metrics: Vec<(
-        usize,
-        Format,
-        Vec<datafusion::physical_plan::metrics::MetricsSet>,
-    )>,
-
-    session: SessionContext,
-    emit_plan: bool,
-}
-
-enum EngineCtx {
-    DataFusion(DataFusionCtx),
-    DuckDB(ddb2::DuckDBCtx),
-}
-
-impl EngineCtx {
-    fn new_with_datafusion(session_ctx: SessionContext, emit_plan: bool) -> Self {
-        EngineCtx::DataFusion(DataFusionCtx {
-            execution_plans: Vec::new(),
-            metrics: Vec::new(),
-            session: session_ctx,
-            emit_plan,
-        })
-    }
-
-    fn new_with_duckdb() -> anyhow::Result<Self> {
-        Ok(EngineCtx::DuckDB(ddb2::DuckDBCtx::new()?))
-    }
-
-    fn to_engine(&self) -> Engine {
-        match &self {
-            EngineCtx::DuckDB(_) => Engine::DuckDB,
-            EngineCtx::DataFusion(_) => Engine::DataFusion,
-        }
-    }
+    #[arg(short)]
+    output_path: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -120,12 +79,6 @@ fn main() -> anyhow::Result<()> {
         .targets
         .iter()
         .map(|t| t.engine())
-        .unique()
-        .collect_vec();
-    let formats = args
-        .targets
-        .iter()
-        .map(|t| t.format())
         .unique()
         .collect_vec();
 
@@ -151,10 +104,10 @@ fn main() -> anyhow::Result<()> {
             .build();
 
         let fmt_layer = tracing_subscriber::fmt::layer()
-            .with_writer(std::io::stderr)
+            .with_writer(io::stderr)
             .with_level(true)
             .with_line_number(true)
-            .with_ansi(std::io::stderr().is_terminal());
+            .with_ansi(io::stderr().is_terminal());
 
         tracing_subscriber::registry()
             .with(filter)
@@ -183,14 +136,18 @@ fn main() -> anyhow::Result<()> {
     let progress_bar = if args.hide_progress_bar {
         ProgressBar::hidden()
     } else {
-        ProgressBar::new((queries.len() * formats.len() * engines.len()) as u64)
+        ProgressBar::new((queries.len() * args.targets.len()) as u64)
     };
 
     let mut query_measurements = Vec::new();
 
     for target in args.targets.iter() {
         let engine = target.engine();
-        let file_format = target.format();
+        let format = target.format();
+        let dataset = BenchmarkDataset::ClickBench {
+            single_file: args.single_file,
+            flavor: args.flavor,
+        };
 
         let mut engine_ctx = match engine {
             Engine::DataFusion => {
@@ -200,33 +157,29 @@ fn main() -> anyhow::Result<()> {
 
                 EngineCtx::new_with_datafusion(session_ctx, args.emit_plan)
             }
-            Engine::DuckDB => EngineCtx::new_with_duckdb()?,
+            Engine::DuckDB => EngineCtx::new_with_duckdb(dataset.clone(), format)?,
             _ => unreachable!("engine not supported"),
         };
 
         let tokio_runtime = new_tokio_runtime(args.threads);
 
-        tokio_runtime.block_on(init_data_source(
-            file_format,
-            &base_url,
-            args.single_file,
-            &engine_ctx,
-        ))?;
+        tokio_runtime.block_on(init_data_source(format, &base_url, &dataset, &engine_ctx))?;
 
         let bench_measurements = execute_queries(
             &queries,
             args.iterations,
             &tokio_runtime,
-            file_format,
+            format,
+            dataset,
             &progress_bar,
             &mut engine_ctx,
         );
 
         if let EngineCtx::DataFusion(ref ctx) = engine_ctx {
             if args.export_spans {
-                if let Err(err) = tokio_runtime.block_on(async move {
-                    export_plan_spans(file_format, &ctx.execution_plans).await
-                }) {
+                if let Err(err) = tokio_runtime
+                    .block_on(async move { export_plan_spans(format, &ctx.execution_plans).await })
+                {
                     warn!("failed to export spans {err}");
                 }
             }
@@ -239,15 +192,15 @@ fn main() -> anyhow::Result<()> {
         query_measurements.extend(bench_measurements);
     }
 
-    print_results(&args.display_format, query_measurements, &args.targets)
+    print_results(
+        &args.display_format,
+        query_measurements,
+        &args.targets,
+        &args.output_path,
+    )
 }
 
 fn validate_args(engines: &[Engine], args: &Args) {
-    assert!(
-        args.duckdb_path.is_none() || engines.contains(&Engine::DuckDB),
-        "--duckdb-path is only valid when DuckDB engine is used"
-    );
-
     if (args.emit_plan || args.export_spans || args.show_metrics || args.threads.is_some())
         && !engines.contains(&Engine::DataFusion)
     {
@@ -285,11 +238,18 @@ fn print_results(
     display_format: &DisplayFormat,
     query_measurements: Vec<QueryMeasurement>,
     targets: &[Target],
+    file_path: &Option<PathBuf>,
 ) -> anyhow::Result<()> {
+    let mut writer: Box<dyn Write> = if let Some(file_path) = file_path {
+        Box::new(File::create(file_path)?)
+    } else {
+        let stdout = stdout();
+        Box::new(stdout.lock())
+    };
     match display_format {
-        DisplayFormat::Table => render_table(query_measurements, targets),
+        DisplayFormat::Table => render_table(&mut writer, query_measurements, targets),
 
-        DisplayFormat::GhJson => print_measurements_json(query_measurements),
+        DisplayFormat::GhJson => print_measurements_json(&mut writer, query_measurements),
     }
 }
 
@@ -335,11 +295,9 @@ fn data_source_base_url(remote_data_dir: &Option<String>, flavor: Flavor) -> any
 async fn init_data_source(
     file_format: Format,
     base_url: &Url,
-    single_file: bool,
+    dataset: &BenchmarkDataset,
     engine_ctx: &EngineCtx,
 ) -> anyhow::Result<()> {
-    let dataset = BenchmarkDataset::ClickBench { single_file };
-
     if file_format == Format::OnDiskVortex && base_url.scheme() == "file" {
         let file_path = base_url
             .to_file_path()
@@ -383,10 +341,8 @@ async fn init_data_source(
 ///
 /// * `queries` - Query indices and their corresponding SQL strings
 /// * `iterations` - Number of times to execute each query
-/// * `single_file` - Whether to use a single file or multiple files for the dataset
 /// * `tokio_runtime` - Tokio runtime
 /// * `file_format` - Parquet, Vortex, etc.
-/// * `base_url` - Base URL where the dataset is located
 /// * `progress_bar` - Progress indicator for tracking query execution
 /// * `engine_ctx` - DataFusion or DuckDB context
 #[allow(clippy::too_many_arguments)]
@@ -395,20 +351,36 @@ fn execute_queries(
     iterations: usize,
     tokio_runtime: &Runtime,
     file_format: Format,
+    dataset: BenchmarkDataset,
     progress_bar: &ProgressBar,
     engine_ctx: &mut EngineCtx,
 ) -> Vec<QueryMeasurement> {
     let mut query_measurements = Vec::default();
 
+    const REFERENCE_ROW_COUNTS: [usize; 43] = [
+        1, 1, 1, 1, 1, 1, 1, 18, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 1, 10, 10, 10, 10,
+        10, 10, 25, 25, 1, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+    ];
+
     for &(query_idx, ref query_string) in queries.iter() {
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                let (fastest_run, execution_plan) = benchmark_datafusion_query(
-                    query_idx,
-                    query_string,
-                    iterations,
-                    &ctx.session,
-                    tokio_runtime,
+                let (fastest_run, (execution_plan, row_count)) = tokio_runtime.block_on(async {
+                    benchmark_datafusion_query(iterations, || async {
+                        let (batches, plan) = df::execute_query(&ctx.session, query_string)
+                            .await
+                            .unwrap_or_else(|err| {
+                                vortex_panic!("query: {query_idx} failed with: {err}")
+                            });
+                        let row_count: usize = batches.iter().map(|batch| batch.num_rows()).sum();
+                        (plan, row_count)
+                    })
+                    .await
+                });
+
+                assert_eq!(
+                    row_count, REFERENCE_ROW_COUNTS[query_idx],
+                    "Error: Row count mismatch for query idx {query_idx} - datafusion:{file_format}",
                 );
 
                 ctx.execution_plans
@@ -432,20 +404,26 @@ fn execute_queries(
                 query_measurements.push(QueryMeasurement {
                     query_idx,
                     target: Target::new(Engine::DataFusion, file_format),
+                    benchmark_dataset: dataset.clone(),
                     storage: STORAGE_NVME.to_owned(),
                     fastest_run,
-                    dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }
             EngineCtx::DuckDB(ctx) => {
-                let fastest_run = benchmark_duckdb_query(query_idx, query_string, iterations, ctx);
+                let (fastest_run, row_count) =
+                    benchmark_duckdb_query(query_idx, query_string, iterations, ctx);
+
+                assert_eq!(
+                    row_count, REFERENCE_ROW_COUNTS[query_idx],
+                    "Error: Row count mismatch for query idx {query_idx} - duckdb:{file_format}",
+                );
 
                 query_measurements.push(QueryMeasurement {
                     query_idx,
                     target: Target::new(Engine::DuckDB, file_format),
+                    benchmark_dataset: dataset.clone(),
                     storage: STORAGE_NVME.to_owned(),
                     fastest_run,
-                    dataset: CLICKBENCH_DATASET.to_owned(),
                 });
             }
         };
@@ -454,88 +432,4 @@ fn execute_queries(
     }
 
     query_measurements
-}
-
-/// Executes a single ClickBench query using DataFusion.
-///
-/// # Returns
-///
-/// - The duration of the fastest execution
-/// - The execution plan used for the query
-#[allow(clippy::unwrap_used)]
-fn benchmark_datafusion_query(
-    query_idx: usize,
-    query_string: &str,
-    iterations: usize,
-    context: &SessionContext,
-    tokio_runtime: &Runtime,
-) -> (Duration, Arc<dyn ExecutionPlan>) {
-    let execution_plan = OnceCell::new();
-
-    let fastest_run =
-        (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, iteration| {
-            tokio_runtime.block_on(async {
-                let (duration, plan) =
-                    execute_datafusion_query(query_idx, query_string, iteration, context.clone())
-                        .await
-                        .unwrap_or_else(|err| {
-                            vortex_panic!("query: {query_idx} failed with: {err}")
-                        });
-
-                if execution_plan.get().is_none() {
-                    execution_plan.set(plan).unwrap();
-                }
-
-                fastest.min(duration)
-            })
-        });
-
-    (
-        fastest_run,
-        execution_plan
-            .into_inner()
-            .vortex_expect("Execution plan must be set"),
-    )
-}
-
-async fn execute_datafusion_query(
-    query_idx: usize,
-    query_string: &str,
-    iteration: usize,
-    session_context: SessionContext,
-) -> anyhow::Result<(Duration, Arc<dyn ExecutionPlan>)> {
-    let query_string = query_string.to_owned();
-
-    let (duration, execution_plan) = tokio::task::spawn(async move {
-        let time_instant = Instant::now();
-        let (_, execution_plan) = df::execute_query(&session_context, &query_string)
-            .instrument(info_span!("execute_query", query_idx, iteration))
-            .await
-            .unwrap_or_else(|e| vortex_panic!("executing query {query_idx}: {e}"));
-
-        (time_instant.elapsed(), execution_plan)
-    })
-    .await?;
-
-    Ok((duration, execution_plan))
-}
-
-/// Executes a single ClickBench query using DuckDB.
-///
-/// # Returns
-///
-/// The duration of the fastest execution
-fn benchmark_duckdb_query(
-    query_idx: usize,
-    query_string: &str,
-    iterations: usize,
-    duckdb_ctx: &ddb2::DuckDBCtx,
-) -> Duration {
-    (0..iterations).fold(Duration::from_millis(u64::MAX), |fastest, _| {
-        let duration = duckdb_ctx
-            .execute_query(query_string)
-            .unwrap_or_else(|err| vortex_panic!("query: {query_idx} failed with: {err}"));
-
-        fastest.min(duration)
-    })
 }

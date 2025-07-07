@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Vortex IPC messages and associated readers and writers.
 //!
 //! Vortex provides an IPC messaging format to exchange array data over a streaming

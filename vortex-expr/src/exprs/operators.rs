@@ -1,8 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use core::fmt;
 use std::fmt::{Display, Formatter};
 
 use vortex_array::compute;
 
+/// Equalities, inequalities, and boolean operations over possibly null values.
+///
+/// For the equalities and inequalities, if either side is null, the result is null. The Boolean
+/// operators obey [Kleene (three-valued) logic](https://en.wikipedia.org/wiki/Three-valued_logic#Kleene_and_Priest_logics).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Operator {

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use arrow_buffer::ArrowNativeType;
 use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::VortexResult;
@@ -11,19 +14,23 @@ use crate::vtable::ValidityHelper;
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
     pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
-        let (_, offset, patch_indices, patch_values) = patches.clone().into_parts();
-        let patch_indices = patch_indices.to_primitive()?;
-        let patch_values = patch_values.to_primitive()?;
+        let patch_indices = patches.indices().to_primitive()?;
+        let patch_values = patches.values().to_primitive()?;
 
         let patched_validity = self.validity().clone().patch(
             self.len(),
-            offset,
+            patches.offset(),
             patch_indices.as_ref(),
             patch_values.validity(),
         )?;
         match_each_integer_ptype!(patch_indices.ptype(), |I| {
             match_each_native_ptype!(self.ptype(), |T| {
-                self.patch_typed::<T, I>(patch_indices, offset, patch_values, patched_validity)
+                self.patch_typed::<T, I>(
+                    patch_indices,
+                    patches.offset(),
+                    patch_values,
+                    patched_validity,
+                )
             })
         })
     }

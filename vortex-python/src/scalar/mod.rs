@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 //! Views into arrays of individual values.
 //!
 //! Vortex, like Arrow, avoids copying data. The classes in this package are returned by
@@ -130,7 +133,7 @@ impl PyScalar {
 impl PyScalar {
     /// Return the :class:`~vortex.DType` of the scalar.
     #[getter]
-    pub fn dtype(self_: PyRef<'_, Self>) -> PyResult<Bound<PyDType>> {
+    pub fn dtype(self_: PyRef<'_, Self>) -> PyResult<Bound<'_, PyDType>> {
         PyDType::init(self_.py(), self_.0.dtype().clone())
     }
 

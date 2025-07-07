@@ -17,7 +17,6 @@ rust-version = { workspace = true }
 categories = { workspace = true }
 
 [dependencies]
-futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 mimalloc = { workspace = true, optional = true }
@@ -30,6 +29,12 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 tokio-stream = { workspace = true }
 url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["object_store", "proto"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[build-dependencies]
+cbindgen = { workspace = true }
 
 [features]
 default = ["mimalloc"]

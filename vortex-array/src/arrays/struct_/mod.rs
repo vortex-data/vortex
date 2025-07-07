@@ -1,5 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
@@ -80,7 +82,7 @@ impl StructArray {
         self.struct_fields().names()
     }
 
-    pub fn struct_fields(&self) -> &Arc<StructFields> {
+    pub fn struct_fields(&self) -> &StructFields {
         let Some(struct_dtype) = &self.dtype.as_struct() else {
             unreachable!(
                 "struct arrays must have be a DType::Struct, this is likely an internal bug."
@@ -111,10 +113,7 @@ impl StructArray {
         }
 
         let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype()).cloned().collect();
-        let dtype = DType::Struct(
-            Arc::new(StructFields::new(names, field_dtypes)),
-            nullability,
-        );
+        let dtype = DType::Struct(StructFields::new(names, field_dtypes), nullability);
 
         if length != validity.maybe_len().unwrap_or(length) {
             vortex_bail!(
@@ -137,7 +136,7 @@ impl StructArray {
 
     pub fn try_new_with_dtype(
         fields: Vec<ArrayRef>,
-        dtype: Arc<StructFields>,
+        dtype: StructFields,
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -247,7 +246,7 @@ impl StructArray {
         let field = self.fields.remove(position);
 
         let new_dtype = struct_dtype.without_field(position);
-        self.dtype = DType::Struct(Arc::new(new_dtype), self.dtype.nullability());
+        self.dtype = DType::Struct(new_dtype, self.dtype.nullability());
 
         Some(field)
     }
@@ -329,7 +328,7 @@ mod test {
         let zs = BoolArray::from_iter([true, true, true, false, false]);
 
         let struct_a = StructArray::try_new(
-            FieldNames::from(["xs".into(), "ys".into(), "zs".into()]),
+            FieldNames::from(["xs", "ys", "zs"]),
             vec![xs.into_array(), ys.into_array(), zs.into_array()],
             5,
             Validity::NonNullable,
@@ -369,7 +368,7 @@ mod test {
         let ys = PrimitiveArray::new(buffer![4u64, 5, 6, 7, 8], Validity::NonNullable);
 
         let mut struct_a = StructArray::try_new(
-            FieldNames::from(["xs".into(), "ys".into()]),
+            FieldNames::from(["xs", "ys"]),
             vec![xs.into_array(), ys.into_array()],
             5,
             Validity::NonNullable,
@@ -386,7 +385,7 @@ mod test {
             [0i64, 1, 2, 3, 4]
         );
 
-        assert_eq!(struct_a.names().as_ref(), [FieldName::from("ys")]);
+        assert_eq!(struct_a.names(), &[FieldName::from("ys")].into());
         assert_eq!(struct_a.fields.len(), 1);
         assert_eq!(struct_a.len(), 5);
         assert_eq!(
@@ -405,6 +404,6 @@ mod test {
             empty.is_none(),
             "Expected None when removing non-existent column"
         );
-        assert_eq!(struct_a.names().as_ref(), [FieldName::from("ys")]);
+        assert_eq!(struct_a.names(), &[FieldName::from("ys")].into());
     }
 }

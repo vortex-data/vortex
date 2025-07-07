@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::Debug;
 
 use vortex_array::arrays::{BooleanBufferBuilder, ConstantArray};
@@ -92,9 +95,10 @@ impl SparseArray {
     pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<Self> {
         if fill_value.dtype() != patches.values().dtype() {
             vortex_bail!(
-                "fill value, {:?}, should be instance of values dtype, {}",
+                "fill value, {:?}, should be instance of values dtype, {} but was {}.",
                 fill_value,
                 patches.values().dtype(),
+                fill_value.dtype(),
             );
         }
         Ok(Self {
@@ -111,10 +115,15 @@ impl SparseArray {
 
     #[inline]
     pub fn resolved_patches(&self) -> VortexResult<Patches> {
-        let (len, offset, indices, values) = self.patches().clone().into_parts();
-        let indices_offset = Scalar::from(offset).cast(indices.dtype())?;
-        let indices = sub_scalar(&indices, indices_offset)?;
-        Ok(Patches::new(len, 0, indices, values))
+        let patches = self.patches();
+        let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
+        let indices = sub_scalar(patches.indices(), indices_offset)?;
+        Ok(Patches::new(
+            patches.array_len(),
+            0,
+            indices,
+            patches.values().clone(),
+        ))
     }
 
     #[inline]

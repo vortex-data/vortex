@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
@@ -14,7 +17,7 @@ use vortex_array::{ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
-use vortex_expr::{ExactExpr, ExprRef, Scope};
+use vortex_expr::{ExactExpr, ExprRef, Scope, ScopeDType};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -117,6 +120,10 @@ impl LayoutReader for StructReader {
 
     fn dtype(&self) -> &DType {
         self.layout.dtype()
+    }
+
+    fn scope_dtype(&self) -> &ScopeDType {
+        self.layout.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {
@@ -352,10 +359,10 @@ mod tests {
                 sequence_writer,
                 SequentialStreamAdapter::new(
                     DType::Struct(
-                        Arc::new(StructFields::new(
+                        StructFields::new(
                             vec!["a".into(), "b".into(), "c".into()].into(),
                             vec![I32.into(), I32.into(), I32.into()],
-                        )),
+                        ),
                         NonNullable,
                     ),
                     stream::once(async {

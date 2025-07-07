@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::{Debug, Formatter};
 
 /// A wrapper around a slice that truncates the debug output if it is too long.

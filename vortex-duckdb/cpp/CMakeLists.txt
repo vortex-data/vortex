@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 # This CMake project is only used for IDE support.
 # See build.rs for the actual build definition.
 
@@ -15,7 +18,7 @@ add_compile_options(-Wno-c++20-designator)
 
 # Include directories
 include_directories(./include)
-include_directories(../../duckdb-vortex/duckdb/src/include/)
+include_directories(../duckdb/src/include)
 
 # Add library with source files
 add_library(vortex

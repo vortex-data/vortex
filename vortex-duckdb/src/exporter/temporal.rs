@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use vortex::ToCanonical;
 use vortex::arrays::TemporalArray;
 use vortex::error::VortexResult;
@@ -49,7 +52,7 @@ mod tests {
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(chunk).unwrap()),
+            format!("{}", String::try_from(&chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT TIMESTAMP_S: 2 = [ 2025-06-18 16:43:45, 2025-06-18 16:43:46]
 "#
@@ -73,7 +76,7 @@ mod tests {
         chunk.set_len(4);
 
         assert_eq!(
-            format!("{}", String::try_from(chunk).unwrap()),
+            format!("{}", String::try_from(&chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT TIMESTAMP: 4 = [ 2025-06-18 16:46:29.000001, 2025-06-18 16:46:30.000001, 2025-06-18 16:46:31.000001, 2025-06-18 16:46:32.000001]
 "#
@@ -97,7 +100,7 @@ mod tests {
         chunk.set_len(4);
 
         assert_eq!(
-            format!("{}", String::try_from(chunk).unwrap()),
+            format!("{}", String::try_from(&chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT TIME: 4 = [ 00:00:02, 00:00:03, 00:00:04, 00:00:05]
 "#

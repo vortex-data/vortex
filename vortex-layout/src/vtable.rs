@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -5,6 +8,7 @@ use std::sync::Arc;
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_expr::ScopeDType;
 
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
@@ -29,6 +33,9 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
     /// Returns the dtype for the layout reader.
     fn dtype(layout: &Self::Layout) -> &DType;
+
+    /// The layout reader evaluates expressions in this scope.
+    fn scope_dtype(layout: &Self::Layout) -> &ScopeDType;
 
     /// Returns the metadata for the layout.
     fn metadata(layout: &Self::Layout) -> Self::Metadata;
