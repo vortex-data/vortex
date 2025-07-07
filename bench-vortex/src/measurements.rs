@@ -7,9 +7,10 @@ use std::fmt::{Display, Formatter};
 use std::ops::{Add, Div, Sub};
 use std::time::Duration;
 
+use itertools::Itertools;
 use serde::{Serialize, Serializer};
 use target_lexicon::Triple;
-use vortex::error::vortex_panic;
+use vortex::error::{VortexExpect, vortex_panic};
 
 use crate::engines::df::GIT_COMMIT_ID;
 use crate::{BenchmarkDataset, Engine, Format, Target};
@@ -197,7 +198,13 @@ pub struct QueryMeasurement {
     pub benchmark_dataset: BenchmarkDataset,
     /// The storage backend against which this test was run. One of: s3, gcs, nvme.
     pub storage: String,
-    pub fastest_run: Duration,
+    pub runs: Vec<Duration>,
+}
+
+impl QueryMeasurement {
+    pub fn fastest_run(&self) -> Duration {
+        *self.runs.iter().min().vortex_expect("cannot have no runs")
+    }
 }
 
 #[derive(Serialize)]
@@ -206,7 +213,8 @@ pub struct QueryMeasurementJson {
     pub storage: String,
     pub dataset: BenchmarkDataset,
     pub unit: String,
-    pub value: MeasurementValue,
+    pub value: u128,
+    pub values: Vec<u128>,
     pub target: Target,
     pub commit_id: String,
     pub env_triple: TripleJson,
@@ -236,7 +244,8 @@ impl ToJson for QueryMeasurement {
             storage: self.storage.clone(),
             dataset: self.benchmark_dataset.clone(),
             unit: "ns".to_string(),
-            value: MeasurementValue::Int(self.fastest_run.as_nanos()),
+            value: self.fastest_run().as_nanos(),
+            values: self.runs.iter().map(|r| r.as_nanos()).collect_vec(),
             commit_id: GIT_COMMIT_ID.to_string(),
             target: self.target,
             env_triple: TripleJson {
@@ -255,7 +264,7 @@ impl ToTable for QueryMeasurement {
             name: self.query_idx.to_string(),
             target: self.target,
             unit: Cow::from("μs"),
-            value: MeasurementValue::Int(self.fastest_run.as_micros()),
+            value: MeasurementValue::Int(self.fastest_run().as_micros()),
         }
     }
 }

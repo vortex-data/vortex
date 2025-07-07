@@ -251,7 +251,7 @@ async fn bench_main(
                 let mut plans = Vec::new();
 
                 for (query_idx, sql_query) in tpch_queries.clone() {
-                    let (fastest_run, (row_count, plan)) =
+                    let (runs, (row_count, plan)) =
                         benchmark_datafusion_query(iterations, || async {
                             run_tpch_query(&ctx, &sql_query).await
                         })
@@ -291,7 +291,7 @@ async fn bench_main(
                         target: *target,
                         benchmark_dataset: dataset.clone(),
                         storage,
-                        fastest_run,
+                        runs,
                     });
 
                     progress.inc(1);
@@ -312,7 +312,7 @@ async fn bench_main(
                     ctx.register_tables(&url, format, &dataset)?;
 
                     for (query_idx, sql_query) in tpch_queries.clone() {
-                        let (fastest_run, row_count) =
+                        let (runs, row_count) =
                             benchmark_duckdb_query(query_idx, &sql_query, iterations, ctx);
 
                         if let Some(expected_row_counts) = &expected_row_counts {
@@ -329,7 +329,7 @@ async fn bench_main(
                             target: *target,
                             benchmark_dataset: dataset.clone(),
                             storage,
-                            fastest_run,
+                            runs,
                         });
 
                         progress.inc(1);

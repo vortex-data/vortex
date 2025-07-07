@@ -45,43 +45,44 @@ pub fn benchmark_duckdb_query(
     query_string: &str,
     iterations: usize,
     duckdb_ctx: &ddb::DuckDBCtx,
-) -> (Duration, usize) {
-    let mut fastest = Duration::from_millis(u64::MAX);
-    let mut row_count = 0;
+) -> (Vec<Duration>, usize) {
+    let mut runs = Vec::with_capacity(iterations);
+    let mut row_count = None;
 
     for _ in 0..iterations {
         let (duration, current_row_count) = duckdb_ctx
             .execute_query(query_string)
             .unwrap_or_else(|err| vortex_panic!("query: {query_idx} failed with: {err}"));
 
-        if duration < fastest {
-            fastest = duration;
-            row_count = current_row_count;
-        }
+        runs.push(duration);
+        row_count.inspect(|rc| assert_eq!(*rc, current_row_count));
+        row_count = Some(current_row_count);
     }
 
-    (fastest, row_count)
+    (runs, row_count.vortex_expect("cannot have zero runs"))
 }
 
-pub async fn benchmark_datafusion_query<T, F, Fut>(iterations: usize, mut f: F) -> (Duration, T)
+pub async fn benchmark_datafusion_query<T, F, Fut>(
+    iterations: usize,
+    mut f: F,
+) -> (Vec<Duration>, T)
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = T>,
 {
     let mut result = None;
-    let mut fastest = Duration::from_millis(u64::MAX);
+    let mut runs = Vec::with_capacity(iterations);
 
     for _ in 0..iterations {
         let start = std::time::Instant::now();
         let iter_result = f().await;
         let duration = start.elapsed();
 
+        runs.push(duration);
         if result.is_none() {
             result = Some(iter_result);
         }
-
-        fastest = fastest.min(duration);
     }
 
-    (fastest, result.vortex_expect("Result must be set"))
+    (runs, result.vortex_expect("Result must be set"))
 }

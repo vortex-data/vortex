@@ -365,7 +365,7 @@ fn execute_queries(
     for &(query_idx, ref query_string) in queries.iter() {
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                let (fastest_run, (execution_plan, row_count)) = tokio_runtime.block_on(async {
+                let (runs, (execution_plan, row_count)) = tokio_runtime.block_on(async {
                     benchmark_datafusion_query(iterations, || async {
                         let (batches, plan) = df::execute_query(&ctx.session, query_string)
                             .await
@@ -406,11 +406,11 @@ fn execute_queries(
                     target: Target::new(Engine::DataFusion, file_format),
                     benchmark_dataset: dataset.clone(),
                     storage: STORAGE_NVME.to_owned(),
-                    fastest_run,
+                    runs,
                 });
             }
             EngineCtx::DuckDB(ctx) => {
-                let (fastest_run, row_count) =
+                let (runs, row_count) =
                     benchmark_duckdb_query(query_idx, query_string, iterations, ctx);
 
                 assert_eq!(
@@ -423,7 +423,7 @@ fn execute_queries(
                     target: Target::new(Engine::DuckDB, file_format),
                     benchmark_dataset: dataset.clone(),
                     storage: STORAGE_NVME.to_owned(),
-                    fastest_run,
+                    runs,
                 });
             }
         };

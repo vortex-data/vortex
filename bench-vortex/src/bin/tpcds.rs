@@ -181,7 +181,7 @@ async fn bench_main(
                     ctx.register_tables(&url, format, &dataset)?;
 
                     for (query_idx, sql_query) in &tpch_queries {
-                        let (fastest_run, _row_count) =
+                        let (runs, _row_count) =
                             benchmark_duckdb_query(*query_idx, sql_query, iterations, ctx);
 
                         let storage = bench_vortex::utils::url_scheme_to_storage(&url)?;
@@ -191,7 +191,7 @@ async fn bench_main(
                             target: *target,
                             benchmark_dataset: dataset.clone(),
                             storage,
-                            fastest_run,
+                            runs,
                         });
 
                         progress.inc(1);
@@ -205,7 +205,7 @@ async fn bench_main(
                 let ctx = load_datasets(&url, format, &dataset, true).await?;
 
                 for (query_idx, sql_queries) in tpch_queries.clone() {
-                    let (fastest_run, _) = benchmark_datafusion_query(iterations, || async {
+                    let (runs, _) = benchmark_datafusion_query(iterations, || async {
                         let (record_batches, _metrics) =
                             bench_vortex::df::execute_query(&ctx, &sql_queries)
                                 .await
@@ -225,7 +225,7 @@ async fn bench_main(
                         target: *target,
                         benchmark_dataset: dataset.clone(),
                         storage,
-                        fastest_run,
+                        runs,
                     });
 
                     progress.inc(1);
