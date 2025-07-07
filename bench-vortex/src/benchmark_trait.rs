@@ -37,4 +37,5 @@ pub trait Benchmark {
     }
 
 
+
 }

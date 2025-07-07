@@ -77,12 +77,10 @@ pub fn run_benchmark<B: Benchmark>(
         let tokio_runtime = new_tokio_runtime(config.threads);
         
         let mut engine_ctx = setup_engine_context(
-            &benchmark,
             target,
             &data_url,
             config.disable_datafusion_cache,
             config.emit_plan,
-            &tokio_runtime,
         )?;
 
         // Register tables
@@ -144,34 +142,28 @@ fn validate_args(config: &DriverConfig) -> Result<()> {
     Ok(())
 }
 
-fn setup_engine_context<B: Benchmark>(
-    benchmark: &B,
+fn setup_engine_context(
     target: &Target,
     data_url: &Url,
     disable_datafusion_cache: bool,
     emit_plan: bool,
-    tokio_runtime: &tokio::runtime::Runtime,
 ) -> Result<EngineCtx> {
     let engine = target.engine();
     let format = target.format();
-    let dataset = benchmark.get_dataset();
 
     match engine {
         Engine::DataFusion => {
-            // Special handling for TPCH: use load_datasets like the original binary
-            if matches!(dataset, crate::BenchmarkDataset::TpcH { .. }) {
-                let session = tokio_runtime.block_on(async {
-                    crate::tpch::load_datasets(data_url, format, &dataset, disable_datafusion_cache).await
-                })?;
-                Ok(EngineCtx::new_with_datafusion(session, emit_plan))
-            } else {
-                // Default DataFusion setup for other benchmarks
-                let session_ctx = df::get_session_context(disable_datafusion_cache);
-                df::make_object_store(&session_ctx, data_url)?;
-                Ok(EngineCtx::new_with_datafusion(session_ctx, emit_plan))
-            }
+            let session_ctx = df::get_session_context(disable_datafusion_cache);
+            df::make_object_store(&session_ctx, data_url)?;
+            Ok(EngineCtx::new_with_datafusion(session_ctx, emit_plan))
         }
         Engine::DuckDB => {
+            // Create a generic dataset for DuckDB context creation
+            // This will be properly configured when tables are registered
+            let dataset = crate::BenchmarkDataset::ClickBench {
+                single_file: false,
+                flavor: crate::clickbench::Flavor::Partitioned,
+            };
             Ok(EngineCtx::new_with_duckdb(dataset, format)?)
         }
         _ => unreachable!("engine not supported"),

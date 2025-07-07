@@ -148,7 +148,7 @@ pub async fn register_csv(
     Ok(())
 }
 
-async fn register_arrow(
+pub async fn register_arrow(
     session: &SessionContext,
     name: &str,
     file: &Url,

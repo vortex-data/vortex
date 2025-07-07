@@ -82,9 +82,9 @@ impl Benchmark for TpcHBenchmark {
         let dataset = self.get_dataset();
 
         match engine_ctx {
-            EngineCtx::DataFusion(_ctx) => {
-                // Tables are already registered by load_datasets in setup_engine_context
-                Ok(())
+            EngineCtx::DataFusion(ctx) => {
+                // Register TPCH tables using the same logic as load_datasets
+                self.register_tpch_tables(&ctx.session, data_url, format).await
             }
             EngineCtx::DuckDB(ctx) => {
                 ctx.register_tables(data_url, format, &dataset)?;
@@ -107,5 +107,54 @@ impl Benchmark for TpcHBenchmark {
         }
     }
 
+}
 
+impl TpcHBenchmark {
+    /// Register TPCH tables with DataFusion session - extracted from load_datasets
+    async fn register_tpch_tables(
+        &self,
+        session: &datafusion::prelude::SessionContext,
+        base_dir: &Url,
+        format: Format,
+    ) -> Result<()> {
+        // Get object store from session
+        let object_store = crate::engines::df::make_object_store(session, base_dir)?;
+
+        // TPCH table definitions - same as in load_datasets
+        let files = vec![
+            ("customer", Some(crate::tpch::schema::CUSTOMER.clone())),
+            ("lineitem", Some(crate::tpch::schema::LINEITEM.clone())),
+            ("nation", Some(crate::tpch::schema::NATION.clone())),
+            ("orders", Some(crate::tpch::schema::ORDERS.clone())),
+            ("part", Some(crate::tpch::schema::PART.clone())),
+            ("partsupp", Some(crate::tpch::schema::PARTSUPP.clone())),
+            ("region", Some(crate::tpch::schema::REGION.clone())),
+            ("supplier", Some(crate::tpch::schema::SUPPLIER.clone())),
+        ];
+
+        // Register each table - same logic as load_datasets
+        for (name, schema) in files {
+            let format = if format == Format::Arrow {
+                Format::Csv
+            } else {
+                format
+            };
+            
+            let path = base_dir.join(&format!("{}/{name}.{}", format.name(), format.ext()))?;
+            
+            match format {
+                Format::Csv => crate::tpch::register_csv(session, name, &path, schema).await?,
+                Format::Arrow => crate::tpch::register_arrow(session, name, &path, schema).await?,
+                Format::Parquet => {
+                    crate::tpch::register_parquet(session, object_store.clone(), name, &path, schema).await?
+                }
+                Format::OnDiskVortex => {
+                    crate::tpch::register_vortex_file(session, object_store.clone(), name, &path, schema).await?
+                }
+                Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
+            }
+        }
+
+        Ok(())
+    }
 }
