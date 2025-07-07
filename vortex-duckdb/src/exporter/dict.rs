@@ -4,6 +4,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use bitvec::macros::internal::funty::Fundamental;
 use num_traits::AsPrimitive;
 use vortex::arrays::PrimitiveArray;
 use vortex::dtype::{NativePType, match_each_integer_ptype};
@@ -50,7 +51,7 @@ pub(crate) fn new_exporter(
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
             values_vector,
-            values_len: values.len() as u32,
+            values_len: values.len().as_u32(),
             codes,
             codes_type: PhantomData::<I>,
             cache_id: cache.instance_id,
