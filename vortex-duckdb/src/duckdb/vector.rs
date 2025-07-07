@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ptr;
 use std::ffi::{CStr, CString};
+use std::ptr;
 
 use bitvec::macros::internal::funty::Fundamental;
 use bitvec::slice::BitSlice;
