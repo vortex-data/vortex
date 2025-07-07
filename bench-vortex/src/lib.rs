@@ -22,7 +22,6 @@ pub mod conversions;
 pub mod datasets;
 pub mod display;
 pub mod engines;
-pub mod example_usage;
 pub mod measurements;
 pub mod metrics;
 pub mod public_bi;
