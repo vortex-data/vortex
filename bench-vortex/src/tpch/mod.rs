@@ -124,7 +124,7 @@ pub mod named_locks {
     }
 }
 
-async fn register_csv(
+pub async fn register_csv(
     session: &SessionContext,
     name: &str,
     file: &Url,
@@ -178,7 +178,7 @@ async fn register_arrow(
     Ok(())
 }
 
-async fn register_parquet(
+pub async fn register_parquet(
     session: &SessionContext,
     object_store: Arc<dyn ObjectStore>,
     name: &str,
@@ -196,7 +196,7 @@ async fn register_parquet(
     .await
 }
 
-async fn register_vortex_file(
+pub async fn register_vortex_file(
     session: &SessionContext,
     object_store: Arc<dyn ObjectStore>,
     table_name: &str,

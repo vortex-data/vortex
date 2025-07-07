@@ -75,6 +75,8 @@ impl DuckdbTpcOptions {
 pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
     let sh = Shell::new()?;
 
+    println!("generate tpch {}", opts.format);
+
     let scale_factor = opts.scale_factor;
 
     // mkdir -p the output directory

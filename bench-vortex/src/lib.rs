@@ -13,18 +13,23 @@ use itertools::Itertools;
 use serde::Serialize;
 
 pub mod bench_run;
+pub mod benchmark_driver;
+pub mod benchmark_trait;
 pub mod clickbench;
+pub mod clickbench_benchmark;
 pub mod compress;
 pub mod conversions;
 pub mod datasets;
 pub mod display;
 pub mod engines;
+pub mod example_usage;
 pub mod measurements;
 pub mod metrics;
 pub mod public_bi;
 pub mod random_access;
 pub mod tpcds;
 pub mod tpch;
+pub mod tpch_benchmark;
 pub mod unified;
 pub mod utils;
 

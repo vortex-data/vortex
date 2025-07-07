@@ -6,7 +6,9 @@ use std::env;
 
 use anyhow::anyhow;
 
-use bench_vortex::clickbench::{Flavor, clickbench_queries};
+use bench_vortex::benchmark_driver::{run_benchmark, DriverConfig};
+use bench_vortex::clickbench::Flavor;
+use bench_vortex::clickbench_benchmark::ClickBenchBenchmark;
 use bench_vortex::display::DisplayFormat;
 use bench_vortex::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_query, ddb};
 use bench_vortex::measurements::QueryMeasurement;
@@ -14,6 +16,7 @@ use bench_vortex::metrics::{MetricsSetExt, export_plan_spans};
 use bench_vortex::public_bi::{PBIDataset, PBI_DATASETS, FileType};
 use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use bench_vortex::tpch::{EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, load_datasets, run_tpch_query, tpch_queries};
+use bench_vortex::tpch_benchmark::TpcHBenchmark;
 use bench_vortex::unified::{BenchmarkConfig, setup_logging_and_tracing, print_results};
 use bench_vortex::utils::constants::{CLICKBENCH_DATASET, STORAGE_NVME};
 use bench_vortex::utils::new_tokio_runtime;
@@ -25,7 +28,6 @@ use itertools::Itertools;
 use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
 use std::fs;
-use tracing::debug;
 use tracing_futures::Instrument;
 use url::Url;
 use vortex::error::VortexExpect;
@@ -213,173 +215,76 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
-    let config = BenchmarkConfig {
-        targets: args.common.targets.clone(),
+    // Create benchmark instance
+    let benchmark = ClickBenchBenchmark::new(
+        args.flavor,
+        args.single_file,
+        args.queries_file.map(|p| p.to_string_lossy().to_string()),
+        args.use_remote_data_dir,
+    );
+
+    // Configure driver
+    let config = DriverConfig {
+        targets: args.common.targets,
         iterations: args.common.iterations,
         threads: args.common.threads,
         verbose: args.common.verbose,
-        display_format: args.common.display_format.clone(),
+        display_format: args.common.display_format,
         disable_datafusion_cache: args.common.disable_datafusion_cache,
-        queries: args.common.queries.clone(),
-        output_path: args.common.output_path.clone(),
+        queries: args.common.queries,
+        exclude_queries: None,
+        output_path: args.common.output_path,
+        emit_plan: args.emit_plan,
+        export_spans: args.export_spans,
+        show_metrics: args.show_metrics,
+        hide_progress_bar: args.hide_progress_bar,
     };
 
-    let _trace_guard = setup_logging_and_tracing(config.verbose, "clickbench.trace.json")?;
+    // Determine data URL
+    let data_url = data_source_base_url(&benchmark.use_remote_data_dir, benchmark.flavor)?;
 
-    let engines = config.targets.iter().map(|t| t.engine()).unique().collect_vec();
-    validate_clickbench_args(&engines, &args);
-
-    let queries_filepath = args.queries_file.unwrap_or_else(|| {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql")
-    });
-
-    debug!(file = ?queries_filepath, "Reading queries from file");
-
-    let queries = match &config.queries {
-        None => clickbench_queries(queries_filepath),
-        Some(queries) => clickbench_queries(queries_filepath)
-            .into_iter()
-            .filter(|(q_idx, _)| queries.contains(q_idx))
-            .collect(),
-    };
-
-    let base_url = data_source_base_url(&args.use_remote_data_dir, args.flavor)?;
-
-    let progress_bar = if args.hide_progress_bar {
-        ProgressBar::hidden()
-    } else {
-        ProgressBar::new((queries.len() * config.targets.len()) as u64)
-    };
-
-    let mut query_measurements = Vec::new();
-    let dataset = BenchmarkDataset::ClickBench {
-        single_file: args.single_file,
-        flavor: args.flavor,
-    };
-
-    for target in config.targets.iter() {
-        let engine = target.engine();
-        let format = target.format();
-
-        let mut engine_ctx = match engine {
-            Engine::DataFusion => {
-                let session_ctx = df::get_session_context(config.disable_datafusion_cache);
-                df::make_object_store(&session_ctx, &base_url)?;
-                EngineCtx::new_with_datafusion(session_ctx, args.emit_plan)
-            }
-            Engine::DuckDB => EngineCtx::new_with_duckdb(dataset.clone(), format)?,
-            _ => unreachable!("engine not supported"),
-        };
-
-        let tokio_runtime = new_tokio_runtime(config.threads);
-        tokio_runtime.block_on(init_clickbench_data_source(format, &base_url, &dataset, &engine_ctx))?;
-
-        let bench_measurements = execute_clickbench_queries(
-            &queries,
-            config.iterations,
-            &tokio_runtime,
-            format,
-            dataset.clone(),
-            &progress_bar,
-            &mut engine_ctx,
-        );
-
-        if let EngineCtx::DataFusion(ref ctx) = engine_ctx {
-            if args.export_spans {
-                if let Err(err) = tokio_runtime
-                    .block_on(async move { export_plan_spans(format, &ctx.execution_plans).await })
-                {
-                    warn!("failed to export spans {err}");
-                }
-            }
-
-            if args.show_metrics {
-                print_clickbench_metrics(&ctx.metrics);
-            }
-        }
-
-        query_measurements.extend(bench_measurements);
-    }
-
-    print_results(
-        &config.display_format,
-        query_measurements,
-        &config.targets,
-        &config.output_path,
-    )
+    // Run benchmark using the trait system
+    run_benchmark(benchmark, config, "clickbench.trace.json", data_url)
 }
 
 fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
-    let config = BenchmarkConfig {
-        targets: args.common.targets.clone(),
+    // Create benchmark instance
+    let benchmark = TpcHBenchmark::new(
+        args.scale_factor,
+        args.use_remote_data_dir,
+    );
+
+    // Configure driver
+    let config = DriverConfig {
+        targets: args.common.targets,
         iterations: args.common.iterations,
         threads: args.common.threads,
         verbose: args.common.verbose,
-        display_format: args.common.display_format.clone(),
+        display_format: args.common.display_format,
         disable_datafusion_cache: args.common.disable_datafusion_cache,
-        queries: args.common.queries.clone(),
-        output_path: args.common.output_path.clone(),
+        queries: args.common.queries,
+        exclude_queries: args.exclude_queries,
+        output_path: args.common.output_path,
+        emit_plan: args.emit_plan,
+        export_spans: args.export_spans,
+        show_metrics: args.all_metrics,
+        hide_progress_bar: false,
     };
 
-    let _trace_guard = setup_logging_and_tracing(config.verbose, "tpch.trace.json")?;
-
-    let engines = config.targets.iter().map(|t| t.engine()).collect_vec();
-    validate_tpch_args(&engines, &args);
-
-    let formats = config.targets.iter().map(|t| t.format()).collect_vec();
-    let runtime = new_tokio_runtime(config.threads);
-
-    let url = match args.use_remote_data_dir {
+    // Determine data URL
+    let data_url = match &benchmark.use_remote_data_dir {
         None => {
-            for format in formats {
-                let format = if format == Format::Arrow {
-                    Format::Csv
-                } else {
-                    format
-                };
-                let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, format)
-                    .with_scale_factor(args.scale_factor);
-                generate_tpc(opts)?;
-            }
-
             let data_dir = "tpch".to_data_path();
             let data_dir = data_dir.to_str().vortex_expect("path must be utf8");
-
-            info!("Using existing or generating new files located at {data_dir}.");
             Url::parse(format!("file:{data_dir}/{}/", args.scale_factor).as_ref())?
         }
-        Some(tpch_benchmark_remote_data_dir) => {
-            if !tpch_benchmark_remote_data_dir.ends_with("/") {
-                warn!(
-                    "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/parquet/"
-                );
-            }
-            info!(
-                concat!(
-                    "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
-                    "If it does not, you should kill this command, locally generate the files (by running without\n",
-                    "--use-remote-data-dir) and upload data/tpch/1/ to some remote location.",
-                ),
-                tpch_benchmark_remote_data_dir,
-            );
-            Url::parse(&tpch_benchmark_remote_data_dir)?
+        Some(remote_data_dir) => {
+            Url::parse(remote_data_dir)?
         }
     };
 
-    runtime.block_on(bench_tpch_main(
-        config.queries,
-        args.exclude_queries,
-        config.iterations,
-        config.targets,
-        config.display_format,
-        config.disable_datafusion_cache,
-        args.scale_factor,
-        url,
-        args.all_metrics,
-        args.export_spans,
-        args.emit_plan,
-        &config.output_path,
-    ))
+    // Run benchmark using the trait system
+    run_benchmark(benchmark, config, "tpch.trace.json", data_url)
 }
 
 fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
@@ -400,7 +305,7 @@ fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
 
     for format in formats {
         let opts = DuckdbTpcOptions::new("tpcds".to_data_path(), TpcDataset::TpcDs, format);
-        generate_tpc(opts).expect("gen tpch-ds");
+        generate_tpc(opts)?;
     }
 
     let url = Url::parse(
@@ -550,6 +455,7 @@ fn run_public_bi(args: PublicBiArgs) -> anyhow::Result<()> {
 
 // Helper functions extracted from the original binaries
 
+#[allow(dead_code)]
 fn validate_clickbench_args(engines: &[Engine], args: &ClickBenchArgs) {
     if (args.emit_plan || args.export_spans || args.show_metrics || args.common.threads.is_some())
         && !engines.contains(&Engine::DataFusion)
@@ -560,6 +466,7 @@ fn validate_clickbench_args(engines: &[Engine], args: &ClickBenchArgs) {
     }
 }
 
+#[allow(dead_code)]
 fn validate_tpch_args(engines: &[Engine], args: &TpcHArgs) {
     if (args.all_metrics || args.export_spans || args.emit_plan || args.common.threads.is_some())
         && !engines.contains(&Engine::DataFusion)
@@ -601,6 +508,7 @@ fn data_source_base_url(remote_data_dir: &Option<String>, flavor: Flavor) -> any
     }
 }
 
+#[allow(dead_code)]
 async fn init_clickbench_data_source(
     file_format: Format,
     base_url: &Url,
@@ -645,6 +553,7 @@ async fn init_clickbench_data_source(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 fn execute_clickbench_queries(
     queries: &[(usize, String)],
     iterations: usize,
@@ -733,6 +642,7 @@ fn execute_clickbench_queries(
     query_measurements
 }
 
+#[allow(dead_code)]
 fn print_clickbench_metrics(
     metrics: &Vec<(
         usize,
@@ -761,6 +671,7 @@ fn print_clickbench_metrics(
 // In a real implementation, these would contain the extracted logic from the original binaries
 
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 async fn bench_tpch_main(
     queries: Option<Vec<usize>>,
     exclude_queries: Option<Vec<usize>>,
@@ -968,6 +879,7 @@ async fn bench_tpcds_main(
     todo!("Implement TPCDS benchmark logic")
 }
 
+#[allow(dead_code)]
 fn verify_duckdb_tpch_results(
     url: &Url,
     scale_factor: u32,
