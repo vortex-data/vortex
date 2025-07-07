@@ -1,16 +1,121 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Canonical implementations of the Between compute kernel.
+//!
+//! These implementations provide optimized between operations for core array types.
+
 use arrow_buffer::BooleanBuffer;
-use vortex_dtype::Nullability;
+use vortex_dtype::{NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_scalar::{NativeDecimalType, Scalar, match_each_decimal_value_type};
 
-use crate::arrays::{BoolArray, DecimalArray, DecimalVTable};
+use crate::arrays::{BoolArray, PrimitiveArray, PrimitiveVTable, DecimalArray, DecimalVTable};
 use crate::compute::{BetweenKernel, BetweenKernelAdapter, BetweenOptions, StrictComparison};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
+/// Implementation of Between kernel for PrimitiveArray
+impl BetweenKernel for PrimitiveVTable {
+    fn between(
+        &self,
+        arr: &PrimitiveArray,
+        lower: &dyn Array,
+        upper: &dyn Array,
+        options: &BetweenOptions,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
+            return Ok(None);
+        };
+
+        // Note, we know that have checked before that the lower and upper bounds are not constant
+        // null values
+
+        let nullability =
+            arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
+
+        Ok(Some(match_each_native_ptype!(arr.ptype(), |P| {
+            primitive_between_impl::<P>(
+                arr,
+                P::try_from(lower)?,
+                P::try_from(upper)?,
+                nullability,
+                options,
+            )
+        })))
+    }
+}
+
+register_kernel!(BetweenKernelAdapter(PrimitiveVTable).lift());
+
+fn primitive_between_impl<T: NativePType + Copy>(
+    arr: &PrimitiveArray,
+    lower: T,
+    upper: T,
+    nullability: Nullability,
+    options: &BetweenOptions,
+) -> ArrayRef {
+    match (options.lower_strict, options.upper_strict) {
+        // Note: these comparisons are explicitly passed in to allow function impl inlining
+        (StrictComparison::Strict, StrictComparison::Strict) => primitive_between_impl_(
+            arr,
+            lower,
+            NativePType::is_lt,
+            upper,
+            NativePType::is_lt,
+            nullability,
+        ),
+        (StrictComparison::Strict, StrictComparison::NonStrict) => primitive_between_impl_(
+            arr,
+            lower,
+            NativePType::is_lt,
+            upper,
+            NativePType::is_le,
+            nullability,
+        ),
+        (StrictComparison::NonStrict, StrictComparison::Strict) => primitive_between_impl_(
+            arr,
+            lower,
+            NativePType::is_le,
+            upper,
+            NativePType::is_lt,
+            nullability,
+        ),
+        (StrictComparison::NonStrict, StrictComparison::NonStrict) => primitive_between_impl_(
+            arr,
+            lower,
+            NativePType::is_le,
+            upper,
+            NativePType::is_le,
+            nullability,
+        ),
+    }
+}
+
+fn primitive_between_impl_<T>(
+    arr: &PrimitiveArray,
+    lower: T,
+    lower_fn: impl Fn(T, T) -> bool,
+    upper: T,
+    upper_fn: impl Fn(T, T) -> bool,
+    nullability: Nullability,
+) -> ArrayRef
+where
+    T: NativePType + Copy,
+{
+    let slice = arr.as_slice::<T>();
+    BoolArray::new(
+        BooleanBuffer::collect_bool(slice.len(), |idx| {
+            // We only iterate upto arr len and |arr| == |slice|.
+            let i = unsafe { *slice.get_unchecked(idx) };
+            lower_fn(lower, i) & upper_fn(i, upper)
+        }),
+        arr.validity().clone().union_nullability(nullability),
+    )
+    .into_array()
+}
+
+/// Implementation of Between kernel for DecimalArray
 impl BetweenKernel for DecimalVTable {
     // Determine if the values are between the lower and upper bounds
     fn between(
@@ -29,15 +134,15 @@ impl BetweenKernel for DecimalVTable {
 
         // NOTE: we know that have checked before that the lower and upper bounds are not all null.
         let nullability =
-            arr.dtype.nullability() | lower.dtype().nullability() | upper.dtype().nullability();
+            arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
 
         match_each_decimal_value_type!(arr.values_type(), |D| {
-            between_unpack::<D>(arr, lower, upper, nullability, options)
+            decimal_between_unpack::<D>(arr, lower, upper, nullability, options)
         })
     }
 }
 
-fn between_unpack<T: NativeDecimalType>(
+fn decimal_between_unpack<T: NativeDecimalType>(
     arr: &DecimalArray,
     lower: Scalar,
     upper: Scalar,
@@ -75,7 +180,7 @@ fn between_unpack<T: NativeDecimalType>(
         StrictComparison::NonStrict => |a, b| a <= b,
     };
 
-    Ok(Some(between_impl::<T>(
+    Ok(Some(decimal_between_impl::<T>(
         arr,
         lower_value,
         upper_value,
@@ -87,7 +192,7 @@ fn between_unpack<T: NativeDecimalType>(
 
 register_kernel!(BetweenKernelAdapter(DecimalVTable).lift());
 
-fn between_impl<T: NativeDecimalType>(
+fn decimal_between_impl<T: NativeDecimalType>(
     arr: &DecimalArray,
     lower: T,
     upper: T,
@@ -118,7 +223,7 @@ mod tests {
     use crate::validity::Validity;
 
     #[test]
-    fn test_between() {
+    fn test_decimal_between() {
         let values = buffer![100i128, 200i128, 300i128, 400i128];
         let decimal_type = DecimalDType::new(3, 2);
         let array = DecimalArray::new(values, decimal_type, Validity::NonNullable);
