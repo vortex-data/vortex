@@ -25,6 +25,7 @@ pub mod public_bi;
 pub mod random_access;
 pub mod tpcds;
 pub mod tpch;
+pub mod unified;
 pub mod utils;
 
 pub use datasets::{BenchmarkDataset, file};
