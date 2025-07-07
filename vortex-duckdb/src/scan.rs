@@ -56,7 +56,9 @@ impl std::fmt::Debug for VortexBindData {
 pub struct VortexGlobalData {
     file_paths: SegQueue<PathBuf>,
     is_first_file_processed: AtomicBool,
-    cache_id: AtomicU64,
+    /// We currently use a conversion cache to cache converted arrays, this id is used to
+    /// ensure that each cache created has a unique id used to name those arrays
+    conversion_cache_id: AtomicU64,
     filter_expr: Option<ExprRef>,
     projection_expr: ExprRef,
 }
@@ -228,7 +230,7 @@ impl TableFunction for VortexTableFunction {
         loop {
             if local_state.exporter.is_none() {
                 if !global_state.is_first_file_processed.swap(true, SeqCst) {
-                    let cache_id = global_state.cache_id.fetch_add(1, SeqCst);
+                    let cache_id = global_state.conversion_cache_id.fetch_add(1, SeqCst);
                     local_state.exporter =
                         Some(exporter_for_file(&bind_data.first_file, cache_id)?);
                 }
@@ -238,7 +240,7 @@ impl TableFunction for VortexTableFunction {
                         .open_blocking(&file_path)
                         .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
-                    let cache_id = global_state.cache_id.fetch_add(1, SeqCst);
+                    let cache_id = global_state.conversion_cache_id.fetch_add(1, SeqCst);
                     local_state.exporter = Some(exporter_for_file(&file, cache_id)?);
                 } else {
                     // If the exporter is None and there are no more files to process, signal that the scan finished.
@@ -273,7 +275,7 @@ impl TableFunction for VortexTableFunction {
         Ok(VortexGlobalData {
             file_paths,
             is_first_file_processed: AtomicBool::new(false),
-            cache_id: AtomicU64::new(0),
+            conversion_cache_id: AtomicU64::new(0),
             filter_expr,
             projection_expr,
         })

@@ -22,7 +22,7 @@ extern "C" void duckdb_vx_set_dictionary_vector_id(duckdb_vector dict, const cha
     DictionaryVector::SetDictionaryId(*ddict, std::string(id, id_len));
 }
 
-extern "C" void duckdb_vx_set_dictionary_length(duckdb_vector dict, unsigned int len) {
+extern "C" void duckdb_vx_set_dictionary_vector_length(duckdb_vector dict, unsigned int len) {
     auto ddict = reinterpret_cast<duckdb::Vector *>(dict);
     ddict->GetBuffer()->Cast<DictionaryBuffer>().SetDictionarySize(len);
 }

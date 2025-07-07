@@ -47,10 +47,13 @@ impl Vector {
         }
     }
 
+    // Used to by duckdb to know the dictionary value length (since each vector doesn't know its own
+    // length only its capacity).
     pub fn set_dictionary_len(&mut self, len: u32) {
-        unsafe { cpp::duckdb_vx_set_dictionary_length(self.as_ptr(), len) }
+        unsafe { cpp::duckdb_vx_set_dictionary_vector_length(self.as_ptr(), len) }
     }
 
+    // A pipeline-scoped id to assert dictionary vector value uniqueness
     pub fn set_dictionary_id(&mut self, dict_id: String) {
         let dict_id = CString::new(dict_id)
             .map_err(|e| vortex_err!("cstr creation error {e}"))

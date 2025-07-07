@@ -16,7 +16,7 @@ void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector, duckdb_selec
 
 void duckdb_vx_set_dictionary_vector_id(duckdb_vector dict, const char *id, unsigned int id_len);
 
-void duckdb_vx_set_dictionary_length(duckdb_vector dict, unsigned int len);
+void duckdb_vx_set_dictionary_vector_length(duckdb_vector dict, unsigned int len);
 
 // Add the buffer to the string vector (basically, keep it alive as long as the vector).
 void duckdb_vx_string_vector_add_buffer(duckdb_vector ffi_vector, duckdb_vx_data buffer);
