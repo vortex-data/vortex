@@ -44,10 +44,11 @@ fn take_to_buffer<I: NativePType + AsPrimitive<usize>, T: NativeDecimalType>(
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
+    use vortex_dtype::{DecimalDType, Nullability};
+    use vortex_scalar::{DecimalValue, Scalar};
 
     use crate::IntoArray;
-    use crate::arrays::{DecimalArray, DecimalVTable};
+    use crate::arrays::{DecimalArray, DecimalVTable, PrimitiveArray};
     use crate::compute::take;
     use crate::validity::Validity;
 
@@ -67,5 +68,36 @@ mod tests {
             buffer![10i128, 12i128, 13i128]
         );
         assert_eq!(taken_decimals.decimal_dtype(), DecimalDType::new(19, 1));
+    }
+
+    #[test]
+    fn test_take_null_indices() {
+        let array = DecimalArray::new(
+            buffer![i128::MAX, 11i128, 12i128, 13i128],
+            DecimalDType::new(19, 1),
+            Validity::NonNullable,
+        );
+
+        let indices = PrimitiveArray::from_option_iter([None, Some(2), Some(3)]).into_array();
+        let taken = take(array.as_ref(), indices.as_ref()).unwrap();
+
+        assert!(taken.scalar_at(0).unwrap().is_null());
+        assert_eq!(
+            taken.scalar_at(1).unwrap(),
+            Scalar::decimal(
+                DecimalValue::I128(12i128),
+                array.decimal_dtype(),
+                Nullability::Nullable
+            )
+        );
+
+        assert_eq!(
+            taken.scalar_at(2).unwrap(),
+            Scalar::decimal(
+                DecimalValue::I128(13i128),
+                array.decimal_dtype(),
+                Nullability::Nullable
+            )
+        );
     }
 }

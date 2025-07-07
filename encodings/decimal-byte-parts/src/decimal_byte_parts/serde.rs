@@ -7,8 +7,6 @@ use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::PType::U64;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
@@ -50,16 +48,12 @@ impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 
         let msp = children.get(0, &encoded_dtype, len)?;
 
-        let mut lower_parts = Vec::with_capacity(metadata.lower_part_count as usize);
-        for idx in 0..metadata.lower_part_count {
-            lower_parts.push(children.get(
-                (idx + 1) as usize,
-                &DType::Primitive(U64, NonNullable),
-                len,
-            )?)
-        }
+        assert_eq!(
+            metadata.lower_part_count, 0,
+            "lower_part_count > 0 not currently supported"
+        );
 
-        DecimalBytePartsArray::try_new(msp, lower_parts, *decimal_dtype)
+        DecimalBytePartsArray::try_new(msp, *decimal_dtype)
     }
 }
 
