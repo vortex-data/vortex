@@ -26,8 +26,7 @@ pub fn compress_decimal(decimal: &DecimalArray) -> VortexResult<ArrayRef> {
 
     let compressed = IntCompressor::compress(&prim, false, MAX_CASCADE, &[])?;
 
-    DecimalBytePartsArray::try_new(compressed, vec![], decimal.decimal_dtype())
-        .map(|d| d.to_array())
+    DecimalBytePartsArray::try_new(compressed, decimal.decimal_dtype()).map(|d| d.to_array())
 }
 
 macro_rules! try_downcast {
