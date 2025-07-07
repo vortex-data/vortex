@@ -26,16 +26,6 @@ pub struct ZstdMetadata {
     pub dictionary_size: u32,
     #[prost(message, repeated, tag = "2")]
     pub frames: Vec<ZstdFrameMetadata>,
-    // Tracks the canonical array type stored in the compressed data
-    #[prost(enumeration = "CanonicalArrayType", tag = "3")]
-    pub canonical_array_type: i32,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, prost::Enumeration)]
-#[repr(i32)]
-pub enum CanonicalArrayType {
-    Primitive = 0,
-    VarBinView = 1,
 }
 
 impl SerdeVTable<ZstdVTable> for ZstdVTable {

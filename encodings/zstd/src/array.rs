@@ -17,7 +17,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-use crate::serde::{CanonicalArrayType, ZstdFrameMetadata, ZstdMetadata};
+use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
 
 // Zstd doesn't support training dictionaries on very few samples.
 const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;
@@ -246,7 +246,6 @@ impl ZstdArray {
                 .map_or(0, |dict| dict.len())
                 .try_into()?,
             frames: frame_metas,
-            canonical_array_type: CanonicalArrayType::Primitive as i32,
         };
 
         Ok(ZstdArray::new(
@@ -302,7 +301,6 @@ impl ZstdArray {
                 .map_or(0, |dict| dict.len())
                 .try_into()?,
             frames: frame_metas,
-            canonical_array_type: CanonicalArrayType::VarBinView as i32,
         };
         Ok(ZstdArray::new(
             dictionary,
@@ -424,8 +422,8 @@ impl ZstdArray {
             .unsliced_validity
             .slice(self.slice_start, self.slice_stop)?;
 
-        match self.metadata.canonical_array_type() {
-            CanonicalArrayType::Primitive => {
+        match &self.dtype {
+            DType::Primitive(..) => {
                 let slice_values_buffer = decompressed.slice(
                     (slice_value_idx_start - n_skipped_values) * byte_width
                         ..(slice_value_idx_stop - n_skipped_values) * byte_width,
@@ -439,7 +437,7 @@ impl ZstdArray {
 
                 Ok(primitive.into_array())
             }
-            CanonicalArrayType::VarBinView => {
+            DType::Binary(_) | DType::Utf8(_) => {
                 // The decompressed buffer is a bunch of interleaved u32 lengths
                 // and strings of those lengths, we we need to reconstruct the
                 // views into those strings by passing through the buffer.
@@ -456,6 +454,10 @@ impl ZstdArray {
                 )?;
                 Ok(vbv.into_array())
             }
+            _ => Err(vortex_err!(
+                "Unsupported dtype for Zstd array: {:?}",
+                self.dtype
+            )),
         }
     }
 
