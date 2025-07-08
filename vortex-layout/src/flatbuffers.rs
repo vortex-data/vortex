@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::env;
+use std::sync::LazyLock;
+
 use flatbuffers::{FlatBufferBuilder, VerifierOptions, WIPOffset, root_with_opts};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -10,14 +13,22 @@ use crate::children::ViewedLayoutChildren;
 use crate::segments::SegmentId;
 use crate::{Layout, LayoutContext, LayoutRef};
 
-const LAYOUT_VERIFIER: VerifierOptions = VerifierOptions {
-    // Overriden
-    max_tables: 10_000_000,
-    max_depth: 256,
-    // Defaults from flatbuffers
-    max_apparent_size: 1 << 31,
-    ignore_missing_null_terminator: false,
-};
+static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
+    VerifierOptions {
+        // Overriden
+        max_tables: env::var("VORTEX_MAX_LAYOUT_TABLES")
+            .ok()
+            .and_then(|lmt| lmt.parse::<usize>().ok())
+            .unwrap_or(1000000),
+        max_depth: env::var("VORTEX_MAX_LAYOUT_DEPTH")
+            .ok()
+            .and_then(|lmt| lmt.parse::<usize>().ok())
+            .unwrap_or(64),
+        // Defaults from flatbuffers
+        max_apparent_size: 1 << 31,
+        ignore_missing_null_terminator: false,
+    }
+});
 
 /// Parse a [`LayoutRef`] from a layout flatbuffer.
 pub fn layout_from_flatbuffer(
