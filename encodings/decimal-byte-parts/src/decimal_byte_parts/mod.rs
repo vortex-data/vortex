@@ -4,7 +4,6 @@
 mod compute;
 mod serde;
 
-use itertools::Itertools;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
 use vortex_array::vtable::{
@@ -12,8 +11,7 @@ use vortex_array::vtable::{
     ValidityHelper, ValidityVTableFromChild,
 };
 use vortex_array::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, vtable};
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, DecimalDType, PType, match_each_signed_integer_ptype};
+use vortex_dtype::{DType, DecimalDType, match_each_signed_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_scalar::{DecimalValue, Scalar};
 
@@ -49,44 +47,24 @@ impl VTable for DecimalBytePartsVTable {
 #[derive(Clone, Debug)]
 pub struct DecimalBytePartsArray {
     msp: ArrayRef,
-    lower_parts: Vec<ArrayRef>,
+    // NOTE: the lower_parts is currently unused, we reserve this field so that it is properly
+    //  read/written during serde, but provide no constructor to initialize this to anything
+    //  other than the empty Vec.
+    _lower_parts: Vec<ArrayRef>,
     dtype: DType,
     stats_set: ArrayStats,
 }
 
 impl DecimalBytePartsArray {
-    pub fn try_new(
-        msp: ArrayRef,
-        lower_parts: Vec<ArrayRef>,
-        decimal_dtype: DecimalDType,
-    ) -> VortexResult<Self> {
-        if !lower_parts.is_empty() {
-            // TODO(joe): remove this constraint.
-            vortex_bail!("DecimalBytePartsArray doesn't support lower parts arrays")
-        }
-
-        if !(0usize..=3).contains(&lower_parts.iter().len()) {
-            vortex_bail!(
-                "DecimalBytePartsArray lower_parts must have between 0..=3 children, instead given: {}",
-                lower_parts.len()
-            )
-        }
-
+    pub fn try_new(msp: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
         if !msp.dtype().is_signed_int() {
             vortex_bail!("decimal bytes parts, first part must be a signed array")
-        }
-
-        if lower_parts
-            .iter()
-            .any(|a| a.dtype() != &DType::Primitive(PType::U64, NonNullable))
-        {
-            vortex_bail!("decimal bytes parts 2nd to 4th must be non-nullable u64 primitive typed")
         }
 
         let nullable = msp.dtype().nullability();
         Ok(Self {
             msp,
-            lower_parts,
+            _lower_parts: Vec::new(),
             dtype: DType::Decimal(decimal_dtype, nullable),
             stats_set: Default::default(),
         })
@@ -119,7 +97,6 @@ impl ArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn canonicalize(array: &DecimalBytePartsArray) -> VortexResult<Canonical> {
         // TODO(joe): support parts len != 1
-        assert!(array.lower_parts.is_empty());
         let prim = array.msp.to_canonical()?.into_primitive()?;
         // Depending on the decimal type and the min/max of the primitive array we can choose
         // the correct buffer size
@@ -138,22 +115,13 @@ impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 
 impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn slice(array: &DecimalBytePartsArray, start: usize, stop: usize) -> VortexResult<ArrayRef> {
-        DecimalBytePartsArray::try_new(
-            array.msp.slice(start, stop)?,
-            array
-                .lower_parts
-                .iter()
-                .map(|p| p.slice(start, stop))
-                .try_collect()?,
-            *array.decimal_dtype(),
-        )
-        .map(|d| d.to_array())
+        DecimalBytePartsArray::try_new(array.msp.slice(start, stop)?, *array.decimal_dtype())
+            .map(|d| d.to_array())
     }
 
     #[allow(clippy::useless_conversion)]
     fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> VortexResult<Scalar> {
         // TODO(joe): support parts len != 1
-        assert!(array.lower_parts.is_empty());
         let scalar = array.msp.scalar_at(index)?;
 
         // Note. values in msp, can only be signed integers upto size i64.
@@ -201,7 +169,6 @@ mod tests {
                 Validity::Array(BoolArray::from_iter(vec![false, true, true]).to_array()),
             )
             .to_array(),
-            vec![],
             decimal_dtype,
         )
         .unwrap()

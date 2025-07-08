@@ -7,8 +7,6 @@ use vortex_array::{
     Array, ArrayBufferVisitor, ArrayChildVisitor, DeserializeMetadata, ProstMetadata,
 };
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::PType::U64;
 use vortex_dtype::{DType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
@@ -29,8 +27,7 @@ impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         Ok(Some(ProstMetadata(DecimalBytesPartsMetadata {
             zeroth_child_ptype: PType::try_from(array.msp.dtype()).vortex_expect("must be a PType")
                 as i32,
-            lower_part_count: u32::try_from(array.lower_parts.len())
-                .vortex_expect("1..=3 fits in u8"),
+            lower_part_count: 0,
         })))
     }
 
@@ -50,29 +47,19 @@ impl SerdeVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 
         let msp = children.get(0, &encoded_dtype, len)?;
 
-        let mut lower_parts = Vec::with_capacity(metadata.lower_part_count as usize);
-        for idx in 0..metadata.lower_part_count {
-            lower_parts.push(children.get(
-                (idx + 1) as usize,
-                &DType::Primitive(U64, NonNullable),
-                len,
-            )?)
-        }
+        assert_eq!(
+            metadata.lower_part_count, 0,
+            "lower_part_count > 0 not currently supported"
+        );
 
-        DecimalBytePartsArray::try_new(msp, lower_parts, *decimal_dtype)
+        DecimalBytePartsArray::try_new(msp, *decimal_dtype)
     }
 }
-
-const ENCODED_NAMES: [&str; 3] = ["lower-0", "lower-1", "lower-2"];
 
 impl VisitorVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn visit_buffers(_array: &DecimalBytePartsArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &DecimalBytePartsArray, visitor: &mut dyn ArrayChildVisitor) {
-        assert!(array.lower_parts.len() <= 3);
         visitor.visit_child("msp", &array.msp);
-        array.lower_parts.iter().enumerate().for_each(|(idx, arr)| {
-            visitor.visit_child(ENCODED_NAMES[idx], arr);
-        })
     }
 }
