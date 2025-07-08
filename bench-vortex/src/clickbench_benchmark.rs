@@ -83,10 +83,8 @@ impl Benchmark for ClickBenchBenchmark {
                         let client = reqwest::blocking::Client::default();
                         self.flavor.download(&client, basepath.as_path())?;
                     }
-                    _ => {
-                        // For other formats (CSV, Arrow), ensure base data exists
-                        let client = reqwest::blocking::Client::default();
-                        self.flavor.download(&client, basepath.as_path())?;
+                    f => {
+                        todo!("format {f} unsupported in clickbench")
                     }
                 }
 

@@ -8,7 +8,6 @@ use bench_vortex::benchmark_driver::{DriverConfig, run_benchmark};
 use bench_vortex::clickbench::Flavor;
 use bench_vortex::clickbench_benchmark::ClickBenchBenchmark;
 use bench_vortex::display::DisplayFormat;
-use bench_vortex::public_bi::PBIDataset;
 use bench_vortex::tpch_benchmark::TpcHBenchmark;
 use bench_vortex::{Engine, Format, IdempotentPath, Target};
 use clap::{Parser, Subcommand, value_parser};
@@ -45,6 +44,9 @@ struct CommonArgs {
     #[arg(short, long)]
     verbose: bool,
 
+    #[arg(long)]
+    export_spans: bool,
+
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
 
@@ -54,8 +56,23 @@ struct CommonArgs {
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
 
+    #[arg(short, long, value_delimiter = ',')]
+    exclude_queries: Option<Vec<usize>>,
+
     #[arg(short)]
     output_path: Option<PathBuf>,
+
+    #[arg(long, default_value_t = false)]
+    show_metrics: bool,
+
+    #[arg(long, default_value_t = false)]
+    hide_progress_bar: bool,
+
+    #[arg(long)]
+    use_remote_data_dir: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    emit_plan: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -74,29 +91,14 @@ struct ClickBenchArgs {
     )]
     targets: Vec<Target>,
 
-    #[arg(long, default_value_t = false)]
-    emit_plan: bool,
-
     #[arg(long)]
     queries_file: Option<PathBuf>,
-
-    #[arg(long)]
-    export_spans: bool,
 
     #[arg(long, value_enum, default_value_t = Flavor::Partitioned)]
     flavor: Flavor,
 
-    #[arg(long)]
-    use_remote_data_dir: Option<String>,
-
     #[arg(long, default_value_t = false)]
     single_file: bool,
-
-    #[arg(long, default_value_t = false)]
-    hide_progress_bar: bool,
-
-    #[arg(long, default_value_t = false)]
-    show_metrics: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -116,53 +118,8 @@ struct TpcHArgs {
     )]
     targets: Vec<Target>,
 
-    #[arg(short, long, value_delimiter = ',')]
-    exclude_queries: Option<Vec<usize>>,
-
     #[arg(long, default_value_t = 1, value_parser=validate_scale_factor)]
     scale_factor: u32,
-
-    #[arg(long)]
-    all_metrics: bool,
-
-    #[arg(long)]
-    export_spans: bool,
-
-    #[arg(long, default_value_t = false)]
-    emit_plan: bool,
-
-    #[arg(long)]
-    use_remote_data_dir: Option<String>,
-
-    #[arg(long, default_value_t = false)]
-    hide_progress_bar: bool,
-}
-
-#[derive(Parser, Debug)]
-struct TpcDSArgs {
-    #[command(flatten)]
-    common: CommonArgs,
-
-    #[arg(short, long, value_delimiter = ',')]
-    exclude_queries: Option<Vec<usize>>,
-
-    #[arg(long)]
-    export_spans: bool,
-
-    #[arg(long, default_value_t = false)]
-    emit_plan: bool,
-}
-
-#[derive(Parser, Debug)]
-struct PublicBiArgs {
-    #[command(flatten)]
-    common: CommonArgs,
-
-    #[arg(long)]
-    display_metrics: bool,
-
-    #[arg(short, long, value_delimiter = ',')]
-    dataset: PBIDataset,
 }
 
 fn validate_scale_factor(val: &str) -> Result<u32, String> {
@@ -189,7 +146,7 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
         args.flavor,
         args.single_file,
         args.queries_file.map(|p| p.to_string_lossy().to_string()),
-        args.use_remote_data_dir,
+        args.common.use_remote_data_dir,
     );
 
     // Configure driver
@@ -201,12 +158,12 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
         display_format: args.common.display_format,
         disable_datafusion_cache: args.common.disable_datafusion_cache,
         queries: args.common.queries,
-        exclude_queries: None,
+        exclude_queries: args.common.exclude_queries,
         output_path: args.common.output_path,
-        emit_plan: args.emit_plan,
-        export_spans: args.export_spans,
-        show_metrics: args.show_metrics,
-        hide_progress_bar: args.hide_progress_bar,
+        emit_plan: args.common.emit_plan,
+        export_spans: args.common.export_spans,
+        show_metrics: args.common.show_metrics,
+        hide_progress_bar: args.common.hide_progress_bar,
     };
 
     // Determine data URL
@@ -225,7 +182,7 @@ fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
     let queries_for_verify = args.common.queries.clone();
 
     // Create benchmark instance
-    let benchmark = TpcHBenchmark::new(args.scale_factor, args.use_remote_data_dir);
+    let benchmark = TpcHBenchmark::new(args.scale_factor, args.common.use_remote_data_dir);
 
     // Determine data URL
     let data_url = match &benchmark.use_remote_data_dir {
@@ -246,12 +203,12 @@ fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
         display_format: args.common.display_format,
         disable_datafusion_cache: args.common.disable_datafusion_cache,
         queries: args.common.queries,
-        exclude_queries: args.exclude_queries,
+        exclude_queries: args.common.exclude_queries,
         output_path: args.common.output_path,
-        emit_plan: args.emit_plan,
-        export_spans: args.export_spans,
-        show_metrics: args.all_metrics,
-        hide_progress_bar: args.hide_progress_bar,
+        emit_plan: args.common.emit_plan,
+        export_spans: args.common.export_spans,
+        show_metrics: args.common.show_metrics,
+        hide_progress_bar: args.common.hide_progress_bar,
     };
 
     // Run benchmark using the trait system

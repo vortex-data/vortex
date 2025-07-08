@@ -56,10 +56,8 @@ pub fn run_benchmark<B: Benchmark>(
         benchmark.generate_data(&data_url, target)?;
     }
 
-    // Load and filter queries
-    let all_queries = benchmark.queries()?;
     let filtered_queries = filter_queries(
-        all_queries,
+        benchmark.queries()?,
         config.queries.as_ref(),
         config.exclude_queries.as_ref(),
     );
