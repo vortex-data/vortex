@@ -8,9 +8,8 @@ use std::path::PathBuf;
 use bench_vortex::display::{DisplayFormat, print_measurements_json, render_table};
 use bench_vortex::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_query};
 use bench_vortex::measurements::QueryMeasurement;
-use bench_vortex::tpcds::tpcds_queries;
+use bench_vortex::tpcds::{load_datasets, tpcds_queries};
 use bench_vortex::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
-use bench_vortex::tpch::load_datasets;
 use bench_vortex::utils::new_tokio_runtime;
 use bench_vortex::{
     BenchmarkDataset, Engine, IdempotentPath, Target, default_env_filter, vortex_panic,

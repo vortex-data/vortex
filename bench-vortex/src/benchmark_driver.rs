@@ -17,8 +17,7 @@ use crate::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_que
 use crate::measurements::QueryMeasurement;
 use crate::metrics::{MetricsSetExt, export_plan_spans};
 use crate::query_bench::{filter_queries, print_results, setup_logging_and_tracing};
-use crate::utils::url_scheme_to_storage;
-use crate::utils::new_tokio_runtime;
+use crate::utils::{new_tokio_runtime, url_scheme_to_storage};
 use crate::{Engine, Format, Target, df, vortex_panic};
 
 /// Configuration for the benchmark driver

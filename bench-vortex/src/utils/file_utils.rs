@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use anyhow::bail;
 use url::Url;
 
-
 /// Creates a file if it doesn't already exist.
 /// NB: Does NOT modify the given path to ensure that it resides in the data directory.
 pub fn idempotent<T, E, P: IdempotentPath + ?Sized>(
