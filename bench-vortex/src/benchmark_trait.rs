@@ -35,4 +35,22 @@ pub trait Benchmark {
     fn get_expected_row_counts(&self) -> Option<&[usize]> {
         None
     }
+
+    // Dataset-specific methods (inlined from BenchmarkDataset)
+    
+    /// Get the name of the benchmark dataset
+    fn dataset_name(&self) -> &str;
+    
+    /// Get the table names for this dataset (used for TPC benchmarks)
+    fn tables(&self) -> &[&'static str] {
+        &[] // Default empty for benchmarks that don't need this
+    }
+    
+    /// Format a path for the given format and base URL
+    fn format_path(&self, format: Format, base_url: &Url) -> Result<Url> {
+        Ok(base_url.join(&format!("{}/", format.name()))?)
+    }
+
+    /// Get display string for the dataset (used in measurements)
+    fn dataset_display(&self) -> String;
 }

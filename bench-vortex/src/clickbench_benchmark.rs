@@ -142,4 +142,18 @@ impl Benchmark for ClickBenchBenchmark {
         ];
         Some(&REFERENCE_ROW_COUNTS)
     }
+
+    // Dataset-specific methods (inlined from BenchmarkDataset)
+    
+    fn dataset_name(&self) -> &str {
+        "clickbench"
+    }
+    
+    fn dataset_display(&self) -> String {
+        if self.single_file {
+            "clickbench-single".to_string()
+        } else {
+            "clickbench-partitioned".to_string()
+        }
+    }
 }

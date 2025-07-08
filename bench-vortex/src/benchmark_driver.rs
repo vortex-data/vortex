@@ -71,7 +71,6 @@ pub fn run_benchmark<B: Benchmark>(
     };
 
     let mut query_measurements = Vec::new();
-    let dataset = benchmark.get_dataset();
 
     for target in config.targets.iter() {
         let tokio_runtime = new_tokio_runtime(config.threads);
@@ -96,7 +95,6 @@ pub fn run_benchmark<B: Benchmark>(
             config.iterations,
             &tokio_runtime,
             target.format(),
-            dataset.clone(),
             &progress_bar,
             &mut engine_ctx,
             &benchmark,
@@ -176,7 +174,6 @@ fn execute_queries<B: Benchmark>(
     iterations: usize,
     runtime: &tokio::runtime::Runtime,
     format: Format,
-    dataset: crate::BenchmarkDataset,
     progress_bar: &ProgressBar,
     engine_ctx: &mut EngineCtx,
     benchmark: &B,
@@ -217,7 +214,7 @@ fn execute_queries<B: Benchmark>(
                     df::write_execution_plan(
                         query_idx,
                         format,
-                        dataset.name(),
+                        benchmark.dataset_name(),
                         execution_plan.as_ref(),
                     );
                 }
@@ -231,7 +228,7 @@ fn execute_queries<B: Benchmark>(
                 query_measurements.push(QueryMeasurement {
                     query_idx,
                     target: Target::new(Engine::DataFusion, format),
-                    benchmark_dataset: dataset.clone(),
+                    benchmark_dataset: benchmark.get_dataset(),
                     storage: STORAGE_NVME.to_owned(),
                     runs,
                 });

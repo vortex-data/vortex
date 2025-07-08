@@ -110,6 +110,23 @@ impl Benchmark for TpcHBenchmark {
             _ => None, // Unsupported scale factor
         }
     }
+
+    // Dataset-specific methods (inlined from BenchmarkDataset)
+    
+    fn dataset_name(&self) -> &str {
+        "tpch"
+    }
+    
+    fn tables(&self) -> &[&'static str] {
+        &[
+            "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
+            "supplier",
+        ]
+    }
+    
+    fn dataset_display(&self) -> String {
+        format!("tpch(sf={})", self.scale_factor)
+    }
 }
 
 impl TpcHBenchmark {
