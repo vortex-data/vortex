@@ -95,6 +95,7 @@
 
 mod driver;
 mod file;
+mod file_stats;
 mod footer;
 mod generic;
 mod memory;

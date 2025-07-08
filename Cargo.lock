@@ -6491,6 +6491,7 @@ dependencies = [
  "vortex-fsst",
  "vortex-io",
  "vortex-layout",
+ "vortex-mask",
  "vortex-metrics",
  "vortex-runend",
  "vortex-scalar",

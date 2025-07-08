@@ -102,11 +102,11 @@ impl Display for VarExpr {
 }
 
 impl AnalysisExpr for VarExpr {
-    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn max(&self, catalog: &dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(&self.field_path()?, Stat::Max)
     }
 
-    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn min(&self, catalog: &dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(&self.field_path()?, Stat::Min)
     }
 

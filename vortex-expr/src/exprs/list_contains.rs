@@ -121,7 +121,7 @@ impl AnalysisExpr for ListContainsExpr {
     // falsification(contains([1,2,5], x)) =>
     //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
 
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsification(&self, catalog: &dyn StatsCatalog) -> Option<ExprRef> {
         let min = self.list.min(catalog)?;
         let max = self.list.max(catalog)?;
         // If the list is constant when we can compare each element to the value

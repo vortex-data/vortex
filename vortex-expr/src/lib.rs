@@ -222,15 +222,15 @@ impl<V: VTable> Hash for ExprAdapter<V> {
 }
 
 impl<V: VTable> AnalysisExpr for ExprAdapter<V> {
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsification(&self, catalog: &dyn StatsCatalog) -> Option<ExprRef> {
         <V::Expr as AnalysisExpr>::stat_falsification(&self.0, catalog)
     }
 
-    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn max(&self, catalog: &dyn StatsCatalog) -> Option<ExprRef> {
         <V::Expr as AnalysisExpr>::max(&self.0, catalog)
     }
 
-    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn min(&self, catalog: &dyn StatsCatalog) -> Option<ExprRef> {
         <V::Expr as AnalysisExpr>::min(&self.0, catalog)
     }
 

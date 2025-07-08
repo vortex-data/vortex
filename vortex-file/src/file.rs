@@ -22,6 +22,7 @@ use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::file_stats::FileStatsLayoutReader;
 use crate::footer::Footer;
 use crate::pruning::extract_relevant_file_stats_as_struct_row;
 
@@ -80,10 +81,23 @@ impl VortexFile {
     /// Create a new layout reader for the file.
     pub fn layout_reader(&self) -> VortexResult<Arc<dyn LayoutReader>> {
         let segment_source = self.segment_source();
-        self.footer
+        let mut reader = self
+            .footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader("".into(), segment_source, self.footer().ctx().clone())
+            .new_reader("".into(), segment_source, self.footer().ctx().clone())?;
+
+        // We wrap the reader in a FileStatsLayoutReader to allow for pruning based on
+        // file-level statistics.
+        if let Some(stats) = self.footer.statistics() {
+            reader = Arc::new(FileStatsLayoutReader::new(
+                reader.name().clone(),
+                reader,
+                stats.clone(),
+            ));
+        }
+
+        Ok(reader)
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.

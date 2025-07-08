@@ -144,7 +144,7 @@ impl Display for BinaryExpr {
 }
 
 impl AnalysisExpr for BinaryExpr {
-    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsification(&self, catalog: &dyn StatsCatalog) -> Option<ExprRef> {
         match self.operator {
             Operator::Eq => {
                 let min_lhs = self.lhs.min(catalog);

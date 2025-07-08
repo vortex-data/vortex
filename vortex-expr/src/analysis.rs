@@ -8,7 +8,7 @@ use crate::{AccessPath, ExprRef};
 pub trait StatsCatalog {
     /// Given an id, field and stat return an expression that when evaluated will return that stat
     /// this would be a column reference or a literal value, if the value is known at planning time.
-    fn stats_ref(&mut self, _access_path: &AccessPath, _stat: Stat) -> Option<ExprRef> {
+    fn stats_ref(&self, _access_path: &AccessPath, _stat: Stat) -> Option<ExprRef> {
         None
     }
 }
@@ -34,7 +34,7 @@ pub trait AnalysisExpr {
     ///
     /// Some expressions, in theory, have falsifications but this function does not support them
     /// such as `x < (y < z)` or `x LIKE "needle%"`.
-    fn stat_falsification(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn stat_falsification(&self, _catalog: &dyn StatsCatalog) -> Option<ExprRef> {
         None
     }
 
@@ -45,14 +45,14 @@ pub trait AnalysisExpr {
     /// The returned expression evaluates to null if the maximum value is unknown. In that case, you
     /// _must not_ assume the array is empty _nor_ may you assume the array only contains non-null
     /// values.
-    fn max(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn max(&self, _catalog: &dyn StatsCatalog) -> Option<ExprRef> {
         None
     }
 
     /// An expression for the lower non-null bound of this expression, if available.
     ///
     /// See [AnalysisExpr::max] for important details.
-    fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+    fn min(&self, _catalog: &dyn StatsCatalog) -> Option<ExprRef> {
         None
     }
 

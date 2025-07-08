@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cell::RefCell;
 use std::iter;
 
 use itertools::Itertools;
@@ -16,7 +17,7 @@ pub type RequiredStats = Relation<AccessPath, Stat>;
 // A catalog that return a stat column whenever it is required
 #[derive(Default)]
 struct AnyStatsCatalog {
-    usage: HashMap<(AccessPath, Stat), ExprRef>,
+    usage: RefCell<HashMap<(AccessPath, Stat), ExprRef>>,
 }
 
 // A catalog that return a stat column if it exists in the given scope.
@@ -26,7 +27,7 @@ struct ScopeStatsCatalog<'a> {
 }
 
 impl StatsCatalog for ScopeStatsCatalog<'_> {
-    fn stats_ref(&mut self, access_path: &AccessPath, stat: Stat) -> Option<ExprRef> {
+    fn stats_ref(&self, access_path: &AccessPath, stat: Stat) -> Option<ExprRef> {
         let set = self.scope_field_paths.set(access_path.identifier())?;
 
         let stat_path = access_path
@@ -43,11 +44,13 @@ impl StatsCatalog for ScopeStatsCatalog<'_> {
 }
 
 impl StatsCatalog for AnyStatsCatalog {
-    fn stats_ref(&mut self, access_path: &AccessPath, stat: Stat) -> Option<ExprRef> {
+    fn stats_ref(&self, access_path: &AccessPath, stat: Stat) -> Option<ExprRef> {
         let mut expr = var(access_path.identifier().clone());
         let name = field_path_stat_field_name(access_path.field_path(), stat);
         expr = get_item(name, expr);
-        self.usage.insert((access_path.clone(), stat), expr.clone());
+        self.usage
+            .borrow_mut()
+            .insert((access_path.clone(), stat), expr.clone());
         Some(expr)
     }
 }
@@ -75,7 +78,7 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
 
     // TODO(joe): filter access by used exprs
     let mut relation: Relation<AccessPath, Stat> = Relation::new();
-    for ((field_path, stat), _) in catalog.usage.into_iter() {
+    for ((field_path, stat), _) in catalog.usage.into_inner().into_iter() {
         relation.insert(field_path, stat)
     }
 
@@ -99,7 +102,7 @@ pub fn checked_pruning_expr(
 
     // TODO(joe): filter access by used exprs
     let mut relation: Relation<AccessPath, Stat> = Relation::new();
-    for ((field_path, stat), _) in catalog.any_catalog.usage.into_iter() {
+    for ((field_path, stat), _) in catalog.any_catalog.usage.into_inner().into_iter() {
         relation.insert(field_path, stat)
     }
 
