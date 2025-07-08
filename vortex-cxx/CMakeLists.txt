@@ -5,6 +5,8 @@ cmake_minimum_required(VERSION 3.16)
 
 if(DEFINED ENV{VCPKG_TOOLCHAIN_PATH})
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_TOOLCHAIN_PATH}")
+else()
+    message(WARNING "VCPKG_TOOLCHAIN_PATH environment variable is not set. Dependencies may not be found correctly. See README.md for vcpkg setup instructions.")
 endif()
 
 project(vortex-cxx LANGUAGES CXX)
