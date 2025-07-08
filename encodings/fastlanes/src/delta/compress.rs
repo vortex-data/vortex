@@ -21,16 +21,12 @@ pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, P
     // Compress the filled array
     let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |T| {
         let (bases, deltas) = compress_primitive(array.as_slice::<T>());
-        let base_validity = if array.validity().nullability() != Nullability::NonNullable {
-            Validity::AllValid
-        } else {
-            Validity::NonNullable
-        };
-        let delta_validity = if array.validity().nullability() != Nullability::NonNullable {
-            Validity::AllValid
-        } else {
-            Validity::NonNullable
-        };
+        let (base_validity, delta_validity) =
+            if array.validity().nullability() != Nullability::NonNullable {
+                (Validity::AllValid, Validity::AllValid)
+            } else {
+                (Validity::NonNullable, Validity::NonNullable)
+            };
         (
             // To preserve nullability, we include Validity
             PrimitiveArray::new(bases, base_validity),
@@ -57,7 +53,6 @@ where
     // Loop over all the 1024-element chunks.
     if num_chunks > 0 {
         let mut transposed: [T; 1024] = [T::default(); 1024];
-        let mut base = [T::default(); T::LANES];
 
         for i in 0..num_chunks {
             let start_elem = i * 1024;
@@ -65,9 +60,7 @@ where
             Transpose::transpose(chunk, &mut transposed);
 
             // Initialize and store the base vector for each chunk
-            // TODO(ngates): avoid copying the base vector
-            base.copy_from_slice(&transposed[0..T::LANES]);
-            bases.extend(base);
+            bases.extend(&transposed[0..T::LANES]);
 
             deltas.reserve(1024);
             let delta_len = deltas.len();
@@ -75,7 +68,7 @@ where
                 deltas.set_len(delta_len + 1024);
                 Delta::delta(
                     &transposed,
-                    &base,
+                    &*(transposed[0..T::LANES].as_ptr() as *const [_; T::LANES]),
                     array_mut_ref![deltas[delta_len..], 0, 1024],
                 );
             }
@@ -140,16 +133,17 @@ where
     // Loop over all the chunks
     if num_chunks > 0 {
         let mut transposed: [T; 1024] = [T::default(); 1024];
-        let mut base = [T::default(); T::LANES];
 
         for i in 0..num_chunks {
             let start_elem = i * 1024;
             let chunk: &[T; 1024] = array_ref![deltas, start_elem, 1024];
 
             // Initialize the base vector for this chunk
-            // TODO(ngates): avoid copying the bases
-            base.copy_from_slice(&bases[i * lanes..(i + 1) * lanes]);
-            Delta::undelta(chunk, &base, &mut transposed);
+            Delta::undelta(
+                chunk,
+                unsafe { &*(transposed[0..T::LANES].as_ptr() as *const [_; T::LANES]) },
+                &mut transposed,
+            );
 
             let output_len = output.len();
             unsafe { output.set_len(output_len + 1024) }
