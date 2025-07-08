@@ -76,10 +76,8 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
             config.emit_plan,
         )?;
 
-        // Register tables
         tokio_runtime.block_on(benchmark.register_tables(&engine_ctx, target.format()))?;
 
-        // Execute queries
         let bench_measurements = execute_queries(
             &filtered_queries,
             config.iterations,
@@ -90,13 +88,11 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
             &benchmark,
         );
 
-        // Export metrics and spans
         tokio_runtime.block_on(export_metrics_if_requested(
             &engine_ctx,
             config.export_spans,
         ))?;
 
-        // Print metrics if requested
         if config.show_metrics {
             print_metrics(&engine_ctx);
         }

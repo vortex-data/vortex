@@ -115,7 +115,6 @@ impl BenchmarkDataset {
         base_url: &Url,
         format: Format,
     ) -> Result<()> {
-        // Register tables synchronously to avoid nested runtime issues
         match (self, format) {
             (BenchmarkDataset::TpcH { .. }, _) | (BenchmarkDataset::TpcDS { .. }, _) => {
                 // TPC-H tables are handled separately
