@@ -81,7 +81,7 @@ impl Benchmark for TpcHBenchmark {
                 };
 
                 let base_tpch_dir = "tpch".to_data_path();
-                let opts = DuckdbTpcOptions::new(base_tpch_dir.clone(), TpcDataset::TpcH, format)
+                let opts = DuckdbTpcOptions::new(base_tpch_dir, TpcDataset::TpcH, format)
                     .with_scale_factor(self.scale_factor);
                 generate_tpc(opts)?;
 
