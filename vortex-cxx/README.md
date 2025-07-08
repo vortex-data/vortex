@@ -34,7 +34,7 @@ Then build the project:
 mkdir build
 cd build
 cmake ..
-make
+make -j$(nproc)
 ```
 
 ### Running Tests
@@ -42,6 +42,6 @@ make
 ```bash
 # Enable tests in CMake
 cmake -DVORTEX_ENABLE_TESTING=ON ..
-make
-ctest
+make -j$(nproc)
+./vortex_cxx_test
 ```
