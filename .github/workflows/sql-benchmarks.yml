@@ -79,7 +79,7 @@ jobs:
         env:
           RUSTFLAGS: '-C target-cpu=native -C force-frame-pointers=yes'
         run: |
-          cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
+          cargo build --bin unified --package bench-vortex --profile release_debug
 
       - name: Generate data
         shell: bash
