@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import com.vanniktech.maven.publish.SonatypeHost
-
 apply(plugin = "com.vanniktech.maven.publish")
 
 plugins {
@@ -32,7 +30,7 @@ testing {
 mavenPublishing {
     coordinates(groupId = "dev.vortex", artifactId = "vortex-spark", version = "${rootProject.version}")
 
-    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+    publishToMavenCentral()
 
     signAllPublications()
 

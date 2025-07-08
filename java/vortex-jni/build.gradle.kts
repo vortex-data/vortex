@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-import com.vanniktech.maven.publish.SonatypeHost
+import org.gradle.kotlin.dsl.support.serviceOf
 
 plugins {
     `java-library`
@@ -41,7 +41,7 @@ testing {
 
 mavenPublishing {
     coordinates(groupId = "dev.vortex", artifactId = "vortex-jni", version = "${rootProject.version}")
-    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
+    publishToMavenCentral()
 
     signAllPublications()
 
@@ -107,6 +107,49 @@ tasks.withType<ShadowJar> {
 
 tasks.build {
     dependsOn("shadowJar")
+}
+
+tasks.register("makeTestFiles") {
+    description = "Generate files used by unit tests"
+    group = "verification"
+
+    doLast {
+        println("makeTestFiles executed")
+
+        val execOps = serviceOf<ExecOperations>()
+
+        // Build the JNI lib
+
+        execOps.exec {
+            workingDir = rootProject.projectDir.absoluteFile.parentFile
+            executable = "cargo"
+            args("build", "--package", "vortex-jni")
+        }
+
+        copy {
+            from("${rootProject.projectDir.absoluteFile.parentFile}/target/debug/libvortex_jni.so")
+            into("$projectDir/src/main/resources/native/linux-amd64")
+        }
+
+        copy {
+            from("${rootProject.projectDir.absoluteFile.parentFile}/target/debug/libvortex_jni.dylib")
+            into("$projectDir/src/main/resources/native/darwin-aarch64")
+        }
+
+        execOps.exec {
+            workingDir = rootProject.projectDir.absoluteFile.parentFile
+            executable = "cargo"
+            args("xtask", "java-test-files")
+        }
+    }
+}
+
+tasks.named("processResources").configure {
+    dependsOn("makeTestFiles")
+}
+
+tasks.withType<Test>().all {
+    dependsOn("makeTestFiles")
 }
 
 tasks.register("generateJniHeaders") {
