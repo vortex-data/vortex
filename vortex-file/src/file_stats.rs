@@ -113,7 +113,6 @@ impl StatsCatalog for FileStatsLayoutReader {
         // NOTE(ngates): for now, file stats are only available for root columns. So our access
         //  path must have length = 1.
         let path = access_path.field_path().path();
-        println!("STATS PATH: {path:?}");
         if path.len() != 1 {
             return None;
         }
