@@ -25,11 +25,11 @@ pub mod engines;
 pub mod measurements;
 pub mod metrics;
 pub mod public_bi;
+pub mod query_bench;
 pub mod random_access;
 pub mod tpcds;
 pub mod tpch;
 pub mod tpch_benchmark;
-pub mod query_bench;
 pub mod utils;
 
 pub use datasets::{BenchmarkDataset, file};

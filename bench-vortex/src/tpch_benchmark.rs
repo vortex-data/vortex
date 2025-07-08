@@ -3,9 +3,8 @@
 
 //! TPCH benchmark implementation
 
-use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::{env, fs};
 
 use anyhow::{Result, anyhow};
 use log::{info, warn};
@@ -117,18 +116,17 @@ impl Benchmark for TpcHBenchmark {
     }
 
     // Dataset-specific methods (inlined from BenchmarkDataset)
-    
+
     fn dataset_name(&self) -> &str {
         "tpch"
     }
-    
+
     fn tables(&self) -> &[&'static str] {
         &[
-            "customer", "lineitem", "nation", "orders", "part", "partsupp", "region",
-            "supplier",
+            "customer", "lineitem", "nation", "orders", "part", "partsupp", "region", "supplier",
         ]
     }
-    
+
     fn dataset_display(&self) -> String {
         format!("tpch(sf={})", self.scale_factor)
     }
@@ -198,11 +196,7 @@ impl TpcHBenchmark {
     }
 
     /// Verify DuckDB TPCH results against reference data
-    pub fn verify_duckdb_tpch_results(
-        &self,
-        url: &Url,
-        queries: Option<Vec<usize>>,
-    ) -> Result<()> {
+    pub fn verify_duckdb_tpch_results(&self, url: &Url, queries: Option<Vec<usize>>) -> Result<()> {
         // omit validation for sf != 1.
         if self.scale_factor != 1 {
             return Ok(());
@@ -224,7 +218,9 @@ impl TpcHBenchmark {
         duckdb_ctx.register_tables(
             url,
             Format::OnDiskVortex,
-            &BenchmarkDataset::TpcH { scale_factor: self.scale_factor },
+            &BenchmarkDataset::TpcH {
+                scale_factor: self.scale_factor,
+            },
         )?;
 
         let mut query_files = fs::read_dir(query_dir)?

@@ -30,17 +30,18 @@ pub fn setup_logging_and_tracing(
     trace_file: &str,
 ) -> anyhow::Result<Option<tracing_chrome::FlushGuard>> {
     let filter = default_env_filter(verbose);
-    
+
     #[cfg(not(feature = "tracing"))]
     {
         let _ = trace_file; // Suppress unused warning
         crate::setup_logger(filter);
         Ok(None)
     }
-    
+
     #[cfg(feature = "tracing")]
     {
         use std::io::IsTerminal;
+
         use tracing_subscriber::prelude::*;
 
         let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
@@ -60,7 +61,7 @@ pub fn setup_logging_and_tracing(
             .with(layer)
             .with(fmt_layer)
             .init();
-            
+
         Ok(Some(guard))
     }
 }
@@ -78,7 +79,7 @@ pub fn print_results(
         let stdout = stdout();
         Box::new(stdout.lock())
     };
-    
+
     match display_format {
         DisplayFormat::Table => render_table(&mut writer, query_measurements, targets),
         DisplayFormat::GhJson => print_measurements_json(&mut writer, query_measurements),

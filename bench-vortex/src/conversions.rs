@@ -26,4 +26,3 @@ pub fn parquet_to_vortex(parquet_path: PathBuf) -> anyhow::Result<impl ArrayStre
 
     Ok(array_iter.into_array_stream())
 }
-

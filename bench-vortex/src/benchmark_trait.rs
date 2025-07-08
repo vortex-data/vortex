@@ -37,15 +37,15 @@ pub trait Benchmark {
     }
 
     // Dataset-specific methods (inlined from BenchmarkDataset)
-    
+
     /// Get the name of the benchmark dataset
     fn dataset_name(&self) -> &str;
-    
+
     /// Get the table names for this dataset (used for TPC benchmarks)
     fn tables(&self) -> &[&'static str] {
         &[] // Default empty for benchmarks that don't need this
     }
-    
+
     /// Format a path for the given format and base URL
     fn format_path(&self, format: Format, base_url: &Url) -> Result<Url> {
         Ok(base_url.join(&format!("{}/", format.name()))?)
