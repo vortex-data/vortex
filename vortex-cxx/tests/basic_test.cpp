@@ -1,3 +1,8 @@
+#include <arrow/api.h>
+#include <arrow/array.h>
+#include <arrow/c/abi.h>
+#include <arrow/c/bridge.h>
+#include <arrow/type.h>
 #include <gtest/gtest.h>
 
 #include "vortex.hpp"
@@ -88,6 +93,49 @@ TEST_F(VortexTest, ArrowConversion) {
 
   EXPECT_NE(native_schema.format, nullptr);
   EXPECT_STREQ(native_schema.format, "i");
+
+  // Import the Arrow array using Arrow C++ API
+  auto maybe_data_type = arrow::ImportType(&native_schema);
+  ASSERT_TRUE(maybe_data_type.ok()) << "Failed to import Arrow schema: "
+                                    << maybe_data_type.status().message();
+  auto data_type = maybe_data_type.ValueOrDie();
+
+  auto maybe_imported_array = arrow::ImportArray(&native_arrow, data_type);
+  ASSERT_TRUE(maybe_imported_array.ok())
+      << "Failed to import Arrow array: "
+      << maybe_imported_array.status().message();
+  auto imported_array = maybe_imported_array.ValueOrDie();
+
+  // Verify the imported array properties
+  EXPECT_EQ(imported_array->length(), 3);
+  EXPECT_EQ(imported_array->null_count(), 0);
+  EXPECT_TRUE(imported_array->type()->Equals(arrow::int32()));
+
+  // Cast to Int32Array to access values
+  auto int32_array =
+      std::static_pointer_cast<arrow::Int32Array>(imported_array);
+
+  // Compare values with original Vortex array
+  for (int i = 0; i < 3; ++i) {
+    // Get value from original Vortex array
+    auto vortex_scalar = array.scalar_at(i);
+    vortex::Scalar vortex_s(std::move(vortex_scalar));
+    int32_t expected_value = vortex_s.as_i32();
+
+    // Get value from imported Arrow array
+    int32_t arrow_value = int32_array->Value(i);
+
+    // Compare values
+    EXPECT_EQ(arrow_value, expected_value)
+        << "Value mismatch at index " << i << ": Arrow=" << arrow_value
+        << ", Vortex=" << expected_value;
+  }
+
+  // Additional verification: check that values are 1, 2, 3 as expected from
+  // dummy array
+  EXPECT_EQ(int32_array->Value(0), 1);
+  EXPECT_EQ(int32_array->Value(1), 2);
+  EXPECT_EQ(int32_array->Value(2), 3);
 }
 
 TEST_F(VortexTest, FileOperations) {
@@ -118,6 +166,29 @@ TEST_F(VortexTest, FileOperations) {
 
     auto [arrow, schema] = array.to_arrow_c_abi();
     EXPECT_EQ(arrow.length, 5);
+
+
+    // Test converting to native Arrow C ABI structures
+    auto [native_arrow, native_schema] = array.to_arrow_c_abi();
+    // Import the Arrow array using Arrow C++ API
+    auto maybe_data_type = arrow::ImportType(&native_schema);
+    ASSERT_TRUE(maybe_data_type.ok()) << "Failed to import Arrow schema: "
+                                      << maybe_data_type.status().message();
+    auto data_type = maybe_data_type.ValueOrDie();
+
+    auto maybe_imported_array = arrow::ImportArray(&native_arrow, data_type);
+    ASSERT_TRUE(maybe_imported_array.ok())
+        << "Failed to import Arrow array: "
+        << maybe_imported_array.status().message();
+    auto imported_array = maybe_imported_array.ValueOrDie();
+    // Cast to Int32Array to access values
+    auto int32_array =
+        std::static_pointer_cast<arrow::Int32Array>(imported_array);
+    ASSERT_EQ(int32_array->Value(0), 10);
+    ASSERT_EQ(int32_array->Value(1), 20);
+    ASSERT_EQ(int32_array->Value(2), 30);
+    ASSERT_EQ(int32_array->Value(3), 40);
+    ASSERT_EQ(int32_array->Value(4), 50);
 
   } catch (const vortex::VortexException &e) {
     // If the test file doesn't exist, skip the test
