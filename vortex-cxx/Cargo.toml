@@ -1,0 +1,36 @@
+[package]
+name = "vortex-cxx"
+version = "0.1.0"
+edition = "2021"
+authors = ["Vortex Team"]
+description = "C++ bindings for Vortex using cxx"
+license = "Apache-2.0"
+publish = false
+
+# empty workspace to keep it out of the workspace of the parent `vortex` folder
+[workspace]
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+cxx = "1.0"
+vortex-array = { path = "../vortex-array" }
+vortex-buffer = { path = "../vortex-buffer" }
+vortex-dtype = { path = "../vortex-dtype" }
+vortex-error = { path = "../vortex-error" }
+vortex-scalar = { path = "../vortex-scalar" }
+vortex-file = { path = "../vortex-file", features = ["tokio"] }
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros"] }
+futures = "0.3"
+arrow-array = { version = "55.0", features = ["ffi"] }
+arrow-schema = "55.0"
+
+[build-dependencies]
+cxx-build = "1.0"
+vortex-array = { path = "../vortex-array" }
+vortex-buffer = { path = "../vortex-buffer" }
+vortex-dtype = { path = "../vortex-dtype" }
+vortex-file = { path = "../vortex-file", features = ["tokio"] }
+vortex-io = { path = "../vortex-io" }
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros"] }
