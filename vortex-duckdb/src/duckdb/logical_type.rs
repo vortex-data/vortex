@@ -42,6 +42,30 @@ impl LogicalType {
             )
         }
     }
+
+    pub fn array_child_type(&self) -> Self {
+        unsafe { LogicalType::own(duckdb_array_type_child_type(self.as_ptr())) }
+    }
+
+    pub fn list_child_type(&self) -> Self {
+        unsafe { LogicalType::own(duckdb_list_type_child_type(self.as_ptr())) }
+    }
+
+    pub fn map_key_type(&self) -> Self {
+        unsafe { LogicalType::own(duckdb_map_type_key_type(self.as_ptr())) }
+    }
+
+    pub fn map_value_type(&self) -> Self {
+        unsafe { LogicalType::own(duckdb_map_type_value_type(self.as_ptr())) }
+    }
+
+    pub fn struct_child_type(&self, idx: idx_t) -> Self {
+        unsafe { LogicalType::own(duckdb_struct_type_child_type(self.as_ptr(), idx)) }
+    }
+
+    pub fn union_member_type(&self, idx: idx_t) -> Self {
+        unsafe { LogicalType::own(duckdb_union_type_member_type(self.as_ptr(), idx)) }
+    }
 }
 
 impl Debug for LogicalType {
@@ -247,11 +271,11 @@ mod tests {
         assert_eq!(list_type.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_LIST);
 
         // Verify the child type is preserved
-        let original_child = unsafe { duckdb_list_type_child_type(list_type.as_ptr()) };
-        let cloned_child = unsafe { duckdb_list_type_child_type(cloned.as_ptr()) };
+        let original_child = list_type.list_child_type();
+        let cloned_child = cloned.list_child_type();
 
-        let original_child_type_id = unsafe { duckdb_get_type_id(original_child) };
-        let cloned_child_type_id = unsafe { duckdb_get_type_id(cloned_child) };
+        let original_child_type_id = unsafe { duckdb_get_type_id(original_child.as_ptr()) };
+        let cloned_child_type_id = unsafe { duckdb_get_type_id(cloned_child.as_ptr()) };
 
         assert_eq!(original_child_type_id, cloned_child_type_id);
         assert_eq!(original_child_type_id, DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
@@ -272,11 +296,11 @@ mod tests {
         assert_eq!(array_type.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_ARRAY);
 
         // Verify the child type is preserved
-        let original_child = unsafe { duckdb_array_type_child_type(array_type.as_ptr()) };
-        let cloned_child = unsafe { duckdb_array_type_child_type(cloned.as_ptr()) };
+        let original_child = array_type.array_child_type();
+        let cloned_child = cloned.array_child_type();
 
-        let original_child_type_id = unsafe { duckdb_get_type_id(original_child) };
-        let cloned_child_type_id = unsafe { duckdb_get_type_id(cloned_child) };
+        let original_child_type_id = unsafe { duckdb_get_type_id(original_child.as_ptr()) };
+        let cloned_child_type_id = unsafe { duckdb_get_type_id(cloned_child.as_ptr()) };
 
         assert_eq!(original_child_type_id, cloned_child_type_id);
         assert_eq!(original_child_type_id, DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
@@ -312,20 +336,18 @@ mod tests {
         assert_eq!(map_type.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_MAP);
 
         // Verify the key and value types are preserved
-        let original_key = unsafe { duckdb_map_type_key_type(map_type.as_ptr()) };
-        let original_value = unsafe { duckdb_map_type_value_type(map_type.as_ptr()) };
-        let cloned_key = unsafe { duckdb_map_type_key_type(cloned.as_ptr()) };
-        let cloned_value = unsafe { duckdb_map_type_value_type(cloned.as_ptr()) };
+        let original_key = map_type.map_key_type();
+        let original_value = map_type.map_value_type();
+        let cloned_key = cloned.map_key_type();
+        let cloned_value = cloned.map_value_type();
 
-        let original_key_type_id = unsafe { duckdb_get_type_id(original_key) };
-        let original_value_type_id = unsafe { duckdb_get_type_id(original_value) };
-        let cloned_key_type_id = unsafe { duckdb_get_type_id(cloned_key) };
-        let cloned_value_type_id = unsafe { duckdb_get_type_id(cloned_value) };
-
-        assert_eq!(original_key_type_id, cloned_key_type_id);
-        assert_eq!(original_value_type_id, cloned_value_type_id);
-        assert_eq!(original_key_type_id, DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
-        assert_eq!(original_value_type_id, DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        assert_eq!(original_key.as_type_id(), cloned_key.as_type_id());
+        assert_eq!(original_value.as_type_id(), cloned_value.as_type_id());
+        assert_eq!(original_key.as_type_id(), DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
+        assert_eq!(
+            original_value.as_type_id(),
+            DUCKDB_TYPE::DUCKDB_TYPE_INTEGER
+        );
     }
 
     #[test]
@@ -365,21 +387,26 @@ mod tests {
 
         // Verify each field
         for idx in 0..original_count {
-            let original_child_type =
-                unsafe { duckdb_struct_type_child_type(struct_type.as_ptr(), idx) };
-            let cloned_child_type = unsafe { duckdb_struct_type_child_type(cloned.as_ptr(), idx) };
+            let original_child_type = struct_type.struct_child_type(idx);
+            let cloned_child_type = cloned.struct_child_type(idx);
             let original_child_name =
                 unsafe { duckdb_struct_type_child_name(struct_type.as_ptr(), idx) };
             let cloned_child_name = unsafe { duckdb_struct_type_child_name(cloned.as_ptr(), idx) };
 
-            let original_type_id = unsafe { duckdb_get_type_id(original_child_type) };
-            let cloned_type_id = unsafe { duckdb_get_type_id(cloned_child_type) };
-
-            assert_eq!(original_type_id, cloned_type_id);
+            assert_eq!(
+                original_child_type.as_type_id(),
+                cloned_child_type.as_type_id()
+            );
 
             let original_name = unsafe { std::ffi::CStr::from_ptr(original_child_name) };
             let cloned_name = unsafe { std::ffi::CStr::from_ptr(cloned_child_name) };
             assert_eq!(original_name, cloned_name);
+
+            // Free strings
+            unsafe {
+                duckdb_free(original_child_name.cast());
+                duckdb_free(cloned_child_name.cast());
+            }
         }
     }
 
@@ -420,22 +447,27 @@ mod tests {
 
         // Verify each member
         for idx in 0..original_count {
-            let original_member_type =
-                unsafe { duckdb_union_type_member_type(union_type.as_ptr(), idx) };
-            let cloned_member_type = unsafe { duckdb_union_type_member_type(cloned.as_ptr(), idx) };
+            let original_member_type = union_type.union_member_type(idx);
+            let cloned_member_type = cloned.union_member_type(idx);
             let original_member_name =
                 unsafe { duckdb_union_type_member_name(union_type.as_ptr(), idx) };
             let cloned_member_name = unsafe { duckdb_union_type_member_name(cloned.as_ptr(), idx) };
 
             assert_eq!(
-                unsafe { duckdb_get_type_id(original_member_type) },
-                unsafe { duckdb_get_type_id(cloned_member_type) }
+                original_member_type.as_type_id(),
+                cloned_member_type.as_type_id(),
             );
 
             assert_eq!(
                 unsafe { std::ffi::CStr::from_ptr(original_member_name) },
                 unsafe { std::ffi::CStr::from_ptr(cloned_member_name) }
             );
+
+            // Free strings
+            unsafe {
+                duckdb_free(original_member_name.cast());
+                duckdb_free(cloned_member_name.cast());
+            }
         }
     }
 }
