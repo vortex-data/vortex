@@ -98,7 +98,7 @@ impl Benchmark for ClickBenchBenchmark {
                                 anyhow::anyhow!("invalid file URL: {}", self.data_url)
                             })?;
 
-                            let dataset = self.get_dataset();
+                            let dataset = self.dataset();
 
                             // Use tokio runtime to handle async conversion
                             let rt = tokio::runtime::Runtime::new()?;
@@ -125,7 +125,7 @@ impl Benchmark for ClickBenchBenchmark {
 
     #[allow(async_fn_in_trait)]
     async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> Result<()> {
-        let dataset = self.get_dataset();
+        let dataset = self.dataset();
 
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
@@ -141,14 +141,14 @@ impl Benchmark for ClickBenchBenchmark {
         Ok(())
     }
 
-    fn get_dataset(&self) -> BenchmarkDataset {
+    fn dataset(&self) -> BenchmarkDataset {
         BenchmarkDataset::ClickBench {
             single_file: self.single_file,
             flavor: self.flavor,
         }
     }
 
-    fn get_expected_row_counts(&self) -> Option<&[usize]> {
+    fn expected_row_counts(&self) -> Option<&[usize]> {
         // ClickBench reference row counts
         static REFERENCE_ROW_COUNTS: [usize; 43] = [
             1, 1, 1, 1, 1, 1, 1, 18, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 1, 10, 10, 10,

@@ -32,7 +32,7 @@ pub trait Benchmark {
             Engine::DuckDB => {
                 // Create a generic dataset for DuckDB context creation
                 // This will be properly configured when tables are registered
-                Ok(EngineCtx::new_with_duckdb(self.get_dataset(), format)?)
+                Ok(EngineCtx::new_with_duckdb(self.dataset(), format)?)
             }
             _ => unreachable!("engine not supported"),
         }
@@ -47,11 +47,11 @@ pub trait Benchmark {
     async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> Result<()>;
 
     /// Get the benchmark dataset identifier
-    fn get_dataset(&self) -> BenchmarkDataset;
+    fn dataset(&self) -> BenchmarkDataset;
 
     /// Get expected row counts for validation (optional)
     /// If None, no validation will be performed
-    fn get_expected_row_counts(&self) -> Option<&[usize]> {
+    fn expected_row_counts(&self) -> Option<&[usize]> {
         None
     }
 

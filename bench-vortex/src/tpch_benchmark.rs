@@ -15,6 +15,7 @@ use vortex::error::VortexExpect;
 use crate::benchmark_trait::Benchmark;
 use crate::engines::{EngineCtx, ddb};
 use crate::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
+use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
 use crate::tpch::{EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, tpch_queries};
 use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
@@ -28,16 +29,20 @@ impl TpcHBenchmark {
     pub fn new(scale_factor: u32, use_remote_data_dir: Option<String>) -> Result<Self> {
         Ok(Self {
             scale_factor,
-            data_url: Self::create_data_url(&use_remote_data_dir)?,
+            data_url: Self::create_data_url(&use_remote_data_dir, scale_factor)?,
         })
     }
 
-    fn create_data_url(remote_data_dir: &Option<String>) -> Result<Url> {
+    fn create_data_url(remote_data_dir: &Option<String>, scale_factor: u32) -> Result<Url> {
         match remote_data_dir {
             None => {
                 let data_dir = "tpch".to_data_path();
-                Url::from_directory_path(&data_dir).map_err(|_| {
-                    anyhow!("Failed to create URL from directory path: {:?}", &data_dir)
+                let data_dir_with_sf = data_dir.join(scale_factor.to_string());
+                Url::from_directory_path(&data_dir_with_sf).map_err(|_| {
+                    anyhow!(
+                        "Failed to create URL from directory path: {:?}",
+                        &data_dir_with_sf
+                    )
                 })
             }
             Some(remote_data_dir) => {
@@ -50,9 +55,9 @@ impl TpcHBenchmark {
                     concat!(
                         "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
                         "If it does not, you should kill this command, locally generate the files (by running without\n",
-                        "--use-remote-data-dir) and upload data/tpch/1/ to some remote location.",
+                        "--use-remote-data-dir) and upload data/tpch/{}/ to some remote location.",
                     ),
-                    remote_data_dir,
+                    remote_data_dir, scale_factor,
                 );
                 Ok(Url::parse(remote_data_dir)?)
             }
@@ -75,15 +80,15 @@ impl Benchmark for TpcHBenchmark {
                     target.format()
                 };
 
-                let file_path = self
-                    .data_url
-                    .to_file_path()
-                    .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
-                let opts = DuckdbTpcOptions::new(file_path, TpcDataset::TpcH, format)
+                let base_tpch_dir = "tpch".to_data_path();
+                let opts = DuckdbTpcOptions::new(base_tpch_dir.clone(), TpcDataset::TpcH, format)
                     .with_scale_factor(self.scale_factor);
                 generate_tpc(opts)?;
 
-                let data_dir = "tpch".to_data_path();
+                let data_dir = self
+                    .data_url
+                    .to_file_path()
+                    .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
                 let data_dir = data_dir.to_str().vortex_expect("path must be utf8");
                 info!(
                     "Generated or verified TPCH data for format {} at {data_dir}.",
@@ -97,7 +102,7 @@ impl Benchmark for TpcHBenchmark {
 
     #[allow(async_fn_in_trait)]
     async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> Result<()> {
-        let dataset = self.get_dataset();
+        let dataset = self.dataset();
 
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
@@ -112,13 +117,13 @@ impl Benchmark for TpcHBenchmark {
         }
     }
 
-    fn get_dataset(&self) -> BenchmarkDataset {
+    fn dataset(&self) -> BenchmarkDataset {
         BenchmarkDataset::TpcH {
             scale_factor: self.scale_factor,
         }
     }
 
-    fn get_expected_row_counts(&self) -> Option<&[usize]> {
+    fn expected_row_counts(&self) -> Option<&[usize]> {
         match self.scale_factor {
             1 => Some(&EXPECTED_ROW_COUNTS_SF1),
             10 => Some(&EXPECTED_ROW_COUNTS_SF10),
@@ -162,14 +167,14 @@ impl TpcHBenchmark {
 
         // TPCH table definitions - same as in load_datasets
         let files = vec![
-            ("customer", Some(crate::tpch::schema::CUSTOMER.clone())),
-            ("lineitem", Some(crate::tpch::schema::LINEITEM.clone())),
-            ("nation", Some(crate::tpch::schema::NATION.clone())),
-            ("orders", Some(crate::tpch::schema::ORDERS.clone())),
-            ("part", Some(crate::tpch::schema::PART.clone())),
-            ("partsupp", Some(crate::tpch::schema::PARTSUPP.clone())),
-            ("region", Some(crate::tpch::schema::REGION.clone())),
-            ("supplier", Some(crate::tpch::schema::SUPPLIER.clone())),
+            ("customer", Some(CUSTOMER.clone())),
+            ("lineitem", Some(LINEITEM.clone())),
+            ("nation", Some(NATION.clone())),
+            ("orders", Some(ORDERS.clone())),
+            ("part", Some(PART.clone())),
+            ("partsupp", Some(PARTSUPP.clone())),
+            ("region", Some(REGION.clone())),
+            ("supplier", Some(SUPPLIER.clone())),
         ];
 
         // Register each table - same logic as load_datasets

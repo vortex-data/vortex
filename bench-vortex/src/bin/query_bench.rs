@@ -3,12 +3,12 @@
 
 use std::path::PathBuf;
 
+use bench_vortex::Target;
 use bench_vortex::benchmark_driver::{DriverConfig, run_benchmark};
 use bench_vortex::clickbench::Flavor;
 use bench_vortex::clickbench_benchmark::ClickBenchBenchmark;
 use bench_vortex::display::DisplayFormat;
 use bench_vortex::tpch_benchmark::TpcHBenchmark;
-use bench_vortex::Target;
 use clap::{Parser, Subcommand, value_parser};
 
 #[derive(Parser, Debug)]
@@ -47,6 +47,7 @@ struct CommonArgs {
     #[arg(short, long, default_value_t, value_enum)]
     display_format: DisplayFormat,
 
+    /// TODO(joe): remove this flag and add a cache flag to common.
     #[arg(long, default_value_t = false)]
     disable_datafusion_cache: bool,
 

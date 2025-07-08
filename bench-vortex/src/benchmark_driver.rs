@@ -140,7 +140,7 @@ fn execute_queries<B: Benchmark>(
     benchmark: &B,
 ) -> Vec<QueryMeasurement> {
     let mut query_measurements = Vec::new();
-    let expected_row_counts = benchmark.get_expected_row_counts();
+    let expected_row_counts = benchmark.expected_row_counts();
 
     for &(query_idx, ref query_string) in queries.iter() {
         match engine_ctx {
@@ -189,7 +189,7 @@ fn execute_queries<B: Benchmark>(
                 query_measurements.push(QueryMeasurement {
                     query_idx,
                     target: Target::new(Engine::DataFusion, format),
-                    benchmark_dataset: benchmark.get_dataset(),
+                    benchmark_dataset: benchmark.dataset(),
                     storage: STORAGE_NVME.to_owned(),
                     runs,
                 });
@@ -211,7 +211,7 @@ fn execute_queries<B: Benchmark>(
                 query_measurements.push(QueryMeasurement {
                     query_idx,
                     target: Target::new(Engine::DuckDB, format),
-                    benchmark_dataset: benchmark.get_dataset(),
+                    benchmark_dataset: benchmark.dataset(),
                     storage: STORAGE_NVME.to_owned(),
                     runs,
                 });

@@ -296,6 +296,7 @@ impl Display for Flavor {
 }
 
 impl Flavor {
+    // TODO(joe): move these elsewhere.
     pub fn download(
         &self,
         client: &reqwest::blocking::Client,
