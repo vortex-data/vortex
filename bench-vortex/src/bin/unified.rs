@@ -3,14 +3,16 @@
 
 use std::path::PathBuf;
 
+use std::env;
+
 use bench_vortex::benchmark_driver::{DriverConfig, run_benchmark};
 use bench_vortex::clickbench::Flavor;
 use bench_vortex::clickbench_benchmark::ClickBenchBenchmark;
 use bench_vortex::display::DisplayFormat;
 use bench_vortex::public_bi::PBIDataset;
 use bench_vortex::tpch_benchmark::TpcHBenchmark;
-use bench_vortex::{IdempotentPath, Target};
-use clap::{Parser, Subcommand, ValueEnum, value_parser};
+use bench_vortex::{Engine, Format, IdempotentPath, Target};
+use clap::{Parser, Subcommand, value_parser};
 use url::Url;
 use vortex::error::VortexExpect;
 
@@ -109,9 +111,6 @@ struct TpcHArgs {
     #[arg(long, default_value_t = 1, value_parser=validate_scale_factor)]
     scale_factor: u32,
 
-    #[arg(long, default_value_t, value_enum)]
-    data_generator: DataGenerator,
-
     #[arg(long)]
     all_metrics: bool,
 
@@ -123,6 +122,9 @@ struct TpcHArgs {
 
     #[arg(long)]
     use_remote_data_dir: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    hide_progress_bar: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -152,12 +154,6 @@ struct PublicBiArgs {
     dataset: PBIDataset,
 }
 
-#[derive(ValueEnum, Default, Clone, Debug, PartialEq, Eq)]
-pub enum DataGenerator {
-    #[default]
-    Dbgen,
-    Duckdb,
-}
 
 fn validate_scale_factor(val: &str) -> Result<u32, String> {
     match val.parse::<u32>() {
@@ -211,8 +207,24 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
 }
 
 fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
+    // Store needed values before they're moved
+    let has_duckdb_vortex = args.common.targets
+        .iter()
+        .any(|t| t.engine() == Engine::DuckDB && t.format() == Format::OnDiskVortex);
+    let queries_for_verify = args.common.queries.clone();
+
     // Create benchmark instance
     let benchmark = TpcHBenchmark::new(args.scale_factor, args.use_remote_data_dir);
+
+    // Determine data URL
+    let data_url = match &benchmark.use_remote_data_dir {
+        None => {
+            let data_dir = "tpch".to_data_path();
+            let data_dir = data_dir.to_str().vortex_expect("path must be utf8");
+            Url::parse(format!("file:{data_dir}/{}/", args.scale_factor).as_ref())?
+        }
+        Some(remote_data_dir) => Url::parse(remote_data_dir)?,
+    };
 
     // Configure driver
     let config = DriverConfig {
@@ -228,21 +240,21 @@ fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
         emit_plan: args.emit_plan,
         export_spans: args.export_spans,
         show_metrics: args.all_metrics,
-        hide_progress_bar: false,
-    };
-
-    // Determine data URL
-    let data_url = match &benchmark.use_remote_data_dir {
-        None => {
-            let data_dir = "tpch".to_data_path();
-            let data_dir = data_dir.to_str().vortex_expect("path must be utf8");
-            Url::parse(format!("file:{data_dir}/{}/", args.scale_factor).as_ref())?
-        }
-        Some(remote_data_dir) => Url::parse(remote_data_dir)?,
+        hide_progress_bar: args.hide_progress_bar,
     };
 
     // Run benchmark using the trait system
-    run_benchmark(benchmark, config, "tpch.trace.json", data_url)
+    run_benchmark(benchmark, config, "tpch.trace.json", data_url.clone())?;
+
+    // The CI env var is defined by Github Actions.
+    // https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables#default-environment-variables
+    if has_duckdb_vortex && env::var("CI").is_ok() {
+        // Re-create benchmark instance for verification
+        let verify_benchmark = TpcHBenchmark::new(args.scale_factor, None);
+        verify_benchmark.verify_duckdb_tpch_results(&data_url, queries_for_verify)?;
+    }
+
+    Ok(())
 }
 
 fn data_source_base_url(remote_data_dir: &Option<String>, flavor: Flavor) -> anyhow::Result<Url> {
