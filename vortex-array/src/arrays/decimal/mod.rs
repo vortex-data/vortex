@@ -79,6 +79,10 @@ pub struct DecimalArray {
 
 impl DecimalArray {
     /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`].
+    ///
+    /// # Errors
+    ///
+    /// Errors if the validity length is not compatible with the buffer length.
     pub fn try_new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
@@ -92,14 +96,6 @@ impl DecimalArray {
                     len,
                 );
             }
-        }
-
-        if !compatible_storage_type(T::VALUES_TYPE, decimal_dtype) {
-            vortex_bail!(
-                "{:?} cannot represent every value in {}",
-                T::VALUES_TYPE,
-                decimal_dtype
-            )
         }
 
         Ok(Self {
@@ -250,12 +246,5 @@ mod test {
         let value = Decimal128Array::new_null(100);
         let numeric = value.value(10);
         assert_eq!(numeric, 0i128);
-    }
-
-    #[test]
-    fn test_incompatible_decimal_and_value_type() {
-        let result =
-            DecimalArray::try_new(buffer![0i8], DecimalDType::new(5, 5), Validity::NonNullable);
-        assert!(result.is_err());
     }
 }
