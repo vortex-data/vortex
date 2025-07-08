@@ -17,7 +17,7 @@ use crate::display::DisplayFormat;
 use crate::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_query};
 use crate::measurements::QueryMeasurement;
 use crate::metrics::{MetricsSetExt, export_plan_spans};
-use crate::unified::{filter_queries, print_results, setup_logging_and_tracing};
+use crate::query_bench::{filter_queries, print_results, setup_logging_and_tracing};
 use crate::utils::constants::STORAGE_NVME;
 use crate::utils::new_tokio_runtime;
 use crate::{Engine, Format, Target, df, vortex_panic};

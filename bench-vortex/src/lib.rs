@@ -29,7 +29,7 @@ pub mod random_access;
 pub mod tpcds;
 pub mod tpch;
 pub mod tpch_benchmark;
-pub mod unified;
+pub mod query_bench;
 pub mod utils;
 
 pub use datasets::{BenchmarkDataset, file};

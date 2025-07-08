@@ -15,7 +15,7 @@ use url::Url;
 use vortex::error::VortexExpect;
 
 #[derive(Parser, Debug)]
-#[command(version, about = "Unified Vortex benchmark runner", long_about = None)]
+#[command(version, about = "Vortex query benchmark runner", long_about = None)]
 struct Args {
     #[command(subcommand)]
     command: Commands,

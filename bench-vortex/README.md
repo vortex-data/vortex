@@ -12,26 +12,26 @@ This binary compresses a file using vortex compression and writes the compressed
 or used for other operations.
 
 
-### `unified`
+### `query_bench`
 
 This is the unified benchmark runner that supports multiple benchmark suites including TPC-H, ClickBench, and TPC-DS.
 
 To run the TPC-H benchmarks you can use:
 
 ```bash
-cargo run --bin unified -- tpch
+cargo run --bin query_bench -- tpch
 ```
 
 To run the ClickBench benchmarks:
 
 ```bash
-cargo run --bin unified -- clickbench
+cargo run --bin query_bench -- clickbench
 ```
 
 For profiling, you can open in Instruments using the following invocation:
 
 ```
-cargo instruments -p bench-vortex --bin unified --template Time --profile bench -- tpch
+cargo instruments -p bench-vortex --bin query_bench --template Time --profile bench -- tpch
 ```
 
 ### Data directory
