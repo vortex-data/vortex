@@ -46,4 +46,27 @@ std::pair<ArrowArray, ArrowSchema> VortexFile::scan_to_arrow() const {
   }
 }
 
+arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> VortexFile::scan_to_stream() const {
+  try {
+    auto c_stream = ffi::file_scan_to_stream(*impl_);
+
+    ArrowArrayStream stream;
+    stream.get_schema = reinterpret_cast<int (*)(
+        struct ArrowArrayStream *, struct ArrowSchema *)>(c_stream.get_schema);
+    stream.get_next = reinterpret_cast<int (*)(
+        struct ArrowArrayStream *, struct ArrowArray *)>(c_stream.get_next);
+    stream.get_last_error =
+        reinterpret_cast<const char *(*)(struct ArrowArrayStream *)>(
+            c_stream.get_last_error);
+    stream.release =
+        reinterpret_cast<void (*)(struct ArrowArrayStream *)>(c_stream.release);
+    stream.private_data = reinterpret_cast<void *>(c_stream.private_data);
+
+    // Use Arrow C++ API to import the RecordBatchReader
+    return arrow::ImportRecordBatchReader(&stream);
+  } catch (const rust::cxxbridge1::Error &e) {
+    throw VortexException(e.what());
+  }
+}
+
 }  // namespace vortex

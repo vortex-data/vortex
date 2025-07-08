@@ -39,7 +39,8 @@ endif()
 set(CPP_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include
                     ${PROJECT_SOURCE_DIR}/src
                     ${CARGO_TARGET_DIR}/cxxbridge
-                    ${CARGO_TARGET_DIR}/cxxbridge/vortex-cxx/src)
+                    ${CARGO_TARGET_DIR}/cxxbridge/vortex-cxx/src
+                    ${Arrow_INCLUDE_DIRS})
 
 file(GLOB CPP_SOURCE_FILE "src/*.cpp")
 file(GLOB CPP_HEADER_FILE "include/*.hpp" "src/*.hpp")
@@ -56,12 +57,14 @@ add_custom_target(cargo_build
     COMMENT "Running cargo build for vortex-cxx..."
 )
 
+find_package(Arrow CONFIG REQUIRED)
+
 add_library(vortex_cxx STATIC ${CPP_SOURCE_FILE} ${RUST_BRIDGE_CPP})
 target_sources(vortex_cxx PUBLIC ${CPP_HEADER_FILE})
 target_sources(vortex_cxx PRIVATE ${RUST_HEADER_FILE})
 target_include_directories(vortex_cxx PUBLIC ${CPP_INCLUDE_DIR})
 target_link_libraries(vortex_cxx PUBLIC ${RUST_LIB})
-target_link_libraries(vortex_cxx PRIVATE ${CMAKE_DL_LIBS})
+target_link_libraries(vortex_cxx PRIVATE ${CMAKE_DL_LIBS} Arrow::arrow_static)
 set_target_properties(vortex_cxx
     PROPERTIES ADDITIONAL_CLEAN_FILES ${CARGO_TARGET_DIR}
 )
@@ -79,7 +82,6 @@ endif()
 # Tests
 if (VORTEX_ENABLE_TESTING)
     find_package(GTest CONFIG REQUIRED)
-    find_package(Arrow CONFIG REQUIRED)
 
     enable_testing()
     add_executable(vortex_cxx_test tests/basic_test.cpp)

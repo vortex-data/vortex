@@ -16,6 +16,37 @@ class VortexTest : public ::testing::Test {
   void TearDown() override {
     // Test cleanup
   }
+
+  // Helper function to validate struct array data
+  // This depends on the data in `build.rs`
+  void ValidateStructArray(
+      const std::shared_ptr<arrow::StructArray> &struct_array) {
+    ASSERT_EQ(struct_array->length(), 5);
+    ASSERT_EQ(struct_array->null_count(), 0);
+    ASSERT_EQ(struct_array->num_fields(), 2);
+
+    // Test field "a"
+    auto field_a = struct_array->field(0);
+    auto int32_array_a = std::static_pointer_cast<arrow::Int32Array>(field_a);
+    ASSERT_EQ(int32_array_a->length(), 5);
+    ASSERT_EQ(int32_array_a->null_count(), 0);
+    ASSERT_EQ(int32_array_a->Value(0), 10);
+    ASSERT_EQ(int32_array_a->Value(1), 20);
+    ASSERT_EQ(int32_array_a->Value(2), 30);
+    ASSERT_EQ(int32_array_a->Value(3), 40);
+    ASSERT_EQ(int32_array_a->Value(4), 50);
+
+    // Test field "b"
+    auto field_b = struct_array->field(1);
+    auto int32_array_b = std::static_pointer_cast<arrow::Int32Array>(field_b);
+    ASSERT_EQ(int32_array_b->length(), 5);
+    ASSERT_EQ(int32_array_b->null_count(), 0);
+    ASSERT_EQ(int32_array_b->Value(0), 10);
+    ASSERT_EQ(int32_array_b->Value(1), 20);
+    ASSERT_EQ(int32_array_b->Value(2), 30);
+    ASSERT_EQ(int32_array_b->Value(3), 40);
+    ASSERT_EQ(int32_array_b->Value(4), 50);
+  }
 };
 
 TEST_F(VortexTest, ScanToArrow) {
@@ -38,82 +69,46 @@ TEST_F(VortexTest, ScanToArrow) {
         << maybe_imported_array.status().message();
     auto imported_array = maybe_imported_array.ValueOrDie();
 
-    // Cast to Int32Array to access values
-    auto int32_array =
-        std::static_pointer_cast<arrow::Int32Array>(imported_array);
-    ASSERT_EQ(int32_array->length(), 5);
-    ASSERT_EQ(int32_array->null_count(), 0);
-    ASSERT_EQ(int32_array->Value(0), 10);
-    ASSERT_EQ(int32_array->Value(1), 20);
-    ASSERT_EQ(int32_array->Value(2), 30);
-    ASSERT_EQ(int32_array->Value(3), 40);
-    ASSERT_EQ(int32_array->Value(4), 50);
+    // Cast to StructArray to access struct fields
+    auto struct_array =
+        std::static_pointer_cast<arrow::StructArray>(imported_array);
+    ValidateStructArray(struct_array);
 
   } catch (const vortex::VortexException &e) {
     GTEST_SKIP() << "Test file not found: " << e.what();
   }
 }
 
-// TEST_F(VortexTest, ScanToStream) {
-//   try {
-//     auto file =
-//     vortex::VortexFile::open("../target/debug/build/test_data.vortex");
+TEST_F(VortexTest, ScanToStream) {
+  try {
+    auto file =
+        vortex::VortexFile::open("../target/debug/build/test_data.vortex");
 
-//     // Test scanning to Arrow C Stream
-//     auto stream = file.scan_to_stream();
+    // Test scanning to Arrow RecordBatchReader
+    auto maybe_reader = file.scan_to_stream();
+    ASSERT_TRUE(maybe_reader.ok()) << "Failed to create RecordBatchReader: "
+                                   << maybe_reader.status().message();
 
-//     // Test that we can get the schema
-//     auto [schema_array, schema] = stream.get_schema();
-//     EXPECT_NE(schema.format, nullptr);
+    auto reader = maybe_reader.ValueOrDie();
+    ASSERT_NE(reader, nullptr);
 
-//     // Test that we can get arrays from the stream
-//     ArrowArray array;
-//     bool has_data = stream.next(array);
+    // Test that we can get the schema
+    auto schema = reader->schema();
+    ASSERT_NE(schema, nullptr);
+    EXPECT_GT(schema->num_fields(), 0);
 
-//     // If we got a valid array, it should have data
-//     if (has_data) {
-//       EXPECT_GT(array.length, 0);
-//       EXPECT_EQ(array.null_count, 0);
-//       EXPECT_EQ(array.offset, 0);
+    // Test that we can read record batches
+    auto maybe_batch = reader->Next();
+    ASSERT_TRUE(maybe_batch.ok())
+        << "Failed to read first batch: " << maybe_batch.status().message();
 
-//       // Clean up the array
-//       if (array.release != nullptr) {
-//         array.release(&array);
-//       }
-//     }
+    auto batch = maybe_batch.ValueOrDie();
+    if (batch != nullptr) {
+      auto struct_array = batch->ToStructArray().ValueOrDie();
+      ValidateStructArray(struct_array);
+    }
 
-//     // Clean up schema
-//     if (schema.release != nullptr) {
-//       schema.release(&schema);
-//     }
-
-//   } catch (const vortex::VortexException &e) {
-//     GTEST_SKIP() << "Test file not found: " << e.what();
-//   }
-// }
-
-// TEST_F(VortexTest, StreamEndOfData) {
-//   try {
-//     auto file =
-//     vortex::VortexFile::open("../target/debug/build/test_data.vortex");
-
-//     auto stream = file.scan_to_stream();
-
-//     // Consume all arrays from the stream
-//     int count = 0;
-//     ArrowArray array;
-//     while (stream.next(array)) {
-//       count++;
-//       // Clean up the array
-//       if (array.release != nullptr) {
-//         array.release(&array);
-//       }
-//     }
-
-//     // Should have gotten at least one array
-//     EXPECT_GT(count, 0);
-
-//   } catch (const vortex::VortexException &e) {
-//     GTEST_SKIP() << "Test file not found: " << e.what();
-//   }
-// }
+  } catch (const vortex::VortexException &e) {
+    GTEST_SKIP() << "Test file not found: " << e.what();
+  }
+}

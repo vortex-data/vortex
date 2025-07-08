@@ -1,35 +1,23 @@
+use std::env;
 use std::path::Path;
-use std::{env, fs};
+
+use vortex_array::arrays::StructArray;
+use vortex_dtype::FieldNames;
 
 fn main() {
-    // Collect all .cpp files in src/
-    let cpp_files = fs::read_dir("src")
-        .unwrap_or_else(|_| panic!("Could not read src directory"))
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("cpp"));
-
-    let mut builder = cxx_build::bridge("src/lib.rs");
-    // Build with all .cpp files
-    cpp_files
-        .fold(&mut builder, |builder, cpp_file| builder.file(cpp_file))
-        .include("include")
-        .std("c++17")
-        .compile("vortex-cxx");
+    let mut _builder = cxx_build::bridge("src/lib.rs");
 
     // Generate a simple test Vortex file for testing
     generate_test_vortex_file();
 
     println!("cargo:rerun-if-changed=src/");
-    println!("cargo:rerun-if-changed=include/vortex.hpp");
+    println!("cargo:rerun-if-changed=include/");
 }
 
 fn generate_test_vortex_file() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        use std::fs::File;
-        use std::io::Write;
-
+        use tokio::fs::File;
         use vortex_array::IntoArray;
         use vortex_array::arrays::PrimitiveArray;
         use vortex_array::validity::Validity;
@@ -43,21 +31,26 @@ fn generate_test_vortex_file() {
         )
         .into_array();
 
-        // Write to a buffer first
-        let mut buffer = vortex_buffer::ByteBufferMut::empty();
-        VortexWriteOptions::default()
-            .write(&mut buffer, test_array.to_array_stream())
-            .await
-            .unwrap();
+        let struct_array = StructArray::try_new(
+            FieldNames::from_iter(vec!["a".to_string(), "b".to_string()]),
+            vec![test_array.clone(), test_array.clone()],
+            5,
+            Validity::NonNullable,
+        )
+        .unwrap();
 
-        // Write the buffer to a file in the build directory
+        // Write directly to file in the build directory
         let out_dir = env::var("OUT_DIR").unwrap();
         let build_dir = Path::new(&out_dir).join("../../../build");
         std::fs::create_dir_all(&build_dir).unwrap();
 
         let test_file_path = build_dir.join("test_data.vortex");
-        let mut file = File::create(&test_file_path).unwrap();
-        file.write_all(&buffer.freeze()).unwrap();
+        let mut file = File::create(&test_file_path).await.unwrap();
+
+        VortexWriteOptions::default()
+            .write(&mut file, struct_array.to_array_stream())
+            .await
+            .unwrap();
 
         println!(
             "Generated test Vortex file at: {}",

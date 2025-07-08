@@ -1,14 +1,16 @@
-use std::ffi::CString;
-use std::os::raw::c_char;
-use std::ptr;
-use std::sync::Arc;
+use std::sync::OnceLock;
 
 use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
-use arrow_schema::{Schema, SchemaRef};
+use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use tokio::runtime::Runtime;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::IntoArrowArray;
+use vortex_array::arrow::record_batch_reader::VortexRecordBatchReader;
+use vortex_error::VortexExpect;
 use vortex_file::VortexOpenOptions;
+
+static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
 #[cxx::bridge(namespace = "vortex::ffi")]
 mod ffi {
@@ -43,6 +45,14 @@ mod ffi {
         private_data: usize, // pointer as usize
     }
 
+    struct CArrowArrayStream {
+        get_schema: usize, // function pointer: int (*get_schema)(struct ArrowArrayStream*, struct ArrowSchema* out)
+        get_next: usize, // function pointer: int (*get_next)(struct ArrowArrayStream*, struct ArrowArray* out)
+        get_last_error: usize, // function pointer: const char* (*get_last_error)(struct ArrowArrayStream*)
+        release: usize,        // function pointer: void (*release)(struct ArrowArrayStream*)
+        private_data: usize,   // pointer: void* private_data
+    }
+
     extern "Rust" {
         type VortexFile;
         // type VortexArrayStream;
@@ -51,6 +61,7 @@ mod ffi {
         fn open_file(path: &str) -> Result<Box<VortexFile>>;
         fn file_row_count(file: &VortexFile) -> u64;
         fn file_scan_to_arrow(file: &VortexFile) -> Result<ArrowCStructs>;
+        fn file_scan_to_stream(file: &VortexFile) -> Result<CArrowArrayStream>;
     }
 }
 
@@ -72,7 +83,12 @@ fn file_scan_to_arrow(
     file: &VortexFile,
 ) -> Result<ffi::ArrowCStructs, Box<dyn std::error::Error + Send + Sync>> {
     // Create a runtime for async operations
-    let rt = tokio::runtime::Runtime::new()?;
+    let rt = RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .vortex_expect("Cannot start runtime")
+    });
 
     let array = rt.block_on(async {
         let stream = file.inner.scan()?.into_array_stream()?;
@@ -110,104 +126,11 @@ fn file_scan_to_arrow(
     })
 }
 
-// // Stream implementation
-// pub struct VortexArrayStream {
-//     arrays: Vec<arrow_array::ArrayRef>,
-//     schema: SchemaRef,
-//     current_index: usize,
-//     last_error: Option<CString>,
-// }
-
-// impl VortexArrayStream {
-//     fn new(arrays: Vec<arrow_array::ArrayRef>, schema: SchemaRef) -> Self {
-//         Self {
-//             arrays,
-//             schema,
-//             current_index: 0,
-//             last_error: None,
-//         }
-//     }
-// }
-
-// unsafe fn stream_get_schema(stream: &VortexArrayStream, out: *mut ffi::CArrowSchema) -> i32 {
-//     if out.is_null() {
-//         return -1;
-//     }
-
-//     match FFI_ArrowSchema::try_from(stream.schema.as_ref()) {
-//         Ok(ffi_schema) => {
-//             let c_schema = std::mem::transmute::<FFI_ArrowSchema, ffi::CArrowSchema>(ffi_schema);
-//             *out = c_schema;
-//             0
-//         }
-//         Err(_) => -1,
-//     }
-// }
-
-// unsafe fn stream_get_next(stream: &VortexArrayStream, out: *mut ffi::CArrowArray) -> i32 {
-//     if out.is_null() {
-//         return -1;
-//     }
-
-//     // Since we can't mutate stream through &, we'll need to track index differently
-//     // For now, let's return the first array and then end the stream
-//     if stream.current_index >= stream.arrays.len() {
-//         // End of stream - set array to released state
-//         (*out).release = 0; // Use 0 to indicate released
-//         return 0;
-//     }
-
-//     let array = &stream.arrays[stream.current_index];
-//     let ffi_array = FFI_ArrowArray::new(&array.to_data());
-//     let c_array = std::mem::transmute::<FFI_ArrowArray, ffi::CArrowArray>(ffi_array);
-//     *out = c_array;
-
-//     0
-// }
-
-// fn stream_get_last_error(stream: &VortexArrayStream) -> *const c_char {
-//     match &stream.last_error {
-//         Some(err) => err.as_ptr(),
-//         None => ptr::null(),
-//     }
-// }
-
-// fn file_scan_to_stream(
-//     file: &VortexFile,
-// ) -> Result<Box<VortexArrayStream>, Box<dyn std::error::Error + Send + Sync>> {
-//     // Create a runtime for async operations
-//     let rt = tokio::runtime::Runtime::new()?;
-
-//     let arrays = rt.block_on(async {
-//         let stream = file.inner.scan()?.into_array_stream()?;
-//         use futures::stream::StreamExt;
-//         let mut arrays = Vec::new();
-//         let mut stream = std::pin::pin!(stream);
-//         while let Some(array) = stream.next().await {
-//             arrays.push(array?);
-//         }
-//         Ok::<_, Box<dyn std::error::Error + Send + Sync>>(arrays)
-//     })?;
-
-//     if arrays.is_empty() {
-//         return Err("No data in file".into());
-//     }
-
-//     // Convert to Arrow arrays
-//     let arrow_arrays: Result<Vec<_>, _> = arrays
-//         .into_iter()
-//         .map(|array| array.into_arrow_preferred())
-//         .collect();
-//     let arrow_arrays = arrow_arrays?;
-
-//     // Get schema from first array
-//     let schema = Arc::new(Schema::new(vec![arrow_schema::Field::new(
-//         "data",
-//         arrow_arrays[0].data_type().clone(),
-//         true,
-//     )]));
-
-//     // Create stream data
-//     let stream_data = Box::new(VortexArrayStream::new(arrow_arrays, schema));
-//     Ok(stream_data)
-// }
+fn file_scan_to_stream(
+    file: &VortexFile,
+) -> Result<ffi::CArrowArrayStream, Box<dyn std::error::Error + Send + Sync>> {
+    let iter = file.inner.scan()?.into_array_iter()?;
+    let reader = VortexRecordBatchReader::try_new(iter)?;
+    let stream = FFI_ArrowArrayStream::new(Box::new(reader));
+    Ok(unsafe { std::mem::transmute::<FFI_ArrowArrayStream, ffi::CArrowArrayStream>(stream) })
+}
