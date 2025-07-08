@@ -17,8 +17,8 @@ use crate::engines::{EngineCtx, ddb};
 use crate::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
 use crate::tpch::{
-    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, register_arrow, register_csv,
-    register_parquet, register_vortex_file, tpch_queries,
+    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, register_arrow, register_parquet,
+    register_vortex_file, tpch_queries,
 };
 use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
@@ -197,15 +197,31 @@ impl TpcHBenchmark {
             ))?;
 
             match format {
-                Format::Csv => register_csv(session, name, &path, schema).await?,
                 Format::Arrow => register_arrow(session, name, &path).await?,
                 Format::Parquet => {
-                    register_parquet(session, object_store.clone(), name, &path, schema).await?
+                    register_parquet(
+                        session,
+                        object_store.clone(),
+                        name,
+                        &path,
+                        schema,
+                        &self.dataset(),
+                    )
+                    .await?
                 }
                 Format::OnDiskVortex => {
-                    register_vortex_file(session, object_store.clone(), name, &path, schema).await?
+                    register_vortex_file(
+                        session,
+                        object_store.clone(),
+                        name,
+                        &path,
+                        schema,
+                        &self.dataset(),
+                    )
+                    .await?
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
+                Format::Csv => todo!("csv unsupported for tpch benchmark"),
             }
         }
 

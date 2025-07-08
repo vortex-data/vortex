@@ -9,14 +9,12 @@ use anyhow::bail;
 use arrow_schema::Schema;
 use datafusion::datasource::MemTable;
 use datafusion::prelude::{CsvReadOptions, SessionContext};
-use itertools::Itertools;
 use object_store::ObjectStore;
 use url::Url;
 use vortex::arrays::ChunkedArray;
 use vortex::{ArrayRef, IntoArray, TryIntoArray};
 
-use crate::engines::df::{get_session_context, make_object_store};
-use crate::{BenchmarkDataset, Format, datasets};
+use crate::{BenchmarkDataset, datasets};
 
 pub mod dbgen;
 pub mod duckdb;
@@ -35,64 +33,6 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
     // by "$NAME.parquet".
     0, 4, 100, 10, 5, 5, 1, 4, 2, 175, 20, 0, 2, 45, 1, 1, 27840, 1, 100, 1, 1804, 100, 7,
 ];
-
-/// Generate table dataset.
-pub async fn load_datasets(
-    base_dir: &Url,
-    format: Format,
-    dataset: &BenchmarkDataset,
-    disable_datafusion_cache: bool,
-) -> anyhow::Result<SessionContext> {
-    let context = get_session_context(disable_datafusion_cache);
-
-    let object_store = make_object_store(&context, base_dir)?;
-
-    let files = match dataset {
-        BenchmarkDataset::TpcH { .. } => vec![
-            ("customer", Some(schema::CUSTOMER.clone())),
-            ("lineitem", Some(schema::LINEITEM.clone())),
-            ("nation", Some(schema::NATION.clone())),
-            ("orders", Some(schema::ORDERS.clone())),
-            ("part", Some(schema::PART.clone())),
-            ("partsupp", Some(schema::PARTSUPP.clone())),
-            ("region", Some(schema::REGION.clone())),
-            ("supplier", Some(schema::SUPPLIER.clone())),
-        ],
-
-        dataset @ BenchmarkDataset::TpcDS { .. } => {
-            dataset.tables().iter().map(|f| (*f, None)).collect_vec()
-        }
-        BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
-    };
-
-    for (name, path, schema) in files.into_iter().map(|(name, schema)| {
-        let format = if format == Format::Arrow {
-            Format::Parquet
-        } else {
-            format
-        };
-        (
-            name,
-            base_dir.join(&format!("{}/{name}.{}", format.name(), format.ext())),
-            schema,
-        )
-    }) {
-        let path = path?;
-        match format {
-            Format::Csv => register_csv(&context, name, &path, schema).await?,
-            Format::Arrow => register_arrow(&context, name, &path).await?,
-            Format::Parquet => {
-                register_parquet(&context, object_store.clone(), name, &path, schema).await?
-            }
-            Format::OnDiskVortex => {
-                register_vortex_file(&context, object_store.clone(), name, &path, schema).await?
-            }
-            Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
-        }
-    }
-
-    Ok(context)
-}
 
 pub mod named_locks {
     use std::future::Future;
@@ -120,30 +60,6 @@ pub mod named_locks {
         let _guard = lock.lock().await;
         f().await
     }
-}
-
-pub async fn register_csv(
-    session: &SessionContext,
-    name: &str,
-    file: &Url,
-    schema: Option<Schema>,
-) -> anyhow::Result<()> {
-    let Some(schema) = schema else {
-        bail!("cannot run bench with format==csv")
-    };
-    session
-        .register_csv(
-            name,
-            file.as_str(),
-            CsvReadOptions::default()
-                .delimiter(b'|')
-                .has_header(false)
-                .file_extension("csv")
-                .schema(&schema),
-        )
-        .await?;
-
-    Ok(())
 }
 
 pub async fn register_arrow(
@@ -179,16 +95,9 @@ pub async fn register_parquet(
     name: &str,
     file: &Url,
     schema: Option<Schema>,
+    dataset: &BenchmarkDataset,
 ) -> anyhow::Result<()> {
-    datasets::file::register_parquet_files(
-        session,
-        object_store,
-        name,
-        file,
-        schema,
-        BenchmarkDataset::TpcH { scale_factor: 1 },
-    )
-    .await
+    datasets::file::register_parquet_files(session, object_store, name, file, schema, dataset).await
 }
 
 pub async fn register_vortex_file(
@@ -197,16 +106,10 @@ pub async fn register_vortex_file(
     table_name: &str,
     file: &Url,
     schema: Option<Schema>,
+    dataset: &BenchmarkDataset,
 ) -> anyhow::Result<()> {
-    datasets::file::register_vortex_files(
-        session,
-        object_store,
-        table_name,
-        file,
-        schema,
-        BenchmarkDataset::TpcH { scale_factor: 1 },
-    )
-    .await
+    datasets::file::register_vortex_files(session, object_store, table_name, file, schema, dataset)
+        .await
 }
 
 /// Load a table as an uncompressed Vortex array.

@@ -17,7 +17,7 @@ use crate::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_que
 use crate::measurements::QueryMeasurement;
 use crate::metrics::{MetricsSetExt, export_plan_spans};
 use crate::query_bench::{filter_queries, print_results, setup_logging_and_tracing};
-use crate::utils::constants::STORAGE_NVME;
+use crate::utils::url_scheme_to_storage;
 use crate::utils::new_tokio_runtime;
 use crate::{Engine, Format, Target, df, vortex_panic};
 
@@ -86,7 +86,7 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
             &progress_bar,
             &mut engine_ctx,
             &benchmark,
-        );
+        )?;
 
         tokio_runtime.block_on(export_metrics_if_requested(
             &engine_ctx,
@@ -134,7 +134,7 @@ fn execute_queries<B: Benchmark>(
     progress_bar: &ProgressBar,
     engine_ctx: &mut EngineCtx,
     benchmark: &B,
-) -> Vec<QueryMeasurement> {
+) -> Result<Vec<QueryMeasurement>> {
     let mut query_measurements = Vec::new();
     let expected_row_counts = benchmark.expected_row_counts();
 
@@ -186,7 +186,7 @@ fn execute_queries<B: Benchmark>(
                     query_idx,
                     target: Target::new(Engine::DataFusion, format),
                     benchmark_dataset: benchmark.dataset(),
-                    storage: STORAGE_NVME.to_owned(),
+                    storage: url_scheme_to_storage(benchmark.data_url())?,
                     runs,
                 });
             }
@@ -208,7 +208,7 @@ fn execute_queries<B: Benchmark>(
                     query_idx,
                     target: Target::new(Engine::DuckDB, format),
                     benchmark_dataset: benchmark.dataset(),
-                    storage: STORAGE_NVME.to_owned(),
+                    storage: url_scheme_to_storage(benchmark.data_url())?,
                     runs,
                 });
             }
@@ -217,7 +217,7 @@ fn execute_queries<B: Benchmark>(
         progress_bar.inc(1);
     }
 
-    query_measurements
+    Ok(query_measurements)
 }
 
 async fn export_metrics_if_requested(engine_ctx: &EngineCtx, export_spans: bool) -> Result<()> {
