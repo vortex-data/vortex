@@ -16,7 +16,10 @@ use crate::benchmark_trait::Benchmark;
 use crate::engines::{EngineCtx, ddb};
 use crate::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
-use crate::tpch::{EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, tpch_queries};
+use crate::tpch::{
+    EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, register_arrow, register_csv,
+    register_parquet, register_vortex_file, tpch_queries,
+};
 use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
 /// TPCH benchmark implementation
@@ -75,7 +78,8 @@ impl Benchmark for TpcHBenchmark {
             "file" => {
                 // Generate data for the specific target format (idempotent)
                 let format = if target.format() == Format::Arrow {
-                    Format::Csv
+                    // For Arrow format, we need Parquet files to load into memory
+                    Format::Parquet
                 } else {
                     target.format()
                 };
@@ -179,36 +183,27 @@ impl TpcHBenchmark {
 
         // Register each table - same logic as load_datasets
         for (name, schema) in files {
-            let format = if format == Format::Arrow {
-                Format::Csv
+            let file_format = if format == Format::Arrow {
+                // Arrow format loads Parquet files into memory
+                Format::Parquet
             } else {
                 format
             };
 
-            let path = base_dir.join(&format!("{}/{name}.{}", format.name(), format.ext()))?;
+            let path = base_dir.join(&format!(
+                "{}/{name}.{}",
+                file_format.name(),
+                file_format.ext()
+            ))?;
 
             match format {
-                Format::Csv => crate::tpch::register_csv(session, name, &path, schema).await?,
-                Format::Arrow => crate::tpch::register_arrow(session, name, &path, schema).await?,
+                Format::Csv => register_csv(session, name, &path, schema).await?,
+                Format::Arrow => register_arrow(session, name, &path).await?,
                 Format::Parquet => {
-                    crate::tpch::register_parquet(
-                        session,
-                        object_store.clone(),
-                        name,
-                        &path,
-                        schema,
-                    )
-                    .await?
+                    register_parquet(session, object_store.clone(), name, &path, schema).await?
                 }
                 Format::OnDiskVortex => {
-                    crate::tpch::register_vortex_file(
-                        session,
-                        object_store.clone(),
-                        name,
-                        &path,
-                        schema,
-                    )
-                    .await?
+                    register_vortex_file(session, object_store.clone(), name, &path, schema).await?
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
             }

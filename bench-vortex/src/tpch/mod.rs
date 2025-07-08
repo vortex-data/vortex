@@ -67,7 +67,7 @@ pub async fn load_datasets(
 
     for (name, path, schema) in files.into_iter().map(|(name, schema)| {
         let format = if format == Format::Arrow {
-            Format::Csv
+            Format::Parquet
         } else {
             format
         };
@@ -80,7 +80,7 @@ pub async fn load_datasets(
         let path = path?;
         match format {
             Format::Csv => register_csv(&context, name, &path, schema).await?,
-            Format::Arrow => register_arrow(&context, name, &path, schema).await?,
+            Format::Arrow => register_arrow(&context, name, &path).await?,
             Format::Parquet => {
                 register_parquet(&context, object_store.clone(), name, &path, schema).await?
             }
@@ -150,27 +150,24 @@ pub async fn register_arrow(
     session: &SessionContext,
     name: &str,
     file: &Url,
-    schema: Option<Schema>,
 ) -> anyhow::Result<()> {
-    let Some(schema) = schema else {
-        bail!("cannot have an arrow run without a preloaded schema")
-    };
-
-    // Read CSV file into a set of Arrow RecordBatch.
-    let record_batches = session
-        .read_csv(
-            file.as_str(),
-            CsvReadOptions::default()
-                .delimiter(b'|')
-                .has_header(false)
-                .file_extension("csv")
-                .schema(&schema),
-        )
-        .await?
-        .collect()
+    // Load Parquet file into memory as Arrow RecordBatch
+    // This gives us pure in-memory query performance
+    let df = session
+        .read_parquet(file.as_str(), Default::default())
         .await?;
 
-    let mem_table = MemTable::try_new(Arc::new(schema.clone()), vec![record_batches])?;
+    // Collect all data into memory
+    let record_batches = df.collect().await?;
+
+    // Get the schema from the actual data
+    let schema = if !record_batches.is_empty() {
+        record_batches[0].schema()
+    } else {
+        bail!("No data found in parquet file: {}", file)
+    };
+
+    let mem_table = MemTable::try_new(schema, vec![record_batches])?;
     session.register_table(name, Arc::new(mem_table))?;
 
     Ok(())
