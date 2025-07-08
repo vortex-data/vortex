@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 cmake_minimum_required(VERSION 3.16)
 
 if(DEFINED ENV{VCPKG_TOOLCHAIN_PATH})
@@ -14,11 +17,6 @@ if (NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(VORTEX_ENABLE_TESTING "Enable building test binary for vortex-cxx" OFF)
-option(VORTEX_DEV "Enable dev mode" OFF)
-
-if (VORTEX_DEV)
-    set(VORTEX_ENABLE_TESTING ON)
-endif()
 
 # Get cargo target dir
 execute_process(COMMAND cargo locate-project --workspace --message-format plain
