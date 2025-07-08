@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use flatbuffers::{FlatBufferBuilder, WIPOffset, root};
+use flatbuffers::{FlatBufferBuilder, VerifierOptions, WIPOffset, root_with_opts};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
@@ -10,13 +10,22 @@ use crate::children::ViewedLayoutChildren;
 use crate::segments::SegmentId;
 use crate::{Layout, LayoutContext, LayoutRef};
 
+const LAYOUT_VERIFIER: VerifierOptions = VerifierOptions {
+    // Overriden
+    max_tables: 10_000_000,
+    max_depth: 256,
+    // Defaults from flatbuffers
+    max_apparent_size: 1 << 31,
+    ignore_missing_null_terminator: false,
+};
+
 /// Parse a [`LayoutRef`] from a layout flatbuffer.
 pub fn layout_from_flatbuffer(
     flatbuffer: FlatBuffer,
     dtype: &DType,
     ctx: &LayoutContext,
 ) -> VortexResult<LayoutRef> {
-    let fb_layout = root::<layout::Layout>(&flatbuffer)?;
+    let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
     let encoding = ctx
         .lookup_encoding(fb_layout.encoding())
         .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
