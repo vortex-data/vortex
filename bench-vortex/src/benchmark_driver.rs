@@ -9,7 +9,6 @@ use anyhow::Result;
 use indicatif::ProgressBar;
 use itertools::Itertools;
 use log::warn;
-use url::Url;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
 use crate::benchmark_trait::Benchmark;
@@ -40,20 +39,18 @@ pub struct DriverConfig {
 }
 
 /// Run a benchmark using the provided implementation and configuration
-pub fn run_benchmark<B: Benchmark>(
-    benchmark: B,
-    config: DriverConfig,
-    trace_file_name: &str,
-    data_url: Url,
-) -> Result<()> {
-    let _trace_guard = setup_logging_and_tracing(config.verbose, trace_file_name)?;
+pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result<()> {
+    let _trace_guard = setup_logging_and_tracing(
+        config.verbose,
+        &format!("{}.trace.json", benchmark.dataset_name()),
+    )?;
 
     // Validate arguments
     validate_args(&config)?;
 
     // Generate data for each target (idempotent)
     for target in &config.targets {
-        benchmark.generate_data(&data_url, target)?;
+        benchmark.generate_data(target)?;
     }
 
     let filtered_queries = filter_queries(
@@ -73,19 +70,14 @@ pub fn run_benchmark<B: Benchmark>(
     for target in config.targets.iter() {
         let tokio_runtime = new_tokio_runtime(config.threads);
 
-        let mut engine_ctx = setup_engine_context(
+        let mut engine_ctx = benchmark.setup_engine_context(
             target,
-            &data_url,
             config.disable_datafusion_cache,
             config.emit_plan,
         )?;
 
         // Register tables
-        tokio_runtime.block_on(benchmark.register_tables(
-            &engine_ctx,
-            &data_url,
-            target.format(),
-        ))?;
+        tokio_runtime.block_on(benchmark.register_tables(&engine_ctx, target.format()))?;
 
         // Execute queries
         let bench_measurements = execute_queries(
@@ -138,35 +130,6 @@ fn validate_args(config: &DriverConfig) -> Result<()> {
     Ok(())
 }
 
-fn setup_engine_context(
-    target: &Target,
-    data_url: &Url,
-    disable_datafusion_cache: bool,
-    emit_plan: bool,
-) -> Result<EngineCtx> {
-    let engine = target.engine();
-    let format = target.format();
-
-    match engine {
-        Engine::DataFusion => {
-            let session_ctx = df::get_session_context(disable_datafusion_cache);
-            df::make_object_store(&session_ctx, data_url)?;
-            Ok(EngineCtx::new_with_datafusion(session_ctx, emit_plan))
-        }
-        Engine::DuckDB => {
-            // Create a generic dataset for DuckDB context creation
-            // This will be properly configured when tables are registered
-            let dataset = crate::BenchmarkDataset::ClickBench {
-                single_file: false,
-                flavor: crate::clickbench::Flavor::Partitioned,
-            };
-            Ok(EngineCtx::new_with_duckdb(dataset, format)?)
-        }
-        _ => unreachable!("engine not supported"),
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
 fn execute_queries<B: Benchmark>(
     queries: &[(usize, String)],
     iterations: usize,

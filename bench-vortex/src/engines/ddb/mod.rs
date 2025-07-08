@@ -9,7 +9,6 @@ use url::Url;
 use vortex_duckdb::duckdb::{Connection, Database};
 
 use crate::{BenchmarkDataset, Format, IdempotentPath};
-
 // TODO: handle S3
 
 #[derive(Debug, Clone)]

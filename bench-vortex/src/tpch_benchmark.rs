@@ -21,14 +21,41 @@ use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 /// TPCH benchmark implementation
 pub struct TpcHBenchmark {
     pub scale_factor: u32,
-    pub use_remote_data_dir: Option<String>,
+    pub data_url: Url,
 }
 
 impl TpcHBenchmark {
-    pub fn new(scale_factor: u32, use_remote_data_dir: Option<String>) -> Self {
-        Self {
+    pub fn new(scale_factor: u32, use_remote_data_dir: Option<String>) -> Result<Self> {
+        Ok(Self {
             scale_factor,
-            use_remote_data_dir,
+            data_url: Self::create_data_url(&use_remote_data_dir)?,
+        })
+    }
+
+    fn create_data_url(remote_data_dir: &Option<String>) -> Result<Url> {
+        match remote_data_dir {
+            None => {
+                let data_dir = "tpch".to_data_path();
+                Url::from_directory_path(&data_dir).map_err(|_| {
+                    anyhow!("Failed to create URL from directory path: {:?}", &data_dir)
+                })
+            }
+            Some(remote_data_dir) => {
+                if !remote_data_dir.ends_with("/") {
+                    warn!(
+                        "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/parquet/"
+                    );
+                }
+                info!(
+                    concat!(
+                        "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
+                        "If it does not, you should kill this command, locally generate the files (by running without\n",
+                        "--use-remote-data-dir) and upload data/tpch/1/ to some remote location.",
+                    ),
+                    remote_data_dir,
+                );
+                Ok(Url::parse(remote_data_dir)?)
+            }
         }
     }
 }
@@ -38,9 +65,9 @@ impl Benchmark for TpcHBenchmark {
         Ok(tpch_queries().collect())
     }
 
-    fn generate_data(&self, _data_url: &Url, target: &Target) -> Result<()> {
-        match &self.use_remote_data_dir {
-            None => {
+    fn generate_data(&self, target: &Target) -> Result<()> {
+        match self.data_url.scheme() {
+            "file" => {
                 // Generate data for the specific target format (idempotent)
                 let format = if target.format() == Format::Arrow {
                     Format::Csv
@@ -48,7 +75,11 @@ impl Benchmark for TpcHBenchmark {
                     target.format()
                 };
 
-                let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, format)
+                let file_path = self
+                    .data_url
+                    .to_file_path()
+                    .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
+                let opts = DuckdbTpcOptions::new(file_path, TpcDataset::TpcH, format)
                     .with_scale_factor(self.scale_factor);
                 generate_tpc(opts)?;
 
@@ -60,42 +91,22 @@ impl Benchmark for TpcHBenchmark {
                 );
                 Ok(())
             }
-            Some(tpch_benchmark_remote_data_dir) => {
-                if !tpch_benchmark_remote_data_dir.ends_with("/") {
-                    warn!(
-                        "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/parquet/"
-                    );
-                }
-                info!(
-                    concat!(
-                        "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\n",
-                        "If it does not, you should kill this command, locally generate the files (by running without\n",
-                        "--use-remote-data-dir) and upload data/tpch/1/ to some remote location.",
-                    ),
-                    tpch_benchmark_remote_data_dir,
-                );
-                Ok(())
-            }
+            _ => Ok(()),
         }
     }
 
     #[allow(async_fn_in_trait)]
-    async fn register_tables(
-        &self,
-        engine_ctx: &EngineCtx,
-        data_url: &Url,
-        format: Format,
-    ) -> Result<()> {
+    async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> Result<()> {
         let dataset = self.get_dataset();
 
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
                 // Register TPCH tables using the same logic as load_datasets
-                self.register_tpch_tables(&ctx.session, data_url, format)
+                self.register_tpch_tables(&ctx.session, &self.data_url, format)
                     .await
             }
             EngineCtx::DuckDB(ctx) => {
-                ctx.register_tables(data_url, format, &dataset)?;
+                ctx.register_tables(&self.data_url, format, &dataset)?;
                 Ok(())
             }
         }
@@ -115,8 +126,6 @@ impl Benchmark for TpcHBenchmark {
         }
     }
 
-    // Dataset-specific methods (inlined from BenchmarkDataset)
-
     fn dataset_name(&self) -> &str {
         "tpch"
     }
@@ -129,6 +138,14 @@ impl Benchmark for TpcHBenchmark {
 
     fn dataset_display(&self) -> String {
         format!("tpch(sf={})", self.scale_factor)
+    }
+
+    fn validate_result(&self, queries: Vec<usize>) -> Result<()> {
+        self.verify_duckdb_tpch_results(queries)
+    }
+
+    fn data_url(&self) -> &Url {
+        &self.data_url
     }
 }
 
@@ -196,7 +213,7 @@ impl TpcHBenchmark {
     }
 
     /// Verify DuckDB TPCH results against reference data
-    pub fn verify_duckdb_tpch_results(&self, url: &Url, queries: Option<Vec<usize>>) -> Result<()> {
+    pub fn verify_duckdb_tpch_results(&self, queries: Vec<usize>) -> Result<()> {
         // omit validation for sf != 1.
         if self.scale_factor != 1 {
             return Ok(());
@@ -216,7 +233,7 @@ impl TpcHBenchmark {
         fs::create_dir(&tmp_dir)?;
         let duckdb_ctx = ddb::DuckDBCtx::new_in_memory()?;
         duckdb_ctx.register_tables(
-            url,
+            self.data_url(),
             Format::OnDiskVortex,
             &BenchmarkDataset::TpcH {
                 scale_factor: self.scale_factor,
@@ -234,11 +251,7 @@ impl TpcHBenchmark {
         for query_file in query_files
             .iter()
             .enumerate()
-            .filter(|entry| {
-                queries
-                    .as_ref()
-                    .is_none_or(|queries| queries.contains(&(entry.0 + 1)))
-            })
+            .filter(|entry| queries.contains(&(entry.0 + 1)))
             .map(|query_file| query_file.1)
         {
             let query_file_path = query_file.path();

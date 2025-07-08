@@ -5,8 +5,8 @@ use std::env;
 use std::path::Path;
 
 use anyhow::Result;
-use log::warn;
 use url::Url;
+use vortex::error::VortexExpect;
 
 use crate::benchmark_trait::Benchmark;
 use crate::clickbench::{Flavor, clickbench_queries};
@@ -18,7 +18,7 @@ pub struct ClickBenchBenchmark {
     pub flavor: Flavor,
     pub single_file: bool,
     pub queries_file: Option<String>,
-    pub use_remote_data_dir: Option<String>,
+    pub data_url: Url,
 }
 
 impl ClickBenchBenchmark {
@@ -27,12 +27,41 @@ impl ClickBenchBenchmark {
         single_file: bool,
         queries_file: Option<String>,
         use_remote_data_dir: Option<String>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        let url = Self::create_data_url(&use_remote_data_dir, flavor)?;
+        Ok(Self {
             flavor,
             single_file,
             queries_file,
-            use_remote_data_dir,
+            data_url: url,
+        })
+    }
+
+    fn create_data_url(remote_data_dir: &Option<String>, flavor: Flavor) -> Result<Url> {
+        match remote_data_dir {
+            None => {
+                let basepath = format!("clickbench_{flavor}").to_data_path();
+                Ok(Url::parse(&format!(
+                    "file:{}/",
+                    basepath.to_str().vortex_expect("path should be utf8")
+                ))?)
+            }
+            Some(remote_data_dir) => {
+                if !remote_data_dir.ends_with("/") {
+                    log::warn!(
+                        "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/parquet/"
+                    );
+                }
+                log::info!(
+                    concat!(
+                        "Assuming data already exists at this remote (e.g. S3, GCS) URL: {}.\\n",
+                        "If it does not, you should kill this command, locally generate the files (by running without\\n",
+                        "--use-remote-data-dir) and upload data/clickbench/ to some remote location.",
+                    ),
+                    remote_data_dir,
+                );
+                Ok(Url::parse(remote_data_dir)?)
+            }
         }
     }
 }
@@ -47,9 +76,9 @@ impl Benchmark for ClickBenchBenchmark {
         Ok(clickbench_queries(queries_filepath))
     }
 
-    fn generate_data(&self, data_url: &Url, target: &Target) -> Result<()> {
-        match &self.use_remote_data_dir {
-            None => {
+    fn generate_data(&self, target: &Target) -> Result<()> {
+        match self.data_url.scheme() {
+            "file" => {
                 let basepath = clickbench_flavor(self.flavor).to_data_path();
 
                 match target.format() {
@@ -64,10 +93,10 @@ impl Benchmark for ClickBenchBenchmark {
                         self.flavor.download(&client, basepath.as_path())?;
 
                         // Then convert to Vortex format (idempotent)
-                        if data_url.scheme() == "file" {
-                            let file_path = data_url
-                                .to_file_path()
-                                .map_err(|_| anyhow::anyhow!("invalid file URL: {}", data_url))?;
+                        if self.data_url.scheme() == "file" {
+                            let file_path = self.data_url.to_file_path().map_err(|_| {
+                                anyhow::anyhow!("invalid file URL: {}", self.data_url)
+                            })?;
 
                             let dataset = self.get_dataset();
 
@@ -90,35 +119,22 @@ impl Benchmark for ClickBenchBenchmark {
 
                 Ok(())
             }
-            Some(remote_data_dir) => {
-                if !remote_data_dir.ends_with("/") {
-                    warn!(
-                        "Supply a --use-remote-data-dir argument which ends in a slash e.g. s3://vortex-bench-dev-eu/parquet/"
-                    );
-                }
-                // For remote data, assume it already exists in all required formats
-                Ok(())
-            }
+            _ => Ok(()),
         }
     }
 
     #[allow(async_fn_in_trait)]
-    async fn register_tables(
-        &self,
-        engine_ctx: &EngineCtx,
-        data_url: &Url,
-        format: Format,
-    ) -> Result<()> {
+    async fn register_tables(&self, engine_ctx: &EngineCtx, format: Format) -> Result<()> {
         let dataset = self.get_dataset();
 
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
                 dataset
-                    .register_tables(&ctx.session, data_url, format)
+                    .register_tables(&ctx.session, &self.data_url, format)
                     .await?;
             }
             EngineCtx::DuckDB(ctx) => {
-                ctx.register_tables(data_url, format, &dataset)?;
+                ctx.register_tables(&self.data_url, format, &dataset)?;
             }
         }
 
@@ -153,6 +169,10 @@ impl Benchmark for ClickBenchBenchmark {
         } else {
             "clickbench-partitioned".to_string()
         }
+    }
+
+    fn data_url(&self) -> &Url {
+        &self.data_url
     }
 }
 
