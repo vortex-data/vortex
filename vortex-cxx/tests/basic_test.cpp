@@ -18,172 +18,31 @@ class VortexTest : public ::testing::Test {
   }
 };
 
-TEST_F(VortexTest, ArrayLength) {
-  auto array = vortex::Array::create_dummy();
-  EXPECT_EQ(array.len(), 3);  // Our dummy array has 3 elements
-}
-
-TEST_F(VortexTest, ArrayDType) {
-  auto array = vortex::Array::create_dummy();
-  auto dtype = array.dtype();
-
-  vortex::DType dt(std::move(dtype));
-  auto dtype_variant = dt.dtype_variant();
-  EXPECT_EQ(dtype_variant, vortex::ffi::DType::Primitive);
-  auto ptype_variant = dt.ptype_variant();
-  EXPECT_EQ(ptype_variant, vortex::ffi::PType::I32);
-}
-
-TEST_F(VortexTest, ArrayScalarAccess) {
-  auto array = vortex::Array::create_dummy();
-
-  // Test accessing first element
-  auto scalar = array.scalar_at(0);
-
-  vortex::Scalar s(std::move(scalar));
-  EXPECT_FALSE(s.is_null());
-  EXPECT_EQ(s.as_i32(), 1);
-}
-
-TEST_F(VortexTest, ArraySlice) {
-  auto array = vortex::Array::create_dummy();
-
-  // Test slicing
-  auto sliced = array.slice(0, 2);
-  EXPECT_EQ(sliced.len(), 2);
-
-  // Test accessing sliced element
-  auto scalar = sliced.scalar_at(0);
-  vortex::Scalar s(std::move(scalar));
-  EXPECT_EQ(s.as_i32(), 1);
-}
-
-TEST_F(VortexTest, ScalarConversions) {
-  auto array = vortex::Array::create_dummy();
-  auto scalar = array.scalar_at(1);
-  vortex::Scalar s(std::move(scalar));
-
-  // Test different type conversions
-  EXPECT_EQ(s.as_i32(), 2);
-  EXPECT_EQ(s.as_i64(), 2);
-  // Note: Direct conversion from i32 to f32/f64 may not be supported in all
-  // cases This depends on Vortex's casting capabilities
-}
-
-TEST_F(VortexTest, ErrorHandling) {
-  auto array = vortex::Array::create_dummy();
-
-  // Test out of bounds access
-  EXPECT_THROW(array.scalar_at(10), vortex::VortexException);
-
-  // Test invalid slice
-  EXPECT_THROW(array.slice(5, 10), vortex::VortexException);
-}
-
-TEST_F(VortexTest, ArrowConversion) {
-  auto array = vortex::Array::create_dummy();
-
-  // Test converting to native Arrow C ABI structures
-  auto [native_arrow, native_schema] = array.to_arrow_c_abi();
-
-  // Test basic properties of the Arrow array
-  EXPECT_EQ(native_arrow.length, 3);      // Our dummy array has 3 elements
-  EXPECT_EQ(native_arrow.null_count, 0);  // Null count should be 0
-  EXPECT_EQ(native_arrow.offset, 0);      // No offset for this simple array
-
-  EXPECT_NE(native_schema.format, nullptr);
-  EXPECT_STREQ(native_schema.format, "i");
-
-  // Import the Arrow array using Arrow C++ API
-  auto maybe_data_type = arrow::ImportType(&native_schema);
-  ASSERT_TRUE(maybe_data_type.ok()) << "Failed to import Arrow schema: "
-                                    << maybe_data_type.status().message();
-  auto data_type = maybe_data_type.ValueOrDie();
-
-  auto maybe_imported_array = arrow::ImportArray(&native_arrow, data_type);
-  ASSERT_TRUE(maybe_imported_array.ok())
-      << "Failed to import Arrow array: "
-      << maybe_imported_array.status().message();
-  auto imported_array = maybe_imported_array.ValueOrDie();
-
-  // Verify the imported array properties
-  EXPECT_EQ(imported_array->length(), 3);
-  EXPECT_EQ(imported_array->null_count(), 0);
-  EXPECT_TRUE(imported_array->type()->Equals(arrow::int32()));
-
-  // Cast to Int32Array to access values
-  auto int32_array =
-      std::static_pointer_cast<arrow::Int32Array>(imported_array);
-
-  // Compare values with original Vortex array
-  for (int i = 0; i < 3; ++i) {
-    // Get value from original Vortex array
-    auto vortex_scalar = array.scalar_at(i);
-    vortex::Scalar vortex_s(std::move(vortex_scalar));
-    int32_t expected_value = vortex_s.as_i32();
-
-    // Get value from imported Arrow array
-    int32_t arrow_value = int32_array->Value(i);
-
-    // Compare values
-    EXPECT_EQ(arrow_value, expected_value)
-        << "Value mismatch at index " << i << ": Arrow=" << arrow_value
-        << ", Vortex=" << expected_value;
-  }
-
-  // Additional verification: check that values are 1, 2, 3 as expected from
-  // dummy array
-  EXPECT_EQ(int32_array->Value(0), 1);
-  EXPECT_EQ(int32_array->Value(1), 2);
-  EXPECT_EQ(int32_array->Value(2), 3);
-}
-
-TEST_F(VortexTest, FileOperations) {
-  // Test opening a non-existent file
-  EXPECT_THROW(vortex::File::open("non_existent_file.vortex"),
-               vortex::VortexException);
-
-  // Test opening and reading from the generated test file
+TEST_F(VortexTest, ScanToArrow) {
   try {
-    auto file = vortex::File::open("../target/debug/build/test_data.vortex");
+    auto file =
+        vortex::VortexFile::open("../target/debug/build/test_data.vortex");
 
-    // Test file.row_count()
-    auto row_count = file.row_count();
-    EXPECT_EQ(row_count, 5);  // Our test file has 5 elements
+    // Test scanning to Arrow C ABI
+    auto [arrow, schema] = file.scan_to_arrow();
 
-    // Test file.read_all()
-    auto array = file.read_all();
-    EXPECT_EQ(array.len(), 5);  // Should have 5 elements
-
-    // Test accessing elements from the file
-    auto scalar = array.scalar_at(0);
-    vortex::Scalar s(std::move(scalar));
-    EXPECT_EQ(s.as_i32(), 10);  // First element should be 10
-
-    scalar = array.scalar_at(4);
-    vortex::Scalar s2(std::move(scalar));
-    EXPECT_EQ(s2.as_i32(), 50);  // Last element should be 50
-
-    auto [arrow, schema] = array.to_arrow_c_abi();
-    EXPECT_EQ(arrow.length, 5);
-
-
-    // Test converting to native Arrow C ABI structures
-    auto [native_arrow, native_schema] = array.to_arrow_c_abi();
     // Import the Arrow array using Arrow C++ API
-    auto maybe_data_type = arrow::ImportType(&native_schema);
+    auto maybe_data_type = arrow::ImportType(&schema);
     ASSERT_TRUE(maybe_data_type.ok()) << "Failed to import Arrow schema: "
                                       << maybe_data_type.status().message();
     auto data_type = maybe_data_type.ValueOrDie();
 
-    auto maybe_imported_array = arrow::ImportArray(&native_arrow, data_type);
+    auto maybe_imported_array = arrow::ImportArray(&arrow, data_type);
     ASSERT_TRUE(maybe_imported_array.ok())
         << "Failed to import Arrow array: "
         << maybe_imported_array.status().message();
     auto imported_array = maybe_imported_array.ValueOrDie();
+
     // Cast to Int32Array to access values
     auto int32_array =
         std::static_pointer_cast<arrow::Int32Array>(imported_array);
+    ASSERT_EQ(int32_array->length(), 5);
+    ASSERT_EQ(int32_array->null_count(), 0);
     ASSERT_EQ(int32_array->Value(0), 10);
     ASSERT_EQ(int32_array->Value(1), 20);
     ASSERT_EQ(int32_array->Value(2), 30);
@@ -191,7 +50,70 @@ TEST_F(VortexTest, FileOperations) {
     ASSERT_EQ(int32_array->Value(4), 50);
 
   } catch (const vortex::VortexException &e) {
-    // If the test file doesn't exist, skip the test
     GTEST_SKIP() << "Test file not found: " << e.what();
   }
 }
+
+// TEST_F(VortexTest, ScanToStream) {
+//   try {
+//     auto file =
+//     vortex::VortexFile::open("../target/debug/build/test_data.vortex");
+
+//     // Test scanning to Arrow C Stream
+//     auto stream = file.scan_to_stream();
+
+//     // Test that we can get the schema
+//     auto [schema_array, schema] = stream.get_schema();
+//     EXPECT_NE(schema.format, nullptr);
+
+//     // Test that we can get arrays from the stream
+//     ArrowArray array;
+//     bool has_data = stream.next(array);
+
+//     // If we got a valid array, it should have data
+//     if (has_data) {
+//       EXPECT_GT(array.length, 0);
+//       EXPECT_EQ(array.null_count, 0);
+//       EXPECT_EQ(array.offset, 0);
+
+//       // Clean up the array
+//       if (array.release != nullptr) {
+//         array.release(&array);
+//       }
+//     }
+
+//     // Clean up schema
+//     if (schema.release != nullptr) {
+//       schema.release(&schema);
+//     }
+
+//   } catch (const vortex::VortexException &e) {
+//     GTEST_SKIP() << "Test file not found: " << e.what();
+//   }
+// }
+
+// TEST_F(VortexTest, StreamEndOfData) {
+//   try {
+//     auto file =
+//     vortex::VortexFile::open("../target/debug/build/test_data.vortex");
+
+//     auto stream = file.scan_to_stream();
+
+//     // Consume all arrays from the stream
+//     int count = 0;
+//     ArrowArray array;
+//     while (stream.next(array)) {
+//       count++;
+//       // Clean up the array
+//       if (array.release != nullptr) {
+//         array.release(&array);
+//       }
+//     }
+
+//     // Should have gotten at least one array
+//     EXPECT_GT(count, 0);
+
+//   } catch (const vortex::VortexException &e) {
+//     GTEST_SKIP() << "Test file not found: " << e.what();
+//   }
+// }

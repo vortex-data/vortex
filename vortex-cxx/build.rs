@@ -1,11 +1,18 @@
-use std::env;
 use std::path::Path;
+use std::{env, fs};
 
 fn main() {
-    cxx_build::bridge("src/lib.rs")
-        .file("src/array.cpp")
-        .file("src/dtype.cpp")
-        .file("src/utils.cpp")
+    // Collect all .cpp files in src/
+    let cpp_files = fs::read_dir("src")
+        .unwrap_or_else(|_| panic!("Could not read src directory"))
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("cpp"));
+
+    let mut builder = cxx_build::bridge("src/lib.rs");
+    // Build with all .cpp files
+    cpp_files
+        .fold(&mut builder, |builder, cpp_file| builder.file(cpp_file))
         .include("include")
         .std("c++17")
         .compile("vortex-cxx");
@@ -13,10 +20,7 @@ fn main() {
     // Generate a simple test Vortex file for testing
     generate_test_vortex_file();
 
-    println!("cargo:rerun-if-changed=src/lib.rs");
-    println!("cargo:rerun-if-changed=src/array.cpp");
-    println!("cargo:rerun-if-changed=src/dtype.cpp");
-    println!("cargo:rerun-if-changed=src/utils.cpp");
+    println!("cargo:rerun-if-changed=src/");
     println!("cargo:rerun-if-changed=include/vortex.hpp");
 }
 

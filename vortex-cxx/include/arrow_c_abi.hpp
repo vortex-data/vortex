@@ -46,6 +46,24 @@ struct ArrowArray {
 
 #endif  // ARROW_C_DATA_INTERFACE
 
+#ifndef ARROW_C_STREAM_INTERFACE
+#define ARROW_C_STREAM_INTERFACE
+
+struct ArrowArrayStream {
+  // Callbacks providing stream functionality
+  int (*get_schema)(struct ArrowArrayStream*, struct ArrowSchema* out);
+  int (*get_next)(struct ArrowArrayStream*, struct ArrowArray* out);
+  const char* (*get_last_error)(struct ArrowArrayStream*);
+
+  // Release callback
+  void (*release)(struct ArrowArrayStream*);
+
+  // Opaque producer-specific data
+  void* private_data;
+};
+
+#endif  // ARROW_C_STREAM_INTERFACE
+
 #ifdef __cplusplus
 }
 #endif
