@@ -4,16 +4,17 @@
 use itertools::Itertools;
 use vortex_array::arrays::{
     BoolArray, BooleanBuffer, ConstantArray, NullArray, PrimitiveArray, StructArray,
+    smallest_storage_type,
 };
 use vortex_array::builders::{ArrayBuilder as _, DecimalBuilder};
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::{Array, Canonical, ToCanonical};
+use vortex_array::{Array, Canonical};
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, NativePType, Nullability, match_each_native_ptype};
+use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, match_each_native_ptype};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_err};
-use vortex_scalar::{Scalar, match_each_decimal_value_type};
+use vortex_scalar::{DecimalScalar, NativeDecimalType, Scalar, match_each_decimal_value_type};
 
 use crate::{SparseArray, SparseVTable};
 
@@ -86,34 +87,17 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
                     })?
             }
             DType::Decimal(decimal_dtype, nullability) => {
-                let patches_decimal_value_type =
-                    array.patches().values().to_decimal()?.values_type();
+                let canonical_decimal_value_type = smallest_storage_type(decimal_dtype);
                 let fill_value = array.fill_scalar().as_decimal();
-
-                let filled_array =
-                    match_each_decimal_value_type!(patches_decimal_value_type, |D| {
-                        let mut builder = DecimalBuilder::with_capacity::<D>(
-                            array.len(),
-                            *decimal_dtype,
-                            *nullability,
-                        );
-                        match fill_value.decimal_value() {
-                            Some(fill_value) => {
-                                let fill_value = fill_value
-                                    .cast::<D>()
-                                    .vortex_expect("unexpected value type");
-                                for _ in 0..array.len() {
-                                    builder.append_value(fill_value)
-                                }
-                            }
-                            None => {
-                                builder.append_nulls(array.len());
-                            }
-                        }
-                        builder.finish_into_decimal()
-                    });
-                let array = filled_array.patch(array.patches())?;
-                Ok(Canonical::Decimal(array))
+                match_each_decimal_value_type!(canonical_decimal_value_type, |D| {
+                    canonicalize_sparse_decimal::<D>(
+                        *decimal_dtype,
+                        *nullability,
+                        fill_value,
+                        array.patches(),
+                        array.len(),
+                    )
+                })
             }
             DType::Utf8(_nullability) => todo!(),
             DType::Binary(_nullability) => todo!(),
@@ -171,6 +155,32 @@ fn canonicalize_sparse_primitives<
     let parray = PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity);
 
     parray.patch(patches).map(Canonical::Primitive)
+}
+
+fn canonicalize_sparse_decimal<D: NativeDecimalType>(
+    decimal_dtype: DecimalDType,
+    nullability: Nullability,
+    fill_value: DecimalScalar,
+    patches: &Patches,
+    len: usize,
+) -> VortexResult<Canonical> {
+    let mut builder = DecimalBuilder::with_capacity::<D>(len, decimal_dtype, nullability);
+    match fill_value.decimal_value() {
+        Some(fill_value) => {
+            let fill_value = fill_value
+                .cast::<D>()
+                .vortex_expect("unexpected value type");
+            for _ in 0..len {
+                builder.append_value(fill_value)
+            }
+        }
+        None => {
+            builder.append_nulls(len);
+        }
+    }
+    let filled_array = builder.finish_into_decimal();
+    let array = filled_array.patch(patches)?;
+    Ok(Canonical::Decimal(array))
 }
 
 #[cfg(test)]

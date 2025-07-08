@@ -9,7 +9,7 @@ mod serde;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
-use vortex_error::{VortexResult, vortex_panic};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 use vortex_scalar::{DecimalValueType, NativeDecimalType};
 
 use crate::builders::ArrayBuilder;
@@ -60,6 +60,17 @@ pub fn smallest_storage_type(decimal_dtype: &DecimalDType) -> DecimalValueType {
         0 => unreachable!("precision must be greater than 0"),
         p => unreachable!("precision larger than 76 is invalid found precision {p}"),
     }
+}
+
+/// Errors unless the value type can represent every value of the given dtype.
+pub fn compatible_storage_type(
+    value_type: DecimalValueType,
+    dtype: &DecimalDType,
+) -> VortexResult<()> {
+    if value_type < smallest_storage_type(dtype) {
+        vortex_bail!("{:?} cannot represent every value in {}", value_type, dtype)
+    }
+    Ok(())
 }
 
 /// Array for decimal-typed real numbers

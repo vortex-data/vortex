@@ -1,16 +1,17 @@
 use arrow_buffer::ArrowNativeType;
-use vortex_dtype::{NativePType, match_each_integer_ptype};
-use vortex_error::VortexResult;
-use vortex_scalar::{NativeDecimalType, match_each_decimal_value_type};
+use vortex_buffer::{Buffer, BufferMut};
+use vortex_dtype::{DecimalDType, NativePType, match_each_integer_ptype};
+use vortex_error::{VortexExpect as _, VortexResult};
+use vortex_scalar::{BigCast, NativeDecimalType, match_each_decimal_value_type};
 
 use super::DecimalArray;
 use crate::ToCanonical as _;
-use crate::arrays::PrimitiveArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl DecimalArray {
+    #[allow(clippy::cognitive_complexity)]
     pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
         let offset = patches.offset();
         let patch_indices = patches.indices().to_primitive()?;
@@ -23,36 +24,48 @@ impl DecimalArray {
             patch_values.validity(),
         )?;
         assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
-        assert_eq!(self.values_type(), patch_values.values_type());
+
         match_each_integer_ptype!(patch_indices.ptype(), |I| {
-            match_each_decimal_value_type!(self.values_type(), |T| {
-                self.patch_typed::<T, I>(patch_indices, offset, patch_values, patched_validity)
+            let patch_indices = patch_indices.as_slice::<I>();
+            match_each_decimal_value_type!(patch_values.values_type(), |PatchDVT| {
+                let patch_values = patch_values.buffer::<PatchDVT>();
+                match_each_decimal_value_type!(self.values_type(), |ValuesDVT| {
+                    let buffer = self.buffer::<ValuesDVT>().into_mut();
+                    patch_typed(
+                        buffer,
+                        self.decimal_dtype(),
+                        patch_indices,
+                        offset,
+                        patch_values,
+                        patched_validity,
+                    )
+                })
             })
         })
     }
+}
 
-    fn patch_typed<T, I>(
-        self,
-        patch_indices: PrimitiveArray,
-        patch_indices_offset: usize,
-        patch_values: DecimalArray,
-        patched_validity: Validity,
-    ) -> VortexResult<Self>
-    where
-        T: NativeDecimalType,
-        I: NativePType + ArrowNativeType,
-    {
-        let mut own_values = self.buffer::<T>().into_mut();
-
-        let patch_indices = patch_indices.as_slice::<I>();
-        let patch_values = patch_values.buffer::<T>();
-        for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
-            own_values[idx.as_usize() - patch_indices_offset] = value;
-        }
-        Ok(Self::new(
-            own_values.freeze(),
-            self.decimal_dtype(),
-            patched_validity,
-        ))
+fn patch_typed<I, ValuesDVT, PatchDVT>(
+    mut buffer: BufferMut<ValuesDVT>,
+    decimal_dtype: DecimalDType,
+    patch_indices: &[I],
+    patch_indices_offset: usize,
+    patch_values: Buffer<PatchDVT>,
+    patched_validity: Validity,
+) -> VortexResult<DecimalArray>
+where
+    I: NativePType + ArrowNativeType,
+    PatchDVT: NativeDecimalType,
+    ValuesDVT: NativeDecimalType,
+{
+    for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
+        buffer[idx.as_usize() - patch_indices_offset] = <ValuesDVT as BigCast>::from(value).vortex_expect(
+            "values of a given DecimalDType are representable in all compatible NativeDecimalType",
+        );
     }
+    Ok(DecimalArray::new(
+        buffer.freeze(),
+        decimal_dtype,
+        patched_validity,
+    ))
 }
