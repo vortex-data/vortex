@@ -141,7 +141,7 @@ where
             // Initialize the base vector for this chunk
             Delta::undelta(
                 chunk,
-                unsafe { &*(transposed[0..T::LANES].as_ptr() as *const [_; T::LANES]) },
+                unsafe { &*(bases[i * lanes..(i + 1) * lanes].as_ptr() as *const [_; T::LANES]) },
                 &mut transposed,
             );
 
