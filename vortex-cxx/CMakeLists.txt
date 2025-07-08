@@ -36,6 +36,8 @@ else()
     set(RUST_LIB ${CARGO_TARGET_DIR}/release/${CMAKE_STATIC_LIBRARY_PREFIX}vortex_cxx${CMAKE_STATIC_LIBRARY_SUFFIX})
 endif()
 
+find_package(Arrow CONFIG REQUIRED)
+
 set(CPP_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include
                     ${PROJECT_SOURCE_DIR}/src
                     ${CARGO_TARGET_DIR}/cxxbridge
@@ -56,8 +58,6 @@ add_custom_target(cargo_build
     USES_TERMINAL
     COMMENT "Running cargo build for vortex-cxx..."
 )
-
-find_package(Arrow CONFIG REQUIRED)
 
 add_library(vortex_cxx STATIC ${CPP_SOURCE_FILE} ${RUST_BRIDGE_CPP})
 target_sources(vortex_cxx PUBLIC ${CPP_HEADER_FILE})

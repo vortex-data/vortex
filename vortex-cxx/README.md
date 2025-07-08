@@ -28,8 +28,6 @@ export VCPKG_TOOLCHAIN_PATH=`pwd`/vcpkg/scripts/buildsystems/vcpkg.cmake
 vcpkg install gtest arrow
 ```
 
-Those dependencies are required for the tests.
-
 Then build the project:
 
 ```bash
