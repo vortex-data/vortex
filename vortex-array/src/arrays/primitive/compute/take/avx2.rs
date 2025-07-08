@@ -144,7 +144,7 @@ impl_gather!(u8,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i32gather_epi32,
         store: _mm256_storeu_si256,
-        WIDTH = 8, STRIDE = 8
+        WIDTH = 8, STRIDE = 16
     },
 
     // 64-bit values, loaded 4 at a time
