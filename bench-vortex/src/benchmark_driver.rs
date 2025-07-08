@@ -57,7 +57,7 @@ pub fn run_benchmark<B: Benchmark>(
     }
 
     // Load and filter queries
-    let all_queries = benchmark.get_queries()?;
+    let all_queries = benchmark.queries()?;
     let filtered_queries = filter_queries(
         all_queries,
         config.queries.as_ref(),
@@ -75,7 +75,7 @@ pub fn run_benchmark<B: Benchmark>(
 
     for target in config.targets.iter() {
         let tokio_runtime = new_tokio_runtime(config.threads);
-        
+
         let mut engine_ctx = setup_engine_context(
             target,
             &data_url,

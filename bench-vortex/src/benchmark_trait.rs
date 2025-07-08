@@ -12,7 +12,7 @@ use crate::{BenchmarkDataset, Format, Target};
 /// Core benchmark operations that all benchmark types implement
 pub trait Benchmark {
     /// Get all available queries for this benchmark
-    fn get_queries(&self) -> Result<Vec<(usize, String)>>;
+    fn queries(&self) -> Result<Vec<(usize, String)>>;
 
     /// Generate or prepare data for the benchmark at the specified URL for a specific target
     /// This should be idempotent - safe to call multiple times for the same target
@@ -35,7 +35,4 @@ pub trait Benchmark {
     fn get_expected_row_counts(&self) -> Option<&[usize]> {
         None
     }
-
-
-
 }

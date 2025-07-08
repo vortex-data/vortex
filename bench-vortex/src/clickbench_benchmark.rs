@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! ClickBench benchmark implementation
-
-use std::path::Path;
 use std::env;
+use std::path::Path;
+
 use anyhow::Result;
-use url::Url;
 use log::warn;
+use url::Url;
 
 use crate::benchmark_trait::Benchmark;
 use crate::clickbench::{Flavor, clickbench_queries};
 use crate::engines::EngineCtx;
-use crate::{BenchmarkDataset, Format, Target, IdempotentPath};
+use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
 /// ClickBench benchmark implementation
 pub struct ClickBenchBenchmark {
@@ -39,7 +38,7 @@ impl ClickBenchBenchmark {
 }
 
 impl Benchmark for ClickBenchBenchmark {
-    fn get_queries(&self) -> Result<Vec<(usize, String)>> {
+    fn queries(&self) -> Result<Vec<(usize, String)>> {
         let queries_filepath = match &self.queries_file {
             Some(file) => file.into(),
             None => Path::new(env!("CARGO_MANIFEST_DIR")).join("clickbench_queries.sql"),
@@ -52,7 +51,7 @@ impl Benchmark for ClickBenchBenchmark {
         match &self.use_remote_data_dir {
             None => {
                 let basepath = format!("clickbench_{}", self.flavor).to_data_path();
-                
+
                 match target.format() {
                     Format::Parquet => {
                         // Download Parquet files (idempotent - won't re-download if already present)
@@ -63,15 +62,15 @@ impl Benchmark for ClickBenchBenchmark {
                         // First ensure Parquet files exist
                         let client = reqwest::blocking::Client::default();
                         self.flavor.download(&client, basepath.as_path())?;
-                        
+
                         // Then convert to Vortex format (idempotent)
                         if data_url.scheme() == "file" {
                             let file_path = data_url
                                 .to_file_path()
                                 .map_err(|_| anyhow::anyhow!("invalid file URL: {}", data_url))?;
-                            
+
                             let dataset = self.get_dataset();
-                            
+
                             // Use tokio runtime to handle async conversion
                             let rt = tokio::runtime::Runtime::new()?;
                             rt.block_on(async {
@@ -90,7 +89,7 @@ impl Benchmark for ClickBenchBenchmark {
                         self.flavor.download(&client, basepath.as_path())?;
                     }
                 }
-                
+
                 Ok(())
             }
             Some(remote_data_dir) => {
@@ -116,7 +115,9 @@ impl Benchmark for ClickBenchBenchmark {
 
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
-                dataset.register_tables(&ctx.session, data_url, format).await?;
+                dataset
+                    .register_tables(&ctx.session, data_url, format)
+                    .await?;
             }
             EngineCtx::DuckDB(ctx) => {
                 ctx.register_tables(data_url, format, &dataset)?;
@@ -136,8 +137,8 @@ impl Benchmark for ClickBenchBenchmark {
     fn get_expected_row_counts(&self) -> Option<&[usize]> {
         // ClickBench reference row counts
         static REFERENCE_ROW_COUNTS: [usize; 43] = [
-            1, 1, 1, 1, 1, 1, 1, 18, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 1, 10, 10, 10, 10,
-            10, 10, 25, 25, 1, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+            1, 1, 1, 1, 1, 1, 1, 18, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 1, 10, 10, 10,
+            10, 10, 10, 25, 25, 1, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
         ];
         Some(&REFERENCE_ROW_COUNTS)
     }

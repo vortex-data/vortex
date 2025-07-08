@@ -4,15 +4,15 @@
 //! TPCH benchmark implementation
 
 use anyhow::Result;
-use url::Url;
 use log::{info, warn};
+use url::Url;
+use vortex::error::VortexExpect;
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::EngineCtx;
 use crate::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use crate::tpch::{EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, tpch_queries};
-use crate::{BenchmarkDataset, Format, Target, IdempotentPath};
-use vortex::error::VortexExpect;
+use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
 /// TPCH benchmark implementation
 pub struct TpcHBenchmark {
@@ -30,7 +30,7 @@ impl TpcHBenchmark {
 }
 
 impl Benchmark for TpcHBenchmark {
-    fn get_queries(&self) -> Result<Vec<(usize, String)>> {
+    fn queries(&self) -> Result<Vec<(usize, String)>> {
         Ok(tpch_queries().collect())
     }
 
@@ -43,14 +43,17 @@ impl Benchmark for TpcHBenchmark {
                 } else {
                     target.format()
                 };
-                
+
                 let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, format)
                     .with_scale_factor(self.scale_factor);
                 generate_tpc(opts)?;
 
                 let data_dir = "tpch".to_data_path();
                 let data_dir = data_dir.to_str().vortex_expect("path must be utf8");
-                info!("Generated or verified TPCH data for format {} at {data_dir}.", format);
+                info!(
+                    "Generated or verified TPCH data for format {} at {data_dir}.",
+                    format
+                );
                 Ok(())
             }
             Some(tpch_benchmark_remote_data_dir) => {
@@ -84,7 +87,8 @@ impl Benchmark for TpcHBenchmark {
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
                 // Register TPCH tables using the same logic as load_datasets
-                self.register_tpch_tables(&ctx.session, data_url, format).await
+                self.register_tpch_tables(&ctx.session, data_url, format)
+                    .await
             }
             EngineCtx::DuckDB(ctx) => {
                 ctx.register_tables(data_url, format, &dataset)?;
@@ -106,7 +110,6 @@ impl Benchmark for TpcHBenchmark {
             _ => None, // Unsupported scale factor
         }
     }
-
 }
 
 impl TpcHBenchmark {
@@ -139,17 +142,31 @@ impl TpcHBenchmark {
             } else {
                 format
             };
-            
+
             let path = base_dir.join(&format!("{}/{name}.{}", format.name(), format.ext()))?;
-            
+
             match format {
                 Format::Csv => crate::tpch::register_csv(session, name, &path, schema).await?,
                 Format::Arrow => crate::tpch::register_arrow(session, name, &path, schema).await?,
                 Format::Parquet => {
-                    crate::tpch::register_parquet(session, object_store.clone(), name, &path, schema).await?
+                    crate::tpch::register_parquet(
+                        session,
+                        object_store.clone(),
+                        name,
+                        &path,
+                        schema,
+                    )
+                    .await?
                 }
                 Format::OnDiskVortex => {
-                    crate::tpch::register_vortex_file(session, object_store.clone(), name, &path, schema).await?
+                    crate::tpch::register_vortex_file(
+                        session,
+                        object_store.clone(),
+                        name,
+                        &path,
+                        schema,
+                    )
+                    .await?
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
             }
