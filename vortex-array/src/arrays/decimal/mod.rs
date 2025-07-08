@@ -9,7 +9,7 @@ mod serde;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_panic};
 use vortex_scalar::{DecimalValueType, NativeDecimalType};
 
 use crate::builders::ArrayBuilder;
@@ -63,14 +63,8 @@ pub fn smallest_storage_type(decimal_dtype: &DecimalDType) -> DecimalValueType {
 }
 
 /// Errors unless the value type can represent every value of the given dtype.
-pub fn compatible_storage_type(
-    value_type: DecimalValueType,
-    dtype: &DecimalDType,
-) -> VortexResult<()> {
-    if value_type < smallest_storage_type(dtype) {
-        vortex_bail!("{:?} cannot represent every value in {}", value_type, dtype)
-    }
-    Ok(())
+pub fn compatible_storage_type(value_type: DecimalValueType, dtype: DecimalDType) -> bool {
+    value_type >= smallest_storage_type(&dtype)
 }
 
 /// Array for decimal-typed real numbers
@@ -84,16 +78,15 @@ pub struct DecimalArray {
 }
 
 impl DecimalArray {
-    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
-    /// any invariants.
-    pub fn new<T: NativeDecimalType>(
+    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`].
+    pub fn try_new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
         validity: Validity,
-    ) -> Self {
+    ) -> VortexResult<Self> {
         if let Some(len) = validity.maybe_len() {
             if buffer.len() != len {
-                vortex_panic!(
+                vortex_bail!(
                     "Buffer and validity length mismatch: buffer={}, validity={}",
                     buffer.len(),
                     len,
@@ -101,13 +94,31 @@ impl DecimalArray {
             }
         }
 
-        Self {
+        if !compatible_storage_type(T::VALUES_TYPE, decimal_dtype) {
+            vortex_bail!(
+                "{:?} cannot represent every value in {}",
+                T::VALUES_TYPE,
+                decimal_dtype
+            )
+        }
+
+        Ok(Self {
             dtype: DType::Decimal(decimal_dtype, validity.nullability()),
             values: buffer.into_byte_buffer(),
             values_type: T::VALUES_TYPE,
             validity,
             stats_set: ArrayStats::default(),
-        }
+        })
+    }
+
+    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
+    /// any invariants.
+    pub fn new<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> Self {
+        Self::try_new(buffer, decimal_dtype, validity).vortex_expect("DecimalArray::new")
     }
 
     /// Returns the underlying [`ByteBuffer`] of the array.
@@ -226,6 +237,11 @@ impl ValidityHelper for DecimalArray {
 #[cfg(test)]
 mod test {
     use arrow_array::Decimal128Array;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DecimalDType;
+
+    use super::DecimalArray;
+    use crate::validity::Validity;
 
     #[test]
     fn test_decimal() {
@@ -234,5 +250,12 @@ mod test {
         let value = Decimal128Array::new_null(100);
         let numeric = value.value(10);
         assert_eq!(numeric, 0i128);
+    }
+
+    #[test]
+    fn test_incompatible_decimal_and_value_type() {
+        let result =
+            DecimalArray::try_new(buffer![0i8], DecimalDType::new(5, 5), Validity::NonNullable);
+        assert!(result.is_err());
     }
 }
