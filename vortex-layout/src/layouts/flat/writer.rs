@@ -14,6 +14,8 @@ use crate::layouts::zoned::{lower_bound, upper_bound};
 use crate::segments::SequenceWriter;
 use crate::{IntoLayout, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream};
 
+pub static DEFAULT_FLAT_STRATEGY: FlatLayoutStrategy = FlatLayoutStrategy::new();
+
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
     /// Whether to include padding for memory-mapped reads.
@@ -22,12 +24,18 @@ pub struct FlatLayoutStrategy {
     pub max_variable_length_statistics_size: usize,
 }
 
-impl Default for FlatLayoutStrategy {
-    fn default() -> Self {
+impl FlatLayoutStrategy {
+    const fn new() -> Self {
         Self {
             include_padding: true,
             max_variable_length_statistics_size: 64,
         }
+    }
+}
+
+impl Default for FlatLayoutStrategy {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

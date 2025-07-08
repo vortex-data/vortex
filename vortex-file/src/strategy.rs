@@ -11,7 +11,7 @@ use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::compressed::BtrBlocksCompressedStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
-use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+use vortex_layout::layouts::flat::writer::DEFAULT_FLAT_STRATEGY;
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
@@ -45,7 +45,7 @@ impl VortexLayoutStrategy {
 
         // 2.1. | 3.1. compress stats tables and dict values.
         let compress_then_flat = arcref(BtrBlocksCompressedStrategy::new(
-            arcref(FlatLayoutStrategy::default()),
+            ArcRef::new_ref(&DEFAULT_FLAT_STRATEGY),
             executor.clone(),
             1,
         ));
