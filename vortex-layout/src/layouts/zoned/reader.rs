@@ -377,7 +377,7 @@ mod test {
     use vortex_expr::{gt, lit, root};
     use vortex_mask::Mask;
 
-    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::chunked::writer::ChunkedStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};

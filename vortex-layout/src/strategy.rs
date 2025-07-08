@@ -4,6 +4,7 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use arcref::ArcRef;
 use async_trait::async_trait;
 use futures::Stream;
 use pin_project_lite::pin_project;
@@ -11,9 +12,10 @@ use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::LayoutRef;
+use crate::layouts::buffered::BufferedStrategy;
 use crate::segments::SequenceWriter;
 use crate::sequence::SequenceId;
+use crate::LayoutRef;
 
 pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
     fn dtype(&self) -> &DType;
@@ -27,6 +29,12 @@ impl SequentialStream for SendableSequentialStream {
     }
 }
 
+/// A LayoutStrategy is how a stream of data chunks becomes
+/// a Layout.
+///
+/// The strategy accepts a stream of chunks, and yields a new
+/// layout
+// Tag for Python docs:
 // [layout writer]
 #[async_trait]
 pub trait LayoutStrategy: 'static + Send + Sync {
@@ -59,6 +67,54 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     ) -> VortexResult<LayoutRef>;
 }
 // [layout writer]
+
+// Helper implementation for async functions that accept the parameters of the write_stream method.
+#[async_trait]
+impl<F, Fut> LayoutStrategy for F
+where
+    F: (Fn(&ArrayContext, SequenceWriter, SendableSequentialStream) -> Fut) + Send + Sync + 'static,
+    Fut: Future<Output = VortexResult<LayoutRef>> + Send + Sync + 'static,
+{
+    async fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
+    ) -> VortexResult<LayoutRef> {
+        self(ctx, sequence_writer, stream).await
+    }
+}
+
+// impl for ArcRef<S>
+#[async_trait]
+impl<S> LayoutStrategy for ArcRef<S>
+where
+    S: LayoutStrategy,
+{
+    async fn write_stream(
+        &self,
+        ctx: &ArrayContext,
+        sequence_writer: SequenceWriter,
+        stream: SendableSequentialStream,
+    ) -> VortexResult<LayoutRef> {
+        self.as_ref()
+            .write_stream(ctx, sequence_writer, stream)
+            .await
+    }
+}
+
+pub trait LayoutStrategyExt: LayoutStrategy {
+    /// Wrap this strategy with a `bytes`-sized buffer. Only once `bytes` worth of chunk data
+    /// has been buffered will the data be sent down the pipeline.
+    fn buffering(self, bytes: u64) -> BufferedStrategy<Self>
+    where
+        Self: Sized,
+    {
+        BufferedStrategy::new(self, bytes)
+    }
+}
+
+impl<T: LayoutStrategy> LayoutStrategyExt for T {}
 
 pub trait SequentialStreamExt: SequentialStream {
     // not named boxed to prevent clashing with StreamExt

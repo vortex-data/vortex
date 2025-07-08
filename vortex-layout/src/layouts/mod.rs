@@ -5,6 +5,7 @@
 
 use futures::future::{BoxFuture, Shared};
 use vortex_array::ArrayRef;
+use vortex_buffer::ByteBuffer;
 use vortex_error::SharedVortexResult;
 
 pub mod buffered;
@@ -19,6 +20,8 @@ mod partitioned;
 pub mod repartition;
 pub mod row_idx;
 pub mod struct_;
+pub mod view;
 pub mod zoned;
 
-type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
+pub(crate) type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
+pub(crate) type SharedByteBufferFuture = Shared<BoxFuture<'static, SharedVortexResult<ByteBuffer>>>;

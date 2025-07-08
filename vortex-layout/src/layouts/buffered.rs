@@ -15,13 +15,17 @@ use crate::{
     SequentialStreamExt as _,
 };
 
+/// A writer that buffers chunks before flushing to another writer.
 #[derive(Clone)]
 pub struct BufferedStrategy<S> {
     child: S,
     buffer_size: u64,
 }
 
-impl<S: LayoutStrategy> BufferedStrategy<S> {
+impl<S> BufferedStrategy<S>
+where
+    S: LayoutStrategy,
+{
     pub fn new(child: S, buffer_size: u64) -> Self {
         Self { child, buffer_size }
     }

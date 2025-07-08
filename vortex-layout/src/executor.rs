@@ -71,7 +71,12 @@ impl TaskExecutor for tokio::runtime::Handle {
     }
 }
 
-pub struct LocalExecutor;
+struct LocalExecutor;
+
+/// Returns a handle to an executor that will "spawn" tasks onto the current runtime.
+pub fn local_task_executor() -> Arc<dyn TaskExecutor> {
+    Arc::new(LocalExecutor)
+}
 
 impl TaskExecutor for LocalExecutor {
     fn do_spawn(

@@ -12,6 +12,7 @@ use ratatui::widgets::{
 use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
+use vortex::layout::layouts::view::ViewVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::mask::Mask;
 use vortex::{Array, ArrayRef, ToCanonical};
@@ -28,7 +29,8 @@ pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
     render_layout_header(&app_state.cursor, header_area, buf);
 
     // Render the list view if the layout has children
-    if app_state.cursor.layout().is::<FlatVTable>() {
+    if app_state.cursor.layout().is::<FlatVTable>() || app_state.cursor.layout().is::<ViewVTable>()
+    {
         render_array(
             app_state,
             detail_area,

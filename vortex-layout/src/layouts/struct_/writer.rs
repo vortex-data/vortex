@@ -14,9 +14,8 @@ use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::{Array, ArrayContext, ToCanonical};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
-use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_utils::aliases::hash_set::HashSet;
+use vortex_utils::set::UniqueCount;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SequenceWriter;
@@ -55,9 +54,8 @@ where
             // nothing we can do if dtype is not struct
             return self.child.write_stream(ctx, sequence_writer, stream).await;
         };
-        if HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
-            != struct_dtype.names().len()
-        {
+
+        if struct_dtype.names().iter().unique_count() != struct_dtype.names().len() {
             vortex_bail!("StructLayout must have unique field names");
         }
 
@@ -69,7 +67,7 @@ where
             Ok((sequence_id, chunk))
         });
 
-        // There are now fields so this is the layout leaf
+        // There are no fields so this is the layout leaf
         if struct_dtype.nfields() == 0 {
             let row_count = stream
                 .try_fold(
@@ -104,13 +102,14 @@ where
                 .field_by_index(idx)
                 .vortex_expect("bound checked")
         });
+        let ctx = ctx.clone();
 
         let layout_futures: Vec<_> = column_dtypes
             .zip_eq(column_streams)
-            .map(move |(dtype, stream)| {
+            .map(|(dtype, stream)| {
                 let column_stream = SequentialStreamAdapter::new(dtype, stream).sendable();
                 self.child
-                    .write_stream(ctx, sequence_writer.clone(), column_stream)
+                    .write_stream(&ctx, sequence_writer.clone(), column_stream)
                     .boxed()
             })
             .collect();

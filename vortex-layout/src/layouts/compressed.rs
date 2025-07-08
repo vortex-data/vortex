@@ -131,18 +131,18 @@ where
 
         let stream = stream
             .map(move |chunk| {
-                let compressor = compressor.clone();
-                async move {
-                    let (sequence_id, chunk) = chunk?;
-                    // Compute the stats for the chunk prior to compression
-                    chunk
-                        .statistics()
-                        .compute_all(&Stat::all().collect::<Vec<_>>())?;
-                    Ok((sequence_id, compressor.compress_chunk(&chunk)?))
-                }
-                .boxed()
+                executor.spawn(
+                    async {
+                        let (sequence_id, chunk) = chunk?;
+                        // Compute the stats for the chunk prior to compression
+                        chunk
+                            .statistics()
+                            .compute_all(&Stat::all().collect::<Vec<_>>())?;
+                        Ok((sequence_id, BtrBlocksCompressor.compress(&chunk)?))
+                    }
+                    .boxed(),
+                )
             })
-            .map(move |compress_future| executor.spawn(compress_future))
             .buffered(self.parallelism);
 
         self.child

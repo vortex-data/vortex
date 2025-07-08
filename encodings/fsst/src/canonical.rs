@@ -83,7 +83,7 @@ fn fsst_decode_views(fsst_array: &FSSTArray, buf_index: u32) -> (ByteBuffer, Buf
         let mut offset = 0;
         for len in uncompressed_lens_array.as_slice::<P>() {
             let len = *len as usize;
-            let view = BinaryView::make_view(
+            let view = BinaryView::new_view(
                 &uncompressed_bytes[offset..][..len],
                 buf_index,
                 offset as u32,

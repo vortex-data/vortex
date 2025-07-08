@@ -142,7 +142,7 @@ fn reconstruct_views(buffer: ByteBuffer) -> VortexResult<Buffer<BinaryView>> {
         ) as usize;
         offset += size_of::<ViewLen>();
         let value = &buffer[offset..offset + str_len];
-        res.push(BinaryView::make_view(value, 0, u32::try_from(offset)?));
+        res.push(BinaryView::new_view(value, 0, u32::try_from(offset)?));
         offset += str_len;
     }
     Ok(res.freeze())

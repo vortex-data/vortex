@@ -22,6 +22,7 @@ use crate::{
     SequentialStreamExt, TaskExecutor, TaskExecutorExt,
 };
 
+#[derive(Clone)]
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
     pub block_size: usize,
@@ -44,6 +45,7 @@ impl Default for ZonedLayoutOptions {
     }
 }
 
+#[derive(Clone)]
 pub struct ZonedStrategy<Child, Stats> {
     child: Child,
     stats: Stats,
@@ -90,14 +92,17 @@ where
             stream
                 .map(move |chunk| {
                     let stats = stats.clone();
-                    async move {
-                        let (sequence_id, chunk) = chunk?;
-                        chunk.statistics().compute_all(&stats)?;
-                        VortexResult::Ok((sequence_id, chunk))
-                    }
-                    .boxed()
+
+                    // Spawn the future to compute the chunk stats onto the provided executor.
+                    executor.spawn(
+                        async move {
+                            let (sequence_id, chunk) = chunk?;
+                            chunk.statistics().compute_all(&stats)?;
+                            VortexResult::Ok((sequence_id, chunk))
+                        }
+                        .boxed(),
+                    )
                 })
-                .map(move |stats_future| executor.spawn(stats_future))
                 .buffered(self.options.parallelism),
         )
         .sendable();

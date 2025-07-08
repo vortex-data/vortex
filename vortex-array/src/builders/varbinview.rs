@@ -60,7 +60,7 @@ impl VarBinViewBuilder {
         let length =
             u32::try_from(value.len()).vortex_expect("cannot have a single string >2^32 in length");
         if length <= 12 {
-            self.views_builder.push(BinaryView::make_view(value, 0, 0));
+            self.views_builder.push(BinaryView::new_view(value, 0, 0));
             return;
         }
 
@@ -73,7 +73,7 @@ impl VarBinViewBuilder {
 
         let offset = u32::try_from(self.in_progress.len()).vortex_expect("too many buffers");
         self.in_progress.extend_from_slice(value);
-        let view = BinaryView::make_view(
+        let view = BinaryView::new_view(
             value,
             // buffer offset
             self.completed.len(),

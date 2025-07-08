@@ -83,7 +83,7 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> BytesDictBuilder<Code> {
 
                 let next_code = self.views.len();
                 let view =
-                    BinaryView::make_view(val, 0, u32::try_from(self.values.len()).vortex_unwrap());
+                    BinaryView::new_view(val, 0, u32::try_from(self.values.len()).vortex_unwrap());
                 let additional_bytes = if view.is_inlined() {
                     size_of::<BinaryView>()
                 } else {

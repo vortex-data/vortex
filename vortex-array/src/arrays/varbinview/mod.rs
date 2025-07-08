@@ -52,14 +52,14 @@ impl Inlined {
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, align(8))]
-pub struct Ref {
+pub struct Outlined {
     size: u32,
     prefix: [u8; 4],
     buffer_index: u32,
     offset: u32,
 }
 
-impl Ref {
+impl Outlined {
     pub fn new(size: u32, prefix: [u8; 4], buffer_index: u32, offset: u32) -> Self {
         Self {
             size,
@@ -101,12 +101,12 @@ pub union BinaryView {
     inlined: Inlined,
 
     // Reference type: strings > 12 bytes.
-    _ref: Ref,
+    outlined: Outlined,
 }
 
 assert_eq_size!(BinaryView, [u8; 16]);
 assert_eq_size!(Inlined, [u8; 16]);
-assert_eq_size!(Ref, [u8; 16]);
+assert_eq_size!(Outlined, [u8; 16]);
 assert_eq_align!(BinaryView, u128);
 
 impl BinaryView {
@@ -120,7 +120,7 @@ impl BinaryView {
     /// Adapted from arrow-rs <https://github.com/apache/arrow-rs/blob/f4fde769ab6e1a9b75f890b7f8b47bc22800830b/arrow-array/src/builder/generic_bytes_view_builder.rs#L524>
     /// Explicitly enumerating inlined view produces code that avoids calling generic `ptr::copy_non_interleave` that's slower than explicit stores
     #[inline(never)]
-    pub fn make_view(value: &[u8], block: u32, offset: u32) -> Self {
+    pub fn new_view(value: &[u8], block: u32, offset: u32) -> Self {
         match value.len() {
             0 => Self {
                 inlined: Inlined::new::<0>(value),
@@ -162,7 +162,7 @@ impl BinaryView {
                 inlined: Inlined::new::<12>(value),
             },
             _ => Self {
-                _ref: Ref::new(
+                outlined: Outlined::new(
                     u32::try_from(value.len()).vortex_unwrap(),
                     value[0..4].try_into().vortex_unwrap(),
                     block,
@@ -187,7 +187,7 @@ impl BinaryView {
             value.len()
         );
 
-        Self::make_view(value, 0, 0)
+        Self::new_view(value, 0, 0)
     }
 
     #[inline]
@@ -210,8 +210,8 @@ impl BinaryView {
         unsafe { &self.inlined }
     }
 
-    pub fn as_view(&self) -> &Ref {
-        unsafe { &self._ref }
+    pub fn as_view(&self) -> &Outlined {
+        unsafe { &self.outlined }
     }
 
     pub fn as_u128(&self) -> u128 {
@@ -228,7 +228,7 @@ impl BinaryView {
             // Referencing views must have their buffer_index adjusted with new offsets
             let view_ref = self.as_view();
             Self {
-                _ref: Ref::new(
+                outlined: Outlined::new(
                     self.len(),
                     *view_ref.prefix(),
                     buffer_idx,
@@ -236,6 +236,17 @@ impl BinaryView {
                 ),
             }
         }
+    }
+
+    /// Returns a u32 in little-endian byte order containing the prefix bytes.
+    pub fn prefix(&self) -> u32 {
+        // in release mode this compiles to a single instruction https://godbolt.org/z/Gbvzz9b95
+        u32::from_le_bytes([
+            unsafe { self.le_bytes[4] },
+            unsafe { self.le_bytes[5] },
+            unsafe { self.le_bytes[6] },
+            unsafe { self.le_bytes[7] },
+        ])
     }
 
     /// Shifts the buffer reference by the view by a given offset, useful when merging many
@@ -248,7 +259,7 @@ impl BinaryView {
             // Referencing views must have their buffer_index adjusted with new offsets
             let view_ref = self.as_view();
             Self {
-                _ref: Ref::new(
+                outlined: Outlined::new(
                     self.len(),
                     *view_ref.prefix(),
                     offset + view_ref.buffer_index(),
