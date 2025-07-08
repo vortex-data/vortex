@@ -9,21 +9,17 @@ use anyhow::bail;
 use arrow_schema::Schema;
 use datafusion::datasource::MemTable;
 use datafusion::prelude::{CsvReadOptions, SessionContext};
-use itertools::Itertools;
 use object_store::ObjectStore;
 use url::Url;
 use vortex::arrays::ChunkedArray;
 use vortex::{ArrayRef, IntoArray, TryIntoArray};
 
-use crate::engines::df::{get_session_context, make_object_store};
-use crate::{BenchmarkDataset, Format, datasets};
+use crate::{BenchmarkDataset, datasets};
 
 pub mod dbgen;
 pub mod duckdb;
-mod execute;
 pub mod schema;
 
-pub use execute::*;
 use vortex::error::VortexExpect;
 
 pub const TPC_H_ROW_COUNT_ARRAY_LENGTH: usize = 23;
@@ -37,64 +33,6 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
     // by "$NAME.parquet".
     0, 4, 100, 10, 5, 5, 1, 4, 2, 175, 20, 0, 2, 45, 1, 1, 27840, 1, 100, 1, 1804, 100, 7,
 ];
-
-/// Generate table dataset.
-pub async fn load_datasets(
-    base_dir: &Url,
-    format: Format,
-    dataset: &BenchmarkDataset,
-    disable_datafusion_cache: bool,
-) -> anyhow::Result<SessionContext> {
-    let context = get_session_context(disable_datafusion_cache);
-
-    let object_store = make_object_store(&context, base_dir)?;
-
-    let files = match dataset {
-        BenchmarkDataset::TpcH { .. } => vec![
-            ("customer", Some(schema::CUSTOMER.clone())),
-            ("lineitem", Some(schema::LINEITEM.clone())),
-            ("nation", Some(schema::NATION.clone())),
-            ("orders", Some(schema::ORDERS.clone())),
-            ("part", Some(schema::PART.clone())),
-            ("partsupp", Some(schema::PARTSUPP.clone())),
-            ("region", Some(schema::REGION.clone())),
-            ("supplier", Some(schema::SUPPLIER.clone())),
-        ],
-
-        dataset @ BenchmarkDataset::TpcDS { .. } => {
-            dataset.tables().iter().map(|f| (*f, None)).collect_vec()
-        }
-        BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
-    };
-
-    for (name, path, schema) in files.into_iter().map(|(name, schema)| {
-        let format = if format == Format::Arrow {
-            Format::Csv
-        } else {
-            format
-        };
-        (
-            name,
-            base_dir.join(&format!("{}/{name}.{}", format.name(), format.ext())),
-            schema,
-        )
-    }) {
-        let path = path?;
-        match format {
-            Format::Csv => register_csv(&context, name, &path, schema).await?,
-            Format::Arrow => register_arrow(&context, name, &path, schema).await?,
-            Format::Parquet => {
-                register_parquet(&context, object_store.clone(), name, &path, schema).await?
-            }
-            Format::OnDiskVortex => {
-                register_vortex_file(&context, object_store.clone(), name, &path, schema).await?
-            }
-            Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
-        }
-    }
-
-    Ok(context)
-}
 
 pub mod named_locks {
     use std::future::Future;
@@ -124,94 +62,54 @@ pub mod named_locks {
     }
 }
 
-async fn register_csv(
+pub async fn register_arrow(
     session: &SessionContext,
     name: &str,
     file: &Url,
-    schema: Option<Schema>,
 ) -> anyhow::Result<()> {
-    let Some(schema) = schema else {
-        bail!("cannot run bench with format==csv")
-    };
-    session
-        .register_csv(
-            name,
-            file.as_str(),
-            CsvReadOptions::default()
-                .delimiter(b'|')
-                .has_header(false)
-                .file_extension("csv")
-                .schema(&schema),
-        )
+    // Load Parquet file into memory as Arrow RecordBatch
+    // This gives us pure in-memory query performance
+    let df = session
+        .read_parquet(file.as_str(), Default::default())
         .await?;
 
-    Ok(())
-}
+    // Collect all data into memory
+    let record_batches = df.collect().await?;
 
-async fn register_arrow(
-    session: &SessionContext,
-    name: &str,
-    file: &Url,
-    schema: Option<Schema>,
-) -> anyhow::Result<()> {
-    let Some(schema) = schema else {
-        bail!("cannot have an arrow run without a preloaded schema")
+    // Get the schema from the actual data
+    let schema = if !record_batches.is_empty() {
+        record_batches[0].schema()
+    } else {
+        bail!("No data found in parquet file: {}", file)
     };
 
-    // Read CSV file into a set of Arrow RecordBatch.
-    let record_batches = session
-        .read_csv(
-            file.as_str(),
-            CsvReadOptions::default()
-                .delimiter(b'|')
-                .has_header(false)
-                .file_extension("csv")
-                .schema(&schema),
-        )
-        .await?
-        .collect()
-        .await?;
-
-    let mem_table = MemTable::try_new(Arc::new(schema.clone()), vec![record_batches])?;
+    let mem_table = MemTable::try_new(schema, vec![record_batches])?;
     session.register_table(name, Arc::new(mem_table))?;
 
     Ok(())
 }
 
-async fn register_parquet(
+pub async fn register_parquet(
     session: &SessionContext,
     object_store: Arc<dyn ObjectStore>,
     name: &str,
     file: &Url,
     schema: Option<Schema>,
+    dataset: &BenchmarkDataset,
 ) -> anyhow::Result<()> {
-    datasets::file::register_parquet_files(
-        session,
-        object_store,
-        name,
-        file,
-        schema,
-        BenchmarkDataset::TpcH { scale_factor: 1 },
-    )
-    .await
+    datasets::file::register_parquet_files(session, object_store, name, file, schema, dataset).await
 }
 
-async fn register_vortex_file(
+pub async fn register_vortex_file(
     session: &SessionContext,
     object_store: Arc<dyn ObjectStore>,
     table_name: &str,
     file: &Url,
     schema: Option<Schema>,
+    dataset: &BenchmarkDataset,
 ) -> anyhow::Result<()> {
-    datasets::file::register_vortex_files(
-        session,
-        object_store,
-        table_name,
-        file,
-        schema,
-        BenchmarkDataset::TpcH { scale_factor: 1 },
-    )
-    .await
+    datasets::file::register_vortex_files(session, object_store, table_name, file, schema, dataset)
+        .await
 }
 
 /// Load a table as an uncompressed Vortex array.

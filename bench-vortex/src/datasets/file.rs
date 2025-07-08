@@ -45,7 +45,7 @@ pub async fn register_parquet_files(
     table_name: &str,
     file_url: &Url,
     schema: Option<Schema>,
-    dataset: BenchmarkDataset,
+    dataset: &BenchmarkDataset,
 ) -> Result<()> {
     match dataset {
         BenchmarkDataset::TpcH { .. } => {
@@ -65,7 +65,7 @@ pub async fn register_parquet_files(
             let format = Arc::new(ParquetFormat::new());
             let mut parquet_path = dataset.format_path(Format::Parquet, file_url)?;
 
-            if single_file {
+            if *single_file {
                 parquet_path = parquet_path.join("hits.parquet")?;
             }
 
@@ -97,7 +97,7 @@ pub async fn register_vortex_files(
     table_name: &str,
     file_url: &Url,
     schema: Option<Schema>,
-    dataset: BenchmarkDataset,
+    dataset: &BenchmarkDataset,
 ) -> Result<()> {
     match dataset {
         BenchmarkDataset::TpcH { .. } | BenchmarkDataset::TpcDS { .. } => {
@@ -123,7 +123,7 @@ pub async fn register_vortex_files(
                 table_name,
                 file_url,
                 schema,
-                single_file,
+                *single_file,
             )
             .await?;
         }

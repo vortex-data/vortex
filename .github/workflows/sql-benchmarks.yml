@@ -29,17 +29,17 @@ jobs:
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/running-variations-of-jobs-in-a-workflow#example-adding-configurations
         include:
           - id: tpch-nvme
-            binary_name: tpch
+            subcommand: tpch
             name: TPC-H on NVME
             targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
             scale_factor: "--scale-factor ${{inputs.scale_factor}}"
           - id: clickbench-nvme
-            binary_name: clickbench
+            subcommand: clickbench
             name: Clickbench on NVME
             targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
             scale_factor: ""
           - id: tpch-s3
-            binary_name: tpch
+            subcommand: tpch
             name: TPC-H on S3
             local_dir: bench-vortex/data/tpch/${{inputs.scale_factor}}
             remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/${{inputs.scale_factor}}/
@@ -79,7 +79,7 @@ jobs:
         env:
           RUSTFLAGS: '-C target-cpu=native -C force-frame-pointers=yes'
         run: |
-          cargo build --bin ${{ matrix.binary_name }} --package bench-vortex --profile release_debug
+          cargo build --bin query_bench --package bench-vortex --profile release_debug
 
       - name: Generate data
         shell: bash
@@ -88,11 +88,11 @@ jobs:
         run: |
           # Generate data, running each query once to make sure they don't panic.
           echo "datafusion:parquet"
-          target/release_debug/${{ matrix.binary_name }} --targets datafusion:parquet -i1 -d gh-json ${{ matrix.scale_factor }}
+          target/release_debug/query_bench ${{ matrix.subcommand }} --targets datafusion:parquet -i1 -d gh-json ${{ matrix.scale_factor }}
           echo "datafusion:vortex"
-          target/release_debug/${{ matrix.binary_name }} --targets datafusion:vortex -i1 -d gh-json ${{ matrix.scale_factor }}
+          target/release_debug/query_bench ${{ matrix.subcommand }} --targets datafusion:vortex -i1 -d gh-json ${{ matrix.scale_factor }}
           echo "duckdb:vortex"
-          target/release_debug/${{ matrix.binary_name }} --targets duckdb:vortex -i1 -d gh-json ${{ matrix.scale_factor }}
+          target/release_debug/query_bench ${{ matrix.subcommand }} --targets duckdb:vortex -i1 -d gh-json ${{ matrix.scale_factor }}
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
@@ -126,7 +126,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
         run: |
-          target/release_debug/${{ matrix.binary_name }} \
+          target/release_debug/query_bench ${{ matrix.subcommand }} \
             -d gh-json \
             --targets ${{ matrix.targets }} \
             --export-spans \
@@ -144,7 +144,7 @@ jobs:
           OTEL_EXPORTER_OTLP_HEADERS: '${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}'
           OTEL_RESOURCE_ATTRIBUTES: 'bench-name=${{ matrix.id }}'
         run: |
-          target/release_debug/${{ matrix.binary_name }} \
+          target/release_debug/query_bench ${{ matrix.subcommand }} \
               --use-remote-data-dir ${{ matrix.remote_storage }} \
               --targets ${{ matrix.targets }} \
               --export-spans \
