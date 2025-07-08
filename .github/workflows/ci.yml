@@ -280,8 +280,6 @@ jobs:
 
   rust-test:
     name: "Rust (tests)"
-    env:
-      RUSTFLAGS: "-Z sanitizer=address"
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -296,7 +294,7 @@ jobs:
         shell: bash
         if: github.ref == 'refs/heads/develop'
         run: |
-          echo "RUSTFLAGS=-Cinstrument-coverage -A warnings">> $GITHUB_ENV
+          echo "RUSTFLAGS=-Cinstrument-coverage -A warnings -Z sanitizer=address">> $GITHUB_ENV
           # Disable incremental compilation to get accurate coverage
           echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
           echo "LLVM_PROFILE_FILE=target/coverage/vortex-%p-%m.profraw" >> $GITHUB_ENV
@@ -305,7 +303,7 @@ jobs:
         shell: bash
         if: github.ref != 'refs/heads/develop'
         run: |
-          echo "RUSTFLAGS=-A warnings" >> $GITHUB_ENV
+          echo "RUSTFLAGS=-A warnings -Z sanitizer=address" >> $GITHUB_ENV
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
