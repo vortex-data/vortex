@@ -2,30 +2,35 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::fmt::{Debug, Display};
-use std::hash::Hash;
+use std::fmt::{Debug, Display, Formatter};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use dyn_eq::DynEq;
 use dyn_hash::DynHash;
 pub use exprs::*;
+pub mod aliases;
 mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
+mod encoding;
 mod exprs;
 mod field;
 pub mod forms;
+pub mod proto;
 pub mod pruning;
-#[cfg(feature = "proto")]
 mod registry;
 mod scope;
 mod scope_vars;
 pub mod transform;
 pub mod traversal;
+mod vtable;
 
 pub use analysis::*;
 pub use between::*;
 pub use binary::*;
 pub use cast::*;
+pub use encoding::*;
 pub use get_item::*;
 pub use is_null::*;
 pub use like::*;
@@ -35,54 +40,87 @@ pub use merge::*;
 pub use not::*;
 pub use operators::*;
 pub use pack::*;
-#[cfg(feature = "proto")]
-pub use registry::deserialize_expr;
+pub use registry::*;
 pub use scope::*;
 pub use select::*;
 pub use var::*;
-use vortex_array::{Array, ArrayRef};
+use vortex_array::{Array, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
-use vortex_error::{VortexResult, VortexUnwrap};
-#[cfg(feature = "proto")]
-use vortex_proto::expr;
-#[cfg(feature = "proto")]
-use vortex_proto::expr::{Expr, kind};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
 use vortex_utils::aliases::hash_set::HashSet;
+pub use vtable::*;
 
 use crate::traversal::{Node, ReferenceCollector, VarsCollector};
 
+pub trait IntoExpr {
+    /// Convert this type into an expression reference.
+    fn into_expr(self) -> ExprRef;
+}
+
 pub type ExprRef = Arc<dyn VortexExpr>;
 
-#[cfg(feature = "proto")]
-pub trait Id {
-    fn id(&self) -> &'static str;
-}
-
-#[cfg(feature = "proto")]
-pub trait ExprDeserialize: Id + Sync {
-    fn deserialize(&self, kind: &kind::Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef>;
-}
-
-#[cfg(feature = "proto")]
-pub trait ExprSerializable {
-    fn id(&self) -> &'static str;
-
-    fn serialize_kind(&self) -> VortexResult<kind::Kind>;
-}
-
-#[cfg(not(feature = "proto"))]
-pub trait ExprSerializable {}
-#[cfg(not(feature = "proto"))]
-impl<T> ExprSerializable for T {}
 /// Represents logical operation on [`ArrayRef`]s
 pub trait VortexExpr:
-    Debug + Send + Sync + DynEq + DynHash + Display + ExprSerializable + AnalysisExpr
+    'static + Send + Sync + Debug + Display + DynEq + DynHash + private::Sealed + AnalysisExpr
 {
     /// Convert expression reference to reference of [`Any`] type
     fn as_any(&self) -> &dyn Any;
 
+    /// Convert the expression to an [`ExprRef`].
+    fn to_expr(&self) -> ExprRef;
+
+    /// Return the encoding of the expression.
+    fn encoding(&self) -> ExprEncodingRef;
+
+    /// Serialize the metadata of this expression into a bytes vector.
+    ///
+    /// Returns `None` if the expression does not support serialization.
+    fn metadata(&self) -> Option<Vec<u8>> {
+        None
+    }
+
     /// Compute result of expression on given batch producing a new batch
-    fn evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
+    ///
+    /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
+    /// the [VortexExpr::return_dtype] method. Use instead the [`\<dyn VortexExpr\>::evaluate`]
+    /// function which includes such an assertion.
+    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef>;
+
+    /// Returns the children of this expression.
+    fn children(&self) -> Vec<&ExprRef>;
+
+    /// Returns a new instance of this expression with the children replaced.
+    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef>;
+
+    /// Compute the type of the array returned by [`\<dyn VortexExpr\>::evaluate`].
+    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType>;
+}
+
+dyn_eq::eq_trait_object!(VortexExpr);
+dyn_hash::hash_trait_object!(VortexExpr);
+
+impl dyn VortexExpr + '_ {
+    pub fn id(&self) -> ExprId {
+        self.encoding().id()
+    }
+
+    pub fn is<V: VTable>(&self) -> bool {
+        self.as_opt::<V>().is_some()
+    }
+
+    pub fn as_<V: VTable>(&self) -> &V::Expr {
+        self.as_opt::<V>()
+            .vortex_expect("Expr is not of the expected type")
+    }
+
+    pub fn as_opt<V: VTable>(&self) -> Option<&V::Expr> {
+        VortexExpr::as_any(self)
+            .downcast_ref::<ExprAdapter<V>>()
+            .map(|e| &e.0)
+    }
+
+    /// Compute result of expression on given batch producing a new batch
+    pub fn evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
         let result = self.unchecked_evaluate(scope)?;
         assert_eq!(
             result.dtype(),
@@ -94,20 +132,6 @@ pub trait VortexExpr:
         );
         Ok(result)
     }
-
-    /// Compute result of expression on given batch producing a new batch
-    ///
-    /// "Unchecked" means that this function lacks a debug assertion that the returned array matches
-    /// the [VortexExpr::return_dtype] method. Use instead the [VortexExpr::evaluate] function which
-    /// includes such an assertion.
-    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef>;
-
-    fn children(&self) -> Vec<&ExprRef>;
-
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef;
-
-    /// Compute the type of the array returned by [VortexExpr::evaluate].
-    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType>;
 }
 
 pub trait VortexExprExt {
@@ -115,9 +139,6 @@ pub trait VortexExprExt {
     fn field_references(&self) -> HashSet<FieldName>;
 
     fn vars(&self) -> HashSet<Identifier>;
-
-    #[cfg(feature = "proto")]
-    fn serialize(&self) -> VortexResult<Expr>;
 }
 
 impl VortexExprExt for ExprRef {
@@ -134,23 +155,96 @@ impl VortexExprExt for ExprRef {
         self.accept(&mut collector).vortex_unwrap();
         collector.into_vars()
     }
+}
 
-    #[cfg(feature = "proto")]
-    fn serialize(&self) -> VortexResult<Expr> {
-        let children = self
-            .children()
-            .iter()
-            .map(|e| e.serialize())
-            .collect::<VortexResult<_>>()?;
+#[derive(Clone)]
+#[repr(transparent)]
+pub struct ExprAdapter<V: VTable>(V::Expr);
 
-        Ok(Expr {
-            id: self.id().to_string(),
-            children,
-            kind: Some(expr::Kind {
-                kind: Some(self.serialize_kind()?),
-            }),
-        })
+impl<V: VTable> VortexExpr for ExprAdapter<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
     }
+
+    fn to_expr(&self) -> ExprRef {
+        Arc::new(ExprAdapter::<V>(self.0.clone()))
+    }
+
+    fn encoding(&self) -> ExprEncodingRef {
+        V::encoding(&self.0)
+    }
+
+    fn metadata(&self) -> Option<Vec<u8>> {
+        V::metadata(&self.0).map(|m| m.serialize())
+    }
+
+    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
+        V::evaluate(&self.0, ctx)
+    }
+
+    fn children(&self) -> Vec<&ExprRef> {
+        V::children(&self.0)
+    }
+
+    fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+        Ok(V::with_children(&self.0, children)?.to_expr())
+    }
+
+    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType> {
+        V::return_dtype(&self.0, scope)
+    }
+}
+
+impl<V: VTable> Debug for ExprAdapter<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&self.0, f)
+    }
+}
+
+impl<V: VTable> Display for ExprAdapter<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl<V: VTable> PartialEq for ExprAdapter<V> {
+    fn eq(&self, other: &Self) -> bool {
+        PartialEq::eq(&self.0, &other.0)
+    }
+}
+
+impl<V: VTable> Eq for ExprAdapter<V> {}
+
+impl<V: VTable> Hash for ExprAdapter<V> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(&self.0, state);
+    }
+}
+
+impl<V: VTable> AnalysisExpr for ExprAdapter<V> {
+    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        <V::Expr as AnalysisExpr>::stat_falsification(&self.0, catalog)
+    }
+
+    fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        <V::Expr as AnalysisExpr>::max(&self.0, catalog)
+    }
+
+    fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        <V::Expr as AnalysisExpr>::min(&self.0, catalog)
+    }
+
+    fn field_path(&self) -> Option<AccessPath> {
+        <V::Expr as AnalysisExpr>::field_path(&self.0)
+    }
+}
+
+mod private {
+    use super::*;
+
+    pub trait Sealed {}
+
+    impl<V: VTable> Sealed for ExprAdapter<V> {}
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -191,7 +285,7 @@ pub fn split_conjunction(expr: &ExprRef) -> Vec<ExprRef> {
 }
 
 fn split_inner(expr: &ExprRef, exprs: &mut Vec<ExprRef>) {
-    match expr.as_any().downcast_ref::<BinaryExpr>() {
+    match expr.as_opt::<BinaryVTable>() {
         Some(bexp) if bexp.op() == Operator::And => {
             split_inner(bexp.lhs(), exprs);
             split_inner(bexp.rhs(), exprs);
@@ -201,29 +295,6 @@ fn split_inner(expr: &ExprRef, exprs: &mut Vec<ExprRef>) {
         }
     }
 }
-
-// Adapted from apache/datafusion https://github.com/apache/datafusion/blob/f31ca5b927c040ce03f6a3c8c8dc3d7f4ef5be34/datafusion/physical-expr-common/src/physical_expr.rs#L156
-/// [`VortexExpr`] can't be constrained by [`Eq`] directly because it must remain object
-/// safe. To ease implementation blanket implementation is provided for [`Eq`] types.
-pub trait DynEq {
-    fn dyn_eq(&self, other: &dyn Any) -> bool;
-}
-
-impl<T: Eq + Any> DynEq for T {
-    fn dyn_eq(&self, other: &dyn Any) -> bool {
-        other.downcast_ref::<Self>() == Some(self)
-    }
-}
-
-impl PartialEq for dyn VortexExpr {
-    fn eq(&self, other: &Self) -> bool {
-        self.dyn_eq(other.as_any())
-    }
-}
-
-impl Eq for dyn VortexExpr {}
-
-dyn_hash::hash_trait_object!(VortexExpr);
 
 /// An expression wrapper that performs pointer equality.
 #[derive(Clone)]
@@ -238,7 +309,7 @@ impl PartialEq for ExactExpr {
 impl Eq for ExactExpr {}
 
 impl Hash for ExactExpr {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         Arc::as_ptr(&self.0).hash(state)
     }
 }
@@ -391,19 +462,5 @@ mod tests {
             .to_string(),
             "{dog: 32u32, cat: \"rufus\"}"
         );
-    }
-
-    #[cfg(feature = "proto")]
-    mod tests_proto {
-        use crate::{VortexExprExt, deserialize_expr, eq, lit, root};
-
-        #[test]
-        fn round_trip_serde() {
-            let expr = eq(root(), lit(1));
-            let res = expr.serialize().unwrap();
-            let final_ = deserialize_expr(&res).unwrap();
-
-            assert_eq!(&expr, &final_);
-        }
     }
 }

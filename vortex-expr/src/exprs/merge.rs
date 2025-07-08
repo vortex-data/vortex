@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::fmt::Display;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use itertools::Itertools as _;
 use vortex_array::arrays::StructArray;
 use vortex_array::validity::Validity;
-use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
-use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
+};
+
+vtable!(Merge);
 
 /// Merge zero or more expressions that ALL return structs.
 ///
@@ -21,89 +23,72 @@ use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
 ///
 /// NOTE: Fields are not recursively merged, i.e. the later field REPLACES the earlier field.
 /// This makes struct fields behaviour consistent with other dtypes.
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Merge {
+pub struct MergeExpr {
     values: Vec<ExprRef>,
     nullability: Nullability,
 }
 
-impl Merge {
-    pub fn new_expr(values: Vec<ExprRef>, nullability: Nullability) -> Arc<Self> {
-        Arc::new(Merge {
-            values,
-            nullability,
+pub struct MergeExprEncoding;
+
+impl VTable for MergeVTable {
+    type Expr = MergeExpr;
+    type Encoding = MergeExprEncoding;
+    type Metadata = EmptyMetadata;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("merge")
+    }
+
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(MergeExprEncoding.as_ref())
+    }
+
+    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
+        Some(EmptyMetadata)
+    }
+
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        expr.values.iter().collect()
+    }
+
+    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        if children.is_empty() {
+            vortex_bail!(
+                "Merge expression must have at least one child, got: {:?}",
+                children
+            );
+        }
+        Ok(MergeExpr {
+            values: children,
+            nullability: expr.nullability,
         })
     }
 
-    pub fn nullability(&self) -> Nullability {
-        self.nullability
-    }
-}
-
-pub fn merge(
-    elements: impl IntoIterator<Item = impl Into<ExprRef>>,
-    nullability: Nullability,
-) -> ExprRef {
-    let values = elements.into_iter().map(|value| value.into()).collect_vec();
-    Merge::new_expr(values, nullability)
-}
-
-impl Display for Merge {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "merge({}){}",
-            self.values.iter().format(", "),
-            self.nullability
-        )
-    }
-}
-
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::kind::Kind;
-
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Merge};
-
-    pub struct MergeSerde;
-
-    impl Id for MergeSerde {
-        fn id(&self) -> &'static str {
-            "merge"
+    fn build(
+        _encoding: &Self::Encoding,
+        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        if children.is_empty() {
+            vortex_bail!(
+                "Merge expression must have at least one child, got: {:?}",
+                children
+            );
         }
+        Ok(MergeExpr {
+            values: children,
+            nullability: Nullability::NonNullable, // Default to non-nullable
+        })
     }
 
-    impl ExprDeserialize for MergeSerde {
-        fn deserialize(&self, _kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            vortex_bail!(NotImplemented: "", self.id())
-        }
-    }
-
-    impl ExprSerializable for Merge {
-        fn id(&self) -> &'static str {
-            MergeSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            vortex_bail!(NotImplemented: "", self.id())
-        }
-    }
-}
-
-impl AnalysisExpr for Merge {}
-
-impl VortexExpr for Merge {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
-        let len = ctx.len();
-        let value_arrays = self
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        let len = scope.len();
+        let value_arrays = expr
             .values
             .iter()
-            .map(|value_expr| value_expr.unchecked_evaluate(ctx))
+            .map(|value_expr| value_expr.unchecked_evaluate(scope))
             .process_results(|it| it.collect::<Vec<_>>())?;
 
         // Collect fields in order of appearance. Later fields overwrite earlier fields.
@@ -134,7 +119,7 @@ impl VortexExpr for Merge {
             }
         }
 
-        let validity = match self.nullability {
+        let validity = match expr.nullability {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
         };
@@ -144,20 +129,12 @@ impl VortexExpr for Merge {
         )
     }
 
-    fn children(&self) -> Vec<&ExprRef> {
-        self.values.iter().collect()
-    }
-
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        Self::new_expr(children, self.nullability)
-    }
-
-    fn return_dtype(&self, ctx: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
 
-        for value in self.values.iter() {
-            let dtype = value.return_dtype(ctx)?;
+        for value in expr.values.iter() {
+            let dtype = value.return_dtype(scope)?;
             if !dtype.is_struct() {
                 vortex_bail!("merge expects non-nullable struct input");
             }
@@ -180,10 +157,44 @@ impl VortexExpr for Merge {
 
         Ok(DType::Struct(
             StructFields::new(FieldNames::from(field_names), arrays),
-            self.nullability,
+            expr.nullability,
         ))
     }
 }
+
+impl MergeExpr {
+    pub fn new(values: Vec<ExprRef>, nullability: Nullability) -> Self {
+        MergeExpr {
+            values,
+            nullability,
+        }
+    }
+
+    pub fn nullability(&self) -> Nullability {
+        self.nullability
+    }
+}
+
+pub fn merge(
+    elements: impl IntoIterator<Item = impl Into<ExprRef>>,
+    nullability: Nullability,
+) -> ExprRef {
+    let values = elements.into_iter().map(|value| value.into()).collect_vec();
+    MergeExpr::new(values, nullability).into_expr()
+}
+
+impl Display for MergeExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "merge({}){}",
+            self.values.iter().format(", "),
+            self.nullability
+        )
+    }
+}
+
+impl AnalysisExpr for MergeExpr {}
 
 #[cfg(test)]
 mod tests {
@@ -193,7 +204,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_error::{VortexResult, vortex_bail};
 
-    use crate::{Merge, Scope, VortexExpr, get_item, root};
+    use crate::{MergeExpr, Scope, get_item, root};
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
@@ -206,12 +217,12 @@ mod tests {
         for field in field_path {
             array = array.to_struct()?.field_by_name(field)?.clone();
         }
-        Ok(array.to_primitive().unwrap())
+        array.to_primitive()
     }
 
     #[test]
     pub fn test_merge() {
-        let expr = Merge::new_expr(
+        let expr = MergeExpr::new(
             vec![
                 get_item("0", root()),
                 get_item("1", root()),
@@ -292,7 +303,7 @@ mod tests {
 
     #[test]
     pub fn test_empty_merge() {
-        let expr = Merge::new_expr(Vec::new(), Nullability::NonNullable);
+        let expr = MergeExpr::new(Vec::new(), Nullability::NonNullable);
 
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
@@ -306,7 +317,7 @@ mod tests {
     pub fn test_nested_merge() {
         // Nested structs are not merged!
 
-        let expr = Merge::new_expr(
+        let expr = MergeExpr::new(
             vec![get_item("0", root()), get_item("1", root())],
             Nullability::NonNullable,
         );
@@ -362,7 +373,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_order() {
-        let expr = Merge::new_expr(
+        let expr = MergeExpr::new(
             vec![get_item("0", root()), get_item("1", root())],
             Nullability::NonNullable,
         );
@@ -400,7 +411,7 @@ mod tests {
 
     #[test]
     pub fn test_merge_nullable() {
-        let expr = Merge::new_expr(vec![get_item("0", root())], Nullability::Nullable);
+        let expr = MergeExpr::new(vec![get_item("0", root())], Nullability::Nullable);
 
         let test_array = StructArray::from_fields(&[(
             "0",

@@ -5,6 +5,8 @@ use core::fmt;
 use std::fmt::{Display, Formatter};
 
 use vortex_array::compute;
+use vortex_error::VortexError;
+use vortex_proto::expr::binary_opts::BinaryOp;
 
 /// Equalities, inequalities, and boolean operations over possibly null values.
 ///
@@ -32,57 +34,49 @@ pub enum Operator {
     Add,
 }
 
-#[cfg(feature = "proto")]
-mod proto {
-    use vortex_error::VortexError;
-    use vortex_proto::expr::kind::BinaryOp;
+impl From<Operator> for i32 {
+    fn from(value: Operator) -> Self {
+        let op: BinaryOp = value.into();
+        op.into()
+    }
+}
 
-    use crate::Operator;
-
-    impl From<Operator> for i32 {
-        fn from(value: Operator) -> Self {
-            let op: BinaryOp = value.into();
-            op.into()
+impl From<Operator> for BinaryOp {
+    fn from(value: Operator) -> Self {
+        match value {
+            Operator::Eq => BinaryOp::Eq,
+            Operator::NotEq => BinaryOp::NotEq,
+            Operator::Gt => BinaryOp::Gt,
+            Operator::Gte => BinaryOp::Gte,
+            Operator::Lt => BinaryOp::Lt,
+            Operator::Lte => BinaryOp::Lte,
+            Operator::And => BinaryOp::And,
+            Operator::Or => BinaryOp::Or,
+            Operator::Add => BinaryOp::Add,
         }
     }
+}
 
-    impl From<Operator> for BinaryOp {
-        fn from(value: Operator) -> Self {
-            match value {
-                Operator::Eq => BinaryOp::Eq,
-                Operator::NotEq => BinaryOp::NotEq,
-                Operator::Gt => BinaryOp::Gt,
-                Operator::Gte => BinaryOp::Gte,
-                Operator::Lt => BinaryOp::Lt,
-                Operator::Lte => BinaryOp::Lte,
-                Operator::And => BinaryOp::And,
-                Operator::Or => BinaryOp::Or,
-                Operator::Add => BinaryOp::Add,
-            }
-        }
+impl TryFrom<i32> for Operator {
+    type Error = VortexError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Ok(BinaryOp::try_from(value)?.into())
     }
+}
 
-    impl TryFrom<i32> for Operator {
-        type Error = VortexError;
-
-        fn try_from(value: i32) -> Result<Self, Self::Error> {
-            Ok(BinaryOp::try_from(value)?.into())
-        }
-    }
-
-    impl From<BinaryOp> for Operator {
-        fn from(value: BinaryOp) -> Self {
-            match value {
-                BinaryOp::Eq => Operator::Eq,
-                BinaryOp::NotEq => Operator::NotEq,
-                BinaryOp::Gt => Operator::Gt,
-                BinaryOp::Gte => Operator::Gte,
-                BinaryOp::Lt => Operator::Lt,
-                BinaryOp::Lte => Operator::Lte,
-                BinaryOp::And => Operator::And,
-                BinaryOp::Or => Operator::Or,
-                BinaryOp::Add => Operator::Add,
-            }
+impl From<BinaryOp> for Operator {
+    fn from(value: BinaryOp) -> Self {
+        match value {
+            BinaryOp::Eq => Operator::Eq,
+            BinaryOp::NotEq => Operator::NotEq,
+            BinaryOp::Gt => Operator::Gt,
+            BinaryOp::Gte => Operator::Gte,
+            BinaryOp::Lt => Operator::Lt,
+            BinaryOp::Lte => Operator::Lte,
+            BinaryOp::And => Operator::And,
+            BinaryOp::Or => Operator::Or,
+            BinaryOp::Add => Operator::Add,
         }
     }
 }

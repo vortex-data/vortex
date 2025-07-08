@@ -1,104 +1,107 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::fmt::Display;
-use std::sync::Arc;
 
-use vortex_array::ArrayRef;
 use vortex_array::stats::Stat;
+use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::{DType, FieldPath};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_proto::expr as pb;
 
 use crate::{
-    AccessPath, AnalysisExpr, ExprRef, Identifier, Scope, ScopeDType, StatsCatalog, VortexExpr,
+    AccessPath, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, Identifier, IntoExpr, Scope,
+    ScopeDType, StatsCatalog, VTable, vtable,
 };
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub struct Var {
-    var: Identifier,
+vtable!(Var);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VarExpr {
+    identifier: Identifier,
+}
+
+pub struct VarExprEncoding;
+
+impl VTable for VarVTable {
+    type Expr = VarExpr;
+    type Encoding = VarExprEncoding;
+    type Metadata = ProstMetadata<pb::VarOpts>;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("var")
+    }
+
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(VarExprEncoding.as_ref())
+    }
+
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        let var = match &expr.identifier {
+            Identifier::Identity => "".to_string(),
+            Identifier::Other(var) => var.to_string(),
+        };
+        Some(ProstMetadata(pb::VarOpts { var }))
+    }
+
+    fn children(_expr: &Self::Expr) -> Vec<&ExprRef> {
+        vec![]
+    }
+
+    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        if !children.is_empty() {
+            vortex_bail!("Var expression does not have children, got: {:?}", children);
+        }
+        Ok(expr.clone())
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        if !children.is_empty() {
+            vortex_bail!("Var expression does not have children, got: {:?}", children);
+        }
+        Ok(VarExpr {
+            identifier: Identifier::from(metadata.var.as_str()),
+        })
+    }
+
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        scope
+            .array(&expr.identifier)
+            .cloned()
+            .ok_or_else(|| vortex_err!("cannot find '{}' in arrays scope", expr.identifier))
+    }
+
+    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+        scope
+            .dtype(&expr.identifier)
+            .cloned()
+            .ok_or_else(|| vortex_err!("cannot find '{}' in dtype scope", expr.identifier))
+    }
 }
 
 /// Used to extract values (Arrays from the Scope).
 /// see `Scope`.
-impl Var {
-    pub fn new_expr(var: Identifier) -> ExprRef {
-        Arc::new(Self { var })
+impl VarExpr {
+    pub fn new(identifier: Identifier) -> Self {
+        Self { identifier }
     }
 
     pub fn var(&self) -> &Identifier {
-        &self.var
+        &self.identifier
     }
 }
 
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::kind::{Kind, Var as ProtoVar};
-
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Var, root};
-
-    // NOTE(aduffy): identity expression is deprecated for the moment, but it is still
-    // in the protobuf definition. We map it into the new Var(root()) expression.
-    pub(crate) struct IdentitySerde;
-
-    impl Id for IdentitySerde {
-        fn id(&self) -> &'static str {
-            "identity"
-        }
-    }
-
-    impl ExprDeserialize for IdentitySerde {
-        fn deserialize(&self, kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::Identity(..) = kind else {
-                vortex_bail!("wrong kind {:?}, wanted identity", kind)
-            };
-
-            Ok(root())
-        }
-    }
-
-    pub(crate) struct VarSerde;
-
-    impl Id for VarSerde {
-        fn id(&self) -> &'static str {
-            "var"
-        }
-    }
-
-    impl ExprDeserialize for VarSerde {
-        fn deserialize(&self, kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::Var(op) = kind else {
-                vortex_bail!("wrong kind {:?}, wanted var", kind)
-            };
-
-            match op.var.as_str() {
-                "" => Ok(Var::new_expr(crate::Identifier::Identity)),
-                other => Ok(Var::new_expr(other.parse()?)),
-            }
-        }
-    }
-
-    impl ExprSerializable for Var {
-        fn id(&self) -> &'static str {
-            VarSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::Var(ProtoVar {
-                var: self.var.to_string(),
-            }))
-        }
-    }
-}
-
-impl Display for Var {
+impl Display for VarExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "${}", self.var)
+        write!(f, "${}", self.identifier)
     }
 }
 
-impl AnalysisExpr for Var {
+impl AnalysisExpr for VarExpr {
     fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(&self.field_path()?, Stat::Max)
     }
@@ -108,51 +111,22 @@ impl AnalysisExpr for Var {
     }
 
     fn field_path(&self) -> Option<AccessPath> {
-        Some(AccessPath::new(FieldPath::root(), self.var.clone()))
-    }
-}
-
-impl VortexExpr for Var {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn unchecked_evaluate(&self, ctx: &Scope) -> VortexResult<ArrayRef> {
-        ctx.array(&self.var)
-            .cloned()
-            .ok_or_else(|| vortex_err!("cannot find '{}' in arrays scope", self.var))
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        vec![]
-    }
-
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), 0);
-        Var::new_expr(self.var.clone())
-    }
-
-    fn return_dtype(&self, dt_ctx: &ScopeDType) -> VortexResult<DType> {
-        dt_ctx
-            .dtype(&self.var)
-            .cloned()
-            .ok_or_else(|| vortex_err!("cannot find '{}' in dtype scope", self.var))
+        Some(AccessPath::new(FieldPath::root(), self.identifier.clone()))
     }
 }
 
 pub fn var(ident: impl Into<Identifier>) -> ExprRef {
-    Var::new_expr(ident.into())
+    VarExpr::new(ident.into()).into_expr()
 }
 
 /// Return a global pointer to the identity token.
 /// This is the name of the data found in a vortex array or file.
 pub fn root() -> ExprRef {
-    Var::new_expr(Identifier::Identity)
+    VarExpr::new(Identifier::Identity).into_expr()
 }
 
 pub fn is_root(expr: &ExprRef) -> bool {
-    expr.as_any()
-        .downcast_ref::<Var>()
+    expr.as_opt::<VarVTable>()
         .is_some_and(|v| v.var().is_identity())
 }
 

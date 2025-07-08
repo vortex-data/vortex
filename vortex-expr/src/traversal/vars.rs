@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::traversal::{NodeVisitor, TraversalOrder};
-use crate::{ExprRef, Identifier, Var};
+use crate::{ExprRef, Identifier, VarVTable};
 
 #[derive(Default)]
 pub struct VarsCollector {
@@ -28,7 +28,7 @@ impl NodeVisitor<'_> for VarsCollector {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: &ExprRef) -> VortexResult<TraversalOrder> {
-        if let Some(var) = node.as_any().downcast_ref::<Var>() {
+        if let Some(var) = node.as_opt::<VarVTable>() {
             self.ids.insert(var.var().clone());
         }
         Ok(TraversalOrder::Continue)

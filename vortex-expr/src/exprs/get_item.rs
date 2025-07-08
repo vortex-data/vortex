@@ -1,31 +1,121 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-use std::sync::Arc;
 
 use vortex_array::stats::Stat;
-use vortex_array::{ArrayRef, ToCanonical};
+use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, ToCanonical};
 use vortex_dtype::{DType, FieldName};
-use vortex_error::{VortexResult, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_proto::expr as pb;
 
-use crate::{AccessPath, AnalysisExpr, ExprRef, Scope, ScopeDType, StatsCatalog, VortexExpr, root};
+use crate::{
+    AccessPath, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
+    StatsCatalog, VTable, root, vtable,
+};
 
-#[derive(Debug, Clone, Eq, Hash)]
+vtable!(GetItem);
+
 #[allow(clippy::derived_hash_with_manual_eq)]
-pub struct GetItem {
+#[derive(Debug, Clone, Hash)]
+pub struct GetItemExpr {
     field: FieldName,
     child: ExprRef,
 }
 
-impl GetItem {
-    pub fn new_expr(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
-        Arc::new(Self {
+impl PartialEq for GetItemExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.field == other.field && self.child.eq(&other.child)
+    }
+}
+
+pub struct GetItemExprEncoding;
+
+impl VTable for GetItemVTable {
+    type Expr = GetItemExpr;
+    type Encoding = GetItemExprEncoding;
+    type Metadata = ProstMetadata<pb::GetItemOpts>;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("get_item")
+    }
+
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(GetItemExprEncoding.as_ref())
+    }
+
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        Some(ProstMetadata(pb::GetItemOpts {
+            path: expr.field.to_string(),
+        }))
+    }
+
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        vec![&expr.child]
+    }
+
+    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        if children.len() != 1 {
+            vortex_bail!(
+                "GetItem expression must have exactly 1 child, got {}",
+                children.len()
+            );
+        }
+
+        Ok(GetItemExpr {
+            field: expr.field.clone(),
+            child: children[0].clone(),
+        })
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        if children.len() != 1 {
+            vortex_bail!(
+                "GetItem expression must have exactly 1 child, got {}",
+                children.len()
+            );
+        }
+
+        let field = FieldName::from(metadata.path.clone());
+        Ok(GetItemExpr {
+            field,
+            child: children[0].clone(),
+        })
+    }
+
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        expr.child
+            .unchecked_evaluate(scope)?
+            .to_struct()?
+            .field_by_name(expr.field())
+            .cloned()
+    }
+
+    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+        let input = expr.child.return_dtype(scope)?;
+        input
+            .as_struct()
+            .and_then(|st| st.field(expr.field()))
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Couldn't find the {} field in the input scope",
+                    expr.field()
+                )
+            })
+    }
+}
+
+impl GetItemExpr {
+    pub fn new(field: impl Into<FieldName>, child: ExprRef) -> Self {
+        Self {
             field: field.into(),
             child,
-        })
+        }
     }
 
     pub fn field(&self) -> &FieldName {
@@ -37,68 +127,29 @@ impl GetItem {
     }
 
     pub fn is(expr: &ExprRef) -> bool {
-        expr.as_any().is::<Self>()
+        expr.is::<GetItemVTable>()
     }
 }
 
 pub fn col(field: impl Into<FieldName>) -> ExprRef {
-    GetItem::new_expr(field, root())
+    GetItemExpr::new(field, root()).into_expr()
 }
 
 pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
-    GetItem::new_expr(field, child)
+    GetItemExpr::new(field, child).into_expr()
 }
 
 pub fn get_item_scope(field: impl Into<FieldName>) -> ExprRef {
-    GetItem::new_expr(field, root())
+    GetItemExpr::new(field, root()).into_expr()
 }
 
-impl Display for GetItem {
+impl Display for GetItemExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}", self.child, &self.field)
     }
 }
 
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::kind;
-    use vortex_proto::expr::kind::Kind;
-
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, GetItem, Id};
-
-    pub(crate) struct GetItemSerde;
-
-    impl Id for GetItemSerde {
-        fn id(&self) -> &'static str {
-            "get_item"
-        }
-    }
-
-    impl ExprDeserialize for GetItemSerde {
-        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::GetItem(kind::GetItem { path }) = kind else {
-                vortex_bail!("wrong kind {:?}, want get_item", kind)
-            };
-
-            Ok(GetItem::new_expr(path.to_string(), children[0].clone()))
-        }
-    }
-
-    impl ExprSerializable for GetItem {
-        fn id(&self) -> &'static str {
-            GetItemSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::GetItem(kind::GetItem {
-                path: self.field.to_string(),
-            }))
-        }
-    }
-}
-
-impl AnalysisExpr for GetItem {
+impl AnalysisExpr for GetItemExpr {
     fn max(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(&self.field_path()?, Stat::Max)
     }
@@ -111,48 +162,6 @@ impl AnalysisExpr for GetItem {
         self.child()
             .field_path()
             .map(|fp| AccessPath::new(fp.field_path.push(self.field.clone()), fp.identifier))
-    }
-}
-
-impl VortexExpr for GetItem {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        self.child
-            .unchecked_evaluate(scope)?
-            .to_struct()?
-            .field_by_name(self.field())
-            .cloned()
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        vec![self.child()]
-    }
-
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), 1);
-        Self::new_expr(self.field().clone(), children[0].clone())
-    }
-
-    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType> {
-        let input = self.child.return_dtype(scope)?;
-        input
-            .as_struct()
-            .and_then(|st| st.field(self.field()))
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Couldn't find the {} field in the input scope",
-                    self.field()
-                )
-            })
-    }
-}
-
-impl PartialEq for GetItem {
-    fn eq(&self, other: &GetItem) -> bool {
-        self.field == other.field && self.child.eq(&other.child)
     }
 }
 

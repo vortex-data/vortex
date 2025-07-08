@@ -11,7 +11,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyString;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
-use vortex::expr::{ExprRef, Select, root};
+use vortex::expr::{ExprRef, SelectExpr, root};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::stream::{ArrayStreamExt, SendableArrayStream};
 use vortex::{ArrayRef, ToCanonical};
@@ -75,7 +75,7 @@ fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRe
                 .map(field_from_pyany)
                 .collect::<PyResult<_>>()?;
 
-            Select::include_expr(fields, root())
+            SelectExpr::include_expr(fields, root())
         }
     })
 }

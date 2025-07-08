@@ -3,9 +3,10 @@
 
 use vortex_array::compute::{BetweenOptions, StrictComparison};
 
-use crate::between::Between;
 use crate::forms::cnf::cnf;
-use crate::{BinaryExpr, ExprRef, GetItem, Literal, Operator, and, lit};
+use crate::{
+    BetweenExpr, BinaryVTable, ExprRef, GetItemExpr, IntoExpr, LiteralExpr, Operator, and, lit,
+};
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
@@ -42,10 +43,8 @@ pub fn find_between(expr: ExprRef) -> ExprRef {
 }
 
 fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
-    let (Some(lhs), Some(rhs)) = (
-        lhs.as_any().downcast_ref::<BinaryExpr>(),
-        rhs.as_any().downcast_ref::<BinaryExpr>(),
-    ) else {
+    let (Some(lhs), Some(rhs)) = (lhs.as_opt::<BinaryVTable>(), rhs.as_opt::<BinaryVTable>())
+    else {
         return None;
     };
 
@@ -55,47 +54,48 @@ fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
     }
 
     // Extract pairs of comparison of the form (left left_op eq) and (eq right_op right)
-    let (eq, left, left_op, right, right_op) = if GetItem::is(lhs.lhs()) && lhs.lhs().eq(rhs.lhs())
-    {
-        (
-            lhs.lhs().clone(),
-            lhs.rhs().clone(),
-            lhs.op().swap(),
-            rhs.rhs().clone(),
-            rhs.op(),
-        )
-    } else if GetItem::is(lhs.lhs()) && lhs.lhs().eq(rhs.rhs()) {
-        (
-            lhs.lhs().clone(),
-            lhs.rhs().clone(),
-            lhs.op().swap(),
-            rhs.lhs().clone(),
-            rhs.op().swap(),
-        )
-    } else if GetItem::is(lhs.rhs()) && lhs.rhs().eq(rhs.lhs()) {
-        (
-            lhs.rhs().clone(),
-            lhs.lhs().clone(),
-            lhs.op(),
-            rhs.rhs().clone(),
-            rhs.op(),
-        )
-    } else if GetItem::is(lhs.rhs()) && lhs.rhs().eq(rhs.rhs()) {
-        (
-            lhs.rhs().clone(),
-            lhs.lhs().clone(),
-            lhs.op(),
-            rhs.lhs().clone(),
-            rhs.op().swap(),
-        )
-    } else {
-        return None;
-    };
+    let (eq, left, left_op, right, right_op) =
+        if GetItemExpr::is(lhs.lhs()) && lhs.lhs().eq(rhs.lhs()) {
+            (
+                lhs.lhs().clone(),
+                lhs.rhs().clone(),
+                lhs.op().swap(),
+                rhs.rhs().clone(),
+                rhs.op(),
+            )
+        } else if GetItemExpr::is(lhs.lhs()) && lhs.lhs().eq(rhs.rhs()) {
+            (
+                lhs.lhs().clone(),
+                lhs.rhs().clone(),
+                lhs.op().swap(),
+                rhs.lhs().clone(),
+                rhs.op().swap(),
+            )
+        } else if GetItemExpr::is(lhs.rhs()) && lhs.rhs().eq(rhs.lhs()) {
+            (
+                lhs.rhs().clone(),
+                lhs.lhs().clone(),
+                lhs.op(),
+                rhs.rhs().clone(),
+                rhs.op(),
+            )
+        } else if GetItemExpr::is(lhs.rhs()) && lhs.rhs().eq(rhs.rhs()) {
+            (
+                lhs.rhs().clone(),
+                lhs.lhs().clone(),
+                lhs.op(),
+                rhs.lhs().clone(),
+                rhs.op().swap(),
+            )
+        } else {
+            return None;
+        };
 
     // Find the greater op.
-    let (Some(left_lit), Some(right_lit)) =
-        (Literal::maybe_from(&left), Literal::maybe_from(&right))
-    else {
+    let (Some(left_lit), Some(right_lit)) = (
+        LiteralExpr::maybe_from(&left),
+        LiteralExpr::maybe_from(&right),
+    ) else {
         return None;
     };
 
@@ -120,7 +120,7 @@ fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
         return None;
     };
 
-    let expr = Between::between(
+    let expr = BetweenExpr::new(
         eq.clone(),
         left,
         right,
@@ -129,7 +129,7 @@ fn maybe_match(lhs: &ExprRef, rhs: &ExprRef) -> Option<ExprRef> {
             upper_strict: right_op,
         },
     );
-    Some(expr)
+    Some(expr.into_expr())
 }
 
 fn maybe_strict_comparison(op: Operator) -> Option<StrictComparison> {
@@ -144,9 +144,8 @@ fn maybe_strict_comparison(op: Operator) -> Option<StrictComparison> {
 mod tests {
     use vortex_array::compute::{BetweenOptions, StrictComparison};
 
-    use crate::between::Between;
     use crate::transform::match_between::find_between;
-    use crate::{and, col, gt_eq, lit, lt};
+    use crate::{and, between, col, gt_eq, lit, lt};
 
     #[test]
     fn test_match_between() {
@@ -155,7 +154,7 @@ mod tests {
 
         // 2 < x <= 5
         assert_eq!(
-            &Between::between(
+            &between(
                 col("x"),
                 lit(2),
                 lit(5),
@@ -175,7 +174,7 @@ mod tests {
 
         // 2 <= x < 5
         assert_eq!(
-            &Between::between(
+            &between(
                 col("x"),
                 lit(2),
                 lit(5),
@@ -195,7 +194,7 @@ mod tests {
 
         // 2 <= x < 5
         assert_eq!(
-            &Between::between(
+            &between(
                 col("x"),
                 lit(2),
                 lit(5),
@@ -215,7 +214,7 @@ mod tests {
 
         // 2 < x <= 5
         assert_eq!(
-            &Between::between(
+            &between(
                 col("x"),
                 lit(2),
                 lit(5),
@@ -240,7 +239,7 @@ mod tests {
         assert_eq!(
             &and(
                 gt_eq(col("y"), lit(10)),
-                Between::between(
+                between(
                     col("x"),
                     lit(2),
                     lit(5),
@@ -265,7 +264,7 @@ mod tests {
         // $.y >= 10 /\ 2 < $.x <= 5
         assert_eq!(
             &and(
-                Between::between(
+                between(
                     col("x"),
                     lit(2),
                     lit(5),

@@ -103,6 +103,8 @@ impl<T: Clone + Eq> VTableContext<T> {
 #[derive(Clone, Debug)]
 pub struct VTableRegistry<T>(HashMap<String, T>);
 
+// TODO(ngates): define a trait for `T` that requires an `id` method returning a `Arc<str>` and
+//  auto-implement `Display` and `Eq` for it.
 impl<T: Clone + Display + Eq> VTableRegistry<T> {
     pub fn empty() -> Self {
         Self(Default::default())
@@ -130,6 +132,11 @@ impl<T: Clone + Display + Eq> VTableRegistry<T> {
     /// List the vtables in the registry.
     pub fn vtables(&self) -> impl Iterator<Item = &T> + '_ {
         self.0.values()
+    }
+
+    /// Find the encoding with the given ID.
+    pub fn get(&self, id: &str) -> Option<&T> {
+        self.0.get(id)
     }
 
     /// Register a new encoding, replacing any existing encoding with the same ID.

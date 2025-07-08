@@ -1,31 +1,105 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-use std::sync::Arc;
 
-use vortex_array::ArrayRef;
 use vortex_array::compute::list_contains as compute_list_contains;
+use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{
-    AnalysisExpr, ExprRef, Literal, Scope, ScopeDType, StatsCatalog, VortexExpr, and, gt, lit, lt,
-    or,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, LiteralVTable, Scope, ScopeDType,
+    StatsCatalog, VTable, and, gt, lit, lt, or, vtable,
 };
 
-#[derive(Debug, Clone, Eq, Hash)]
+vtable!(ListContains);
+
 #[allow(clippy::derived_hash_with_manual_eq)]
-pub struct ListContains {
+#[derive(Debug, Clone, Hash)]
+pub struct ListContainsExpr {
     list: ExprRef,
     value: ExprRef,
 }
 
-impl ListContains {
-    pub fn new_expr(list: ExprRef, value: ExprRef) -> ExprRef {
-        Arc::new(Self { list, value })
+impl PartialEq for ListContainsExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.list.eq(&other.list) && self.value.eq(&other.value)
+    }
+}
+
+pub struct ListContainsExprEncoding;
+
+impl VTable for ListContainsVTable {
+    type Expr = ListContainsExpr;
+    type Encoding = ListContainsExprEncoding;
+    type Metadata = EmptyMetadata;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("list_contains")
+    }
+
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(ListContainsExprEncoding.as_ref())
+    }
+
+    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
+        Some(EmptyMetadata)
+    }
+
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        vec![&expr.list, &expr.value]
+    }
+
+    fn with_children(_expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        if children.len() != 2 {
+            vortex_bail!(
+                "ListContains expression must have exactly 2 children, got {}",
+                children.len()
+            );
+        }
+        Ok(ListContainsExpr::new(
+            children[0].clone(),
+            children[1].clone(),
+        ))
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        if children.len() != 2 {
+            vortex_bail!(
+                "ListContains expression must have exactly 2 children, got {}",
+                children.len()
+            );
+        }
+        Ok(ListContainsExpr::new(
+            children[0].clone(),
+            children[1].clone(),
+        ))
+    }
+
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        compute_list_contains(
+            expr.list.evaluate(scope)?.as_ref(),
+            expr.value.evaluate(scope)?.as_ref(),
+        )
+    }
+
+    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+        Ok(DType::Bool(
+            expr.list.return_dtype(scope)?.nullability()
+                | expr.value.return_dtype(scope)?.nullability(),
+        ))
+    }
+}
+
+impl ListContainsExpr {
+    pub fn new(list: ExprRef, value: ExprRef) -> Self {
+        Self { list, value }
     }
 
     pub fn value(&self) -> &ExprRef {
@@ -34,57 +108,16 @@ impl ListContains {
 }
 
 pub fn list_contains(list: ExprRef, value: ExprRef) -> ExprRef {
-    ListContains::new_expr(list, value)
+    ListContainsExpr::new(list, value).into_expr()
 }
 
-impl Display for ListContains {
+impl Display for ListContainsExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "contains({}, {})", &self.list, &self.value)
     }
 }
 
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::kind;
-    use vortex_proto::expr::kind::Kind;
-
-    use crate::list_contains::ListContains;
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id};
-
-    pub(crate) struct ListContainsSerde;
-
-    impl Id for ListContainsSerde {
-        fn id(&self) -> &'static str {
-            "list_contains"
-        }
-    }
-
-    impl ExprDeserialize for ListContainsSerde {
-        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::ListContains(kind::ListContains {}) = kind else {
-                vortex_bail!("wrong kind {:?}, want list_contains", kind)
-            };
-
-            Ok(ListContains::new_expr(
-                children[0].clone(),
-                children[1].clone(),
-            ))
-        }
-    }
-
-    impl ExprSerializable for ListContains {
-        fn id(&self) -> &'static str {
-            ListContainsSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::ListContains(kind::ListContains {}))
-        }
-    }
-}
-
-impl AnalysisExpr for ListContains {
+impl AnalysisExpr for ListContainsExpr {
     // falsification(contains([1,2,5], x)) =>
     //   falsification(x != 1) and falsification(x != 2) and falsification(x != 5)
 
@@ -94,8 +127,7 @@ impl AnalysisExpr for ListContains {
         // If the list is constant when we can compare each element to the value
         if min == max {
             let list_ = min
-                .as_any()
-                .downcast_ref::<Literal>()
+                .as_opt::<LiteralVTable>()
                 .and_then(|l| l.value().as_list_opt())
                 .and_then(|l| l.elements())?;
             if list_.is_empty() {
@@ -117,41 +149,6 @@ impl AnalysisExpr for ListContains {
         }
 
         None
-    }
-}
-
-impl VortexExpr for ListContains {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        compute_list_contains(
-            self.list.evaluate(scope)?.as_ref(),
-            self.value.evaluate(scope)?.as_ref(),
-        )
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        vec![&self.list, &self.value]
-    }
-
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), 2);
-        Self::new_expr(children[0].clone(), children[1].clone())
-    }
-
-    fn return_dtype(&self, scope_dtype: &ScopeDType) -> VortexResult<DType> {
-        Ok(DType::Bool(
-            self.list.return_dtype(scope_dtype)?.nullability()
-                | self.value.return_dtype(scope_dtype)?.nullability(),
-        ))
-    }
-}
-
-impl PartialEq for ListContains {
-    fn eq(&self, other: &ListContains) -> bool {
-        self.value.eq(&other.value) && self.list.eq(&other.list)
     }
 }
 

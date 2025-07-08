@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod context;
-pub use context::*;
+mod registry;
+pub use registry::*;
 pub mod layouts;
 
 pub use children::*;

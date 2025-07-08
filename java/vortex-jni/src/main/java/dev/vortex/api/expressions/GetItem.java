@@ -3,8 +3,13 @@
 
 package dev.vortex.api.expressions;
 
+import com.google.protobuf.InvalidProtocolBufferException;
 import dev.vortex.api.Expression;
+import dev.vortex.proto.ExprProtos;
+
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 public final class GetItem implements Expression {
     private final String path;
@@ -19,6 +24,19 @@ public final class GetItem implements Expression {
         return new GetItem(child, path);
     }
 
+    public static GetItem parse(byte[] metadata, List<Expression> children) {
+        if (children.size() != 1) {
+            throw new IllegalArgumentException(
+                    "GetItem expression must have exactly one child, found: " + children.size());
+        }
+        try {
+            ExprProtos.GetItemOpts opts = ExprProtos.GetItemOpts.parseFrom(metadata);
+            return new GetItem(children.get(0), opts.getPath());
+        } catch (InvalidProtocolBufferException e) {
+            throw new IllegalArgumentException("Failed to parse GetItem metadata", e);
+        }
+    }
+
     public Expression getChild() {
         return child;
     }
@@ -28,8 +46,19 @@ public final class GetItem implements Expression {
     }
 
     @Override
-    public String type() {
+    public String id() {
         return "get_item";
+    }
+
+    @Override
+    public List<Expression> children() {
+        return List.of(child);
+    }
+
+    @Override
+    public Optional<byte[]> metadata() {
+        return Optional.of(
+                ExprProtos.GetItemOpts.newBuilder().setPath(path).build().toByteArray());
     }
 
     @Override
