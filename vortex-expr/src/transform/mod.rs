@@ -9,6 +9,7 @@ pub(crate) mod match_between;
 pub mod partition;
 mod remove_merge;
 mod remove_select;
+pub mod replace;
 pub mod simplify;
 pub mod simplify_typed;
 pub mod var_partition;
