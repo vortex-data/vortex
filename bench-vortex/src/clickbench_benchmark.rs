@@ -50,7 +50,7 @@ impl Benchmark for ClickBenchBenchmark {
     fn generate_data(&self, data_url: &Url, target: &Target) -> Result<()> {
         match &self.use_remote_data_dir {
             None => {
-                let basepath = format!("clickbench_{}", self.flavor).to_data_path();
+                let basepath = clickbench_flavor(self.flavor).to_data_path();
 
                 match target.format() {
                     Format::Parquet => {
@@ -144,11 +144,11 @@ impl Benchmark for ClickBenchBenchmark {
     }
 
     // Dataset-specific methods (inlined from BenchmarkDataset)
-    
+
     fn dataset_name(&self) -> &str {
         "clickbench"
     }
-    
+
     fn dataset_display(&self) -> String {
         if self.single_file {
             "clickbench-single".to_string()
@@ -156,4 +156,8 @@ impl Benchmark for ClickBenchBenchmark {
             "clickbench-partitioned".to_string()
         }
     }
+}
+
+fn clickbench_flavor(flavor: Flavor) -> String {
+    format!("clickbench_{flavor}")
 }

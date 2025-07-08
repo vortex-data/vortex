@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::path::PathBuf;
-
 use std::env;
+use std::path::PathBuf;
 
 use bench_vortex::benchmark_driver::{DriverConfig, run_benchmark};
 use bench_vortex::clickbench::Flavor;
@@ -37,17 +36,6 @@ enum Commands {
 /// Common arguments shared across benchmarks
 #[derive(Parser, Debug)]
 struct CommonArgs {
-    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
-        default_values = vec![
-            "datafusion:parquet",
-            "datafusion:vortex",
-            "duckdb:parquet", 
-            "duckdb:vortex",
-            "duckdb:duckdb"
-        ]
-    )]
-    targets: Vec<Target>,
-
     #[arg(short, long, default_value_t = 5)]
     iterations: usize,
 
@@ -74,6 +62,17 @@ struct CommonArgs {
 struct ClickBenchArgs {
     #[command(flatten)]
     common: CommonArgs,
+
+    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
+        default_values = vec![
+            "datafusion:parquet",
+            "datafusion:vortex",
+            "duckdb:parquet",
+            "duckdb:vortex",
+            "duckdb:duckdb"
+        ]
+    )]
+    targets: Vec<Target>,
 
     #[arg(long, default_value_t = false)]
     emit_plan: bool,
@@ -104,6 +103,18 @@ struct ClickBenchArgs {
 struct TpcHArgs {
     #[command(flatten)]
     common: CommonArgs,
+
+    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
+        default_values = vec![
+            "datafusion:arrow",
+            "datafusion:parquet",
+            "datafusion:vortex",
+            "duckdb:parquet",
+            "duckdb:vortex",
+            "duckdb:duckdb"
+        ]
+    )]
+    targets: Vec<Target>,
 
     #[arg(short, long, value_delimiter = ',')]
     exclude_queries: Option<Vec<usize>>,
@@ -154,7 +165,6 @@ struct PublicBiArgs {
     dataset: PBIDataset,
 }
 
-
 fn validate_scale_factor(val: &str) -> Result<u32, String> {
     match val.parse::<u32>() {
         Ok(n) if [1, 10, 100, 1000].contains(&n) => Ok(n),
@@ -184,7 +194,7 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
 
     // Configure driver
     let config = DriverConfig {
-        targets: args.common.targets,
+        targets: args.targets,
         iterations: args.common.iterations,
         threads: args.common.threads,
         verbose: args.common.verbose,
@@ -208,7 +218,8 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
 
 fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
     // Store needed values before they're moved
-    let has_duckdb_vortex = args.common.targets
+    let has_duckdb_vortex = args
+        .targets
         .iter()
         .any(|t| t.engine() == Engine::DuckDB && t.format() == Format::OnDiskVortex);
     let queries_for_verify = args.common.queries.clone();
@@ -228,7 +239,7 @@ fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
 
     // Configure driver
     let config = DriverConfig {
-        targets: args.common.targets,
+        targets: args.targets,
         iterations: args.common.iterations,
         threads: args.common.threads,
         verbose: args.common.verbose,

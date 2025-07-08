@@ -20,10 +20,8 @@ use crate::{BenchmarkDataset, Format, datasets};
 
 pub mod dbgen;
 pub mod duckdb;
-mod execute;
 pub mod schema;
 
-pub use execute::*;
 use vortex::error::VortexExpect;
 
 pub const TPC_H_ROW_COUNT_ARRAY_LENGTH: usize = 23;
