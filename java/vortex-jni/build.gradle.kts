@@ -144,7 +144,7 @@ tasks.register("makeTestFiles") {
     }
 }
 
-tasks.named("processResources").all {
+tasks.named("processResources").configure {
     dependsOn("makeTestFiles")
 }
 
