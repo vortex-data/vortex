@@ -121,7 +121,7 @@ mod tests {
     fn test_between() {
         let values = buffer![100i128, 200i128, 300i128, 400i128];
         let decimal_type = DecimalDType::new(3, 2);
-        let array = DecimalArray::new(values, decimal_type, Validity::NonNullable);
+        let array = DecimalArray::new_unchecked(values, decimal_type, Validity::NonNullable);
 
         let lower = ConstantArray::new(
             Scalar::decimal(

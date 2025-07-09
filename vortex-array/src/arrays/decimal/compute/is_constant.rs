@@ -35,7 +35,7 @@ mod tests {
 
     #[test]
     fn test_is_constant() {
-        let array = DecimalArray::new(
+        let array = DecimalArray::new_unchecked(
             buffer![0i128, 1i128, 2i128],
             DecimalDType::new(19, 0),
             Validity::NonNullable,
@@ -43,7 +43,7 @@ mod tests {
 
         assert!(!is_constant(array.as_ref()).unwrap().unwrap());
 
-        let array = DecimalArray::new(
+        let array = DecimalArray::new_unchecked(
             buffer![100i128, 100i128, 100i128],
             DecimalDType::new(19, 0),
             Validity::NonNullable,

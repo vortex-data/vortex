@@ -155,7 +155,7 @@ fn take_decimal<D: NativeDecimalType>(
 ) -> ArrayRef {
     let buf = array.buffer::<D>();
     let vec_values = buf.as_slice();
-    DecimalArray::new(
+    DecimalArray::new_unchecked(
         indices
             .iter()
             .map(|i| vec_values[*i])

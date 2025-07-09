@@ -398,7 +398,7 @@ mod tests {
     #[test]
     fn decimal_to_arrow() {
         // Make a very simple i128 and i256 array.
-        let decimal_vortex = DecimalArray::new(
+        let decimal_vortex = DecimalArray::new_unchecked(
             buffer![1i128, 2i128, 3i128, 4i128, 5i128],
             DecimalDType::new(19, 2),
             Validity::NonNullable,

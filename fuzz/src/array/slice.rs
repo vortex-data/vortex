@@ -90,7 +90,7 @@ pub fn slice_canonical_array(
             let decimal_array = array.to_decimal()?;
             Ok(
                 match_each_decimal_value_type!(decimal_array.values_type(), |D| {
-                    DecimalArray::new(
+                    DecimalArray::new_unchecked(
                         decimal_array.buffer::<D>().slice(start..stop),
                         *decimal_dtype,
                         validity,

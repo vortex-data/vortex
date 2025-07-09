@@ -82,35 +82,35 @@ async fn test_round_trip_many_types() {
 
     let numbers = buffer![1u32, 2, 3].into_array();
 
-    let decimal_2 = DecimalArray::new(
+    let decimal_2 = DecimalArray::new_unchecked(
         buffer![100i8, 10i8, 2i8],
         DecimalDType::new(2, 1),
         Validity::from_iter([false, true, false]),
     )
     .into_array();
 
-    let decimal_4 = DecimalArray::new(
+    let decimal_4 = DecimalArray::new_unchecked(
         buffer![100i16, 10i16, 2i16],
         DecimalDType::new(4, 2),
         Validity::from_iter([false, true, false]),
     )
     .into_array();
 
-    let decimal_9 = DecimalArray::new(
+    let decimal_9 = DecimalArray::new_unchecked(
         buffer![100i32, 10i32, 2i32],
         DecimalDType::new(9, 2),
         Validity::from_iter([false, true, false]),
     )
     .into_array();
 
-    let decimal_17 = DecimalArray::new(
+    let decimal_17 = DecimalArray::new_unchecked(
         buffer![100i64, 10i64, 20234i64],
         DecimalDType::new(17, 2),
         Validity::from_iter([false, true, false]),
     )
     .into_array();
 
-    let decimal_35 = DecimalArray::new(
+    let decimal_35 = DecimalArray::new_unchecked(
         buffer![100i128, 139348340i128, 23943942i128],
         DecimalDType::new(35, 2),
         Validity::from_iter([true, false, false]),

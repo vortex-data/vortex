@@ -45,7 +45,7 @@ fn slice_typed<T: NativeDecimalType>(
 ) -> VortexResult<ArrayRef> {
     let sliced = values.slice(start..end);
     let validity = validity.slice(start, end)?;
-    Ok(DecimalArray::new(sliced, decimal_dtype, validity).into_array())
+    Ok(DecimalArray::new_unchecked(sliced, decimal_dtype, validity).into_array())
 }
 
 #[cfg(test)]
@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn test_slice() {
-        let array = DecimalArray::new(
+        let array = DecimalArray::new_unchecked(
             buffer![100i128, 200i128, 300i128, 4000i128],
             DecimalDType::new(3, 2),
             Validity::NonNullable,
@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_slice_nullable() {
-        let array = DecimalArray::new(
+        let array = DecimalArray::new_unchecked(
             buffer![100i128, 200i128, 300i128, 4000i128],
             DecimalDType::new(3, 2),
             Validity::from_iter([false, true, false, true]),
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_scalar_at() {
-        let array = DecimalArray::new(
+        let array = DecimalArray::new_unchecked(
             buffer![100i128],
             DecimalDType::new(3, 2),
             Validity::NonNullable,

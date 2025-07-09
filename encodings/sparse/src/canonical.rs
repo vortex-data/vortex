@@ -465,7 +465,7 @@ mod test {
     fn test_sparse_decimal() {
         let indices = buffer![0u32, 1u32, 7u32, 8u32].into_array();
         let decimal_dtype = DecimalDType::new(3, 2);
-        let patch_values = DecimalArray::new(
+        let patch_values = DecimalArray::new_unchecked(
             buffer![100i128, 200i128, 300i128, 4000i128],
             decimal_dtype,
             Validity::from_iter([true, true, true, false]),
@@ -475,7 +475,7 @@ mod test {
         let fill_scalar = Scalar::decimal(DecimalValue::I32(123), decimal_dtype, Nullable);
         let sparse_struct = SparseArray::try_new(indices, patch_values, len, fill_scalar).unwrap();
 
-        let expected = DecimalArray::new(
+        let expected = DecimalArray::new_unchecked(
             buffer![100i128, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
             decimal_dtype,
             // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 0, 1, 7 are valid.

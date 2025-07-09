@@ -109,7 +109,7 @@ impl DecimalArray {
 
     /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
     /// any invariants.
-    pub fn new<T: NativeDecimalType>(
+    pub fn new_unchecked<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
         validity: Validity,
@@ -173,7 +173,7 @@ impl DecimalArray {
                 }
             }
         }
-        Self::new(
+        Self::new_unchecked(
             values.freeze(),
             decimal_dtype,
             Validity::from(validity.finish()),
@@ -233,11 +233,6 @@ impl ValidityHelper for DecimalArray {
 #[cfg(test)]
 mod test {
     use arrow_array::Decimal128Array;
-    use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
-
-    use super::DecimalArray;
-    use crate::validity::Validity;
 
     #[test]
     fn test_decimal() {

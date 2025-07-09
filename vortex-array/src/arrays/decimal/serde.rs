@@ -81,7 +81,7 @@ fn check_and_build_decimal<T: NativeDecimalType>(
         );
     }
 
-    Ok(DecimalArray::new(buffer, decimal_dtype, validity))
+    Ok(DecimalArray::new_unchecked(buffer, decimal_dtype, validity))
 }
 
 #[cfg(test)]
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_array_serde() {
-        let array = DecimalArray::new(
+        let array = DecimalArray::new_unchecked(
             buffer![100i128, 200i128, 300i128, 400i128, 500i128],
             DecimalDType::new(10, 2),
             Validity::NonNullable,

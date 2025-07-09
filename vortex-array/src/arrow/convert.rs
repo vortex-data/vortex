@@ -109,7 +109,7 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
         let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
         let validity = nulls(array.nulls(), nullable);
-        DecimalArray::new(buffer, decimal_type, validity).into_array()
+        DecimalArray::new_unchecked(buffer, decimal_type, validity).into_array()
     }
 }
 
@@ -123,7 +123,7 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
         let buffer =
             unsafe { std::mem::transmute::<Buffer<arrow_buffer::i256>, Buffer<i256>>(buffer) };
         let validity = nulls(array.nulls(), nullable);
-        DecimalArray::new(buffer, decimal_type, validity).into_array()
+        DecimalArray::new_unchecked(buffer, decimal_type, validity).into_array()
     }
 }
 

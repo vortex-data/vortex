@@ -102,7 +102,7 @@ impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         // the correct buffer size
 
         let res = match_each_signed_integer_ptype!(prim.ptype(), |P| {
-            Canonical::Decimal(DecimalArray::new(
+            Canonical::Decimal(DecimalArray::new_unchecked(
                 prim.buffer::<P>(),
                 *array.decimal_dtype(),
                 prim.validity().clone(),

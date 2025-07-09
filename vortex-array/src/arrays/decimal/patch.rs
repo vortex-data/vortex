@@ -1,4 +1,5 @@
 use arrow_buffer::ArrowNativeType;
+use itertools::Itertools as _;
 use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::{DecimalDType, NativePType, match_each_integer_ptype};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
@@ -66,13 +67,13 @@ where
         )
     }
 
-    for (idx, value) in itertools::zip_eq(patch_indices, patch_values) {
+    for (idx, value) in patch_indices.iter().zip_eq(patch_values.into_iter()) {
         buffer[idx.as_usize() - patch_indices_offset] = <ValuesDVT as BigCast>::from(value).vortex_expect(
             "values of a given DecimalDType are representable in all compatible NativeDecimalType",
         );
     }
 
-    Ok(DecimalArray::new(
+    Ok(DecimalArray::new_unchecked(
         buffer.freeze(),
         decimal_dtype,
         patched_validity,
