@@ -279,6 +279,7 @@ impl ParquetWriter {
         let file = TokioFile::create(&path).await?;
         let props = WriterProperties::builder()
             .set_compression(Compression::SNAPPY)
+            .set_bloom_filter_enabled(true)
             .build();
         let writer = AsyncArrowWriter::try_new(file, schema, Some(props))?;
         Ok(Self { writer })
