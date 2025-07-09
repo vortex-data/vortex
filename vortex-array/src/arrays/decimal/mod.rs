@@ -62,7 +62,7 @@ pub fn smallest_storage_type(decimal_dtype: &DecimalDType) -> DecimalValueType {
     }
 }
 
-/// Errors unless the value type can represent every value of the given dtype.
+/// True if `value_type` can represent every value of the type `dtype`.
 pub fn compatible_storage_type(value_type: DecimalValueType, dtype: DecimalDType) -> bool {
     value_type >= smallest_storage_type(&dtype)
 }
