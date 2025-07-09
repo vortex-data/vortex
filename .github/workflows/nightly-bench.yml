@@ -18,7 +18,7 @@ jobs:
     with:
       mode: 'develop'
       machine_type: ${{ matrix.machine_type.instance_name }}
-      scale_factor: 100
+      scale_factor: 10
     strategy:
       matrix:
         machine_type:
