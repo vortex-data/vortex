@@ -43,7 +43,7 @@ mod tests {
             None,
         );
         let mut chunk =
-            DataChunk::new(&[LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP_S)]);
+            DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP_S)]);
 
         new_exporter(&arr)
             .unwrap()
@@ -67,8 +67,7 @@ mod tests {
             TimeUnit::Us,
             None,
         );
-        let mut chunk =
-            DataChunk::new(&[LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP)]);
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP)]);
 
         new_exporter(&arr)
             .unwrap()
@@ -91,7 +90,7 @@ mod tests {
             TimeUnit::Us,
         );
 
-        let mut chunk = DataChunk::new(&[LogicalType::try_from(arr.dtype()).unwrap()]);
+        let mut chunk = DataChunk::new([LogicalType::try_from(arr.dtype()).unwrap()]);
 
         new_exporter(&arr)
             .unwrap()
