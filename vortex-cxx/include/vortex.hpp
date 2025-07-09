@@ -28,19 +28,18 @@ public:
     ScanBuilder(rust::Box<ffi::VortexScanBuilder> impl) : impl_(std::move(impl)) {
     }
 
+    /// Set the limit on the number of rows to scan.
     void set_limit(uint64_t limit) {
         ffi::scan_builder_set_limit(*impl_, limit);
     }
 
-    arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> into_stream() {
-        try {
-            ArrowArrayStream stream;
-            ffi::scan_builder_to_stream(std::move(impl_), reinterpret_cast<uint8_t *>(&stream));
-            return arrow::ImportRecordBatchReader(&stream);
-        } catch (const rust::cxxbridge1::Error &e) {
-            throw VortexException(e.what());
-        }
-    }
+    /// Consume the scan builder to a stream of record batches.
+    /// The scan builder is consumed and cannot be used after this call.
+    arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> into_stream();
+
+    /// Consume the scan builder to an Arrow array and schema.
+    /// The scan builder is consumed and cannot be used after this call.
+    std::pair<ArrowArray, ArrowSchema> into_arrow();
 
 private:
     rust::Box<ffi::VortexScanBuilder> impl_;
@@ -59,15 +58,16 @@ public:
     explicit VortexFile(rust::Box<ffi::VortexFile> impl) : impl_(std::move(impl)) {
     }
 
+    /// Get the number of rows in the file.
     uint64_t row_count() const {
         return ffi::file_row_count(*impl_);
     }
 
-    std::pair<ArrowArray, ArrowSchema> scan_to_arrow() const;
-
-    arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> scan_to_stream() const;
-
-    ScanBuilder scan_builder() const;
+    /// Create a scan builder for the file.
+    /// The scan builder can be used to scan the file.
+    ScanBuilder scan_builder() const {
+        return ScanBuilder(ffi::file_scan_builder(*impl_));
+    }
 
 private:
     rust::Box<ffi::VortexFile> impl_;

@@ -55,7 +55,7 @@ TEST_F(VortexTest, ScanToArrow) {
     auto file = vortex::VortexFile::open("../target/debug/build/test_data.vortex");
 
     // Test scanning to Arrow C ABI
-    auto [arrow, schema] = file.scan_to_arrow();
+    auto [arrow, schema] = file.scan_builder().into_arrow();
 
     // Import the Arrow array using Arrow C++ API
     auto maybe_data_type = arrow::ImportType(&schema);
@@ -77,7 +77,7 @@ TEST_F(VortexTest, ScanToStream) {
     auto file = vortex::VortexFile::open("../target/debug/build/test_data.vortex");
 
     // Test scanning to Arrow RecordBatchReader
-    auto maybe_reader = file.scan_to_stream();
+    auto maybe_reader = file.scan_builder().into_stream();
     ASSERT_TRUE(maybe_reader.ok()) << "Failed to create RecordBatchReader: "
                                    << maybe_reader.status().message();
 
@@ -100,15 +100,12 @@ TEST_F(VortexTest, ScanToStream) {
     }
 }
 
-
 TEST_F(VortexTest, ScanOptionsWithLimit) {
     auto file = vortex::VortexFile::open("../target/debug/build/test_data.vortex");
 
-    // Test scan options with limit - single FFI call
     auto builder = file.scan_builder();
     builder.set_limit(3);
-    
-    // Test building to stream
+
     auto maybe_reader = builder.into_stream();
     ASSERT_TRUE(maybe_reader.ok()) << "Failed to create RecordBatchReader: "
                                    << maybe_reader.status().message();
@@ -116,7 +113,6 @@ TEST_F(VortexTest, ScanOptionsWithLimit) {
     auto reader = maybe_reader.ValueOrDie();
     ASSERT_NE(reader, nullptr);
 
-    // Test that we can read record batches
     auto maybe_batch = reader->Next();
     ASSERT_TRUE(maybe_batch.ok()) << "Failed to read first batch: " << maybe_batch.status().message();
 
@@ -124,7 +120,7 @@ TEST_F(VortexTest, ScanOptionsWithLimit) {
     if (batch != nullptr) {
         // Should have limited rows (3 instead of 5)
         ASSERT_EQ(batch->num_rows(), 3);
-        
+
         auto struct_array = batch->ToStructArray().ValueOrDie();
         ASSERT_EQ(struct_array->length(), 3);
         ASSERT_EQ(struct_array->null_count(), 0);
