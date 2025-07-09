@@ -3,12 +3,12 @@
 
 use std::sync::Arc;
 
-use arrow::array::{AsArray, RecordBatch, RecordBatchReader};
-use arrow::datatypes::{DataType, SchemaRef};
-use arrow::error::ArrowError;
-use vortex::arrow::compute::to_arrow;
-use vortex::error::VortexResult;
-use vortex::iter::ArrayIterator;
+use arrow_array::{cast::AsArray, RecordBatch, RecordBatchReader};
+use arrow_schema::{DataType, SchemaRef};
+use arrow_schema::ArrowError;
+use crate::arrow::compute::to_arrow;
+use crate::iter::ArrayIterator;
+use vortex_error::VortexResult;
 
 /// Adapter for converting a [`ArrayIterator`] into an Arrow [`RecordBatchReader`].
 pub struct VortexRecordBatchReader<I> {

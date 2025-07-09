@@ -9,6 +9,7 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use vortex::ToCanonical;
+use vortex::arrow::record_batch_reader::VortexRecordBatchReader;
 use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
@@ -24,7 +25,6 @@ use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
 use crate::expr::PyExpr;
 use crate::iter::{ArrayStreamToIterator, PyArrayIterator};
-use crate::record_batch_reader::VortexRecordBatchReader;
 use crate::{TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {

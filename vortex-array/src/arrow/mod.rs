@@ -12,6 +12,7 @@ pub mod compute;
 mod convert;
 mod datum;
 mod record_batch;
+pub mod record_batch_reader;
 
 pub use datum::*;
 
