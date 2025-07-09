@@ -16,7 +16,7 @@ use vortex_array::validity::Validity;
 use vortex_array::{ArrayContext, ArrayRef, IntoArray};
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
-use vortex_expr::transform::partition::{PartitionedExpr, partition};
+use vortex_expr::transform::partition::{PartitionedExpr, partition_by_scope_field};
 use vortex_expr::{ExactExpr, ExprRef, Scope, ScopeDType};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -104,7 +104,7 @@ impl StructReader {
             .or_insert_with(|| {
                 // Partition the expression into expressions that can be evaluated over individual fields
                 Arc::new(
-                    partition(expr, self.dtype()).vortex_expect(
+                    partition_by_scope_field(expr, self.dtype()).vortex_expect(
                         "We should not fail to partition expression over struct fields",
                     ),
                 )
