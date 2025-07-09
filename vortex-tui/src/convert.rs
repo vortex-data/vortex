@@ -7,7 +7,8 @@ use futures_util::StreamExt;
 use indicatif::ProgressBar;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use tokio::fs::File;
-use vortex::TryIntoArray;
+use vortex::ArrayRef;
+use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect, VortexResult};
@@ -44,7 +45,7 @@ pub async fn exec_convert(input_path: impl AsRef<Path>, flags: Flags) -> VortexR
         .map(|record_batch| {
             record_batch
                 .map_err(VortexError::from)
-                .and_then(|rb| rb.try_into_array())
+                .map(|rb| ArrayRef::from_arrow(rb, false))
         })
         .boxed();
 

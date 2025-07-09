@@ -443,7 +443,7 @@ impl FromArrowArray<RecordBatch> for ArrayRef {
 
 impl FromArrowArray<&RecordBatch> for ArrayRef {
     fn from_arrow(array: &RecordBatch, nullable: bool) -> Self {
-        ArrayRef::from_arrow(&arrow_array::StructArray::from(array.clone()), nullable)
+        Self::from_arrow(array.clone(), nullable)
     }
 }
 
