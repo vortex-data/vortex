@@ -19,7 +19,10 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
 use vortex_expr::transform::replace::replace;
-use vortex_expr::{ExactExpr, ExprRef, Scope, ScopeDType, col, pack, root};
+use vortex_expr::transform::simplify_typed::simplify_typed;
+use vortex_expr::{
+    ExactExpr, ExprRef, GetItemVTable, Scope, ScopeDType, col, get_item, pack, root,
+};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -121,6 +124,8 @@ impl StructReader {
                 // First, we expand the root scope into the fields of the struct to ensure
                 // that partitioning works correctly.
                 let expr = replace(expr.clone(), &root(), self.expanded_root_expr.clone());
+                let expr = simplify_typed(expr, &ScopeDType::new(self.dtype().clone()))
+                    .vortex_expect("We should not fail to simplify expression over struct fields");
 
                 // Partition the expression into expressions that can be evaluated over individual fields
                 let mut partitioned = partition(
@@ -191,9 +196,21 @@ impl LayoutReader for StructReader {
         let partitioned = self.partition_expr(expr.clone());
 
         if partitioned.partition_names.len() == 1 {
-            return self
-                .child(&partitioned.partition_names[0])?
-                .pruning_evaluation(row_range, &partitioned.partitions[0]);
+            // If the root expression simply extracts the value from a single partition, then
+            // we can short-circuit and prune directly over that child.
+            if let Some(gi) = partitioned.root.as_opt::<GetItemVTable>() {
+                if gi.field().eq(&partitioned.partition_names[0]) {
+                    return self
+                        .child(&partitioned.partition_names[0])?
+                        .pruning_evaluation(
+                            row_range,
+                            &get_item(
+                                partitioned.partition_names[0].clone(),
+                                partitioned.partitions[0].clone(),
+                            ),
+                        );
+                }
+            }
         }
 
         // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
@@ -209,13 +226,6 @@ impl LayoutReader for StructReader {
         // Partition the expression into expressions that can be evaluated over individual fields
         let partitioned = self.partition_expr(expr.clone());
 
-        // Short-circuit if there is only one partition
-        if partitioned.partition_names.len() == 1 {
-            return self
-                .child(&partitioned.partition_names[0])?
-                .filter_evaluation(row_range, &partitioned.partitions[0]);
-        }
-
         // TODO(ngates): for any partition that returns a boolean, we can use a mask evaluation.
 
         // Construct evaluations for each child.
@@ -226,7 +236,7 @@ impl LayoutReader for StructReader {
             .zip_eq(partitioned.partition_dtypes.iter())
             .map(|((name, expr), dtype)| {
                 let reader = self.child(name)?;
-                Ok::<_, VortexError>(if matches!(dtype, DType::Bool(_)) {
+                Ok::<_, VortexError>(if matches!(dtype, DType::Bool(Nullability::NonNullable)) {
                     // If the partition evaluates to a boolean, we can evaluate it as a mask which
                     // can often be more efficient since nulls are turned into `false` early on,
                     // and layouts can perform predicate pruning / indexing.
@@ -255,9 +265,19 @@ impl LayoutReader for StructReader {
 
         // Short-circuit if there is only one partition
         if partitioned.partition_names.len() == 1 {
-            return self
-                .child(&partitioned.partition_names[0])?
-                .projection_evaluation(row_range, &partitioned.partitions[0]);
+            if let Some(gi) = partitioned.root.as_opt::<GetItemVTable>() {
+                if gi.field().eq(&partitioned.partition_names[0]) {
+                    return self
+                        .child(&partitioned.partition_names[0])?
+                        .projection_evaluation(
+                            row_range,
+                            &get_item(
+                                partitioned.partition_names[0].clone(),
+                                partitioned.partitions[0].clone(),
+                            ),
+                        );
+                }
+            }
         }
 
         // Construct evaluations for each child.
