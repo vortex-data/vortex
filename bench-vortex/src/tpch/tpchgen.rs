@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow};
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use futures::{FutureExt, StreamExt, stream};
+use futures::stream::FuturesUnordered;
+use futures::{StreamExt, TryStreamExt, stream};
 use log::info;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
@@ -102,22 +103,24 @@ pub async fn generate_tpch_tables(options: &TpchGenOptions) -> Result<()> {
         ("lineitem", TableGenerator::LineItem),
     ];
 
-    let x = stream::iter(tables)
-        .map(|(table_name, generator)| async move {
+    stream::iter(tables)
+        .map(|(table_name, generator)| {
             info!(
                 "Generating {} table for scale factor {} in format: {:?}",
                 table_name, options.scale_factor, options.format
             );
 
-            generate_table_files(table_name, &generator, options).await
+            tokio::spawn(generate_table_files(table_name, generator, options.clone()))
         })
-        .flatten()
-        .collect::<Result<()>>()?;
+        .collect::<FuturesUnordered<_>>()
+        .await
+        .try_collect::<Vec<_>>()
+        .await?;
 
     Ok(())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum TableGenerator {
     Nation,
     Region,
@@ -132,8 +135,8 @@ enum TableGenerator {
 /// Generate files for a specific table in streaming fashion
 async fn generate_table_files(
     table_name: &str,
-    generator: &TableGenerator,
-    options: &TpchGenOptions,
+    generator: TableGenerator,
+    options: TpchGenOptions,
 ) -> Result<()> {
     // Determine output path based on format
     let (output_path, format_name) = match options.format {
@@ -159,11 +162,11 @@ async fn generate_table_files(
         info!("Generating {table_name} table as {format_name}");
 
         // Create generator and process batches in streaming fashion
-        let batch_iter = create_batch_iterator(generator, options)?;
+        let batch_iter = create_batch_iterator(generator, &options)?;
         let schema = batch_iter.schema().clone();
 
         // Create writer based on format
-        let mut writer: Box<dyn FileWriter> = match options.format {
+        let mut writer: Box<dyn FileWriter + Send> = match options.format {
             Format::Parquet | Format::Arrow | Format::OnDiskDuckDB => {
                 Box::new(ParquetWriter::new(path, schema).await?)
             }
@@ -186,7 +189,7 @@ async fn generate_table_files(
 /// Create a batch iterator for the specified table generator
 #[allow(clippy::cast_possible_truncation)]
 fn create_batch_iterator(
-    generator: &TableGenerator,
+    generator: TableGenerator,
     options: &TpchGenOptions,
 ) -> Result<Box<dyn RecordBatchIterator>> {
     match generator {
