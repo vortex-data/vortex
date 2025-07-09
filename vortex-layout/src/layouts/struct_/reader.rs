@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use futures::TryStreamExt;
-use futures::stream::FuturesOrdered;
+use futures::stream::{BoxStream, FuturesOrdered};
+use futures::{StreamExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::arrays::StructArray;
 use vortex_array::stats::Precision;
@@ -22,6 +22,7 @@ use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::struct_::StructLayout;
+use crate::masks::IntersectionMaskStream;
 use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
@@ -128,6 +129,23 @@ impl LayoutReader for StructReader {
 
     fn row_count(&self) -> Precision<u64> {
         Precision::Exact(self.layout.row_count())
+    }
+
+    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<VortexResult<Mask>> {
+        // Here we construct a stream of masks for each field in the field_mask, and then take
+        // the smallest mask from each field.
+        let mut field_streams = Vec::with_capacity(field_mask.len());
+        self.layout
+            .matching_fields(field_mask, |mask, idx| {
+                let child = self.child_by_idx(idx)?;
+                field_streams.push(child.row_masks(&[mask]));
+                Ok(())
+            })
+            .vortex_expect("infallible");
+
+        // FIXME(ngates): if there are no fields, we need a stream of masks that covers row_count.
+
+        IntersectionMaskStream::new(field_streams).boxed()
     }
 
     fn register_splits(

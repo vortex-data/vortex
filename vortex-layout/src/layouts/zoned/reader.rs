@@ -9,6 +9,7 @@ use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::future::{BoxFuture, Shared};
+use futures::stream::BoxStream;
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use vortex_array::stats::Precision;
@@ -181,6 +182,10 @@ impl LayoutReader for ZonedReader {
 
     fn row_count(&self) -> Precision<u64> {
         self.data_child.row_count()
+    }
+
+    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<VortexResult<Mask>> {
+        self.data_child.row_masks(field_mask)
     }
 
     fn register_splits(

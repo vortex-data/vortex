@@ -14,6 +14,7 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::LayoutReader;
+use crate::scan::row_mask::RowMask;
 use crate::scan::{Selection, TaskExecutor, TaskExecutorExt};
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
@@ -32,7 +33,7 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 /// finally mapping the Vortex columnar record batches into some result type `A`.
 pub(super) fn split_exec<A: 'static + Send + Sync>(
     ctx: Arc<TaskContext<A>>,
-    split: Range<u64>,
+    row_mask: RowMask,
     limit: Option<&mut usize>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
     // Step 1: using the caller-provided row range and selection, attempt to disregard this split.

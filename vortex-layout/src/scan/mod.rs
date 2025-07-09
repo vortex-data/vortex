@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::ready;
 use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
@@ -28,6 +29,8 @@ use vortex_metrics::VortexMetrics;
 
 use crate::layouts::filter::FilterLayoutReader;
 use crate::layouts::row_id::RowIdLayoutReader;
+use crate::masks::MaskStreamExt;
+use crate::scan::row_mask::RowMask;
 use crate::scan::tasks::{TaskContext, split_exec};
 use crate::{LayoutReader, LayoutReaderRef};
 
@@ -163,10 +166,9 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    #[allow(clippy::unused_enumerate_index)]
     pub fn build(
         mut self,
-    ) -> VortexResult<(DType, Vec<impl Future<Output = VortexResult<Option<A>>>>)> {
+    ) -> VortexResult<impl Stream<Item = impl Future<Output = VortexResult<Option<A>>>>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
@@ -204,12 +206,28 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         let (filter_mask, projection_mask) =
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
-        let splits = self.split_by.splits(layout_reader.as_ref(), &field_mask)?;
+
+        // Set up the initial stream of RowMasks.
+        let masks = layout_reader.row_masks(&field_mask);
+
+        // If we split by a fixed row count, we repartition the masks into splits.
+        let masks = match self.split_by {
+            SplitBy::Layout => masks,
+            SplitBy::RowCount(n) => masks.repartition(n).boxed(),
+        };
 
         // Create a task that executes the full scan pipeline for each split.
-        let split_tasks = splits
-            .into_iter()
-            .filter_map(|split_range| {
+        let tasks = masks
+            .scan(0u64, |row_idx, mask| async move {
+                Some(mask.map(|mask| {
+                    let row_mask = RowMask::new(*row_idx, mask);
+                    *row_idx += row_mask.mask().len() as u64;
+                    row_mask
+                }))
+            })
+            // TODO(ngates): truncate by the provided limit
+            // TODO(ngates): filter_map by the provided row_indices / selection.
+            .filter_map(|row_mask| {
                 let ctx = Arc::new(TaskContext {
                     row_range: self.row_range.clone(),
                     selection: self.selection.clone(),
@@ -223,7 +241,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
                 if self.limit.is_some_and(|l| l == 0) {
                     None
                 } else {
-                    Some(split_exec(ctx, split_range, self.limit.as_mut()))
+                    Some(split_exec(ctx, row_mask, self.limit.as_mut()))
                 }
             })
             .try_collect()?;

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bit_vec::BitVec;
 use dashmap::DashMap;
+use futures::stream::BoxStream;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
@@ -59,6 +60,10 @@ impl LayoutReader for FilterLayoutReader {
 
     fn row_count(&self) -> Precision<u64> {
         self.child.row_count()
+    }
+
+    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<VortexResult<Mask>> {
+        self.child.row_masks(field_mask)
     }
 
     fn register_splits(

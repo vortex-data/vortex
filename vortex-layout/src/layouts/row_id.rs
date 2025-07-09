@@ -7,6 +7,7 @@ use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
+use futures::stream::BoxStream;
 use vortex_array::arrays::{ConstantArray, StructArray};
 use vortex_array::compute::filter;
 use vortex_array::stats::{Precision, Stat};
@@ -168,6 +169,10 @@ impl LayoutReader for RowIdLayoutReader {
 
     fn row_count(&self) -> Precision<u64> {
         self.child.row_count()
+    }
+
+    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<VortexResult<Mask>> {
+        self.child.row_masks(field_mask)
     }
 
     fn register_splits(

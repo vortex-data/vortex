@@ -6,7 +6,9 @@ use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use futures::FutureExt;
+use futures::future::ok;
+use futures::stream::BoxStream;
+use futures::{FutureExt, stream};
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
@@ -36,6 +38,7 @@ pub struct FlatReader {
     segment_source: Arc<dyn SegmentSource>,
     ctx: ArrayContext,
     array: OnceLock<SharedArrayFuture>,
+    len: usize,
 }
 
 impl FlatReader {
@@ -45,12 +48,17 @@ impl FlatReader {
         segment_source: Arc<dyn SegmentSource>,
         ctx: ArrayContext,
     ) -> Self {
+        let len = layout
+            .row_count
+            .try_into()
+            .vortex_expect("We know flat layouts must fit into usize");
         Self {
             layout,
             name,
             segment_source,
             ctx,
             array: Default::default(),
+            len,
         }
     }
 
@@ -104,6 +112,10 @@ impl LayoutReader for FlatReader {
 
     fn row_count(&self) -> Precision<u64> {
         Precision::Exact(self.layout.row_count())
+    }
+
+    fn row_masks(&self, _field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>> {
+        Box::pin(stream::once(ok(Mask::new_true(self.len))))
     }
 
     fn register_splits(

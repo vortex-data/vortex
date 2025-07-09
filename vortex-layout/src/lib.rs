@@ -18,6 +18,7 @@ mod children;
 mod encoding;
 mod flatbuffers;
 mod layout;
+mod masks;
 mod reader;
 pub mod scan;
 pub mod segments;

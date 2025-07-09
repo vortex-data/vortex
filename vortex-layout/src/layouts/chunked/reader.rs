@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::ready;
-use futures::stream::FuturesOrdered;
-use futures::{FutureExt, TryStreamExt};
+use futures::stream::{BoxStream, FuturesOrdered};
+use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::stats::Precision;
@@ -131,6 +131,17 @@ impl LayoutReader for ChunkedReader {
 
     fn row_count(&self) -> Precision<u64> {
         Precision::Exact(self.layout.row_count())
+    }
+
+    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<VortexResult<Mask>> {
+        let field_mask = field_mask.to_vec();
+        stream::iter(0..self.layout.nchildren())
+            .map(move |i| match self.chunk_reader(i) {
+                Ok(child) => child.row_masks(&field_mask),
+                Err(e) => stream::once(async move { Err(e) }).boxed(),
+            })
+            .flatten()
+            .boxed()
     }
 
     fn register_splits(

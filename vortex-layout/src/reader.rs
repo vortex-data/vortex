@@ -8,6 +8,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
+use futures::stream::BoxStream;
 use once_cell::sync::OnceCell;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ArrayRef};
@@ -35,7 +36,13 @@ pub trait LayoutReader: 'static + Send + Sync {
 
     /// Returns the number of rows in the layout reader.
     /// An inexact count may be larger or smaller than the actual row count.
+    /// FIXME(ngates): remove this.
     fn row_count(&self) -> Precision<u64>;
+
+    /// Emit an iterator of [`Mask`]s from the layout reader that cover the full range of rows.
+    /// These masks are likely to be partitioned in a way that is reasonable efficient for
+    /// partitioning evaluation of the layout reader - but there's no guarantee.
+    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<VortexResult<Mask>>;
 
     /// Register the splits of this layout reader.
     // TODO(ngates): this is a temporary API until we make layout readers stream based.
