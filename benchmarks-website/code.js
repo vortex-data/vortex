@@ -78,6 +78,8 @@ window.initAndRender = (function () {
           let nvme = storage === undefined || storage === "nvme";
           if (scale_factor === 1) {
             group_id = nvme ? "TPC-H (NVME) (SF=1)" : "TPC-H (S3) (SF=1)";
+          } else if (scale_factor === 10) {
+            group_id = nvme ? "TPC-H (NVME) (SF=10)" : "TPC-H (S3) (SF=10)";
           } else if (scale_factor === 100) {
             group_id = nvme ? "TPC-H (NVME) (SF=100)" : "TPC-H (S3) (SF=100)";
           } else {
