@@ -19,8 +19,8 @@ wrapper!(
 impl DataChunk {
     /// Create a new data chunk using a list of logical dtypes
     pub fn new(column_types: impl AsRef<[LogicalType]>) -> DataChunk {
-        let column_types = column_types.as_ref();
         let mut ptrs = column_types
+            .as_ref()
             .iter()
             .map(|x| x.as_ptr())
             .collect::<Vec<duckdb_logical_type>>();
