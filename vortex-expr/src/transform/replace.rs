@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::{Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::ExprRef;
 use crate::traversal::{MutNodeVisitor, Node, TransformResult, TraversalOrder};
+use crate::{ExprRef, col, pack, root};
 
 /// Replaces all occurrences of `needle` in the expression `expr` with `replacement`.
 pub fn replace(expr: ExprRef, needle: &ExprRef, replacement: ExprRef) -> ExprRef {
@@ -15,6 +16,21 @@ pub fn replace(expr: ExprRef, needle: &ExprRef, replacement: ExprRef) -> ExprRef
     expr.transform(&mut transform)
         .vortex_expect("ReplaceVisitor should not fail")
         .into_inner()
+}
+
+/// Expand the `root` expression with a pack of the given struct fields.
+pub fn replace_root_fields(expr: ExprRef, fields: &StructFields) -> ExprRef {
+    replace(
+        expr,
+        &root(),
+        pack(
+            fields
+                .names()
+                .iter()
+                .map(|name| (name.clone(), col(name.clone()))),
+            Nullability::NonNullable,
+        ),
+    )
 }
 
 /// A visitor that replaces occurrences of a specific expression (`needle`) with a replacement
@@ -28,7 +44,7 @@ impl MutNodeVisitor for ReplaceVisitor<'_> {
     type NodeTy = ExprRef;
 
     fn visit_down(&mut self, node: &Self::NodeTy) -> VortexResult<TraversalOrder> {
-        if self.needle.eq(&node) {
+        if self.needle.eq(node) {
             // Short-circuit traversal if the needle is found
             Ok(TraversalOrder::Skip)
         } else {

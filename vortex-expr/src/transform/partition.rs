@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::transform::annotations::{
@@ -88,18 +88,6 @@ where
     })
 }
 
-pub fn partition_by_scope_field(
-    _expr: ExprRef,
-    dtype: &DType,
-) -> VortexResult<PartitionedExpr<FieldName>> {
-    let DType::Struct(_fields, _) = dtype else {
-        vortex_bail!("Expected a struct dtype, got {:?}", dtype);
-    };
-    todo!()
-    // StructFieldExpressionSplitter::<FieldName>::split(expr, dtype, annotate_scope_access(fields))
-}
-
-// TODO(joe): replace with let expressions.
 /// The result of partitioning an expression.
 #[derive(Debug)]
 pub struct PartitionedExpr<A> {
@@ -240,9 +228,10 @@ mod tests {
 
     use super::*;
     use crate::transform::immediate_access::annotate_scope_access;
+    use crate::transform::replace::replace_root_fields;
     use crate::transform::simplify::simplify;
     use crate::transform::simplify_typed::simplify_typed;
-    use crate::{PackVTable, and, col, get_item, lit, merge, pack, root, select};
+    use crate::{and, col, get_item, lit, merge, pack, root, select};
 
     fn dtype() -> DType {
         DType::Struct(
@@ -267,11 +256,17 @@ mod tests {
         let fields = dtype.as_struct().unwrap();
 
         let expr = root();
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(expr.clone(), &dtype, annotate_scope_access(fields)).unwrap();
 
-        assert!(partitioned.root.is::<PackVTable>());
-        // Have a single top level pack with all fields in dtype
-        assert_eq!(partitioned.partitions.len(), fields.names().len())
+        // An un-expanded root expression is annotated by all fields, but since it is a single node
+        assert_eq!(partitioned.partitions.len(), 0);
+        assert_eq!(&partitioned.root, &root());
+
+        // Instead, callers must expand the root expression themselves.
+        let expr = replace_root_fields(expr.clone(), fields);
+        let partitioned = partition(expr.clone(), &dtype, annotate_scope_access(fields)).unwrap();
+
+        assert_eq!(partitioned.partitions.len(), fields.names().len());
     }
 
     #[test]
@@ -279,15 +274,10 @@ mod tests {
         let dtype = dtype();
         let fields = dtype.as_struct().unwrap();
 
-        let expr = get_item("b", get_item("a", root()));
+        let expr = get_item("y", get_item("a", root()));
 
         let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
-        let split_a = partitioned.find_partition(&"a".into());
-        assert!(split_a.is_some());
-        let split_a = split_a.unwrap();
-
-        assert_eq!(&partitioned.root, &get_item("a", root()));
-        assert_eq!(&simplify(split_a.clone()).unwrap(), &get_item("b", root()));
+        assert_eq!(&partitioned.root, &get_item("a_0", get_item("a", root())));
     }
 
     #[test]
@@ -297,8 +287,8 @@ mod tests {
 
         let expr = pack(
             [
-                ("a", get_item("a", get_item("a", root()))),
-                ("b", get_item("b", get_item("a", root()))),
+                ("x", get_item("x", get_item("a", root()))),
+                ("y", get_item("y", get_item("a", root()))),
                 ("c", get_item("c", root())),
             ],
             NonNullable,
@@ -310,20 +300,12 @@ mod tests {
             &simplify(split_a.clone()).unwrap(),
             &pack(
                 [
-                    (
-                        StructFieldExpressionSplitter::<FieldName>::field_name(&"a".into(), 0),
-                        get_item("a", root())
-                    ),
-                    (
-                        StructFieldExpressionSplitter::<FieldName>::field_name(&"a".into(), 1),
-                        get_item("b", root())
-                    )
+                    ("a_0", get_item("x", get_item("a", root()))),
+                    ("a_1", get_item("y", get_item("a", root())))
                 ],
                 NonNullable
             )
         );
-        let split_c = partitioned.find_partition(&"c".into()).unwrap();
-        assert_eq!(&simplify(split_c.clone()).unwrap(), &root())
     }
 
     #[test]
@@ -331,7 +313,7 @@ mod tests {
         let dtype = dtype();
         let fields = dtype.as_struct().unwrap();
 
-        let expr = and(get_item("b", get_item("a", root())), lit(1));
+        let expr = and(get_item("y", get_item("a", root())), lit(1));
         let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
 
         // Whole expr is a single split
@@ -343,7 +325,7 @@ mod tests {
         let dtype = dtype();
         let fields = dtype.as_struct().unwrap();
 
-        let expr = and(get_item("b", get_item("a", root())), get_item("b", root()));
+        let expr = and(get_item("y", get_item("a", root())), get_item("b", root()));
         let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
 
         // One for id.a and id.b
@@ -357,7 +339,7 @@ mod tests {
         let fields = dtype.as_struct().unwrap();
 
         let expr = and(
-            get_item("b", get_item("a", root())),
+            get_item("y", get_item("a", root())),
             select(vec!["a".into(), "b".into()], root()),
         );
         let expr = simplify_typed(expr, &ScopeDType::new(dtype.clone())).unwrap();
@@ -371,10 +353,7 @@ mod tests {
         assert_eq!(
             &partitioned.root,
             &and(
-                get_item(
-                    StructFieldExpressionSplitter::<FieldName>::field_name(&"a".into(), 0),
-                    get_item("a", root())
-                ),
+                get_item("a_0", get_item("a", root())),
                 pack(
                     [
                         (
@@ -387,7 +366,7 @@ mod tests {
                                 get_item("a", root())
                             )
                         ),
-                        ("b", get_item("b", root()))
+                        ("b", get_item("b_0", get_item("b", root())))
                     ],
                     NonNullable
                 )

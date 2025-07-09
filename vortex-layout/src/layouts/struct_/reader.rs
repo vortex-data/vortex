@@ -18,9 +18,9 @@ use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
-use vortex_expr::transform::replace::replace;
+use vortex_expr::transform::replace::{replace, replace_root_fields};
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ExactExpr, ExprRef, Scope, ScopeDType, col, pack, root};
+use vortex_expr::{ExactExpr, ExprRef, Scope, ScopeDType, col, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -67,13 +67,7 @@ impl StructReader {
             LazyReaderChildren::new(layout.children.clone(), segment_source.clone(), ctx.clone());
 
         // Create an expanded root expression that contains all fields of the struct.
-        let expanded_root_expr = pack(
-            struct_dt
-                .names()
-                .iter()
-                .map(|name| (name.clone(), col(name.clone()))),
-            Nullability::NonNullable,
-        );
+        let expanded_root_expr = replace_root_fields(root(), struct_dt);
 
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
