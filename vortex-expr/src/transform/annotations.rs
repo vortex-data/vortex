@@ -10,16 +10,19 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
 use crate::{ExprRef, Identifier, VarVTable};
 
+pub trait Annotation: Clone + Hash + Eq {}
+
+impl<A> Annotation for A where A: Clone + Hash + Eq {}
+
 pub type Annotations<'a, A> = HashMap<&'a ExprRef, HashSet<A>>;
 
 /// Walk the expression tree and annotate each expression with zero or more annotations.
 ///
 /// Returns a map of each expression to all annotations that any of its descendent (child)
 /// expressions are annotated with.
-pub fn descendent_annotations<A, F>(expr: &ExprRef, annotate: F) -> Annotations<A>
+pub fn descendent_annotations<A: Annotation, F>(expr: &ExprRef, annotate: F) -> Annotations<A>
 where
     F: Fn(&ExprRef) -> Vec<A>,
-    A: Hash + Clone + Eq,
 {
     let mut visitor = AnnotationVisitor {
         annotations: Default::default(),
@@ -29,10 +32,10 @@ where
     visitor.annotations
 }
 
-pub fn variable_scope_accesses<T: Clone + Hash + Eq>(
+pub fn variable_scope_annotations<A: Annotation>(
     expr: &ExprRef,
-    f: impl Fn(&Identifier) -> T,
-) -> Annotations<T> {
+    f: impl Fn(&Identifier) -> A,
+) -> Annotations<A> {
     descendent_annotations(expr, move |node| {
         if let Some(variable) = node.as_opt::<VarVTable>() {
             return vec![f(variable.var())];
@@ -46,10 +49,9 @@ struct AnnotationVisitor<'a, A, F> {
     annotate: F,
 }
 
-impl<'a, A, F> NodeVisitor<'a> for AnnotationVisitor<'a, A, F>
+impl<'a, A: Annotation, F> NodeVisitor<'a> for AnnotationVisitor<'a, A, F>
 where
     F: Fn(&ExprRef) -> Vec<A>,
-    A: Hash + Clone + Eq,
 {
     type NodeTy = ExprRef;
 
