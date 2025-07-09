@@ -10,7 +10,7 @@ use vortex_dtype::{FieldName, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::{DefaultHashBuilder, HashMap};
 
-use crate::transform::access_analysis::{Accesses, variable_scope_accesses};
+use crate::transform::annotations::{Annotations, variable_scope_annotations};
 use crate::transform::partition::ReplaceAccessesWithChild;
 use crate::traversal::{FoldDown, FoldUp, FolderMut, Node};
 use crate::{ExprRef, Identifier, get_item, pack, var};
@@ -74,11 +74,11 @@ impl VarPartitionedExpr {
 #[derive(Debug)]
 struct VariableExpressionSplitter<'a> {
     sub_expressions: HashMap<Identifier, Vec<ExprRef>>,
-    accesses: &'a Accesses<'a, Identifier>,
+    accesses: &'a Annotations<'a, Identifier>,
 }
 
 impl<'a> VariableExpressionSplitter<'a> {
-    fn new(accesses: &'a Accesses<'a, Identifier>) -> Self {
+    fn new(accesses: &'a Annotations<'a, Identifier>) -> Self {
         Self {
             sub_expressions: HashMap::new(),
             accesses,
@@ -100,7 +100,7 @@ impl<'a> VariableExpressionSplitter<'a> {
         expr: &ExprRef,
         f: impl Fn(&Identifier) -> Identifier,
     ) -> VortexResult<VarPartitionedExpr> {
-        let field_accesses = variable_scope_accesses(expr, f)?;
+        let field_accesses = variable_scope_annotations(expr, f);
 
         let mut splitter = VariableExpressionSplitter::new(&field_accesses);
         let split = expr.clone().transform_with_context(&mut splitter, ())?;

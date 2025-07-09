@@ -326,14 +326,14 @@ fn filter_and_projection_masks(
             None => (Vec::new(), vec![FieldMask::All]),
         });
     };
-    let projection_mask = immediate_scope_access(projection, struct_dtype)?;
+    let projection_mask = immediate_scope_access(projection, struct_dtype);
     Ok(match filter {
         None => (
             Vec::new(),
             projection_mask.into_iter().map(to_field_mask).collect_vec(),
         ),
         Some(f) => {
-            let filter_mask = immediate_scope_access(f, struct_dtype)?;
+            let filter_mask = immediate_scope_access(f, struct_dtype);
             let only_projection_mask = projection_mask
                 .difference(&filter_mask)
                 .cloned()

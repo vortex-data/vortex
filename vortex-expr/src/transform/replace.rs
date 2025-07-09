@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::{Nullability, StructFields};
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult, TraversalOrder};
-use crate::{ExprRef, VortexExpr};
+use crate::{ExprRef, col, pack, root};
 
 /// Replaces all occurrences of `needle` in the expression `expr` with `replacement`.
-pub fn replace(expr: ExprRef, needle: &dyn VortexExpr, replacement: ExprRef) -> ExprRef {
+pub fn replace(expr: ExprRef, needle: &ExprRef, replacement: ExprRef) -> ExprRef {
     let mut transform = ReplaceVisitor {
         needle,
         replacement,
@@ -17,10 +18,25 @@ pub fn replace(expr: ExprRef, needle: &dyn VortexExpr, replacement: ExprRef) -> 
         .into_inner()
 }
 
+/// Expand the `root` expression with a pack of the given struct fields.
+pub fn replace_root_fields(expr: ExprRef, fields: &StructFields) -> ExprRef {
+    replace(
+        expr,
+        &root(),
+        pack(
+            fields
+                .names()
+                .iter()
+                .map(|name| (name.clone(), col(name.clone()))),
+            Nullability::NonNullable,
+        ),
+    )
+}
+
 /// A visitor that replaces occurrences of a specific expression (`needle`) with a replacement
 /// expression (`replacement`).
 struct ReplaceVisitor<'a> {
-    needle: &'a dyn VortexExpr,
+    needle: &'a ExprRef,
     replacement: ExprRef,
 }
 
@@ -28,7 +44,7 @@ impl MutNodeVisitor for ReplaceVisitor<'_> {
     type NodeTy = ExprRef;
 
     fn visit_down(&mut self, node: &Self::NodeTy) -> VortexResult<TraversalOrder> {
-        if self.needle.eq(node.as_ref()) {
+        if self.needle.eq(node) {
             // Short-circuit traversal if the needle is found
             Ok(TraversalOrder::Skip)
         } else {
@@ -37,7 +53,7 @@ impl MutNodeVisitor for ReplaceVisitor<'_> {
     }
 
     fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<Self::NodeTy>> {
-        if self.needle.eq(node.as_ref()) {
+        if self.needle.eq(&node) {
             Ok(TransformResult::yes(self.replacement.clone()))
         } else {
             Ok(TransformResult::no(node))
@@ -57,7 +73,7 @@ mod test {
         let e = get_item("b", pack([("a", lit(1)), ("b", lit(2))], NonNullable));
         let needle = get_item("b", pack([("a", lit(1)), ("b", lit(2))], NonNullable));
         let replacement = lit(42);
-        let replaced_expr = replace(e, needle.as_ref(), replacement.clone());
+        let replaced_expr = replace(e, &needle, replacement.clone());
         assert_eq!(&replaced_expr, &replacement);
     }
 
@@ -66,7 +82,7 @@ mod test {
         let e = pack([("a", lit(1)), ("b", lit(2))], NonNullable);
         let needle = lit(2);
         let replacement = lit(42);
-        let replaced_expr = replace(e, needle.as_ref(), replacement.clone());
+        let replaced_expr = replace(e, &needle, replacement.clone());
         assert_eq!(replaced_expr.to_string(), "pack(a: 1i32, b: 42i32)");
     }
 }

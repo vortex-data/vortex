@@ -2,15 +2,33 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::{FieldName, StructFields};
-use vortex_error::{VortexResult, vortex_err};
-use vortex_utils::aliases::hash_map::HashMap;
+use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::transform::access_analysis::AccessesAnalysis;
-use crate::traversal::TraversalOrder;
+use crate::transform::annotations::{AnnotationFn, Annotations, descendent_annotations};
 use crate::{ExprRef, GetItemVTable, SelectVTable, is_root};
 
-pub type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
+pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
+
+/// An [`AnnotationFn`] for annotating scope accesses.
+pub fn annotate_scope_access(scope: &StructFields) -> impl AnnotationFn<Annotation = FieldName> {
+    move |expr: &ExprRef| {
+        assert!(
+            !expr.is::<SelectVTable>(),
+            "cannot analyse select, simplify the expression"
+        );
+
+        if let Some(get_item) = expr.as_opt::<GetItemVTable>() {
+            if is_root(get_item.child()) {
+                return vec![get_item.field().clone()];
+            }
+        } else if is_root(expr) {
+            return scope.names().iter().cloned().collect();
+        }
+
+        vec![]
+    }
+}
 
 /// For all subexpressions in an expression, find the fields that are accessed directly from the
 /// scope, but not any fields in those fields
@@ -21,38 +39,18 @@ pub type FieldAccesses<'a> = HashMap<&'a ExprRef, HashSet<FieldName>>;
 /// by an expression.
 pub fn immediate_scope_accesses<'a>(
     expr: &'a ExprRef,
-    scope_dtype: &'a StructFields,
-) -> VortexResult<FieldAccesses<'a>> {
-    AccessesAnalysis::analyze(expr, move |node| {
-        assert!(
-            !node.is::<SelectVTable>(),
-            "cannot analyse select, simplify the expression"
-        );
-        if let Some(get_item) = node.as_opt::<GetItemVTable>() {
-            if is_root(get_item.child()) {
-                return (TraversalOrder::Skip, vec![get_item.field().clone()]);
-            }
-        } else if is_root(node) {
-            let st_dtype = &scope_dtype;
-            return (
-                TraversalOrder::Skip,
-                st_dtype.names().iter().cloned().collect(),
-            );
-        }
-
-        (TraversalOrder::Continue, vec![])
-    })
+    scope: &'a StructFields,
+) -> FieldAccesses<'a> {
+    descendent_annotations(expr, annotate_scope_access(scope))
 }
 
 /// This returns the immediate scope_access (as explained `immediate_scope_accesses`) for `expr`.
 pub fn immediate_scope_access<'a>(
     expr: &'a ExprRef,
-    scope_dtype: &'a StructFields,
-) -> VortexResult<HashSet<FieldName>> {
-    immediate_scope_accesses(expr, scope_dtype)?
+    scope: &'a StructFields,
+) -> HashSet<FieldName> {
+    immediate_scope_accesses(expr, scope)
         .get(expr)
-        .ok_or_else(|| {
-            vortex_err!("Expression missing from scope accesses, this is a internal bug")
-        })
-        .cloned()
+        .vortex_expect("Expression missing from scope accesses, this is a internal bug")
+        .clone()
 }
