@@ -1,5 +1,12 @@
+//  SPDX-License-Identifier: Apache-2.0
+//  SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+mod reader;
+mod writer;
+
 use std::sync::Arc;
 
+pub use reader::*;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
@@ -66,12 +73,17 @@ impl VTable for ViewVTable {
     }
 
     fn new_reader(
-        _layout: &Self::Layout,
-        _name: Arc<str>,
-        _segment_source: Arc<dyn SegmentSource>,
-        _ctx: ArrayContext,
+        layout: &Self::Layout,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+        ctx: ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
-        todo!("implement ViewLayout reader")
+        Ok(Arc::new(ViewReader::new(
+            layout.clone(),
+            name,
+            segment_source,
+            ctx,
+        )))
     }
 
     fn build(

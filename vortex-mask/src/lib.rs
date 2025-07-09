@@ -501,7 +501,9 @@ impl Mask {
         }
     }
 
-    /// Return the slices representation of the mask.
+    /// Return the a slice of set ranges of bits.
+    ///
+    /// Elements are (start, end) with inclusive start and exclusive end.
     pub fn slices(&self) -> AllOr<&[(usize, usize)]> {
         match &self {
             Self::AllTrue(_) => AllOr::All,

@@ -3,7 +3,7 @@
 
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::arrays::{Ref, VarBinViewArray, VarBinViewVTable};
+use crate::arrays::{Outlined, VarBinViewArray, VarBinViewVTable};
 use crate::compute::{IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts};
 use crate::register_kernel;
 
@@ -30,7 +30,7 @@ impl IsConstantKernel for VarBinViewVTable {
             }
         } else {
             // Directly fetch the values for a `Ref`
-            let ref_bytes = |view_ref: &Ref| {
+            let ref_bytes = |view_ref: &Outlined| {
                 &array.buffer(view_ref.buffer_index() as usize).as_slice()[view_ref.to_range()]
             };
 
