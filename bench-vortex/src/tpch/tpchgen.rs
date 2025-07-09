@@ -43,7 +43,7 @@ pub struct TpchGenOptions {
     pub batch_size: usize,
     /// Number of partitions for parallel generation
     pub num_partitions: usize,
-    /// Current partition (0-indexed)
+    /// Current partition (1-indexed)
     pub partition: usize,
 }
 
