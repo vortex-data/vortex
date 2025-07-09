@@ -14,17 +14,17 @@ publish = false
 crate-type = ["staticlib"]
 
 [dependencies]
+arrow-array = { version = "55.0", features = ["ffi"] }
+arrow-schema = "55.0"
 cxx = "1.0"
+futures = { version = "0.3.31", default-features = false }
+tokio = { version = "1.45.1", features = ["rt", "rt-multi-thread", "macros"] }
 vortex-array = { path = "../vortex-array" }
 vortex-buffer = { path = "../vortex-buffer" }
 vortex-dtype = { path = "../vortex-dtype" }
 vortex-error = { path = "../vortex-error" }
-vortex-scalar = { path = "../vortex-scalar" }
 vortex-file = { path = "../vortex-file", features = ["tokio"] }
-tokio = { version = "1.45.1", features = ["rt", "rt-multi-thread", "macros"] }
-futures = { version = "0.3.31", default-features = false }
-arrow-array = { version = "55.0", features = ["ffi"] }
-arrow-schema = "55.0"
+vortex-scalar = { path = "../vortex-scalar" }
 
 [build-dependencies]
 cxx-build = "1.0"
