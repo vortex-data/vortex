@@ -55,7 +55,7 @@ impl Default for TpchGenOptions {
             format: Format::Parquet,
             batch_size: 8192 * 64,
             num_partitions: 1,
-            partition: 0,
+            partition: 1,
         }
     }
 }
@@ -337,7 +337,8 @@ impl FileWriter for VortexWriter {
         self.sender
             .as_ref()
             .vortex_expect("sender closed early")
-            .blocking_send(Ok(array))
+            .send(Ok(array))
+            .await
             .map_err(|_| anyhow!("Failed to send array to write task"))
     }
 
