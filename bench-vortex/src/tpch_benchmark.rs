@@ -7,18 +7,18 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 use anyhow::{Result, anyhow};
+use ddb::DuckDBCtx;
 use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
 use url::Url;
-use vortex::error::VortexExpect;
 
 use crate::benchmark_trait::Benchmark;
+use crate::engines::df::make_object_store;
 use crate::engines::{EngineCtx, ddb};
-use crate::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
 use crate::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, register_arrow, register_parquet,
-    register_vortex_file, tpch_queries,
+    register_vortex_file, tpch_queries, tpchgen,
 };
 use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
@@ -84,20 +84,25 @@ impl Benchmark for TpcHBenchmark {
                     target.format()
                 };
 
-                let base_tpch_dir = "tpch".to_data_path();
-                let opts = DuckdbTpcOptions::new(base_tpch_dir, TpcDataset::TpcH, format)
-                    .with_scale_factor(self.scale_factor);
-                generate_tpc(opts)?;
+                // Skip CSV generation as it's not supported by tpchgen
+                if format == Format::Csv {
+                    anyhow::bail!("CSV format is not supported by tpchgen");
+                }
 
-                let data_dir = self
+                let base_data_dir = self
                     .data_url
                     .to_file_path()
                     .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
-                let data_dir = data_dir.to_str().vortex_expect("path must be utf8");
-                info!(
-                    "Generated or verified TPCH data for format {} at {data_dir}.",
-                    format
-                );
+
+                // Use tpchgen for data generation
+                let options =
+                    tpchgen::TpchGenOptions::new(self.scale_factor as f64, &base_data_dir)
+                        .with_format(format);
+
+                // Generate data using our streaming tpchgen module
+                let runtime = tokio::runtime::Runtime::new()?;
+                runtime.block_on(async { tpchgen::generate_tpch_tables(&options).await })?;
+
                 Ok(())
             }
             _ => Ok(()),
@@ -167,9 +172,8 @@ impl TpcHBenchmark {
         format: Format,
     ) -> Result<()> {
         // Get object store from session
-        let object_store = crate::engines::df::make_object_store(session, base_dir)?;
+        let object_store = make_object_store(session, base_dir)?;
 
-        // TPCH table definitions - same as in load_datasets
         let files = vec![
             ("customer", Some(CUSTOMER.clone())),
             ("lineitem", Some(LINEITEM.clone())),
@@ -181,7 +185,6 @@ impl TpcHBenchmark {
             ("supplier", Some(SUPPLIER.clone())),
         ];
 
-        // Register each table - same logic as load_datasets
         for (name, schema) in files {
             let file_format = if format == Format::Arrow {
                 // Arrow format loads Parquet files into memory
@@ -247,7 +250,7 @@ impl TpcHBenchmark {
             fs::remove_dir_all(&tmp_dir)?;
         }
         fs::create_dir(&tmp_dir)?;
-        let duckdb_ctx = ddb::DuckDBCtx::new_in_memory()?;
+        let duckdb_ctx = DuckDBCtx::new_in_memory()?;
         duckdb_ctx.register_tables(
             self.data_url(),
             Format::OnDiskVortex,

@@ -55,6 +55,9 @@ tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 target-lexicon = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true }
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
 tracing = { workspace = true }
 tracing-chrome = { workspace = true }
 tracing-futures = { workspace = true }

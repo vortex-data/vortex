@@ -553,6 +553,9 @@ dependencies = [
  "tar",
  "target-lexicon",
  "tokio",
+ "tokio-stream",
+ "tpchgen",
+ "tpchgen-arrow",
  "tracing",
  "tracing-chrome",
  "tracing-futures",
@@ -5857,6 +5860,20 @@ name = "tower-service"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
+
+[[package]]
+name = "tpchgen"
+version = "1.1.1"
+source = "git+https://github.com/clflushopt/tpchgen-rs.git?rev=d849ff430cd52250f6891ed4d5e3adad77bb2698#d849ff430cd52250f6891ed4d5e3adad77bb2698"
+
+[[package]]
+name = "tpchgen-arrow"
+version = "1.1.1"
+source = "git+https://github.com/clflushopt/tpchgen-rs.git?rev=d849ff430cd52250f6891ed4d5e3adad77bb2698#d849ff430cd52250f6891ed4d5e3adad77bb2698"
+dependencies = [
+ "arrow",
+ "tpchgen",
+]
 
 [[package]]
 name = "tracing"

@@ -19,6 +19,7 @@ use crate::{BenchmarkDataset, datasets};
 pub mod dbgen;
 pub mod duckdb;
 pub mod schema;
+pub mod tpchgen;
 
 use vortex::error::VortexExpect;
 
