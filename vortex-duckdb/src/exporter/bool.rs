@@ -55,8 +55,7 @@ mod tests {
     #[test]
     fn test_bool() {
         let arr = BoolArray::from_iter([true, false, true]);
-
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut chunk = DataChunk::new(&[LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
 
         new_exporter(&arr)
             .unwrap()
@@ -76,7 +75,7 @@ mod tests {
     fn test_bool_long() {
         let arr = BoolArray::from_iter([true; 128]);
 
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut chunk = DataChunk::new(&[LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
 
         new_exporter(&arr)
             .unwrap()
