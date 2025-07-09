@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow};
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
+use futures::{FutureExt, StreamExt, stream};
 use log::info;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
@@ -101,15 +102,17 @@ pub async fn generate_tpch_tables(options: &TpchGenOptions) -> Result<()> {
         ("lineitem", TableGenerator::LineItem),
     ];
 
-    for (table_name, generator) in tables {
-        info!(
-            "Generating {} table for scale factor {} in format: {:?}",
-            table_name, options.scale_factor, options.format
-        );
+    let x = stream::iter(tables)
+        .map(|(table_name, generator)| async move {
+            info!(
+                "Generating {} table for scale factor {} in format: {:?}",
+                table_name, options.scale_factor, options.format
+            );
 
-        // Generate and write files in streaming fashion
-        generate_table_files(table_name, &generator, options).await?;
-    }
+            generate_table_files(table_name, &generator, options).await
+        })
+        .flatten()
+        .collect::<Result<()>>()?;
 
     Ok(())
 }
