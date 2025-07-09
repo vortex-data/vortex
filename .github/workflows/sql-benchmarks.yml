@@ -10,10 +10,35 @@ on:
         required: false
         type: string
         default: c6id.8xlarge
-      scale_factor:
+      benchmark_matrix:
         required: false
-        type: number
-        default: 1
+        type: string
+        description: 'JSON string containing the matrix configuration'
+        default: |
+          [
+            {
+              "id": "tpch-nvme",
+              "subcommand": "tpch",
+              "name": "TPC-H on NVME",
+              "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+              "scale_factor": "--scale-factor 1"
+            },
+            {
+              "id": "clickbench-nvme",
+              "subcommand": "clickbench",
+              "name": "Clickbench on NVME",
+              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+            },
+            {
+              "id": "tpch-s3",
+              "subcommand": "tpch",
+              "name": "TPC-H on S3",
+              "local_dir": "bench-vortex/data/tpch/1",
+              "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/1/",
+              "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet",
+              "scale_factor": "--scale-factor 1"
+            }
+          ]
 
 jobs:
   bench:
@@ -25,26 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Regarding "include:":
-        # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/running-variations-of-jobs-in-a-workflow#example-adding-configurations
-        include:
-          - id: tpch-nvme
-            subcommand: tpch
-            name: TPC-H on NVME
-            targets: "datafusion:arrow,datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
-            scale_factor: "--scale-factor ${{inputs.scale_factor}}"
-          - id: clickbench-nvme
-            subcommand: clickbench
-            name: Clickbench on NVME
-            targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb"
-            scale_factor: ""
-          - id: tpch-s3
-            subcommand: tpch
-            name: TPC-H on S3
-            local_dir: bench-vortex/data/tpch/${{inputs.scale_factor}}
-            remote_storage: s3://vortex-bench-dev-eu/${{github.ref_name}}/tpch/${{inputs.scale_factor}}/
-            targets: "datafusion:parquet,datafusion:vortex,duckdb:parquet"
-            scale_factor: "--scale-factor ${{inputs.scale_factor}}"
+        include: ${{ fromJSON(inputs.benchmark_matrix) }}
 
     runs-on:
       - runs-on=${{ github.run_id }}

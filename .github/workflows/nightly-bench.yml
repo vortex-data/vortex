@@ -18,7 +18,32 @@ jobs:
     with:
       mode: 'develop'
       machine_type: ${{ matrix.machine_type.instance_name }}
-      scale_factor: 100
+      benchmark_matrix: |
+        [
+          {
+            "id": "tpch-nvme",
+            "subcommand": "tpch",
+            "name": "TPC-H on NVME",
+            "targets": ",datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex",
+            "scale_factor": "--scale-factor 100"
+          },
+          {
+            "id": "clickbench-nvme",
+            "subcommand": "clickbench",
+            "name": "Clickbench on NVME",
+            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+            "scale_factor": ""
+          },
+          {
+            "id": "tpch-s3",
+            "subcommand": "tpch",
+            "name": "TPC-H on S3",
+            "local_dir": "bench-vortex/data/tpch/100",
+            "remote_storage": "s3://vortex-bench-dev-eu/develop/tpch/100/",
+            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet",
+            "scale_factor": "--scale-factor 100"
+          }
+        ]
     strategy:
       matrix:
         machine_type:
