@@ -55,7 +55,7 @@ pub static PARTSUPP: LazyLock<Schema> = LazyLock::new(|| {
     Schema::new(vec![
         Field::new("ps_partkey", DataType::Int64, false),
         Field::new("ps_suppkey", DataType::Int64, false),
-        Field::new("ps_availqty", DataType::Int64, false),
+        Field::new("ps_availqty", DataType::Int32, false),
         Field::new("ps_supplycost", DataType::Decimal128(15, 2), false),
         Field::new("ps_comment", DataType::Utf8View, false),
     ])
