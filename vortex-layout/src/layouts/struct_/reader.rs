@@ -20,9 +20,7 @@ use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
 use vortex_expr::transform::replace::replace;
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{
-    ExactExpr, ExprRef, GetItemVTable, Scope, ScopeDType, col, get_item, pack, root,
-};
+use vortex_expr::{ExactExpr, ExprRef, Scope, ScopeDType, col, pack, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -43,7 +41,7 @@ pub struct StructReader {
     expanded_root_expr: ExprRef,
 
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: DashMap<ExactExpr, Arc<PartitionedExpr<FieldName>>>,
+    partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
 }
 
 impl StructReader {
@@ -117,7 +115,7 @@ impl StructReader {
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
-    fn partition_expr(&self, expr: ExprRef) -> Arc<PartitionedExpr<FieldName>> {
+    fn partition_expr(&self, expr: ExprRef) -> Partitioned {
         self.partitioned_expr_cache
             .entry(ExactExpr(expr.clone()))
             .or_insert_with(|| {
@@ -129,7 +127,7 @@ impl StructReader {
 
                 // Partition the expression into expressions that can be evaluated over individual fields
                 let mut partitioned = partition(
-                    expr,
+                    expr.clone(),
                     self.dtype(),
                     annotate_scope_access(
                         self.dtype()
@@ -138,6 +136,19 @@ impl StructReader {
                     ),
                 )
                 .vortex_expect("We should not fail to partition expression over struct fields");
+
+                if partitioned.partitions.len() == 1 {
+                    // If there's only one partition, we step into the field scope of the original
+                    // expression by replacing any `$.a` with `$`.
+                    return Partitioned::Single(
+                        partitioned.partition_names[0].clone(),
+                        replace(
+                            expr.clone(),
+                            &col(partitioned.partition_names[0].clone()),
+                            root(),
+                        ),
+                    );
+                }
 
                 // We now need to process the partitioned expressions to rewrite the root scope
                 // to be that of the field, rather than the struct. In other words, "stepping in"
@@ -149,10 +160,18 @@ impl StructReader {
                     .map(|(e, name)| replace(e.clone(), &col(name.clone()), root()))
                     .collect();
 
-                Arc::new(partitioned)
+                Partitioned::Multi(Arc::new(partitioned))
             })
             .clone()
     }
+}
+
+/// When partitioning an expression, in the case it only has a single partition we can avoid
+/// some cost and just delegate to the child reader directly.
+#[derive(Clone)]
+enum Partitioned {
+    Single(FieldName, ExprRef),
+    Multi(Arc<PartitionedExpr<FieldName>>),
 }
 
 impl LayoutReader for StructReader {
@@ -193,29 +212,16 @@ impl LayoutReader for StructReader {
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        let partitioned = self.partition_expr(expr.clone());
-
-        if partitioned.partition_names.len() == 1 {
-            // If the root expression simply extracts the value from a single partition, then
-            // we can short-circuit and prune directly over that child.
-            if let Some(gi) = partitioned.root.as_opt::<GetItemVTable>() {
-                if gi.field().eq(&partitioned.partition_names[0]) {
-                    return self
-                        .child(&partitioned.partition_names[0])?
-                        .pruning_evaluation(
-                            row_range,
-                            &get_item(
-                                partitioned.partition_names[0].clone(),
-                                partitioned.partitions[0].clone(),
-                            ),
-                        );
-                }
+        match &self.partition_expr(expr.clone()) {
+            Partitioned::Single(name, partition) => {
+                self.child(name)?.pruning_evaluation(row_range, partition)
+            }
+            Partitioned::Multi(_) => {
+                // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
+                //  there's not much we can do? Maybe... it's complicated...
+                Ok(Box::new(NoOpPruningEvaluation))
             }
         }
-
-        // TODO(ngates): if all partitions are boolean, we can use a pruning evaluation. Otherwise
-        //  there's not much we can do? Maybe... it's complicated...
-        Ok(Box::new(NoOpPruningEvaluation))
     }
 
     fn filter_evaluation(
@@ -224,35 +230,42 @@ impl LayoutReader for StructReader {
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        let partitioned = self.partition_expr(expr.clone());
+        match &self.partition_expr(expr.clone()) {
+            Partitioned::Single(name, partition) => {
+                self.child(name)?.filter_evaluation(row_range, partition)
+            }
+            Partitioned::Multi(partitioned) => {
+                // TODO(ngates): for any partition that returns a boolean, we can use a mask evaluation.
 
-        // TODO(ngates): for any partition that returns a boolean, we can use a mask evaluation.
+                // Construct evaluations for each child.
+                let field_evals: Vec<_> = partitioned
+                    .partition_names
+                    .iter()
+                    .zip_eq(partitioned.partitions.iter())
+                    .zip_eq(partitioned.partition_dtypes.iter())
+                    .map(|((name, expr), dtype)| {
+                        let reader = self.child(name)?;
+                        Ok::<_, VortexError>(
+                            if matches!(dtype, DType::Bool(Nullability::NonNullable)) {
+                                // If the partition evaluates to a boolean, we can evaluate it as a mask which
+                                // can often be more efficient since nulls are turned into `false` early on,
+                                // and layouts can perform predicate pruning / indexing.
+                                FieldEval::Mask(reader.filter_evaluation(row_range, expr)?)
+                            } else {
+                                // Otherwise, we evaluate the projection as an array, and combine the results
+                                // at the end.
+                                FieldEval::Array(reader.projection_evaluation(row_range, expr)?)
+                            },
+                        )
+                    })
+                    .try_collect()?;
 
-        // Construct evaluations for each child.
-        let field_evals: Vec<_> = partitioned
-            .partition_names
-            .iter()
-            .zip_eq(partitioned.partitions.iter())
-            .zip_eq(partitioned.partition_dtypes.iter())
-            .map(|((name, expr), dtype)| {
-                let reader = self.child(name)?;
-                Ok::<_, VortexError>(if matches!(dtype, DType::Bool(Nullability::NonNullable)) {
-                    // If the partition evaluates to a boolean, we can evaluate it as a mask which
-                    // can often be more efficient since nulls are turned into `false` early on,
-                    // and layouts can perform predicate pruning / indexing.
-                    FieldEval::Mask(reader.filter_evaluation(row_range, expr)?)
-                } else {
-                    // Otherwise, we evaluate the projection as an array, and combine the results
-                    // at the end.
-                    FieldEval::Array(reader.projection_evaluation(row_range, expr)?)
-                })
-            })
-            .try_collect()?;
-
-        Ok(Box::new(StructMaskEvaluation {
-            partitioned,
-            field_evals,
-        }))
+                Ok(Box::new(StructMaskEvaluation {
+                    partitioned: partitioned.clone(),
+                    field_evals,
+                }))
+            }
+        }
     }
 
     fn projection_evaluation(
@@ -261,38 +274,26 @@ impl LayoutReader for StructReader {
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        let partitioned = self.partition_expr(expr.clone());
+        match &self.partition_expr(expr.clone()) {
+            Partitioned::Single(name, partition) => self
+                .child(name)?
+                .projection_evaluation(row_range, partition),
+            Partitioned::Multi(partitioned) => {
+                // Construct evaluations for each child.
+                let field_evals: Vec<_> = partitioned
+                    .partition_names
+                    .iter()
+                    .zip_eq(partitioned.partitions.iter())
+                    .map(|(name, expr)| self.child(name)?.projection_evaluation(row_range, expr))
+                    .try_collect()?;
 
-        // Short-circuit if there is only one partition
-        if partitioned.partition_names.len() == 1 {
-            if let Some(gi) = partitioned.root.as_opt::<GetItemVTable>() {
-                if gi.field().eq(&partitioned.partition_names[0]) {
-                    return self
-                        .child(&partitioned.partition_names[0])?
-                        .projection_evaluation(
-                            row_range,
-                            &get_item(
-                                partitioned.partition_names[0].clone(),
-                                partitioned.partitions[0].clone(),
-                            ),
-                        );
-                }
+                Ok(Box::new(StructArrayEvaluation {
+                    name: self.name.clone(),
+                    partitioned: partitioned.clone(),
+                    field_evals,
+                }))
             }
         }
-
-        // Construct evaluations for each child.
-        let field_evals: Vec<_> = partitioned
-            .partition_names
-            .iter()
-            .zip_eq(partitioned.partitions.iter())
-            .map(|(name, expr)| self.child(name)?.projection_evaluation(row_range, expr))
-            .try_collect()?;
-
-        Ok(Box::new(StructArrayEvaluation {
-            name: self.name.clone(),
-            partitioned,
-            field_evals,
-        }))
     }
 }
 
