@@ -108,7 +108,7 @@ impl<'a> StructFieldExpressionSplitter<'a> {
             _ => vortex_bail!("Expected a struct dtype, got {:?}", dtype),
         };
 
-        let field_accesses = immediate_scope_accesses(&expr, scope_dtype)?;
+        let field_accesses = immediate_scope_accesses(&expr, scope_dtype);
 
         let mut splitter = StructFieldExpressionSplitter::new(&field_accesses, scope_dtype);
 

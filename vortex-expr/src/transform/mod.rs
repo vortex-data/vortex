@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! A collection of transformations that can be applied to a [`crate::ExprRef`].
-mod access_analysis;
+mod annotations;
 pub mod field_mask;
 pub mod immediate_access;
 pub(crate) mod match_between;
