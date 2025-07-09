@@ -14,10 +14,12 @@ use vortex_array::arrays::StructArray;
 use vortex_array::stats::Precision;
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayContext, ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
+use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
-use vortex_expr::transform::partition::{PartitionedExpr, partition_by_scope_field};
-use vortex_expr::{ExactExpr, ExprRef, Scope, ScopeDType};
+use vortex_expr::transform::immediate_access::annotate_scope_access;
+use vortex_expr::transform::partition::{PartitionedExpr, partition};
+use vortex_expr::transform::replace::replace;
+use vortex_expr::{ExactExpr, ExprRef, Scope, ScopeDType, col, pack, root};
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -33,8 +35,12 @@ pub struct StructReader {
     name: Arc<str>,
     lazy_children: LazyReaderChildren,
 
+    /// A `pack` expression that holds each individual field of the root DType. This expansion
+    /// ensures we can correctly partition expressions over the fields of the struct.
+    expanded_root_expr: ExprRef,
+
     field_lookup: Option<HashMap<FieldName, usize>>,
-    partitioned_expr_cache: DashMap<ExactExpr, Arc<PartitionedExpr>>,
+    partitioned_expr_cache: DashMap<ExactExpr, Arc<PartitionedExpr<FieldName>>>,
 }
 
 impl StructReader {
@@ -59,11 +65,21 @@ impl StructReader {
         let lazy_children =
             LazyReaderChildren::new(layout.children.clone(), segment_source.clone(), ctx.clone());
 
+        // Create an expanded root expression that contains all fields of the struct.
+        let expanded_root_expr = pack(
+            struct_dt
+                .names()
+                .iter()
+                .map(|name| (name.clone(), col(name.clone()))),
+            Nullability::NonNullable,
+        );
+
         // This is where we need to do some complex things with the scan in order to split it into
         // different scans for different fields.
         Ok(Self {
             layout,
             name,
+            expanded_root_expr,
             lazy_children,
             field_lookup,
             partitioned_expr_cache: Default::default(),
@@ -98,16 +114,37 @@ impl StructReader {
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
-    fn partition_expr(&self, expr: ExprRef) -> Arc<PartitionedExpr> {
+    fn partition_expr(&self, expr: ExprRef) -> Arc<PartitionedExpr<FieldName>> {
         self.partitioned_expr_cache
             .entry(ExactExpr(expr.clone()))
             .or_insert_with(|| {
+                // First, we expand the root scope into the fields of the struct to ensure
+                // that partitioning works correctly.
+                let expr = replace(expr.clone(), &root(), self.expanded_root_expr.clone());
+
                 // Partition the expression into expressions that can be evaluated over individual fields
-                Arc::new(
-                    partition_by_scope_field(expr, self.dtype()).vortex_expect(
-                        "We should not fail to partition expression over struct fields",
+                let mut partitioned = partition(
+                    expr,
+                    self.dtype(),
+                    annotate_scope_access(
+                        self.dtype()
+                            .as_struct()
+                            .vortex_expect("We know it's a struct DType"),
                     ),
                 )
+                .vortex_expect("We should not fail to partition expression over struct fields");
+
+                // We now need to process the partitioned expressions to rewrite the root scope
+                // to be that of the field, rather than the struct. In other words, "stepping in"
+                // to the field scope.
+                partitioned.partitions = partitioned
+                    .partitions
+                    .iter()
+                    .zip_eq(partitioned.partition_names.iter())
+                    .map(|(e, name)| replace(e.clone(), &col(name.clone()), root()))
+                    .collect();
+
+                Arc::new(partitioned)
             })
             .clone()
     }
@@ -240,7 +277,7 @@ impl LayoutReader for StructReader {
 }
 
 struct StructMaskEvaluation {
-    partitioned: Arc<PartitionedExpr>,
+    partitioned: Arc<PartitionedExpr<FieldName>>,
     field_evals: Vec<FieldEval>,
 }
 
@@ -287,7 +324,7 @@ impl MaskEvaluation for StructMaskEvaluation {
 
 struct StructArrayEvaluation {
     name: Arc<str>,
-    partitioned: Arc<PartitionedExpr>,
+    partitioned: Arc<PartitionedExpr<FieldName>>,
     field_evals: Vec<Box<dyn ArrayEvaluation>>,
 }
 
