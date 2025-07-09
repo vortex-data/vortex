@@ -32,7 +32,6 @@ jobs:
             "subcommand": "clickbench",
             "name": "Clickbench on NVME",
             "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
-            "scale_factor": ""
           },
           {
             "id": "tpch-s3",
