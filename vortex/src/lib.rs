@@ -47,6 +47,7 @@ mod test {
 
     #[test]
     fn convert() -> VortexResult<()> {
+        // [convert]
         use std::fs::File;
 
         use arrow::array::RecordBatchReader;
