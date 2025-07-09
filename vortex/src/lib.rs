@@ -37,7 +37,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
-    use vortex_array::{IntoArray, TryIntoArray};
+    use vortex_array::{ArrayRef, IntoArray};
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_expr::{gt, lit, root};
@@ -47,7 +47,6 @@ mod test {
 
     #[test]
     fn convert() -> VortexResult<()> {
-        // [convert]
         use std::fs::File;
 
         use arrow::array::RecordBatchReader;
@@ -56,6 +55,7 @@ mod test {
         use vortex::arrays::ChunkedArray;
         use vortex::dtype::DType;
         use vortex::dtype::arrow::FromArrowType;
+        use vortex_array::arrow::FromArrowArray;
 
         let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(
             "../docs/_static/example.parquet",
@@ -64,7 +64,7 @@ mod test {
 
         let dtype = DType::from_arrow(reader.schema());
         let chunks = reader
-            .map(|record_batch| record_batch?.try_into_array())
+            .map_ok(|record_batch| ArrayRef::from_arrow(record_batch, false))
             .try_collect()?;
         let vortex_array = ChunkedArray::try_new(chunks, dtype)?.into_array();
         // [convert]

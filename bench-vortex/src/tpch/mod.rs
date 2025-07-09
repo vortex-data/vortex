@@ -12,7 +12,8 @@ use datafusion::prelude::{CsvReadOptions, SessionContext};
 use object_store::ObjectStore;
 use url::Url;
 use vortex::arrays::ChunkedArray;
-use vortex::{ArrayRef, IntoArray, TryIntoArray};
+use vortex::arrow::FromArrowArray;
+use vortex::{ArrayRef, IntoArray};
 
 use crate::{BenchmarkDataset, datasets};
 
@@ -133,7 +134,7 @@ pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema)
 
     let chunks = record_batches
         .into_iter()
-        .map(|batch| batch.try_into_array().unwrap());
+        .map(|batch| ArrayRef::from_arrow(batch, false));
 
     ChunkedArray::from_iter(chunks).into_array()
 }
