@@ -5,17 +5,23 @@ use std::sync::OnceLock;
 
 use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use prost::Message;
 use tokio::runtime::Runtime;
-use vortex_array::arrow::IntoArrowArray;
-use vortex_array::arrow::record_batch_reader::VortexRecordBatchReader;
-use vortex_array::stream::ArrayStreamExt;
-use vortex_error::VortexExpect;
-use vortex_file::VortexOpenOptions;
+use vortex::ArrayRef;
+use vortex::arrow::IntoArrowArray;
+use vortex::arrow::record_batch_reader::VortexRecordBatchReader;
+use vortex::error::VortexExpect;
+use vortex::expr::deserialize_expr;
+use vortex::file::VortexOpenOptions;
+use vortex::file::scan::ScanBuilder;
+use vortex::proto::expr::Expr;
+use vortex::stream::ArrayStreamExt;
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
 #[cxx::bridge(namespace = "vortex::ffi")]
 mod ffi {
+
     struct ArrowCStructs {
         array: CArrowArray,
         schema: CArrowSchema,
@@ -55,19 +61,72 @@ mod ffi {
         private_data: usize,
     }
 
-    extern "Rust" {
-        type VortexFile;
+    // ScanOptions struct that can be passed from C++ to Rust
+    struct ScanOptions {
+        filter_expr: &'static [u8],
+        has_filter: bool,
+        limit: usize,
+        has_limit: bool,
+    }
 
-        // File operations
+    extern "Rust" {
+        type ArrowArrayStream;
+
+        type VortexFile;
         fn open_file(path: &str) -> Result<Box<VortexFile>>;
         fn file_row_count(file: &VortexFile) -> u64;
+        fn file_scan_builder(file: &VortexFile) -> Result<Box<VortexScanBuilder>>;
         fn file_scan_to_arrow(file: &VortexFile) -> Result<ArrowCStructs>;
         fn file_scan_to_stream(file: &VortexFile) -> Result<CArrowArrayStream>;
+
+        type VortexScanBuilder;
+        // TODO: figure out the best practice for passing &[u8] from C++ to Rust
+        // fn scan_builder_set_filter(
+        //     builder: &mut VortexScanBuilder,
+        //     filter: &'static [u8],
+        // ) -> Result<()>;
+        fn scan_builder_set_limit(builder: &mut VortexScanBuilder, limit: usize);
+        unsafe fn scan_builder_to_stream(
+            builder: Box<VortexScanBuilder>,
+            out_stream: *mut u8,
+        ) -> Result<()>;
     }
 }
 
+/// --- A wrapper around the Vortex file. ---
 pub struct VortexFile {
-    inner: vortex_file::VortexFile,
+    inner: vortex::file::VortexFile,
+}
+
+pub struct VortexScanBuilder {
+    inner: ScanBuilder<ArrayRef>,
+}
+
+pub struct ArrowArrayStream {
+    inner: FFI_ArrowArrayStream,
+}
+
+fn file_scan_builder(
+    file: &VortexFile,
+) -> Result<Box<VortexScanBuilder>, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(Box::new(VortexScanBuilder {
+        inner: file.inner.scan()?,
+    }))
+}
+
+fn scan_builder_set_filter(
+    builder: &mut VortexScanBuilder,
+    filter: &'static [u8],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let filter = deserialize_expr(&Expr::decode(filter)?)
+        .map_err(|e| e.with_context("deserializing filter expr"))?;
+    // The implementation of `take_mut` includes a copy of the inner value, but we assume the compiler can optimize it away.
+    take_mut::take(&mut builder.inner, |inner| inner.with_filter(filter));
+    Ok(())
+}
+
+fn scan_builder_set_limit(builder: &mut VortexScanBuilder, limit: usize) {
+    take_mut::take(&mut builder.inner, |inner| inner.with_limit(limit));
 }
 
 // File operations - using blocking operations for simplicity
@@ -122,4 +181,26 @@ fn file_scan_to_stream(
     // # Safety
     // Arrow C ABI
     Ok(unsafe { std::mem::transmute::<FFI_ArrowArrayStream, ffi::CArrowArrayStream>(stream) })
+}
+
+/// Arrow Rust FFI interplay with C++ best practices refer to:
+/// https://github.com/dora-rs/dora/blob/42775e3612b34d3998b1f7feb7e5df7ec3f8a7bd/examples/c%2B%2B-arrow-dataflow/node-rust-api/main.cc#L12-L19
+/// https://github.com/dora-rs/dora/blob/42775e3612b34d3998b1f7feb7e5df7ec3f8a7bd/apis/c%2B%2B/node/src/lib.rs#L211-L212
+unsafe fn scan_builder_to_stream(
+    builder: Box<VortexScanBuilder>,
+    out_stream: *mut u8,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let iter = builder.inner.into_array_iter()?;
+    let reader = VortexRecordBatchReader::try_new(iter)?;
+    let stream = FFI_ArrowArrayStream::new(Box::new(reader));
+    // Two discarded attempts:
+    // 1. Require unsafe transmute and an intermediate CArrowArrayStream defined in cxx shared types
+    // Ok(unsafe { std::mem::transmute::<FFI_ArrowArrayStream, ffi::CArrowArrayStream>(stream) })
+    // 2. Require Box::new to heap allocate. Also requires an extern Rust type `ArrowArrayStream`.
+    // Ok(Box::new(ArrowArrayStream { inner: stream }))
+    let out_stream = out_stream as *mut FFI_ArrowArrayStream;
+    // # Safety
+    // Arrow C ABI
+    std::ptr::write(out_stream, stream);
+    Ok(())
 }

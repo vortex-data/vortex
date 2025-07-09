@@ -23,6 +23,29 @@ public:
     }
 };
 
+class ScanBuilder {
+public:
+    ScanBuilder(rust::Box<ffi::VortexScanBuilder> impl) : impl_(std::move(impl)) {
+    }
+
+    void set_limit(uint64_t limit) {
+        ffi::scan_builder_set_limit(*impl_, limit);
+    }
+
+    arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> into_stream() {
+        try {
+            ArrowArrayStream stream;
+            ffi::scan_builder_to_stream(std::move(impl_), reinterpret_cast<uint8_t *>(&stream));
+            return arrow::ImportRecordBatchReader(&stream);
+        } catch (const rust::cxxbridge1::Error &e) {
+            throw VortexException(e.what());
+        }
+    }
+
+private:
+    rust::Box<ffi::VortexScanBuilder> impl_;
+};
+
 class VortexFile {
 public:
     static VortexFile open(const std::string &path) {
@@ -43,6 +66,8 @@ public:
     std::pair<ArrowArray, ArrowSchema> scan_to_arrow() const;
 
     arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> scan_to_stream() const;
+
+    ScanBuilder scan_builder() const;
 
 private:
     rust::Box<ffi::VortexFile> impl_;

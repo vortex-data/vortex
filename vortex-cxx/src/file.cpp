@@ -59,4 +59,8 @@ arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> VortexFile::scan_to_str
     }
 }
 
+ScanBuilder VortexFile::scan_builder() const {
+    return ScanBuilder(ffi::file_scan_builder(*impl_));
+}
+
 } // namespace vortex

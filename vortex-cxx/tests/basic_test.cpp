@@ -99,3 +99,44 @@ TEST_F(VortexTest, ScanToStream) {
         ValidateStructArray(struct_array);
     }
 }
+
+
+TEST_F(VortexTest, ScanOptionsWithLimit) {
+    auto file = vortex::VortexFile::open("../target/debug/build/test_data.vortex");
+
+    // Test scan options with limit - single FFI call
+    auto builder = file.scan_builder();
+    builder.set_limit(3);
+    
+    // Test building to stream
+    auto maybe_reader = builder.into_stream();
+    ASSERT_TRUE(maybe_reader.ok()) << "Failed to create RecordBatchReader: "
+                                   << maybe_reader.status().message();
+
+    auto reader = maybe_reader.ValueOrDie();
+    ASSERT_NE(reader, nullptr);
+
+    // Test that we can read record batches
+    auto maybe_batch = reader->Next();
+    ASSERT_TRUE(maybe_batch.ok()) << "Failed to read first batch: " << maybe_batch.status().message();
+
+    auto batch = maybe_batch.ValueOrDie();
+    if (batch != nullptr) {
+        // Should have limited rows (3 instead of 5)
+        ASSERT_EQ(batch->num_rows(), 3);
+        
+        auto struct_array = batch->ToStructArray().ValueOrDie();
+        ASSERT_EQ(struct_array->length(), 3);
+        ASSERT_EQ(struct_array->null_count(), 0);
+        ASSERT_EQ(struct_array->num_fields(), 2);
+
+        // Test field "a" - first 3 values
+        auto field_a = struct_array->field(0);
+        auto int32_array_a = std::static_pointer_cast<arrow::Int32Array>(field_a);
+        ASSERT_EQ(int32_array_a->length(), 3);
+        ASSERT_EQ(int32_array_a->null_count(), 0);
+        ASSERT_EQ(int32_array_a->Value(0), 10);
+        ASSERT_EQ(int32_array_a->Value(1), 20);
+        ASSERT_EQ(int32_array_a->Value(2), 30);
+    }
+}
