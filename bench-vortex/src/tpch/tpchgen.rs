@@ -1,8 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use std::fs;
-/// TPC-H data generation using tpchgen-rs.
-///
-/// This module provides high-performance streaming TPC-H data generation using the tpchgen-rs library.
-/// It supports generating all TPC-H tables for different scale factors with multiple output formats.
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
