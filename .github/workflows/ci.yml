@@ -13,8 +13,8 @@ on:
 permissions:
   actions: read
   contents: read
-  checks: write # audit-check creates checks
-  issues: write # audit-check creates issues
+  checks: write  # audit-check creates checks
+  issues: write  # audit-check creates issues
 
 env:
   CARGO_TERM_COLOR: always
@@ -281,7 +281,12 @@ jobs:
   rust-coverage:
     name: "Rust (coverage)"
     timeout-minutes: 120
-    # if: github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/develop'
+    strategy:
+      matrix:
+        suite:
+          - tests
+          - tpc-h
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -310,10 +315,12 @@ jobs:
         with:
           tool: nextest@0.9.98
       - name: Rust Tests
+        if: ${{ matrix.suite == 'tests' }}
         # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
           cargo nextest run --locked --workspace --all-features --no-fail-fast
-      - name: Run TPCH 0.01
+      - name: Run TPC-H
+        if: ${{ matrix.suite == 'tpc-h' }}
         run: |
           cargo run --bin query_bench -- tpch -i1 --scale-factor 0.01
       - name: Generate coverage report
@@ -323,12 +330,26 @@ jobs:
             --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'bench-vortex/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
-            --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' \
+            --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
+            --ignore 'vortex-ffi/examples/* \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
         with:
+          parallel: true
+          flag-name: run-${{ matrix.suite }}
           file: ${{ env.GRCOV_OUTPUT_FILE }}
+
+  finish-coverage:
+    needs: rust-coverage
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close parallel build
+        uses: coverallsapp/github-action@v2
+        with:
+          parallel-finished: true
+          carryforward: "run-tests,run-tpc-h"
 
   rust-test:
     name: "Rust (tests)"
@@ -533,6 +554,6 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
-      - name: Run TPCH 0.01
+      - name: Run TPC-H at SF 0.01
         run: |
-          cargo run --bin query_bench -- tpch  -i1 --scale-factor 0.1
+          cargo run --bin query_bench -- tpch  -i1 --scale-factor 0.01
