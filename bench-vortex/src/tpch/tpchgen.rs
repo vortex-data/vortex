@@ -9,8 +9,7 @@ use std::pin::Pin;
 use anyhow::{Result, anyhow};
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use futures::TryStreamExt;
-use futures::stream::FuturesUnordered;
+use futures::{StreamExt, TryStreamExt, stream};
 use log::info;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
@@ -103,28 +102,38 @@ pub async fn generate_tpch_tables(options: &TpchGenOptions) -> Result<()> {
         ("lineitem", TableGenerator::LineItem),
     ];
 
-    let futures = FuturesUnordered::new();
+    const MAX_CONCURRENT_FILES: usize = 32;
 
-    for (table_name, generator) in tables {
-        info!(
-            "Generating {} table for scale factor {} in format: {:?}",
-            table_name, options.scale_factor, options.format
-        );
+    let all_futures = tables
+        .iter()
+        .flat_map(|(table_name, generator)| {
+            info!(
+                "Generating {} table for scale factor {} in format: {:?}",
+                table_name, options.scale_factor, options.format
+            );
 
-        match generate_table_files(table_name, generator, options.clone()) {
-            Ok(table_futures) => {
-                for future in table_futures {
-                    futures.push(future);
+            match generate_table_files(table_name, *generator, options.clone()) {
+                Ok(table_futures) => table_futures,
+                Err(e) => {
+                    eprintln!("Error generating table files for {}: {}", table_name, e);
+                    vec![]
                 }
             }
-            Err(e) => {
-                eprintln!("Error generating table files for {}: {}", table_name, e);
-                return Err(e);
-            }
-        }
-    }
+        })
+        .collect::<Vec<_>>();
 
-    futures.try_collect::<Vec<_>>().await?;
+    // Process futures with bounded concurrency
+    // Map each future to a spawned task, then use buffer_unordered to limit concurrency
+    let results: Vec<_> = stream::iter(all_futures)
+        .map(|future| tokio::spawn(async move { future.await }))
+        .buffer_unordered(MAX_CONCURRENT_FILES)
+        .try_collect()
+        .await?;
+
+    // Check all spawned tasks completed successfully
+    for result in results {
+        result?;
+    }
 
     Ok(())
 }
