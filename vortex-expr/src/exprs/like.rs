@@ -10,9 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
-use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
-};
+use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Like);
 
@@ -102,7 +100,7 @@ impl VTable for LikeVTable {
         )
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let input = expr.child().return_dtype(scope)?;
         let pattern = expr.pattern().return_dtype(scope)?;
         Ok(DType::Bool(
@@ -161,7 +159,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{LikeExpr, Scope, ScopeDType, lit, not, root};
+    use crate::{LikeExpr, Scope, lit, not, root};
 
     #[test]
     fn invert_booleans() {
@@ -185,7 +183,7 @@ mod tests {
         let dtype = DType::Utf8(Nullability::NonNullable);
         let like_expr = LikeExpr::new(root(), lit("%test%"), false, false);
         assert_eq!(
-            like_expr.return_dtype(&ScopeDType::new(dtype)).unwrap(),
+            like_expr.return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
     }

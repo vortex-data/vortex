@@ -6,13 +6,13 @@ use std::hash::Hash;
 
 use vortex_array::stats::Stat;
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata, ToCanonical};
-use vortex_dtype::{DType, FieldName};
+use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
 use crate::{
-    AccessPath, AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
-    StatsCatalog, VTable, root, vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, root,
+    vtable,
 };
 
 vtable!(GetItem);
@@ -89,7 +89,7 @@ impl VTable for GetItemVTable {
             .cloned()
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let input = expr.child.return_dtype(scope)?;
         input
             .as_struct()
@@ -151,10 +151,10 @@ impl AnalysisExpr for GetItemExpr {
         catalog.stats_ref(&self.field_path()?, Stat::Min)
     }
 
-    fn field_path(&self) -> Option<AccessPath> {
+    fn field_path(&self) -> Option<FieldPath> {
         self.child()
             .field_path()
-            .map(|fp| AccessPath::new(fp.field_path.push(self.field.clone()), fp.identifier))
+            .map(|fp| fp.push(self.field.clone()))
     }
 }
 

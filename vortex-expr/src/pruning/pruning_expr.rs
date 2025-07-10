@@ -5,37 +5,32 @@ use std::iter;
 
 use itertools::Itertools;
 use vortex_array::stats::Stat;
-use vortex_dtype::{Field, FieldName, FieldPath};
+use vortex_dtype::{Field, FieldName, FieldPath, FieldPathSet};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::relation::Relation;
-use crate::{AccessPath, ExprRef, ScopeFieldPathSet, StatsCatalog, get_item, var};
+use crate::{ExprRef, StatsCatalog, get_item, root};
 
-pub type RequiredStats = Relation<AccessPath, Stat>;
+pub type RequiredStats = Relation<FieldPath, Stat>;
 
 // A catalog that return a stat column whenever it is required
 #[derive(Default)]
 struct AnyStatsCatalog {
-    usage: HashMap<(AccessPath, Stat), ExprRef>,
+    usage: HashMap<(FieldPath, Stat), ExprRef>,
 }
 
 // A catalog that return a stat column if it exists in the given scope.
 struct ScopeStatsCatalog<'a> {
     any_catalog: AnyStatsCatalog,
-    scope_field_paths: &'a ScopeFieldPathSet,
+    field_paths: &'a FieldPathSet,
 }
 
 impl StatsCatalog for ScopeStatsCatalog<'_> {
-    fn stats_ref(&mut self, access_path: &AccessPath, stat: Stat) -> Option<ExprRef> {
-        let set = self.scope_field_paths.set(access_path.identifier())?;
+    fn stats_ref(&mut self, field_path: &FieldPath, stat: Stat) -> Option<ExprRef> {
+        let stat_path = field_path.clone().push(Field::Name(stat.name().into()));
 
-        let stat_path = access_path
-            .field_path
-            .clone()
-            .push(Field::Name(stat.name().into()));
-
-        if set.contains(&stat_path) {
-            self.any_catalog.stats_ref(access_path, stat)
+        if self.field_paths.contains(&stat_path) {
+            self.any_catalog.stats_ref(field_path, stat)
         } else {
             None
         }
@@ -43,11 +38,11 @@ impl StatsCatalog for ScopeStatsCatalog<'_> {
 }
 
 impl StatsCatalog for AnyStatsCatalog {
-    fn stats_ref(&mut self, access_path: &AccessPath, stat: Stat) -> Option<ExprRef> {
-        let mut expr = var(access_path.identifier().clone());
-        let name = field_path_stat_field_name(access_path.field_path(), stat);
+    fn stats_ref(&mut self, field_path: &FieldPath, stat: Stat) -> Option<ExprRef> {
+        let mut expr = root();
+        let name = field_path_stat_field_name(field_path, stat);
         expr = get_item(name, expr);
-        self.usage.insert((access_path.clone(), stat), expr.clone());
+        self.usage.insert((field_path.clone(), stat), expr.clone());
         Some(expr)
     }
 }
@@ -74,7 +69,7 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
     let expr = expr.stat_falsification(&mut catalog)?;
 
     // TODO(joe): filter access by used exprs
-    let mut relation: Relation<AccessPath, Stat> = Relation::new();
+    let mut relation: Relation<FieldPath, Stat> = Relation::new();
     for ((field_path, stat), _) in catalog.usage.into_iter() {
         relation.insert(field_path, stat)
     }
@@ -88,17 +83,17 @@ pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
 /// [["col_0", ..., "col_n", "stat_name"], ...] for each stat.
 pub fn checked_pruning_expr(
     expr: &ExprRef,
-    scope_field_paths: &ScopeFieldPathSet,
+    field_paths: &FieldPathSet,
 ) -> Option<(ExprRef, RequiredStats)> {
     let mut catalog = ScopeStatsCatalog {
         any_catalog: Default::default(),
-        scope_field_paths,
+        field_paths,
     };
 
     let expr = expr.stat_falsification(&mut catalog)?;
 
     // TODO(joe): filter access by used exprs
-    let mut relation: Relation<AccessPath, Stat> = Relation::new();
+    let mut relation: Relation<FieldPath, Stat> = Relation::new();
     for ((field_path, stat), _) in catalog.any_catalog.usage.into_iter() {
         relation.insert(field_path, stat)
     }
@@ -114,8 +109,8 @@ mod tests {
     use crate::pruning::field_path_stat_field_name;
     use crate::pruning::pruning_expr::{HashMap, pruning_expr};
     use crate::{
-        AccessPath, HashSet, and, col, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq,
-        not_eq, or, root,
+        HashSet, and, col, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq, not_eq, or,
+        root,
     };
 
     #[test]
@@ -157,11 +152,11 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    AccessPath::root_field(column.clone()),
+                    FieldPath::from_name(column.clone()),
                     HashSet::from_iter([Stat::Min, Stat::Max])
                 ),
                 (
-                    AccessPath::root_field(other_col.clone()),
+                    FieldPath::from_name(other_col.clone()),
                     HashSet::from_iter([Stat::Max, Stat::Min])
                 )
             ])
@@ -205,11 +200,11 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    AccessPath::root_field(column.clone()),
+                    FieldPath::from_name(column.clone()),
                     HashSet::from_iter([Stat::Min, Stat::Max])
                 ),
                 (
-                    AccessPath::root_field(other_col.clone()),
+                    FieldPath::from_name(other_col.clone()),
                     HashSet::from_iter([Stat::Max, Stat::Min])
                 )
             ])
@@ -252,11 +247,11 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    AccessPath::root_field(column.clone()),
+                    FieldPath::from_name(column.clone()),
                     HashSet::from_iter([Stat::Max])
                 ),
                 (
-                    AccessPath::root_field(other_col.clone()),
+                    FieldPath::from_name(other_col.clone()),
                     HashSet::from_iter([Stat::Min])
                 )
             ])
@@ -284,7 +279,7 @@ mod tests {
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(
-                AccessPath::root_field(column.clone()),
+                FieldPath::from_name(column.clone()),
                 HashSet::from_iter([Stat::Max])
             ),])
         );
@@ -310,11 +305,11 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([
                 (
-                    AccessPath::root_field(column.clone()),
+                    FieldPath::from_name(column.clone()),
                     HashSet::from_iter([Stat::Min])
                 ),
                 (
-                    AccessPath::root_field(other_col.clone()),
+                    FieldPath::from_name(other_col.clone()),
                     HashSet::from_iter([Stat::Max])
                 )
             ])
@@ -342,7 +337,7 @@ mod tests {
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(
-                AccessPath::root_field(column.clone()),
+                FieldPath::from_name(column.clone()),
                 HashSet::from_iter([Stat::Min])
             )])
         );

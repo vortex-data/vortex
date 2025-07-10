@@ -25,11 +25,6 @@ message LiteralOpts {
   vortex.scalar.Scalar value = 1;
 }
 
-// Options for `vortex.var`
-message VarOpts {
-  string var = 1;
-}
-
 // Options for `vortex.pack`
 message PackOpts {
   repeated string paths = 1;

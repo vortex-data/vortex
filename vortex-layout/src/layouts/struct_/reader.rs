@@ -15,7 +15,7 @@ use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
 use vortex_expr::transform::replace::{replace, replace_root_fields};
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ExactExpr, ExprRef, ScopeDType, col, root};
+use vortex_expr::{ExactExpr, ExprRef, col, root};
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
@@ -111,7 +111,7 @@ impl StructReader {
                 // First, we expand the root scope into the fields of the struct to ensure
                 // that partitioning works correctly.
                 let expr = replace(expr.clone(), &root(), self.expanded_root_expr.clone());
-                let expr = simplify_typed(expr, &ScopeDType::new(self.dtype().clone()))
+                let expr = simplify_typed(expr, self.dtype())
                     .vortex_expect("We should not fail to simplify expression over struct fields");
 
                 // Partition the expression into expressions that can be evaluated over individual fields
@@ -170,10 +170,6 @@ impl LayoutReader for StructReader {
 
     fn dtype(&self) -> &DType {
         self.layout.dtype()
-    }
-
-    fn scope_dtype(&self) -> &ScopeDType {
-        self.layout.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {

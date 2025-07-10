@@ -7,8 +7,8 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::ExprRef;
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
-use crate::{ExprRef, Identifier, VarVTable};
 
 pub trait Annotation: Clone + Hash + Eq {}
 
@@ -42,18 +42,6 @@ pub fn descendent_annotations<A: AnnotationFn>(
     };
     expr.accept(&mut visitor).vortex_expect("Infallible");
     visitor.annotations
-}
-
-pub fn variable_scope_annotations<A: Annotation>(
-    expr: &ExprRef,
-    f: impl Fn(&Identifier) -> A,
-) -> Annotations<A> {
-    descendent_annotations(expr, move |node| {
-        if let Some(variable) = node.as_opt::<VarVTable>() {
-            return vec![f(variable.var())];
-        }
-        vec![]
-    })
 }
 
 struct AnnotationVisitor<'a, A: AnnotationFn> {

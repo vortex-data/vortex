@@ -6,7 +6,7 @@ use vortex_array::VTableRegistry;
 use crate::{
     BetweenExprEncoding, BinaryExprEncoding, ExprEncodingRef, GetItemExprEncoding,
     LikeExprEncoding, ListContainsExprEncoding, LiteralExprEncoding, MergeExprEncoding,
-    NotExprEncoding, PackExprEncoding, SelectExprEncoding, VarExprEncoding,
+    NotExprEncoding, PackExprEncoding, RootExprEncoding, SelectExprEncoding,
 };
 
 pub type ExprRegistry = VTableRegistry<ExprEncodingRef>;
@@ -31,7 +31,7 @@ impl ExprRegistryExt for ExprRegistry {
             ExprEncodingRef::new_ref(NotExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(PackExprEncoding.as_ref()),
             ExprEncodingRef::new_ref(SelectExprEncoding.as_ref()),
-            ExprEncodingRef::new_ref(VarExprEncoding.as_ref()),
+            ExprEncodingRef::new_ref(RootExprEncoding.as_ref()),
         ]);
         this
     }

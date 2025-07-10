@@ -11,8 +11,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::{
-    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
-    VTable, vtable,
+    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
 };
 
 vtable!(Between);
@@ -102,7 +101,7 @@ impl VTable for BetweenVTable {
         between_compute(&arr_val, &lower_arr_val, &upper_arr_val, &expr.options)
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let arr_dt = expr.arr.return_dtype(scope)?;
         let lower_dt = expr.lower.return_dtype(scope)?;
         let upper_dt = expr.upper.return_dtype(scope)?;

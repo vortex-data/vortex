@@ -19,7 +19,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     install_module("vortex._lib.expr", &m)?;
 
     m.add_function(wrap_pyfunction!(column, &m)?)?;
-    m.add_function(wrap_pyfunction!(ident, &m)?)?;
+    m.add_function(wrap_pyfunction!(root, &m)?)?;
     m.add_function(wrap_pyfunction!(literal, &m)?)?;
     m.add_class::<PyExpr>()?;
 
@@ -202,10 +202,10 @@ pub fn literal<'py>(
 /// --------
 ///
 ///     >>> import vortex.expr as ve
-///     >>> ve.ident()
-///     ident()
+///     >>> ve.root()
+///     root()
 #[pyfunction]
-pub fn ident() -> PyExpr {
+pub fn root() -> PyExpr {
     PyExpr {
         inner: vortex::expr::root(),
     }

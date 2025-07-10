@@ -10,8 +10,8 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, LiteralVTable, Scope, ScopeDType,
-    StatsCatalog, VTable, and, gt, lit, lt, or, vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, LiteralVTable, Scope, StatsCatalog,
+    VTable, and, gt, lit, lt, or, vtable,
 };
 
 vtable!(ListContains);
@@ -83,7 +83,7 @@ impl VTable for ListContainsVTable {
         )
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         Ok(DType::Bool(
             expr.list.return_dtype(scope)?.nullability()
                 | expr.value.return_dtype(scope)?.nullability(),
@@ -153,16 +153,13 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ArrayRef, IntoArray};
     use vortex_dtype::PType::I32;
-    use vortex_dtype::{Field, FieldPath, FieldPathSet, Nullability, StructFields};
+    use vortex_dtype::{DType, Field, FieldPath, FieldPathSet, Nullability, StructFields};
     use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
 
     use crate::list_contains::list_contains;
     use crate::pruning::checked_pruning_expr;
-    use crate::{
-        AccessPath, Arc, DType, HashSet, Scope, ScopeDType, ScopeFieldPathSet, and, get_item,
-        get_item_scope, gt, lit, lt, or, root,
-    };
+    use crate::{Arc, HashSet, Scope, and, get_item, get_item_scope, gt, lit, lt, or, root};
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
@@ -270,7 +267,7 @@ mod tests {
 
     #[test]
     pub fn test_return_type() {
-        let scope = ScopeDType::new(DType::Struct(
+        let scope = DType::Struct(
             StructFields::new(
                 ["array"].into(),
                 vec![DType::List(
@@ -279,7 +276,7 @@ mod tests {
                 )],
             ),
             Nullability::NonNullable,
-        ));
+        );
 
         let expr = list_contains(get_item("array", root()), lit(2));
 
@@ -303,10 +300,10 @@ mod tests {
 
         let (expr, st) = checked_pruning_expr(
             &expr,
-            &ScopeFieldPathSet::new(FieldPathSet::from_iter([
+            &FieldPathSet::from_iter([
                 FieldPath::from_iter([Field::Name("a".into()), Field::Name("max".into())]),
                 FieldPath::from_iter([Field::Name("a".into()), Field::Name("min".into())]),
-            ])),
+            ]),
         )
         .unwrap();
 
@@ -333,7 +330,7 @@ mod tests {
         assert_eq!(
             st.map(),
             &HashMap::from_iter([(
-                AccessPath::root_field("a".into()),
+                FieldPath::from_name("a"),
                 HashSet::from([Stat::Min, Stat::Max])
             )])
         );

@@ -13,7 +13,6 @@ use vortex_array::stats::{Stat, as_stat_bitset_bytes, stats_from_bitset_bytes};
 use vortex_array::{ArrayContext, DeserializeMetadata, SerializeMetadata};
 use vortex_dtype::{DType, TryFromBytes};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
-use vortex_expr::ScopeDType;
 
 use crate::children::LayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
@@ -44,10 +43,6 @@ impl VTable for ZonedVTable {
 
     fn dtype(layout: &Self::Layout) -> &DType {
         layout.data.dtype()
-    }
-
-    fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {
-        layout.data.scope_dtype()
     }
 
     fn metadata(layout: &Self::Layout) -> Self::Metadata {

@@ -7,7 +7,7 @@ use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Nullability, PType};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
 };
 
 vtable!(RowIdx);
@@ -72,7 +72,7 @@ impl VTable for RowIdxVTable {
         );
     }
 
-    fn return_dtype(_expr: &Self::Expr, _scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(_expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
         Ok(DType::Primitive(PType::U64, Nullability::NonNullable))
     }
 }

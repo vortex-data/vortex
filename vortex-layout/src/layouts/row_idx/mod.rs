@@ -18,7 +18,7 @@ use vortex_dtype::{DType, FieldMask, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
 use vortex_expr::transform::replace::replace;
-use vortex_expr::{ExactExpr, ExprRef, Scope, ScopeDType, is_root, root};
+use vortex_expr::{ExactExpr, ExprRef, Scope, is_root, root};
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
@@ -118,10 +118,6 @@ impl LayoutReader for RowIdxLayoutReader {
 
     fn dtype(&self) -> &DType {
         self.child.dtype()
-    }
-
-    fn scope_dtype(&self) -> &ScopeDType {
-        self.child.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {

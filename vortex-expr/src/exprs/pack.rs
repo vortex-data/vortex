@@ -12,9 +12,7 @@ use vortex_dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
-use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
-};
+use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Pack);
 
@@ -118,7 +116,7 @@ impl VTable for PackVTable {
         Ok(StructArray::try_new(expr.names.clone(), value_arrays, len, validity)?.into_array())
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let value_dtypes = expr
             .values
             .iter()

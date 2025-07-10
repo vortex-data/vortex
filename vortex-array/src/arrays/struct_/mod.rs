@@ -91,6 +91,17 @@ impl StructArray {
         struct_dtype
     }
 
+    /// Create a new `StructArray` with the given length, but without any fields.
+    pub fn new_with_len(len: usize) -> Self {
+        Self::try_new(
+            FieldNames::default(),
+            Vec::new(),
+            len,
+            Validity::NonNullable,
+        )
+        .vortex_expect("StructArray::new_with_len should not fail")
+    }
+
     pub fn try_new(
         names: FieldNames,
         fields: Vec<ArrayRef>,

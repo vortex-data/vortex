@@ -13,7 +13,7 @@ use vortex_array::stats::StatsSet;
 use vortex_dtype::{DType, Field, FieldPath, FieldPathSet};
 use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, Scope, ScopeFieldPathSet};
+use vortex_expr::{ExprRef, Scope};
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
@@ -110,9 +110,7 @@ impl VortexFile {
             },
         ));
 
-        let scope_set = ScopeFieldPathSet::new(set);
-
-        let Some((predicate, required_stats)) = checked_pruning_expr(filter, &scope_set) else {
+        let Some((predicate, required_stats)) = checked_pruning_expr(filter, &set) else {
             return Ok(false);
         };
 
@@ -120,8 +118,8 @@ impl VortexFile {
             required_stats
                 .map()
                 .iter()
-                .filter(|&(path, _)| path.identifier().is_identity())
-                .map(|(path, stats)| (path.field_path().clone(), stats.clone())),
+                .filter(|&(path, _)| path.is_root())
+                .map(|(path, stats)| (path.clone(), stats.clone())),
         );
 
         let Some(file_stats) =
