@@ -41,7 +41,7 @@ jobs:
           yamllint \
               -c yamllint-config.yaml \
               yamllint-config.yaml \
-              .github/workflows
+              .github/
 
   python-lint:
     name: "Python (lint)"
@@ -541,18 +541,18 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
-      # - extras=s3-cache
+      - extras=s3-cache
       - tag=rust-test
     env:
       RUSTFLAGS: "-A warnings"
     steps:
       - uses: runs-on/action@v2
-#        with:
-#          sccache: s3
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Run TPC-H at SF 0.01
         run: |
-          cargo run --bin query_bench -- tpch  -i1 --scale-factor 0.01
+          cargo run --bin query_bench -- tpch -i1 --scale-factor 0.01
