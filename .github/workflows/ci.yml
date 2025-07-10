@@ -6,15 +6,15 @@ concurrency:
 
 on:
   push:
-    branches: [ 'develop' ]
+    branches: ["develop"]
   pull_request: {}
   workflow_dispatch: {}
 
 permissions:
   actions: read
   contents: read
-  checks: write  # audit-check creates checks
-  issues: write  # audit-check creates issues
+  checks: write # audit-check creates checks
+  issues: write # audit-check creates issues
 
 env:
   CARGO_TERM_COLOR: always
@@ -291,7 +291,7 @@ jobs:
       - tag=rust-coverage
     env:
       RUSTFLAGS: "-Cinstrument-coverage -A warnings"
-      CARGO_INCREMENTAL: 0  # Disable incremental compilation to get accurate coverage
+      CARGO_INCREMENTAL: 0 # Disable incremental compilation to get accurate coverage
       LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
       GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
     steps:
@@ -318,7 +318,7 @@ jobs:
         run: |
           rustup component add llvm-tools-preview
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
-            --ignore '../*' --ignore '/*' --ignore 'fuzz/*' \
+            --ignore '../*' --ignore '/*' --ignore 'fuzz/*' --ignore 'bench-vortex/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' \
