@@ -51,4 +51,4 @@ make -j$(nproc)
 
 We use `.clang-tidy` and `.clang-format` to setup converion. Both are borrowed from DuckDB.
 
-`cppcoreguidelines-avoid-non-const-global-variables` is removed from `.clang-tidy` because of GTest violates it.
+`cppcoreguidelines-avoid-non-const-global-variables` is removed from `.clang-tidy` because GTest violates it.

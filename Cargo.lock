@@ -6430,7 +6430,6 @@ dependencies = [
 name = "vortex-ffi"
 version = "0.1.0"
 dependencies = [
- "arrow-array",
  "cbindgen",
  "itertools 0.14.0",
  "log",
