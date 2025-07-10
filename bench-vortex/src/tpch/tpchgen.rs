@@ -144,7 +144,6 @@ enum TableGenerator {
 impl TableGenerator {
     // Returns the size in MBs of the table at scale factor 1, if the table is constant size
     // return None
-    #[allow(dead_code)]
     fn uncompressed_data_size(&self) -> Option<u64> {
         match self {
             TableGenerator::Nation => None,
@@ -221,73 +220,45 @@ fn generate_table_files(
     Ok(futures)
 }
 
+macro_rules! generate_parts {
+    ($prefix:ident, $num_parts:expr, $options:expr) => {{
+        let mut generators: Vec<Box<dyn tpchgen_arrow::RecordBatchIterator>> = Vec::new();
+        let num_parts_i32 = $num_parts.try_into().unwrap();
+        for part in 1..=num_parts_i32 {
+            let generator = paste::paste! {
+                tpchgen_arrow::[<$prefix Arrow>]::new(
+                    [<$prefix Generator>]::new($options.scale_factor, part, num_parts_i32)
+                ).with_batch_size($options.batch_size)
+            };
+            generators.push(Box::new(generator) as Box<dyn tpchgen_arrow::RecordBatchIterator>);
+        }
+        Ok(generators)
+    }};
+}
+
 /// Create a batch iterator for the specified table generator
 #[allow(clippy::cast_possible_truncation)]
 fn create_batch_iterator(
     generator: TableGenerator,
     options: &TpchGenOptions,
 ) -> Result<Vec<Box<dyn RecordBatchIterator>>> {
+    const IDEAL_SIZE_MB: u64 = 600;
+    let num_parts = if let Some(data_size) = generator.uncompressed_data_size() {
+        let file_size = data_size * options.scale_factor as u64;
+        file_size.div_ceil(IDEAL_SIZE_MB)
+    } else {
+        1
+    };
+
     match generator {
-        TableGenerator::Nation => {
-            let generator =
-                tpchgen_arrow::NationArrow::new(NationGenerator::new(options.scale_factor, 1, 1))
-                    .with_batch_size(options.batch_size);
-            Ok(vec![Box::new(generator)])
-        }
-        TableGenerator::Region => {
-            let generator =
-                tpchgen_arrow::RegionArrow::new(RegionGenerator::new(options.scale_factor, 1, 1))
-                    .with_batch_size(options.batch_size);
-            Ok(vec![Box::new(generator)])
-        }
-        TableGenerator::Part => {
-            let generator =
-                tpchgen_arrow::PartArrow::new(PartGenerator::new(options.scale_factor, 1, 1))
-                    .with_batch_size(options.batch_size);
-            Ok(vec![Box::new(generator)])
-        }
-        TableGenerator::Supplier => {
-            let generator = tpchgen_arrow::SupplierArrow::new(SupplierGenerator::new(
-                options.scale_factor,
-                1,
-                1,
-            ))
-            .with_batch_size(options.batch_size);
-            Ok(vec![Box::new(generator)])
-        }
-        TableGenerator::Customer => {
-            let generator = tpchgen_arrow::CustomerArrow::new(CustomerGenerator::new(
-                options.scale_factor,
-                1,
-                1,
-            ))
-            .with_batch_size(options.batch_size);
-            Ok(vec![Box::new(generator)])
-        }
-        TableGenerator::PartSupp => {
-            let generator = tpchgen_arrow::PartSuppArrow::new(PartSuppGenerator::new(
-                options.scale_factor,
-                1,
-                1,
-            ))
-            .with_batch_size(options.batch_size);
-            Ok(vec![Box::new(generator)])
-        }
-        TableGenerator::Orders => {
-            let generator =
-                tpchgen_arrow::OrderArrow::new(OrderGenerator::new(options.scale_factor, 1, 1))
-                    .with_batch_size(options.batch_size);
-            Ok(vec![Box::new(generator)])
-        }
-        TableGenerator::LineItem => {
-            let generator = tpchgen_arrow::LineItemArrow::new(LineItemGenerator::new(
-                options.scale_factor,
-                1,
-                1,
-            ))
-            .with_batch_size(options.batch_size);
-            Ok(vec![Box::new(generator)])
-        }
+        TableGenerator::Nation => generate_parts!(Nation, num_parts, options),
+        TableGenerator::Region => generate_parts!(Region, num_parts, options),
+        TableGenerator::Part => generate_parts!(Part, num_parts, options),
+        TableGenerator::Supplier => generate_parts!(Supplier, num_parts, options),
+        TableGenerator::Customer => generate_parts!(Customer, num_parts, options),
+        TableGenerator::PartSupp => generate_parts!(PartSupp, num_parts, options),
+        TableGenerator::Orders => generate_parts!(Order, num_parts, options),
+        TableGenerator::LineItem => generate_parts!(LineItem, num_parts, options),
     }
 }
 
