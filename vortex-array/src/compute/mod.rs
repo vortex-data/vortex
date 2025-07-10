@@ -29,6 +29,7 @@ pub use mask::*;
 pub use min_max::*;
 pub use nan_count::*;
 pub use numeric::*;
+pub use optimize::*;
 use parking_lot::RwLock;
 pub use sum::*;
 pub use take::*;
@@ -59,6 +60,7 @@ mod mask;
 mod min_max;
 mod nan_count;
 mod numeric;
+mod optimize;
 mod sum;
 mod take;
 

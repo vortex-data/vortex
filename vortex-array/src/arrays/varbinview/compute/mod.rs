@@ -7,6 +7,7 @@ mod is_constant;
 mod is_sorted;
 mod mask;
 mod min_max;
+mod optimize;
 mod take;
 
 #[cfg(test)]
