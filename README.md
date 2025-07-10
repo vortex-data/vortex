@@ -154,8 +154,6 @@ For terms of use, trademark policy, and other project policies please see <https
 ## Acknowledgments 🏆
 
 The Vortex project benefits enormously from groundbreaking work from the academic & open-source communities.
-A core aspiration of the project is to be for file formats what what duckdb is for databases: an extensible
-state-of-the-art baseline on which to conduct new research.
 
 ### Research in Vortex
 
