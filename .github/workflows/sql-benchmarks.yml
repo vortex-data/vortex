@@ -83,18 +83,13 @@ jobs:
         run: |
           cargo build --bin query_bench --package bench-vortex --profile release_debug
 
-      #      - name: Generate data
-      #        shell: bash
-      #        env:
-      #          RUST_BACKTRACE: full
-      #        run: |
-      #          # Generate data, running each query once to make sure they don't panic.
-      #          echo "datafusion:parquet"
-      #          target/release_debug/query_bench ${{ matrix.subcommand }} --targets datafusion:parquet -i1 -d gh-json ${{ matrix.scale_factor }}
-      #          echo "datafusion:vortex"
-      #          target/release_debug/query_bench ${{ matrix.subcommand }} --targets datafusion:vortex -i1 -d gh-json ${{ matrix.scale_factor }}
-      #          echo "duckdb:vortex"
-      #          target/release_debug/query_bench ${{ matrix.subcommand }} --targets duckdb:vortex -i1 -d gh-json ${{ matrix.scale_factor }}
+      - name: Generate data
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          # Generate data, running each query once to make sure they don't panic.
+          target/release_debug/query_bench ${{ matrix.subcommand }} --targets ${{ matrix.targets }} -i1 -d gh-json ${{ matrix.scale_factor }}
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
