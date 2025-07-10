@@ -519,6 +519,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Run TPCH 0.01
         run: |
