@@ -1,6 +1,6 @@
 # Vortex C++ Bindings
 
-This directory contains C++ bindings for Vortex using the [cxx](https://cxx.rs/) crate. The bindings provide a C++ interface to Vortex arrays, data types, scalar values, and file operations.
+This directory contains C++ bindings for Vortex using the [cxx](https://cxx.rs/) crate. The bindings provide a C++ interface to Vortex file operations, including reading into Arrow Array stream with advanced pushdown support.
 
 ## Building
 
