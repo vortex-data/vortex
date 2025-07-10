@@ -217,7 +217,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
                     reader: layout_reader.clone(),
                     projection: projection.clone(),
                     mapper: self.map_fn.clone(),
-                    task_executor: None,
+                    task_executor: self.executor.clone(),
                 });
 
                 if self.limit.is_some_and(|l| l == 0) {
@@ -287,7 +287,10 @@ impl ScanBuilder<ArrayRef> {
     ///
     /// All work will be performed on the current thread, with tasks interleaved per the
     /// configured concurrency. Any configured executor will be ignored.
-    pub fn into_array_iter(self) -> VortexResult<impl ArrayIterator + 'static> {
+    pub fn into_array_iter(mut self) -> VortexResult<impl ArrayIterator + 'static> {
+        // As we're using a `LocalPool` here, we want tasks to actually run fully on the current thread,
+        // so we have to make sure to zero out any currently configured executor.
+        self.executor = None;
         let concurrency = self.concurrency;
 
         let mut local_pool = LocalPool::new();
