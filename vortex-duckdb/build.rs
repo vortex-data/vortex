@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::{env, fs};
 
-const DUCKDB_VERSION: &str = "1.3.0";
+const DUCKDB_VERSION: &str = "1.3.1";
 const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
 
 fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
