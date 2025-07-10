@@ -1,3 +1,0 @@
-[submodule "vortex-duckdb/duckdb"]
-	path = vortex-duckdb/duckdb
-	url = https://github.com/duckdb/duckdb.git
