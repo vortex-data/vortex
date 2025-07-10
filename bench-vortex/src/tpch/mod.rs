@@ -10,7 +10,6 @@ use arrow_schema::Schema;
 use datafusion::datasource::MemTable;
 use datafusion::prelude::{CsvReadOptions, SessionContext};
 use glob::Pattern;
-use object_store::ObjectStore;
 use url::Url;
 use vortex::arrays::ChunkedArray;
 use vortex::arrow::FromArrowArray;
@@ -99,7 +98,6 @@ pub async fn register_arrow(
 
 pub async fn register_parquet(
     session: &SessionContext,
-    _object_store: Arc<dyn ObjectStore>,
     name: &str,
     file: &Url,
     glob: Option<Pattern>,

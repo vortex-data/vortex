@@ -14,7 +14,6 @@ use similar::{ChangeTag, TextDiff};
 use url::Url;
 
 use crate::benchmark_trait::Benchmark;
-use crate::engines::df::make_object_store;
 use crate::engines::{EngineCtx, ddb};
 use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
 use crate::tpch::{
@@ -173,9 +172,6 @@ impl TpcHBenchmark {
         base_dir: &Url,
         format: Format,
     ) -> Result<()> {
-        // Get object store from session
-        let object_store = make_object_store(session, base_dir)?;
-
         let files = vec![
             ("customer", Some(CUSTOMER.clone())),
             ("lineitem", Some(LINEITEM.clone())),
@@ -201,16 +197,7 @@ impl TpcHBenchmark {
             match format {
                 Format::Arrow => register_arrow(session, name, &path, glob).await?,
                 Format::Parquet => {
-                    register_parquet(
-                        session,
-                        object_store.clone(),
-                        name,
-                        &path,
-                        glob,
-                        schema,
-                        &self.dataset(),
-                    )
-                    .await?
+                    register_parquet(session, name, &path, glob, schema, &self.dataset()).await?
                 }
                 Format::OnDiskVortex => {
                     register_vortex_file(session, name, &path, glob, schema, &self.dataset())

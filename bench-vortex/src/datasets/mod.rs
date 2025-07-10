@@ -120,21 +120,33 @@ impl BenchmarkDataset {
                 // TPC-H tables are handled separately
             }
             (BenchmarkDataset::ClickBench { single_file, .. }, Format::Parquet) => {
+                // Use glob pattern for partitioned files, specific file pattern for single file
+                let glob = if *single_file {
+                    glob::Pattern::new("hits_0.parquet")?
+                } else {
+                    glob::Pattern::new("*.parquet")?
+                };
                 clickbench::register_parquet_files(
                     session,
                     "hits",
                     base_url,
                     &clickbench::HITS_SCHEMA,
-                    *single_file,
+                    Some(glob),
                 )?;
             }
             (BenchmarkDataset::ClickBench { single_file, .. }, Format::OnDiskVortex) => {
+                // Use glob pattern for partitioned files, specific file pattern for single file
+                let glob = if *single_file {
+                    Some(glob::Pattern::new("hits_0.vortex")?)
+                } else {
+                    Some(glob::Pattern::new("*.vortex")?)
+                };
                 clickbench::register_vortex_files(
                     session.clone(),
                     "hits",
                     base_url,
                     Some(clickbench::HITS_SCHEMA.clone()),
-                    *single_file,
+                    glob,
                 )
                 .await?;
             }

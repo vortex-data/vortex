@@ -106,34 +106,23 @@ pub async fn generate_tpch_tables(options: &TpchGenOptions) -> Result<()> {
 
     let all_futures = tables
         .iter()
-        .flat_map(|(table_name, generator)| {
+        .map(|(table_name, generator)| {
             info!(
                 "Generating {} table for scale factor {} in format: {:?}",
                 table_name, options.scale_factor, options.format
             );
 
-            match generate_table_files(table_name, *generator, options.clone()) {
-                Ok(table_futures) => table_futures,
-                Err(e) => {
-                    eprintln!("Error generating table files for {}: {}", table_name, e);
-                    vec![]
-                }
-            }
+            generate_table_files(table_name, *generator, options.clone())
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>>>()?;
 
     // Process futures with bounded concurrency
     // Map each future to a spawned task, then use buffer_unordered to limit concurrency
-    let results: Vec<_> = stream::iter(all_futures)
+    stream::iter(all_futures.into_iter().flatten())
         .map(|future| tokio::spawn(future))
         .buffer_unordered(MAX_CONCURRENT_FILES)
-        .try_collect()
+        .try_for_each(|_| async { Ok(()) })
         .await?;
-
-    // Check all spawned tasks completed successfully
-    for result in results {
-        result?;
-    }
 
     Ok(())
 }

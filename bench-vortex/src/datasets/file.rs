@@ -20,7 +20,7 @@ use vortex_datafusion::VortexFormat;
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::BenchmarkDataset;
-use crate::{Format, idempotent_async};
+use crate::idempotent_async;
 
 pub async fn convert_parquet_to_vortex(
     input_path: &Path,
@@ -49,7 +49,6 @@ pub async fn register_parquet_files(
     match dataset {
         BenchmarkDataset::TpcH { .. } => {
             info!("Registering table from {}", &file_url);
-            // ensure_parquet_file_exists(&object_store, file_url)?;
             let format = Arc::new(ParquetFormat::new());
 
             let table_url = ListingTableUrl::try_new(file_url.clone(), glob)?;
@@ -68,31 +67,14 @@ pub async fn register_parquet_files(
 
             session.register_table(table_name, listing_table)?;
         }
-        BenchmarkDataset::ClickBench { single_file, .. } => {
-            // For ClickBench, we use simplified pre-built Parquet registration
-            let format = Arc::new(ParquetFormat::new());
-            let mut parquet_path = dataset.format_path(Format::Parquet, file_url)?;
-
-            if *single_file {
-                parquet_path = parquet_path.join("hits.parquet")?;
-            }
-
-            info!("Registering table from {}", &parquet_path);
-            let table_url = ListingTableUrl::parse(parquet_path)?;
-
-            let config = ListingTableConfig::new(table_url).with_listing_options(
-                ListingOptions::new(format).with_session_config_options(session.state().config()),
-            );
-
-            let config = if let Some(schema) = schema {
-                config.with_schema(schema.into())
-            } else {
-                config.infer_schema(&session.state()).await?
-            };
-
-            let listing_table = Arc::new(ListingTable::try_new(config)?);
-
-            session.register_table(table_name, listing_table)?;
+        BenchmarkDataset::ClickBench { .. } => {
+            crate::clickbench::register_parquet_files(
+                session,
+                table_name,
+                file_url,
+                &crate::clickbench::HITS_SCHEMA,
+                glob,
+            )?;
         }
         _ => todo!(),
     }
@@ -127,13 +109,13 @@ pub async fn register_vortex_files(
 
             session.register_table(table_name, listing_table)?;
         }
-        BenchmarkDataset::ClickBench { single_file, .. } => {
+        BenchmarkDataset::ClickBench { .. } => {
             crate::clickbench::register_vortex_files(
                 session.clone(),
                 table_name,
                 file_url,
                 schema,
-                *single_file,
+                glob,
             )
             .await?;
         }
