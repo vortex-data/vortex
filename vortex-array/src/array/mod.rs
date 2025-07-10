@@ -440,7 +440,36 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn optimize(&self) -> VortexResult<ArrayRef> {
-        <V::OperationsVTable as OperationsVTable<V>>::optimize(&self.0)
+        let result = <V::OperationsVTable as OperationsVTable<V>>::optimize(&self.0)?.into_array();
+
+        #[cfg(debug_assertions)]
+        {
+            let nbytes = self.0.nbytes();
+            let result_nbytes = result.nbytes();
+            assert!(
+                result_nbytes <= nbytes,
+                "optimize() made the array larger: {} bytes -> {} bytes",
+                nbytes,
+                result_nbytes
+            );
+        }
+
+        assert_eq!(
+            self.dtype(),
+            result.dtype(),
+            "optimize() changed DType from {} to {}",
+            self.dtype(),
+            result.dtype()
+        );
+        assert_eq!(
+            result.len(),
+            self.len(),
+            "optimize() changed len from {} to {}",
+            self.len(),
+            result.len()
+        );
+
+        Ok(result)
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
