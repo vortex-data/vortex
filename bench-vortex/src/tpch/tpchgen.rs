@@ -246,21 +246,25 @@ fn create_batch_iterator(
         .uncompressed_data_size()
         .zip(options.max_file_size_mb)
     {
-        let file_size = (data_size as f64 * scale_factor).trunc() as u64;
+        #[allow(clippy::cast_precision_loss)]
+        let file_size = (data_size as f64 * scale_factor).ceil() as u64;
         file_size.div_ceil(max_file_size)
     } else {
         1
     };
 
+    println!("num parts: {num_parts}");
+
+    let batch_size = options.batch_size;
     match generator {
-        TableGenerator::Nation => generate_parts!(Nation, num_parts, scale_factor, options.batch_size),
-        TableGenerator::Region => generate_parts!(Region, num_parts, scale_factor, options.batch_size),
-        TableGenerator::Part => generate_parts!(Part, num_parts, scale_factor, options.batch_size),
-        TableGenerator::Supplier => generate_parts!(Supplier, num_parts, scale_factor, options.batch_size),
-        TableGenerator::Customer => generate_parts!(Customer, num_parts, scale_factor, options.batch_size),
-        TableGenerator::PartSupp => generate_parts!(PartSupp, num_parts, scale_factor, options.batch_size),
-        TableGenerator::Orders => generate_parts!(Order, num_parts, scale_factor, options.batch_size),
-        TableGenerator::LineItem => generate_parts!(LineItem, num_parts, scale_factor, options.batch_size),
+        TableGenerator::Nation => generate_parts!(Nation, num_parts, scale_factor, batch_size),
+        TableGenerator::Region => generate_parts!(Region, num_parts, scale_factor, batch_size),
+        TableGenerator::Part => generate_parts!(Part, num_parts, scale_factor, batch_size),
+        TableGenerator::Supplier => generate_parts!(Supplier, num_parts, scale_factor, batch_size),
+        TableGenerator::Customer => generate_parts!(Customer, num_parts, scale_factor, batch_size),
+        TableGenerator::PartSupp => generate_parts!(PartSupp, num_parts, scale_factor, batch_size),
+        TableGenerator::Orders => generate_parts!(Order, num_parts, scale_factor, batch_size),
+        TableGenerator::LineItem => generate_parts!(LineItem, num_parts, scale_factor, batch_size),
     }
 }
 
