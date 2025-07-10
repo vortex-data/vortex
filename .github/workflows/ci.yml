@@ -279,7 +279,7 @@ jobs:
           cargo hack clippy --no-default-features
 
   rust-coverage:
-    name: "Rust (coverage)"
+    name: "Rust tests (coverage)"
     timeout-minutes: 120
     strategy:
       matrix:
@@ -350,7 +350,7 @@ jobs:
           carryforward: "run-tests,run-tpc-h"
 
   rust-test:
-    name: "Rust (tests)"
+    name: "Rust tests (sanitizer)"
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -476,12 +476,13 @@ jobs:
         working-directory: ./wasm-test
 
   miri:
-    name: "miri"
+    name: "Rust tests (miri)"
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-backtrace=full -Zmiri-disable-isolation
+      MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-env-forward=RUST_BACKTRACE
       RUSTFLAGS: "-A warnings"
+      RUST_BACKTRACE: full
     steps:
       - uses: actions/checkout@v4
         with:
@@ -491,9 +492,13 @@ jobs:
         with:
           tool: nextest@0.9.98
       - name: Run all tests with Miri
-        run: cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout --exclude vortex-sampling-compressor --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr --exclude vortex-scalar --exclude vortex-duckdb --exclude vortex-duckdb-ext
         # For now, we only run Miri against known "fiddly" crates.
         if: false
+        run: |
+          cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout \
+          --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr \
+          --exclude vortex-scalar --exclude vortex-duckdb --exclude vortex-ffi --exclude bench-vortex \
+          --exclude vortex-python --exclude vortex-jni
       - name: Run Miri
         run: cargo miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
 
