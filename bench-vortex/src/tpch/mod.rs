@@ -9,7 +9,7 @@ use anyhow::bail;
 use arrow_schema::Schema;
 use datafusion::datasource::MemTable;
 use datafusion::prelude::{CsvReadOptions, SessionContext};
-use object_store::ObjectStore;
+use glob::Pattern;
 use url::Url;
 use vortex::arrays::ChunkedArray;
 use vortex::arrow::FromArrowArray;
@@ -67,13 +67,18 @@ pub mod named_locks {
 pub async fn register_arrow(
     session: &SessionContext,
     name: &str,
-    file: &Url,
+    file_url: &Url,
+    glob: Option<Pattern>,
 ) -> anyhow::Result<()> {
     // Load Parquet file into memory as Arrow RecordBatch
     // This gives us pure in-memory query performance
-    let df = session
-        .read_parquet(file.as_str(), Default::default())
-        .await?;
+
+    // Must load file from local filesystem into arrow, due to lacking of glob support in object store.
+    assert_eq!(file_url.scheme(), "file");
+
+    let url =
+        file_url.path().to_string() + glob.map(|g| g.to_string()).unwrap_or_default().as_str();
+    let df = session.read_parquet(&url, Default::default()).await?;
 
     // Collect all data into memory
     let record_batches = df.collect().await?;
@@ -82,7 +87,7 @@ pub async fn register_arrow(
     let schema = if !record_batches.is_empty() {
         record_batches[0].schema()
     } else {
-        bail!("No data found in parquet file: {}", file)
+        bail!("No data found in parquet file: {}", url)
     };
 
     let mem_table = MemTable::try_new(schema, vec![record_batches])?;
@@ -93,25 +98,24 @@ pub async fn register_arrow(
 
 pub async fn register_parquet(
     session: &SessionContext,
-    object_store: Arc<dyn ObjectStore>,
     name: &str,
     file: &Url,
+    glob: Option<Pattern>,
     schema: Option<Schema>,
     dataset: &BenchmarkDataset,
 ) -> anyhow::Result<()> {
-    datasets::file::register_parquet_files(session, object_store, name, file, schema, dataset).await
+    datasets::file::register_parquet_files(session, name, file, glob, schema, dataset).await
 }
 
 pub async fn register_vortex_file(
     session: &SessionContext,
-    object_store: Arc<dyn ObjectStore>,
     table_name: &str,
     file: &Url,
+    glob: Option<Pattern>,
     schema: Option<Schema>,
     dataset: &BenchmarkDataset,
 ) -> anyhow::Result<()> {
-    datasets::file::register_vortex_files(session, object_store, table_name, file, schema, dataset)
-        .await
+    datasets::file::register_vortex_files(session, table_name, file, glob, schema, dataset).await
 }
 
 /// Load a table as an uncompressed Vortex array.

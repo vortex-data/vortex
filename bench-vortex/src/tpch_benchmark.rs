@@ -8,12 +8,12 @@ use std::{env, fs};
 
 use anyhow::{Result, anyhow};
 use ddb::DuckDBCtx;
+use glob::Pattern;
 use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
 use url::Url;
 
 use crate::benchmark_trait::Benchmark;
-use crate::engines::df::make_object_store;
 use crate::engines::{EngineCtx, ddb};
 use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
 use crate::tpch::{
@@ -97,7 +97,8 @@ impl Benchmark for TpcHBenchmark {
                 // Use tpchgen for data generation
                 let options =
                     tpchgen::TpchGenOptions::new(self.scale_factor.clone(), &base_data_dir)
-                        .with_format(format);
+                        .with_format(format)
+                        .with_max_file_size_mb(Some(600));
 
                 // Generate data using our streaming tpchgen module
                 let runtime = tokio::runtime::Runtime::new()?;
@@ -173,9 +174,6 @@ impl TpcHBenchmark {
         base_dir: &Url,
         format: Format,
     ) -> Result<()> {
-        // Get object store from session
-        let object_store = make_object_store(session, base_dir)?;
-
         let files = vec![
             ("customer", Some(CUSTOMER.clone())),
             ("lineitem", Some(LINEITEM.clone())),
@@ -195,35 +193,17 @@ impl TpcHBenchmark {
                 format
             };
 
-            let path = base_dir.join(&format!(
-                "{}/{name}.{}",
-                file_format.name(),
-                file_format.ext()
-            ))?;
+            let path = base_dir.join(&(file_format.name().to_string() + "/"))?;
+            let glob = Some(Pattern::new(&format!("{name}_*.{}", file_format.ext()))?);
 
             match format {
-                Format::Arrow => register_arrow(session, name, &path).await?,
+                Format::Arrow => register_arrow(session, name, &path, glob).await?,
                 Format::Parquet => {
-                    register_parquet(
-                        session,
-                        object_store.clone(),
-                        name,
-                        &path,
-                        schema,
-                        &self.dataset(),
-                    )
-                    .await?
+                    register_parquet(session, name, &path, glob, schema, &self.dataset()).await?
                 }
                 Format::OnDiskVortex => {
-                    register_vortex_file(
-                        session,
-                        object_store.clone(),
-                        name,
-                        &path,
-                        schema,
-                        &self.dataset(),
-                    )
-                    .await?
+                    register_vortex_file(session, name, &path, glob, schema, &self.dataset())
+                        .await?
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
                 Format::Csv => todo!("csv unsupported for tpch benchmark"),
