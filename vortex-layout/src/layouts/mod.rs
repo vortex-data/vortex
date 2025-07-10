@@ -14,8 +14,9 @@ pub mod dict;
 pub mod file_stats;
 pub mod filter;
 pub mod flat;
+mod partitioned;
 pub mod repartition;
-pub mod row_id;
+pub mod row_idx;
 pub mod struct_;
 pub mod zoned;
 

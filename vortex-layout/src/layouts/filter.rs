@@ -273,7 +273,10 @@ impl MaskEvaluation for FilterEvaluation {
                 conjunct_mask.true_count() as f64 / mask.true_count() as f64,
             );
 
-            mask = mask.bitand(&conjunct_mask);
+            // NOTE(ngates): the MaskEvaluation documents that it **must** internally perform
+            //  this intersection, so we do not need to do it here again, e.g.
+            //    mask = mask.bitand(&conjunct_mask);
+            mask = conjunct_mask;
         }
 
         Ok(mask)

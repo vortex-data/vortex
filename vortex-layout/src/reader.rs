@@ -77,6 +77,9 @@ pub fn mask_future_ready(mask: Mask) -> MaskFuture {
         .shared()
 }
 
+/// Returns a mask where all false values are proven to be false in the given expression.
+///
+/// The returned mask **does not** need to have been intersected with the input mask.
 #[async_trait]
 pub trait PruningEvaluation: 'static + Send + Sync {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
@@ -92,9 +95,22 @@ impl PruningEvaluation for NoOpPruningEvaluation {
 }
 
 /// Refines the given mask, returning a mask equal in length to the input mask.
+///
+/// ## Post-conditions
+///
+/// The returned mask **MUST** have been intersected with the input mask.
 #[async_trait]
 pub trait MaskEvaluation: 'static + Send + Sync {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
+}
+
+pub struct NoOpMaskEvaluation;
+
+#[async_trait]
+impl MaskEvaluation for NoOpMaskEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        Ok(mask)
+    }
 }
 
 /// Evaluates an expression against an array, returning an array equal in length to the true count
