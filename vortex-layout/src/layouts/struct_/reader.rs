@@ -2,28 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::ops::{BitAnd, Range};
+use std::ops::Range;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use dashmap::DashMap;
-use futures::TryStreamExt;
-use futures::stream::FuturesOrdered;
 use itertools::Itertools;
-use vortex_array::arrays::StructArray;
+use vortex_array::ArrayContext;
 use vortex_array::stats::Precision;
-use vortex_array::validity::Validity;
-use vortex_array::{ArrayContext, ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldMask, FieldName, Nullability, StructFields};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_expr::transform::immediate_access::annotate_scope_access;
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
 use vortex_expr::transform::replace::{replace, replace_root_fields};
 use vortex_expr::transform::simplify_typed::simplify_typed;
-use vortex_expr::{ExactExpr, ExprRef, Scope, ScopeDType, col, root};
-use vortex_mask::Mask;
+use vortex_expr::{ExactExpr, ExprRef, ScopeDType, col, root};
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
 use crate::{
@@ -228,37 +223,11 @@ impl LayoutReader for StructReader {
             Partitioned::Single(name, partition) => {
                 self.child(name)?.filter_evaluation(row_range, partition)
             }
-            Partitioned::Multi(partitioned) => {
-                // TODO(ngates): for any partition that returns a boolean, we can use a mask evaluation.
-
-                // Construct evaluations for each child.
-                let field_evals: Vec<_> = partitioned
-                    .partition_names
-                    .iter()
-                    .zip_eq(partitioned.partitions.iter())
-                    .zip_eq(partitioned.partition_dtypes.iter())
-                    .map(|((name, expr), dtype)| {
-                        let reader = self.child(name)?;
-                        Ok::<_, VortexError>(
-                            if matches!(dtype, DType::Bool(Nullability::NonNullable)) {
-                                // If the partition evaluates to a boolean, we can evaluate it as a mask which
-                                // can often be more efficient since nulls are turned into `false` early on,
-                                // and layouts can perform predicate pruning / indexing.
-                                FieldEval::Mask(reader.filter_evaluation(row_range, expr)?)
-                            } else {
-                                // Otherwise, we evaluate the projection as an array, and combine the results
-                                // at the end.
-                                FieldEval::Array(reader.projection_evaluation(row_range, expr)?)
-                            },
-                        )
-                    })
-                    .try_collect()?;
-
-                Ok(Box::new(StructMaskEvaluation {
-                    partitioned: partitioned.clone(),
-                    field_evals,
-                }))
-            }
+            Partitioned::Multi(partitioned) => Ok(Box::new(PartitionedMaskEvaluation::try_new(
+                partitioned.clone(),
+                |name, expr| self.child(name)?.filter_evaluation(row_range, expr),
+                |name, expr| self.child(name)?.projection_evaluation(row_range, expr),
+            )?)),
         }
     }
 
@@ -272,104 +241,11 @@ impl LayoutReader for StructReader {
             Partitioned::Single(name, partition) => self
                 .child(name)?
                 .projection_evaluation(row_range, partition),
-            Partitioned::Multi(partitioned) => {
-                // Construct evaluations for each child.
-                let field_evals: Vec<_> = partitioned
-                    .partition_names
-                    .iter()
-                    .zip_eq(partitioned.partitions.iter())
-                    .map(|(name, expr)| self.child(name)?.projection_evaluation(row_range, expr))
-                    .try_collect()?;
-
-                Ok(Box::new(StructArrayEvaluation {
-                    name: self.name.clone(),
-                    partitioned: partitioned.clone(),
-                    field_evals,
-                }))
-            }
+            Partitioned::Multi(partitioned) => Ok(Box::new(PartitionedArrayEvaluation::try_new(
+                partitioned.clone(),
+                |name, expr| self.child(name)?.projection_evaluation(row_range, expr),
+            )?)),
         }
-    }
-}
-
-struct StructMaskEvaluation {
-    partitioned: Arc<PartitionedExpr<FieldName>>,
-    field_evals: Vec<FieldEval>,
-}
-
-enum FieldEval {
-    Mask(Box<dyn MaskEvaluation>),
-    Array(Box<dyn ArrayEvaluation>),
-}
-
-#[async_trait]
-impl MaskEvaluation for StructMaskEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        // TODO(ngates): ideally we'd spawn these so the CPU can be utilized more effectively.
-        let field_arrays: Vec<_> = FuturesOrdered::from_iter(self.field_evals.iter().map(|eval| {
-            let mask = mask.clone();
-            async move {
-                match eval {
-                    FieldEval::Mask(eval) => Ok(eval.invoke(mask.clone()).await?.into_array()),
-                    FieldEval::Array(eval) => eval.invoke(Mask::new_true(mask.len())).await,
-                }
-            }
-        }))
-        .try_collect()
-        .await?;
-
-        let root_scope = StructArray::try_new(
-            self.partitioned.partition_names.clone(),
-            field_arrays,
-            mask.len(),
-            Validity::NonNullable,
-        )?
-        .into_array();
-
-        let root_mask = Mask::try_from(
-            self.partitioned
-                .root
-                .evaluate(&Scope::new(root_scope))?
-                .as_ref(),
-        )?;
-        let mask = mask.bitand(&root_mask);
-
-        Ok(mask)
-    }
-}
-
-struct StructArrayEvaluation {
-    name: Arc<str>,
-    partitioned: Arc<PartitionedExpr<FieldName>>,
-    field_evals: Vec<Box<dyn ArrayEvaluation>>,
-}
-
-#[async_trait]
-impl ArrayEvaluation for StructArrayEvaluation {
-    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        log::debug!(
-            "Struct array evaluation {} - {} (mask = {})",
-            self.name,
-            self.partitioned,
-            mask.density()
-        );
-
-        let field_arrays: Vec<_> = FuturesOrdered::from_iter(
-            self.field_evals
-                .iter()
-                .map(|eval| eval.invoke(mask.clone())),
-        )
-        .try_collect()
-        .await?;
-
-        let root_scope = StructArray::try_new(
-            self.partitioned.partition_names.clone(),
-            field_arrays,
-            mask.true_count(),
-            Validity::NonNullable,
-        )?
-        .into_array();
-
-        self.partitioned.root.evaluate(&Scope::new(root_scope))
     }
 }
 

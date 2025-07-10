@@ -6,7 +6,6 @@
 //! The `VortexFile` provides methods for accessing file metadata, creating segment sources for reading
 //! data from the file, and initiating scans to read the file's contents into memory as Vortex arrays.
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
@@ -16,7 +15,6 @@ use vortex_error::VortexResult;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope, ScopeFieldPathSet};
 use vortex_layout::LayoutReader;
-use vortex_layout::layouts::row_id::RowIdLayoutReader;
 use vortex_layout::scan::ScanBuilder;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
@@ -92,7 +90,7 @@ impl VortexFile {
     }
 
     /// Returns true if the expression will never match any rows in the file.
-    pub fn can_prune(&self, filter: &ExprRef, file_idx: u64) -> VortexResult<bool> {
+    pub fn can_prune(&self, filter: &ExprRef) -> VortexResult<bool> {
         let Some((stats, fields)) = self
             .footer
             .statistics()
@@ -112,8 +110,7 @@ impl VortexFile {
             },
         ));
 
-        let mut scope_set = ScopeFieldPathSet::new(set);
-        scope_set = scope_set.with_set_element(RowIdLayoutReader::row_id_stats_field_path_set());
+        let scope_set = ScopeFieldPathSet::new(set);
 
         let Some((predicate, required_stats)) = checked_pruning_expr(filter, &scope_set) else {
             return Ok(false);
@@ -133,14 +130,7 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let scope =
-            Scope::new(file_stats).with_array_pair(RowIdLayoutReader::row_id_stats_set_scope(
-                &Range {
-                    start: 0,
-                    end: self.row_count(),
-                },
-                file_idx,
-            ));
+        let scope = Scope::new(file_stats);
 
         Ok(predicate
             .evaluate(&scope)?
