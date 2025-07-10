@@ -126,7 +126,7 @@ fn validate_scale_factor(val: &str) -> Result<String, String> {
             // Normalize to full decimal format
             let normalized = match n {
                 0.01 => "0.01",
-                0.1 => "0.1", 
+                0.1 => "0.1",
                 1.0 => "1.0",
                 10.0 => "10.0",
                 100.0 => "100.0",
@@ -134,7 +134,7 @@ fn validate_scale_factor(val: &str) -> Result<String, String> {
                 _ => unreachable!(), // Already validated above
             };
             Ok(normalized.to_string())
-        },
+        }
         _ => Err(String::from(
             "Value must be a scale factor of 0.01, 0.1, 1, 10, 100 or 1000",
         )),
