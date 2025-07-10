@@ -7,7 +7,6 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use indicatif::ProgressBar;
-use itertools::Itertools;
 use log::warn;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
