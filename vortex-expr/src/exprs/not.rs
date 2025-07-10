@@ -9,9 +9,7 @@ use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
 
-use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
-};
+use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Not);
 
@@ -73,7 +71,7 @@ impl VTable for NotVTable {
         invert(&child_result)
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let child = expr.child.return_dtype(scope)?;
         if !matches!(child, DType::Bool(_)) {
             vortex_bail!("Not expression expects a boolean child, got: {}", child);
@@ -114,7 +112,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{Scope, ScopeDType, col, not, root, test_harness};
+    use crate::{Scope, col, not, root, test_harness};
 
     #[test]
     fn invert_booleans() {
@@ -138,15 +136,13 @@ mod tests {
         let not_expr = not(root());
         let dtype = DType::Bool(Nullability::NonNullable);
         assert_eq!(
-            not_expr.return_dtype(&ScopeDType::new(dtype)).unwrap(),
+            not_expr.return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
 
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            not(col("bool1"))
-                .return_dtype(&ScopeDType::new(dtype))
-                .unwrap(),
+            not(col("bool1")).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
     }

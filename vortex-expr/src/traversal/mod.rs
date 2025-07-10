@@ -2,11 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod references;
-mod vars;
 mod visitor;
 
 pub use references::ReferenceCollector;
-pub use vars::VarsCollector;
 pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
 

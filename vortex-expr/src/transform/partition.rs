@@ -13,7 +13,7 @@ use crate::transform::annotations::{
 };
 use crate::transform::simplify_typed::simplify_typed;
 use crate::traversal::{FoldDown, FoldUp, FolderMut, MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, GetItemVTable, ScopeDType, get_item, pack, root};
+use crate::{ExprRef, GetItemVTable, get_item, pack, root};
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -50,8 +50,6 @@ where
     let mut partition_annotations = Vec::with_capacity(splitter.sub_expressions.len());
     let mut partition_dtypes = Vec::with_capacity(splitter.sub_expressions.len());
 
-    let scope_dtype = ScopeDType::new(scope.clone());
-
     for (annotation, exprs) in splitter.sub_expressions.into_iter() {
         // We pack all sub-expressions for the same annotation into a single expression.
         let expr = pack(
@@ -64,8 +62,8 @@ where
             Nullability::NonNullable,
         );
 
-        let expr = simplify_typed(expr.clone(), &scope_dtype)?;
-        let expr_dtype = expr.return_dtype(&scope_dtype)?;
+        let expr = simplify_typed(expr.clone(), scope)?;
+        let expr_dtype = expr.return_dtype(scope)?;
 
         partitions.push(expr);
         partition_annotations.push(annotation);
@@ -74,13 +72,13 @@ where
 
     let partition_names =
         FieldNames::from_iter(partition_annotations.iter().map(|id| id.to_string()));
-    let ctx = ScopeDType::new(DType::Struct(
+    let root_scope = DType::Struct(
         StructFields::new(partition_names.clone(), partition_dtypes.clone()),
         Nullability::NonNullable,
-    ));
+    );
 
     Ok(PartitionedExpr {
-        root: simplify_typed(root, &ctx)?,
+        root: simplify_typed(root, &root_scope)?,
         partitions: partitions.into_boxed_slice(),
         partition_names,
         partition_dtypes: partition_dtypes.into_boxed_slice(),
@@ -200,12 +198,6 @@ impl<A: Annotation + Display> FolderMut for StructFieldExpressionSplitter<'_, A>
 }
 
 pub(crate) struct ReplaceAccessesWithChild(Vec<FieldName>);
-
-impl ReplaceAccessesWithChild {
-    pub(crate) fn new(field_names: Vec<FieldName>) -> Self {
-        Self(field_names)
-    }
-}
 
 impl MutNodeVisitor for ReplaceAccessesWithChild {
     type NodeTy = ExprRef;
@@ -342,7 +334,7 @@ mod tests {
             get_item("y", get_item("a", root())),
             select(vec!["a".into(), "b".into()], root()),
         );
-        let expr = simplify_typed(expr, &ScopeDType::new(dtype.clone())).unwrap();
+        let expr = simplify_typed(expr, &dtype).unwrap();
         let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
 
         // One for id.a and id.b

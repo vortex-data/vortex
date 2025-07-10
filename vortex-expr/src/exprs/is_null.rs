@@ -10,9 +10,7 @@ use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
-};
+use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(IsNull);
 
@@ -75,7 +73,7 @@ impl VTable for IsNullVTable {
         }
     }
 
-    fn return_dtype(_expr: &Self::Expr, _scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(_expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
         Ok(DType::Bool(Nullability::NonNullable))
     }
 }
@@ -106,15 +104,13 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::is_null::is_null;
-    use crate::{Scope, ScopeDType, get_item, root, test_harness};
+    use crate::{Scope, get_item, root, test_harness};
 
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
-            is_null(root())
-                .return_dtype(&ScopeDType::new(dtype))
-                .unwrap(),
+            is_null(root()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
     }

@@ -10,8 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::{
-    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
-    VortexExpr,
+    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VortexExpr,
 };
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
@@ -60,7 +59,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef>;
 
     /// Compute the return [`DType`] of the expression if evaluated in the given scope.
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType>;
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType>;
 }
 
 #[macro_export]

@@ -34,7 +34,7 @@ public interface Expression {
     interface Visitor<T> {
         T visitLiteral(Literal<?> literal);
 
-        T visitIdentity(Identity identity);
+        T visitRoot(Root root);
 
         T visitBinary(Binary binary);
 

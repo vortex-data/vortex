@@ -8,8 +8,7 @@ use std::sync::Arc;
 
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexExpect as _, VortexResult};
-use vortex_expr::{Identifier, ScopeDType};
+use vortex_error::VortexResult;
 
 use crate::children::LayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
@@ -38,14 +37,7 @@ impl VTable for ChunkedVTable {
     }
 
     fn dtype(layout: &Self::Layout) -> &DType {
-        layout
-            .scope_dtype
-            .dtype(&Identifier::Identity)
-            .vortex_expect("chunked reader always has a root dtype")
-    }
-
-    fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {
-        &layout.scope_dtype
+        &layout.dtype
     }
 
     fn metadata(_layout: &Self::Layout) -> Self::Metadata {
@@ -104,7 +96,7 @@ pub struct ChunkedLayoutEncoding;
 #[derive(Clone, Debug)]
 pub struct ChunkedLayout {
     row_count: u64,
-    scope_dtype: ScopeDType,
+    dtype: DType,
     children: Arc<dyn LayoutChildren>,
     chunk_offsets: Vec<u64>,
 }
@@ -124,7 +116,7 @@ impl ChunkedLayout {
         );
         Self {
             row_count,
-            scope_dtype: ScopeDType::new(dtype),
+            dtype,
             children,
             chunk_offsets,
         }

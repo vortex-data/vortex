@@ -13,7 +13,7 @@ use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
-use vortex_expr::{ExprRef, ScopeDType};
+use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::children::LayoutChildren;
@@ -29,9 +29,6 @@ pub trait LayoutReader: 'static + Send + Sync {
 
     /// Returns the un-projected dtype of the layout reader.
     fn dtype(&self) -> &DType;
-
-    /// Pruning, filter, and projections are evaluated in this scope.
-    fn scope_dtype(&self) -> &ScopeDType;
 
     /// Returns the number of rows in the layout reader.
     /// An inexact count may be larger or smaller than the actual row count.

@@ -7,13 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import dev.vortex.api.expressions.Binary;
 import dev.vortex.api.expressions.GetItem;
-import dev.vortex.api.expressions.Identity;
+import dev.vortex.api.expressions.Root;
 import dev.vortex.api.expressions.Literal;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+
 import org.junit.jupiter.api.Test;
 
 public final class TestMinimal {
@@ -159,7 +160,7 @@ public final class TestMinimal {
     public void testProjectedScanWithFilter() {
         var filterOptions = ScanOptions.builder()
                 .addColumns("State", "Salary", "Name")
-                .predicate(Binary.eq(GetItem.of(Identity.INSTANCE, "State"), Literal.string("VA")))
+                .predicate(Binary.eq(GetItem.of(Root.INSTANCE, "State"), Literal.string("VA")))
                 .build();
 
         try (var file = Files.open(MINIMAL_PATH);

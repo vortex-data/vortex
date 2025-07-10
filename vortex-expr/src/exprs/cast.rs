@@ -9,9 +9,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 
-use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
-};
+use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Cast);
 
@@ -87,7 +85,7 @@ impl VTable for CastVTable {
         compute_cast(&array, &expr.target)
     }
 
-    fn return_dtype(expr: &Self::Expr, _scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
         Ok(expr.target.clone())
     }
 }
@@ -117,14 +115,14 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::{ExprRef, Scope, ScopeDType, cast, get_item, root, test_harness};
+    use crate::{ExprRef, Scope, cast, get_item, root, test_harness};
 
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
         assert_eq!(
             cast(root(), DType::Bool(Nullability::NonNullable))
-                .return_dtype(&ScopeDType::new(dtype))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );

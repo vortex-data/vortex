@@ -11,9 +11,7 @@ use vortex_array::{Array, ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArra
 use vortex_dtype::{DType, FieldNames, Nullability, StructFields};
 use vortex_error::{VortexExpect as _, VortexResult, vortex_bail};
 
-use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
-};
+use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 vtable!(Merge);
 
@@ -123,7 +121,7 @@ impl VTable for MergeVTable {
         )
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
 

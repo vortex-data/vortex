@@ -172,9 +172,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         // The ultimate short circuit
         if self.limit.is_some_and(|l| l == 0) {
-            let dtype = self
-                .projection
-                .return_dtype(self.layout_reader.scope_dtype())?;
+            let dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
             return Ok((dtype, Vec::new()));
         }
 
@@ -191,14 +189,12 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
         }
 
-        let scope_dtype = layout_reader.scope_dtype();
-
         // Normalize and simplify the expressions.
-        let projection = simplify_typed(self.projection.clone(), scope_dtype)?;
+        let projection = simplify_typed(self.projection.clone(), layout_reader.dtype())?;
         let filter = self
             .filter
             .clone()
-            .map(|f| simplify_typed(f, scope_dtype))
+            .map(|f| simplify_typed(f, layout_reader.dtype()))
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.
@@ -229,7 +225,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             })
             .try_collect()?;
 
-        let dtype = self.projection.return_dtype(layout_reader.scope_dtype())?;
+        let dtype = self.projection.return_dtype(layout_reader.dtype())?;
         Ok((dtype, split_tasks))
     }
 

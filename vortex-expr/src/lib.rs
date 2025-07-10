@@ -41,16 +41,16 @@ pub use not::*;
 pub use operators::*;
 pub use pack::*;
 pub use registry::*;
+pub use root::*;
 pub use scope::*;
 pub use select::*;
-pub use var::*;
 use vortex_array::{Array, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 pub use vtable::*;
 
-use crate::traversal::{Node, ReferenceCollector, VarsCollector};
+use crate::traversal::{Node, ReferenceCollector};
 
 pub trait IntoExpr {
     /// Convert this type into an expression reference.
@@ -93,7 +93,7 @@ pub trait VortexExpr:
     fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef>;
 
     /// Compute the type of the array returned by [`\<dyn VortexExpr\>::evaluate`].
-    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType>;
+    fn return_dtype(&self, scope: &DType) -> VortexResult<DType>;
 }
 
 dyn_eq::eq_trait_object!(VortexExpr);
@@ -124,11 +124,11 @@ impl dyn VortexExpr + '_ {
         let result = self.unchecked_evaluate(scope)?;
         assert_eq!(
             result.dtype(),
-            &self.return_dtype(&scope.into())?,
+            &self.return_dtype(scope.dtype())?,
             "Expression {} returned dtype {} but declared return_dtype of {}",
             self,
             result.dtype(),
-            self.return_dtype(&scope.into())?,
+            self.return_dtype(scope.dtype())?,
         );
         Ok(result)
     }
@@ -137,8 +137,6 @@ impl dyn VortexExpr + '_ {
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
     fn field_references(&self) -> HashSet<FieldName>;
-
-    fn vars(&self) -> HashSet<Identifier>;
 }
 
 impl VortexExprExt for ExprRef {
@@ -147,13 +145,6 @@ impl VortexExprExt for ExprRef {
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector).vortex_unwrap();
         collector.into_fields()
-    }
-
-    fn vars(&self) -> HashSet<Identifier> {
-        let mut collector = VarsCollector::new();
-        // The collector is infallible, so we can unwrap the result
-        self.accept(&mut collector).vortex_unwrap();
-        collector.into_vars()
     }
 }
 
@@ -197,7 +188,7 @@ impl<V: VTable> VortexExpr for ExprAdapter<V> {
         Ok(V::with_children(&self.0, children)?.to_expr())
     }
 
-    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(&self, scope: &DType) -> VortexResult<DType> {
         V::return_dtype(&self.0, scope)
     }
 }
@@ -241,7 +232,7 @@ impl<V: VTable> AnalysisExpr for ExprAdapter<V> {
         <V::Expr as AnalysisExpr>::min(&self.0, catalog)
     }
 
-    fn field_path(&self) -> Option<AccessPath> {
+    fn field_path(&self) -> Option<FieldPath> {
         <V::Expr as AnalysisExpr>::field_path(&self.0)
     }
 }
@@ -252,36 +243,6 @@ mod private {
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for ExprAdapter<V> {}
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct AccessPath {
-    field_path: FieldPath,
-    identifier: Identifier,
-}
-
-impl AccessPath {
-    pub fn root_field(path: FieldName) -> Self {
-        Self {
-            field_path: FieldPath::from_name(path),
-            identifier: Identifier::Identity,
-        }
-    }
-
-    pub fn new(path: FieldPath, identifier: Identifier) -> Self {
-        Self {
-            field_path: path,
-            identifier,
-        }
-    }
-
-    pub fn identifier(&self) -> &Identifier {
-        &self.identifier
-    }
-
-    pub fn field_path(&self) -> &FieldPath {
-        &self.field_path
-    }
 }
 
 /// Splits top level and operations into separate expressions
