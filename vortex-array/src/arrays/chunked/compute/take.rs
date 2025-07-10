@@ -147,6 +147,6 @@ mod test {
 
         assert!(result.is_empty());
         assert_eq!(result.dtype(), arr.dtype());
-        assert_eq!(result.as_slice::<i32>(), &[]);
+        assert!(result.as_slice::<i32>().is_empty());
     }
 }
