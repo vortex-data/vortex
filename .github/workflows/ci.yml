@@ -281,7 +281,6 @@ jobs:
   rust-coverage:
     name: "Rust (coverage)"
     timeout-minutes: 120
-    # if: github.ref == 'refs/heads/develop'
     strategy:
       matrix:
         suite:
