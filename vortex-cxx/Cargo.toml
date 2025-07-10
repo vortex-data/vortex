@@ -18,10 +18,10 @@ arrow-array = { version = "55.0", features = ["ffi"] }
 arrow-schema = "55.0"
 cxx = "1.0"
 futures = { version = "0.3.31", default-features = false }
-tokio = { version = "1.45.1", features = ["rt", "rt-multi-thread", "macros"] }
-vortex = { path = "../vortex", features = ["tokio", "proto"] }
 prost = "0.13.4"
 take_mut = "0.2.2"
+tokio = { version = "1.45.1", features = ["rt", "rt-multi-thread", "macros"] }
+vortex = { path = "../vortex", features = ["tokio", "proto"] }
 
 [build-dependencies]
 cxx-build = "1.0"
