@@ -13,20 +13,14 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for ChunkedVTable {
     fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let nullability = indices.dtype().nullability();
-        let return_dtype = array.dtype().clone().union_nullability(nullability);
-
         let indices = cast(
             indices,
             &DType::Primitive(PType::U64, indices.dtype().nullability()),
         )?
         .to_primitive()?;
 
-        if indices.is_empty() {
-            return Ok(ChunkedArray::try_new(vec![], return_dtype)?.to_array());
-        }
-
         // TODO(joe): Should we split this implementation based on indices nullability?
+        let nullability = indices.dtype().nullability();
         let indices_mask = indices.validity_mask()?;
         let indices = indices.as_slice::<u64>();
 
@@ -34,6 +28,7 @@ impl TakeKernel for ChunkedVTable {
         let mut indices_in_chunk = BufferMut::<u64>::empty();
         let mut start = 0;
         let mut stop = 0;
+        // We assume indices are non-empty as it's handled in the top-level `take` function
         let mut prev_chunk_idx = array.find_chunk_idx(indices[0].try_into()?).0;
         for idx in indices {
             let idx = usize::try_from(*idx)?;
@@ -69,7 +64,11 @@ impl TakeKernel for ChunkedVTable {
             )?);
         }
 
-        Ok(ChunkedArray::new_unchecked(chunks, return_dtype).into_array())
+        Ok(ChunkedArray::new_unchecked(
+            chunks,
+            array.dtype().clone().union_nullability(nullability),
+        )
+        .into_array())
     }
 }
 
