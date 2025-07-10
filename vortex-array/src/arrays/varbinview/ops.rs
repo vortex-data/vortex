@@ -146,24 +146,8 @@ mod tests {
 
         // Verify the data is still correct
         assert_eq!(optimized_array.len(), 2);
-        assert_eq!(
-            &*optimized_array
-                .scalar_at(0)
-                .unwrap()
-                .as_utf8()
-                .value()
-                .unwrap(),
-            "short"
-        );
-        assert_eq!(
-            &*optimized_array
-                .scalar_at(1)
-                .unwrap()
-                .as_utf8()
-                .value()
-                .unwrap(),
-            "tiny"
-        );
+        assert_eq!(optimized_array.scalar_at(0).unwrap(), "short".into());
+        assert_eq!(optimized_array.scalar_at(1).unwrap(), "tiny".into());
     }
 
     #[test]
@@ -195,24 +179,8 @@ mod tests {
 
         // Verify the data is still correct
         assert_eq!(optimized_array.len(), 2);
-        assert_eq!(
-            &*optimized_array
-                .scalar_at(0)
-                .unwrap()
-                .as_utf8()
-                .value()
-                .unwrap(),
-            long_string_1
-        );
-        assert_eq!(
-            &*optimized_array
-                .scalar_at(1)
-                .unwrap()
-                .as_utf8()
-                .value()
-                .unwrap(),
-            long_string_3
-        );
+        assert_eq!(optimized_array.scalar_at(0).unwrap(), long_string_1.into());
+        assert_eq!(optimized_array.scalar_at(1).unwrap(), long_string_3.into());
     }
 
     #[test]
