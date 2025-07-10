@@ -311,7 +311,7 @@ struct VortexWriter {
 impl VortexWriter {
     fn new(path: PathBuf, schema: SchemaRef) -> Result<Self> {
         // limit the number of in flight rows.
-        let (sender, receiver) = mpsc::channel(32);
+        let (sender, receiver) = mpsc::channel(2);
         let dtype = DType::from_arrow(schema);
         let file_path = path;
         let write_task = Some(tokio::spawn(async move {
