@@ -28,7 +28,7 @@ fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> 
     let archive_path = duckdb_dir.join(&archive_name);
 
     // Recreate the duckdb directory
-    fs::remove_dir_all(&duckdb_dir)?;
+    let _ = fs::remove_dir_all(&duckdb_dir);
     fs::create_dir_all(&duckdb_dir)?;
 
     if !archive_path.exists() {
