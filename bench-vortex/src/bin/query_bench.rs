@@ -116,13 +116,13 @@ struct TpcHArgs {
     )]
     targets: Vec<Target>,
 
-    #[arg(long, default_value_t = 1.0, value_parser=validate_scale_factor)]
-    scale_factor: f32,
+    #[arg(long, default_value = "1.0", value_parser=validate_scale_factor)]
+    scale_factor: String,
 }
 
-fn validate_scale_factor(val: &str) -> Result<f32, String> {
+fn validate_scale_factor(val: &str) -> Result<String, String> {
     match val.parse::<f32>() {
-        Ok(n) if [0.01, 0.1, 1., 10., 100., 1000.].contains(&n) => Ok(n),
+        Ok(n) if [0.01, 0.1, 1., 10., 100., 1000.].contains(&n) => Ok(val.to_string()),
         _ => Err(String::from(
             "Value must be a scale factor of 0.01, 0.1, 1, 10, 100 or 1000",
         )),

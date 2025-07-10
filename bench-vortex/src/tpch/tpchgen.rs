@@ -35,8 +35,8 @@ use crate::{Format, IdempotentPath};
 /// Configuration for TPC-H data generation
 #[derive(Debug, Clone)]
 pub struct TpchGenOptions {
-    /// Scale factor (0.1, 1, 10, 100, 1000)
-    pub scale_factor: f64,
+    /// Scale factor (0.01, 0.1, 1, 10, 100, 1000)
+    pub scale_factor: String,
     /// Output directory
     pub output_dir: PathBuf,
     /// Output format
@@ -52,7 +52,7 @@ pub struct TpchGenOptions {
 impl Default for TpchGenOptions {
     fn default() -> Self {
         Self {
-            scale_factor: 1.0,
+            scale_factor: "1.0".to_string(),
             output_dir: "tpch".to_data_path(),
             format: Format::Parquet,
             batch_size: 8192 * 64,
@@ -63,7 +63,7 @@ impl Default for TpchGenOptions {
 }
 
 impl TpchGenOptions {
-    pub fn new(scale_factor: f64, output_dir: impl AsRef<Path>) -> Self {
+    pub fn new(scale_factor: String, output_dir: impl AsRef<Path>) -> Self {
         Self {
             scale_factor,
             output_dir: output_dir.as_ref().to_path_buf(),
@@ -192,10 +192,11 @@ fn create_batch_iterator(
     generator: TableGenerator,
     options: &TpchGenOptions,
 ) -> Result<Box<dyn RecordBatchIterator>> {
+    let scale_factor = options.scale_factor.parse::<f64>()?;
     match generator {
         TableGenerator::Nation => {
             let generator = tpchgen_arrow::NationArrow::new(NationGenerator::new(
-                options.scale_factor,
+                scale_factor,
                 options.partition,
                 options.num_partitions,
             ))
@@ -204,7 +205,7 @@ fn create_batch_iterator(
         }
         TableGenerator::Region => {
             let generator = tpchgen_arrow::RegionArrow::new(RegionGenerator::new(
-                options.scale_factor,
+                scale_factor,
                 options.partition,
                 options.num_partitions,
             ))
@@ -213,7 +214,7 @@ fn create_batch_iterator(
         }
         TableGenerator::Part => {
             let generator = tpchgen_arrow::PartArrow::new(PartGenerator::new(
-                options.scale_factor,
+                scale_factor,
                 options.partition,
                 options.num_partitions,
             ))
@@ -222,7 +223,7 @@ fn create_batch_iterator(
         }
         TableGenerator::Supplier => {
             let generator = tpchgen_arrow::SupplierArrow::new(SupplierGenerator::new(
-                options.scale_factor,
+                scale_factor,
                 options.partition,
                 options.num_partitions,
             ))
@@ -231,7 +232,7 @@ fn create_batch_iterator(
         }
         TableGenerator::Customer => {
             let generator = tpchgen_arrow::CustomerArrow::new(CustomerGenerator::new(
-                options.scale_factor,
+                scale_factor,
                 options.partition,
                 options.num_partitions,
             ))
@@ -240,7 +241,7 @@ fn create_batch_iterator(
         }
         TableGenerator::PartSupp => {
             let generator = tpchgen_arrow::PartSuppArrow::new(PartSuppGenerator::new(
-                options.scale_factor,
+                scale_factor,
                 options.partition,
                 options.num_partitions,
             ))
@@ -249,7 +250,7 @@ fn create_batch_iterator(
         }
         TableGenerator::Orders => {
             let generator = tpchgen_arrow::OrderArrow::new(OrderGenerator::new(
-                options.scale_factor,
+                scale_factor,
                 options.partition,
                 options.num_partitions,
             ))
@@ -258,7 +259,7 @@ fn create_batch_iterator(
         }
         TableGenerator::LineItem => {
             let generator = tpchgen_arrow::LineItemArrow::new(LineItemGenerator::new(
-                options.scale_factor,
+                scale_factor,
                 options.partition,
                 options.num_partitions,
             ))
