@@ -331,7 +331,7 @@ jobs:
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
-            --ignore 'vortex-ffi/examples/* \
+            --ignore 'vortex-ffi/examples/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
@@ -542,14 +542,14 @@ jobs:
       - family=m7i+m7i-flex+m7a
       - cpu=8
       - image=ubuntu24-full-x64
-      - extras=s3-cache
+      # - extras=s3-cache
       - tag=rust-test
     env:
       RUSTFLAGS: "-A warnings -Zsanitizer=address"
     steps:
       - uses: runs-on/action@v2
-        with:
-          sccache: s3
+#        with:
+#          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
