@@ -27,7 +27,7 @@ use vortex_expr::{ExprRef, root};
 use vortex_metrics::VortexMetrics;
 
 use crate::layouts::filter::FilterLayoutReader;
-use crate::layouts::row_id::RowIdLayoutReader;
+use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::tasks::{TaskContext, split_exec};
 use crate::{LayoutReader, LayoutReaderRef};
 
@@ -60,10 +60,9 @@ pub struct ScanBuilder<A> {
     file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<usize>,
-    /// Include the row and file index in the scope of the scan.
-    ///
-    /// See also [crate::layouts::row_id].
-    row_index: bool,
+    /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
+    /// but not by the scan [`Selection`] which remains relative.
+    row_offset: u64,
 }
 
 impl<A: 'static + Send + Sync> ScanBuilder<A> {
@@ -97,8 +96,8 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         self
     }
 
-    pub fn with_row_index(mut self) -> Self {
-        self.row_index = true;
+    pub fn with_row_offset(mut self, row_offset: u64) -> Self {
+        self.row_offset = row_offset;
         self
     }
 
@@ -158,7 +157,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             metrics: self.metrics,
             file_stats: self.file_stats,
             limit: self.limit,
-            row_index: self.row_index,
+            row_offset: self.row_offset,
         }
     }
 
@@ -183,11 +182,13 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         // conjunction splitting if a filter is provided.
         let mut layout_reader = self.layout_reader;
 
+        // Enrich the layout reader to support RowIdx expressions.
+        // Note that this is applied below the filter layout reader since it can perform
+        // better over individual conjunctions.
+        layout_reader = Arc::new(RowIdxLayoutReader::new(self.row_offset, layout_reader));
+
         if self.filter.is_some() {
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
-        }
-        if self.row_index {
-            layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
         }
 
         let scope_dtype = layout_reader.scope_dtype();
@@ -258,7 +259,7 @@ impl ScanBuilder<ArrayRef> {
             metrics: Default::default(),
             file_stats: None,
             limit: None,
-            row_index: false,
+            row_offset: 0,
         }
     }
 
