@@ -12,7 +12,7 @@ use vortex_expr::{
 
 vtable!(RowIdx);
 
-#[derive(Clone, Debug, PartialEq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RowIdxExpr;
 
 impl AnalysisExpr for RowIdxExpr {}

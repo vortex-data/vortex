@@ -278,9 +278,9 @@ typedef struct {
    */
   unsigned long row_range_end;
   /**
-   * The index of the file in a multi-file scan.
+   * The row offset of the file in a multi-file scan.
    */
-  unsigned long file_index;
+  unsigned long row_offset;
 } vx_file_scan_options;
 
 
@@ -544,7 +544,6 @@ const vx_dtype *vx_file_dtype(const vx_file *file);
 bool vx_file_can_prune(const vx_file *file,
                        const char *filter_expression,
                        unsigned int filter_expression_len,
-                       unsigned long file_idx,
                        vx_error **error_out);
 
 /**

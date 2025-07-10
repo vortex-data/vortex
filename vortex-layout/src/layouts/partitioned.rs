@@ -117,7 +117,7 @@ impl<P> PartitionedArrayEvaluation<P> {
             .iter()
             .zip_eq(partitioned.partitions.iter())
             .map(|(annotation, expr)| {
-                Ok::<_, VortexError>(projection_evaluation(annotation, expr)?)
+                projection_evaluation(annotation, expr)
             })
             .try_collect()?;
 

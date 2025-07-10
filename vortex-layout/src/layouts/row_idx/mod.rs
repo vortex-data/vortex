@@ -34,7 +34,7 @@ pub struct RowIdxLayoutReader {
     row_offset: u64,
     child: Arc<dyn LayoutReader>,
 
-    partition_cache: DashMap<ExactExpr, Partitioned>,
+    partition_cache: DashMap<ExactExpr, Partitioning>,
 }
 
 impl RowIdxLayoutReader {
@@ -47,7 +47,7 @@ impl RowIdxLayoutReader {
         }
     }
 
-    fn partition_expr(&self, expr: &ExprRef) -> Partitioned {
+    fn partition_expr(&self, expr: &ExprRef) -> Partitioning {
         self.partition_cache
             .entry(ExactExpr(expr.clone()))
             .or_insert_with(|| {
@@ -67,9 +67,9 @@ impl RowIdxLayoutReader {
                 if partitioned.partitions.len() == 1 {
                     return match &partitioned.partition_annotations[0] {
                         Partition::RowIdx => {
-                            Partitioned::RowIdx(replace(expr.clone(), &row_idx(), root()))
+                            Partitioning::RowIdx(replace(expr.clone(), &row_idx(), root()))
                         }
-                        Partition::Child => Partitioned::Child(expr.clone()),
+                        Partition::Child => Partitioning::Child(expr.clone()),
                     };
                 }
 
@@ -80,14 +80,14 @@ impl RowIdxLayoutReader {
                     .map(|p| replace(p, &row_idx(), root()))
                     .collect();
 
-                Partitioned::Partitioned(Arc::new(partitioned))
+                Partitioning::Partitioned(Arc::new(partitioned))
             })
             .clone()
     }
 }
 
 #[derive(Clone)]
-enum Partitioned {
+enum Partitioning {
     // An expression that only references the row index (e.g., `row_idx == 5`).
     RowIdx(ExprRef),
     // An expression that does not reference the row index.
@@ -148,13 +148,13 @@ impl LayoutReader for RowIdxLayoutReader {
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
         match &self.partition_expr(expr) {
-            Partitioned::RowIdx(expr) => Ok(Box::new(RowIdxEvaluation::new(
+            Partitioning::RowIdx(expr) => Ok(Box::new(RowIdxEvaluation::new(
                 self.row_offset,
                 row_range,
                 expr,
             ))),
-            Partitioned::Child(expr) => self.child.pruning_evaluation(row_range, expr),
-            Partitioned::Partitioned(..) => Ok(Box::new(NoOpPruningEvaluation)),
+            Partitioning::Child(expr) => self.child.pruning_evaluation(row_range, expr),
+            Partitioning::Partitioned(..) => Ok(Box::new(NoOpPruningEvaluation)),
         }
     }
 
@@ -166,9 +166,9 @@ impl LayoutReader for RowIdxLayoutReader {
         match &self.partition_expr(expr) {
             // Since this is run during pruning, we skip re-evaluating the row index expression
             // during the filter evaluation.
-            Partitioned::RowIdx(_) => Ok(Box::new(NoOpMaskEvaluation)),
-            Partitioned::Child(expr) => self.child.filter_evaluation(row_range, expr),
-            Partitioned::Partitioned(p) => Ok(Box::new(PartitionedMaskEvaluation::try_new(
+            Partitioning::RowIdx(_) => Ok(Box::new(NoOpMaskEvaluation)),
+            Partitioning::Child(expr) => self.child.filter_evaluation(row_range, expr),
+            Partitioning::Partitioned(p) => Ok(Box::new(PartitionedMaskEvaluation::try_new(
                 p.clone(),
                 |annotation, expr| match annotation {
                     Partition::RowIdx => Ok(Box::new(RowIdxEvaluation::new(
@@ -196,13 +196,13 @@ impl LayoutReader for RowIdxLayoutReader {
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
         match &self.partition_expr(expr) {
-            Partitioned::RowIdx(expr) => Ok(Box::new(RowIdxEvaluation::new(
+            Partitioning::RowIdx(expr) => Ok(Box::new(RowIdxEvaluation::new(
                 self.row_offset,
                 row_range,
                 expr,
             ))),
-            Partitioned::Child(expr) => self.child.projection_evaluation(row_range, expr),
-            Partitioned::Partitioned(p) => Ok(Box::new(PartitionedArrayEvaluation::try_new(
+            Partitioning::Child(expr) => self.child.projection_evaluation(row_range, expr),
+            Partitioning::Partitioned(p) => Ok(Box::new(PartitionedArrayEvaluation::try_new(
                 p.clone(),
                 |annotation, expr| match annotation {
                     Partition::RowIdx => Ok(Box::new(RowIdxEvaluation::new(
