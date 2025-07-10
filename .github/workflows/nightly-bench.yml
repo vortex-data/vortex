@@ -44,7 +44,7 @@ jobs:
           }
         ]
     strategy:
-      # A single run should kill the others
+      # A single run not should kill the others
       fail-fast: false
       matrix:
         # currently 100 is failing I hope to address this.
