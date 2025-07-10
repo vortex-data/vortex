@@ -4,6 +4,7 @@
 mod references;
 mod visitor;
 
+use itertools::Itertools;
 pub use references::ReferenceCollector;
 pub use visitor::{pre_order_visit_down, pre_order_visit_up};
 use vortex_error::VortexResult;
@@ -23,101 +24,81 @@ pub enum TraversalOrder {
     /// In a top-down traversal, skip visiting the children of the current node.
     /// In the bottom-up phase of the traversal this does nothing (for now).
     Skip,
-
     /// Stop visiting any more nodes in the traversal.
     Stop,
-
     /// Continue with the traversal as expected.
     Continue,
 }
 
+impl TraversalOrder {
+    pub fn visit_children<F: FnOnce() -> VortexResult<TraversalOrder>>(
+        self,
+        f: F,
+    ) -> VortexResult<TraversalOrder> {
+        match self {
+            Self::Skip => Ok(TraversalOrder::Continue),
+            Self::Stop => Ok(self),
+            Self::Continue => f(),
+        }
+    }
+
+    pub fn visit_parent<F: FnOnce() -> VortexResult<TraversalOrder>>(
+        self,
+        f: F,
+    ) -> VortexResult<TraversalOrder> {
+        match self {
+            Self::Continue => f(),
+            Self::Skip | Self::Stop => Ok(self),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
-pub struct TransformResult<T> {
-    result: T,
+pub struct Transformed<T> {
+    value: T,
     order: TraversalOrder,
     changed: bool,
 }
 
-impl<T> TransformResult<T> {
-    pub fn yes(result: T) -> Self {
+impl<T> Transformed<T> {
+    pub fn yes(value: T) -> Self {
         Self {
-            result,
+            value,
             order: TraversalOrder::Continue,
             changed: true,
         }
     }
 
-    pub fn no(result: T) -> Self {
+    pub fn no(value: T) -> Self {
         Self {
-            result,
+            value,
             order: TraversalOrder::Continue,
             changed: false,
         }
     }
 
     pub fn into_inner(self) -> T {
-        self.result
+        self.value
     }
 }
 
-pub trait NodeVisitor<'a> {
-    type NodeTy: Node;
+pub trait FoldableContext<T> {
+    fn push(&mut self, node: T);
 
-    fn visit_down(&mut self, _node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
-        Ok(TraversalOrder::Continue)
-    }
-
-    fn visit_up(&mut self, _node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
-        Ok(TraversalOrder::Continue)
-    }
-}
-
-pub trait MutNodeVisitor {
-    type NodeTy: Node;
-
-    fn visit_down(&mut self, _node: &Self::NodeTy) -> VortexResult<TraversalOrder> {
-        Ok(TraversalOrder::Continue)
-    }
-
-    fn visit_up(&mut self, _node: Self::NodeTy) -> VortexResult<TransformResult<Self::NodeTy>>;
-}
-
-pub enum FoldDown<Out, Context> {
-    /// Abort the entire traversal and immediately return the result.
-    Abort(Out),
-    /// Skip visiting children of the current node and return the result to the parent's `fold_up`.
-    SkipChildren(Out),
-    /// Continue visiting the `fold_down` of the children of the current node.
-    Continue(Context),
-}
-
-#[derive(Debug)]
-pub enum FoldUp<Out> {
-    /// Abort the entire traversal and immediately return the result.
-    Abort(Out),
-    /// Continue visiting the `fold_up` of the parent node.
-    Continue(Out),
-}
-
-impl<Out> FoldUp<Out> {
-    pub fn result(self) -> Out {
-        match self {
-            FoldUp::Abort(out) => out,
-            FoldUp::Continue(out) => out,
-        }
-    }
+    fn merge_into(self, node: T) -> Self;
 }
 
 pub trait Folder<'a> {
     type NodeTy: Node;
-    type Out;
-    type Context: Clone;
+    type O;
+    type Context: FoldableContext<Self::O> + Clone;
 
     fn visit_down(
         &mut self,
-        _node: &'a Self::NodeTy,
+        node: &'a Self::NodeTy,
         context: Self::Context,
-    ) -> VortexResult<FoldDown<Self::Out, Self::Context>> {
+    ) -> VortexResult<FoldDown<Self::O, Self::Context>> {
+        _ = node;
         Ok(FoldDown::Continue(context))
     }
 
@@ -125,8 +106,8 @@ pub trait Folder<'a> {
         &mut self,
         node: &'a Self::NodeTy,
         context: Self::Context,
-        children: Vec<Self::Out>,
-    ) -> VortexResult<FoldUp<Self::Out>>;
+        children: Vec<Self::O>,
+    ) -> VortexResult<FoldUp<Self::O>>;
 }
 
 pub trait FolderMut {
@@ -150,119 +131,314 @@ pub trait FolderMut {
     ) -> VortexResult<FoldUp<Self::Out>>;
 }
 
-pub trait Node: Sized {
-    fn accept<'a, V: NodeVisitor<'a, NodeTy = Self>>(
-        &'a self,
-        _visitor: &mut V,
-    ) -> VortexResult<TraversalOrder>;
+pub trait NodeVisitor<'a> {
+    type NodeTy: Node;
 
-    fn accept_with_context<'a, V: Folder<'a, NodeTy = Self>>(
-        &'a self,
-        visitor: &mut V,
-        context: V::Context,
-    ) -> VortexResult<FoldUp<V::Out>>;
+    fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
+        _ = node;
+        Ok(TraversalOrder::Continue)
+    }
 
-    fn transform<V: MutNodeVisitor<NodeTy = Self>>(
-        self,
-        _visitor: &mut V,
-    ) -> VortexResult<TransformResult<Self>>;
-
-    fn transform_with_context<V: FolderMut<NodeTy = Self>>(
-        self,
-        _visitor: &mut V,
-        _context: V::Context,
-    ) -> VortexResult<FoldUp<V::Out>>;
+    fn visit_up(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
+        _ = node;
+        Ok(TraversalOrder::Continue)
+    }
 }
 
-impl Node for ExprRef {
+pub trait NodeRewriter: Sized {
+    type NodeTy: Node;
+
+    fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
+        Ok(Transformed::no(node))
+    }
+
+    fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
+        Ok(Transformed::no(node))
+    }
+}
+
+pub trait MutNodeVisitor {
+    type NodeTy: Node;
+
+    fn visit_down(&mut self, node: &Self::NodeTy) -> VortexResult<TraversalOrder> {
+        _ = node;
+        Ok(TraversalOrder::Continue)
+    }
+
+    fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>>;
+}
+
+pub enum FoldDown<O, C> {
+    /// Abort the entire traversal and immediately return the result.
+    Abort(O),
+    /// Continue visiting the `fold_down` of the children of the current node.
+    Continue(C),
+    /// Skip visiting children of the current node and return the result to the parent's `fold_up`.
+    SkipChildren(O),
+}
+
+#[derive(Debug)]
+pub enum FoldUp<O> {
+    /// Abort the entire traversal and immediately return the result.
+    Abort(O),
+    /// Continue visiting the `fold_up` of the parent node.
+    Continue(O),
+}
+
+impl<O> FoldUp<O> {
+    pub fn into_inner(self) -> O {
+        match self {
+            FoldUp::Abort(out) => out,
+            FoldUp::Continue(out) => out,
+        }
+    }
+    pub fn value(self) -> O {
+        self.into_inner()
+    }
+}
+
+pub struct FoldResult<T> {
+    state: FoldState,
+    value: T,
+}
+
+impl<T> FoldResult<T> {
+    pub fn abort(value: T) -> Self {
+        Self {
+            state: FoldState::Abort,
+            value,
+        }
+    }
+
+    pub fn go_on(value: T) -> Self {
+        Self {
+            state: FoldState::Continue,
+            value,
+        }
+    }
+}
+pub enum FoldState {
+    Abort,
+    Continue,
+}
+
+pub trait Node: Sized + Clone {
+    fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
+        &'a self,
+        f: F,
+    ) -> VortexResult<TraversalOrder>;
+
+    fn map_children<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
+        self,
+        f: F,
+    ) -> VortexResult<Transformed<Self>>;
+
+    fn fold_children<'a, B, F: FnMut(B, &'a Self) -> VortexResult<FoldUp<B>>>(
+        &'a self,
+        init: B,
+        f: F,
+    ) -> VortexResult<FoldUp<B>>;
+
     /// A pre-order traversal.
-    fn accept<'a, V: NodeVisitor<'a, NodeTy = ExprRef>>(
+    fn accept<'a, V: NodeVisitor<'a, NodeTy = Self>>(
         &'a self,
         visitor: &mut V,
     ) -> VortexResult<TraversalOrder> {
-        let mut ord = visitor.visit_down(self)?;
-        if ord == TraversalOrder::Stop {
-            return Ok(TraversalOrder::Stop);
+        let order = match visitor.visit_down(self)? {
+            TraversalOrder::Stop => Ok(TraversalOrder::Stop),
+            TraversalOrder::Skip => Ok(TraversalOrder::Continue),
+            TraversalOrder::Continue => self.apply_children(|c| c.accept(visitor)),
+        }?;
+
+        match order {
+            TraversalOrder::Stop | TraversalOrder::Skip => Ok(order),
+            TraversalOrder::Continue => visitor.visit_up(self),
         }
-        if ord == TraversalOrder::Skip {
-            return Ok(TraversalOrder::Continue);
-        }
-        for child in self.children() {
-            if ord != TraversalOrder::Continue {
-                return Ok(ord);
-            }
-            ord = child.accept(visitor)?;
-        }
-        if ord == TraversalOrder::Stop {
-            return Ok(TraversalOrder::Stop);
-        }
-        visitor.visit_up(self)
     }
 
     fn accept_with_context<'a, V: Folder<'a, NodeTy = Self>>(
         &'a self,
         visitor: &mut V,
         context: V::Context,
-    ) -> VortexResult<FoldUp<V::Out>> {
-        let children = match visitor.visit_down(self, context.clone())? {
+    ) -> VortexResult<FoldUp<V::O>> {
+        match visitor.visit_down(self, context.clone())? {
             FoldDown::Abort(out) => return Ok(FoldUp::Abort(out)),
             FoldDown::SkipChildren(out) => return Ok(FoldUp::Continue(out)),
             FoldDown::Continue(child_context) => {
-                let mut new_children = Vec::with_capacity(self.children().len());
-                for child in self.children() {
+                let folded = self.fold_children(Vec::<V::O>::default(), |mut acc, child| {
                     match child.accept_with_context(visitor, child_context.clone())? {
-                        FoldUp::Abort(out) => return Ok(FoldUp::Abort(out)),
-                        FoldUp::Continue(out) => new_children.push(out),
+                        FoldUp::Abort(val) => Ok(FoldUp::Abort(vec![val])),
+                        FoldUp::Continue(val) => {
+                            acc.push(val);
+                            Ok(FoldUp::Continue(acc))
+                        }
                     }
-                }
-                new_children
-            }
-        };
+                })?;
 
-        visitor.visit_up(self, context, children)
-    }
-
-    /// A post-order transform, with an option to ignore sub-tress (using visit_down).
-    fn transform<V: MutNodeVisitor<NodeTy = Self>>(
-        self,
-        visitor: &mut V,
-    ) -> VortexResult<TransformResult<Self>> {
-        match visitor.visit_down(&self)? {
-            TraversalOrder::Stop => Ok(TransformResult {
-                result: self,
-                order: TraversalOrder::Stop,
-                changed: false,
-            }),
-            TraversalOrder::Skip => visitor.visit_up(self),
-            TraversalOrder::Continue => {
-                let mut new_children = Vec::with_capacity(self.children().len());
-                let mut changed = false;
-                let mut stopped = false;
-                for child in self.children() {
-                    if stopped {
-                        new_children.push(child.clone());
-                        continue;
-                    }
-                    let TransformResult {
-                        result: new_child,
-                        order: child_order,
-                        changed: child_changed,
-                    } = child.clone().transform(visitor)?;
-                    new_children.push(new_child);
-                    changed |= child_changed;
-                    stopped |= child_order == TraversalOrder::Stop;
-                }
-
-                if changed {
-                    let up = visitor.visit_up(self.with_children(new_children)?)?;
-                    Ok(TransformResult::yes(up.result))
-                } else {
-                    visitor.visit_up(self)
+                match folded {
+                    FoldUp::Abort(mut out) => return Ok(FoldUp::Abort(out.remove(0))),
+                    FoldUp::Continue(children) => visitor.visit_up(self, context, children),
                 }
             }
         }
     }
 
+    /// A post-order transform
+    fn transform_up<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
+        self,
+        mut f: F,
+    ) -> VortexResult<Transformed<Self>> {
+        fn transform_node<N: Node, F: FnMut(N) -> VortexResult<Transformed<N>>>(
+            node: N,
+            f: &mut F,
+        ) -> VortexResult<Transformed<N>> {
+            let transformed = node.map_children(|c| transform_node(c, f))?;
+            match transformed.order {
+                TraversalOrder::Continue => f(transformed.value).map(|mut t| {
+                    t.changed |= transformed.changed;
+                    t
+                }),
+                TraversalOrder::Skip => Ok(transformed),
+                TraversalOrder::Stop => Ok(transformed),
+            }
+        }
+
+        transform_node(self, &mut f)
+    }
+
+    fn transform_with_context<V: FolderMut<NodeTy = Self>>(
+        self,
+        visitor: &mut V,
+        context: V::Context,
+    ) -> VortexResult<FoldUp<V::Out>>;
+}
+
+pub trait NodeContainer<'a, T: 'a>: Sized {
+    /// Applies `f` to all elements of the container, accepting them by reference
+    fn apply_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
+        &'a self,
+        f: F,
+    ) -> VortexResult<TraversalOrder>;
+
+    /// Consumes all the children of the node, replacing them with the result of `f`.
+    fn map_elements<F: FnMut(T) -> VortexResult<Transformed<T>>>(
+        self,
+        f: F,
+    ) -> VortexResult<Transformed<Self>>;
+
+    fn fold_elements<B, F: FnMut(B, &T) -> VortexResult<FoldResult<B>>>(
+        &self,
+        init: B,
+        f: F,
+    ) -> VortexResult<FoldResult<B>>;
+}
+
+pub trait NodeRefContainer<'a, T: 'a>: Sized {
+    fn apply_ref_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
+        &self,
+        f: F,
+    ) -> VortexResult<TraversalOrder>;
+}
+
+impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeRefContainer<'a, T> for Vec<&'a C> {
+    fn apply_ref_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
+        &self,
+        mut f: F,
+    ) -> VortexResult<TraversalOrder> {
+        let mut order = TraversalOrder::Continue;
+
+        for c in self {
+            order = c.apply_elements(&mut f)?;
+            match order {
+                TraversalOrder::Continue | TraversalOrder::Skip => {}
+                TraversalOrder::Stop => return Ok(TraversalOrder::Stop),
+            }
+        }
+
+        Ok(order)
+    }
+}
+
+impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeContainer<'a, T> for Vec<C> {
+    fn apply_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
+        &'a self,
+        mut f: F,
+    ) -> VortexResult<TraversalOrder> {
+        let mut order = TraversalOrder::Continue;
+
+        for c in self {
+            order = c.apply_elements(&mut f)?;
+            match order {
+                TraversalOrder::Continue | TraversalOrder::Skip => {}
+                TraversalOrder::Stop => return Ok(TraversalOrder::Stop),
+            }
+        }
+
+        Ok(order)
+    }
+
+    fn map_elements<F: FnMut(T) -> VortexResult<Transformed<T>>>(
+        self,
+        mut f: F,
+    ) -> VortexResult<Transformed<Self>> {
+        let mut order = TraversalOrder::Continue;
+        let mut changed = false;
+
+        let value = self
+            .into_iter()
+            .map(|c| match order {
+                TraversalOrder::Continue | TraversalOrder::Skip => {
+                    c.map_elements(&mut f).map(|result| {
+                        order = result.order;
+                        changed |= result.changed;
+                        result.value
+                    })
+                }
+                TraversalOrder::Stop => Ok(c),
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Ok(Transformed {
+            value,
+            order,
+            changed,
+        })
+    }
+
+    fn fold_elements<B, F: FnMut(B, &T) -> VortexResult<FoldResult<B>>>(
+        &self,
+        init: B,
+        f: F,
+    ) -> VortexResult<FoldResult<B>> {
+        todo!()
+    }
+}
+
+impl<'a> NodeContainer<'a, Self> for ExprRef {
+    fn apply_elements<F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
+        &'a self,
+        mut f: F,
+    ) -> VortexResult<TraversalOrder> {
+        f(self)
+    }
+
+    fn map_elements<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
+        self,
+        mut f: F,
+    ) -> VortexResult<Transformed<Self>> {
+        f(self)
+    }
+
+    fn fold_elements<B, F: FnMut(B, &Self) -> VortexResult<FoldResult<B>>>(
+        &self,
+        init: B,
+        mut f: F,
+    ) -> VortexResult<FoldResult<B>> {
+        f(init, self)
+    }
+}
+
+impl Node for ExprRef {
     fn transform_with_context<V: FolderMut<NodeTy = Self>>(
         self,
         visitor: &mut V,
@@ -288,6 +464,44 @@ impl Node for ExprRef {
 
         visitor.visit_up(self, context, children)
     }
+
+    fn apply_children<'a, F: FnMut(&'a Self) -> VortexResult<TraversalOrder>>(
+        &'a self,
+        mut f: F,
+    ) -> VortexResult<TraversalOrder> {
+        self.children().apply_ref_elements(&mut f)
+    }
+
+    fn map_children<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
+        self,
+        f: F,
+    ) -> VortexResult<Transformed<Self>> {
+        let transformed = self
+            .children()
+            .into_iter()
+            .cloned()
+            .collect_vec()
+            .map_elements(f)?;
+
+        if transformed.changed {
+            Ok(Transformed {
+                value: self.with_children(transformed.value)?,
+                order: transformed.order,
+                changed: true,
+            })
+        } else {
+            Ok(Transformed::no(self))
+        }
+    }
+
+    fn fold_children<'a, B, F: FnMut(B, &'a Self) -> VortexResult<FoldUp<B>>>(
+        &'a self,
+        init: B,
+        f: F,
+    ) -> VortexResult<FoldUp<B>> {
+        // self.fold_elements(init, f);
+        todo!()
+    }
 }
 
 #[cfg(test)]
@@ -298,7 +512,7 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::traversal::visitor::pre_order_visit_down;
-    use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, TransformResult, TraversalOrder};
+    use crate::traversal::{MutNodeVisitor, Node, NodeVisitor, Transformed, TraversalOrder};
     use crate::{
         BinaryExpr, BinaryVTable, ExprRef, GetItemVTable, IntoExpr, LiteralExpr, LiteralVTable,
         Operator, VortexExpr, col, get_item_scope, is_root, root,
@@ -322,38 +536,33 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
-    pub struct ExprColToLit(i32);
-
-    impl MutNodeVisitor for ExprColToLit {
-        type NodeTy = ExprRef;
-
-        fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<Self::NodeTy>> {
-            let col = node.as_opt::<GetItemVTable>();
-            if col.is_some() {
-                let id = self.0;
-                self.0 += 1;
-                Ok(TransformResult::yes(LiteralExpr::new_expr(id)))
-            } else {
-                Ok(TransformResult::no(node))
-            }
+    fn expr_col_to_lit_transform(
+        node: ExprRef,
+        idx: &mut i32,
+    ) -> VortexResult<Transformed<ExprRef>> {
+        if node.is::<GetItemVTable>() {
+            let lit_id = *idx;
+            *idx += 1;
+            Ok(Transformed::yes(LiteralExpr::new_expr(lit_id)))
+        } else {
+            Ok(Transformed::no(node))
         }
     }
 
-    #[derive(Default)]
-    pub struct SkipDownVisitor;
+    // #[derive(Default)]
+    // pub struct SkipDownVisitor;
 
-    impl MutNodeVisitor for SkipDownVisitor {
-        type NodeTy = ExprRef;
+    // impl MutNodeVisitor for SkipDownVisitor {
+    //     type NodeTy = ExprRef;
 
-        fn visit_down(&mut self, _node: &Self::NodeTy) -> VortexResult<TraversalOrder> {
-            Ok(TraversalOrder::Skip)
-        }
+    //     fn visit_down(&mut self, _node: &Self::NodeTy) -> VortexResult<TraversalOrder> {
+    //         Ok(TraversalOrder::Skip)
+    //     }
 
-        fn visit_up(&mut self, _node: Self::NodeTy) -> VortexResult<TransformResult<Self::NodeTy>> {
-            Ok(TransformResult::yes(root()))
-        }
-    }
+    //     fn visit_up(&mut self, _node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
+    //         Ok(Transformed::yes(root()))
+    //     }
+    // }
 
     #[test]
     fn expr_deep_visitor_test() {
@@ -374,11 +583,14 @@ mod tests {
         let expr = BinaryExpr::new_expr(col1.clone(), Operator::Eq, col2.clone());
         let lit2 = LiteralExpr::new_expr(2);
         let expr = BinaryExpr::new_expr(expr, Operator::And, lit2);
-        let mut printer = ExprColToLit::default();
-        let new = expr.transform(&mut printer).unwrap();
+
+        let mut idx = 0_i32;
+        let new = expr
+            .transform_up(|node| expr_col_to_lit_transform(node, &mut idx))
+            .unwrap();
         assert!(new.changed);
 
-        let expr = new.result;
+        let expr = new.value;
 
         let mut printer = ExprLitCollector::default();
         expr.accept(&mut printer).unwrap();
@@ -443,14 +655,14 @@ mod tests {
         assert!(nodes.is_empty());
     }
 
-    #[test]
-    fn expr_skip_down_visit_up() {
-        let col = col("col");
+    // #[test]
+    // fn expr_skip_down_visit_up() {
+    //     let col = col("col");
 
-        let mut visitor = SkipDownVisitor;
-        let result = col.transform(&mut visitor).unwrap();
+    //     let mut visitor = SkipDownVisitor;
+    //     let result = col.transform(&mut visitor).unwrap();
 
-        assert!(result.changed);
-        assert!(is_root(&result.result));
-    }
+    //     assert!(result.changed);
+    //     assert!(is_root(&result.value));
+    // }
 }

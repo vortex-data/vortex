@@ -66,7 +66,7 @@ pub fn nnf(expr: ExprRef) -> ExprRef {
 
     expr.transform_with_context(&mut visitor, false)
         .vortex_expect("cannot fail")
-        .result()
+        .value()
 }
 
 /// Verifies whether the expression is in Negative Normal Form ([NNF](https://en.wikipedia.org/wiki/Negation_normal_form)).

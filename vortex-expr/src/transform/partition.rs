@@ -44,7 +44,7 @@ where
     let root = expr
         .clone()
         .transform_with_context(&mut splitter, ())?
-        .result();
+        .value();
 
     let mut partitions = Vec::with_capacity(splitter.sub_expressions.len());
     let mut partition_annotations = Vec::with_capacity(splitter.sub_expressions.len());
