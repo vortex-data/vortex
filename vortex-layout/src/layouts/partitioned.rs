@@ -23,7 +23,7 @@ use crate::{ArrayEvaluation, MaskEvaluation};
 /// An implementation of [`MaskEvaluation`] for partitioned expressions.
 pub struct PartitionedMaskEvaluation<P> {
     partitioned: Arc<PartitionedExpr<P>>,
-    field_evals: Vec<FieldEval>,
+    field_evals: Vec<PartitionEval>,
 }
 
 impl<P> PartitionedMaskEvaluation<P> {
@@ -43,11 +43,11 @@ impl<P> PartitionedMaskEvaluation<P> {
                     // If the partition evaluates to a boolean, we can evaluate it as a mask which
                     // can often be more efficient since nulls are turned into `false` early on,
                     // and layouts can perform predicate pruning / indexing.
-                    FieldEval::Mask(filter_evaluation(annotation, expr)?)
+                    PartitionEval::Mask(filter_evaluation(annotation, expr)?)
                 } else {
                     // Otherwise, we evaluate the projection as an array, and combine the results
                     // at the end.
-                    FieldEval::Array(projection_evaluation(annotation, expr)?)
+                    PartitionEval::Array(projection_evaluation(annotation, expr)?)
                 })
             })
             .try_collect()?;
@@ -59,7 +59,7 @@ impl<P> PartitionedMaskEvaluation<P> {
     }
 }
 
-enum FieldEval {
+enum PartitionEval {
     Mask(Box<dyn MaskEvaluation>),
     Array(Box<dyn ArrayEvaluation>),
 }
@@ -72,8 +72,8 @@ impl<P: 'static + Send + Sync> MaskEvaluation for PartitionedMaskEvaluation<P> {
             let mask = mask.clone();
             async move {
                 match eval {
-                    FieldEval::Mask(eval) => Ok(eval.invoke(mask.clone()).await?.into_array()),
-                    FieldEval::Array(eval) => eval.invoke(Mask::new_true(mask.len())).await,
+                    PartitionEval::Mask(eval) => Ok(eval.invoke(mask.clone()).await?.into_array()),
+                    PartitionEval::Array(eval) => eval.invoke(Mask::new_true(mask.len())).await,
                 }
             }
         }))
@@ -116,9 +116,7 @@ impl<P> PartitionedArrayEvaluation<P> {
             .partition_annotations
             .iter()
             .zip_eq(partitioned.partitions.iter())
-            .map(|(annotation, expr)| {
-                projection_evaluation(annotation, expr)
-            })
+            .map(|(annotation, expr)| projection_evaluation(annotation, expr))
             .try_collect()?;
 
         Ok(Self {
