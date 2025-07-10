@@ -105,7 +105,6 @@ TEST_F(VortexTest, ScanOptionsWithLimit) {
 
     auto builder = file.scan_builder();
     builder.set_limit(3);
-
     auto maybe_reader = builder.into_stream();
     ASSERT_TRUE(maybe_reader.ok()) << "Failed to create RecordBatchReader: "
                                    << maybe_reader.status().message();

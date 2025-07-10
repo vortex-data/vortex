@@ -28,11 +28,7 @@ mod ffi {
         fn file_scan_builder(file: &VortexFile) -> Result<Box<VortexScanBuilder>>;
 
         type VortexScanBuilder;
-        // TODO: figure out the best practice for passing &[u8] from C++ to Rust
-        // fn scan_builder_set_filter(
-        //     builder: &mut VortexScanBuilder,
-        //     filter: &'static [u8],
-        // ) -> Result<()>;
+        fn scan_builder_set_filter(builder: &mut VortexScanBuilder, filter: &[u8]) -> Result<()>;
         fn scan_builder_set_limit(builder: &mut VortexScanBuilder, limit: usize);
         unsafe fn scan_builder_into_arrow(
             builder: Box<VortexScanBuilder>,
@@ -74,16 +70,16 @@ pub struct VortexScanBuilder {
 
 fn scan_builder_set_filter(
     builder: &mut VortexScanBuilder,
-    filter: &'static [u8],
+    filter: &[u8],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let filter = deserialize_expr(&Expr::decode(filter)?)
         .map_err(|e| e.with_context("deserializing filter expr"))?;
-    // The implementation of `take_mut` includes a copy of the inner value, but we assume the compiler can optimize it away.
     take_mut::take(&mut builder.inner, |inner| inner.with_filter(filter));
     Ok(())
 }
 
 fn scan_builder_set_limit(builder: &mut VortexScanBuilder, limit: usize) {
+    // Overwrite inner without dropping it.
     take_mut::take(&mut builder.inner, |inner| inner.with_limit(limit));
 }
 

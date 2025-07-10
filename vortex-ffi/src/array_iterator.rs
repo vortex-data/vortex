@@ -3,6 +3,9 @@
 
 use std::ptr;
 
+// pub use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+// use vortex::arrow::record_batch_reader::VortexRecordBatchReader;
+// use vortex::error::VortexUnwrap;
 use vortex::iter::ArrayIterator;
 
 use crate::array::vx_array;
@@ -47,3 +50,24 @@ pub unsafe extern "C-unwind" fn vx_array_iterator_next(
         }
     })
 }
+
+///// Convert a Vortex array iterator into an Arrow array stream.
+///// The ownership of the iterator is transferred to the stream.
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C-unwind" fn vx_array_iterator_into_arrow_stream(
+//     iter: *mut vx_array_iterator,
+// ) -> FFI_ArrowArrayStream {
+//     // TODO: send
+//     let iter = vx_array_iterator::into_box(iter);
+//     let reader = VortexRecordBatchReader::try_new(iter).vortex_unwrap();
+//     let stream = FFI_ArrowArrayStream::new(Box::new(reader));
+//     stream
+// }
+
+// #[repr(C)]
+// #[allow(dead_code)]
+// pub struct Zxy(Box<dyn ArrayIterator + Send>);
+
+// #[repr(C)]
+// #[allow(dead_code)]
+// pub struct ZxyNoSend(Box<dyn ArrayIterator>);

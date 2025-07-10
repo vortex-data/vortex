@@ -28,6 +28,17 @@ public:
     ScanBuilder(rust::Box<ffi::VortexScanBuilder> impl) : impl_(std::move(impl)) {
     }
 
+    /// Set the filter on the scan builder.
+    void set_filter(std::string_view filter) {
+        try {
+            ffi::scan_builder_set_filter(
+                *impl_,
+                rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(filter.data()), filter.size()));
+        } catch (const rust::cxxbridge1::Error &e) {
+            throw VortexException(e.what());
+        }
+    }
+
     /// Set the limit on the number of rows to scan.
     void set_limit(uint64_t limit) {
         ffi::scan_builder_set_limit(*impl_, limit);
@@ -55,9 +66,6 @@ public:
         }
     }
 
-    explicit VortexFile(rust::Box<ffi::VortexFile> impl) : impl_(std::move(impl)) {
-    }
-
     /// Get the number of rows in the file.
     uint64_t row_count() const {
         return ffi::file_row_count(*impl_);
@@ -70,6 +78,9 @@ public:
     }
 
 private:
+    explicit VortexFile(rust::Box<ffi::VortexFile> impl) : impl_(std::move(impl)) {
+    }
+
     rust::Box<ffi::VortexFile> impl_;
 };
 

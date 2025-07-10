@@ -8,8 +8,6 @@ use std::sync::Arc;
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 pub use executor::*;
-use futures::executor::LocalPool;
-use futures::task::LocalSpawnExt;
 use futures::{Stream, StreamExt, stream};
 use itertools::Itertools;
 pub use selection::*;
@@ -20,7 +18,7 @@ use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, root};
@@ -290,24 +288,16 @@ impl ScanBuilder<ArrayRef> {
     pub fn into_array_iter(self) -> VortexResult<impl ArrayIterator + 'static> {
         let concurrency = self.concurrency;
 
-        let mut local_pool = LocalPool::new();
-        let spawner = local_pool.spawner();
-
         let (dtype, split_tasks) = self.build()?;
-        let mut stream = stream::iter(split_tasks)
-            .map(move |task| {
-                spawner
-                    .spawn_local_with_handle(task)
-                    .map_err(|e| vortex_err!("Failed to spawn task: {e}"))
-                    .vortex_expect("Failed to spawn task")
-            })
-            .buffered(concurrency)
-            .filter_map(|a| async move { a.transpose() })
-            .boxed_local();
+        let mut stream = Box::pin(
+            stream::iter(split_tasks)
+                .buffered(concurrency)
+                .filter_map(|r| async move { r.transpose() }),
+        );
 
         Ok(ArrayIteratorAdapter::new(
             dtype,
-            iter::from_fn(move || local_pool.run_until(stream.next())),
+            iter::from_fn(move || futures::executor::block_on(stream.next())),
         ))
     }
 }
