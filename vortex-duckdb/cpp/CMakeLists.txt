@@ -13,8 +13,15 @@ project(vortex)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# Allow C++20 designator syntax in C++17
-add_compile_options(-Wno-c++20-designator)
+# Default to debug if build config is not explicitly set.
+if (NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug)
+endif()
+
+# Enable compiler warnings. Unused parameter warnings are disabled as we
+# include DuckDB headers with implementations that have unused parameters.
+# Further, allow C++20 designator syntax in C++17.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-c++20-designator")
 
 # Include directories
 include_directories(./include)

@@ -24,23 +24,23 @@ use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
 /// TPCH benchmark implementation
 pub struct TpcHBenchmark {
-    pub scale_factor: f32,
+    pub scale_factor: String,
     pub data_url: Url,
 }
 
 impl TpcHBenchmark {
-    pub fn new(scale_factor: f32, use_remote_data_dir: Option<String>) -> Result<Self> {
+    pub fn new(scale_factor: String, use_remote_data_dir: Option<String>) -> Result<Self> {
         Ok(Self {
-            scale_factor,
-            data_url: Self::create_data_url(&use_remote_data_dir, scale_factor)?,
+            scale_factor: scale_factor.clone(),
+            data_url: Self::create_data_url(&use_remote_data_dir, &scale_factor)?,
         })
     }
 
-    fn create_data_url(remote_data_dir: &Option<String>, scale_factor: f32) -> Result<Url> {
+    fn create_data_url(remote_data_dir: &Option<String>, scale_factor: &str) -> Result<Url> {
         match remote_data_dir {
             None => {
                 let data_dir = "tpch".to_data_path();
-                let data_dir_with_sf = data_dir.join(scale_factor.to_string());
+                let data_dir_with_sf = data_dir.join(scale_factor);
                 Url::from_directory_path(&data_dir_with_sf).map_err(|_| {
                     anyhow!(
                         "Failed to create URL from directory path: {:?}",
@@ -96,7 +96,7 @@ impl Benchmark for TpcHBenchmark {
 
                 // Use tpchgen for data generation
                 let options =
-                    tpchgen::TpchGenOptions::new(self.scale_factor as f64, &base_data_dir)
+                    tpchgen::TpchGenOptions::new(self.scale_factor.clone(), &base_data_dir)
                         .with_format(format);
 
                 // Generate data using our streaming tpchgen module
@@ -127,15 +127,17 @@ impl Benchmark for TpcHBenchmark {
     }
 
     fn dataset(&self) -> BenchmarkDataset {
-        BenchmarkDataset::TpcH {
-            scale_factor: self.scale_factor,
-        }
+        let scale_factor: f32 = self
+            .scale_factor
+            .parse()
+            .expect("Scale factor should be valid float");
+        BenchmarkDataset::TpcH { scale_factor }
     }
 
     fn expected_row_counts(&self) -> Option<&[usize]> {
-        match self.scale_factor {
-            1.0 => Some(&EXPECTED_ROW_COUNTS_SF1),
-            10.0 => Some(&EXPECTED_ROW_COUNTS_SF10),
+        match self.scale_factor.as_str() {
+            "1.0" => Some(&EXPECTED_ROW_COUNTS_SF1),
+            "10.0" => Some(&EXPECTED_ROW_COUNTS_SF10),
             _ => None, // Unsupported scale factor
         }
     }
@@ -234,7 +236,7 @@ impl TpcHBenchmark {
     /// Verify DuckDB TPCH results against reference data
     pub fn verify_duckdb_tpch_results(&self, queries: Vec<usize>) -> Result<()> {
         // omit validation for sf != 1.
-        if self.scale_factor != 1.0 {
+        if self.scale_factor != "1.0" {
             return Ok(());
         }
         let query_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -251,12 +253,14 @@ impl TpcHBenchmark {
         }
         fs::create_dir(&tmp_dir)?;
         let duckdb_ctx = DuckDBCtx::new_in_memory()?;
+        let scale_factor: f32 = self
+            .scale_factor
+            .parse()
+            .map_err(|_| anyhow!("Invalid scale factor: {}", self.scale_factor))?;
         duckdb_ctx.register_tables(
             self.data_url(),
             Format::OnDiskVortex,
-            &BenchmarkDataset::TpcH {
-                scale_factor: self.scale_factor,
-            },
+            &BenchmarkDataset::TpcH { scale_factor },
         )?;
 
         let mut query_files = fs::read_dir(query_dir)?
