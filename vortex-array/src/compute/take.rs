@@ -16,7 +16,12 @@ use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     if indices.is_empty() {
-        return Ok(Canonical::empty(array.dtype()).into_array());
+        return Ok(Canonical::empty(
+            &array
+                .dtype()
+                .union_nullability(indices.dtype().nullability()),
+        )
+        .into_array());
     }
 
     TAKE_FN
