@@ -8,6 +8,7 @@ use std::{env, fs};
 
 use anyhow::{Result, anyhow};
 use ddb::DuckDBCtx;
+use glob::Pattern;
 use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
 use url::Url;
@@ -193,35 +194,26 @@ impl TpcHBenchmark {
                 format
             };
 
-            let path = base_dir.join(&format!(
-                "{}/{name}.{}",
-                file_format.name(),
-                file_format.ext()
-            ))?;
+            let path = base_dir.join(&(file_format.name().to_string() + "/"))?;
+            let glob = Some(Pattern::new(&format!("{name}_*.{}", file_format.ext()))?);
 
             match format {
-                Format::Arrow => register_arrow(session, name, &path).await?,
+                Format::Arrow => register_arrow(session, name, &path, glob).await?,
                 Format::Parquet => {
                     register_parquet(
                         session,
                         object_store.clone(),
                         name,
                         &path,
+                        glob,
                         schema,
                         &self.dataset(),
                     )
                     .await?
                 }
                 Format::OnDiskVortex => {
-                    register_vortex_file(
-                        session,
-                        object_store.clone(),
-                        name,
-                        &path,
-                        schema,
-                        &self.dataset(),
-                    )
-                    .await?
+                    register_vortex_file(session, name, &path, glob, schema, &self.dataset())
+                        .await?
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
                 Format::Csv => todo!("csv unsupported for tpch benchmark"),

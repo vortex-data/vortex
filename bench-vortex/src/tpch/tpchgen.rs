@@ -2,14 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 
 use anyhow::{Result, anyhow};
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
+use futures::TryStreamExt;
 use futures::stream::FuturesUnordered;
-use futures::{StreamExt, TryStreamExt, stream};
-use itertools::Itertools;
 use log::info;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
@@ -32,6 +33,8 @@ use vortex::stream::ArrayStreamAdapter;
 
 use crate::utils::file_utils::idempotent_async;
 use crate::{Format, IdempotentPath};
+
+type TableFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
 /// Configuration for TPC-H data generation
 #[derive(Debug, Clone)]
@@ -100,19 +103,28 @@ pub async fn generate_tpch_tables(options: &TpchGenOptions) -> Result<()> {
         ("lineitem", TableGenerator::LineItem),
     ];
 
-    stream::iter(tables)
-        .flat_map(|(table_name, generator)| {
-            info!(
-                "Generating {} table for scale factor {} in format: {:?}",
-                table_name, options.scale_factor, options.format
-            );
+    let futures = FuturesUnordered::new();
 
-            generate_table_files(table_name, generator, options.clone())
-        })
-        .collect::<FuturesUnordered<_>>()
-        .await
-        .try_collect::<Vec<_>>()
-        .await?;
+    for (table_name, generator) in tables {
+        info!(
+            "Generating {} table for scale factor {} in format: {:?}",
+            table_name, options.scale_factor, options.format
+        );
+
+        match generate_table_files(table_name, generator, options.clone()) {
+            Ok(table_futures) => {
+                for future in table_futures {
+                    futures.push(future);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error generating table files for {}: {}", table_name, e);
+                return Err(e);
+            }
+        }
+    }
+
+    futures.try_collect::<Vec<_>>().await?;
 
     Ok(())
 }
@@ -132,6 +144,7 @@ enum TableGenerator {
 impl TableGenerator {
     // Returns the size in MBs of the table at scale factor 1, if the table is constant size
     // return None
+    #[allow(dead_code)]
     fn uncompressed_data_size(&self) -> Option<u64> {
         match self {
             TableGenerator::Nation => None,
@@ -151,7 +164,7 @@ fn generate_table_files(
     table_name: &str,
     generator: TableGenerator,
     options: TpchGenOptions,
-) -> Result<Vec<Box<dyn Future<Output = Result<()>>>>> {
+) -> Result<Vec<TableFuture<'_>>> {
     let write_format = match options.format {
         Format::Parquet | Format::Arrow | Format::OnDiskDuckDB => Format::Parquet,
         Format::OnDiskVortex => Format::OnDiskVortex,
@@ -165,35 +178,47 @@ fn generate_table_files(
 
     let batch_iter = create_batch_iterator(generator, &options)?;
 
-    Ok(stream::iter(batch_iter)
-        .enumerate()
-        .map(|(partition_idx, iter)| async move {
-            let output_file = format!("{table_name}_{partition_idx}.{}", write_format.ext());
+    let mut futures = Vec::new();
 
-            Box::new(idempotent_async(&output_file, |path| async move {
-                info!("Generating {table_name} table as {write_format}");
+    for (partition_idx, iter) in batch_iter.into_iter().enumerate() {
+        let output_file = output_dir.join(format!(
+            "{table_name}_{partition_idx}.{}",
+            write_format.ext()
+        ));
+
+        let future: TableFuture<'_> = Box::pin(async move {
+            let of = output_file.clone();
+            idempotent_async(output_file.to_string_lossy().as_ref(), |path| async move {
+                info!(
+                    "Generating {table_name} table as {write_format}, at {}",
+                    of.to_string_lossy()
+                );
 
                 // Create generator and process batches in streaming fashion
                 let schema = iter.schema().clone();
 
                 // Create writer based on format
-                let mut writer: Box<dyn FileWriter + Send> = match options.format {
-                    Format::Parquet | Format::Arrow | Format::OnDiskDuckDB => {
-                        Box::new(ParquetWriter::new(path, schema).await?)
-                    }
+                let mut writer: Box<dyn FileWriter + Send> = match write_format {
+                    Format::Parquet => Box::new(ParquetWriter::new(path, schema).await?),
                     Format::OnDiskVortex => Box::new(VortexWriter::new(path, schema)?),
                     _ => unreachable!(),
                 };
 
-                for batch in batch_iter {
+                for batch in iter {
                     writer.write_batch(&batch).await?;
                 }
 
                 writer.finalize().await?;
                 Ok::<(), anyhow::Error>(())
-            }))
-        })
-        .collect_vec())
+            })
+            .await?;
+            Ok(())
+        });
+
+        futures.push(future);
+    }
+
+    Ok(futures)
 }
 
 /// Create a batch iterator for the specified table generator

@@ -10,9 +10,8 @@ use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
-use datafusion::prelude::{ParquetReadOptions, SessionContext};
-use object_store::ObjectStore;
-use object_store::path::Path as ObjectStorePath;
+use datafusion::prelude::SessionContext;
+use glob::Pattern;
 use tokio::fs::OpenOptions;
 use tracing::info;
 use url::Url;
@@ -41,24 +40,33 @@ pub async fn convert_parquet_to_vortex(
 
 pub async fn register_parquet_files(
     session: &SessionContext,
-    object_store: Arc<dyn ObjectStore>,
     table_name: &str,
     file_url: &Url,
+    glob: Option<Pattern>,
     schema: Option<Schema>,
     dataset: &BenchmarkDataset,
 ) -> Result<()> {
     match dataset {
         BenchmarkDataset::TpcH { .. } => {
-            let parquet_url = file_url.clone();
-            ensure_parquet_file_exists(object_store.as_ref(), &parquet_url).await?;
+            info!("Registering table from {}", &file_url);
+            // ensure_parquet_file_exists(&object_store, file_url)?;
+            let format = Arc::new(ParquetFormat::new());
 
-            session
-                .register_parquet(
-                    table_name,
-                    parquet_url.as_str(),
-                    ParquetReadOptions::default(),
-                )
-                .await?;
+            let table_url = ListingTableUrl::try_new(file_url.clone(), glob)?;
+
+            let config = ListingTableConfig::new(table_url).with_listing_options(
+                ListingOptions::new(format).with_session_config_options(session.state().config()),
+            );
+
+            let config = if let Some(schema) = schema {
+                config.with_schema(schema.into())
+            } else {
+                config.infer_schema(&session.state()).await?
+            };
+
+            let listing_table = Arc::new(ListingTable::try_new(config)?);
+
+            session.register_table(table_name, listing_table)?;
         }
         BenchmarkDataset::ClickBench { single_file, .. } => {
             // For ClickBench, we use simplified pre-built Parquet registration
@@ -83,6 +91,7 @@ pub async fn register_parquet_files(
             };
 
             let listing_table = Arc::new(ListingTable::try_new(config)?);
+
             session.register_table(table_name, listing_table)?;
         }
         _ => todo!(),
@@ -93,17 +102,17 @@ pub async fn register_parquet_files(
 
 pub async fn register_vortex_files(
     session: &SessionContext,
-    _object_store: Arc<dyn ObjectStore>,
     table_name: &str,
     file_url: &Url,
+    glob: Option<Pattern>,
     schema: Option<Schema>,
     dataset: &BenchmarkDataset,
 ) -> Result<()> {
     match dataset {
         BenchmarkDataset::TpcH { .. } | BenchmarkDataset::TpcDS { .. } => {
-            // Register the Vortex file
+            info!("Registering table from {}", &file_url);
             let format = Arc::new(VortexFormat::default());
-            let table_url = ListingTableUrl::parse(file_url.as_str())?;
+            let table_url = ListingTableUrl::try_new(file_url.clone(), glob)?;
             let config = ListingTableConfig::new(table_url).with_listing_options(
                 ListingOptions::new(format).with_session_config_options(session.state().config()),
             );
@@ -115,6 +124,7 @@ pub async fn register_vortex_files(
             };
 
             let listing_table = Arc::new(ListingTable::try_new(config)?);
+
             session.register_table(table_name, listing_table)?;
         }
         BenchmarkDataset::ClickBench { single_file, .. } => {
@@ -128,29 +138,6 @@ pub async fn register_vortex_files(
             .await?;
         }
         BenchmarkDataset::PublicBi { .. } => todo!(),
-    }
-
-    Ok(())
-}
-
-async fn ensure_parquet_file_exists(
-    object_store: &dyn ObjectStore,
-    parquet_url: &Url,
-) -> Result<()> {
-    let parquet_path = parquet_url.path();
-
-    if let Err(e) = object_store
-        .head(&ObjectStorePath::parse(parquet_path)?)
-        .await
-    {
-        info!(
-            "Asserting file exist: File {} doesn't exist because {e}",
-            parquet_url.as_str()
-        );
-
-        if parquet_url.scheme() != "file" {
-            anyhow::bail!("Writing to S3 does not seem to work!");
-        }
     }
 
     Ok(())

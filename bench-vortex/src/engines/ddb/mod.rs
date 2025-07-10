@@ -146,7 +146,7 @@ impl DuckDBCtx {
                 ];
 
                 for table_name in &tables {
-                    let table_path = format!("{base_dir}{table_name}.{extension}");
+                    let table_path = format!("{base_dir}{table_name}_*.{extension}");
                     commands.push_str(&format!(
                         "CREATE {} IF NOT EXISTS {table_name} AS SELECT * FROM read_{extension}('{table_path}');\n",
                         duckdb_object.to_str(),

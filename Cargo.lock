@@ -532,6 +532,7 @@ dependencies = [
  "dirs",
  "erased-serde",
  "futures",
+ "glob",
  "humansize",
  "indicatif",
  "itertools 0.14.0",

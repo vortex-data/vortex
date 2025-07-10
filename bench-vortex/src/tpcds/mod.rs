@@ -57,14 +57,21 @@ pub async fn load_datasets(
     }) {
         let path = path?;
         match format {
-            Format::Arrow => register_arrow(&context, name, &path).await?,
+            Format::Arrow => register_arrow(&context, name, &path, None).await?,
             Format::Parquet => {
-                register_parquet(&context, object_store.clone(), name, &path, schema, dataset)
-                    .await?
+                register_parquet(
+                    &context,
+                    object_store.clone(),
+                    name,
+                    &path,
+                    None,
+                    schema,
+                    dataset,
+                )
+                .await?
             }
             Format::OnDiskVortex => {
-                register_vortex_file(&context, object_store.clone(), name, &path, schema, dataset)
-                    .await?
+                register_vortex_file(&context, name, &path, None, schema, dataset).await?
             }
             Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
             Format::Csv => todo!(),
