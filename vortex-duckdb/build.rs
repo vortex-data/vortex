@@ -6,13 +6,13 @@
 use std::path::PathBuf;
 use std::{env, fs};
 
-const DUCKDB_VERSION: &str = "1.3.2";
+const DUCKDB_VERSION: &str = "1.3.0";
 const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
 
 fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let target_dir = manifest_dir.parent().unwrap().join("target");
-    let duckdb_dir = target_dir.join(format!("duckdb-lib-v{DUCKDB_VERSION}"));
+    let duckdb_dir = target_dir.join("duckdb-lib");
 
     let target = env::var("TARGET")?;
     let (platform, arch) = match target.as_str() {
@@ -27,7 +27,8 @@ fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> 
     let url = format!("{DUCKDB_BASE_URL}/v{DUCKDB_VERSION}/{archive_name}");
     let archive_path = duckdb_dir.join(&archive_name);
 
-    // Create directory if it doesn't exist.
+    // Recreate the duckdb directory
+    fs::remove_dir_all(&duckdb_dir)?;
     fs::create_dir_all(&duckdb_dir)?;
 
     if !archive_path.exists() {
@@ -127,9 +128,7 @@ fn main() {
     // Download, extract and symlink DuckDB source code.
     let zip_source_path = download_duckdb_source_archive().unwrap();
     let extracted_source_path = extract_duckdb_source(zip_source_path).unwrap();
-    if duckdb_repo.exists() {
-        fs::remove_file(&duckdb_repo).unwrap();
-    }
+    let _ = fs::remove_dir_all(&duckdb_repo).unwrap();
     std::os::unix::fs::symlink(&extracted_source_path, &duckdb_repo).unwrap();
 
     // Generate the _imported_ bindings from our C++ code.
