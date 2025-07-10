@@ -54,12 +54,6 @@ impl VTable for CastVTable {
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if children.len() != 1 {
-            vortex_bail!(
-                "Cast expression must have exactly 1 child, got {}",
-                children.len()
-            );
-        }
         Ok(CastExpr {
             target: expr.target.clone(),
             child: children[0].clone(),

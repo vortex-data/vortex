@@ -48,10 +48,7 @@ impl VTable for VarVTable {
         vec![]
     }
 
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if !children.is_empty() {
-            vortex_bail!("Var expression does not have children, got: {:?}", children);
-        }
+    fn with_children(expr: &Self::Expr, _children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
         Ok(expr.clone())
     }
 

@@ -43,6 +43,10 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn children(expr: &Self::Expr) -> Vec<&ExprRef>;
 
     /// Return a new instance of the expression with the children replaced.
+    ///
+    /// ## Preconditions
+    ///
+    /// The number of children will match the current number of children in the expression.
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr>;
 
     /// Construct a new [`VortexExpr`] from the provided parts.

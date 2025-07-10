@@ -46,7 +46,7 @@ pub use select::*;
 pub use var::*;
 use vortex_array::{Array, ArrayRef, SerializeMetadata};
 use vortex_dtype::{DType, FieldName, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap};
+use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail};
 use vortex_utils::aliases::hash_set::HashSet;
 pub use vtable::*;
 
@@ -187,6 +187,13 @@ impl<V: VTable> VortexExpr for ExprAdapter<V> {
     }
 
     fn with_children(self: Arc<Self>, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
+        if self.children().len() != children.len() {
+            vortex_bail!(
+                "Expected {} children, got {}",
+                self.children().len(),
+                children.len()
+            );
+        }
         Ok(V::with_children(&self.0, children)?.to_expr())
     }
 

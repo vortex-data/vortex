@@ -53,12 +53,6 @@ impl VTable for ListContainsVTable {
     }
 
     fn with_children(_expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if children.len() != 2 {
-            vortex_bail!(
-                "ListContains expression must have exactly 2 children, got {}",
-                children.len()
-            );
-        }
         Ok(ListContainsExpr::new(
             children[0].clone(),
             children[1].clone(),
