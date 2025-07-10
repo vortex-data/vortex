@@ -6,30 +6,86 @@ use vortex_error::VortexResult;
 use crate::arrays::{VarBinViewArray, VarBinViewVTable};
 use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 use crate::compute::{OptimizeKernel, OptimizeKernelAdapter};
-use crate::{ArrayRef, register_kernel};
+use crate::validity::Validity;
+use crate::vtable::ValidityHelper;
+use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl OptimizeKernel for VarBinViewVTable {
     fn optimize(&self, array: &VarBinViewArray) -> VortexResult<ArrayRef> {
-        // If there are no buffers or only one buffer, no optimization needed
-        if array.buffers().len() <= 1 {
+        // If there is little to be gained by compacting, return the original array untouched.
+        if !should_compact(array) {
             return Ok(array.to_array());
         }
 
-        // Create a new builder and copy all elements
-        let mut builder = VarBinViewBuilder::with_capacity(array.dtype().clone(), array.len());
-
-        // Iterate through the array and append each element
-        for i in 0..array.len() {
-            if !array.is_valid(i)? {
-                builder.append_null();
-            } else {
-                let bytes = array.bytes_at(i);
-                builder.append_value(bytes.as_slice());
+        match array.validity {
+            Validity::AllInvalid => {
+                // The array contains no values, drop all buffers.
+                Ok(VarBinViewArray::try_new(
+                    array.views().clone(),
+                    vec![],
+                    array.dtype().clone(),
+                    array.validity().clone(),
+                )?
+                .into_array())
             }
+            // Non-null pathway
+            Validity::NonNullable | Validity::AllValid => rebuild_nonnull(array),
+            // Nullable pathway, requires null-checks for each value
+            Validity::Array(_) => rebuild_nullable(array),
         }
-
-        Ok(builder.finish())
     }
+}
+
+fn should_compact(array: &VarBinViewArray) -> bool {
+    // If the array is entirely inlined strings, do not attempt to compact.
+    if array.nbuffers() == 0 {
+        return false;
+    }
+
+    // Scan the views, calculating the total buffer size that is referenced.
+    let bytes_referenced: u64 = array
+        .views()
+        .iter()
+        .map(|&view| {
+            if view.is_inlined() {
+                0u64
+            } else {
+                // SAFETY: in this branch the view is not inlined.
+                unsafe { view._ref }.size as u64
+            }
+        })
+        .sum();
+
+    let buffer_total_size: u64 = array.buffers.iter().map(|buf| buf.len() as u64).sum();
+
+    // If the majority of buffer space is unused, attempt to repack
+    bytes_referenced < buffer_total_size / 2
+}
+
+// Nullable string array compaction pathway.
+// This requires a null check on every append.
+fn rebuild_nullable(array: &VarBinViewArray) -> VortexResult<ArrayRef> {
+    let mut builder = VarBinViewBuilder::with_capacity(array.dtype().clone(), array.len());
+    for i in 0..array.len() {
+        if !array.is_valid(i)? {
+            builder.append_null();
+        } else {
+            let bytes = array.bytes_at(i);
+            builder.append_value(bytes.as_slice());
+        }
+    }
+
+    Ok(builder.finish())
+}
+
+// Compaction for string arrays that contain no null values. Saves a branch
+// for every string element.
+fn rebuild_nonnull(array: &VarBinViewArray) -> VortexResult<ArrayRef> {
+    let mut builder = VarBinViewBuilder::with_capacity(array.dtype().clone(), array.len());
+    for i in 0..array.len() {
+        builder.append_value(array.bytes_at(i).as_ref());
+    }
+    Ok(builder.finish())
 }
 
 register_kernel!(OptimizeKernelAdapter(VarBinViewVTable).lift());
@@ -45,12 +101,12 @@ mod tests {
     #[test]
     fn test_optimize_compacts_buffers() {
         // Create a VarBinViewArray with some long strings that will create multiple buffers
-        let original = VarBinViewArray::from_iter_str([
-            "short",
-            "this is a longer string that will be stored in a buffer",
-            "medium length string",
-            "another very long string that definitely needs a buffer to store it",
-            "tiny",
+        let original = VarBinViewArray::from_iter_nullable_str([
+            Some("short"),
+            Some("this is a longer string that will be stored in a buffer"),
+            Some("medium length string"),
+            Some("another very long string that definitely needs a buffer to store it"),
+            Some("tiny"),
         ]);
 
         // Verify it has buffers
