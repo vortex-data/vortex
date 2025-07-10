@@ -13,14 +13,20 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 
 impl TakeKernel for ChunkedVTable {
     fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+        let nullability = indices.dtype().nullability();
+        let return_dtype = array.dtype().clone().union_nullability(nullability);
+
         let indices = cast(
             indices,
             &DType::Primitive(PType::U64, indices.dtype().nullability()),
         )?
         .to_primitive()?;
 
+        if indices.is_empty() {
+            return Ok(ChunkedArray::try_new(vec![], return_dtype)?.to_array());
+        }
+
         // TODO(joe): Should we split this implementation based on indices nullability?
-        let nullability = indices.dtype().nullability();
         let indices_mask = indices.validity_mask()?;
         let indices = indices.as_slice::<u64>();
 
@@ -63,11 +69,7 @@ impl TakeKernel for ChunkedVTable {
             )?);
         }
 
-        Ok(ChunkedArray::new_unchecked(
-            chunks,
-            array.dtype().clone().union_nullability(nullability),
-        )
-        .into_array())
+        Ok(ChunkedArray::new_unchecked(chunks, return_dtype).into_array())
     }
 }
 
@@ -76,7 +78,7 @@ register_kernel!(TakeKernelAdapter(ChunkedVTable).lift());
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
+    use vortex_dtype::{FieldNames, Nullability};
 
     use crate::IntoArray;
     use crate::array::Array;
@@ -127,5 +129,24 @@ mod test {
         assert_eq!(result.scalar_at(0).unwrap(), expect.scalar_at(0).unwrap());
         assert_eq!(result.scalar_at(1).unwrap(), expect.scalar_at(1).unwrap());
         assert_eq!(result.scalar_at(2).unwrap(), expect.scalar_at(2).unwrap());
+    }
+
+    #[test]
+    fn test_test_empty_take() {
+        let a = buffer![1i32, 2, 3].into_array();
+        let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
+            .unwrap();
+        assert_eq!(arr.nchunks(), 3);
+        assert_eq!(arr.len(), 9);
+
+        let indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable);
+        let result = take(arr.as_ref(), indices.as_ref())
+            .unwrap()
+            .to_primitive()
+            .unwrap();
+
+        assert!(result.is_empty());
+        assert_eq!(result.dtype(), arr.dtype());
+        assert_eq!(result.as_slice::<i32>(), &[]);
     }
 }
