@@ -214,7 +214,7 @@ pub async fn register_vortex_files(
     let format = Arc::new(VortexFormat::default());
 
     info!(
-        "Registering table from {vortex_path} with pattern {:?}",
+        "Registering table from {vortex_path} with glob {:?}",
         glob_pattern.as_ref().map(|p| p.as_str()).unwrap_or("")
     );
 
@@ -247,7 +247,7 @@ pub fn register_parquet_files(
     let table_path = input_path.join(&format!("{}/", Format::Parquet))?;
 
     info!(
-        "Registering table from {} with pattern {:?}",
+        "Registering table from {} with glob {:?}",
         &table_path,
         glob_pattern.as_ref().map(|p| p.as_str()).unwrap_or("")
     );

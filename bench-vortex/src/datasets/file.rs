@@ -48,7 +48,11 @@ pub async fn register_parquet_files(
 ) -> Result<()> {
     match dataset {
         BenchmarkDataset::TpcH { .. } => {
-            info!("Registering table from {}", &file_url);
+            info!(
+                "Registering table from {}, with glob {:?}",
+                &file_url,
+                glob.as_ref().map(|g| g.as_str()).unwrap_or("")
+            );
             let format = Arc::new(ParquetFormat::new());
 
             let table_url = ListingTableUrl::try_new(file_url.clone(), glob)?;
@@ -92,7 +96,11 @@ pub async fn register_vortex_files(
 ) -> Result<()> {
     match dataset {
         BenchmarkDataset::TpcH { .. } | BenchmarkDataset::TpcDS { .. } => {
-            info!("Registering table from {}", &file_url);
+            info!(
+                "Registering table from {}, with glob {:?}",
+                &file_url,
+                glob.as_ref().map(|g| g.as_str()).unwrap_or("")
+            );
             let format = Arc::new(VortexFormat::default());
             let table_url = ListingTableUrl::try_new(file_url.clone(), glob)?;
             let config = ListingTableConfig::new(table_url).with_listing_options(
