@@ -138,8 +138,8 @@ impl Benchmark for TpcHBenchmark {
 
     fn expected_row_counts(&self) -> Option<&[usize]> {
         match self.scale_factor.as_str() {
-            "1" | "1.0" => Some(&EXPECTED_ROW_COUNTS_SF1),
-            "10" | "10.0" => Some(&EXPECTED_ROW_COUNTS_SF10),
+            "1.0" => Some(&EXPECTED_ROW_COUNTS_SF1),
+            "10.0" => Some(&EXPECTED_ROW_COUNTS_SF10),
             _ => None, // Unsupported scale factor
         }
     }
@@ -238,7 +238,7 @@ impl TpcHBenchmark {
     /// Verify DuckDB TPCH results against reference data
     pub fn verify_duckdb_tpch_results(&self, queries: Vec<usize>) -> Result<()> {
         // omit validation for sf != 1.
-        if self.scale_factor != "1" && self.scale_factor != "1.0" {
+        if self.scale_factor != "1.0" {
             return Ok(());
         }
         let query_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
