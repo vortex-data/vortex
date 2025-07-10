@@ -6,15 +6,15 @@ concurrency:
 
 on:
   push:
-    branches: [ "develop" ]
-  pull_request: { }
-  workflow_dispatch: { }
+    branches: ["develop"]
+  pull_request: {}
+  workflow_dispatch: {}
 
 permissions:
   actions: read
   contents: read
-  checks: write  # audit-check creates checks
-  issues: write  # audit-check creates issues
+  checks: write # audit-check creates checks
+  issues: write # audit-check creates issues
 
 env:
   CARGO_TERM_COLOR: always
@@ -157,7 +157,7 @@ jobs:
       - tag=${{ matrix.config.name }}
     env:
       # disable lints for build, they will be caught in Rust lint job.
-      RUSTFLAGS: '-A warnings'
+      RUSTFLAGS: "-A warnings"
     strategy:
       fail-fast: false
       matrix:
@@ -281,7 +281,7 @@ jobs:
   rust-coverage:
     name: "Rust (coverage)"
     timeout-minutes: 120
-    if: github.ref == 'refs/heads/develop'
+    #if: github.ref == 'refs/heads/develop'
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -314,13 +314,15 @@ jobs:
         # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
           cargo nextest run --locked --workspace --all-features --no-fail-fast
-
+      - name: Run TPCH 0.01
+        run: |
+          cargo run --bin query_bench -- tpch -i1 --scale-factor 0.01
       - name: Generate coverage report
         if: github.ref == 'refs/heads/develop'
         run: |
           rustup component add llvm-tools-preview
           grcov . --binary-path target/debug/ -s . -t lcov --llvm --ignore-not-existing \
-            --ignore '../*' --ignore '/*' --ignore 'bench-vortex/*' --ignore 'fuzz/*' \
+            --ignore '../*' --ignore '/*' --ignore 'fuzz/*' \
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' \
@@ -342,7 +344,7 @@ jobs:
       - extras=s3-cache
       - tag=rust-test
     env:
-      RUSTFLAGS: '-A warnings -Zsanitizer=address'
+      RUSTFLAGS: "-A warnings -Zsanitizer=address"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -513,14 +515,24 @@ jobs:
         working-directory: vortex-flatbuffers/
         run: |
           find flatbuffers/ -type f -name "*.fbs" | sed 's/^flatbuffers\///' | xargs -I{} -n1 flatc -I flatbuffers.HEAD --conform-includes flatbuffers --conform flatbuffers/{} flatbuffers.HEAD/{}
+
   tpch_0_01:
     name: "TPCH 0.01"
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=rust-test
+    env:
+      RUSTFLAGS: "-A warnings -Zsanitizer=address"
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
+      - uses: ./.github/actions/cleanup
       - uses: ./.github/actions/setup-rust
       - name: Run TPCH 0.01
         run: |
