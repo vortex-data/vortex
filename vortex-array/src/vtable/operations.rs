@@ -46,7 +46,7 @@ pub trait OperationsVTable<V: VTable> {
     /// For most arrays that do not contain variable buffer counts, such as the canonical
     /// arrays, the default implementation will not attempt to perform compaction and instead
     /// return the original array.
-    fn optimize(array: &V::Array) -> VortexResult<ArrayRef> {
-        Ok(array.to_array())
+    fn optimize(array: &V::Array) -> VortexResult<V::Array> {
+        Ok(array.clone())
     }
 }

@@ -27,10 +27,10 @@ impl OperationsVTable<VarBinViewVTable> for VarBinViewVTable {
         Ok(varbin_scalar(array.bytes_at(index), array.dtype()))
     }
 
-    fn optimize(array: &VarBinViewArray) -> VortexResult<ArrayRef> {
+    fn optimize(array: &VarBinViewArray) -> VortexResult<VarBinViewArray> {
         // If there is nothing to be gained by compaction, return the original array untouched.
         if !should_compact(array) {
-            return Ok(array.to_array());
+            return Ok(array.clone());
         }
 
         // Compaction pathways, depend on the validity
@@ -41,8 +41,7 @@ impl OperationsVTable<VarBinViewVTable> for VarBinViewVTable {
                 vec![],
                 array.dtype().clone(),
                 array.validity().clone(),
-            )?
-            .into_array()),
+            )?),
             // Non-null pathway
             Validity::NonNullable | Validity::AllValid => rebuild_nonnull(array),
             // Nullable pathway, requires null-checks for each value
@@ -90,7 +89,7 @@ fn count_referenced_bytes(array: &VarBinViewArray) -> u64 {
 
 // Nullable string array compaction pathway.
 // This requires a null check on every append.
-fn rebuild_nullable(array: &VarBinViewArray) -> VortexResult<ArrayRef> {
+fn rebuild_nullable(array: &VarBinViewArray) -> VortexResult<VarBinViewArray> {
     let mut builder = VarBinViewBuilder::with_capacity(array.dtype().clone(), array.len());
     for i in 0..array.len() {
         if !array.is_valid(i)? {
@@ -101,17 +100,17 @@ fn rebuild_nullable(array: &VarBinViewArray) -> VortexResult<ArrayRef> {
         }
     }
 
-    Ok(builder.finish())
+    Ok(builder.finish_into_varbinview())
 }
 
 // Compaction for string arrays that contain no null values. Saves a branch
 // for every string element.
-fn rebuild_nonnull(array: &VarBinViewArray) -> VortexResult<ArrayRef> {
+fn rebuild_nonnull(array: &VarBinViewArray) -> VortexResult<VarBinViewArray> {
     let mut builder = VarBinViewBuilder::with_capacity(array.dtype().clone(), array.len());
     for i in 0..array.len() {
         builder.append_value(array.bytes_at(i).as_ref());
     }
-    Ok(builder.finish())
+    Ok(builder.finish_into_varbinview())
 }
 
 #[cfg(test)]

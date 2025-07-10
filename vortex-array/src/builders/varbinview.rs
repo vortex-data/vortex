@@ -120,6 +120,31 @@ impl VarBinViewBuilder {
         debug_assert_eq!(self.null_buffer_builder.len(), self.views_builder.len())
     }
 
+    pub fn finish_into_varbinview(&mut self) -> VarBinViewArray {
+        self.flush_in_progress();
+        let buffers = std::mem::take(&mut self.completed);
+
+        assert_eq!(
+            self.views_builder.len(),
+            self.null_buffer_builder.len(),
+            "View and validity length must match"
+        );
+
+        let validity = self
+            .null_buffer_builder
+            .finish_with_nullability(self.nullability);
+
+        VarBinViewArray::try_new(
+            std::mem::take(&mut self.views_builder).freeze(),
+            buffers,
+            std::mem::replace(&mut self.dtype, DType::Null),
+            validity,
+        )
+        .vortex_expect("VarBinViewArray components should be valid.")
+    }
+}
+
+impl VarBinViewBuilder {
     // Pushes a validity mask into the builder not affecting the views or buffers
     fn push_only_validity_mask(&mut self, validity_mask: Mask) {
         self.null_buffer_builder.append_validity_mask(validity_mask);
@@ -191,27 +216,7 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 
     fn finish(&mut self) -> ArrayRef {
-        self.flush_in_progress();
-        let buffers = std::mem::take(&mut self.completed);
-
-        assert_eq!(
-            self.views_builder.len(),
-            self.null_buffer_builder.len(),
-            "View and validity length must match"
-        );
-
-        let validity = self
-            .null_buffer_builder
-            .finish_with_nullability(self.nullability);
-
-        VarBinViewArray::try_new(
-            std::mem::take(&mut self.views_builder).freeze(),
-            buffers,
-            std::mem::replace(&mut self.dtype, DType::Null),
-            validity,
-        )
-        .vortex_expect("VarBinViewArray components should be valid.")
-        .into_array()
+        self.finish_into_varbinview().into_array()
     }
 }
 

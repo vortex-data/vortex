@@ -62,6 +62,9 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     /// Fetch the scalar at the given index.
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar>;
 
+    /// Return an optimized version of the same array.
+    ///
+    /// See [`OperationsVTable::optimize`] for more details.
     fn optimize(&self) -> VortexResult<ArrayRef>;
 
     /// Returns whether the array is of the given encoding.
