@@ -17,6 +17,7 @@
 
 namespace vortex {
 
+/// TODO(xinyu): better error handling
 class VortexException : public std::runtime_error {
 public:
     explicit VortexException(const std::string &message) : std::runtime_error(message) {
@@ -43,6 +44,8 @@ public:
         return *this;
     }
 
+    // TODO(xinyu): In C++ API, do we want to return C DataInterface (only require nanoarrow as dep) or
+    // RecordBatchReader (require arrow as dep)?
     /// Consume the scan builder to a stream of record batches.
     /// The scan builder is consumed and cannot be used after this call.
     arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> IntoStream();
@@ -58,6 +61,24 @@ private:
     }
 
     rust::Box<ffi::VortexScanBuilder> impl_;
+};
+
+class VortexWriteOptions {
+public:
+    VortexWriteOptions() : impl_(ffi::write_options_new()) {
+    }
+
+    /// Write an Arrow array stream to a Vortex file
+    void WriteArrayStream(ArrowArrayStream &stream, const std::string &path) {
+        try {
+            ffi::write_array_stream(std::move(impl_), reinterpret_cast<uint8_t *>(&stream), path);
+        } catch (const rust::cxxbridge1::Error &e) {
+            throw VortexException(e.what());
+        }
+    }
+
+private:
+    rust::Box<ffi::VortexWriteOptions> impl_;
 };
 
 class VortexFile {

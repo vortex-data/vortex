@@ -133,3 +133,43 @@ TEST_F(VortexTest, ScanOptionsWithLimit) {
         ASSERT_EQ(int32_array_a->Value(2), 30);
     }
 }
+
+TEST_F(VortexTest, WriteArrayStream) {
+    auto file = vortex::VortexFile::Open("../target/debug/build/test_data.vortex");
+
+    // Create an Arrow RecordBatchReader by scanning the file
+    auto maybe_reader = file.CreateScanBuilder().IntoStream();
+    ASSERT_TRUE(maybe_reader.ok()) << "Failed to create RecordBatchReader: "
+                                   << maybe_reader.status().message();
+
+    auto reader = maybe_reader.ValueOrDie();
+    ASSERT_NE(reader, nullptr);
+
+    // Convert to Arrow C ABI stream
+    ArrowArrayStream stream;
+    ASSERT_EQ(arrow::ExportRecordBatchReader(reader, &stream), arrow::Status::OK());
+
+    // Write the stream to a new Vortex file
+    vortex::VortexWriteOptions write_options;
+    ASSERT_NO_THROW(write_options.WriteArrayStream(stream, "../target/debug/build/test_output.vortex"));
+
+    // Verify the written file by opening it
+    auto written_file = vortex::VortexFile::Open("../target/debug/build/test_output.vortex");
+    ASSERT_EQ(written_file.RowCount(), 5);
+
+    // Verify data integrity by scanning the written file
+    auto [arrow, schema] = written_file.CreateScanBuilder().IntoArray();
+
+    auto maybe_data_type = arrow::ImportType(&schema);
+    ASSERT_TRUE(maybe_data_type.ok())
+        << "Failed to import Arrow schema: " << maybe_data_type.status().message();
+    auto data_type = maybe_data_type.ValueOrDie();
+
+    auto maybe_imported_array = arrow::ImportArray(&arrow, data_type);
+    ASSERT_TRUE(maybe_imported_array.ok())
+        << "Failed to import Arrow array: " << maybe_imported_array.status().message();
+    auto imported_array = maybe_imported_array.ValueOrDie();
+
+    auto struct_array = std::static_pointer_cast<arrow::StructArray>(imported_array);
+    ValidateStructArray(struct_array);
+}
