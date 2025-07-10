@@ -73,17 +73,7 @@ fn optimize_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexRes
         return output.unwrap_array();
     }
 
-    // Otherwise, canonicalize and try again.
-    if !array.is_canonical() {
-        log::debug!(
-            "No optimize implementation found for {}",
-            array.encoding_id()
-        );
-        let canonical = array.to_canonical()?;
-        return optimize(canonical.as_ref());
-    }
-
-    // If no optimization is available, return the original array
+    // If no kernel is defined, just return the original array.
     Ok(array.to_array())
 }
 
