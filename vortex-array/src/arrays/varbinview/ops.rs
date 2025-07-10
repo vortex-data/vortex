@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
+use vortex_error::{VortexResult, VortexUnwrap};
 use vortex_scalar::Scalar;
 
 use crate::arrays::{VarBinViewArray, VarBinViewVTable, varbin_scalar};
@@ -28,22 +28,21 @@ impl OperationsVTable<VarBinViewVTable> for VarBinViewVTable {
     }
 
     fn optimize(array: &VarBinViewArray) -> VortexResult<ArrayRef> {
-        // If there is little to be gained by compacting, return the original array untouched.
+        // If there is nothing to be gained by compaction, return the original array untouched.
         if !should_compact(array) {
             return Ok(array.to_array());
         }
 
+        // Compaction pathways, depend on the validity
         match array.validity {
-            Validity::AllInvalid => {
-                // The array contains no values, drop all buffers.
-                Ok(VarBinViewArray::try_new(
-                    array.views().clone(),
-                    vec![],
-                    array.dtype().clone(),
-                    array.validity().clone(),
-                )?
-                .into_array())
-            }
+            // The array contains no values, all buffers can be dropped.
+            Validity::AllInvalid => Ok(VarBinViewArray::try_new(
+                array.views().clone(),
+                vec![],
+                array.dtype().clone(),
+                array.validity().clone(),
+            )?
+            .into_array()),
             // Non-null pathway
             Validity::NonNullable | Validity::AllValid => rebuild_nonnull(array),
             // Nullable pathway, requires null-checks for each value
@@ -58,24 +57,35 @@ fn should_compact(array: &VarBinViewArray) -> bool {
         return false;
     }
 
-    // Scan the views, calculating the total buffer size that is referenced.
-    let bytes_referenced: u64 = array
-        .views()
-        .iter()
-        .map(|&view| {
-            if view.is_inlined() {
-                0u64
-            } else {
-                // SAFETY: in this branch the view is not inlined.
-                unsafe { view._ref }.size as u64
-            }
-        })
-        .sum();
+    let bytes_referenced: u64 = count_referenced_bytes(array);
+    let buffer_total_bytes: u64 = array.buffers.iter().map(|buf| buf.len() as u64).sum();
 
-    let buffer_total_size: u64 = array.buffers.iter().map(|buf| buf.len() as u64).sum();
+    // If there is any wasted space, we want to repack.
+    // This is very aggressive.
+    bytes_referenced < buffer_total_bytes
+}
 
-    // If the majority of buffer space is unused, attempt to repack
-    bytes_referenced < buffer_total_size / 2
+// count the number of bytes addressed by the views, not including null
+// values or any inlined strings.
+fn count_referenced_bytes(array: &VarBinViewArray) -> u64 {
+    match array.validity() {
+        Validity::AllInvalid => 0u64,
+        _ => {
+            array
+                .views()
+                .iter()
+                .enumerate()
+                .map(|(idx, &view)| {
+                    if !array.is_valid(idx).vortex_unwrap() || view.is_inlined() {
+                        0u64
+                    } else {
+                        // SAFETY: in this branch the view is not inlined.
+                        unsafe { view._ref }.size as u64
+                    }
+                })
+                .sum()
+        }
+    }
 }
 
 // Nullable string array compaction pathway.
@@ -210,13 +220,13 @@ mod tests {
     #[test]
     fn test_optimize_single_buffer() {
         // Create an array that naturally has only one buffer
-        let original = VarBinViewArray::from_iter_str([
-            "this is a long string that goes into a buffer",
-            "another long string in the same buffer",
-        ]);
+        let str1 = "this is a long string that goes into a buffer";
+        let str2 = "another long string in the same buffer";
+        let original = VarBinViewArray::from_iter_str([str1, str2]);
 
-        // Should have 1 buffer
+        // Should have 1 compact buffer
         assert_eq!(original.nbuffers(), 1);
+        assert_eq!(original.buffer(0).len(), str1.len() + str2.len());
 
         // Optimize should return the same array (no change needed)
         let optimized = original.optimize().unwrap();
