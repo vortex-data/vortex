@@ -38,8 +38,8 @@ type TableFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 /// Configuration for TPC-H data generation
 #[derive(Debug, Clone)]
 pub struct TpchGenOptions {
-    /// Scale factor (0.1, 1, 10, 100, 1000)
-    pub scale_factor: f64,
+    /// Scale factor (0.01, 0.1, 1, 10, 100, 1000)
+    pub scale_factor: String,
     /// Output directory
     pub output_dir: PathBuf,
     /// Output format
@@ -53,7 +53,7 @@ pub struct TpchGenOptions {
 impl Default for TpchGenOptions {
     fn default() -> Self {
         Self {
-            scale_factor: 1.0,
+            scale_factor: "1.0".to_string(),
             output_dir: "tpch".to_data_path(),
             format: Format::Parquet,
             batch_size: 8192 * 64,
@@ -63,7 +63,7 @@ impl Default for TpchGenOptions {
 }
 
 impl TpchGenOptions {
-    pub fn new(scale_factor: f64, output_dir: impl AsRef<Path>) -> Self {
+    pub fn new(scale_factor: String, output_dir: impl AsRef<Path>) -> Self {
         Self {
             scale_factor,
             output_dir: output_dir.as_ref().to_path_buf(),
@@ -219,14 +219,14 @@ fn generate_table_files(
 }
 
 macro_rules! generate_parts {
-    ($prefix:ident, $num_parts:expr, $options:expr) => {{
+    ($prefix:ident, $num_parts:expr, $scale_factor:expr, $batch_size:expr) => {{
         let mut generators: Vec<Box<dyn tpchgen_arrow::RecordBatchIterator>> = Vec::new();
         let num_parts_i32 = $num_parts.try_into().unwrap();
         for part in 1..=num_parts_i32 {
             let generator = paste::paste! {
                 tpchgen_arrow::[<$prefix Arrow>]::new(
-                    [<$prefix Generator>]::new($options.scale_factor, part, num_parts_i32)
-                ).with_batch_size($options.batch_size)
+                    [<$prefix Generator>]::new($scale_factor, part, num_parts_i32)
+                ).with_batch_size($batch_size)
             };
             generators.push(Box::new(generator) as Box<dyn tpchgen_arrow::RecordBatchIterator>);
         }
@@ -240,25 +240,27 @@ fn create_batch_iterator(
     generator: TableGenerator,
     options: &TpchGenOptions,
 ) -> Result<Vec<Box<dyn RecordBatchIterator>>> {
+    let scale_factor = options.scale_factor.parse::<f64>()?;
+
     let num_parts = if let Some((data_size, max_file_size)) = generator
         .uncompressed_data_size()
         .zip(options.max_file_size_mb)
     {
-        let file_size = data_size * options.scale_factor as u64;
+        let file_size = (data_size as f64 * scale_factor).trunc() as u64;
         file_size.div_ceil(max_file_size)
     } else {
         1
     };
 
     match generator {
-        TableGenerator::Nation => generate_parts!(Nation, num_parts, options),
-        TableGenerator::Region => generate_parts!(Region, num_parts, options),
-        TableGenerator::Part => generate_parts!(Part, num_parts, options),
-        TableGenerator::Supplier => generate_parts!(Supplier, num_parts, options),
-        TableGenerator::Customer => generate_parts!(Customer, num_parts, options),
-        TableGenerator::PartSupp => generate_parts!(PartSupp, num_parts, options),
-        TableGenerator::Orders => generate_parts!(Order, num_parts, options),
-        TableGenerator::LineItem => generate_parts!(LineItem, num_parts, options),
+        TableGenerator::Nation => generate_parts!(Nation, num_parts, scale_factor, options.batch_size),
+        TableGenerator::Region => generate_parts!(Region, num_parts, scale_factor, options.batch_size),
+        TableGenerator::Part => generate_parts!(Part, num_parts, scale_factor, options.batch_size),
+        TableGenerator::Supplier => generate_parts!(Supplier, num_parts, scale_factor, options.batch_size),
+        TableGenerator::Customer => generate_parts!(Customer, num_parts, scale_factor, options.batch_size),
+        TableGenerator::PartSupp => generate_parts!(PartSupp, num_parts, scale_factor, options.batch_size),
+        TableGenerator::Orders => generate_parts!(Order, num_parts, scale_factor, options.batch_size),
+        TableGenerator::LineItem => generate_parts!(LineItem, num_parts, scale_factor, options.batch_size),
     }
 }
 

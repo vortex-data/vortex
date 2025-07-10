@@ -513,3 +513,15 @@ jobs:
         working-directory: vortex-flatbuffers/
         run: |
           find flatbuffers/ -type f -name "*.fbs" | sed 's/^flatbuffers\///' | xargs -I{} -n1 flatc -I flatbuffers.HEAD --conform-includes flatbuffers --conform flatbuffers/{} flatbuffers.HEAD/{}
+  tpch_0_01:
+    name: "TPCH 0.01"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+      - uses: ./.github/actions/setup-rust
+      - name: Run TPCH 0.01
+        run: |
+          cargo run --bin query_bench -- tpch  -i1 --scale-factor 0.01

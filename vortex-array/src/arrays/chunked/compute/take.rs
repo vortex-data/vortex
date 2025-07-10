@@ -28,6 +28,7 @@ impl TakeKernel for ChunkedVTable {
         let mut indices_in_chunk = BufferMut::<u64>::empty();
         let mut start = 0;
         let mut stop = 0;
+        // We assume indices are non-empty as it's handled in the top-level `take` function
         let mut prev_chunk_idx = array.find_chunk_idx(indices[0].try_into()?).0;
         for idx in indices {
             let idx = usize::try_from(*idx)?;
@@ -76,7 +77,7 @@ register_kernel!(TakeKernelAdapter(ChunkedVTable).lift());
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
+    use vortex_dtype::{FieldNames, Nullability};
 
     use crate::IntoArray;
     use crate::array::Array;
@@ -127,5 +128,24 @@ mod test {
         assert_eq!(result.scalar_at(0).unwrap(), expect.scalar_at(0).unwrap());
         assert_eq!(result.scalar_at(1).unwrap(), expect.scalar_at(1).unwrap());
         assert_eq!(result.scalar_at(2).unwrap(), expect.scalar_at(2).unwrap());
+    }
+
+    #[test]
+    fn test_empty_take() {
+        let a = buffer![1i32, 2, 3].into_array();
+        let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
+            .unwrap();
+        assert_eq!(arr.nchunks(), 3);
+        assert_eq!(arr.len(), 9);
+
+        let indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable);
+        let result = take(arr.as_ref(), indices.as_ref())
+            .unwrap()
+            .to_primitive()
+            .unwrap();
+
+        assert!(result.is_empty());
+        assert_eq!(result.dtype(), arr.dtype());
+        assert!(result.as_slice::<i32>().is_empty());
     }
 }
