@@ -42,6 +42,8 @@ window.initAndRender = (function () {
       "Compression Size": new Map(),
       "TPC-H (NVME) (SF=1)": new Map(),
       "TPC-H (S3) (SF=1)": new Map(),
+      "TPC-H (NVME) (SF=10)": new Map(),
+      "TPC-H (S3) (SF=10)": new Map(),
       "TPC-H (NVME) (SF=100)": new Map(),
       "TPC-H (S3) (SF=100)": new Map(),
       Clickbench: new Map(),

@@ -24,8 +24,8 @@ jobs:
             "id": "tpch-nvme",
             "subcommand": "tpch",
             "name": "TPC-H on NVME",
-            "targets": ",datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex",
-            "scale_factor": "--scale-factor 100"
+            "targets": ",datafusion:parquet,datafusion:vortex,duckdb:parquet",
+            "scale_factor": "--scale-factor ${{ matrix.scale_factor }}"
           },
           {
             "id": "clickbench-nvme",
@@ -37,14 +37,16 @@ jobs:
             "id": "tpch-s3",
             "subcommand": "tpch",
             "name": "TPC-H on S3",
-            "local_dir": "bench-vortex/data/tpch/100",
-            "remote_storage": "s3://vortex-bench-dev-eu/develop/tpch/100/",
+            "local_dir": "bench-vortex/data/tpch/${{ matrix.scale_factor }}",
+            "remote_storage": "s3://vortex-bench-dev-eu/develop/tpch/${{ matrix.scale_factor }}/",
             "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet",
-            "scale_factor": "--scale-factor 100"
+            "scale_factor": "--scale-factor ${{ matrix.scale_factor }}"
           }
         ]
     strategy:
       matrix:
+        # currently 100 is failing I hope to address this.
+        scale_factor: [ 10, 100 ]
         machine_type:
           - id: x86
             instance_name: c6id.8xlarge
