@@ -98,7 +98,8 @@ impl Benchmark for TpcHBenchmark {
                 // Use tpchgen for data generation
                 let options =
                     tpchgen::TpchGenOptions::new(self.scale_factor as f64, &base_data_dir)
-                        .with_format(format);
+                        .with_format(format)
+                        .with_max_file_size_mb(Some(600));
 
                 // Generate data using our streaming tpchgen module
                 let runtime = tokio::runtime::Runtime::new()?;

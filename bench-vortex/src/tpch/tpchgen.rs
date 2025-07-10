@@ -47,7 +47,7 @@ pub struct TpchGenOptions {
     /// Batch size for streaming
     pub batch_size: usize,
     /// The max size of uncompressed file .tbl that we should generate
-    pub max_file_size_bytes: Option<u64>,
+    pub max_file_size_mb: Option<u64>,
 }
 
 impl Default for TpchGenOptions {
@@ -57,7 +57,7 @@ impl Default for TpchGenOptions {
             output_dir: "tpch".to_data_path(),
             format: Format::Parquet,
             batch_size: 8192 * 64,
-            max_file_size_bytes: None,
+            max_file_size_mb: None,
         }
     }
 }
@@ -81,8 +81,8 @@ impl TpchGenOptions {
         self
     }
 
-    pub fn with_max_file_size(mut self, max_file_size_bytes: Option<u64>) -> Self {
-        self.max_file_size_bytes = max_file_size_bytes;
+    pub fn with_max_file_size_mb(mut self, max_file_size_mb: Option<u64>) -> Self {
+        self.max_file_size_mb = max_file_size_mb;
         self
     }
 }
@@ -125,7 +125,7 @@ pub async fn generate_tpch_tables(options: &TpchGenOptions) -> Result<()> {
     // Process futures with bounded concurrency
     // Map each future to a spawned task, then use buffer_unordered to limit concurrency
     let results: Vec<_> = stream::iter(all_futures)
-        .map(|future| tokio::spawn(async move { future.await }))
+        .map(|future| tokio::spawn(future))
         .buffer_unordered(MAX_CONCURRENT_FILES)
         .try_collect()
         .await?;
@@ -251,10 +251,12 @@ fn create_batch_iterator(
     generator: TableGenerator,
     options: &TpchGenOptions,
 ) -> Result<Vec<Box<dyn RecordBatchIterator>>> {
-    const IDEAL_SIZE_MB: u64 = 600;
-    let num_parts = if let Some(data_size) = generator.uncompressed_data_size() {
+    let num_parts = if let Some((data_size, max_file_size)) = generator
+        .uncompressed_data_size()
+        .zip(options.max_file_size_mb)
+    {
         let file_size = data_size * options.scale_factor as u64;
-        file_size.div_ceil(IDEAL_SIZE_MB)
+        file_size.div_ceil(max_file_size)
     } else {
         1
     };
