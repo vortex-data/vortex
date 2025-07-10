@@ -54,12 +54,6 @@ impl VTable for MergeVTable {
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if children.is_empty() {
-            vortex_bail!(
-                "Merge expression must have at least one child, got: {:?}",
-                children
-            );
-        }
         Ok(MergeExpr {
             values: children,
             nullability: expr.nullability,

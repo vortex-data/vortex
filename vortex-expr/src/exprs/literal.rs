@@ -48,12 +48,6 @@ impl VTable for LiteralVTable {
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if !children.is_empty() {
-            vortex_bail!(
-                "Literal expression does not have children, got: {:?}",
-                children
-            );
-        }
         Ok(expr.clone())
     }
 

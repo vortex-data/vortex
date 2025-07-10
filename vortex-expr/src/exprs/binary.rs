@@ -57,13 +57,6 @@ impl VTable for BinaryVTable {
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if children.len() != 2 {
-            vortex_bail!(
-                "Binary expression must have exactly 2 children, got {}",
-                children.len()
-            );
-        }
-
         Ok(BinaryExpr::new(
             children[0].clone(),
             expr.op(),

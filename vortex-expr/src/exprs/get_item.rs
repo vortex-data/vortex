@@ -56,13 +56,6 @@ impl VTable for GetItemVTable {
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if children.len() != 1 {
-            vortex_bail!(
-                "GetItem expression must have exactly 1 child, got {}",
-                children.len()
-            );
-        }
-
         Ok(GetItemExpr {
             field: expr.field.clone(),
             child: children[0].clone(),

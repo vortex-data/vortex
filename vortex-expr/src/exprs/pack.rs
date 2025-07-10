@@ -81,13 +81,6 @@ impl VTable for PackVTable {
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if children.len() != expr.values.len() {
-            vortex_bail!(
-                "Pack expression expects {} children, got {}",
-                expr.values.len(),
-                children.len()
-            );
-        }
         PackExpr::try_new(expr.names.clone(), children, expr.nullability)
     }
 
