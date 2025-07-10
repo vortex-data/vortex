@@ -132,7 +132,7 @@ mod test {
     }
 
     #[test]
-    fn test_test_empty_take() {
+    fn test_empty_take() {
         let a = buffer![1i32, 2, 3].into_array();
         let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
             .unwrap();
