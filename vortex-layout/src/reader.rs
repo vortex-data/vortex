@@ -97,6 +97,15 @@ pub trait MaskEvaluation: 'static + Send + Sync {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
 }
 
+pub struct NoOpMaskEvaluation;
+
+#[async_trait]
+impl MaskEvaluation for NoOpMaskEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        Ok(mask)
+    }
+}
+
 /// Evaluates an expression against an array, returning an array equal in length to the true count
 /// of the input mask.
 #[async_trait]

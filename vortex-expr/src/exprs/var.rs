@@ -48,7 +48,7 @@ impl VTable for VarVTable {
         vec![]
     }
 
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+    fn with_children(expr: &Self::Expr, _children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
         Ok(expr.clone())
     }
 

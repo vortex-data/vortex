@@ -4,11 +4,15 @@
 use std::fmt::{Display, Formatter};
 
 use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_dtype::{DType, Nullability, PType};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_expr::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, Scope, ScopeDType, VTable, vtable,
 };
+
+/// The scope variable that stores the row index array.
+#[derive(Clone)]
+pub(super) struct RowIdxVar(pub(super) ArrayRef);
 
 vtable!(RowIdx);
 
@@ -66,11 +70,13 @@ impl VTable for RowIdxVTable {
         Ok(RowIdxExpr)
     }
 
-    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        todo!()
+    fn evaluate(_expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        Ok(scope.scope_var::<RowIdxVar>()
+            .ok_or_else(|| vortex_err!("RowIdx variable not found in scope, ensure the expression is evaluated in the context of a Vortex scan"))?
+            .0.clone())
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
-        todo!()
+    fn return_dtype(_expr: &Self::Expr, _scope: &ScopeDType) -> VortexResult<DType> {
+        Ok(DType::Primitive(PType::U64, Nullability::NonNullable))
     }
 }

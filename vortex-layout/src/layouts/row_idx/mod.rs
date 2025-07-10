@@ -8,15 +8,21 @@ use std::fmt::{Display, Formatter};
 use std::ops::Range;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use dashmap::DashMap;
+use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
-use vortex_dtype::{DType, FieldMask};
+use vortex_array::{Array, ArrayRef, IntoArray};
+use vortex_dtype::{DType, FieldMask, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
-use vortex_expr::transform::replace::replace;
-use vortex_expr::{ExactExpr, ExprRef, ScopeDType, col, root};
+use vortex_expr::{ExactExpr, ExprRef, Scope, ScopeDType, is_root};
+use vortex_mask::Mask;
+use vortex_scalar::PValue;
+use vortex_sequence::SequenceArray;
 
-use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
+use crate::layouts::row_idx::expr::{RowIdxVTable, RowIdxVar};
+use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, PruningEvaluation};
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,
@@ -31,34 +37,41 @@ impl RowIdxLayoutReader {
         self.partition_cache
             .entry(ExactExpr(expr.clone()))
             .or_insert_with(|| {
-                // Partition the expression into expressions that can be evaluated over individual fields
-                let mut partitioned = partition(expr.clone(), self.dtype(), |expr| expr)
-                    .vortex_expect("We should not fail to partition expression over struct fields");
+                // Partition the expression into row idx and child expressions.
+                let partitioned = partition(expr.clone(), self.dtype(), |expr| {
+                    if expr.is::<RowIdxVTable>() {
+                        vec![Partition::RowIdx]
+                    } else if is_root(expr) {
+                        vec![Partition::Child]
+                    } else {
+                        vec![]
+                    }
+                })
+                .vortex_expect("We should not fail to partition expression over struct fields");
 
+                // If there's only a single partition, we can directly return the expression.
                 if partitioned.partitions.len() == 1 {
-                    // If there's only one partition, we step into the field scope of the original
-                    // expression by replacing any `$.a` with `$`.
-                    return Partitioned::Single(
-                        partitioned.partition_names[0].clone(),
-                        replace(
-                            expr.clone(),
-                            &col(partitioned.partition_names[0].clone()),
-                            root(),
-                        ),
-                    );
+                    return match &partitioned.partition_annotations[0] {
+                        Partition::RowIdx => Partitioned::RowIdx(expr.clone()),
+                        Partition::Child => Partitioned::Child(expr.clone()),
+                    };
                 }
 
-                // We now need to process the partitioned expressions to rewrite the root scope
-                // to be that of the field, rather than the struct. In other words, "stepping in"
-                // to the field scope.
-                partitioned.partitions = partitioned
-                    .partitions
-                    .iter()
-                    .zip_eq(partitioned.partition_names.iter())
-                    .map(|(e, name)| replace(e.clone(), &col(name.clone()), root()))
-                    .collect();
-
-                Partitioned::Multi(Arc::new(partitioned))
+                assert_eq!(
+                    partitioned.partitions.len(),
+                    2,
+                    "Expected exactly two partitions"
+                );
+                Partitioned::Partitioned(
+                    partitioned
+                        .find_partition(&Partition::RowIdx)
+                        .vortex_expect("Missing RowIdx partition")
+                        .clone(),
+                    partitioned
+                        .find_partition(&Partition::Child)
+                        .vortex_expect("Missing Child partition")
+                        .clone(),
+                )
             })
             .clone()
     }
@@ -70,8 +83,8 @@ enum Partitioned {
     RowIdx(ExprRef),
     // An expression that does not reference the row index.
     Child(ExprRef),
-    // An expression that references both the row index and other fields.
-    Partitioned(Arc<PartitionedExpr<Partition>>),
+    // Contains both the RowIdx and Child expressions.
+    Partitioned(ExprRef, ExprRef),
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -112,7 +125,12 @@ impl LayoutReader for RowIdxLayoutReader {
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        self.child.register_splits(field_mask, row_offset, splits)
+        // Since RowIdx isn't a field, we only need to register splits for the child layout
+        // if there are any fields in the mask at all.
+        if !field_mask.is_empty() {
+            self.child.register_splits(field_mask, row_offset, splits)?;
+        }
+        Ok(())
     }
 
     fn pruning_evaluation(
@@ -120,7 +138,20 @@ impl LayoutReader for RowIdxLayoutReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
-        self.child.pruning_evaluation(row_range, expr)
+        match &self.partition_expr(expr) {
+            Partitioned::RowIdx(expr) => Ok(Box::new(RowIdxEvaluation {
+                row_offset: self.row_offset + row_range.start,
+                expr: expr.clone(),
+            })),
+            Partitioned::Child(expr) => self.child.pruning_evaluation(row_range, expr),
+            Partitioned::Partitioned(row_idx_expr, child_expr) => {
+                Ok(Box::new(PartitionedEvaluation {
+                    row_offset: self.row_offset + row_range.start,
+                    row_idx_expr: row_idx_expr.clone(),
+                    child_expr: child_expr.clone(),
+                }) as _)
+            }
+        }
     }
 
     fn filter_evaluation(
@@ -128,7 +159,16 @@ impl LayoutReader for RowIdxLayoutReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        self.child.filter_evaluation(row_range, expr)
+        match &self.partition_expr(expr) {
+            // Since this is run during pruning, we skip re-evaluating the row index expression
+            // during the filter evaluation.
+            Partitioned::RowIdx(_) => Ok(Box::new(NoOpMaskEvaluation)),
+            Partitioned::Child(expr) => self.child.filter_evaluation(row_range, expr),
+            Partitioned::Partitioned(p) => Ok(Box::new(PartitionedEvaluation {
+                row_offset: self.row_offset + row_range.start,
+                partition: p.clone(),
+            }) as _),
+        }
     }
 
     fn projection_evaluation(
@@ -136,6 +176,83 @@ impl LayoutReader for RowIdxLayoutReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        self.child.projection_evaluation(row_range, expr)
+        match &self.partition_expr(expr) {
+            Partitioned::RowIdx(expr) => Ok(Box::new(RowIdxEvaluation {
+                row_offset: self.row_offset + row_range.start,
+                expr: expr.clone(),
+            }) as _),
+            Partitioned::Child(expr) => self.child.projection_evaluation(row_range, expr),
+            Partitioned::Partitioned(p) => Ok(Box::new(PartitionedEvaluation {
+                row_offset: self.row_offset + row_range.start,
+                partition: p.clone(),
+            }) as _),
+        }
     }
+}
+
+struct RowIdxEvaluation {
+    row_offset: u64,
+    expr: ExprRef,
+}
+
+#[async_trait]
+impl PruningEvaluation for RowIdxEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        // Generate a sequence array for the row index.
+        let row_idx = SequenceArray::new(
+            PValue::U64(self.row_offset),
+            PValue::U64(1),
+            PType::U64,
+            mask.len(),
+        )?;
+
+        let result = self.expr.evaluate(
+            &Scope::empty(row_idx.len()).with_scope_var(RowIdxVar(row_idx.into_array())),
+        )?;
+
+        Mask::try_from(result.as_ref())
+    }
+}
+
+#[async_trait]
+impl ArrayEvaluation for RowIdxEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+        // Generate a sequence array for the row index.
+        let row_idx = SequenceArray::new(
+            PValue::U64(self.row_offset),
+            PValue::U64(1),
+            PType::U64,
+            mask.len(),
+        )?;
+
+        // Filter the row index based on the mask.
+        let row_idx = filter(row_idx.as_ref(), &mask)?;
+
+        self.expr
+            .evaluate(&Scope::empty(row_idx.len()).with_scope_var(RowIdxVar(row_idx.into_array())))
+    }
+}
+
+struct PartitionedEvaluation {
+    row_offset: u64,
+    child_eval: ExprRef,
+}
+
+#[async_trait]
+impl PruningEvaluation for PartitionedEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        todo!()
+    }
+}
+
+#[async_trait]
+impl MaskEvaluation for PartitionedEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        todo!()
+    }
+}
+
+#[async_trait]
+impl ArrayEvaluation for PartitionedEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {}
 }
