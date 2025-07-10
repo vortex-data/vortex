@@ -25,11 +25,8 @@ public:
 
 class ScanBuilder {
 public:
-    ScanBuilder(rust::Box<ffi::VortexScanBuilder> impl) : impl_(std::move(impl)) {
-    }
-
     /// Set the filter on the scan builder.
-    void set_filter(std::string_view filter) {
+    ScanBuilder &SetFilter(std::string_view filter) {
         try {
             ffi::scan_builder_set_filter(
                 *impl_,
@@ -37,28 +34,35 @@ public:
         } catch (const rust::cxxbridge1::Error &e) {
             throw VortexException(e.what());
         }
+        return *this;
     }
 
     /// Set the limit on the number of rows to scan.
-    void set_limit(uint64_t limit) {
+    ScanBuilder &SetLimit(uint64_t limit) {
         ffi::scan_builder_set_limit(*impl_, limit);
+        return *this;
     }
 
     /// Consume the scan builder to a stream of record batches.
     /// The scan builder is consumed and cannot be used after this call.
-    arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> into_stream();
+    arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> IntoStream();
 
     /// Consume the scan builder to an Arrow array and schema.
     /// The scan builder is consumed and cannot be used after this call.
-    std::pair<ArrowArray, ArrowSchema> into_arrow();
+    std::pair<ArrowArray, ArrowSchema> IntoArray();
 
 private:
+    friend class VortexFile;
+
+    explicit ScanBuilder(rust::Box<ffi::VortexScanBuilder> impl) : impl_(std::move(impl)) {
+    }
+
     rust::Box<ffi::VortexScanBuilder> impl_;
 };
 
 class VortexFile {
 public:
-    static VortexFile open(const std::string &path) {
+    static VortexFile Open(const std::string &path) {
         try {
             return VortexFile(ffi::open_file(path));
         } catch (const rust::cxxbridge1::Error &e) {
@@ -67,13 +71,13 @@ public:
     }
 
     /// Get the number of rows in the file.
-    uint64_t row_count() const {
+    uint64_t RowCount() const {
         return ffi::file_row_count(*impl_);
     }
 
     /// Create a scan builder for the file.
     /// The scan builder can be used to scan the file.
-    ScanBuilder scan_builder() const {
+    ScanBuilder CreateScanBuilder() const {
         return ScanBuilder(ffi::file_scan_builder(*impl_));
     }
 

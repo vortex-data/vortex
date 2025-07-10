@@ -51,11 +51,11 @@ protected:
     }
 };
 
-TEST_F(VortexTest, ScanToArrow) {
-    auto file = vortex::VortexFile::open("../target/debug/build/test_data.vortex");
+TEST_F(VortexTest, ScanToArray) {
+    auto file = vortex::VortexFile::Open("../target/debug/build/test_data.vortex");
 
     // Test scanning to Arrow C ABI
-    auto [arrow, schema] = file.scan_builder().into_arrow();
+    auto [arrow, schema] = file.CreateScanBuilder().IntoArray();
 
     // Import the Arrow array using Arrow C++ API
     auto maybe_data_type = arrow::ImportType(&schema);
@@ -74,10 +74,10 @@ TEST_F(VortexTest, ScanToArrow) {
 }
 
 TEST_F(VortexTest, ScanToStream) {
-    auto file = vortex::VortexFile::open("../target/debug/build/test_data.vortex");
+    auto file = vortex::VortexFile::Open("../target/debug/build/test_data.vortex");
 
     // Test scanning to Arrow RecordBatchReader
-    auto maybe_reader = file.scan_builder().into_stream();
+    auto maybe_reader = file.CreateScanBuilder().IntoStream();
     ASSERT_TRUE(maybe_reader.ok()) << "Failed to create RecordBatchReader: "
                                    << maybe_reader.status().message();
 
@@ -101,11 +101,9 @@ TEST_F(VortexTest, ScanToStream) {
 }
 
 TEST_F(VortexTest, ScanOptionsWithLimit) {
-    auto file = vortex::VortexFile::open("../target/debug/build/test_data.vortex");
+    auto file = vortex::VortexFile::Open("../target/debug/build/test_data.vortex");
 
-    auto builder = file.scan_builder();
-    builder.set_limit(3);
-    auto maybe_reader = builder.into_stream();
+    auto maybe_reader = file.CreateScanBuilder().SetLimit(3).IntoStream();
     ASSERT_TRUE(maybe_reader.ok()) << "Failed to create RecordBatchReader: "
                                    << maybe_reader.status().message();
 

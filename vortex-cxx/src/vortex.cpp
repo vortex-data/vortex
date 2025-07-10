@@ -4,7 +4,7 @@
 #include "vortex.hpp"
 
 namespace vortex {
-arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> ScanBuilder::into_stream() {
+arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> ScanBuilder::IntoStream() {
     try {
         ArrowArrayStream stream;
         ffi::scan_builder_to_stream(std::move(impl_), reinterpret_cast<uint8_t *>(&stream));
@@ -14,7 +14,7 @@ arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> ScanBuilder::into_strea
     }
 }
 
-std::pair<ArrowArray, ArrowSchema> ScanBuilder::into_arrow() {
+std::pair<ArrowArray, ArrowSchema> ScanBuilder::IntoArray() {
     try {
         ArrowArray array;
         ArrowSchema schema;

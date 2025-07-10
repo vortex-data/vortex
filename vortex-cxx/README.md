@@ -46,3 +46,9 @@ cmake -DVORTEX_ENABLE_TESTING=ON ..
 make -j$(nproc)
 ./vortex_cxx_test
 ```
+
+## C++ Coding Convention
+
+We use `.clang-tidy` and `.clang-format` to setup converion. Both are borrowed from DuckDB.
+
+`cppcoreguidelines-avoid-non-const-global-variables` is removed from `.clang-tidy` because of GTest violates it.
