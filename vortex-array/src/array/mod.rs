@@ -62,6 +62,8 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     /// Fetch the scalar at the given index.
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar>;
 
+    fn optimize(&self) -> VortexResult<ArrayRef>;
+
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {
         self.encoding_id() == encoding
@@ -181,6 +183,10 @@ impl Array for Arc<dyn Array> {
 
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
         self.as_ref().scalar_at(index)
+    }
+
+    fn optimize(&self) -> VortexResult<ArrayRef> {
+        self.as_ref().optimize()
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
@@ -428,6 +434,10 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.0, index)?;
         assert_eq!(self.dtype(), scalar.dtype(), "Scalar dtype mismatch");
         Ok(scalar)
+    }
+
+    fn optimize(&self) -> VortexResult<ArrayRef> {
+        <V::OperationsVTable as OperationsVTable<V>>::optimize(&self.0)
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
