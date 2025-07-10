@@ -6,15 +6,15 @@ concurrency:
 
 on:
   push:
-    branches: ["develop"]
+    branches: [ 'develop' ]
   pull_request: {}
   workflow_dispatch: {}
 
 permissions:
   actions: read
   contents: read
-  checks: write # audit-check creates checks
-  issues: write # audit-check creates issues
+  checks: write  # audit-check creates checks
+  issues: write  # audit-check creates issues
 
 env:
   CARGO_TERM_COLOR: always
@@ -281,7 +281,7 @@ jobs:
   rust-coverage:
     name: "Rust (coverage)"
     timeout-minutes: 120
-    #if: github.ref == 'refs/heads/develop'
+    # if: github.ref == 'refs/heads/develop'
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -291,7 +291,7 @@ jobs:
       - tag=rust-coverage
     env:
       RUSTFLAGS: "-Cinstrument-coverage -A warnings"
-      CARGO_INCREMENTAL: 0 # Disable incremental compilation to get accurate coverage
+      CARGO_INCREMENTAL: 0  # Disable incremental compilation to get accurate coverage
       LLVM_PROFILE_FILE: "target/coverage/vortex-%p-%m.profraw"
       GRCOV_OUTPUT_FILE: "target/coverage/vortex.lcov"
     steps:
