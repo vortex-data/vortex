@@ -21,34 +21,41 @@ jobs:
       benchmark_matrix: |
         [
           {
-            "id": "tpch-nvme",
+            "id": "tpch-nvme-ddb-pq",
             "subcommand": "tpch",
             "name": "TPC-H on NVME",
-            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet",
+            "targets": "duckdb:parquet",
             "scale_factor": "--scale-factor ${{ matrix.scale_factor }}"
           },
           {
-            "id": "clickbench-nvme",
-            "subcommand": "clickbench",
-            "name": "Clickbench on NVME",
-            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+            "id": "tpch-nvme-df-pq",
+            "subcommand": "tpch",
+            "name": "TPC-H on NVME",
+            "targets": "datafusion:parquet",
+            "scale_factor": "--scale-factor ${{ matrix.scale_factor }}"
           },
           {
-            "id": "tpch-s3",
+            "id": "tpch-nvme-df-vx",
             "subcommand": "tpch",
-            "name": "TPC-H on S3",
-            "local_dir": "bench-vortex/data/tpch/${{ matrix.scale_factor }}",
-            "remote_storage": "s3://vortex-bench-dev-eu/develop/tpch/${{ matrix.scale_factor }}/",
-            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet",
+            "name": "TPC-H on NVME",
+            "targets": "datafusion:vortex",
+            "scale_factor": "--scale-factor ${{ matrix.scale_factor }}"
+          },
+          {
+            "id": "tpch-nvme-ddb-vx",
+            "subcommand": "tpch",
+            "name": "TPC-H on NVME",
+            "targets": "duckdb:vortex",
             "scale_factor": "--scale-factor ${{ matrix.scale_factor }}"
           }
+
         ]
     strategy:
       # A single run not should kill the others
       fail-fast: false
       matrix:
         # currently 100 is failing I hope to address this.
-        scale_factor: [ 10, 100 ]
+        scale_factor: [ 100 ]
         machine_type:
           - id: x86
             instance_name: c6id.8xlarge
