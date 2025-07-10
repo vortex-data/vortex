@@ -253,8 +253,6 @@ fn create_batch_iterator(
         1
     };
 
-    println!("num parts: {num_parts}");
-
     let batch_size = options.batch_size;
     match generator {
         TableGenerator::Nation => generate_parts!(Nation, num_parts, scale_factor, batch_size),
