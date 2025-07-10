@@ -128,7 +128,7 @@ fn main() {
     // Download, extract and symlink DuckDB source code.
     let zip_source_path = download_duckdb_source_archive().unwrap();
     let extracted_source_path = extract_duckdb_source(zip_source_path).unwrap();
-    let _ = fs::remove_dir_all(&duckdb_repo).unwrap();
+    let _ = fs::remove_dir_all(&duckdb_repo);
     std::os::unix::fs::symlink(&extracted_source_path, &duckdb_repo).unwrap();
 
     // Generate the _imported_ bindings from our C++ code.
