@@ -9,6 +9,7 @@ use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use futures::stream::FuturesUnordered;
 use futures::{StreamExt, TryStreamExt, stream};
+use itertools::Itertools;
 use log::info;
 use parquet::arrow::AsyncArrowWriter;
 use parquet::basic::Compression;
@@ -43,10 +44,8 @@ pub struct TpchGenOptions {
     pub format: Format,
     /// Batch size for streaming
     pub batch_size: usize,
-    /// Number of partitions for parallel generation
-    pub num_partitions: i32,
-    /// Current partition (1-indexed)
-    pub partition: i32,
+    /// The max size of uncompressed file .tbl that we should generate
+    pub max_file_size_bytes: Option<u64>,
 }
 
 impl Default for TpchGenOptions {
@@ -56,8 +55,7 @@ impl Default for TpchGenOptions {
             output_dir: "tpch".to_data_path(),
             format: Format::Parquet,
             batch_size: 8192 * 64,
-            num_partitions: 1,
-            partition: 1,
+            max_file_size_bytes: None,
         }
     }
 }
@@ -81,9 +79,8 @@ impl TpchGenOptions {
         self
     }
 
-    pub fn with_partitions(mut self, num_partitions: i32, partition: i32) -> Self {
-        self.num_partitions = num_partitions;
-        self.partition = partition;
+    pub fn with_max_file_size(mut self, max_file_size_bytes: Option<u64>) -> Self {
+        self.max_file_size_bytes = max_file_size_bytes;
         self
     }
 }
@@ -104,13 +101,13 @@ pub async fn generate_tpch_tables(options: &TpchGenOptions) -> Result<()> {
     ];
 
     stream::iter(tables)
-        .map(|(table_name, generator)| {
+        .flat_map(|(table_name, generator)| {
             info!(
                 "Generating {} table for scale factor {} in format: {:?}",
                 table_name, options.scale_factor, options.format
             );
 
-            tokio::spawn(generate_table_files(table_name, generator, options.clone()))
+            generate_table_files(table_name, generator, options.clone())
         })
         .collect::<FuturesUnordered<_>>()
         .await
@@ -132,58 +129,71 @@ enum TableGenerator {
     LineItem,
 }
 
+impl TableGenerator {
+    // Returns the size in MBs of the table at scale factor 1, if the table is constant size
+    // return None
+    fn uncompressed_data_size(&self) -> Option<u64> {
+        match self {
+            TableGenerator::Nation => None,
+            TableGenerator::Region => None,
+            TableGenerator::Part => Some(113),
+            TableGenerator::Supplier => Some(1),
+            TableGenerator::Customer => Some(23),
+            TableGenerator::PartSupp => Some(113),
+            TableGenerator::Orders => Some(164),
+            TableGenerator::LineItem => Some(725),
+        }
+    }
+}
+
 /// Generate files for a specific table in streaming fashion
-async fn generate_table_files(
+fn generate_table_files(
     table_name: &str,
     generator: TableGenerator,
     options: TpchGenOptions,
-) -> Result<()> {
-    // Determine output path based on format
-    let (output_path, format_name) = match options.format {
-        Format::Parquet | Format::Arrow | Format::OnDiskDuckDB => {
-            let output_dir = options.output_dir.join(Format::Parquet.to_string());
-            fs::create_dir_all(&output_dir)?;
-            (
-                output_dir.join(format!("{}.parquet", table_name)),
-                "Parquet",
-            )
-        }
-        Format::OnDiskVortex => {
-            let output_dir = options.output_dir.join(Format::OnDiskVortex.to_string());
-            fs::create_dir_all(&output_dir)?;
-            (output_dir.join(format!("{}.vortex", table_name)), "Vortex")
-        }
+) -> Result<Vec<Box<dyn Future<Output = Result<()>>>>> {
+    let write_format = match options.format {
+        Format::Parquet | Format::Arrow | Format::OnDiskDuckDB => Format::Parquet,
+        Format::OnDiskVortex => Format::OnDiskVortex,
         f @ Format::Csv => {
             anyhow::bail!("{f} format is not supported by tpchgen");
         }
     };
 
-    idempotent_async(&output_path, |path| async move {
-        info!("Generating {table_name} table as {format_name}");
+    let output_dir = options.output_dir.join(write_format.to_string());
+    fs::create_dir_all(&output_dir)?;
 
-        // Create generator and process batches in streaming fashion
-        let batch_iter = create_batch_iterator(generator, &options)?;
-        let schema = batch_iter.schema().clone();
+    let batch_iter = create_batch_iterator(generator, &options)?;
 
-        // Create writer based on format
-        let mut writer: Box<dyn FileWriter + Send> = match options.format {
-            Format::Parquet | Format::Arrow | Format::OnDiskDuckDB => {
-                Box::new(ParquetWriter::new(path, schema).await?)
-            }
-            Format::OnDiskVortex => Box::new(VortexWriter::new(path, schema)?),
-            _ => unreachable!(),
-        };
+    Ok(stream::iter(batch_iter)
+        .enumerate()
+        .map(|(partition_idx, iter)| async move {
+            let output_file = format!("{table_name}_{partition_idx}.{}", write_format.ext());
 
-        for batch in batch_iter {
-            writer.write_batch(&batch).await?;
-        }
+            Box::new(idempotent_async(&output_file, |path| async move {
+                info!("Generating {table_name} table as {write_format}");
 
-        writer.finalize().await?;
-        Ok::<(), anyhow::Error>(())
-    })
-    .await?;
+                // Create generator and process batches in streaming fashion
+                let schema = iter.schema().clone();
 
-    Ok(())
+                // Create writer based on format
+                let mut writer: Box<dyn FileWriter + Send> = match options.format {
+                    Format::Parquet | Format::Arrow | Format::OnDiskDuckDB => {
+                        Box::new(ParquetWriter::new(path, schema).await?)
+                    }
+                    Format::OnDiskVortex => Box::new(VortexWriter::new(path, schema)?),
+                    _ => unreachable!(),
+                };
+
+                for batch in batch_iter {
+                    writer.write_batch(&batch).await?;
+                }
+
+                writer.finalize().await?;
+                Ok::<(), anyhow::Error>(())
+            }))
+        })
+        .collect_vec())
 }
 
 /// Create a batch iterator for the specified table generator
@@ -191,79 +201,67 @@ async fn generate_table_files(
 fn create_batch_iterator(
     generator: TableGenerator,
     options: &TpchGenOptions,
-) -> Result<Box<dyn RecordBatchIterator>> {
+) -> Result<Vec<Box<dyn RecordBatchIterator>>> {
     match generator {
         TableGenerator::Nation => {
-            let generator = tpchgen_arrow::NationArrow::new(NationGenerator::new(
-                options.scale_factor,
-                options.partition,
-                options.num_partitions,
-            ))
-            .with_batch_size(options.batch_size);
-            Ok(Box::new(generator))
+            let generator =
+                tpchgen_arrow::NationArrow::new(NationGenerator::new(options.scale_factor, 1, 1))
+                    .with_batch_size(options.batch_size);
+            Ok(vec![Box::new(generator)])
         }
         TableGenerator::Region => {
-            let generator = tpchgen_arrow::RegionArrow::new(RegionGenerator::new(
-                options.scale_factor,
-                options.partition,
-                options.num_partitions,
-            ))
-            .with_batch_size(options.batch_size);
-            Ok(Box::new(generator))
+            let generator =
+                tpchgen_arrow::RegionArrow::new(RegionGenerator::new(options.scale_factor, 1, 1))
+                    .with_batch_size(options.batch_size);
+            Ok(vec![Box::new(generator)])
         }
         TableGenerator::Part => {
-            let generator = tpchgen_arrow::PartArrow::new(PartGenerator::new(
-                options.scale_factor,
-                options.partition,
-                options.num_partitions,
-            ))
-            .with_batch_size(options.batch_size);
-            Ok(Box::new(generator))
+            let generator =
+                tpchgen_arrow::PartArrow::new(PartGenerator::new(options.scale_factor, 1, 1))
+                    .with_batch_size(options.batch_size);
+            Ok(vec![Box::new(generator)])
         }
         TableGenerator::Supplier => {
             let generator = tpchgen_arrow::SupplierArrow::new(SupplierGenerator::new(
                 options.scale_factor,
-                options.partition,
-                options.num_partitions,
+                1,
+                1,
             ))
             .with_batch_size(options.batch_size);
-            Ok(Box::new(generator))
+            Ok(vec![Box::new(generator)])
         }
         TableGenerator::Customer => {
             let generator = tpchgen_arrow::CustomerArrow::new(CustomerGenerator::new(
                 options.scale_factor,
-                options.partition,
-                options.num_partitions,
+                1,
+                1,
             ))
             .with_batch_size(options.batch_size);
-            Ok(Box::new(generator))
+            Ok(vec![Box::new(generator)])
         }
         TableGenerator::PartSupp => {
             let generator = tpchgen_arrow::PartSuppArrow::new(PartSuppGenerator::new(
                 options.scale_factor,
-                options.partition,
-                options.num_partitions,
+                1,
+                1,
             ))
             .with_batch_size(options.batch_size);
-            Ok(Box::new(generator))
+            Ok(vec![Box::new(generator)])
         }
         TableGenerator::Orders => {
-            let generator = tpchgen_arrow::OrderArrow::new(OrderGenerator::new(
-                options.scale_factor,
-                options.partition,
-                options.num_partitions,
-            ))
-            .with_batch_size(options.batch_size);
-            Ok(Box::new(generator))
+            let generator =
+                tpchgen_arrow::OrderArrow::new(OrderGenerator::new(options.scale_factor, 1, 1))
+                    .with_batch_size(options.batch_size);
+            Ok(vec![Box::new(generator)])
         }
         TableGenerator::LineItem => {
             let generator = tpchgen_arrow::LineItemArrow::new(LineItemGenerator::new(
                 options.scale_factor,
-                options.partition,
-                options.num_partitions,
+                1,
+                1,
             ))
             .with_batch_size(options.batch_size);
-            Ok(Box::new(generator))
+            Ok(vec![Box::new(generator)])
         }
     }
 }
