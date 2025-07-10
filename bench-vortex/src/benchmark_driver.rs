@@ -7,7 +7,6 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use indicatif::ProgressBar;
-use itertools::Itertools;
 use log::warn;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
@@ -43,9 +42,6 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
         config.verbose,
         &format!("{}.trace.json", benchmark.dataset_name()),
     )?;
-
-    // Validate arguments
-    validate_args(&config)?;
 
     // Generate data for each target (idempotent)
     for target in &config.targets {
@@ -105,24 +101,6 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
         &config.targets,
         &config.output_path,
     )
-}
-
-fn validate_args(config: &DriverConfig) -> Result<()> {
-    let engines = config
-        .targets
-        .iter()
-        .map(|t| t.engine())
-        .unique()
-        .collect_vec();
-
-    if (config.emit_plan || config.export_spans || config.show_metrics || config.threads.is_some())
-        && !engines.contains(&Engine::DataFusion)
-    {
-        vortex_panic!(
-            "--emit-plan, --export-spans, --show-metrics, --threads are only valid if DataFusion is used"
-        );
-    }
-    Ok(())
 }
 
 fn execute_queries<B: Benchmark>(
