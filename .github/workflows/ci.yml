@@ -522,4 +522,4 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - name: Run TPCH 0.01
         run: |
-          cargo run --bin query_bench --profile bench -- tpch  -i1 --scale-factor 0.01
+          cargo run --bin query_bench -- tpch  -i1 --scale-factor 0.01
