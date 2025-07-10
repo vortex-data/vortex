@@ -59,12 +59,6 @@ impl VTable for SelectVTable {
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if children.len() != 1 {
-            vortex_bail!(
-                "Select expression must have exactly 1 child, got {}",
-                children.len()
-            );
-        }
         Ok(SelectExpr {
             fields: expr.fields.clone(),
             child: children[0].clone(),

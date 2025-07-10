@@ -62,12 +62,6 @@ impl VTable for BetweenVTable {
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if children.len() != 3 {
-            vortex_bail!(
-                "Between expression must have exactly 3 children, got {}",
-                children.len()
-            );
-        }
         Ok(BetweenExpr::new(
             children[0].clone(),
             children[1].clone(),

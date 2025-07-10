@@ -16,6 +16,7 @@ pub mod filter;
 pub mod flat;
 pub mod repartition;
 pub mod row_id;
+mod row_idx;
 pub mod struct_;
 pub mod zoned;
 

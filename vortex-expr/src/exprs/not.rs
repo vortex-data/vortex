@@ -51,12 +51,6 @@ impl VTable for NotVTable {
     }
 
     fn with_children(_expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if children.len() != 1 {
-            vortex_bail!(
-                "Not expression expects exactly one child, got {}",
-                children.len()
-            );
-        }
         Ok(NotExpr::new(children[0].clone()))
     }
 
