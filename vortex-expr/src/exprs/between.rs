@@ -11,8 +11,7 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::{
-    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
-    VTable, vtable,
+    AnalysisExpr, BinaryExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable,
 };
 
 vtable!(Between);
@@ -62,12 +61,6 @@ impl VTable for BetweenVTable {
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if children.len() != 3 {
-            vortex_bail!(
-                "Between expression must have exactly 3 children, got {}",
-                children.len()
-            );
-        }
         Ok(BetweenExpr::new(
             children[0].clone(),
             children[1].clone(),
@@ -108,7 +101,7 @@ impl VTable for BetweenVTable {
         between_compute(&arr_val, &lower_arr_val, &upper_arr_val, &expr.options)
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let arr_dt = expr.arr.return_dtype(scope)?;
         let lower_dt = expr.lower.return_dtype(scope)?;
         let upper_dt = expr.upper.return_dtype(scope)?;

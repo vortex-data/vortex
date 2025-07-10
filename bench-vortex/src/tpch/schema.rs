@@ -10,18 +10,18 @@ use arrow_schema::{DataType, Field, Schema};
 
 pub static NATION: LazyLock<Schema> = LazyLock::new(|| {
     Schema::new(vec![
-        Field::new("n_nationkey", DataType::Int32, false),
+        Field::new("n_nationkey", DataType::Int64, false),
         Field::new("n_name", DataType::Utf8View, false),
-        Field::new("n_regionkey", DataType::Int32, false),
-        Field::new("n_comment", DataType::Utf8View, true),
+        Field::new("n_regionkey", DataType::Int64, false),
+        Field::new("n_comment", DataType::Utf8View, false),
     ])
 });
 
 pub static REGION: LazyLock<Schema> = LazyLock::new(|| {
     Schema::new(vec![
-        Field::new("r_regionkey", DataType::Int32, false),
+        Field::new("r_regionkey", DataType::Int64, false),
         Field::new("r_name", DataType::Utf8View, false),
-        Field::new("r_comment", DataType::Utf8View, true),
+        Field::new("r_comment", DataType::Utf8View, false),
     ])
 });
 
@@ -44,7 +44,7 @@ pub static SUPPLIER: LazyLock<Schema> = LazyLock::new(|| {
         Field::new("s_suppkey", DataType::Int64, false),
         Field::new("s_name", DataType::Utf8View, false),
         Field::new("s_address", DataType::Utf8View, false),
-        Field::new("s_nationkey", DataType::Int32, false),
+        Field::new("s_nationkey", DataType::Int64, false),
         Field::new("s_phone", DataType::Utf8View, false),
         Field::new("s_acctbal", DataType::Decimal128(15, 2), false),
         Field::new("s_comment", DataType::Utf8View, false),
@@ -55,7 +55,7 @@ pub static PARTSUPP: LazyLock<Schema> = LazyLock::new(|| {
     Schema::new(vec![
         Field::new("ps_partkey", DataType::Int64, false),
         Field::new("ps_suppkey", DataType::Int64, false),
-        Field::new("ps_availqty", DataType::Int64, false),
+        Field::new("ps_availqty", DataType::Int32, false),
         Field::new("ps_supplycost", DataType::Decimal128(15, 2), false),
         Field::new("ps_comment", DataType::Utf8View, false),
     ])
@@ -66,7 +66,7 @@ pub static CUSTOMER: LazyLock<Schema> = LazyLock::new(|| {
         Field::new("c_custkey", DataType::Int64, false),
         Field::new("c_name", DataType::Utf8View, false),
         Field::new("c_address", DataType::Utf8View, false),
-        Field::new("c_nationkey", DataType::Int32, false),
+        Field::new("c_nationkey", DataType::Int64, false),
         Field::new("c_phone", DataType::Utf8View, false),
         Field::new("c_acctbal", DataType::Decimal128(15, 2), false),
         Field::new("c_mktsegment", DataType::Utf8View, false),
@@ -93,7 +93,7 @@ pub static LINEITEM: LazyLock<Schema> = LazyLock::new(|| {
         Field::new("l_orderkey", DataType::Int64, false),
         Field::new("l_partkey", DataType::Int64, false),
         Field::new("l_suppkey", DataType::Int64, false),
-        Field::new("l_linenumber", DataType::Int64, false),
+        Field::new("l_linenumber", DataType::Int32, false),
         Field::new("l_quantity", DataType::Decimal128(15, 2), false),
         Field::new("l_extendedprice", DataType::Decimal128(15, 2), false),
         Field::new("l_discount", DataType::Decimal128(15, 2), false),

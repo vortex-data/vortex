@@ -9,9 +9,7 @@ use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::field::DisplayFieldNames;
-use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, VTable, vtable,
-};
+use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SelectField {
@@ -59,12 +57,6 @@ impl VTable for SelectVTable {
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if children.len() != 1 {
-            vortex_bail!(
-                "Select expression must have exactly 1 child, got {}",
-                children.len()
-            );
-        }
         Ok(SelectExpr {
             fields: expr.fields.clone(),
             child: children[0].clone(),
@@ -96,7 +88,7 @@ impl VTable for SelectVTable {
         .into_array())
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let child_dtype = expr.child.return_dtype(scope)?;
         let child_struct_dtype = child_dtype
             .as_struct()
@@ -229,7 +221,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, Nullability};
 
-    use crate::{Scope, ScopeDType, root, select, select_exclude, test_harness};
+    use crate::{Scope, root, select, select_exclude, test_harness};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -274,12 +266,7 @@ mod tests {
             dtype.as_struct().unwrap().project(&["a".into()]).unwrap(),
             Nullability::NonNullable,
         );
-        assert_eq!(
-            select_expr
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
-            expected_dtype
-        );
+        assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
 
         let select_expr_exclude = select_exclude(
             vec![
@@ -291,9 +278,7 @@ mod tests {
             root(),
         );
         assert_eq!(
-            select_expr_exclude
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            select_expr_exclude.return_dtype(&dtype).unwrap(),
             expected_dtype
         );
 
@@ -302,9 +287,7 @@ mod tests {
             root(),
         );
         assert_eq!(
-            select_expr_exclude
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            select_expr_exclude.return_dtype(&dtype).unwrap(),
             DType::Struct(
                 dtype
                     .as_struct()

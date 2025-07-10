@@ -8,7 +8,7 @@ use datafusion::prelude::SessionContext;
 use itertools::Itertools;
 use url::Url;
 
-use crate::df::{get_session_context, make_object_store};
+use crate::df::get_session_context;
 use crate::tpch::{register_arrow, register_parquet, register_vortex_file};
 use crate::{BenchmarkDataset, Format};
 
@@ -34,8 +34,6 @@ pub async fn load_datasets(
 ) -> anyhow::Result<SessionContext> {
     let context = get_session_context(disable_datafusion_cache);
 
-    let object_store = make_object_store(&context, base_dir)?;
-
     let files = match dataset {
         dataset @ BenchmarkDataset::TpcDS { .. } => {
             dataset.tables().iter().map(|f| (*f, None)).collect_vec()
@@ -57,14 +55,12 @@ pub async fn load_datasets(
     }) {
         let path = path?;
         match format {
-            Format::Arrow => register_arrow(&context, name, &path).await?,
+            Format::Arrow => register_arrow(&context, name, &path, None).await?,
             Format::Parquet => {
-                register_parquet(&context, object_store.clone(), name, &path, schema, dataset)
-                    .await?
+                register_parquet(&context, name, &path, None, schema, dataset).await?
             }
             Format::OnDiskVortex => {
-                register_vortex_file(&context, object_store.clone(), name, &path, schema, dataset)
-                    .await?
+                register_vortex_file(&context, name, &path, None, schema, dataset).await?
             }
             Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
             Format::Csv => todo!(),

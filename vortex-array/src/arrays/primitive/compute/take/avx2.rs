@@ -493,8 +493,8 @@ mod tests {
                     #[test]
                     #[allow(clippy::cast_possible_truncation)]
                     fn [<test_avx2_take_simple_ $IDX _ $VAL>]() {
-                        let values: Vec<$VAL> = (1..=128).map(|x| x as $VAL).collect();
-                        let indices: Vec<$IDX> = (0..128).collect();
+                        let values: Vec<$VAL> = (1..=127).map(|x| x as $VAL).collect();
+                        let indices: Vec<$IDX> = (0..127).collect();
 
                         let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
                         assert_eq!(&values, result.as_slice::<$VAL>());
@@ -506,7 +506,7 @@ mod tests {
                     #[allow(clippy::cast_possible_truncation)]
                     fn [<test_avx2_take_empty_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = vec![];
-                        let indices: Vec<$IDX> = (0..128).collect();
+                        let indices: Vec<$IDX> = (0..127).collect();
                         let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
                         assert!(result.is_empty());
                     }
@@ -516,12 +516,12 @@ mod tests {
                     #[should_panic]
                     #[allow(clippy::cast_possible_truncation)]
                     fn [<test_avx2_take_invalid_ $IDX _ $VAL>]() {
-                        let values: Vec<$VAL> = (1..=128).map(|x| x as $VAL).collect();
+                        let values: Vec<$VAL> = (1..=127).map(|x| x as $VAL).collect();
                         // all out of bounds indices
-                        let indices: Vec<$IDX> = (128..=255).collect();
+                        let indices: Vec<$IDX> = (127..=254).collect();
 
                         let result = unsafe { take_primitive_avx2(&indices, &values, Validity::NonNullable) };
-                        assert_eq!(&[0 as $VAL; 128], result.as_slice::<$VAL>());
+                        assert_eq!(&[0 as $VAL; 127], result.as_slice::<$VAL>());
                     }
                 )+
             }

@@ -17,12 +17,6 @@ pub struct LiteralOpts {
     #[prost(message, optional, tag = "1")]
     pub value: ::core::option::Option<super::scalar::Scalar>,
 }
-/// Options for `vortex.var`
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct VarOpts {
-    #[prost(string, tag = "1")]
-    pub var: ::prost::alloc::string::String,
-}
 /// Options for `vortex.pack`
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PackOpts {

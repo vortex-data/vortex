@@ -11,8 +11,8 @@ use vortex_error::{VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, ScopeDType,
-    StatsCatalog, VTable, vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, StatsCatalog,
+    VTable, vtable,
 };
 
 vtable!(Binary);
@@ -57,13 +57,6 @@ impl VTable for BinaryVTable {
     }
 
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if children.len() != 2 {
-            vortex_bail!(
-                "Binary expression must have exactly 2 children, got {}",
-                children.len()
-            );
-        }
-
         Ok(BinaryExpr::new(
             children[0].clone(),
             expr.op(),
@@ -100,7 +93,7 @@ impl VTable for BinaryVTable {
         }
     }
 
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let lhs = expr.lhs.return_dtype(scope)?;
         let rhs = expr.rhs.return_dtype(scope)?;
 
@@ -433,8 +426,8 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
 
     use crate::{
-        ScopeDType, VortexExpr, and, and_collect, and_collect_right, col, eq, gt, gt_eq, lit, lt,
-        lt_eq, not_eq, or, test_harness,
+        VortexExpr, and, and_collect, and_collect_right, col, eq, gt, gt_eq, lit, lt, lt_eq,
+        not_eq, or, test_harness,
     };
 
     #[test]
@@ -462,13 +455,13 @@ mod tests {
         let bool2: Arc<dyn VortexExpr> = col("bool2");
         assert_eq!(
             and(bool1.clone(), bool2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
             or(bool1.clone(), bool2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
@@ -477,38 +470,32 @@ mod tests {
         let col2: Arc<dyn VortexExpr> = col("col2");
 
         assert_eq!(
-            eq(col1.clone(), col2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             not_eq(col1.clone(), col2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            gt(col1.clone(), col2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            gt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             gt_eq(col1.clone(), col2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            lt(col1.clone(), col2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            lt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             lt_eq(col1.clone(), col2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
@@ -518,7 +505,7 @@ mod tests {
                 lt(col1.clone(), col2.clone()),
                 not_eq(col1.clone(), col2.clone())
             )
-            .return_dtype(&ScopeDType::new(dtype))
+            .return_dtype(&dtype)
             .unwrap(),
             DType::Bool(Nullability::Nullable)
         );

@@ -11,8 +11,7 @@ use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
 use crate::{
-    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType, StatsCatalog,
-    VTable, vtable,
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
 };
 
 vtable!(Literal);
@@ -47,13 +46,7 @@ impl VTable for LiteralVTable {
         vec![]
     }
 
-    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
-        if !children.is_empty() {
-            vortex_bail!(
-                "Literal expression does not have children, got: {:?}",
-                children
-            );
-        }
+    fn with_children(expr: &Self::Expr, _children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
         Ok(expr.clone())
     }
 
@@ -80,7 +73,7 @@ impl VTable for LiteralVTable {
         Ok(ConstantArray::new(expr.value.clone(), scope.len()).into_array())
     }
 
-    fn return_dtype(expr: &Self::Expr, _scope: &ScopeDType) -> VortexResult<DType> {
+    fn return_dtype(expr: &Self::Expr, _scope: &DType) -> VortexResult<DType> {
         Ok(expr.value.dtype().clone())
     }
 }
@@ -147,33 +140,27 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType, StructFields};
     use vortex_scalar::Scalar;
 
-    use crate::{ScopeDType, lit, test_harness};
+    use crate::{lit, test_harness};
 
     #[test]
     fn dtype() {
         let dtype = test_harness::struct_dtype();
 
         assert_eq!(
-            lit(10)
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            lit(10).return_dtype(&dtype).unwrap(),
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         assert_eq!(
-            lit(i64::MAX)
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            lit(i64::MAX).return_dtype(&dtype).unwrap(),
             DType::Primitive(PType::I64, Nullability::NonNullable)
         );
         assert_eq!(
-            lit(true)
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            lit(true).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
             lit(Scalar::null(DType::Bool(Nullability::Nullable)))
-                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
@@ -193,7 +180,7 @@ mod tests {
                 sdtype.clone(),
                 vec![Scalar::from(32_u32), Scalar::from("rufus".to_string())]
             ))
-            .return_dtype(&ScopeDType::new(dtype))
+            .return_dtype(&dtype)
             .unwrap(),
             sdtype
         );

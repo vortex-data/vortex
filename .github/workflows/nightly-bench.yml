@@ -18,8 +18,33 @@ jobs:
     with:
       mode: 'develop'
       machine_type: ${{ matrix.machine_type.instance_name }}
-      scale_factor: 100
+      # datafusion:vortex uses a lot of memory
+      benchmark_matrix: |
+        [
+          {
+            "id": "tpch-nvme",
+            "subcommand": "tpch",
+            "name": "TPC-H on NVME",
+            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex",
+            "scale_factor": "--scale-factor 10"
+          },
+          {
+            "id": "tpch-nvme",
+            "subcommand": "tpch",
+            "name": "TPC-H on NVME",
+            "targets": "datafusion:parquet,duckdb:parquet,duckdb:vortex",
+            "scale_factor": "--scale-factor 100"
+          },
+          {
+            "id": "clickbench-nvme",
+            "subcommand": "clickbench",
+            "name": "Clickbench on NVME",
+            "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex,duckdb:duckdb",
+          }
+        ]
     strategy:
+      # A single run not should kill the others
+      fail-fast: false
       matrix:
         machine_type:
           - id: x86

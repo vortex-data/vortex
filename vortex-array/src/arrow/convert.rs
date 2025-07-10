@@ -15,7 +15,8 @@ use arrow_array::types::{
     TimestampSecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
 use arrow_array::{
-    BinaryViewArray, GenericByteViewArray, GenericListArray, StringViewArray, make_array,
+    BinaryViewArray, GenericByteViewArray, GenericListArray, RecordBatch, StringViewArray,
+    make_array,
 };
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
@@ -431,6 +432,18 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 array.data_type().clone()
             ),
         }
+    }
+}
+
+impl FromArrowArray<RecordBatch> for ArrayRef {
+    fn from_arrow(array: RecordBatch, nullable: bool) -> Self {
+        ArrayRef::from_arrow(&arrow_array::StructArray::from(array), nullable)
+    }
+}
+
+impl FromArrowArray<&RecordBatch> for ArrayRef {
+    fn from_arrow(array: &RecordBatch, nullable: bool) -> Self {
+        Self::from_arrow(array.clone(), nullable)
     }
 }
 

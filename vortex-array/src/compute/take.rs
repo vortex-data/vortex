@@ -12,9 +12,18 @@ use crate::arrays::ConstantArray;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output};
 use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, IntoArray};
+use crate::{Array, ArrayRef, Canonical, IntoArray};
 
 pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    if indices.is_empty() {
+        return Ok(Canonical::empty(
+            &array
+                .dtype()
+                .union_nullability(indices.dtype().nullability()),
+        )
+        .into_array());
+    }
+
     TAKE_FN
         .invoke(&InvocationArgs {
             inputs: &[array.into(), indices.into()],

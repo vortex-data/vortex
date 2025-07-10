@@ -42,8 +42,8 @@ public final class Expressions {
                 return Binary.parse(metadata, children);
             case "get_item":
                 return GetItem.parse(metadata, children);
-            case "var":
-                return Identity.parse(metadata, children);
+            case "root":
+                return Root.parse(metadata, children);
             case "literal":
                 return Literal.parse(metadata, children);
             case "not":

@@ -10,8 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::{
-    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, ScopeDType,
-    VortexExpr,
+    AnalysisExpr, ExprEncoding, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VortexExpr,
 };
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
@@ -43,6 +42,10 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn children(expr: &Self::Expr) -> Vec<&ExprRef>;
 
     /// Return a new instance of the expression with the children replaced.
+    ///
+    /// ## Preconditions
+    ///
+    /// The number of children will match the current number of children in the expression.
     fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr>;
 
     /// Construct a new [`VortexExpr`] from the provided parts.
@@ -56,7 +59,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef>;
 
     /// Compute the return [`DType`] of the expression if evaluated in the given scope.
-    fn return_dtype(expr: &Self::Expr, scope: &ScopeDType) -> VortexResult<DType>;
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType>;
 }
 
 #[macro_export]

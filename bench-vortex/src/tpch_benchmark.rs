@@ -7,40 +7,40 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 use anyhow::{Result, anyhow};
+use ddb::DuckDBCtx;
+use glob::Pattern;
 use log::{info, warn};
 use similar::{ChangeTag, TextDiff};
 use url::Url;
-use vortex::error::VortexExpect;
 
 use crate::benchmark_trait::Benchmark;
 use crate::engines::{EngineCtx, ddb};
-use crate::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
 use crate::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, register_arrow, register_parquet,
-    register_vortex_file, tpch_queries,
+    register_vortex_file, tpch_queries, tpchgen,
 };
 use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
 /// TPCH benchmark implementation
 pub struct TpcHBenchmark {
-    pub scale_factor: u32,
+    pub scale_factor: String,
     pub data_url: Url,
 }
 
 impl TpcHBenchmark {
-    pub fn new(scale_factor: u32, use_remote_data_dir: Option<String>) -> Result<Self> {
+    pub fn new(scale_factor: String, use_remote_data_dir: Option<String>) -> Result<Self> {
         Ok(Self {
-            scale_factor,
-            data_url: Self::create_data_url(&use_remote_data_dir, scale_factor)?,
+            scale_factor: scale_factor.clone(),
+            data_url: Self::create_data_url(&use_remote_data_dir, &scale_factor)?,
         })
     }
 
-    fn create_data_url(remote_data_dir: &Option<String>, scale_factor: u32) -> Result<Url> {
+    fn create_data_url(remote_data_dir: &Option<String>, scale_factor: &str) -> Result<Url> {
         match remote_data_dir {
             None => {
                 let data_dir = "tpch".to_data_path();
-                let data_dir_with_sf = data_dir.join(scale_factor.to_string());
+                let data_dir_with_sf = data_dir.join(scale_factor);
                 Url::from_directory_path(&data_dir_with_sf).map_err(|_| {
                     anyhow!(
                         "Failed to create URL from directory path: {:?}",
@@ -84,20 +84,26 @@ impl Benchmark for TpcHBenchmark {
                     target.format()
                 };
 
-                let base_tpch_dir = "tpch".to_data_path();
-                let opts = DuckdbTpcOptions::new(base_tpch_dir, TpcDataset::TpcH, format)
-                    .with_scale_factor(self.scale_factor);
-                generate_tpc(opts)?;
+                // Skip CSV generation as it's not supported by tpchgen
+                if format == Format::Csv {
+                    anyhow::bail!("CSV format is not supported by tpchgen");
+                }
 
-                let data_dir = self
+                let base_data_dir = self
                     .data_url
                     .to_file_path()
                     .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
-                let data_dir = data_dir.to_str().vortex_expect("path must be utf8");
-                info!(
-                    "Generated or verified TPCH data for format {} at {data_dir}.",
-                    format
-                );
+
+                // Use tpchgen for data generation
+                let options =
+                    tpchgen::TpchGenOptions::new(self.scale_factor.clone(), &base_data_dir)
+                        .with_format(format)
+                        .with_max_file_size_mb(Some(600));
+
+                // Generate data using our streaming tpchgen module
+                let runtime = tokio::runtime::Runtime::new()?;
+                runtime.block_on(async { tpchgen::generate_tpch_tables(&options).await })?;
+
                 Ok(())
             }
             _ => Ok(()),
@@ -122,15 +128,17 @@ impl Benchmark for TpcHBenchmark {
     }
 
     fn dataset(&self) -> BenchmarkDataset {
-        BenchmarkDataset::TpcH {
-            scale_factor: self.scale_factor,
-        }
+        let scale_factor: f32 = self
+            .scale_factor
+            .parse()
+            .expect("Scale factor should be valid float");
+        BenchmarkDataset::TpcH { scale_factor }
     }
 
     fn expected_row_counts(&self) -> Option<&[usize]> {
-        match self.scale_factor {
-            1 => Some(&EXPECTED_ROW_COUNTS_SF1),
-            10 => Some(&EXPECTED_ROW_COUNTS_SF10),
+        match self.scale_factor.as_str() {
+            "1.0" => Some(&EXPECTED_ROW_COUNTS_SF1),
+            "10.0" => Some(&EXPECTED_ROW_COUNTS_SF10),
             _ => None, // Unsupported scale factor
         }
     }
@@ -166,10 +174,6 @@ impl TpcHBenchmark {
         base_dir: &Url,
         format: Format,
     ) -> Result<()> {
-        // Get object store from session
-        let object_store = crate::engines::df::make_object_store(session, base_dir)?;
-
-        // TPCH table definitions - same as in load_datasets
         let files = vec![
             ("customer", Some(CUSTOMER.clone())),
             ("lineitem", Some(LINEITEM.clone())),
@@ -181,7 +185,6 @@ impl TpcHBenchmark {
             ("supplier", Some(SUPPLIER.clone())),
         ];
 
-        // Register each table - same logic as load_datasets
         for (name, schema) in files {
             let file_format = if format == Format::Arrow {
                 // Arrow format loads Parquet files into memory
@@ -190,35 +193,17 @@ impl TpcHBenchmark {
                 format
             };
 
-            let path = base_dir.join(&format!(
-                "{}/{name}.{}",
-                file_format.name(),
-                file_format.ext()
-            ))?;
+            let path = base_dir.join(&(file_format.name().to_string() + "/"))?;
+            let glob = Some(Pattern::new(&format!("{name}_*.{}", file_format.ext()))?);
 
             match format {
-                Format::Arrow => register_arrow(session, name, &path).await?,
+                Format::Arrow => register_arrow(session, name, &path, glob).await?,
                 Format::Parquet => {
-                    register_parquet(
-                        session,
-                        object_store.clone(),
-                        name,
-                        &path,
-                        schema,
-                        &self.dataset(),
-                    )
-                    .await?
+                    register_parquet(session, name, &path, glob, schema, &self.dataset()).await?
                 }
                 Format::OnDiskVortex => {
-                    register_vortex_file(
-                        session,
-                        object_store.clone(),
-                        name,
-                        &path,
-                        schema,
-                        &self.dataset(),
-                    )
-                    .await?
+                    register_vortex_file(session, name, &path, glob, schema, &self.dataset())
+                        .await?
                 }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
                 Format::Csv => todo!("csv unsupported for tpch benchmark"),
@@ -231,7 +216,7 @@ impl TpcHBenchmark {
     /// Verify DuckDB TPCH results against reference data
     pub fn verify_duckdb_tpch_results(&self, queries: Vec<usize>) -> Result<()> {
         // omit validation for sf != 1.
-        if self.scale_factor != 1 {
+        if self.scale_factor != "1.0" {
             return Ok(());
         }
         let query_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -247,13 +232,15 @@ impl TpcHBenchmark {
             fs::remove_dir_all(&tmp_dir)?;
         }
         fs::create_dir(&tmp_dir)?;
-        let duckdb_ctx = ddb::DuckDBCtx::new_in_memory()?;
+        let duckdb_ctx = DuckDBCtx::new_in_memory()?;
+        let scale_factor: f32 = self
+            .scale_factor
+            .parse()
+            .map_err(|_| anyhow!("Invalid scale factor: {}", self.scale_factor))?;
         duckdb_ctx.register_tables(
             self.data_url(),
             Format::OnDiskVortex,
-            &BenchmarkDataset::TpcH {
-                scale_factor: self.scale_factor,
-            },
+            &BenchmarkDataset::TpcH { scale_factor },
         )?;
 
         let mut query_files = fs::read_dir(query_dir)?

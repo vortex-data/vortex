@@ -167,6 +167,9 @@ tempfile = "3"
 thiserror = "2.0.3"
 tokio = "1.45.1"
 tokio-stream = "0.1.17"
+# replace these with releases
+tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "d849ff430cd52250f6891ed4d5e3adad77bb2698" }
+tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "d849ff430cd52250f6891ed4d5e3adad77bb2698" }
 tracing = { version = "0.1.41" }
 tracing-chrome = "0.7.2"
 tracing-futures = "0.2.5"

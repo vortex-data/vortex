@@ -16,8 +16,8 @@ use sketches_ddsketch::DDSketch;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
-use vortex_expr::{ExprRef, ScopeDType};
 use vortex_mask::Mask;
 
 use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, PruningEvaluation};
@@ -52,10 +52,6 @@ impl LayoutReader for FilterLayoutReader {
 
     fn dtype(&self) -> &DType {
         self.child.dtype()
-    }
-
-    fn scope_dtype(&self) -> &ScopeDType {
-        self.child.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {
@@ -278,7 +274,10 @@ impl MaskEvaluation for FilterEvaluation {
                 conjunct_mask.true_count() as f64 / mask.true_count() as f64,
             );
 
-            mask = mask.bitand(&conjunct_mask);
+            // NOTE(ngates): the MaskEvaluation documents that it **must** internally perform
+            //  this intersection, so we do not need to do it here again, e.g.
+            //    mask = mask.bitand(&conjunct_mask);
+            mask = conjunct_mask;
         }
 
         Ok(mask)

@@ -14,7 +14,7 @@ use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
-use vortex_expr::{ExprRef, ScopeDType};
+use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::children::LayoutChildren;
@@ -30,9 +30,6 @@ pub trait LayoutReader: 'static + Send + Sync {
 
     /// Returns the un-projected dtype of the layout reader.
     fn dtype(&self) -> &DType;
-
-    /// Pruning, filter, and projections are evaluated in this scope.
-    fn scope_dtype(&self) -> &ScopeDType;
 
     /// Returns the number of rows in the layout reader.
     /// An inexact count may be larger or smaller than the actual row count.
@@ -84,6 +81,9 @@ pub fn mask_future_ready(mask: Mask) -> MaskFuture {
         .shared()
 }
 
+/// Returns a mask where all false values are proven to be false in the given expression.
+///
+/// The returned mask **does not** need to have been intersected with the input mask.
 #[async_trait]
 pub trait PruningEvaluation: 'static + Send + Sync {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
@@ -99,9 +99,22 @@ impl PruningEvaluation for NoOpPruningEvaluation {
 }
 
 /// Refines the given mask, returning a mask equal in length to the input mask.
+///
+/// ## Post-conditions
+///
+/// The returned mask **MUST** have been intersected with the input mask.
 #[async_trait]
 pub trait MaskEvaluation: 'static + Send + Sync {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask>;
+}
+
+pub struct NoOpMaskEvaluation;
+
+#[async_trait]
+impl MaskEvaluation for NoOpMaskEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        Ok(mask)
+    }
 }
 
 /// Evaluates an expression against an array, returning an array equal in length to the true count

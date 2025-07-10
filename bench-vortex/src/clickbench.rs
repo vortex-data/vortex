@@ -16,6 +16,7 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::SessionContext;
 use futures::{StreamExt, TryStreamExt, stream};
+use glob::Pattern;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use reqwest::IntoUrl;
 use reqwest::blocking::Response;
@@ -207,18 +208,17 @@ pub async fn register_vortex_files(
     table_name: &str,
     input_path: &Url,
     schema: Option<Schema>,
-    single_file: bool,
+    glob_pattern: Option<Pattern>,
 ) -> anyhow::Result<()> {
-    let mut vortex_path = input_path.join(&format!("{}/", Format::OnDiskVortex.name()))?;
-    if single_file {
-        vortex_path = vortex_path.join("hits_0.vortex")?;
-    }
-
+    let vortex_path = input_path.join(&format!("{}/", Format::OnDiskVortex.name()))?;
     let format = Arc::new(VortexFormat::default());
 
-    info!("Registering table from {vortex_path}");
+    info!(
+        "Registering table from {vortex_path} with glob {:?}",
+        glob_pattern.as_ref().map(|p| p.as_str()).unwrap_or("")
+    );
 
-    let table_url = ListingTableUrl::parse(vortex_path)?;
+    let table_url = ListingTableUrl::try_new(vortex_path, glob_pattern)?;
 
     let config = ListingTableConfig::new(table_url).with_listing_options(
         ListingOptions::new(format).with_session_config_options(session.state().config()),
@@ -241,16 +241,17 @@ pub fn register_parquet_files(
     table_name: &str,
     input_path: &Url,
     schema: &Schema,
-    single_file: bool,
+    glob_pattern: Option<Pattern>,
 ) -> anyhow::Result<()> {
     let format = Arc::new(ParquetFormat::new());
-    let mut table_path = input_path.join(&format!("{}/", Format::Parquet))?;
-    if single_file {
-        table_path = table_path.join("hits_0.parquet")?;
-    }
+    let table_path = input_path.join(&format!("{}/", Format::Parquet))?;
 
-    info!("Registering table from {}", &table_path);
-    let table_url = ListingTableUrl::parse(table_path)?;
+    info!(
+        "Registering table from {} with glob {:?}",
+        &table_path,
+        glob_pattern.as_ref().map(|p| p.as_str()).unwrap_or("")
+    );
+    let table_url = ListingTableUrl::try_new(table_path, glob_pattern)?;
 
     let config = ListingTableConfig::new(table_url)
         .with_listing_options(
