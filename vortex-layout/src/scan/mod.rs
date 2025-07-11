@@ -31,6 +31,7 @@ use vortex_metrics::VortexMetrics;
 
 use crate::layouts::filter::FilterLayoutReader;
 use crate::layouts::row_idx::RowIdxLayoutReader;
+use crate::masks::MaskStreamExt;
 use crate::scan::row_mask::RowMask;
 use crate::scan::tasks::{TaskContext, split_exec};
 use crate::{LayoutReader, LayoutReaderRef};

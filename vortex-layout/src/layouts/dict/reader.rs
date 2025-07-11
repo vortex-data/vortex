@@ -118,7 +118,7 @@ impl LayoutReader for DictReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<VortexResult<Mask>> {
+    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>> {
         self.codes.row_masks(field_mask)
     }
 

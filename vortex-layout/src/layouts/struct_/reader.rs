@@ -180,7 +180,7 @@ impl LayoutReader for StructReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<VortexResult<Mask>> {
+    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>> {
         // Here we construct a stream of masks for each field in the field_mask, and then take
         // the smallest mask from each field.
         let mut field_streams = Vec::with_capacity(field_mask.len());

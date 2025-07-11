@@ -125,7 +125,7 @@ impl LayoutReader for RowIdxLayoutReader {
         self.child.row_count()
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<VortexResult<Mask>> {
+    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>> {
         self.child.row_masks(field_mask)
     }
 

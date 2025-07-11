@@ -209,7 +209,7 @@ mod tests {
         ];
 
         let source = stream::iter(masks.into_iter().map(Ok)).boxed();
-        let mut repartition_stream = RepartitionMaskStream::new(source, 3);
+        let repartition_stream = RepartitionMaskStream::new(source, 3);
 
         let results: Vec<_> = repartition_stream.collect().await;
         assert_eq!(results.len(), 2);
@@ -236,7 +236,7 @@ mod tests {
         ];
 
         let source = stream::iter(masks.into_iter().map(Ok)).boxed();
-        let mut repartition_stream = RepartitionMaskStream::new(source, 2);
+        let repartition_stream = RepartitionMaskStream::new(source, 2);
 
         let results: Vec<_> = repartition_stream.collect().await;
         assert_eq!(results.len(), 3);
@@ -264,7 +264,7 @@ mod tests {
         ];
 
         let source = stream::iter(masks.into_iter().map(Ok)).boxed();
-        let mut repartition_stream = RepartitionMaskStream::new(source, 5);
+        let repartition_stream = RepartitionMaskStream::new(source, 5);
 
         let results: Vec<_> = repartition_stream.collect().await;
         assert_eq!(results.len(), 1);
@@ -285,7 +285,7 @@ mod tests {
         );
 
         let source = stream::iter(vec![mask].into_iter().map(Ok)).boxed();
-        let mut repartition_stream = RepartitionMaskStream::new(source, 3);
+        let repartition_stream = RepartitionMaskStream::new(source, 3);
 
         let results: Vec<_> = repartition_stream.collect().await;
         assert_eq!(results.len(), 3);
@@ -306,7 +306,7 @@ mod tests {
     #[tokio::test]
     async fn test_empty_stream() {
         let source = stream::iter(Vec::<VortexResult<Mask>>::new()).boxed();
-        let mut repartition_stream = RepartitionMaskStream::new(source, 3);
+        let repartition_stream = RepartitionMaskStream::new(source, 3);
 
         let results: Vec<_> = repartition_stream.collect().await;
         assert_eq!(results.len(), 0);

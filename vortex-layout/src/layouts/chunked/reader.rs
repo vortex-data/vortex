@@ -129,10 +129,14 @@ impl LayoutReader for ChunkedReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<VortexResult<Mask>> {
+    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>> {
         let field_mask = field_mask.to_vec();
-        stream::iter(0..self.layout.nchildren())
-            .map(move |i| match self.chunk_reader(i) {
+        let children: Vec<_> = (0..self.layout.nchildren())
+            .map(|i| self.chunk_reader(i).cloned())
+            .collect();
+
+        stream::iter(children)
+            .map(move |child| match child {
                 Ok(child) => child.row_masks(&field_mask),
                 Err(e) => stream::once(async move { Err(e) }).boxed(),
             })

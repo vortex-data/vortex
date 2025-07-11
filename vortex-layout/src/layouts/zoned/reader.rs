@@ -180,7 +180,7 @@ impl LayoutReader for ZonedReader {
         self.data_child.row_count()
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<VortexResult<Mask>> {
+    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>> {
         self.data_child.row_masks(field_mask)
     }
 
