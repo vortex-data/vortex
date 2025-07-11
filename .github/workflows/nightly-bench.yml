@@ -18,7 +18,7 @@ jobs:
     with:
       mode: 'develop'
       machine_type: ${{ matrix.machine_type.instance_name }}
-      image_type: ${{ matrix.machine_type.image }}
+      image: ${{ matrix.machine_type.image }}
       # datafusion:vortex uses a lot of memory
       benchmark_matrix: |
         [
