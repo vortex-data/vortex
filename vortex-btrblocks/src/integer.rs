@@ -728,10 +728,11 @@ mod tests {
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
+    use vortex_sequence::SequenceEncoding;
     use vortex_sparse::SparseEncoding;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use crate::integer::{IntCompressor, IntegerStats, SparseScheme};
+    use crate::integer::{IntCompressor, IntegerStats, SequenceScheme, SparseScheme};
     use crate::{Compressor, CompressorStats, Scheme};
 
     #[test]
@@ -831,5 +832,18 @@ mod tests {
         let expected = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46];
         assert_eq!(decoded.as_slice::<u8>(), &expected);
         assert_eq!(decoded.validity(), array.validity());
+    }
+
+    #[test]
+    fn nullable_sequence() {
+        let values = (0i32..20).step_by(7).collect_vec();
+        println!("{:?}", values);
+        let array = PrimitiveArray::from_option_iter(values.clone().into_iter().map(Some));
+        let compressed = SequenceScheme
+            .compress(&IntegerStats::generate(&array), false, 3, &[])
+            .unwrap();
+        assert_eq!(compressed.encoding_id(), SequenceEncoding.id());
+        let decoded = compressed.to_primitive().unwrap();
+        assert_eq!(decoded.as_slice::<i32>(), values.as_slice());
     }
 }

@@ -3,46 +3,53 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_dtype::{NativePType, match_each_integer_ptype};
+use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
 use vortex_error::VortexResult;
 use vortex_scalar::PValue;
 
 use crate::SequenceArray;
 
 pub fn sequence_encode(primitive_array: &PrimitiveArray) -> VortexResult<Option<ArrayRef>> {
-    if primitive_array.len() == 0 {
+    if primitive_array.is_empty() {
         // we cannot encode an empty array
         return Ok(None);
     }
 
-    if primitive_array.dtype().is_nullable() {
-        // for now we don't handle nullable arrays
+    if !primitive_array.all_valid()? {
         return Ok(None);
     }
 
     if primitive_array.ptype().is_float() {
-        // for now we don't handle float arrays, due to possible precision issues
+        // for now, we don't handle float arrays, due to possible precision issues
         return Ok(None);
     }
 
     match_each_integer_ptype!(primitive_array.ptype(), |P| {
-        encode_primitive_array(primitive_array.as_slice::<P>())
+        encode_primitive_array(
+            primitive_array.as_slice::<P>(),
+            primitive_array.dtype().nullability(),
+        )
     })
 }
 
 fn encode_primitive_array<P: NativePType + Into<PValue>>(
     slice: &[P],
+    nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
     if slice.len() == 1 {
         // The multiplier here can be any value, zero is chosen
-        return SequenceArray::typed_new(slice[0], P::zero(), 1).map(|a| Some(a.to_array()));
+        return SequenceArray::typed_new(slice[0], P::zero(), nullability, 1)
+            .map(|a| Some(a.to_array()));
     }
     let base = slice[0];
     let multiplier = slice[1] - slice[0];
     slice
         .windows(2)
         .all(|w| w[1] == w[0] + multiplier)
-        .then_some(SequenceArray::typed_new(base, multiplier, slice.len()).map(|a| a.to_array()))
+        .then_some(
+            SequenceArray::typed_new(base, multiplier, nullability, slice.len())
+                .map(|a| a.to_array()),
+        )
         .transpose()
 }
 
