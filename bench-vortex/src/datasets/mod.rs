@@ -29,7 +29,7 @@ pub trait Dataset {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum BenchmarkDataset {
     #[serde(rename = "tpch")]
-    TpcH { scale_factor: f32 },
+    TpcH { scale_factor: String },
     #[serde(rename = "tpcds")]
     TpcDS { scale_factor: u32 },
     #[serde(rename = "clickbench")]
