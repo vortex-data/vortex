@@ -54,7 +54,7 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 similar = { workspace = true }
-sysinfo = "0.32"
+sysinfo = { workspace = true }
 tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 target-lexicon = { workspace = true }
