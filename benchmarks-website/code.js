@@ -127,6 +127,12 @@ window.initAndRender = (function () {
       }
       group = groups[group_id];
 
+      if (group === undefined) {
+        console.warn("cannot find group element in group");
+        console.log(group_id)
+        continue;
+      }
+
       // Normalize name and units
       let [q, seriesName] = name.split("/");
       if (seriesName.endsWith(" throughput")) {
@@ -175,9 +181,7 @@ window.initAndRender = (function () {
           ? parseInt(prettyQ.split(" ")[1].substring(1), 10)
           : 0;
 
-      if (group === undefined) {
-        continue;
-      }
+
 
       let arr = group.get(prettyQ);
       if (arr === undefined) {
