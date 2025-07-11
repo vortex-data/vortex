@@ -268,48 +268,21 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
 
     #[allow(clippy::unnecessary_fallible_conversions)]
     fn validity_mask(array: &SparseArray) -> VortexResult<Mask> {
-        let indices = array.patches().indices().to_primitive()?;
-
-        if array.fill_scalar().is_null() {
-            // If we have a null fill value, then we set each patch value to true.
-            let mut buffer = BooleanBufferBuilder::new(array.len());
-            // TODO(ngates): use vortex-buffer::BitBufferMut when it exists.
-            buffer.append_n(array.len(), false);
-
-            match_each_integer_ptype!(indices.ptype(), |I| {
-                indices.as_slice::<I>().iter().for_each(|&index| {
-                    buffer.set_bit(
-                        usize::try_from(index).vortex_expect("Failed to cast to usize")
-                            - array.patches().offset(),
-                        true,
-                    );
-                });
-            });
-
-            return Ok(Mask::from_buffer(buffer.finish()));
-        }
-
-        // If the fill_value is non-null, then the validity is based on the validity of the
-        // patch values.
-        let mut buffer = BooleanBufferBuilder::new(array.len());
-        buffer.append_n(array.len(), true);
+        // TODO(ngates): use vortex-buffer::BitBufferMut when it exists.
+        let mut is_valid_buffer = BooleanBufferBuilder::new(array.len());
+        is_valid_buffer.append_n(array.len(), array.fill_scalar().is_valid());
 
         let values_validity = array.patches().values().validity_mask()?;
+        let indices = array.patches().indices().to_primitive()?;
+        let index_offset = array.patches().offset();
         match_each_integer_ptype!(indices.ptype(), |I| {
-            indices
-                .as_slice::<I>()
-                .iter()
-                .enumerate()
-                .for_each(|(patch_idx, &index)| {
-                    buffer.set_bit(
-                        usize::try_from(index).vortex_expect("Failed to cast to usize")
-                            - array.patches().offset(),
-                        values_validity.value(patch_idx),
-                    );
-                })
+            for (patch_idx, &index) in indices.as_slice::<I>().iter().enumerate() {
+                let index = usize::try_from(index).vortex_expect("Failed to cast to usize");
+                is_valid_buffer.set_bit(index - index_offset, values_validity.value(patch_idx));
+            }
         });
 
-        Ok(Mask::from_buffer(buffer.finish()))
+        Ok(Mask::from_buffer(is_valid_buffer.finish()))
     }
 }
 
@@ -518,5 +491,19 @@ mod test {
             canonical.as_slice::<i32>(),
             vec![0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4]
         );
+    }
+
+    #[test]
+    fn validity_mask_includes_null_values_when_fill_is_null() {
+        let indices = buffer![0u8, 2, 4, 6, 8].into_array();
+        let values = PrimitiveArray::from_option_iter([Some(0i16), Some(1), None, None, Some(4)])
+            .into_array();
+        let array = SparseArray::try_new(indices, values, 10, Scalar::null_typed::<i16>()).unwrap();
+        let actual = array.validity_mask().unwrap();
+        let expected = Mask::from_iter([
+            true, false, true, false, false, false, false, false, true, false,
+        ]);
+
+        assert_eq!(actual, expected);
     }
 }
