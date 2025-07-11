@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::Future;
 use std::sync::OnceLock;
 
 use arrow_array::RecordBatchReader;
@@ -18,10 +19,68 @@ use vortex::file::scan::ScanBuilder;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions as WriteOptions};
 use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::proto::expr::Expr;
-use vortex::stream::{ArrayStream, ArrayStreamExt};
+use vortex::stream::{
+    ArrayStream, ArrayStreamExt, ArrayStreamToIterator, AsyncRuntime, SendableArrayStream,
+};
 use vortex::{ArrayRef, TryIntoArray};
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+
+/// Runtime configuration for the tokio runtime
+#[derive(Clone)]
+struct RuntimeConfig {
+    worker_threads: Option<usize>,
+}
+
+impl RuntimeConfig {
+    const fn new() -> Self {
+        Self {
+            worker_threads: None,
+        }
+    }
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Get or initialize the tokio runtime with the default settings
+fn get_runtime() -> &'static Runtime {
+    RUNTIME.get_or_init(|| {
+        create_runtime_with_config(&RuntimeConfig::default()).vortex_expect("Cannot start runtime")
+    })
+}
+
+/// Create a tokio runtime with the given configuration
+fn create_runtime_with_config(config: &RuntimeConfig) -> Result<Runtime, std::io::Error> {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.enable_all();
+
+    if let Some(worker_threads) = config.worker_threads {
+        builder.worker_threads(worker_threads);
+    }
+
+    builder.build()
+}
+
+/// Runtime adapter for vortex-cxx that uses the global static runtime
+struct CxxRuntimeAdapter;
+
+impl AsyncRuntime for CxxRuntimeAdapter {
+    fn block_on<F: Future>(&self, fut: F) -> F::Output {
+        get_runtime().block_on(fut)
+    }
+}
+
+/// Convenience function to create an ArrayStreamToIterator with the global runtime
+fn array_stream_to_iterator<S>(stream: S) -> ArrayStreamToIterator<S, CxxRuntimeAdapter>
+where
+    S: ArrayStream + Unpin + Send,
+{
+    ArrayStreamToIterator::new(stream, CxxRuntimeAdapter)
+}
 
 #[cxx::bridge(namespace = "vortex::ffi")]
 mod ffi {
@@ -51,6 +110,8 @@ mod ffi {
             input_stream: *mut u8,
             path: &str,
         ) -> Result<()>;
+
+        fn configure_runtime(worker_threads: usize) -> Result<()>;
     }
 }
 
@@ -109,12 +170,7 @@ unsafe fn scan_builder_into_arrow(
     out_array: *mut u8,
     out_schema: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let rt = RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .vortex_expect("Cannot start runtime")
-    });
+    let rt = get_runtime();
     let array = rt
         .block_on(async {
             let stream = builder.inner.into_array_stream()?;
@@ -145,7 +201,8 @@ unsafe fn scan_builder_into_stream(
     builder: Box<VortexScanBuilder>,
     out_stream: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let iter = builder.inner.into_array_iter()?;
+    let iter =
+        array_stream_to_iterator(builder.inner.into_array_stream()?.boxed() as SendableArrayStream);
     let reader = VortexRecordBatchReader::try_new(iter)?;
     let stream = FFI_ArrowArrayStream::new(Box::new(reader));
     let out_stream = out_stream as *mut FFI_ArrowArrayStream;
@@ -195,17 +252,32 @@ unsafe fn write_array_stream(
 
     let vortex_stream = arrow_stream_to_vortex_stream(stream_reader)?;
 
-    // TODO(xinyu): runtime global config and with a function to set it
-    let rt = RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .vortex_expect("Cannot start runtime")
-    });
+    let rt = get_runtime();
 
     rt.block_on(async {
         let file = tokio::fs::File::create(path).await?;
         options.inner.write(file, vortex_stream).await?;
         Ok(())
     })
+}
+
+/// Configure the tokio runtime with the specified number of worker threads
+///
+/// If the runtime has already been initialized, this function will return an error.
+fn configure_runtime(
+    worker_threads: usize,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Check if runtime has already been initialized
+    if RUNTIME.get().is_some() {
+        return Err("Runtime has already been initialized. ".into());
+    }
+
+    RUNTIME.get_or_init(|| {
+        create_runtime_with_config(&RuntimeConfig {
+            worker_threads: Some(worker_threads),
+        })
+        .vortex_expect("Cannot start runtime")
+    });
+
+    Ok(())
 }

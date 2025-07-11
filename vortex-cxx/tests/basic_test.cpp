@@ -11,15 +11,12 @@
 #include "vortex.hpp"
 
 class VortexTest : public ::testing::Test {
+public:
+    static void SetUpTestSuite() {
+        // vortex::ConfigureRuntime(2);
+    }
+
 protected:
-    void SetUp() override {
-        // Test setup
-    }
-
-    void TearDown() override {
-        // Test cleanup
-    }
-
     // Helper function to validate struct array data
     // This depends on the data in `build.rs`
     void ValidateStructArray(const std::shared_ptr<arrow::StructArray> &struct_array) {

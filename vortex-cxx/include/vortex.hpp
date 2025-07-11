@@ -24,6 +24,17 @@ public:
     }
 };
 
+/// TODO(xinyu): This should be a builder/option pattern
+/// Configure the tokio runtime with the specified number of worker threads
+/// If the runtime has already been initialized, this function will throw an exception.
+inline void ConfigureRuntime(size_t worker_threads) {
+    try {
+        ffi::configure_runtime(worker_threads);
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
+}
+
 class ScanBuilder {
 public:
     /// Set the filter on the scan builder.
