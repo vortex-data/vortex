@@ -39,9 +39,10 @@ endif()
 find_package(Arrow CONFIG REQUIRED)
 
 set(CPP_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/cpp/include
-                    ${CARGO_TARGET_DIR}/cxxbridge
-                    ${CARGO_TARGET_DIR}/cxxbridge/vortex-cxx/src
+                    ${PROJECT_SOURCE_DIR}/cpp
                     ${Arrow_INCLUDE_DIRS})
+set(RUST_INCLUDE_DIR ${CARGO_TARGET_DIR}/cxxbridge
+                    ${CARGO_TARGET_DIR}/cxxbridge/vortex-cxx/src)
 
 file(GLOB CPP_SOURCE_FILE "cpp/*.cpp")
 file(GLOB CPP_HEADER_FILE "cpp/include/*.hpp")
@@ -62,18 +63,15 @@ add_library(vortex_cxx STATIC ${CPP_SOURCE_FILE} ${RUST_BRIDGE_CPP})
 target_sources(vortex_cxx PUBLIC ${CPP_HEADER_FILE})
 target_sources(vortex_cxx PRIVATE ${RUST_HEADER_FILE})
 target_include_directories(vortex_cxx PUBLIC ${CPP_INCLUDE_DIR})
-target_link_libraries(vortex_cxx PUBLIC ${RUST_LIB})
-target_link_libraries(vortex_cxx PRIVATE ${CMAKE_DL_LIBS} Arrow::arrow_static)
+target_include_directories(vortex_cxx PRIVATE ${RUST_INCLUDE_DIR})
+target_link_libraries(vortex_cxx PRIVATE ${RUST_LIB} Arrow::arrow_static)
 set_target_properties(vortex_cxx
     PROPERTIES ADDITIONAL_CLEAN_FILES ${CARGO_TARGET_DIR}
 )
 add_dependencies(vortex_cxx cargo_build)
 
 # Platform-specific configuration
-if(WIN32)
-    target_link_libraries(vortex_cxx userenv ws2_32 bcrypt)
-endif()
-
+# TODO(xinyu): test on mac
 if(APPLE)
     target_link_libraries(vortex_cxx "-framework CoreFoundation -framework Security")
 endif()
