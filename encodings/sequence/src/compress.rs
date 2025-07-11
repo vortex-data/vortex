@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::{CheckedAdd, CheckedSub};
 use vortex_array::ArrayRef;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype};
@@ -32,7 +33,7 @@ pub fn sequence_encode(primitive_array: &PrimitiveArray) -> VortexResult<Option<
     })
 }
 
-fn encode_primitive_array<P: NativePType + Into<PValue>>(
+fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSub>(
     slice: &[P],
     nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -42,10 +43,12 @@ fn encode_primitive_array<P: NativePType + Into<PValue>>(
             .map(|a| Some(a.to_array()));
     }
     let base = slice[0];
-    let multiplier = slice[1] - slice[0];
+    let Some(multiplier) = slice[1].checked_sub(&base) else {
+        return Ok(None);
+    };
     slice
         .windows(2)
-        .all(|w| w[1] == w[0] + multiplier)
+        .all(|w| Some(w[1]) == w[0].checked_add(&multiplier))
         .then_some(
             SequenceArray::typed_new(base, multiplier, nullability, slice.len())
                 .map(|a| a.to_array()),
