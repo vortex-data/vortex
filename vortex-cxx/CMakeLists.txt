@@ -22,55 +22,46 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wpedantic -Wn
 
 option(VORTEX_ENABLE_TESTING "Enable building test binary for vortex-cxx" OFF)
 
-# Get cargo target dir
-execute_process(COMMAND cargo locate-project --workspace --message-format plain
-    OUTPUT_VARIABLE CARGO_TARGET_DIR
-    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
-string(REGEX REPLACE "/Cargo.toml\n$" "/target" CARGO_TARGET_DIR "${CARGO_TARGET_DIR}")
-set(CARGO_MANIFEST ${PROJECT_SOURCE_DIR}/Cargo.toml)
-set(RUST_SOURCE_FILE ${PROJECT_SOURCE_DIR}/src/lib.rs)
-set(RUST_BRIDGE_CPP ${CARGO_TARGET_DIR}/cxxbridge/vortex-cxx/src/lib.rs.cc)
-set(RUST_HEADER_FILE ${CARGO_TARGET_DIR}/cxxbridge/vortex-cxx/src/lib.rs.h)
+# Fetch Corrosion
+include(FetchContent)
+FetchContent_Declare(
+    Corrosion
+    GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
+    GIT_TAG v0.5
+)
+FetchContent_MakeAvailable(Corrosion)
 
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(RUST_LIB ${CARGO_TARGET_DIR}/debug/${CMAKE_STATIC_LIBRARY_PREFIX}vortex_cxx${CMAKE_STATIC_LIBRARY_SUFFIX})
-else()
-    set(RUST_LIB ${CARGO_TARGET_DIR}/release/${CMAKE_STATIC_LIBRARY_PREFIX}vortex_cxx${CMAKE_STATIC_LIBRARY_SUFFIX})
-endif()
+# Import Rust crate using Corrosion
+corrosion_import_crate(MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml)
 
+# Enable CXX bridge for the Rust crate
+corrosion_add_cxxbridge(vortex_cxx_bridge CRATE vortex_cxx_rs FILES lib.rs)
+
+# Find Arrow
 find_package(Arrow CONFIG REQUIRED)
 
-set(CPP_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/cpp/include
-                    ${PROJECT_SOURCE_DIR}/cpp
-                    ${Arrow_INCLUDE_DIRS})
-set(RUST_INCLUDE_DIR ${CARGO_TARGET_DIR}/cxxbridge
-                    ${CARGO_TARGET_DIR}/cxxbridge/vortex-cxx/src)
-
-file(GLOB CPP_SOURCE_FILE "cpp/*.cpp")
-file(GLOB CPP_HEADER_FILE "cpp/include/*.hpp")
-
-if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-    list(APPEND CARGO_BUILD_FLAGS "--release")
-endif()
-
-add_custom_target(cargo_build
-    COMMAND cargo build --manifest-path ${CARGO_MANIFEST} ${CARGO_BUILD_FLAGS}
-    BYPRODUCTS ${RUST_BRIDGE_CPP} ${RUST_LIB} ${RUST_HEADER_FILE}
-    DEPENDS ${RUST_SOURCE_FILE}
-    USES_TERMINAL
-    COMMENT "Running cargo build for vortex-cxx..."
+# Collect C++ source files
+set(CPP_SOURCE_FILE
+    cpp/write_options.cpp
+    cpp/file.cpp
+    cpp/runtime.cpp
 )
 
-add_library(vortex_cxx STATIC ${CPP_SOURCE_FILE} ${RUST_BRIDGE_CPP})
-target_sources(vortex_cxx PUBLIC ${CPP_HEADER_FILE})
-target_sources(vortex_cxx PRIVATE ${RUST_HEADER_FILE})
-target_include_directories(vortex_cxx PUBLIC ${CPP_INCLUDE_DIR})
-target_include_directories(vortex_cxx PRIVATE ${RUST_INCLUDE_DIR})
-target_link_libraries(vortex_cxx PRIVATE ${RUST_LIB} Arrow::arrow_static)
-set_target_properties(vortex_cxx
-    PROPERTIES ADDITIONAL_CLEAN_FILES ${CARGO_TARGET_DIR}
+# Public headers
+set(CPP_INCLUDE_DIRS
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp
 )
-add_dependencies(vortex_cxx cargo_build)
+
+# Create the main library combining C++ and Rust code
+add_library(vortex_cxx STATIC ${CPP_SOURCE_FILE})
+target_include_directories(vortex_cxx PUBLIC ${CPP_INCLUDE_DIRS})
+target_include_directories(vortex_cxx PRIVATE 
+    ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include
+    ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/src
+)
+target_link_libraries(vortex_cxx PUBLIC vortex_cxx_rs vortex_cxx_bridge Arrow::arrow_static)
+add_dependencies(vortex_cxx vortex_cxx_rs vortex_cxx_bridge)
 
 # Platform-specific configuration
 # TODO(xinyu): test on mac
@@ -84,7 +75,7 @@ if (VORTEX_ENABLE_TESTING)
 
     enable_testing()
     add_executable(vortex_cxx_test cpp/tests/basic_test.cpp)
-    target_include_directories(vortex_cxx_test PUBLIC ${CPP_INCLUDE_DIR})
+    target_include_directories(vortex_cxx_test PUBLIC ${CPP_INCLUDE_DIRS})
     target_link_libraries(vortex_cxx_test GTest::gtest_main vortex_cxx Arrow::arrow_static)
 
     include(GoogleTest)
