@@ -26,7 +26,7 @@ pub trait Dataset {
     async fn to_vortex_array(&self) -> ArrayRef;
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum BenchmarkDataset {
     #[serde(rename = "tpch")]
     TpcH { scale_factor: String },
