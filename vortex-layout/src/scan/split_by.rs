@@ -27,6 +27,7 @@ pub enum SplitBy {
 impl SplitBy {
     /// Compute the splits for the given layout.
     // TODO(ngates): remove this once layout readers are stream based.
+    #[allow(dead_code)]
     pub(crate) fn splits(
         &self,
         layout_reader: &dyn LayoutReader,

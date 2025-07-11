@@ -7,8 +7,6 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
-use crate::scan::row_mask::RowMask;
-
 /// A selection identifies a set of rows to include in the scan (in addition to applying any
 /// filter predicates).
 #[derive(Default, Clone)]
@@ -30,39 +28,31 @@ pub enum Selection {
 
 impl Selection {
     /// Extract the [`RowMask`] for the given range from this selection.
-    pub(crate) fn row_mask(&self, range: &Range<u64>) -> RowMask {
+    pub(crate) fn row_mask(&self, range: &Range<u64>) -> Mask {
         let range_len = usize::try_from(range.end - range.start)
             .vortex_expect("Range length does not fit into a usize");
 
         match self {
-            Selection::All => RowMask::new(range.start, Mask::new_true(range_len)),
-            Selection::IncludeByIndex(include) => {
-                let mask = indices_range(range, include)
-                    .map(|idx_range| {
-                        Mask::from_indices(
-                            range_len,
-                            include
-                                .slice(idx_range)
-                                .iter()
-                                .map(|idx| *idx - range.start)
-                                .map(|idx| {
-                                    usize::try_from(idx)
-                                        .vortex_expect("Index does not fit into a usize")
-                                })
-                                .collect(),
-                        )
-                    })
-                    .unwrap_or_else(|| Mask::new_false(range_len));
-
-                RowMask::new(range.start, mask)
-            }
-            Selection::ExcludeByIndex(exclude) => {
-                let mask = Selection::IncludeByIndex(exclude.clone())
-                    .row_mask(range)
-                    .mask()
-                    .clone();
-                RowMask::new(range.start, mask.not())
-            }
+            Selection::All => Mask::new_true(range_len),
+            Selection::IncludeByIndex(include) => indices_range(range, include)
+                .map(|idx_range| {
+                    Mask::from_indices(
+                        range_len,
+                        include
+                            .slice(idx_range)
+                            .iter()
+                            .map(|idx| *idx - range.start)
+                            .map(|idx| {
+                                usize::try_from(idx)
+                                    .vortex_expect("Index does not fit into a usize")
+                            })
+                            .collect(),
+                    )
+                })
+                .unwrap_or_else(|| Mask::new_false(range_len)),
+            Selection::ExcludeByIndex(exclude) => Selection::IncludeByIndex(exclude.clone())
+                .row_mask(range)
+                .not(),
             #[cfg(feature = "roaring")]
             Selection::IncludeRoaring(roaring) => {
                 use std::ops::BitAnd;
@@ -72,12 +62,12 @@ impl Selection {
                 range_treemap.insert_range(range.clone());
 
                 if roaring.is_disjoint(&range_treemap) {
-                    return RowMask::new(range.start, Mask::new_false(range_len));
+                    return Mask::new_false(range_len);
                 }
 
                 // Otherwise, intersect with the selected range and shift to relativize.
                 let roaring = roaring.bitand(range_treemap);
-                let mask = Mask::from_indices(
+                Mask::from_indices(
                     range_len,
                     roaring
                         .iter()
@@ -86,9 +76,7 @@ impl Selection {
                             usize::try_from(idx).vortex_expect("Index does not fit into a usize")
                         })
                         .collect(),
-                );
-
-                RowMask::new(range.start, mask)
+                )
             }
             #[cfg(feature = "roaring")]
             Selection::ExcludeRoaring(roaring) => {
@@ -99,19 +87,17 @@ impl Selection {
 
                 // If there are no deletions in the intersection, then we have an all true mask.
                 if roaring.intersection_len(&range_treemap) == range_len as u64 {
-                    return RowMask::new(range.start, Mask::new_true(range_len));
+                    return Mask::new_true(range_len);
                 }
 
                 // Otherwise, intersect with the selected range and shift to relativize.
                 let roaring = roaring.bitand(range_treemap);
-                let mask = Mask::from_excluded_indices(
+                Mask::from_excluded_indices(
                     range_len,
                     roaring.iter().map(|idx| idx - range.start).map(|idx| {
                         usize::try_from(idx).vortex_expect("Index does not fit into a usize")
                     }),
-                );
-
-                RowMask::new(range.start, mask)
+                )
             }
         }
     }
@@ -142,53 +128,53 @@ mod tests {
     fn test_row_mask_all() {
         let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 1..8;
-        let row_mask = selection.row_mask(&range);
+        let mask = selection.row_mask(&range);
 
-        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2, 4, 6]);
+        assert_eq!(mask.values().unwrap().indices(), &[0, 2, 4, 6]);
     }
 
     #[test]
     fn test_row_mask_slice() {
         let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 3..6;
-        let row_mask = selection.row_mask(&range);
+        let mask = selection.row_mask(&range);
 
-        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2]);
+        assert_eq!(mask.values().unwrap().indices(), &[0, 2]);
     }
 
     #[test]
     fn test_row_mask_exclusive() {
         let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 3..5;
-        let row_mask = selection.row_mask(&range);
+        let mask = selection.row_mask(&range);
 
-        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0]);
+        assert_eq!(mask.values().unwrap().indices(), &[0]);
     }
 
     #[test]
     fn test_row_mask_all_false() {
         let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 8..10;
-        let row_mask = selection.row_mask(&range);
+        let mask = selection.row_mask(&range);
 
-        assert!(row_mask.mask().all_false());
+        assert!(mask.all_false());
     }
 
     #[test]
     fn test_row_mask_all_true() {
         let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 4, 5, 6]));
         let range = 3..7;
-        let row_mask = selection.row_mask(&range);
+        let mask = selection.row_mask(&range);
 
-        assert!(row_mask.mask().all_true());
+        assert!(mask.all_true());
     }
 
     #[test]
     fn test_row_mask_zero() {
         let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![0]));
         let range = 0..5;
-        let row_mask = selection.row_mask(&range);
+        let mask = selection.row_mask(&range);
 
-        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0]);
+        assert_eq!(mask.values().unwrap().indices(), &[0]);
     }
 }
