@@ -134,7 +134,6 @@ impl DuckDBCtx {
         dataset: &BenchmarkDataset,
         duckdb_object: DuckDBObject,
     ) -> String {
-        println!("base url {}", base_url);
         // Base path contains trailing /.
         let base_dir = base_url.as_str();
         let base_dir = base_dir.strip_prefix("file://").unwrap_or(base_dir);
