@@ -6,11 +6,11 @@ mod writer;
 
 use std::sync::Arc;
 
+use arcref::ArcRef;
 pub use reader::*;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
-use vortex_expr::{Identifier, ScopeDType};
 
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
@@ -26,7 +26,7 @@ impl VTable for ViewVTable {
     type Metadata = EmptyMetadata;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        VIEW_LAYOUT_ID.clone()
+        ArcRef::new_ref("vortex.view")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
@@ -42,10 +42,6 @@ impl VTable for ViewVTable {
             .scope_dtype
             .dtype(&Identifier::Identity)
             .vortex_expect("view layout always has an identity")
-    }
-
-    fn scope_dtype(layout: &Self::Layout) -> &ScopeDType {
-        &layout.scope_dtype
     }
 
     fn metadata(_layout: &Self::Layout) -> Self::Metadata {
@@ -64,25 +60,43 @@ impl VTable for ViewVTable {
         0
     }
 
-    fn child(_layout: &Self::Layout, _idx: usize) -> VortexResult<LayoutRef> {
-        vortex_bail!("ViewLayout has no children")
+    fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
+        if idx == 0 {
+            if layout.children.nchildren() == 1 {
+                layout
+                    .children
+                    .child(0, &DType::Bool(Nullability::NonNullable))
+            } else {
+                vortex_bail!(
+                    "ViewLayout: cannot access validity child, layout has child count {}",
+                    layout.children.nchildren()
+                );
+            }
+        } else {
+            vortex_bail!("ViewLayout: invalid child ordinal {idx}")
+        }
     }
 
-    fn child_type(_layout: &Self::Layout, _idx: usize) -> LayoutChildType {
-        vortex_panic!("ViewLayout has no children")
+    fn child_type(_layout: &Self::Layout, idx: usize) -> LayoutChildType {
+        if idx == 0 {
+            LayoutChildType::Auxiliary("validity".into())
+        } else {
+            vortex_panic!("Invalid child idx {idx} for ViewLayout");
+        }
     }
 
     fn new_reader(
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
+        // Reader will internally cache whatever it needs for accessing a particular layout.
+        // The LayoutReader is kept alive for how long?
         Ok(Arc::new(ViewReader::new(
             layout.clone(),
             name,
             segment_source,
-            ctx,
+            layout.ctx.clone(),
         )))
     }
 
@@ -92,19 +106,25 @@ impl VTable for ViewVTable {
         row_count: u64,
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         mut segment_ids: Vec<SegmentId>,
-        _children: &dyn LayoutChildren,
+        children: &dyn LayoutChildren,
+        ctx: ArrayContext,
     ) -> VortexResult<Self::Layout> {
         if segment_ids.is_empty() {
             vortex_bail!("ViewLayout must have at least one segment to hold views");
         }
 
         let views = segment_ids.remove(0);
-        let scope_dtype = ScopeDType::new(dtype.clone());
-        Ok(ViewLayout::new(row_count, scope_dtype, views, segment_ids))
+
+        Ok(ViewLayout::new(
+            row_count,
+            dtype.clone(),
+            views,
+            segment_ids,
+            children.to_arc(),
+            ctx,
+        ))
     }
 }
-
-pub static VIEW_LAYOUT_ID: LayoutId = LayoutId::new_ref("vortex.view");
 
 #[derive(Debug)]
 pub struct ViewLayoutEncoding;
@@ -112,23 +132,31 @@ pub struct ViewLayoutEncoding;
 #[derive(Clone, Debug)]
 pub struct ViewLayout {
     row_count: u64,
-    scope_dtype: ScopeDType,
+    dtype: DType,
     views: SegmentId,
     buffers: Vec<SegmentId>,
+    // Handle to lookup children. This will contain
+    // either a 0-th child (for validity) or nothing.
+    children: Arc<dyn LayoutChildren>,
+    ctx: ArrayContext,
 }
 
 impl ViewLayout {
     pub fn new(
         row_count: u64,
-        scope_dtype: ScopeDType,
+        dtype: DType,
         views: SegmentId,
         buffers: Vec<SegmentId>,
+        children: Arc<dyn LayoutChildren>,
+        ctx: ArrayContext,
     ) -> Self {
         Self {
             row_count,
-            scope_dtype,
+            dtype,
             views,
             buffers,
+            children,
+            ctx,
         }
     }
 }

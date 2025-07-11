@@ -40,8 +40,7 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     /// Get the child at the given index.
     fn child(&self, idx: usize) -> VortexResult<LayoutRef>;
 
-    /// Get the relative row offset of the child at the given index, returning `None` for
-    /// any auxilliary children, e.g. dictionary values, zone maps, etc.
+    /// Get the name and type of a child layout.
     fn child_type(&self, idx: usize) -> LayoutChildType;
 
     /// Get the metadata for this layout.

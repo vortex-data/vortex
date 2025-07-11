@@ -6,8 +6,8 @@ use vortex_error::VortexResult;
 
 use crate::LayoutRef;
 
-/// A future created by a strategy to yield a layout. It is its own
-/// trait to be potentially extended with new methods.
+/// A Future that resolves to a layout. Returned from a `LayoutStrategy` after it finishes
+/// assembling the segments for the writer.
 // Tag for Python docs:
 // [layout writer]
 pub type SendableLayoutFuture = BoxFuture<'static, VortexResult<LayoutRef>>;

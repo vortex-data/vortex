@@ -24,13 +24,14 @@ use crate::layouts::view::reader::array::ViewProjection;
 use crate::layouts::view::reader::filter::ViewFilter;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutReader, LazyReaderChildren, MaskEvaluation, NoOpPruningEvaluation,
+    PruningEvaluation,
 };
 
 type BinaryViewFuture = Shared<BoxFuture<'static, SharedVortexResult<Buffer<BinaryView>>>>;
 type BufferFuture = Shared<BoxFuture<'static, SharedVortexResult<ByteBuffer>>>;
 
-/// Handle for fetching a buffer by index.
+/// Handle for fetching a data buffer by index.
 #[derive(Clone)]
 pub(crate) struct FetchBuffers {
     name: Arc<str>,
@@ -81,6 +82,7 @@ impl FetchBuffers {
 pub struct ViewReader {
     pub(super) layout: ViewLayout,
     pub(super) name: Arc<str>,
+    pub(super) children: LazyReaderChildren,
     pub(super) views: OnceLock<BinaryViewFuture>,
     pub(super) fetch_buffers: FetchBuffers,
     pub(super) segment_source: Arc<dyn SegmentSource>,
@@ -95,6 +97,9 @@ impl ViewReader {
         ctx: ArrayContext,
     ) -> Self {
         let name = name.into();
+        let children =
+            LazyReaderChildren::new(layout.children.clone(), segment_source.clone(), ctx.clone());
+
         let fetch_buffers = FetchBuffers::new(
             name.clone(),
             segment_source.clone(),
@@ -103,6 +108,7 @@ impl ViewReader {
 
         Self {
             layout,
+            children,
             segment_source,
             ctx,
             fetch_buffers,
@@ -172,12 +178,13 @@ impl LayoutReader for ViewReader {
         _row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
-        // Attempt to extract a LIKE clause from the top-level
+        // Attempt to prune if top-level is `LIKE` or `<>`
         if expr.is::<LikeVTable>() {
             let like_expr = expr.as_::<LikeVTable>();
             dbg!(like_expr);
             dbg!(like_expr.pattern());
         };
+
         Ok(Box::new(NoOpPruningEvaluation))
     }
 

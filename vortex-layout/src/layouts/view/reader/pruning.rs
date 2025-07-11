@@ -35,8 +35,8 @@ impl PruningEvaluation for ViewPruning {
         let views = self.views.clone().await?;
         // Figure out how to validate the ByteBuffer views instead.
         let prune_result = match self.pushdown_expr {
-            StringPushdownExpr::StartsWith(ref pred) => make_mask(pred, &views),
-            StringPushdownExpr::Equals(ref pred) => make_mask(pred, &views),
+            StringPushdownExpr::StartsWith(ref pred) => build_mask(pred, &views),
+            StringPushdownExpr::Equals(ref pred) => build_mask(pred, &views),
         };
         Ok(prune_result.bitand(&mask))
     }
@@ -52,8 +52,8 @@ trait StringViewPredicate {
     fn matches(&self, view: BinaryView) -> bool;
 }
 
-/// Calculate a mask applied to all of the predicate values
-fn make_mask<Pred>(predicate: Pred, views: &[BinaryView]) -> Mask
+/// Build a mask
+fn build_mask<Pred>(predicate: Pred, views: &[BinaryView]) -> Mask
 where
     Pred: StringViewPredicate,
 {

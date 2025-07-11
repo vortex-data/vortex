@@ -348,8 +348,8 @@ mod test {
     use crate::sequence::SequenceId;
     use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
-    #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
+    #[fixture]
     fn chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();

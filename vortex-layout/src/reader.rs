@@ -117,6 +117,7 @@ pub trait ArrayEvaluation: 'static + Send + Sync {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef>;
 }
 
+/// A lazy caching reader of child LayoutReaders.
 pub struct LazyReaderChildren {
     children: Arc<dyn LayoutChildren>,
     segment_source: Arc<dyn SegmentSource>,
