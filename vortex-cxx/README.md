@@ -6,7 +6,7 @@ This directory contains C++ bindings for Vortex using the [cxx](https://cxx.rs/)
 
 ### Requirements
 
-- CMake 3.16 or higher
+- CMake 3.22 or higher
 - C++17 compatible compiler
 - Rust toolchain (for building the Rust components)
 - vcpkg (for dependency management)

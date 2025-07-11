@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.22)
 
 if(DEFINED ENV{VCPKG_TOOLCHAIN_PATH})
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_TOOLCHAIN_PATH}")
@@ -38,14 +38,13 @@ endif()
 
 find_package(Arrow CONFIG REQUIRED)
 
-set(CPP_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include
-                    ${PROJECT_SOURCE_DIR}/src
+set(CPP_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/cpp/include
                     ${CARGO_TARGET_DIR}/cxxbridge
                     ${CARGO_TARGET_DIR}/cxxbridge/vortex-cxx/src
                     ${Arrow_INCLUDE_DIRS})
 
-file(GLOB CPP_SOURCE_FILE "src/*.cpp")
-file(GLOB CPP_HEADER_FILE "include/*.hpp" "src/*.hpp")
+file(GLOB CPP_SOURCE_FILE "cpp/*.cpp")
+file(GLOB CPP_HEADER_FILE "cpp/include/*.hpp")
 
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     list(APPEND CARGO_BUILD_FLAGS "--release")
@@ -84,7 +83,7 @@ if (VORTEX_ENABLE_TESTING)
     find_package(GTest CONFIG REQUIRED)
 
     enable_testing()
-    add_executable(vortex_cxx_test tests/basic_test.cpp)
+    add_executable(vortex_cxx_test cpp/tests/basic_test.cpp)
     target_include_directories(vortex_cxx_test PUBLIC ${CPP_INCLUDE_DIR})
     target_link_libraries(vortex_cxx_test GTest::gtest_main vortex_cxx Arrow::arrow_static)
 

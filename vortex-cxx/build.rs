@@ -14,7 +14,6 @@ fn main() {
     generate_test_vortex_file();
 
     println!("cargo:rerun-if-changed=src/");
-    println!("cargo:rerun-if-changed=include/");
 }
 
 fn generate_test_vortex_file() {
