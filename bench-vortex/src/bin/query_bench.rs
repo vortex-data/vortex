@@ -48,7 +48,7 @@ struct CommonArgs {
     display_format: DisplayFormat,
 
     /// TODO(joe): remove this flag and add a cache flag to common.
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = true)]
     disable_datafusion_cache: bool,
 
     #[arg(short, long, value_delimiter = ',')]
