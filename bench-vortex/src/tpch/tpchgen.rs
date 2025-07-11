@@ -121,7 +121,10 @@ pub async fn generate_tpch_tables(options: &TpchGenOptions) -> Result<()> {
     stream::iter(all_futures.into_iter().flatten())
         .map(|future| tokio::spawn(future))
         .buffer_unordered(MAX_CONCURRENT_FILES)
-        .try_for_each(|_| async { Ok(()) })
+        .try_for_each(|f| async {
+            f.unwrap();
+            Ok(())
+        })
         .await?;
 
     Ok(())
