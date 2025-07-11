@@ -74,7 +74,7 @@ mod tests {
 
     #[test]
     fn min_max_test() {
-        let decimal = DecimalArray::new_unchecked(
+        let decimal = DecimalArray::new(
             buffer![100i32, 2000i32, 200i32],
             DecimalDType::new(4, 2),
             Validity::from_iter([true, false, true]),

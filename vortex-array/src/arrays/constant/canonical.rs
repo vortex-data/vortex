@@ -64,21 +64,13 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 let decimal = scalar.as_decimal();
                 let Some(value) = decimal.decimal_value() else {
                     let all_null = match_each_decimal_value_type!(size, |D| {
-                        DecimalArray::new_unchecked(
-                            Buffer::<D>::zeroed(array.len()),
-                            *decimal_type,
-                            validity,
-                        )
+                        DecimalArray::new(Buffer::<D>::zeroed(array.len()), *decimal_type, validity)
                     });
                     return Ok(Canonical::Decimal(all_null));
                 };
 
                 let decimal_array = match_each_decimal_value!(value, |value| {
-                    DecimalArray::new_unchecked(
-                        Buffer::full(*value, array.len()),
-                        *decimal_type,
-                        validity,
-                    )
+                    DecimalArray::new(Buffer::full(*value, array.len()), *decimal_type, validity)
                 });
                 Canonical::Decimal(decimal_array)
             }

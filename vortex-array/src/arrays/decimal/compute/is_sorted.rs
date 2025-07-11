@@ -83,8 +83,8 @@ mod tests {
         let sorted = buffer![i100, i200, i200];
         let unsorted = buffer![i200, i100, i200];
 
-        let sorted_array = DecimalArray::new_unchecked(sorted, dtype, Validity::NonNullable);
-        let unsorted_array = DecimalArray::new_unchecked(unsorted, dtype, Validity::NonNullable);
+        let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
+        let unsorted_array = DecimalArray::new(unsorted, dtype, Validity::NonNullable);
 
         assert!(is_sorted(sorted_array.as_ref()).unwrap());
         assert!(!is_sorted(unsorted_array.as_ref()).unwrap());
@@ -105,9 +105,8 @@ mod tests {
 
         let dtype = DecimalDType::new(19, 2);
 
-        let strict_sorted_array =
-            DecimalArray::new_unchecked(strict_sorted, dtype, Validity::NonNullable);
-        let sorted_array = DecimalArray::new_unchecked(sorted, dtype, Validity::NonNullable);
+        let strict_sorted_array = DecimalArray::new(strict_sorted, dtype, Validity::NonNullable);
+        let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
 
         assert!(is_strict_sorted(strict_sorted_array.as_ref()).unwrap());
         assert!(!is_strict_sorted(sorted_array.as_ref()).unwrap());

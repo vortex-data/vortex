@@ -9,7 +9,7 @@ mod serde;
 use arrow_buffer::BooleanBufferBuilder;
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer};
 use vortex_dtype::{DType, DecimalDType};
-use vortex_error::{VortexExpect as _, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexResult, vortex_panic};
 use vortex_scalar::{DecimalValueType, NativeDecimalType};
 
 use crate::builders::ArrayBuilder;
@@ -78,19 +78,20 @@ pub struct DecimalArray {
 }
 
 impl DecimalArray {
-    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`].
+    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
+    /// any invariants.
     ///
-    /// # Errors
+    /// # Panics
     ///
-    /// Errors if the validity length is not compatible with the buffer length.
-    pub fn try_new<T: NativeDecimalType>(
+    /// Panics if the validity length is not compatible with the buffer length.
+    pub fn new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
         validity: Validity,
-    ) -> VortexResult<Self> {
+    ) -> Self {
         if let Some(len) = validity.maybe_len() {
             if buffer.len() != len {
-                vortex_bail!(
+                vortex_panic!(
                     "Buffer and validity length mismatch: buffer={}, validity={}",
                     buffer.len(),
                     len,
@@ -98,23 +99,13 @@ impl DecimalArray {
             }
         }
 
-        Ok(Self {
+        Self {
             dtype: DType::Decimal(decimal_dtype, validity.nullability()),
             values: buffer.into_byte_buffer(),
             values_type: T::VALUES_TYPE,
             validity,
             stats_set: ArrayStats::default(),
-        })
-    }
-
-    /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
-    /// any invariants.
-    pub fn new_unchecked<T: NativeDecimalType>(
-        buffer: Buffer<T>,
-        decimal_dtype: DecimalDType,
-        validity: Validity,
-    ) -> Self {
-        Self::try_new(buffer, decimal_dtype, validity).vortex_expect("DecimalArray::new")
+        }
     }
 
     /// Returns the underlying [`ByteBuffer`] of the array.
@@ -173,7 +164,7 @@ impl DecimalArray {
                 }
             }
         }
-        Self::new_unchecked(
+        Self::new(
             values.freeze(),
             decimal_dtype,
             Validity::from(validity.finish()),

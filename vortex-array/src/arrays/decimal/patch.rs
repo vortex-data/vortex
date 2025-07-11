@@ -76,7 +76,7 @@ where
         );
     }
 
-    Ok(DecimalArray::new_unchecked(
+    Ok(DecimalArray::new(
         buffer.freeze(),
         decimal_dtype,
         patched_validity,

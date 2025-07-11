@@ -232,7 +232,7 @@ impl DecimalBuilder {
         };
 
         delegate_fn!(std::mem::take(&mut self.values), |T, values| {
-            DecimalArray::new_unchecked::<T>(values.freeze(), decimal_dtype, validity)
+            DecimalArray::new::<T>(values.freeze(), decimal_dtype, validity)
         })
     }
 }

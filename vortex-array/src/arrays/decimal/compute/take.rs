@@ -23,7 +23,7 @@ impl TakeKernel for DecimalVTable {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 let buffer =
                     take_to_buffer::<I, D>(indices.as_slice::<I>(), array.buffer::<D>().as_slice());
-                DecimalArray::new_unchecked(buffer, array.decimal_dtype(), validity)
+                DecimalArray::new(buffer, array.decimal_dtype(), validity)
             })
         });
 
@@ -54,7 +54,7 @@ mod tests {
 
     #[test]
     fn test_take() {
-        let array = DecimalArray::new_unchecked(
+        let array = DecimalArray::new(
             buffer![10i128, 11i128, 12i128, 13i128],
             DecimalDType::new(19, 1),
             Validity::NonNullable,
@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn test_take_null_indices() {
-        let array = DecimalArray::new_unchecked(
+        let array = DecimalArray::new(
             buffer![i128::MAX, 11i128, 12i128, 13i128],
             DecimalDType::new(19, 1),
             Validity::NonNullable,

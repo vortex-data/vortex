@@ -60,7 +60,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
             let decimal_array = array.to_decimal()?;
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let buf = decimal_array.buffer::<D>();
-                Ok(DecimalArray::new_unchecked(
+                Ok(DecimalArray::new(
                     filter
                         .iter()
                         .zip(buf.as_slice().iter().copied())
