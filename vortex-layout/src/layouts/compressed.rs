@@ -12,7 +12,7 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use crate::scan::{TaskExecutor, TaskExecutorExt as _};
 use crate::segments::SequenceWriter;
 use crate::{
-    LayoutStrategy, SendableLayoutWriter, SendableSequentialStream, SequentialStreamAdapter,
+    LayoutStrategy, SendableLayoutFuture, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt as _,
 };
 
@@ -43,7 +43,7 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutWriter {
+    ) -> SendableLayoutFuture {
         let executor = self.executor.clone();
 
         let dtype = stream.dtype().clone();

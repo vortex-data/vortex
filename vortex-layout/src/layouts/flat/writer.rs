@@ -12,7 +12,7 @@ use vortex_scalar::{BinaryScalar, Utf8Scalar};
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
 use crate::segments::SequenceWriter;
-use crate::{IntoLayout, LayoutStrategy, SendableLayoutWriter, SendableSequentialStream};
+use crate::{IntoLayout, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -37,7 +37,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         mut stream: SendableSequentialStream,
-    ) -> SendableLayoutWriter {
+    ) -> SendableLayoutFuture {
         let ctx = ctx.clone();
         let options = self.clone();
         Box::pin(async move {

@@ -12,7 +12,7 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::segments::SequenceWriter;
 use crate::{
-    LayoutStrategy, SendableLayoutWriter, SendableSequentialStream, SequentialStreamAdapter,
+    LayoutStrategy, SendableLayoutFuture, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt,
 };
 
@@ -45,7 +45,7 @@ impl LayoutStrategy for RepartitionStrategy {
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutWriter {
+    ) -> SendableLayoutFuture {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
         let dtype = stream.dtype().clone();
