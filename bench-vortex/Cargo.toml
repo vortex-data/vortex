@@ -38,6 +38,7 @@ glob = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true }
 itertools = { workspace = true }
+libc = { workspace = true }
 log = { workspace = true, features = ["max_level_debug"] }
 mimalloc = { workspace = true }
 object_store = { workspace = true, features = ["aws", "gcp"] }
@@ -53,6 +54,7 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 similar = { workspace = true }
+sysinfo = "0.32"
 tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 target-lexicon = { workspace = true }

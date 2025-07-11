@@ -13,7 +13,8 @@ use vortex_datafusion::metrics::VortexMetricsFinder;
 use crate::benchmark_trait::Benchmark;
 use crate::display::DisplayFormat;
 use crate::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_query};
-use crate::measurements::QueryMeasurement;
+use crate::measurements::{MemoryMeasurement, QueryMeasurement};
+use crate::memory::MemoryTracker;
 use crate::metrics::{MetricsSetExt, export_plan_spans};
 use crate::query_bench::{filter_queries, print_results, setup_logging_and_tracing};
 use crate::utils::{new_tokio_runtime, url_scheme_to_storage};
@@ -34,6 +35,8 @@ pub struct DriverConfig {
     pub export_spans: bool,
     pub show_metrics: bool,
     pub hide_progress_bar: bool,
+    pub track_memory: bool,
+    pub force_memory_reclaim: bool,
 }
 
 /// Run a benchmark using the provided implementation and configuration
@@ -61,6 +64,14 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
     };
 
     let mut query_measurements = Vec::new();
+    let mut all_memory_measurements = Vec::new();
+
+    // Create a global memory tracker if memory tracking is enabled
+    let global_memory_tracker = if config.track_memory {
+        Some(MemoryTracker::new())
+    } else {
+        None
+    };
 
     for target in config.targets.iter() {
         let tokio_runtime = new_tokio_runtime(config.threads);
@@ -73,7 +84,7 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
 
         tokio_runtime.block_on(benchmark.register_tables(&engine_ctx, target.format()))?;
 
-        let bench_measurements = execute_queries(
+        let (bench_measurements, memory_measurements) = execute_queries(
             &filtered_queries,
             config.iterations,
             &tokio_runtime,
@@ -81,6 +92,9 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
             &progress_bar,
             &mut engine_ctx,
             &benchmark,
+            config.track_memory,
+            config.force_memory_reclaim,
+            global_memory_tracker.as_ref(),
         )?;
 
         tokio_runtime.block_on(export_metrics_if_requested(
@@ -93,6 +107,26 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
         }
 
         query_measurements.extend(bench_measurements);
+        all_memory_measurements.extend(memory_measurements);
+    }
+
+    // Print memory measurements if available
+    if !all_memory_measurements.is_empty() && config.track_memory {
+        println!("\n=== Memory Usage Summary ===");
+        for memory_measurement in &all_memory_measurements {
+            println!(
+                "Query {}: Δ{}MB physical, Δ{}MB virtual {} | Reclaimed: {}MB physical, {}MB virtual | Peak: {}MB physical, {}MB virtual",
+                memory_measurement.query_idx,
+                memory_measurement.physical_memory_delta as f64 / 1024.0 / 1024.0,
+                memory_measurement.virtual_memory_delta as f64 / 1024.0 / 1024.0,
+                memory_measurement.target,
+                memory_measurement.physical_memory_reclaimed.abs() as f64 / 1024.0 / 1024.0,
+                memory_measurement.virtual_memory_reclaimed.abs() as f64 / 1024.0 / 1024.0,
+                memory_measurement.peak_physical_memory as f64 / 1024.0 / 1024.0,
+                memory_measurement.peak_virtual_memory as f64 / 1024.0 / 1024.0,
+            );
+        }
+        println!("===========================\n");
     }
 
     print_results(
@@ -103,6 +137,7 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_queries<B: Benchmark>(
     queries: &[(usize, String)],
     iterations: usize,
@@ -111,11 +146,22 @@ fn execute_queries<B: Benchmark>(
     progress_bar: &ProgressBar,
     engine_ctx: &mut EngineCtx,
     benchmark: &B,
-) -> Result<Vec<QueryMeasurement>> {
+    track_memory: bool,
+    force_memory_reclaim: bool,
+    global_memory_tracker: Option<&MemoryTracker>,
+) -> Result<(Vec<QueryMeasurement>, Vec<MemoryMeasurement>)> {
     let mut query_measurements = Vec::new();
+    let mut memory_measurements = Vec::new();
     let expected_row_counts = benchmark.expected_row_counts();
 
     for &(query_idx, ref query_string) in queries.iter() {
+        // Get baseline memory before query if tracking is enabled
+        let baseline_memory = if track_memory {
+            global_memory_tracker.and_then(|tracker| tracker.current_memory())
+        } else {
+            None
+        };
+
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
                 let (runs, (row_count, execution_plan)) = runtime.block_on(async {
@@ -191,10 +237,47 @@ fn execute_queries<B: Benchmark>(
             }
         }
 
+        // Collect memory measurement if tracking is enabled
+        if let (Some(baseline), Some(tracker)) = (baseline_memory, global_memory_tracker) {
+            let after_memory = tracker.current_memory().unwrap_or_else(|| crate::memory::MemoryStats::new(0, 0));
+            let usage_diff = baseline.diff(&after_memory);
+
+            // Force memory reclamation if requested
+            let reclaim_diff = if force_memory_reclaim {
+                crate::memory::force_memory_reclaim();
+                let after_reclaim = tracker.current_memory().unwrap_or_else(|| crate::memory::MemoryStats::new(0, 0));
+                after_memory.diff(&after_reclaim)
+            } else {
+                crate::memory::MemoryStatsDiff {
+                    physical_memory_delta: 0,
+                    virtual_memory_delta: 0,
+                }
+            };
+
+            // Get peak memory from global tracker
+            let peak_memory = tracker.peak_memory();
+
+            memory_measurements.push(MemoryMeasurement {
+                query_idx,
+                target: match engine_ctx {
+                    EngineCtx::DataFusion(_) => Target::new(Engine::DataFusion, format),
+                    EngineCtx::DuckDB(_) => Target::new(Engine::DuckDB, format),
+                },
+                benchmark_dataset: benchmark.dataset(),
+                storage: url_scheme_to_storage(benchmark.data_url())?,
+                physical_memory_delta: usage_diff.physical_memory_delta,
+                virtual_memory_delta: usage_diff.virtual_memory_delta,
+                physical_memory_reclaimed: reclaim_diff.physical_memory_delta,
+                virtual_memory_reclaimed: reclaim_diff.virtual_memory_delta,
+                peak_physical_memory: peak_memory.physical_memory,
+                peak_virtual_memory: peak_memory.virtual_memory,
+            });
+        }
+
         progress_bar.inc(1);
     }
 
-    Ok(query_measurements)
+    Ok((query_measurements, memory_measurements))
 }
 
 async fn export_metrics_if_requested(engine_ctx: &EngineCtx, export_spans: bool) -> Result<()> {
