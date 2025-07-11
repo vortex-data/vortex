@@ -3,8 +3,8 @@
 
 //! Memory measurement and reclamation utilities for benchmarks
 
-use sysinfo::{ProcessRefreshKind, RefreshKind, System, ProcessesToUpdate};
-use std::sync::Mutex;
+use parking_lot::Mutex;
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
 /// Memory statistics for a process
 #[derive(Debug, Clone, Copy)]
@@ -53,20 +53,23 @@ impl MemoryTracker {
     /// Create a new memory tracker for the current process
     pub fn new() -> Self {
         let mut system = System::new_with_specifics(
-            RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+            RefreshKind::default().with_processes(ProcessRefreshKind::everything()),
         );
         let pid = std::process::id();
-        
+
         // Initial refresh to populate process info
-        system.refresh_processes(ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]), true);
-        
+        system.refresh_processes(
+            ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
+            true,
+        );
+
         // Get initial memory usage as baseline for peak tracking
         let initial_memory = if let Some(process) = system.process(sysinfo::Pid::from_u32(pid)) {
             MemoryStats::new(process.memory(), process.virtual_memory())
         } else {
             MemoryStats::new(0, 0)
         };
-        
+
         Self {
             system: Mutex::new(system),
             pid,
@@ -77,48 +80,48 @@ impl MemoryTracker {
 
     /// Get current memory usage for the tracked process and update peak tracking
     pub fn current_memory(&self) -> Option<MemoryStats> {
-        let mut system = self.system.lock().unwrap();
-        system.refresh_processes(ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(self.pid)]), true);
-        
+        let mut system = self.system.lock();
+        system.refresh_processes(
+            ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(self.pid)]),
+            true,
+        );
+
         if let Some(process) = system.process(sysinfo::Pid::from_u32(self.pid)) {
-            let current_stats = MemoryStats::new(
-                process.memory(),
-                process.virtual_memory(),
-            );
-            
+            let current_stats = MemoryStats::new(process.memory(), process.virtual_memory());
+
             // Update peak memory if current usage is higher
             {
-                let mut peak_physical = self.peak_physical_memory.lock().unwrap();
+                let mut peak_physical = self.peak_physical_memory.lock();
                 if current_stats.physical_memory > *peak_physical {
                     *peak_physical = current_stats.physical_memory;
                 }
             }
-            
+
             {
-                let mut peak_virtual = self.peak_virtual_memory.lock().unwrap();
+                let mut peak_virtual = self.peak_virtual_memory.lock();
                 if current_stats.virtual_memory > *peak_virtual {
                     *peak_virtual = current_stats.virtual_memory;
                 }
             }
-            
+
             Some(current_stats)
         } else {
             None
         }
     }
-    
+
     /// Get the peak memory usage recorded so far
     pub fn peak_memory(&self) -> MemoryStats {
-        let peak_physical = *self.peak_physical_memory.lock().unwrap();
-        let peak_virtual = *self.peak_virtual_memory.lock().unwrap();
+        let peak_physical = *self.peak_physical_memory.lock();
+        let peak_virtual = *self.peak_virtual_memory.lock();
         MemoryStats::new(peak_physical, peak_virtual)
     }
-    
+
     /// Reset peak memory tracking to current usage
     pub fn reset_peak(&self) {
         if let Some(current) = self.current_memory() {
-            *self.peak_physical_memory.lock().unwrap() = current.physical_memory;
-            *self.peak_virtual_memory.lock().unwrap() = current.virtual_memory;
+            *self.peak_physical_memory.lock() = current.physical_memory;
+            *self.peak_virtual_memory.lock() = current.virtual_memory;
         }
     }
 }
@@ -140,7 +143,7 @@ pub fn force_memory_reclaim() {
             fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
             fn malloc_default_zone() -> *mut std::ffi::c_void;
         }
-        
+
         unsafe {
             malloc_zone_pressure_relief(malloc_default_zone(), 0);
         }
@@ -152,7 +155,7 @@ pub fn force_memory_reclaim() {
         extern "C" {
             fn _heapmin() -> i32;
         }
-        
+
         unsafe {
             _heapmin();
         }
@@ -174,7 +177,7 @@ impl MemoryMeasurement {
     pub fn start() -> Self {
         let tracker = MemoryTracker::new();
         let before = tracker.current_memory();
-        
+
         Self { tracker, before }
     }
 
@@ -182,7 +185,7 @@ impl MemoryMeasurement {
     pub fn end(self) -> Option<MemoryStatsDiff> {
         let after = self.tracker.current_memory()?;
         let before = self.before?;
-        
+
         Some(before.diff(&after))
     }
 
@@ -190,16 +193,16 @@ impl MemoryMeasurement {
     pub fn end_with_reclaim(self) -> Option<(MemoryStatsDiff, MemoryStatsDiff)> {
         let after = self.tracker.current_memory()?;
         let before = self.before?;
-        
+
         let usage_diff = before.diff(&after);
-        
+
         // Force memory reclamation
         force_memory_reclaim();
-        
+
         // Measure memory after reclamation
         let after_reclaim = self.tracker.current_memory()?;
         let reclaim_diff = after.diff(&after_reclaim);
-        
+
         Some((usage_diff, reclaim_diff))
     }
 }
@@ -213,7 +216,7 @@ mod tests {
         let tracker = MemoryTracker::new();
         let memory = tracker.current_memory();
         assert!(memory.is_some());
-        
+
         if let Some(stats) = memory {
             assert!(stats.physical_memory > 0);
             assert!(stats.virtual_memory > 0);
@@ -223,10 +226,10 @@ mod tests {
     #[test]
     fn test_memory_measurement() {
         let measurement = MemoryMeasurement::start();
-        
+
         // Allocate some memory
         let _data: Vec<u8> = vec![0; 1024 * 1024]; // 1MB
-        
+
         let diff = measurement.end();
         assert!(diff.is_some());
     }

@@ -67,11 +67,7 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
     let mut all_memory_measurements = Vec::new();
 
     // Create a global memory tracker if memory tracking is enabled
-    let global_memory_tracker = if config.track_memory {
-        Some(MemoryTracker::new())
-    } else {
-        None
-    };
+    let global_memory_tracker = config.track_memory.then(MemoryTracker::new);
 
     for target in config.targets.iter() {
         let tokio_runtime = new_tokio_runtime(config.threads);
@@ -239,13 +235,17 @@ fn execute_queries<B: Benchmark>(
 
         // Collect memory measurement if tracking is enabled
         if let (Some(baseline), Some(tracker)) = (baseline_memory, global_memory_tracker) {
-            let after_memory = tracker.current_memory().unwrap_or_else(|| crate::memory::MemoryStats::new(0, 0));
+            let after_memory = tracker
+                .current_memory()
+                .unwrap_or_else(|| crate::memory::MemoryStats::new(0, 0));
             let usage_diff = baseline.diff(&after_memory);
 
             // Force memory reclamation if requested
             let reclaim_diff = if force_memory_reclaim {
                 crate::memory::force_memory_reclaim();
-                let after_reclaim = tracker.current_memory().unwrap_or_else(|| crate::memory::MemoryStats::new(0, 0));
+                let after_reclaim = tracker
+                    .current_memory()
+                    .unwrap_or_else(|| crate::memory::MemoryStats::new(0, 0));
                 after_memory.diff(&after_reclaim)
             } else {
                 crate::memory::MemoryStatsDiff {

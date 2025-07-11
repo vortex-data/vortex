@@ -543,6 +543,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "parking_lot",
  "parquet",
  "paste",
  "rand 0.9.1",

@@ -45,6 +45,7 @@ object_store = { workspace = true, features = ["aws", "gcp"] }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["trace"] }
 opentelemetry_sdk = { workspace = true }
+parking_lot = { workspace = true }
 parquet = { workspace = true, features = ["async"] }
 paste = { workspace = true }
 rand = { workspace = true }
