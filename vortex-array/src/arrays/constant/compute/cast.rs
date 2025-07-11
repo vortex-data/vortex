@@ -9,8 +9,11 @@ use crate::compute::{CastKernel, CastKernelAdapter};
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for ConstantVTable {
-    fn cast(&self, array: &ConstantArray, dtype: &DType) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(array.scalar().cast(dtype)?, array.len()).into_array())
+    fn cast(&self, array: &ConstantArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        match array.scalar().cast(dtype) {
+            Ok(scalar) => Ok(Some(ConstantArray::new(scalar, array.len()).into_array())),
+            Err(_e) => Ok(None),
+        }
     }
 }
 

@@ -11,9 +11,9 @@ use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for StructVTable {
-    fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<ArrayRef> {
+    fn cast(&self, array: &StructArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let Some(target_sdtype) = dtype.as_struct() else {
-            vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
+            return Ok(None);
         };
 
         let source_sdtype = array
@@ -41,7 +41,7 @@ impl CastKernel for StructVTable {
             array.len(),
             validity,
         )
-        .map(|a| a.into_array())
+        .map(|a| Some(a.into_array()))
     }
 }
 
