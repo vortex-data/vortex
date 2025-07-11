@@ -172,6 +172,78 @@ pub struct MemoryMeasurement {
     before: Option<MemoryStats>,
 }
 
+/// Comprehensive memory measurement result containing all memory metrics
+#[derive(Debug, Clone)]
+pub struct MemoryMeasurementResult {
+    /// Memory change during the operation (can be negative)
+    pub physical_memory_delta: i64,
+    pub virtual_memory_delta: i64,
+    /// Memory reclaimed through explicit reclamation (if requested)
+    pub physical_memory_reclaimed: i64,
+    pub virtual_memory_reclaimed: i64,
+    /// Peak memory usage reached by the global tracker
+    pub peak_physical_memory: u64,
+    pub peak_virtual_memory: u64,
+}
+
+/// Simplified interface for memory tracking with a global tracker
+pub struct BenchmarkMemoryTracker {
+    global_tracker: MemoryTracker,
+    baseline_memory: Option<MemoryStats>,
+}
+
+impl BenchmarkMemoryTracker {
+    /// Create a new benchmark memory tracker
+    pub fn new() -> Self {
+        Self {
+            global_tracker: MemoryTracker::new(),
+            baseline_memory: None,
+        }
+    }
+
+    /// Mark the start of a query execution - should be called before running a query
+    pub fn start_query(&mut self) {
+        self.baseline_memory = self.global_tracker.current_memory();
+    }
+
+    /// Mark the end of a query execution and collect memory measurements
+    /// Returns None if no baseline was set or memory tracking failed
+    pub fn end_query(&self, force_memory_reclaim: bool) -> Option<MemoryMeasurementResult> {
+        let baseline = self.baseline_memory?;
+        let after_memory = self.global_tracker.current_memory()?;
+        let usage_diff = baseline.diff(&after_memory);
+
+        // Force memory reclamation if requested
+        let reclaim_diff = if force_memory_reclaim {
+            self::force_memory_reclaim();
+            let after_reclaim = self.global_tracker.current_memory()?;
+            after_memory.diff(&after_reclaim)
+        } else {
+            MemoryStatsDiff {
+                physical_memory_delta: 0,
+                virtual_memory_delta: 0,
+            }
+        };
+
+        // Get peak memory from global tracker
+        let peak_memory = self.global_tracker.peak_memory();
+
+        Some(MemoryMeasurementResult {
+            physical_memory_delta: usage_diff.physical_memory_delta,
+            virtual_memory_delta: usage_diff.virtual_memory_delta,
+            physical_memory_reclaimed: reclaim_diff.physical_memory_delta,
+            virtual_memory_reclaimed: reclaim_diff.virtual_memory_delta,
+            peak_physical_memory: peak_memory.physical_memory,
+            peak_virtual_memory: peak_memory.virtual_memory,
+        })
+    }
+
+    /// Get the current peak memory without ending a query
+    pub fn peak_memory(&self) -> MemoryStats {
+        self.global_tracker.peak_memory()
+    }
+}
+
 impl MemoryMeasurement {
     /// Start a memory measurement
     pub fn start() -> Self {

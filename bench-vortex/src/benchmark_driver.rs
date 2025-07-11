@@ -14,7 +14,7 @@ use crate::benchmark_trait::Benchmark;
 use crate::display::DisplayFormat;
 use crate::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_query};
 use crate::measurements::{MemoryMeasurement, QueryMeasurement};
-use crate::memory::MemoryTracker;
+use crate::memory::BenchmarkMemoryTracker;
 use crate::metrics::{MetricsSetExt, export_plan_spans};
 use crate::query_bench::{filter_queries, print_results, setup_logging_and_tracing};
 use crate::utils::{new_tokio_runtime, url_scheme_to_storage};
@@ -67,7 +67,7 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
     let mut all_memory_measurements = Vec::new();
 
     // Create a global memory tracker if memory tracking is enabled
-    let global_memory_tracker = config.track_memory.then(MemoryTracker::new);
+    let mut global_memory_tracker = config.track_memory.then(BenchmarkMemoryTracker::new);
 
     for target in config.targets.iter() {
         let tokio_runtime = new_tokio_runtime(config.threads);
@@ -90,7 +90,7 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
             &benchmark,
             config.track_memory,
             config.force_memory_reclaim,
-            global_memory_tracker.as_ref(),
+            global_memory_tracker.as_mut(),
         )?;
 
         tokio_runtime.block_on(export_metrics_if_requested(
@@ -142,21 +142,19 @@ fn execute_queries<B: Benchmark>(
     progress_bar: &ProgressBar,
     engine_ctx: &mut EngineCtx,
     benchmark: &B,
-    track_memory: bool,
+    _track_memory: bool,
     force_memory_reclaim: bool,
-    global_memory_tracker: Option<&MemoryTracker>,
+    mut global_memory_tracker: Option<&mut BenchmarkMemoryTracker>,
 ) -> Result<(Vec<QueryMeasurement>, Vec<MemoryMeasurement>)> {
     let mut query_measurements = Vec::new();
     let mut memory_measurements = Vec::new();
     let expected_row_counts = benchmark.expected_row_counts();
 
     for &(query_idx, ref query_string) in queries.iter() {
-        // Get baseline memory before query if tracking is enabled
-        let baseline_memory = if track_memory {
-            global_memory_tracker.and_then(|tracker| tracker.current_memory())
-        } else {
-            None
-        };
+        // Start memory tracking before query
+        if let Some(tracker) = global_memory_tracker.as_mut() {
+            tracker.start_query();
+        }
 
         match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
@@ -233,45 +231,25 @@ fn execute_queries<B: Benchmark>(
             }
         }
 
-        // Collect memory measurement if tracking is enabled
-        if let (Some(baseline), Some(tracker)) = (baseline_memory, global_memory_tracker) {
-            let after_memory = tracker
-                .current_memory()
-                .unwrap_or_else(|| crate::memory::MemoryStats::new(0, 0));
-            let usage_diff = baseline.diff(&after_memory);
-
-            // Force memory reclamation if requested
-            let reclaim_diff = if force_memory_reclaim {
-                crate::memory::force_memory_reclaim();
-                let after_reclaim = tracker
-                    .current_memory()
-                    .unwrap_or_else(|| crate::memory::MemoryStats::new(0, 0));
-                after_memory.diff(&after_reclaim)
-            } else {
-                crate::memory::MemoryStatsDiff {
-                    physical_memory_delta: 0,
-                    virtual_memory_delta: 0,
-                }
-            };
-
-            // Get peak memory from global tracker
-            let peak_memory = tracker.peak_memory();
-
-            memory_measurements.push(MemoryMeasurement {
-                query_idx,
-                target: match engine_ctx {
-                    EngineCtx::DataFusion(_) => Target::new(Engine::DataFusion, format),
-                    EngineCtx::DuckDB(_) => Target::new(Engine::DuckDB, format),
-                },
-                benchmark_dataset: benchmark.dataset(),
-                storage: url_scheme_to_storage(benchmark.data_url())?,
-                physical_memory_delta: usage_diff.physical_memory_delta,
-                virtual_memory_delta: usage_diff.virtual_memory_delta,
-                physical_memory_reclaimed: reclaim_diff.physical_memory_delta,
-                virtual_memory_reclaimed: reclaim_diff.virtual_memory_delta,
-                peak_physical_memory: peak_memory.physical_memory,
-                peak_virtual_memory: peak_memory.virtual_memory,
-            });
+        // End memory tracking after query and collect measurements
+        if let Some(tracker) = global_memory_tracker.as_ref() {
+            if let Some(memory_result) = tracker.end_query(force_memory_reclaim) {
+                memory_measurements.push(MemoryMeasurement {
+                    query_idx,
+                    target: match engine_ctx {
+                        EngineCtx::DataFusion(_) => Target::new(Engine::DataFusion, format),
+                        EngineCtx::DuckDB(_) => Target::new(Engine::DuckDB, format),
+                    },
+                    benchmark_dataset: benchmark.dataset(),
+                    storage: url_scheme_to_storage(benchmark.data_url())?,
+                    physical_memory_delta: memory_result.physical_memory_delta,
+                    virtual_memory_delta: memory_result.virtual_memory_delta,
+                    physical_memory_reclaimed: memory_result.physical_memory_reclaimed,
+                    virtual_memory_reclaimed: memory_result.virtual_memory_reclaimed,
+                    peak_physical_memory: memory_result.peak_physical_memory,
+                    peak_virtual_memory: memory_result.peak_virtual_memory,
+                });
+            }
         }
 
         progress_bar.inc(1);
