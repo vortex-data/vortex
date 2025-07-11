@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use futures::StreamExt;
-use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::stats::Precision;
@@ -18,12 +17,11 @@ use vortex_expr::transform::partition::{PartitionedExpr, partition};
 use vortex_expr::transform::replace::{replace, replace_root_fields};
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExactExpr, ExprRef, col, root};
-use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::layouts::struct_::StructLayout;
-use crate::masks::IntersectionMaskStream;
+use crate::masks::{IntersectionMaskStream, MaskStream};
 use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
@@ -180,7 +178,7 @@ impl LayoutReader for StructReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>> {
+    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
         // Here we construct a stream of masks for each field in the field_mask, and then take
         // the smallest mask from each field.
         let mut field_streams = Vec::with_capacity(field_mask.len());

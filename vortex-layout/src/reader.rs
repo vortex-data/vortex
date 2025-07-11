@@ -8,7 +8,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
-use futures::stream::BoxStream;
 use once_cell::sync::OnceCell;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ArrayRef};
@@ -18,6 +17,7 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::children::LayoutChildren;
+use crate::masks::MaskStream;
 use crate::segments::SegmentSource;
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
@@ -39,7 +39,7 @@ pub trait LayoutReader: 'static + Send + Sync {
     /// Emit an iterator of [`Mask`]s from the layout reader that cover the full range of rows.
     /// These masks are likely to be partitioned in a way that is reasonable efficient for
     /// partitioning evaluation of the layout reader - but there's no guarantee.
-    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>>;
+    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream;
 
     /// Register the splits of this layout reader.
     // TODO(ngates): this is a temporary API until we make layout readers stream based.

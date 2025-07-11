@@ -11,7 +11,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use dashmap::DashMap;
 pub use expr::*;
-use futures::stream::BoxStream;
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
@@ -25,6 +24,7 @@ use vortex_scalar::PValue;
 use vortex_sequence::SequenceArray;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
+use crate::masks::MaskStream;
 use crate::{
     ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, NoOpPruningEvaluation,
     PruningEvaluation,
@@ -125,7 +125,7 @@ impl LayoutReader for RowIdxLayoutReader {
         self.child.row_count()
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>> {
+    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
         self.child.row_masks(field_mask)
     }
 

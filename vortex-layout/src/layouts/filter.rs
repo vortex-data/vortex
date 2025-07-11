@@ -9,7 +9,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bit_vec::BitVec;
 use dashmap::DashMap;
-use futures::stream::BoxStream;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use sketches_ddsketch::DDSketch;
@@ -20,6 +19,7 @@ use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
+use crate::masks::MaskStream;
 use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, PruningEvaluation};
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
@@ -58,7 +58,7 @@ impl LayoutReader for FilterLayoutReader {
         self.child.row_count()
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>> {
+    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
         self.child.row_masks(field_mask)
     }
 

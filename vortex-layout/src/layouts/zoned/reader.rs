@@ -9,7 +9,6 @@ use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::future::{BoxFuture, Shared};
-use futures::stream::BoxStream;
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use vortex_array::stats::Precision;
@@ -22,6 +21,7 @@ use vortex_mask::Mask;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::masks::MaskStream;
 use crate::segments::SegmentSource;
 use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
 
@@ -180,7 +180,7 @@ impl LayoutReader for ZonedReader {
         self.data_child.row_count()
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>> {
+    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
         self.data_child.row_masks(field_mask)
     }
 

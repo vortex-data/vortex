@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::ready;
-use futures::stream::{BoxStream, FuturesOrdered};
+use futures::stream::FuturesOrdered;
 use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use itertools::Itertools;
 use vortex_array::arrays::ChunkedArray;
@@ -19,6 +19,7 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::chunked::ChunkedLayout;
+use crate::masks::MaskStream;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
 use crate::{
@@ -129,7 +130,7 @@ impl LayoutReader for ChunkedReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>> {
+    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
         let field_mask = field_mask.to_vec();
         let children: Vec<_> = (0..self.layout.nchildren())
             .map(|i| self.chunk_reader(i).cloned())

@@ -7,7 +7,6 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use futures::stream::BoxStream;
 use futures::{FutureExt, join};
 use vortex_array::compute::{MinMaxResult, filter, min_max};
 use vortex_array::stats::Precision;
@@ -20,6 +19,7 @@ use vortex_mask::Mask;
 
 use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
+use crate::masks::MaskStream;
 use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpPruningEvaluation,
@@ -118,7 +118,7 @@ impl LayoutReader for DictReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> BoxStream<'static, VortexResult<Mask>> {
+    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
         self.codes.row_masks(field_mask)
     }
 
