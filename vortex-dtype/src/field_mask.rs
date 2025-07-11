@@ -49,7 +49,7 @@ impl FieldMask {
         match self {
             FieldMask::All => vortex_bail!("Cannot get starting field from All mask"),
             // We know that fp is non-empty
-            FieldMask::Prefix(fp) | FieldMask::Exact(fp) => Ok(fp.path().first()),
+            FieldMask::Prefix(fp) | FieldMask::Exact(fp) => Ok(fp.parts().first()),
         }
     }
 

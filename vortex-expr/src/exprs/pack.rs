@@ -145,6 +145,14 @@ impl PackExpr {
         })
     }
 
+    pub fn try_new_expr(
+        names: FieldNames,
+        values: Vec<ExprRef>,
+        nullability: Nullability,
+    ) -> VortexResult<ExprRef> {
+        Self::try_new(names, values, nullability).map(|v| v.into_expr())
+    }
+
     pub fn names(&self) -> &FieldNames {
         &self.names
     }
