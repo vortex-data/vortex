@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 180
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i.4xlarge
+      - family=m8g.2xlarge
       - image=ubuntu24-full-x64
       - disk=large
       - extras=s3-cache
@@ -64,7 +64,7 @@ jobs:
     timeout-minutes: 180
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i.4xlarge
+      - family=m8g.2xlarge
       - image=ubuntu24-full-x64
       - disk=large
       - extras=s3-cache
