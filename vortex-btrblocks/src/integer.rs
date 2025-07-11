@@ -837,7 +837,6 @@ mod tests {
     #[test]
     fn nullable_sequence() {
         let values = (0i32..20).step_by(7).collect_vec();
-        println!("{:?}", values);
         let array = PrimitiveArray::from_option_iter(values.clone().into_iter().map(Some));
         let compressed = SequenceScheme
             .compress(&IntegerStats::generate(&array), false, 3, &[])

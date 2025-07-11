@@ -104,7 +104,7 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::{BoolArray, ConstantArray};
     use vortex_array::compute::{Operator, compare};
-    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::Nullability::{NonNullable, Nullable};
 
     use crate::SequenceArray;
 
@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn test_compare_match_scale() {
-        let lhs = SequenceArray::typed_new(2i64, 3, nullability::Nullable, 4).unwrap();
+        let lhs = SequenceArray::typed_new(2i64, 3, Nullable, 4).unwrap();
 
         let rhs = ConstantArray::new(8i64, lhs.len());
 
