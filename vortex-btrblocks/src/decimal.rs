@@ -39,7 +39,7 @@ macro_rules! try_downcast {
             MinMaxResult::MinMax(min, max) => {
                 $(
                     if <$dst as BigCast>::from(min).is_some() && <$dst as BigCast>::from(max).is_some() {
-                        return DecimalArray::new_unchecked::<$dst>(
+                        return DecimalArray::new::<$dst>(
                             $array
                                 .buffer::<$src>()
                                 .into_iter()
