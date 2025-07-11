@@ -10,6 +10,11 @@ on:
         required: false
         type: string
         default: c6id.8xlarge
+      image:
+        required: false
+        type: string
+        default:
+          ubuntu24-full-x64
       benchmark_matrix:
         required: false
         type: string
@@ -51,7 +56,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=${{ inputs.machine_type }}
-      - image=ubuntu24-full-x64
+      - image=${{ inputs.image }}
       - spot=false
       - extras=s3-cache
       - tag=${{ matrix.id }}
