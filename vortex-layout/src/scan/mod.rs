@@ -9,9 +9,12 @@ use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 pub use executor::*;
 use futures::executor::LocalPool;
+use futures::future::BoxFuture;
+use futures::stream::BoxStream;
 use futures::task::LocalSpawnExt;
-use futures::{Stream, StreamExt, stream};
+use futures::{FutureExt, Stream, StreamExt, stream};
 use itertools::Itertools;
+use parking_lot::Mutex;
 pub use selection::*;
 pub use split_by::*;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
@@ -28,7 +31,7 @@ use vortex_metrics::VortexMetrics;
 
 use crate::layouts::filter::FilterLayoutReader;
 use crate::layouts::row_idx::RowIdxLayoutReader;
-use crate::masks::MaskStreamExt;
+use crate::masks::MaskIteratorExt;
 use crate::scan::row_mask::RowMask;
 use crate::scan::tasks::{TaskContext, split_exec};
 use crate::{LayoutReader, LayoutReaderRef};
@@ -164,17 +167,18 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    pub fn build(
-        mut self,
-    ) -> VortexResult<impl Stream<Item = impl Future<Output = VortexResult<Option<A>>>>> {
+    ///
+    /// WARNING: this function doesn't spawn the tasks onto the executor or buffer with concurrency.
+    fn build(
+        self,
+    ) -> VortexResult<BoxStream<'static, BoxFuture<'static, VortexResult<Option<A>>>>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
 
         // The ultimate short circuit
         if self.limit.is_some_and(|l| l == 0) {
-            let dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
-            return Ok((dtype, Vec::new()));
+            return Ok(stream::empty().boxed());
         }
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
@@ -212,44 +216,50 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             SplitBy::RowCount(n) => masks.repartition(n).boxed(),
         };
 
+        let ctx = Arc::new(TaskContext {
+            row_range: self.row_range.clone(),
+            selection: self.selection.clone(),
+            filter: self.filter.clone(),
+            reader: layout_reader.clone(),
+            projection: projection.clone(),
+            mapper: self.map_fn.clone(),
+            task_executor: self.executor.clone(),
+        });
+
         // Create a task that executes the full scan pipeline for each split.
         let tasks = masks
-            .scan(0u64, |row_idx, mask| async move {
-                Some(mask.map(|mask| {
-                    let row_mask = RowMask::new(*row_idx, mask);
-                    *row_idx += row_mask.mask().len() as u64;
-                    row_mask
-                }))
+            .scan(Arc::new(Mutex::new(0u64)), |row_idx, mask| {
+                let row_idx = row_idx.clone();
+                async move {
+                    Some(mask.map(move |mask| {
+                        let mut guard = row_idx.lock();
+                        let row_mask = RowMask::new(*guard, mask);
+                        *guard += row_mask.mask().len() as u64;
+                        row_mask
+                    }))
+                }
             })
             // TODO(ngates): truncate by the provided limit
             // TODO(ngates): filter_map by the provided row_indices / selection.
-            .filter_map(|row_mask| {
-                let ctx = Arc::new(TaskContext {
-                    row_range: self.row_range.clone(),
-                    selection: self.selection.clone(),
-                    filter: self.filter.clone(),
-                    reader: layout_reader.clone(),
-                    projection: projection.clone(),
-                    mapper: self.map_fn.clone(),
-                    task_executor: self.executor.clone(),
-                });
-
-                if self.limit.is_some_and(|l| l == 0) {
-                    None
-                } else {
-                    Some(split_exec(ctx, row_mask, self.limit.as_mut()))
+            .filter_map(move |row_mask| {
+                let ctx = ctx.clone();
+                async move {
+                    // let mut guard = limit.lock();
+                    // if guard.is_some_and(|l| *l == 0) {
+                    //     None
+                    // } else {
+                    Some(async move { split_exec(ctx, row_mask?, None)?.await }.boxed())
+                    // }
                 }
-            })
-            .try_collect()?;
+            });
 
-        let dtype = self.projection.return_dtype(layout_reader.dtype())?;
-        Ok((dtype, split_tasks))
+        Ok(tasks.boxed())
     }
 
     pub fn into_stream(self) -> VortexResult<impl Stream<Item = VortexResult<A>> + 'static> {
         let concurrency = self.concurrency;
-        let (_, split_tasks) = self.build()?;
-        Ok(stream::iter(split_tasks)
+        Ok(self
+            .build()?
             .buffered(concurrency)
             .filter_map(|r| async move { r.transpose() }))
     }
@@ -288,10 +298,10 @@ impl ScanBuilder<ArrayRef> {
     /// the behaviour of [`futures::stream::Buffered`].
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         let concurrency = self.concurrency;
-        let (dtype, split_tasks) = self.build()?;
+        let dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
         Ok(ArrayStreamAdapter::new(
             dtype,
-            stream::iter(split_tasks)
+            self.build()?
                 .buffered(concurrency)
                 .filter_map(|r| async move { r.transpose() }),
         ))
@@ -310,8 +320,10 @@ impl ScanBuilder<ArrayRef> {
         let mut local_pool = LocalPool::new();
         let spawner = local_pool.spawner();
 
-        let (dtype, split_tasks) = self.build()?;
-        let mut stream = stream::iter(split_tasks)
+        let dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
+
+        let mut stream = self
+            .build()?
             .map(move |task| {
                 spawner
                     .spawn_local_with_handle(task)

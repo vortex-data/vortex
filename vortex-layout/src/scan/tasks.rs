@@ -33,47 +33,49 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 /// finally mapping the Vortex columnar record batches into some result type `A`.
 pub(super) fn split_exec<A: 'static + Send + Sync>(
     ctx: Arc<TaskContext<A>>,
-    row_mask: RowMask,
+    split_mask: RowMask,
     limit: Option<&mut usize>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
-    // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
-    let read_range = match &ctx.row_range {
-        None => split,
-        Some(row_range) => {
-            if row_range.start >= split.end || row_range.end < split.start {
-                // No overlap for this task
-                return Ok(ok(None).boxed());
-            }
+    // // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
+    // let read_range = match &ctx.row_range {
+    //     None => row_mask.row_range(),
+    //     Some(row_range) => {
+    //         if row_range.start >= split.end || row_range.end < split.start {
+    //             // No overlap for this task
+    //             return Ok(ok(None).boxed());
+    //         }
+    //
+    //         let intersect_start = row_range.start.max(split.start);
+    //         let intersect_end = row_range.end.min(split.end);
+    //         intersect_start..intersect_end
+    //     }
+    // };
 
-            let intersect_start = row_range.start.max(split.start);
-            let intersect_end = row_range.end.min(split.end);
-            intersect_start..intersect_end
-        }
-    };
+    let row_range = split_mask.row_range();
 
     // Apply the selection to calculate a read mask
-    let read_mask = ctx.selection.row_mask(&read_range);
-    let row_range = read_mask.row_range();
-    let row_mask = read_mask.mask().clone();
-    if row_mask.all_false() {
+    let read_mask = split_mask.intersect(&ctx.selection.row_mask(&row_range));
+
+    // Early exit if the read mask is empty.
+    if read_mask.all_false() {
         return Ok(ok(None).boxed());
     }
 
     let filter = match ctx.filter.as_ref() {
         // No filter == immediate task
         None => {
-            let row_mask = match limit {
-                Some(l) if *l == 0 => Mask::new_false(row_mask.len()),
+            let mask = match limit {
+                Some(l) if *l == 0 => Mask::new_false(split_mask.len()),
                 Some(l) => {
-                    let true_count = row_mask.true_count();
-                    let row_mask = row_mask.limit(*l);
+                    let true_count = split_mask.true_count();
+                    let row_mask = split_mask.limit(*l);
                     *l -= usize::min(*l, true_count);
                     row_mask
                 }
-                None => row_mask,
+                None => split_mask.into_mask(),
             };
 
-            ok(row_mask).boxed()
+            ok(mask).boxed()
         }
         Some(filter) => {
             // Step 2: if there is a filter provided, attempt to prune this range based on the filter.
@@ -84,7 +86,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
             let eval = ctx.reader.filter_evaluation(&row_range, filter)?;
 
             async move {
-                let pruned_mask = prune.invoke(row_mask).await?;
+                let pruned_mask = prune.invoke(read_mask.into_mask()).await?;
 
                 // Step 3: apply exact filtering. The pruning step has already eliminated entire blocks
                 // where we know the filter won't match any rows, so the amount of work to do here
@@ -114,6 +116,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
 }
 
 /// Information needed to execute a single split task.
+#[allow(dead_code)]
 pub(super) struct TaskContext<A> {
     /// A caller-provided range of the file to read. All tasks should intersect their reads
     /// with this range to ensure that they are split as well.

@@ -98,6 +98,17 @@ pub enum Mask {
     Values(Arc<MaskValues>),
 }
 
+impl Mask {
+    /// Convert the mask into a vector of boolean values.
+    pub fn to_vec(&self) -> Vec<bool> {
+        match self {
+            Mask::AllTrue(len) => vec![true; *len],
+            Mask::AllFalse(len) => vec![false; *len],
+            Mask::Values(values) => values.boolean_buffer().iter().collect_vec(),
+        }
+    }
+}
+
 /// Represents the values of a [`Mask`] that contains some true and some false elements.
 #[derive(Debug)]
 pub struct MaskValues {
@@ -543,19 +554,19 @@ impl Mask {
     }
 
     /// Limit the mask to the first `limit` true values
-    pub fn limit(self, limit: usize) -> Self {
+    pub fn limit(&self, limit: usize) -> Self {
         if self.len() <= limit {
-            return self;
+            return self.clone();
         }
 
         match self {
             Mask::AllTrue(len) => {
                 Self::from_iter([Self::new_true(limit), Self::new_false(len - limit)])
             }
-            Mask::AllFalse(_) => self,
-            Mask::Values(ref mask_values) => {
+            Mask::AllFalse(_) => self.clone(),
+            Mask::Values(mask_values) => {
                 if limit >= mask_values.true_count() {
-                    return self;
+                    return self.clone();
                 }
 
                 let existing_buffer = mask_values.boolean_buffer();
