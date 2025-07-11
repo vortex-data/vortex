@@ -8,13 +8,14 @@ use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
+use Nullability::NonNullable;
 use async_trait::async_trait;
 use dashmap::DashMap;
 pub use expr::*;
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldMask, PType};
+use vortex_dtype::{DType, FieldMask, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
 use vortex_expr::transform::replace::replace;
@@ -227,6 +228,7 @@ impl RowIdxEvaluation {
             PValue::U64(row_offset + row_range.start),
             PValue::U64(1),
             PType::U64,
+            NonNullable,
             usize::try_from(row_range.end - row_range.start)
                 .vortex_expect("Row range length must fit in usize"),
         )
