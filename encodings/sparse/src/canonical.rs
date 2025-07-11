@@ -12,9 +12,13 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::{Array, Canonical};
 use vortex_buffer::buffer;
-use vortex_dtype::{DType, DecimalDType, NativePType, Nullability, match_each_native_ptype};
+use vortex_dtype::{
+    DType, DecimalDType, NativePType, Nullability, StructFields, match_each_native_ptype,
+};
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_err};
-use vortex_scalar::{DecimalScalar, NativeDecimalType, Scalar, match_each_decimal_value_type};
+use vortex_scalar::{
+    DecimalScalar, NativeDecimalType, Scalar, StructScalar, match_each_decimal_value_type,
+};
 
 use crate::{SparseArray, SparseVTable};
 
@@ -39,53 +43,13 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
                     canonicalize_sparse_primitives::<P>(&resolved_patches, array.fill_scalar())
                 })
             }
-            DType::Struct(struct_fields, ..) => {
-                let fill_struct = array.fill_scalar().as_struct();
-                let (fill_values, top_level_fill_validity) = match fill_struct.fields() {
-                    Some(fill_values) => (fill_values, Validity::AllValid),
-                    None => (
-                        struct_fields.fields().map(Scalar::default_value).collect(),
-                        Validity::AllInvalid,
-                    ),
-                };
-                // Resolution is unnecessary b/c we're just pushing the patches into the fields.
-                let patches = array.patches();
-                let patch_values_as_struct = patches.values().to_canonical()?.into_struct()?;
-                let columns_patch_values = patch_values_as_struct.fields();
-                let names = patch_values_as_struct.names();
-                let validity = if array.dtype().is_nullable() {
-                    top_level_fill_validity.patch(
-                        array.len(),
-                        patches.offset(),
-                        patches.indices(),
-                        &Validity::from_mask(
-                            patches.values().validity_mask()?,
-                            Nullability::Nullable,
-                        ),
-                    )?
-                } else {
-                    top_level_fill_validity.into_non_nullable().ok_or_else(|| {
-                        vortex_err!("fill validity should match sparse array nullability")
-                    })?
-                };
-                columns_patch_values
-                    .iter()
-                    .cloned()
-                    .zip_eq(fill_values.into_iter())
-                    .map(|(patch_values, fill_value)| -> VortexResult<_> {
-                        SparseArray::try_new_from_patches(
-                            patches.clone().map_values(|_| Ok(patch_values))?,
-                            fill_value,
-                        )
-                    })
-                    .process_results(|sparse_columns| {
-                        StructArray::try_from_iter_with_validity(
-                            names.iter().zip_eq(sparse_columns),
-                            validity,
-                        )
-                        .map(Canonical::Struct)
-                    })?
-            }
+            DType::Struct(struct_fields, ..) => canonicalize_sparse_struct(
+                struct_fields,
+                array.fill_scalar().as_struct(),
+                array.dtype(),
+                array.patches(),
+                array.len(),
+            ),
             DType::Decimal(decimal_dtype, nullability) => {
                 let canonical_decimal_value_type = smallest_storage_type(decimal_dtype);
                 let fill_value = array.fill_scalar().as_decimal();
@@ -155,6 +119,58 @@ fn canonicalize_sparse_primitives<
     let parray = PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity);
 
     parray.patch(patches).map(Canonical::Primitive)
+}
+
+fn canonicalize_sparse_struct(
+    struct_fields: &StructFields,
+    fill_struct: StructScalar,
+    dtype: &DType,
+    // Resolution is unnecessary b/c we're just pushing the patches into the fields.
+    unresolved_patches: &Patches,
+    len: usize,
+) -> VortexResult<Canonical> {
+    let (fill_values, top_level_fill_validity) = match fill_struct.fields() {
+        Some(fill_values) => (fill_values, Validity::AllValid),
+        None => (
+            struct_fields.fields().map(Scalar::default_value).collect(),
+            Validity::AllInvalid,
+        ),
+    };
+    let patch_values_as_struct = unresolved_patches.values().to_canonical()?.into_struct()?;
+    let columns_patch_values = patch_values_as_struct.fields();
+    let names = patch_values_as_struct.names();
+    let validity = if dtype.is_nullable() {
+        top_level_fill_validity.patch(
+            len,
+            unresolved_patches.offset(),
+            unresolved_patches.indices(),
+            &Validity::from_mask(
+                unresolved_patches.values().validity_mask()?,
+                Nullability::Nullable,
+            ),
+        )?
+    } else {
+        top_level_fill_validity
+            .into_non_nullable()
+            .ok_or_else(|| vortex_err!("fill validity should match sparse array nullability"))?
+    };
+
+    columns_patch_values
+        .iter()
+        .cloned()
+        .zip_eq(fill_values.into_iter())
+        .map(|(patch_values, fill_value)| -> VortexResult<_> {
+            SparseArray::try_new_from_patches(
+                unresolved_patches
+                    .clone()
+                    .map_values(|_| Ok(patch_values))?,
+                fill_value,
+            )
+        })
+        .process_results(|sparse_columns| {
+            StructArray::try_from_iter_with_validity(names.iter().zip_eq(sparse_columns), validity)
+                .map(Canonical::Struct)
+        })?
 }
 
 fn canonicalize_sparse_decimal<D: NativeDecimalType>(
