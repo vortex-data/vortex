@@ -9,7 +9,7 @@ else()
     message(WARNING "VCPKG_TOOLCHAIN_PATH environment variable is not set. Dependencies may not be found correctly. See README.md for vcpkg setup instructions.")
 endif()
 
-project(vortex-cxx LANGUAGES CXX)
+project(vortex-cxx)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
+
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wpedantic -Wno-dollar-in-identifier-extension")
 
 option(VORTEX_ENABLE_TESTING "Enable building test binary for vortex-cxx" OFF)
 
