@@ -12,7 +12,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8g.2xlarge
-      - image=ubuntu24-full-x64
+      - image=ubuntu24-full-arm64
       - disk=large
       - extras=s3-cache
       - tag=io-fuzz
@@ -65,7 +65,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8g.2xlarge
-      - image=ubuntu24-full-x64
+      - image=ubuntu24-full-arm64
       - disk=large
       - extras=s3-cache
       - tag=ops-fuzz
