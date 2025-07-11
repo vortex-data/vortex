@@ -12,7 +12,7 @@ const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/downloa
 fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let target_dir = manifest_dir.parent().unwrap().join("target");
-    let duckdb_dir = target_dir.join(format!("duckdb-lib-v{DUCKDB_VERSION}"));
+    let duckdb_dir = target_dir.join("duckdb-lib");
 
     let target = env::var("TARGET")?;
     let (platform, arch) = match target.as_str() {
@@ -27,7 +27,8 @@ fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> 
     let url = format!("{DUCKDB_BASE_URL}/v{DUCKDB_VERSION}/{archive_name}");
     let archive_path = duckdb_dir.join(&archive_name);
 
-    // Create directory if it doesn't exist.
+    // Recreate the duckdb directory
+    let _ = fs::remove_dir_all(&duckdb_dir);
     fs::create_dir_all(&duckdb_dir)?;
 
     if !archive_path.exists() {
@@ -127,9 +128,7 @@ fn main() {
     // Download, extract and symlink DuckDB source code.
     let zip_source_path = download_duckdb_source_archive().unwrap();
     let extracted_source_path = extract_duckdb_source(zip_source_path).unwrap();
-    if duckdb_repo.exists() {
-        fs::remove_file(&duckdb_repo).unwrap();
-    }
+    let _ = fs::remove_dir_all(&duckdb_repo);
     std::os::unix::fs::symlink(&extracted_source_path, &duckdb_repo).unwrap();
 
     // Generate the _imported_ bindings from our C++ code.
@@ -186,8 +185,14 @@ fn main() {
     // Compile our C++ code that exposes additional DuckDB functionality.
     cc::Build::new()
         .std("c++17")
+        // Enable compiler warnings.
+        .flag("-Wall")
+        .flag("-Wextra")
+        .flag("-Wpedantic")
         // Allow C++20 designator syntax even with C++17 std
         .flag("-Wno-c++20-designator")
+        // Unused parameter warnings are disabled as we include DuckDB
+        // headers with implementations that have unused parameters.
         .flag("-Wno-unused-parameter")
         // We include DuckDB headers from the DuckDB extension submodule.
         .include(duckdb_repo.join(format!("duckdb-{DUCKDB_VERSION}/src/include")))

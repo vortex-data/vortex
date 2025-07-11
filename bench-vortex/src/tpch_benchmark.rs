@@ -128,11 +128,9 @@ impl Benchmark for TpcHBenchmark {
     }
 
     fn dataset(&self) -> BenchmarkDataset {
-        let scale_factor: f32 = self
-            .scale_factor
-            .parse()
-            .expect("Scale factor should be valid float");
-        BenchmarkDataset::TpcH { scale_factor }
+        BenchmarkDataset::TpcH {
+            scale_factor: self.scale_factor.clone(),
+        }
     }
 
     fn expected_row_counts(&self) -> Option<&[usize]> {
@@ -233,14 +231,12 @@ impl TpcHBenchmark {
         }
         fs::create_dir(&tmp_dir)?;
         let duckdb_ctx = DuckDBCtx::new_in_memory()?;
-        let scale_factor: f32 = self
-            .scale_factor
-            .parse()
-            .map_err(|_| anyhow!("Invalid scale factor: {}", self.scale_factor))?;
         duckdb_ctx.register_tables(
             self.data_url(),
             Format::OnDiskVortex,
-            &BenchmarkDataset::TpcH { scale_factor },
+            &BenchmarkDataset::TpcH {
+                scale_factor: self.scale_factor.clone(),
+            },
         )?;
 
         let mut query_files = fs::read_dir(query_dir)?

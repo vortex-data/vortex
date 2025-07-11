@@ -22,9 +22,8 @@ use std::path::PathBuf;
 /// static lib is not self-contained. This means that it includes symbols which
 /// are not defined as part of the static library.
 fn main() {
-    const DUCKDB_VERSION: &str = "v1.3.2";
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let target_dir = manifest_dir.parent().unwrap().join("target");
-    let lib_path = target_dir.join(format!("duckdb-lib-{DUCKDB_VERSION}"));
+    let lib_path = target_dir.join("duckdb-lib");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_path.display());
 }
