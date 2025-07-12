@@ -465,7 +465,7 @@ class VortexScanner(pa.dataset.Scanner):
 
     @property
     def schema(self):
-        return self._datset.schema
+        return self._dataset.schema
 
     def count_rows(self):
         return self._dataset.count_rows(

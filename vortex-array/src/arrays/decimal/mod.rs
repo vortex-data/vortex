@@ -3,6 +3,7 @@
 
 mod compute;
 mod ops;
+mod patch;
 mod serde;
 
 use arrow_buffer::BooleanBufferBuilder;
@@ -61,6 +62,11 @@ pub fn smallest_storage_type(decimal_dtype: &DecimalDType) -> DecimalValueType {
     }
 }
 
+/// True if `value_type` can represent every value of the type `dtype`.
+pub fn compatible_storage_type(value_type: DecimalValueType, dtype: DecimalDType) -> bool {
+    value_type >= smallest_storage_type(&dtype)
+}
+
 /// Array for decimal-typed real numbers
 #[derive(Clone, Debug)]
 pub struct DecimalArray {
@@ -74,6 +80,10 @@ pub struct DecimalArray {
 impl DecimalArray {
     /// Creates a new [`DecimalArray`] from a [`Buffer`] and [`Validity`], without checking
     /// any invariants.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the validity length is not compatible with the buffer length.
     pub fn new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,

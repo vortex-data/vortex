@@ -27,7 +27,7 @@ use vortex_expr::{ExprRef, root};
 use vortex_metrics::VortexMetrics;
 
 use crate::layouts::filter::FilterLayoutReader;
-use crate::layouts::row_id::RowIdLayoutReader;
+use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::tasks::{TaskContext, split_exec};
 use crate::{LayoutReader, LayoutReaderRef};
 
@@ -60,10 +60,9 @@ pub struct ScanBuilder<A> {
     file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
     limit: Option<usize>,
-    /// Include the row and file index in the scope of the scan.
-    ///
-    /// See also [crate::layouts::row_id].
-    row_index: bool,
+    /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
+    /// but not by the scan [`Selection`] which remains relative.
+    row_offset: u64,
 }
 
 impl<A: 'static + Send + Sync> ScanBuilder<A> {
@@ -97,8 +96,8 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         self
     }
 
-    pub fn with_row_index(mut self) -> Self {
-        self.row_index = true;
+    pub fn with_row_offset(mut self, row_offset: u64) -> Self {
+        self.row_offset = row_offset;
         self
     }
 
@@ -158,7 +157,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             metrics: self.metrics,
             file_stats: self.file_stats,
             limit: self.limit,
-            row_index: self.row_index,
+            row_offset: self.row_offset,
         }
     }
 
@@ -173,9 +172,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         // The ultimate short circuit
         if self.limit.is_some_and(|l| l == 0) {
-            let dtype = self
-                .projection
-                .return_dtype(self.layout_reader.scope_dtype())?;
+            let dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
             return Ok((dtype, Vec::new()));
         }
 
@@ -183,21 +180,21 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         // conjunction splitting if a filter is provided.
         let mut layout_reader = self.layout_reader;
 
+        // Enrich the layout reader to support RowIdx expressions.
+        // Note that this is applied below the filter layout reader since it can perform
+        // better over individual conjunctions.
+        layout_reader = Arc::new(RowIdxLayoutReader::new(self.row_offset, layout_reader));
+
         if self.filter.is_some() {
             layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
         }
-        if self.row_index {
-            layout_reader = Arc::new(RowIdLayoutReader::new(layout_reader));
-        }
-
-        let scope_dtype = layout_reader.scope_dtype();
 
         // Normalize and simplify the expressions.
-        let projection = simplify_typed(self.projection.clone(), scope_dtype)?;
+        let projection = simplify_typed(self.projection.clone(), layout_reader.dtype())?;
         let filter = self
             .filter
             .clone()
-            .map(|f| simplify_typed(f, scope_dtype))
+            .map(|f| simplify_typed(f, layout_reader.dtype()))
             .transpose()?;
 
         // Construct field masks and compute the row splits of the scan.
@@ -217,7 +214,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
                     reader: layout_reader.clone(),
                     projection: projection.clone(),
                     mapper: self.map_fn.clone(),
-                    task_executor: None,
+                    task_executor: self.executor.clone(),
                 });
 
                 if self.limit.is_some_and(|l| l == 0) {
@@ -228,7 +225,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             })
             .try_collect()?;
 
-        let dtype = self.projection.return_dtype(layout_reader.scope_dtype())?;
+        let dtype = self.projection.return_dtype(layout_reader.dtype())?;
         Ok((dtype, split_tasks))
     }
 
@@ -258,7 +255,7 @@ impl ScanBuilder<ArrayRef> {
             metrics: Default::default(),
             file_stats: None,
             limit: None,
-            row_index: false,
+            row_offset: 0,
         }
     }
 
@@ -287,7 +284,10 @@ impl ScanBuilder<ArrayRef> {
     ///
     /// All work will be performed on the current thread, with tasks interleaved per the
     /// configured concurrency. Any configured executor will be ignored.
-    pub fn into_array_iter(self) -> VortexResult<impl ArrayIterator + 'static> {
+    pub fn into_array_iter(mut self) -> VortexResult<impl ArrayIterator + 'static> {
+        // As we're using a `LocalPool` here, we want tasks to actually run fully on the current thread,
+        // so we have to make sure to zero out any currently configured executor.
+        self.executor = None;
         let concurrency = self.concurrency;
 
         let mut local_pool = LocalPool::new();
@@ -326,14 +326,14 @@ fn filter_and_projection_masks(
             None => (Vec::new(), vec![FieldMask::All]),
         });
     };
-    let projection_mask = immediate_scope_access(projection, struct_dtype)?;
+    let projection_mask = immediate_scope_access(projection, struct_dtype);
     Ok(match filter {
         None => (
             Vec::new(),
             projection_mask.into_iter().map(to_field_mask).collect_vec(),
         ),
         Some(f) => {
-            let filter_mask = immediate_scope_access(f, struct_dtype)?;
+            let filter_mask = immediate_scope_access(f, struct_dtype);
             let only_projection_mask = projection_mask
                 .difference(&filter_mask)
                 .cloned()

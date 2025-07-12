@@ -2,3 +2,6 @@
 # version pinned as part of the lock file, it can generate different output
 # across machines. rust-bindgen loads libclang dynamically from a system-wide path.
 src/cpp.rs
+
+# Symlinked DuckDB source is ignored. It is downloaded, extracted and symlinked as part of build.rs
+duckdb

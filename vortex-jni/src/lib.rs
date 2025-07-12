@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 
 use tokio::runtime::{Builder, Runtime};
 use vortex::error::VortexExpect;
+use vortex::session::VortexSession;
 
 macro_rules! throw_runtime {
     ($($tt:tt)*) => {
@@ -19,7 +20,10 @@ mod errors;
 mod file;
 mod logging;
 
-// Shared Tokio runtime for all of the async operations in this package.
+/// Shared Vortex session for the JNI instance.
+static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+
+// Shared Tokio runtime for all the async operations in this package.
 static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Builder::new_multi_thread()
         .enable_all()

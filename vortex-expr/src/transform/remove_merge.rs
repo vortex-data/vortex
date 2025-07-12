@@ -4,23 +4,23 @@
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
 use crate::traversal::{MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, Merge, ScopeDType, VortexExpr, get_item, pack};
+use crate::{DType, ExprRef, MergeVTable, get_item, pack};
 
-/// Replaces [Merge] with combination of [GetItem] and [Pack] expressions.
-pub(crate) fn remove_merge(e: ExprRef, ctx: &ScopeDType) -> VortexResult<ExprRef> {
+/// Replaces [crate::MergeExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
+pub(crate) fn remove_merge(e: ExprRef, ctx: &DType) -> VortexResult<ExprRef> {
     let mut transform = RemoveMergeTransform { ctx };
     e.transform(&mut transform).map(|e| e.into_inner())
 }
 
 struct RemoveMergeTransform<'a> {
-    ctx: &'a ScopeDType,
+    ctx: &'a DType,
 }
 
 impl MutNodeVisitor for RemoveMergeTransform<'_> {
     type NodeTy = ExprRef;
 
     fn visit_up(&mut self, node: ExprRef) -> VortexResult<TransformResult<Self::NodeTy>> {
-        if let Some(merge) = node.as_any().downcast_ref::<Merge>() {
+        if let Some(merge) = node.as_opt::<MergeVTable>() {
             // Try to guess the capacity.
             let mut names = Vec::with_capacity(merge.children().len() * 2);
             let mut children = Vec::with_capacity(merge.children().len() * 2);
@@ -70,7 +70,7 @@ mod tests {
     use vortex_dtype::PType::{I32, I64, U32, U64};
 
     use crate::transform::remove_merge::remove_merge;
-    use crate::{Pack, ScopeDType, get_item, merge, root};
+    use crate::{PackVTable, get_item, merge, root};
 
     #[test]
     fn test_remove_merge() {
@@ -83,11 +83,11 @@ mod tests {
         );
 
         let e = merge([get_item("0", root()), get_item("1", root())], NonNullable);
-        let e = remove_merge(e, &ScopeDType::new(dtype.clone())).unwrap();
+        let e = remove_merge(e, &dtype).unwrap();
 
-        assert!(e.as_any().is::<Pack>());
+        assert!(e.is::<PackVTable>());
         assert_eq!(
-            e.return_dtype(&ScopeDType::new(dtype)).unwrap(),
+            e.return_dtype(&dtype).unwrap(),
             DType::struct_([("a", I32), ("b", U32), ("c", U64)], NonNullable)
         );
     }
@@ -100,13 +100,9 @@ mod tests {
         );
 
         let e = merge([get_item("0", root())], Nullable);
-        let e = remove_merge(e, &ScopeDType::new(dtype.clone())).unwrap();
+        let e = remove_merge(e, &dtype).unwrap();
 
-        assert!(e.as_any().is::<Pack>());
-        assert!(
-            e.return_dtype(&ScopeDType::new(dtype))
-                .unwrap()
-                .is_nullable()
-        );
+        assert!(e.is::<PackVTable>());
+        assert!(e.return_dtype(&dtype).unwrap().is_nullable());
     }
 }

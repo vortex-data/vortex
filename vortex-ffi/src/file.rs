@@ -6,7 +6,7 @@
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::ops::Range;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::{ptr, slice};
 
 use itertools::Itertools;
@@ -18,10 +18,10 @@ use object_store::{ObjectStore, ObjectStoreScheme};
 use prost::Message;
 use url::Url;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, deserialize_expr};
+use vortex::expr::proto::deserialize_expr_proto;
+use vortex::expr::{ExprRef, ExprRegistryExt};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
-use vortex::layout::layouts::row_id::RowIdLayoutReader;
 use vortex::layout::scan::ScanBuilder;
 use vortex::proto::expr::Expr;
 
@@ -81,9 +81,13 @@ pub struct vx_file_scan_options {
     /// Last row of a range to scan.
     pub row_range_end: c_ulong,
 
-    /// The index of the file in a multi-file scan.
-    pub file_index: c_ulong,
+    /// The row offset of the file in a multi-file scan.
+    pub row_offset: c_ulong,
 }
+
+// FIXME(ngates): API should require a VortexSession to be passed in instead.
+static EXPR_REGISTRY: LazyLock<vortex::expr::ExprRegistry> =
+    LazyLock::new(vortex::expr::ExprRegistry::default);
 
 fn extract_expression(
     expression: *const c_char,
@@ -94,7 +98,8 @@ fn extract_expression(
             unsafe { slice::from_raw_parts(expression as *const u8, expression_len as usize) };
 
         // Decode the protobuf message.
-        deserialize_expr(&Expr::decode(bytes)?).map_err(|e| e.with_context("deserializing expr"))?
+        deserialize_expr_proto(&Expr::decode(bytes)?, &EXPR_REGISTRY)
+            .map_err(|e| e.with_context("deserializing expr"))?
     }))
 }
 
@@ -120,7 +125,7 @@ impl vx_file_scan_options {
             filter_expr,
             split_by,
             row_range,
-            file_index: self.file_index,
+            row_offset: self.row_offset,
         })
     }
 }
@@ -210,7 +215,7 @@ struct ScanOptions {
     filter_expr: Option<ExprRef>,
     split_by: Option<SplitBy>,
     row_range: Option<Range<u64>>,
-    file_index: u64,
+    row_offset: u64,
 }
 
 /// Return a borrowed reference to the DType of the file.
@@ -225,14 +230,13 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
     file: *const vx_file,
     filter_expression: *const c_char,
     filter_expression_len: c_uint,
-    file_idx: c_ulong,
     error_out: *mut *mut vx_error,
 ) -> bool {
     try_or(error_out, false, || {
         let file = vx_file::as_ref(file);
         let filter_expr = extract_expression(filter_expression, filter_expression_len)?;
         Ok(filter_expr
-            .map(|expr| file.can_prune(&expr, file_idx))
+            .map(|expr| file.can_prune(&expr))
             .transpose()?
             .unwrap_or(false))
     })
@@ -254,11 +258,8 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
         )?;
 
         let layout_reader = file.layout_reader()?;
-        let layout_reader = Arc::new(RowIdLayoutReader::new_with_file_index(
-            layout_reader,
-            scan_options.file_index,
-        ));
-        let mut scan_builder = ScanBuilder::new(layout_reader);
+        let mut scan_builder =
+            ScanBuilder::new(layout_reader).with_row_offset(scan_options.row_offset);
 
         // Apply options if provided.
         if let Some(projection_expr) = scan_options.projection_expr {

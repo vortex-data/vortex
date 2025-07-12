@@ -21,10 +21,16 @@
   "patch": {
     "groupName": "all patch updates"
   },
-  "labels": ["chore"],
+  "labels": [
+    "chore"
+  ],
   "packageRules": [
     {
-      "matchUpdateTypes": ["major", "minor", "patch"],
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch"
+      ],
       "groupName": "datafusion and friends",
       "matchPackageNames": [
         "arrow{/,}**",
@@ -35,15 +41,37 @@
     },
     {
       "groupName": "flatbuffers",
-      "matchPackageNames": ["flatbuffers{/,}**", "flexbuffers{/,}**"]
+      "matchPackageNames": [
+        "flatbuffers{/,}**",
+        "flexbuffers{/,}**"
+      ]
     },
     {
       "groupName": "futures",
-      "matchPackageNames": ["futures{/,}**"]
+      "matchPackageNames": [
+        "futures{/,}**"
+      ]
     },
     {
       "groupName": "tonic",
-      "matchPackageNames": ["tonic{/,}**"]
+      "matchPackageNames": [
+        "tonic{/,}**"
+      ]
+    }
+  ],
+  "regexManagers": [
+    {
+      "description": "Update DuckDB version in vortex-duckdb/build.rs",
+      "customType": "regex",
+      "fileMatch": [
+        "vortex-duckdb/build\\.rs"
+      ],
+      "matchStrings": [
+        "const DUCKDB_VERSION: &str = \"(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\";"
+      ],
+      "depNameTemplate": "duckdb/duckdb",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.*)$"
     }
   ]
 }

@@ -40,6 +40,13 @@ def test_schema(ds):
     )
 
 
+def test_scanner_schema(ds):
+    scanner = vortex.dataset.VortexScanner(ds)
+    assert scanner.schema == pa.schema(
+        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.string_view())]
+    )
+
+
 def test_head(ds):
     assert ds.head(1).to_pylist() == [{"index": 0, "string": "0", "bool": True, "float": 0.0}]
 

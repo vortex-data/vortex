@@ -2,13 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::stats::Stat;
+use vortex_dtype::FieldPath;
 
-use crate::{AccessPath, ExprRef};
+use crate::ExprRef;
 
 pub trait StatsCatalog {
-    /// Given an id, field and stat return an expression that when evaluated will return that stat
-    /// this would be a column reference or a literal value, if the value is known at planning time.
-    fn stats_ref(&mut self, _access_path: &AccessPath, _stat: Stat) -> Option<ExprRef> {
+    /// Given a field path and statist, return an expression that when evaluated over the catalog
+    /// will return that stat for the referenced field.
+    ///
+    /// This is likely to be a column expression, or a literal.
+    ///
+    /// Returns `None` if the stat is not available for the field path.
+    fn stats_ref(&mut self, _field_path: &FieldPath, _stat: Stat) -> Option<ExprRef> {
         None
     }
 }
@@ -56,7 +61,7 @@ pub trait AnalysisExpr {
         None
     }
 
-    fn field_path(&self) -> Option<AccessPath> {
+    fn field_path(&self) -> Option<FieldPath> {
         None
     }
 

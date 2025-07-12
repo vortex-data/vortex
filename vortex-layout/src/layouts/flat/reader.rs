@@ -13,7 +13,7 @@ use vortex_array::stats::Precision;
 use vortex_array::{Array, ArrayContext, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
-use vortex_expr::{ExprRef, Scope, ScopeDType, is_root};
+use vortex_expr::{ExprRef, Scope, is_root};
 use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
@@ -96,10 +96,6 @@ impl LayoutReader for FlatReader {
 
     fn dtype(&self) -> &DType {
         self.layout.dtype()
-    }
-
-    fn scope_dtype(&self) -> &ScopeDType {
-        self.layout.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {

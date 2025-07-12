@@ -1,29 +1,120 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::fmt::Display;
 use std::hash::Hash;
-use std::sync::Arc;
 
-use vortex_array::ArrayRef;
 use vortex_array::compute::{Operator as ArrayOperator, add, and_kleene, compare, or_kleene};
+use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
+use vortex_proto::expr as pb;
 
-use crate::{AnalysisExpr, ExprRef, Operator, Scope, ScopeDType, StatsCatalog, VortexExpr};
+use crate::{
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, StatsCatalog,
+    VTable, vtable,
+};
 
-#[derive(Debug, Clone, Eq, Hash)]
+vtable!(Binary);
+
 #[allow(clippy::derived_hash_with_manual_eq)]
+#[derive(Debug, Clone, Hash)]
 pub struct BinaryExpr {
     lhs: ExprRef,
     operator: Operator,
     rhs: ExprRef,
 }
 
+impl PartialEq for BinaryExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.lhs.eq(&other.lhs) && self.operator == other.operator && self.rhs.eq(&other.rhs)
+    }
+}
+
+pub struct BinaryExprEncoding;
+
+impl VTable for BinaryVTable {
+    type Expr = BinaryExpr;
+    type Encoding = BinaryExprEncoding;
+    type Metadata = ProstMetadata<pb::BinaryOpts>;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("binary")
+    }
+
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(BinaryExprEncoding.as_ref())
+    }
+
+    fn metadata(expr: &Self::Expr) -> Option<Self::Metadata> {
+        Some(ProstMetadata(pb::BinaryOpts {
+            op: expr.operator.into(),
+        }))
+    }
+
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        vec![expr.lhs(), expr.rhs()]
+    }
+
+    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        Ok(BinaryExpr::new(
+            children[0].clone(),
+            expr.op(),
+            children[1].clone(),
+        ))
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        Ok(BinaryExpr::new(
+            children[0].clone(),
+            metadata.op().into(),
+            children[1].clone(),
+        ))
+    }
+
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        let lhs = expr.lhs.unchecked_evaluate(scope)?;
+        let rhs = expr.rhs.unchecked_evaluate(scope)?;
+
+        match expr.operator {
+            Operator::Eq => compare(&lhs, &rhs, ArrayOperator::Eq),
+            Operator::NotEq => compare(&lhs, &rhs, ArrayOperator::NotEq),
+            Operator::Lt => compare(&lhs, &rhs, ArrayOperator::Lt),
+            Operator::Lte => compare(&lhs, &rhs, ArrayOperator::Lte),
+            Operator::Gt => compare(&lhs, &rhs, ArrayOperator::Gt),
+            Operator::Gte => compare(&lhs, &rhs, ArrayOperator::Gte),
+            Operator::And => and_kleene(&lhs, &rhs),
+            Operator::Or => or_kleene(&lhs, &rhs),
+            Operator::Add => add(&lhs, &rhs),
+        }
+    }
+
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
+        let lhs = expr.lhs.return_dtype(scope)?;
+        let rhs = expr.rhs.return_dtype(scope)?;
+
+        if expr.operator == Operator::Add {
+            if lhs.is_primitive() && lhs.eq_ignore_nullability(&rhs) {
+                return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
+            }
+            vortex_bail!("incompatible types for checked add: {} {}", lhs, rhs);
+        }
+
+        Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
+    }
+}
+
 impl BinaryExpr {
+    pub fn new(lhs: ExprRef, operator: Operator, rhs: ExprRef) -> Self {
+        Self { lhs, operator, rhs }
+    }
+
     pub fn new_expr(lhs: ExprRef, operator: Operator, rhs: ExprRef) -> ExprRef {
-        Arc::new(Self { lhs, operator, rhs })
+        Self::new(lhs, operator, rhs).into_expr()
     }
 
     pub fn lhs(&self) -> &ExprRef {
@@ -42,46 +133,6 @@ impl BinaryExpr {
 impl Display for BinaryExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "({} {} {})", self.lhs, self.operator, self.rhs)
-    }
-}
-
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::kind::Kind;
-
-    use crate::{BinaryExpr, ExprDeserialize, ExprRef, ExprSerializable, Id};
-
-    pub(crate) struct BinarySerde;
-
-    impl Id for BinarySerde {
-        fn id(&self) -> &'static str {
-            "binary"
-        }
-    }
-
-    impl ExprDeserialize for BinarySerde {
-        fn deserialize(&self, kind: &Kind, children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            let Kind::BinaryOp(op) = kind else {
-                vortex_bail!("wrong kind {:?}, binary", kind)
-            };
-
-            Ok(BinaryExpr::new_expr(
-                children[0].clone(),
-                (*op).try_into()?,
-                children[1].clone(),
-            ))
-        }
-    }
-
-    impl ExprSerializable for BinaryExpr {
-        fn id(&self) -> &'static str {
-            BinarySerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            Ok(Kind::BinaryOp(self.operator.into()))
-        }
     }
 }
 
@@ -127,58 +178,6 @@ impl AnalysisExpr for BinaryExpr {
     }
 }
 
-impl VortexExpr for BinaryExpr {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        let lhs = self.lhs.unchecked_evaluate(scope)?;
-        let rhs = self.rhs.unchecked_evaluate(scope)?;
-
-        match self.operator {
-            Operator::Eq => compare(&lhs, &rhs, ArrayOperator::Eq),
-            Operator::NotEq => compare(&lhs, &rhs, ArrayOperator::NotEq),
-            Operator::Lt => compare(&lhs, &rhs, ArrayOperator::Lt),
-            Operator::Lte => compare(&lhs, &rhs, ArrayOperator::Lte),
-            Operator::Gt => compare(&lhs, &rhs, ArrayOperator::Gt),
-            Operator::Gte => compare(&lhs, &rhs, ArrayOperator::Gte),
-            Operator::And => and_kleene(&lhs, &rhs),
-            Operator::Or => or_kleene(&lhs, &rhs),
-            Operator::Add => add(&lhs, &rhs),
-        }
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        vec![&self.lhs, &self.rhs]
-    }
-
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), 2);
-        BinaryExpr::new_expr(children[0].clone(), self.operator, children[1].clone())
-    }
-
-    fn return_dtype(&self, ctx: &ScopeDType) -> VortexResult<DType> {
-        let lhs = self.lhs.return_dtype(ctx)?;
-        let rhs = self.rhs.return_dtype(ctx)?;
-
-        if self.operator == Operator::Add {
-            if lhs.is_primitive() && lhs.eq_ignore_nullability(&rhs) {
-                return Ok(lhs.with_nullability(lhs.nullability() | rhs.nullability()));
-            }
-            vortex_bail!("incompatible types for checked add: {} {}", lhs, rhs);
-        }
-
-        Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
-    }
-}
-
-impl PartialEq for BinaryExpr {
-    fn eq(&self, other: &BinaryExpr) -> bool {
-        other.operator == self.operator && other.lhs.eq(&self.lhs) && other.rhs.eq(&self.rhs)
-    }
-}
-
 /// Create a new `BinaryExpr` using the `Eq` operator.
 ///
 /// ## Example usage
@@ -199,7 +198,7 @@ impl PartialEq for BinaryExpr {
 /// );
 /// ```
 pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Eq, rhs)
+    BinaryExpr::new(lhs, Operator::Eq, rhs).into_expr()
 }
 
 /// Create a new `BinaryExpr` using the `NotEq` operator.
@@ -222,7 +221,7 @@ pub fn eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// );
 /// ```
 pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::NotEq, rhs)
+    BinaryExpr::new(lhs, Operator::NotEq, rhs).into_expr()
 }
 
 /// Create a new `BinaryExpr` using the `Gte` operator.
@@ -245,7 +244,7 @@ pub fn not_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// );
 /// ```
 pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Gte, rhs)
+    BinaryExpr::new(lhs, Operator::Gte, rhs).into_expr()
 }
 
 /// Create a new `BinaryExpr` using the `Gt` operator.
@@ -268,7 +267,7 @@ pub fn gt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// );
 /// ```
 pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Gt, rhs)
+    BinaryExpr::new(lhs, Operator::Gt, rhs).into_expr()
 }
 
 /// Create a new `BinaryExpr` using the `Lte` operator.
@@ -291,7 +290,7 @@ pub fn gt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// );
 /// ```
 pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Lte, rhs)
+    BinaryExpr::new(lhs, Operator::Lte, rhs).into_expr()
 }
 
 /// Create a new `BinaryExpr` using the `Lt` operator.
@@ -314,7 +313,7 @@ pub fn lt_eq(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// );
 /// ```
 pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Lt, rhs)
+    BinaryExpr::new(lhs, Operator::Lt, rhs).into_expr()
 }
 
 /// Create a new `BinaryExpr` using the `Or` operator.
@@ -335,7 +334,7 @@ pub fn lt(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
 /// );
 /// ```
 pub fn or(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Or, rhs)
+    BinaryExpr::new(lhs, Operator::Or, rhs).into_expr()
 }
 
 /// Collects a list of `or`ed values into a single vortex, expr
@@ -368,7 +367,7 @@ where
 /// );
 /// ```
 pub fn and(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::And, rhs)
+    BinaryExpr::new(lhs, Operator::And, rhs).into_expr()
 }
 
 /// Collects a list of `and`ed values into a single vortex, expr
@@ -417,7 +416,7 @@ where
 /// );
 /// ```
 pub fn checked_add(lhs: ExprRef, rhs: ExprRef) -> ExprRef {
-    BinaryExpr::new_expr(lhs, Operator::Add, rhs)
+    BinaryExpr::new(lhs, Operator::Add, rhs).into_expr()
 }
 
 #[cfg(test)]
@@ -427,8 +426,8 @@ mod tests {
     use vortex_dtype::{DType, Nullability};
 
     use crate::{
-        ScopeDType, VortexExpr, and, and_collect, and_collect_right, col, eq, gt, gt_eq, lit, lt,
-        lt_eq, not_eq, or, test_harness,
+        VortexExpr, and, and_collect, and_collect_right, col, eq, gt, gt_eq, lit, lt, lt_eq,
+        not_eq, or, test_harness,
     };
 
     #[test]
@@ -456,13 +455,13 @@ mod tests {
         let bool2: Arc<dyn VortexExpr> = col("bool2");
         assert_eq!(
             and(bool1.clone(), bool2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
         assert_eq!(
             or(bool1.clone(), bool2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::NonNullable)
         );
@@ -471,38 +470,32 @@ mod tests {
         let col2: Arc<dyn VortexExpr> = col("col2");
 
         assert_eq!(
-            eq(col1.clone(), col2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            eq(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             not_eq(col1.clone(), col2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            gt(col1.clone(), col2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            gt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             gt_eq(col1.clone(), col2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            lt(col1.clone(), col2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            lt(col1.clone(), col2.clone()).return_dtype(&dtype).unwrap(),
             DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
             lt_eq(col1.clone(), col2.clone())
-                .return_dtype(&ScopeDType::new(dtype.clone()))
+                .return_dtype(&dtype)
                 .unwrap(),
             DType::Bool(Nullability::Nullable)
         );
@@ -512,7 +505,7 @@ mod tests {
                 lt(col1.clone(), col2.clone()),
                 not_eq(col1.clone(), col2.clone())
             )
-            .return_dtype(&ScopeDType::new(dtype))
+            .return_dtype(&dtype)
             .unwrap(),
             DType::Bool(Nullability::Nullable)
         );

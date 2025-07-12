@@ -8,8 +8,8 @@ use vortex::compute::{BetweenOptions, StrictComparison};
 use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    Between, BinaryExpr, ExprRef, Like, Literal, Not, Operator, and_collect, get_item_scope,
-    list_contains, lit, or_collect,
+    BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, NotExpr, Operator, and_collect,
+    get_item_scope, list_contains, lit, or_collect,
 };
 use vortex::scalar::Scalar;
 
@@ -93,7 +93,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
             let Some(upper) = try_from_bound_expression(&between.upper)? else {
                 return Ok(None);
             };
-            Between::between(
+            BetweenExpr::new_expr(
                 array,
                 lower,
                 upper,
@@ -118,7 +118,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 let Some(child) = try_from_bound_expression(&children[0])? else {
                     return Ok(None);
                 };
-                Not::new_expr(child)
+                NotExpr::new_expr(child)
             }
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
                 // First child is element, rest form the list.
@@ -136,7 +136,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                             return Ok(None);
                         };
                         Ok(Some(
-                            Literal::maybe_from(&value)
+                            LiteralExpr::maybe_from(&value)
                                 .ok_or_else(|| {
                                     vortex_err!("cannot have a non literal in a in_list")
                                 })?
@@ -167,8 +167,8 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
                 let Some(pattern_lit) = like_pattern_str(&children[1])? else {
                     vortex_bail!("expected pattern to be bound string")
                 };
-                let pattern = Literal::new_expr(pattern_lit);
-                Like::new_expr(value, pattern, false, false)
+                let pattern = LiteralExpr::new_expr(pattern_lit);
+                LikeExpr::new_expr(value, pattern, false, false)
             }
             _ => {
                 log::debug!("bound function {}", func.scalar_function.name());

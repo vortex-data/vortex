@@ -20,10 +20,6 @@ impl CompareKernel for DecimalBytePartsVTable {
         rhs: &dyn Array,
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
-        // TODO(joe): support compare with lower parts
-        if !lhs.lower_parts.is_empty() {
-            return Ok(None);
-        }
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
         };
@@ -43,12 +39,25 @@ impl CompareKernel for DecimalBytePartsVTable {
                 let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
                 compare(&lhs.msp, &encoded_const.to_array(), operator).map(Some)
             }
-            // here the scalar value is bigger than the msp type.
-            // TODO(joe): fixme, when allowing lsp values.
-            Err(sign) => Ok(Some(
-                ConstantArray::new(unconvertible_value(sign, operator, nullability), lhs.len())
-                    .to_array(),
-            )),
+
+            Err(sign) => {
+                // If the MSP and the constant are non-null, we know that failing to coerce the
+                // constant into the MSP bit-width means that it is larger/smaller
+                // (depending on the `sign`) than all values in MSP.
+                // If the LHS or the RHS contain nulls, then we must fallback to the canonicalized
+                // implementation which does null-checking instead.
+                if lhs.all_valid()? && rhs.all_valid()? {
+                    Ok(Some(
+                        ConstantArray::new(
+                            unconvertible_value(sign, operator, nullability),
+                            lhs.len(),
+                        )
+                        .to_array(),
+                    ))
+                } else {
+                    Ok(None)
+                }
+            }
         }
     }
 }
@@ -114,12 +123,13 @@ register_kernel!(CompareKernelAdapter(DecimalBytePartsVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::{ConstantArray, PrimitiveArray};
+    use vortex_array::arrays::{BoolArray, ConstantArray, PrimitiveArray};
     use vortex_array::compute::{Operator, compare};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, ToCanonical};
+    use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, DecimalDType, Nullability};
+    use vortex_error::VortexResult;
     use vortex_scalar::{DecimalValue, Scalar};
 
     use crate::DecimalBytePartsArray;
@@ -130,7 +140,6 @@ mod tests {
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
         let lhs = DecimalBytePartsArray::try_new(
             PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).to_array(),
-            vec![],
             decimal_dtype,
         )
         .unwrap()
@@ -150,12 +159,42 @@ mod tests {
     }
 
     #[test]
+    fn test_byteparts_compare_nullable() -> VortexResult<()> {
+        let decimal_type = DecimalDType::new(19, -11);
+        let lhs = DecimalBytePartsArray::try_new(
+            PrimitiveArray::new(
+                buffer![1i64, 2i64, 3i64, 4i64],
+                Validity::Array(BoolArray::from_iter([false, true, true, true]).into_array()),
+            )
+            .into_array(),
+            decimal_type,
+        )?;
+
+        let rhs = ConstantArray::new(
+            Scalar::decimal(
+                DecimalValue::I128(289888198),
+                decimal_type,
+                Nullability::NonNullable,
+            ),
+            4,
+        )
+        .into_array();
+
+        let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Lte)?;
+        assert_eq!(res.scalar_at(0)?.as_bool().value(), None);
+        assert_eq!(res.scalar_at(1)?.as_bool().value(), Some(true));
+        assert_eq!(res.scalar_at(2)?.as_bool().value(), Some(true));
+        assert_eq!(res.scalar_at(3)?.as_bool().value(), Some(true));
+
+        Ok(())
+    }
+
+    #[test]
     fn compare_decimal_const_unconvertible_comparison() {
         let decimal_dtype = DecimalDType::new(40, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
         let lhs = DecimalBytePartsArray::try_new(
             PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).to_array(),
-            vec![],
             decimal_dtype,
         )
         .unwrap()

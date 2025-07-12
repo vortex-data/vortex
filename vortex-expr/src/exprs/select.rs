@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::fmt::Display;
-use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::{ArrayRef, IntoArray, ToCanonical};
+use vortex_array::{ArrayRef, DeserializeMetadata, EmptyMetadata, IntoArray, ToCanonical};
 use vortex_dtype::{DType, FieldNames};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 
 use crate::field::DisplayFieldNames;
-use crate::{AnalysisExpr, ExprRef, Scope, ScopeDType, VortexExpr};
+use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, VTable, vtable};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SelectField {
@@ -19,32 +17,117 @@ pub enum SelectField {
     Exclude(FieldNames),
 }
 
-#[derive(Debug, Clone, Eq, Hash)]
+vtable!(Select);
+
+#[derive(Debug, Clone, Hash)]
 #[allow(clippy::derived_hash_with_manual_eq)]
-pub struct Select {
+pub struct SelectExpr {
     fields: SelectField,
     child: ExprRef,
 }
 
+impl PartialEq for SelectExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.fields == other.fields && self.child.eq(&other.child)
+    }
+}
+
+pub struct SelectExprEncoding;
+
+impl VTable for SelectVTable {
+    type Expr = SelectExpr;
+    type Encoding = SelectExprEncoding;
+    type Metadata = EmptyMetadata;
+
+    fn id(_encoding: &Self::Encoding) -> ExprId {
+        ExprId::new_ref("select")
+    }
+
+    fn encoding(_expr: &Self::Expr) -> ExprEncodingRef {
+        ExprEncodingRef::new_ref(SelectExprEncoding.as_ref())
+    }
+
+    fn metadata(_expr: &Self::Expr) -> Option<Self::Metadata> {
+        // Select does not support serialization
+        None
+    }
+
+    fn children(expr: &Self::Expr) -> Vec<&ExprRef> {
+        vec![&expr.child]
+    }
+
+    fn with_children(expr: &Self::Expr, children: Vec<ExprRef>) -> VortexResult<Self::Expr> {
+        Ok(SelectExpr {
+            fields: expr.fields.clone(),
+            child: children[0].clone(),
+        })
+    }
+
+    fn build(
+        _encoding: &Self::Encoding,
+        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _children: Vec<ExprRef>,
+    ) -> VortexResult<Self::Expr> {
+        vortex_bail!("Select does not support deserialization")
+    }
+
+    fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
+        let batch = expr.child.unchecked_evaluate(scope)?.to_struct()?;
+        Ok(match &expr.fields {
+            SelectField::Include(f) => batch.project(f.as_ref()),
+            SelectField::Exclude(names) => {
+                let included_names = batch
+                    .names()
+                    .iter()
+                    .filter(|&f| !names.as_ref().contains(f))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                batch.project(included_names.as_slice())
+            }
+        }?
+        .into_array())
+    }
+
+    fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
+        let child_dtype = expr.child.return_dtype(scope)?;
+        let child_struct_dtype = child_dtype
+            .as_struct()
+            .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
+
+        let projected = match &expr.fields {
+            SelectField::Include(fields) => child_struct_dtype.project(fields.as_ref())?,
+            SelectField::Exclude(fields) => child_struct_dtype
+                .names()
+                .iter()
+                .cloned()
+                .zip_eq(child_struct_dtype.fields())
+                .filter(|(name, _)| !fields.as_ref().contains(name))
+                .collect(),
+        };
+
+        Ok(DType::Struct(projected, child_dtype.nullability()))
+    }
+}
+
 pub fn select(fields: impl Into<FieldNames>, child: ExprRef) -> ExprRef {
-    Select::include_expr(fields.into(), child)
+    SelectExpr::include_expr(fields.into(), child)
 }
 
 pub fn select_exclude(fields: impl Into<FieldNames>, child: ExprRef) -> ExprRef {
-    Select::exclude_expr(fields.into(), child)
+    SelectExpr::exclude_expr(fields.into(), child)
 }
 
-impl Select {
-    pub fn new_expr(fields: SelectField, child: ExprRef) -> ExprRef {
-        Arc::new(Self { fields, child })
+impl SelectExpr {
+    pub fn new(fields: SelectField, child: ExprRef) -> Self {
+        Self { fields, child }
     }
 
     pub fn include_expr(columns: FieldNames, child: ExprRef) -> ExprRef {
-        Self::new_expr(SelectField::Include(columns), child)
+        Self::new(SelectField::Include(columns), child).into_expr()
     }
 
     pub fn exclude_expr(columns: FieldNames, child: ExprRef) -> ExprRef {
-        Self::new_expr(SelectField::Exclude(columns), child)
+        Self::new(SelectField::Exclude(columns), child).into_expr()
     }
 
     pub fn fields(&self) -> &SelectField {
@@ -56,10 +139,11 @@ impl Select {
     }
 
     pub fn as_include(&self, field_names: &FieldNames) -> VortexResult<ExprRef> {
-        Ok(Self::new_expr(
+        Ok(Self::new(
             SelectField::Include(self.fields.as_include_names(field_names)?),
             self.child.clone(),
-        ))
+        )
+        .into_expr())
     }
 }
 
@@ -121,103 +205,13 @@ impl Display for SelectField {
     }
 }
 
-impl Display for Select {
+impl Display for SelectExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}{}", self.child, self.fields)
     }
 }
 
-#[cfg(feature = "proto")]
-pub(crate) mod proto {
-    use vortex_error::{VortexResult, vortex_bail};
-    use vortex_proto::expr::kind::Kind;
-
-    use crate::{ExprDeserialize, ExprRef, ExprSerializable, Id, Select};
-
-    pub struct SelectSerde;
-
-    impl Id for SelectSerde {
-        fn id(&self) -> &'static str {
-            "select"
-        }
-    }
-
-    impl ExprDeserialize for SelectSerde {
-        fn deserialize(&self, _kind: &Kind, _children: Vec<ExprRef>) -> VortexResult<ExprRef> {
-            vortex_bail!(NotImplemented: "", self.id())
-        }
-    }
-
-    impl ExprSerializable for Select {
-        fn id(&self) -> &'static str {
-            SelectSerde.id()
-        }
-
-        fn serialize_kind(&self) -> VortexResult<Kind> {
-            vortex_bail!(NotImplemented: "", self.id())
-        }
-    }
-}
-
-impl AnalysisExpr for Select {}
-
-impl VortexExpr for Select {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn unchecked_evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        let batch = self.child.unchecked_evaluate(scope)?.to_struct()?;
-        Ok(match &self.fields {
-            SelectField::Include(f) => batch.project(f.as_ref()),
-            SelectField::Exclude(names) => {
-                let included_names = batch
-                    .names()
-                    .iter()
-                    .filter(|&f| !names.iter().contains(f))
-                    .cloned()
-                    .collect::<Vec<_>>();
-                batch.project(included_names.as_slice())
-            }
-        }?
-        .into_array())
-    }
-
-    fn children(&self) -> Vec<&ExprRef> {
-        vec![&self.child]
-    }
-
-    fn replacing_children(self: Arc<Self>, children: Vec<ExprRef>) -> ExprRef {
-        assert_eq!(children.len(), 1);
-        Self::new_expr(self.fields.clone(), children[0].clone())
-    }
-
-    fn return_dtype(&self, scope: &ScopeDType) -> VortexResult<DType> {
-        let child_dtype = self.child.return_dtype(scope)?;
-        let child_struct_dtype = child_dtype
-            .as_struct()
-            .ok_or_else(|| vortex_err!("Select child not a struct dtype"))?;
-
-        let projected = match &self.fields {
-            SelectField::Include(fields) => child_struct_dtype.project(fields.as_ref())?,
-            SelectField::Exclude(fields) => child_struct_dtype
-                .names()
-                .iter()
-                .cloned()
-                .zip_eq(child_struct_dtype.fields())
-                .filter(|(name, _)| !fields.iter().contains(name))
-                .collect(),
-        };
-
-        Ok(DType::Struct(projected, child_dtype.nullability()))
-    }
-}
-
-impl PartialEq for Select {
-    fn eq(&self, other: &Select) -> bool {
-        self.fields == other.fields && self.child.eq(&other.child)
-    }
-}
+impl AnalysisExpr for SelectExpr {}
 
 #[cfg(test)]
 mod tests {
@@ -227,7 +221,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldName, Nullability};
 
-    use crate::{Scope, ScopeDType, root, select, select_exclude, test_harness};
+    use crate::{Scope, root, select, select_exclude, test_harness};
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[
@@ -272,12 +266,7 @@ mod tests {
             dtype.as_struct().unwrap().project(&["a".into()]).unwrap(),
             Nullability::NonNullable,
         );
-        assert_eq!(
-            select_expr
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
-            expected_dtype
-        );
+        assert_eq!(select_expr.return_dtype(&dtype).unwrap(), expected_dtype);
 
         let select_expr_exclude = select_exclude(
             vec![
@@ -289,9 +278,7 @@ mod tests {
             root(),
         );
         assert_eq!(
-            select_expr_exclude
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            select_expr_exclude.return_dtype(&dtype).unwrap(),
             expected_dtype
         );
 
@@ -300,9 +287,7 @@ mod tests {
             root(),
         );
         assert_eq!(
-            select_expr_exclude
-                .return_dtype(&ScopeDType::new(dtype.clone()))
-                .unwrap(),
+            select_expr_exclude.return_dtype(&dtype).unwrap(),
             DType::Struct(
                 dtype
                     .as_struct()

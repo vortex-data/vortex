@@ -5,10 +5,9 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use arrow_array::RecordBatchReader;
-use datafusion::dataframe::DataFrameWriteOptions;
-use datafusion::prelude::{CsvReadOptions, SessionContext};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use vortex::TryIntoArray;
+use vortex::ArrayRef;
+use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
@@ -22,22 +21,9 @@ pub fn parquet_to_vortex(parquet_path: PathBuf) -> anyhow::Result<impl ArrayStre
         DType::from_arrow(reader.schema()),
         reader.map(|br| {
             br.map_err(VortexError::from)
-                .and_then(|b| b.try_into_array())
+                .map(|b| ArrayRef::from_arrow(b, false))
         }),
     );
 
     Ok(array_iter.into_array_stream())
-}
-
-pub async fn csv_to_parquet_file(
-    session: &SessionContext,
-    options: CsvReadOptions<'_>,
-    csv_path: &str,
-    parquet_path: &str,
-) -> anyhow::Result<()> {
-    let df = session.read_csv(csv_path, options).await?;
-
-    df.write_parquet(parquet_path, DataFrameWriteOptions::default(), None)
-        .await?;
-    Ok(())
 }

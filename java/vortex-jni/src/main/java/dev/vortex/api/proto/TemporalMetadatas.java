@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-package dev.vortex.api.expressions.proto;
+package dev.vortex.api.proto;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
@@ -10,23 +10,23 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
-final class TemporalMetadatas {
+public final class TemporalMetadatas {
     private TemporalMetadatas() {}
 
-    static byte TIME_UNIT_NANOS = 0;
-    static byte TIME_UNIT_MICROS = 1;
-    static byte TIME_UNIT_MILLIS = 2;
-    static byte TIME_UNIT_SECONDS = 3;
-    static byte TIME_UNIT_DAYS = 4;
+    public static byte TIME_UNIT_NANOS = 0;
+    public static byte TIME_UNIT_MICROS = 1;
+    public static byte TIME_UNIT_MILLIS = 2;
+    public static byte TIME_UNIT_SECONDS = 3;
+    public static byte TIME_UNIT_DAYS = 4;
 
-    static final Supplier<byte[]> DATE_DAYS = Suppliers.memoize(() -> new byte[] {TIME_UNIT_DAYS});
-    static final Supplier<byte[]> DATE_MILLIS = Suppliers.memoize(() -> new byte[] {TIME_UNIT_MILLIS});
-    static final Supplier<byte[]> TIME_SECONDS = Suppliers.memoize(() -> new byte[] {TIME_UNIT_SECONDS});
-    static final Supplier<byte[]> TIME_MILLIS = Suppliers.memoize(() -> new byte[] {TIME_UNIT_MILLIS});
-    static final Supplier<byte[]> TIME_MICROS = Suppliers.memoize(() -> new byte[] {TIME_UNIT_MICROS});
-    static final Supplier<byte[]> TIME_NANOS = Suppliers.memoize(() -> new byte[] {TIME_UNIT_NANOS});
+    public static final Supplier<byte[]> DATE_DAYS = Suppliers.memoize(() -> new byte[] {TIME_UNIT_DAYS});
+    public static final Supplier<byte[]> DATE_MILLIS = Suppliers.memoize(() -> new byte[] {TIME_UNIT_MILLIS});
+    public static final Supplier<byte[]> TIME_SECONDS = Suppliers.memoize(() -> new byte[] {TIME_UNIT_SECONDS});
+    public static final Supplier<byte[]> TIME_MILLIS = Suppliers.memoize(() -> new byte[] {TIME_UNIT_MILLIS});
+    public static final Supplier<byte[]> TIME_MICROS = Suppliers.memoize(() -> new byte[] {TIME_UNIT_MICROS});
+    public static final Supplier<byte[]> TIME_NANOS = Suppliers.memoize(() -> new byte[] {TIME_UNIT_NANOS});
 
-    static byte[] timestamp(byte timeUnit, Optional<String> timeZone) {
+    public static byte[] timestamp(byte timeUnit, Optional<String> timeZone) {
         Preconditions.checkArgument(
                 timeUnit >= TIME_UNIT_NANOS && timeUnit < TIME_UNIT_DAYS, "invalid timeUnit for Timestamp:" + timeUnit);
 
@@ -51,7 +51,7 @@ final class TemporalMetadatas {
     /**
      * Extract the time unit byte from the serialized metadata.
      */
-    static byte getTimeUnit(byte[] serializedMetadata) {
+    public static byte getTimeUnit(byte[] serializedMetadata) {
         byte timeUnit = serializedMetadata[0];
         Preconditions.checkArgument(
                 timeUnit >= TIME_UNIT_NANOS && timeUnit <= TIME_UNIT_DAYS, "invalid timeUnit byte: " + timeUnit);
@@ -62,7 +62,7 @@ final class TemporalMetadatas {
     /**
      * Read from a serialized metadata representation into a time zone string.
      */
-    static Optional<String> getTimeZone(byte[] serializedMetadata) {
+    public static Optional<String> getTimeZone(byte[] serializedMetadata) {
         byte _timeUnit = serializedMetadata[0];
         byte lenLow = serializedMetadata[1];
         byte lenHigh = serializedMetadata[2];

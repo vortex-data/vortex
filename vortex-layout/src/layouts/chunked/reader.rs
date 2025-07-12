@@ -15,7 +15,7 @@ use vortex_array::stats::Precision;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
-use vortex_expr::{ExprRef, ScopeDType};
+use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::chunked::ChunkedLayout;
@@ -125,10 +125,6 @@ impl LayoutReader for ChunkedReader {
         self.layout.dtype()
     }
 
-    fn scope_dtype(&self) -> &ScopeDType {
-        self.layout.scope_dtype()
-    }
-
     fn row_count(&self) -> Precision<u64> {
         Precision::Exact(self.layout.row_count())
     }
@@ -198,7 +194,7 @@ impl LayoutReader for ChunkedReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn ArrayEvaluation>> {
-        let dtype = expr.return_dtype(&ScopeDType::new(self.dtype().clone()))?;
+        let dtype = expr.return_dtype(self.dtype())?;
         let mut chunk_evals = vec![];
         let mut mask_ranges = vec![];
 

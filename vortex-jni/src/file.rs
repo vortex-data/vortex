@@ -19,14 +19,15 @@ use url::Url;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{deserialize_expr, root, select};
+use vortex::expr::proto::deserialize_expr_proto;
+use vortex::expr::{root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::proto::expr::Expr;
+use vortex::proto::expr as pb;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::array_iter::NativeArrayIterator;
-use crate::block_on;
 use crate::errors::try_or_throw;
+use crate::{SESSION, block_on};
 
 pub struct NativeFile {
     inner: VortexFile,
@@ -91,7 +92,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
         log::debug!("make_object_store latency = {duration:?}");
         let open_file = block_on(
             "VortexOpenOptions.open()",
-            VortexOpenOptions::file().open_object_store(&store, url.path()),
+            VortexOpenOptions::file()
+                .with_array_registry(Arc::new(SESSION.arrays().clone()))
+                .with_layout_registry(Arc::new(SESSION.layouts().clone()))
+                .open_object_store(&store, url.path()),
         )?;
 
         Ok(NativeFile::new(open_file).into_raw())
@@ -167,8 +171,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
         // Apply predicate if one was provided
         if !predicate.is_null() {
             let proto_vec = env.convert_byte_array(predicate)?;
-            let expr_proto = Expr::decode(proto_vec.as_slice()).map_err(VortexError::from)?;
-            let expr = deserialize_expr(&expr_proto)?;
+            let expr_proto = pb::Expr::decode(proto_vec.as_slice()).map_err(VortexError::from)?;
+            let expr = deserialize_expr_proto(&expr_proto, SESSION.expressions())?;
             scan_builder = scan_builder.with_filter(expr);
         }
 

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import dev.vortex.api.Expression;
 import dev.vortex.api.expressions.*;
+import dev.vortex.api.proto.Expressions;
 import dev.vortex.proto.ExprProtos;
 import org.junit.jupiter.api.Test;
 
@@ -14,11 +15,11 @@ public final class TestExpressionProtos {
     @Test
     public void testRoundTrip() {
         Expression expression = Binary.and(
-                GetItem.of(Identity.INSTANCE, "a.b.c"),
-                Binary.or(Identity.INSTANCE, Not.of(Literal.bool(null)), Literal.bool(false)),
+                GetItem.of(Root.INSTANCE, "a.b.c"),
+                Binary.or(Root.INSTANCE, Not.of(Literal.bool(null)), Literal.bool(false)),
                 Binary.eq(Literal.bool(true), Not.of(Literal.bool(false))));
-        ExprProtos.Expr proto = ExpressionProtoSerializer.serialize(expression);
-        Expression deserialized = ExpressionProtoDeserializer.deserialize(proto);
+        ExprProtos.Expr proto = Expressions.serialize(expression);
+        Expression deserialized = Expressions.deserialize(proto);
         assertEquals(expression, deserialized);
     }
 }

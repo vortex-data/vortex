@@ -18,9 +18,11 @@ use datafusion::physical_plan::{DisplayAs, DisplayFormatType};
 use futures::StreamExt;
 use object_store::ObjectStore;
 use tokio_stream::wrappers::ReceiverStream;
-use vortex::TryIntoArray;
+use vortex::ArrayRef;
+use vortex::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::error::VortexResult;
 use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
 
@@ -100,7 +102,7 @@ impl FileSink for VortexSink {
             let row_counter = row_counter.clone();
             let stream = ReceiverStream::new(rx).map(move |rb| {
                 row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
-                rb.try_into_array()
+                VortexResult::Ok(ArrayRef::from_arrow(rb, false))
             });
             let dtype = DType::from_arrow(self.config.output_schema.as_ref());
             let stream_adapter = ArrayStreamAdapter::new(dtype, stream);

@@ -134,8 +134,8 @@ fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzRes
                 l,
                 r,
                 idx,
-                lhs.to_array(),
-                rhs.to_array(),
+                lhs.clone(),
+                rhs.clone(),
                 step,
             ));
         }

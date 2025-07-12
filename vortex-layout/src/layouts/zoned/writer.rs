@@ -19,7 +19,7 @@ use crate::scan::{TaskExecutor, TaskExecutorExt};
 use crate::segments::SequenceWriter;
 use crate::sequence::SequenceId;
 use crate::{
-    IntoLayout, LayoutStrategy, SendableLayoutWriter, SendableSequentialStream,
+    IntoLayout, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
     SequentialStreamAdapter, SequentialStreamExt,
 };
 
@@ -74,7 +74,7 @@ impl LayoutStrategy for ZonedStrategy {
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutWriter {
+    ) -> SendableLayoutFuture {
         let executor = self.executor.clone();
         let stats = self.options.stats.clone();
         let precomputed_stream = SequentialStreamAdapter::new(

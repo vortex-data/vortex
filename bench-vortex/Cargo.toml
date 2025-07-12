@@ -34,6 +34,7 @@ datafusion-physical-plan = { workspace = true }
 dirs = { workspace = true }
 erased-serde = { workspace = true }
 futures = { workspace = true }
+glob = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true }
 itertools = { workspace = true }
@@ -44,6 +45,7 @@ opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["trace"] }
 opentelemetry_sdk = { workspace = true }
 parquet = { workspace = true, features = ["async"] }
+paste = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
@@ -55,6 +57,9 @@ tabled = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 target-lexicon = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true }
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
 tracing = { workspace = true }
 tracing-chrome = { workspace = true }
 tracing-futures = { workspace = true }

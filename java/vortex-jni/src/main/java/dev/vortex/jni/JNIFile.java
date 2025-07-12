@@ -8,7 +8,7 @@ import dev.vortex.api.ArrayIterator;
 import dev.vortex.api.DType;
 import dev.vortex.api.File;
 import dev.vortex.api.ScanOptions;
-import dev.vortex.api.expressions.proto.ExpressionProtoSerializer;
+import dev.vortex.api.proto.Expressions;
 import java.util.OptionalLong;
 
 public final class JNIFile implements File {
@@ -34,9 +34,7 @@ public final class JNIFile implements File {
         byte[] predicateProto = null;
 
         if (options.predicate().isPresent()) {
-            predicateProto = ExpressionProtoSerializer.serialize(
-                            options.predicate().get())
-                    .toByteArray();
+            predicateProto = Expressions.serialize(options.predicate().get()).toByteArray();
         }
 
         long[] rowIndices = options.rowIndices().orElse(null);
