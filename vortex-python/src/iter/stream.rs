@@ -24,7 +24,9 @@ impl AsyncRuntime for TokioRuntimeAdapter {
 }
 
 /// Convenience function to create an ArrayStreamToIterator with the global tokio runtime
-pub(crate) fn array_stream_to_iterator<S>(stream: S) -> ArrayStreamToIterator<S, TokioRuntimeAdapter>
+pub(crate) fn array_stream_to_iterator<S>(
+    stream: S,
+) -> ArrayStreamToIterator<S, TokioRuntimeAdapter>
 where
     S: ArrayStream + Unpin + Send,
 {

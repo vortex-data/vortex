@@ -24,7 +24,7 @@ use crate::arrays::PyArrayRef;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
 use crate::expr::PyExpr;
-use crate::iter::{array_stream_to_iterator, PyArrayIterator};
+use crate::iter::{PyArrayIterator, array_stream_to_iterator};
 use crate::{TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {

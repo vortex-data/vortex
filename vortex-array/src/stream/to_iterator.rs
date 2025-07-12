@@ -7,8 +7,9 @@ use futures_util::StreamExt;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::{ArrayRef, iter::ArrayIterator};
 use super::ArrayStream;
+use crate::ArrayRef;
+use crate::iter::ArrayIterator;
 
 /// Trait for abstracting over async runtimes
 pub trait AsyncRuntime {
