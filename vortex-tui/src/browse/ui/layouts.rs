@@ -94,11 +94,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
     let reader = app
         .cursor
         .layout()
-        .new_reader(
-            "".into(),
-            app.vxf.segment_source(),
-            app.vxf.footer().ctx().clone(),
-        )
+        .new_reader("".into(), app.vxf.segment_source())
         .vortex_expect("Failed to create reader");
 
     let array = TOKIO_RUNTIME

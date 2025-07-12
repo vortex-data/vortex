@@ -10,9 +10,9 @@ use futures::future::ready;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
+use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::ExprRef;
@@ -39,7 +39,6 @@ impl ChunkedReader {
         layout: ChunkedLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> Self {
         let nchildren = layout.nchildren();
 
@@ -49,7 +48,7 @@ impl ChunkedReader {
         }
         chunk_offsets.push(layout.row_count());
 
-        let lazy_children = LazyReaderChildren::new(layout.children.clone(), segment_source, ctx);
+        let lazy_children = LazyReaderChildren::new(layout.children.clone(), segment_source);
 
         Self {
             layout,
@@ -351,7 +350,7 @@ mod test {
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn chunked_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
+    fn chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -374,20 +373,16 @@ mod test {
         )
         .unwrap();
 
-        (ctx, Arc::new(segments), layout)
+        (Arc::new(segments), layout)
     }
 
     #[rstest]
     fn test_chunked_evaluator(
-        #[from(chunked_layout)] (ctx, segments, layout): (
-            ArrayContext,
-            Arc<dyn SegmentSource>,
-            LayoutRef,
-        ),
+        #[from(chunked_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         block_on(async {
             let result = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()

@@ -64,13 +64,11 @@ impl VTable for FlatVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),
             name,
             segment_source,
-            ctx,
         )))
     }
 
@@ -81,6 +79,7 @@ impl VTable for FlatVTable {
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         _children: &dyn LayoutChildren,
+        ctx: ArrayContext,
     ) -> VortexResult<Self::Layout> {
         if segment_ids.len() != 1 {
             vortex_bail!("Flat layout must have exactly one segment ID");
@@ -89,6 +88,7 @@ impl VTable for FlatVTable {
             row_count,
             dtype: dtype.clone(),
             segment_id: segment_ids[0],
+            ctx,
         })
     }
 }
@@ -101,14 +101,16 @@ pub struct FlatLayout {
     row_count: u64,
     dtype: DType,
     segment_id: SegmentId,
+    ctx: ArrayContext,
 }
 
 impl FlatLayout {
-    pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId) -> Self {
+    pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId, ctx: ArrayContext) -> Self {
         Self {
             row_count,
             dtype,
             segment_id,
+            ctx,
         }
     }
 

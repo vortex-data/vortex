@@ -123,7 +123,10 @@ impl LayoutStrategy for FlatLayoutStrategy {
             let None = stream.next().await else {
                 vortex_bail!("flat layout received stream with more than a single chunk");
             };
-            Ok(FlatLayout::new(row_count, stream.dtype().clone(), segment_id).into_layout())
+            Ok(
+                FlatLayout::new(row_count, stream.dtype().clone(), segment_id, ctx.clone())
+                    .into_layout(),
+            )
         })
     }
 }
@@ -178,7 +181,7 @@ mod tests {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -219,7 +222,7 @@ mod tests {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -279,7 +282,7 @@ mod tests {
 
             // We should be able to read the array we just wrote.
             let result: ArrayRef = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()

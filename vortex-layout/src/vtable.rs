@@ -53,7 +53,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<LayoutReaderRef>;
 
     /// Construct a new [`Layout`] from the provided parts.
@@ -64,6 +63,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
+        ctx: ArrayContext,
     ) -> VortexResult<Self::Layout>;
 }
 
