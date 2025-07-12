@@ -2428,11 +2428,6 @@ dependencies = [
  "take_mut",
  "tokio",
  "vortex",
- "vortex-array",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-file",
- "vortex-io",
 ]
 
 [[package]]
