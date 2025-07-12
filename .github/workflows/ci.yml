@@ -455,6 +455,34 @@ jobs:
       - run: cargo build -p vortex-ffi
       - run: cargo run -p vortex-ffi --example hello_vortex
 
+  cxx-test:
+    name: "C++ build"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - name: Build and run C++ unit tests
+        working-directory: vortex-cxx/
+        run: |
+          mkdir -p build/debug
+          cd build/debug
+          cmake -DVORTEX_ENABLE_TESTING=ON ../..
+          cmake --build .
+          ctest -V
+      - name: Build the static library in release mode
+        working-directory: vortex-cxx/
+        run: |
+          mkdir -p build/release
+          cd build/release
+          cmake -DCMAKE_BUILD_TYPE=Release ../..
+          cmake --build .
+
   wasm-integration:
     name: "wasm-integration"
     runs-on: ubuntu-latest
