@@ -10,12 +10,14 @@ use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
 use futures::stream;
 use prost::Message;
 use tokio::runtime::Runtime;
-use vortex::arrow::IntoArrowArray;
+use vortex::ArrayRef;
 use vortex::arrow::record_batch_reader::VortexRecordBatchReader;
+use vortex::arrow::{FromArrowArray, IntoArrowArray};
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};
-use vortex::expr::deserialize_expr;
+use vortex::expr::proto::deserialize_expr_proto;
+use vortex::expr::{ExprRegistry, ExprRegistryExt};
 use vortex::file::scan::ScanBuilder;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions as WriteOptions};
 use vortex::proto::expr::Expr;
@@ -23,7 +25,6 @@ use vortex::stream::{
     ArrayStream, ArrayStreamAdapter, ArrayStreamExt, ArrayStreamToIterator, AsyncRuntime,
     SendableArrayStream,
 };
-use vortex::{ArrayRef, TryIntoArray};
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
@@ -147,7 +148,7 @@ fn scan_builder_set_filter(
     builder: &mut VortexScanBuilder,
     filter: &[u8],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let filter = deserialize_expr(&Expr::decode(filter)?)
+    let filter = deserialize_expr_proto(&Expr::decode(filter)?, &ExprRegistry::default())
         .map_err(|e| e.with_context("deserializing filter expr"))?;
     take_mut::take(&mut builder.inner, |inner| inner.with_filter(filter));
     Ok(())
@@ -247,7 +248,7 @@ unsafe fn write_array_stream(
     // Convert Arrow RecordBatches to Vortex Arrays synchronously
     for batch_result in stream_reader {
         let batch = batch_result?;
-        let vortex_array = batch.try_into_array()?;
+        let vortex_array = ArrayRef::from_arrow(batch, false);
         arrays.push(vortex_array);
     }
 
