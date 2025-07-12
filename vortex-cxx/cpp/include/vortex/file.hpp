@@ -3,9 +3,7 @@
 
 #pragma once
 
-#include <arrow/api.h>
-#include <arrow/c/abi.h>
-#include <arrow/c/bridge.h>
+#include <nanoarrow/common/inline_types.h>
 
 #include <cstdint>
 #include <memory>
@@ -30,11 +28,9 @@ public:
     /// Set the limit on the number of rows to scan.
     ScanBuilder &SetLimit(uint64_t limit);
 
-    // TODO(xinyu): In C++ API, do we want to return C DataInterface (only require nanoarrow as dep) or
-    // RecordBatchReader (require arrow as dep)?
     /// Consume the scan builder to a stream of record batches.
     /// The scan builder is consumed and cannot be used after this call.
-    arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> IntoStream();
+    ArrowArrayStream IntoStream();
 
     /// Consume the scan builder to an Arrow array and schema.
     /// The scan builder is consumed and cannot be used after this call.

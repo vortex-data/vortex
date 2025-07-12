@@ -74,7 +74,8 @@ TEST_F(VortexTest, ScanToStream) {
     auto file = vortex::VortexFile::Open("../target/debug/build/test_data.vortex");
 
     // Test scanning to Arrow RecordBatchReader
-    auto maybe_reader = file.CreateScanBuilder().IntoStream();
+    auto stream = file.CreateScanBuilder().IntoStream();
+    auto maybe_reader = arrow::ImportRecordBatchReader(&stream);
     ASSERT_TRUE(maybe_reader.ok()) << "Failed to create RecordBatchReader: "
                                    << maybe_reader.status().message();
 
@@ -100,7 +101,8 @@ TEST_F(VortexTest, ScanToStream) {
 TEST_F(VortexTest, ScanOptionsWithLimit) {
     auto file = vortex::VortexFile::Open("../target/debug/build/test_data.vortex");
 
-    auto maybe_reader = file.CreateScanBuilder().SetLimit(3).IntoStream();
+    auto stream = file.CreateScanBuilder().SetLimit(3).IntoStream();
+    auto maybe_reader = arrow::ImportRecordBatchReader(&stream);
     ASSERT_TRUE(maybe_reader.ok()) << "Failed to create RecordBatchReader: "
                                    << maybe_reader.status().message();
 
@@ -135,16 +137,7 @@ TEST_F(VortexTest, WriteArrayStream) {
     auto file = vortex::VortexFile::Open("../target/debug/build/test_data.vortex");
 
     // Create an Arrow RecordBatchReader by scanning the file
-    auto maybe_reader = file.CreateScanBuilder().IntoStream();
-    ASSERT_TRUE(maybe_reader.ok()) << "Failed to create RecordBatchReader: "
-                                   << maybe_reader.status().message();
-
-    auto reader = maybe_reader.ValueOrDie();
-    ASSERT_NE(reader, nullptr);
-
-    // Convert to Arrow C ABI stream
-    ArrowArrayStream stream;
-    ASSERT_EQ(arrow::ExportRecordBatchReader(reader, &stream), arrow::Status::OK());
+    auto stream = file.CreateScanBuilder().IntoStream();
 
     // Write the stream to a new Vortex file
     vortex::VortexWriteOptions write_options;

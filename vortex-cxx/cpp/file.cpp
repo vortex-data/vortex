@@ -55,11 +55,11 @@ ScanBuilder &ScanBuilder::SetLimit(uint64_t limit) {
     return *this;
 }
 
-arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> ScanBuilder::IntoStream() {
+ArrowArrayStream ScanBuilder::IntoStream() {
     try {
         ArrowArrayStream stream;
         ffi::scan_builder_into_stream(std::move(impl_->rust_impl), reinterpret_cast<uint8_t *>(&stream));
-        return arrow::ImportRecordBatchReader(&stream);
+        return stream;
     } catch (const rust::cxxbridge1::Error &e) {
         throw VortexException(e.what());
     }
