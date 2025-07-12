@@ -25,7 +25,13 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Corrosion)
 
 # Import Rust crate using Corrosion
-corrosion_import_crate(MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml)
+if(VORTEX_ENABLE_TESTING)
+    set(CORROSION_FEATURES gen_test_data)
+endif()
+corrosion_import_crate(
+    MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
+    FEATURES ${CORROSION_FEATURES}
+)
 
 # Enable CXX bridge for the Rust crate
 corrosion_add_cxxbridge(vortex_cxx_bridge CRATE vortex_cxx_rs FILES lib.rs)
@@ -55,9 +61,8 @@ target_include_directories(vortex_cxx PRIVATE
 )
 target_link_libraries(vortex_cxx 
     PUBLIC nanoarrow_static
-    PRIVATE vortex_cxx_rs vortex_cxx_bridge
+    PRIVATE vortex_cxx_bridge
 )
-add_dependencies(vortex_cxx vortex_cxx_rs vortex_cxx_bridge)
 
 # Platform-specific configuration
 # TODO(xinyu): test on mac
@@ -123,7 +128,12 @@ if (VORTEX_ENABLE_TESTING)
     enable_testing()
     add_executable(vortex_cxx_test cpp/tests/basic_test.cpp)
     target_include_directories(vortex_cxx_test PUBLIC ${CPP_INCLUDE_DIRS})
-    target_link_libraries(vortex_cxx_test gtest_main vortex_cxx arrow_static)
+    target_link_libraries(vortex_cxx_test PRIVATE gtest_main vortex_cxx arrow_static)
+    # unit tests link to the bridge for the gen_test_data function only
+    target_include_directories(vortex_cxx_test PRIVATE 
+        ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include
+    )
+    target_link_libraries(vortex_cxx_test PRIVATE vortex_cxx_bridge) 
 
     include(GoogleTest)
     gtest_discover_tests(vortex_cxx_test)

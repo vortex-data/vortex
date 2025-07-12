@@ -31,3 +31,6 @@ vortex-dtype = { path = "../vortex-dtype" }
 vortex-file = { path = "../vortex-file", features = ["tokio"] }
 vortex-io = { path = "../vortex-io" }
 tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "macros"] }
+
+[features]
+gen_test_data = []

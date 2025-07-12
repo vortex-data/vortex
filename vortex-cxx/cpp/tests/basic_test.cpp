@@ -7,16 +7,31 @@
 #include <arrow/c/bridge.h>
 #include <arrow/type.h>
 #include <gtest/gtest.h>
+#include <filesystem>
 
 #include "vortex.hpp"
+#include "vortex_cxx_bridge/lib.h"
 
 class VortexTest : public ::testing::Test {
 public:
     static void SetUpTestSuite() {
-        // vortex::ConfigureRuntime(2);
+        std::string test_data_path = GetTestDataPath("test_data.vortex");
+        vortex::ffi::generate_test_vortex_file(test_data_path.c_str());
     }
 
 protected:
+    // Helper function to construct file paths in system temp directory
+    static std::string GetTestDataPath(const std::string &filename) {
+        std::filesystem::path temp_dir = std::filesystem::temp_directory_path();
+        std::filesystem::path vortex_test_dir = temp_dir / "vortex_test";
+
+        if (!std::filesystem::exists(vortex_test_dir)) {
+            std::filesystem::create_directories(vortex_test_dir);
+        }
+
+        std::filesystem::path target_path = vortex_test_dir / filename;
+        return target_path.string();
+    }
     // Helper function to validate struct array data
     // This depends on the data in `build.rs`
     void ValidateStructArray(const std::shared_ptr<arrow::StructArray> &struct_array) {
@@ -49,7 +64,7 @@ protected:
 };
 
 TEST_F(VortexTest, ScanToArray) {
-    auto file = vortex::VortexFile::Open("../target/debug/build/test_data.vortex");
+    auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
 
     // Test scanning to Arrow C ABI
     auto [arrow, schema] = file.CreateScanBuilder().IntoArray();
@@ -71,7 +86,7 @@ TEST_F(VortexTest, ScanToArray) {
 }
 
 TEST_F(VortexTest, ScanToStream) {
-    auto file = vortex::VortexFile::Open("../target/debug/build/test_data.vortex");
+    auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
 
     // Test scanning to Arrow RecordBatchReader
     auto stream = file.CreateScanBuilder().IntoStream();
@@ -99,7 +114,7 @@ TEST_F(VortexTest, ScanToStream) {
 }
 
 TEST_F(VortexTest, ScanOptionsWithLimit) {
-    auto file = vortex::VortexFile::Open("../target/debug/build/test_data.vortex");
+    auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
 
     auto stream = file.CreateScanBuilder().SetLimit(3).IntoStream();
     auto maybe_reader = arrow::ImportRecordBatchReader(&stream);
@@ -134,17 +149,17 @@ TEST_F(VortexTest, ScanOptionsWithLimit) {
 }
 
 TEST_F(VortexTest, WriteArrayStream) {
-    auto file = vortex::VortexFile::Open("../target/debug/build/test_data.vortex");
+    auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
 
     // Create an Arrow RecordBatchReader by scanning the file
     auto stream = file.CreateScanBuilder().IntoStream();
 
     // Write the stream to a new Vortex file
     vortex::VortexWriteOptions write_options;
-    ASSERT_NO_THROW(write_options.WriteArrayStream(stream, "../target/debug/build/test_output.vortex"));
+    ASSERT_NO_THROW(write_options.WriteArrayStream(stream, GetTestDataPath("test_output.vortex")));
 
     // Verify the written file by opening it
-    auto written_file = vortex::VortexFile::Open("../target/debug/build/test_output.vortex");
+    auto written_file = vortex::VortexFile::Open(GetTestDataPath("test_output.vortex"));
     ASSERT_EQ(written_file.RowCount(), 5);
 
     // Verify data integrity by scanning the written file
