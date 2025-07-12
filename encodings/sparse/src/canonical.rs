@@ -12,7 +12,7 @@ use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::{Array, Canonical, ToCanonical as _};
-use vortex_buffer::{Buffer, BufferMut, buffer};
+use vortex_buffer::{Buffer, buffer, buffer_mut};
 use vortex_dtype::{
     DType, DecimalDType, NativePType, Nullability, StructFields, match_each_integer_ptype,
     match_each_native_ptype,
@@ -235,26 +235,18 @@ fn canonicalize_utf8<I: NativePType>(
         )
     } else {
         // any <=12 character value will do
-        BinaryView::make_view("FILL_VALUE".as_ref(), 0, 0)
+        BinaryView::make_view(&[], 0, 0)
     };
 
-    let mut view_builder = BufferMut::<BinaryView>::with_capacity(len);
-    let mut i = 0usize;
+    let mut views = buffer_mut![fill; len];
     for (patch_index, &patch) in indices.into_iter().zip_eq(values.views().iter()) {
         let patch_index_usize = <usize as NumCast>::from(patch_index)
             .vortex_expect("var bin view indices must fit in usize");
-        for _ in i..patch_index_usize {
-            view_builder.push(fill)
-        }
-        view_builder.push(patch);
-        i = patch_index_usize + 1;
-    }
-    for _ in i..len {
-        view_builder.push(fill)
+        views[patch_index_usize] = patch;
     }
 
     let array = VarBinViewArray::try_new(
-        view_builder.freeze(),
+        views.freeze(),
         buffers,
         DType::Utf8(validity.nullability()),
         validity,
@@ -265,10 +257,10 @@ fn canonicalize_utf8<I: NativePType>(
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools as _;
     use rstest::rstest;
     use vortex_array::arrays::{
-        BoolArray, BooleanBufferBuilder, DecimalArray, PrimitiveArray, StructArray, VarBinViewArray,
+        BoolArray, BooleanBufferBuilder, DecimalArray, PrimitiveArray, StructArray, VarBinArray,
+        VarBinViewArray,
     };
     use vortex_array::arrow::IntoArrowArray as _;
     use vortex_array::validity::Validity;
@@ -634,26 +626,6 @@ mod test {
         ])
         .into_array();
 
-        println!(
-            "strings: {}",
-            (0..strings.len())
-                .map(|i| strings.scalar_at(i).unwrap())
-                .join(",")
-        );
-        let va = strings.validity_mask().unwrap().into_array();
-        println!(
-            "strings_validity: {}",
-            (0..va.len())
-                .map(|i| va
-                    .scalar_at(i)
-                    .unwrap()
-                    .as_bool()
-                    .value()
-                    .map_or("N", |b| if b { "T" } else { "F" })
-                    .to_owned())
-                .join(",")
-        );
-
         let array = SparseArray::try_new(
             buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
             strings,
@@ -711,6 +683,51 @@ mod test {
             Some("123"),
             Some("123"),
             Some("你好"),
+        ])
+        .into_array();
+
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected = expected.into_arrow_preferred().unwrap();
+
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    fn test_sparse_varbin_null_fill() {
+        let strings = <VarBinArray as FromIterator<_>>::from_iter([
+            Some("hello"),
+            Some("goodbye"),
+            Some("hello"),
+            None,
+            Some("bonjour"),
+            Some("你好"),
+            None,
+        ])
+        .into_array();
+
+        let array = SparseArray::try_new(
+            buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
+            strings,
+            12,
+            Scalar::null(DType::Utf8(Nullable)),
+        )
+        .unwrap();
+
+        let actual = array.to_varbinview().unwrap().into_array();
+        let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
+            Some("hello"),
+            None,
+            None,
+            Some("goodbye"),
+            Some("hello"),
+            None,
+            None,
+            Some("bonjour"),
+            None,
+            Some("你好"),
+            None,
+            None,
         ])
         .into_array();
 
