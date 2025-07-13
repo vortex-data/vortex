@@ -21,6 +21,7 @@ use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
 
 // Zstd doesn't support training dictionaries on very few samples.
 const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;
+type ViewLength = u32;
 
 // Overall approach here:
 // Zstd can be used on the whole array (values_per_frame = 0), resulting in a single Zstd
@@ -81,8 +82,8 @@ pub struct ZstdArray {
 }
 
 struct Frames {
-    dictionary: Option<Buffer<u8>>,
-    frames: Vec<Buffer<u8>>,
+    dictionary: Option<ByteBuffer>,
+    frames: Vec<ByteBuffer>,
     frame_metas: Vec<ZstdFrameMetadata>,
 }
 
@@ -99,35 +100,35 @@ fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArr
     filter(&parray.to_array(), &mask)?.to_primitive()
 }
 
-fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(Buffer<u8>, Vec<usize>)> {
+fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
     let mask = vbv.validity_mask()?;
-    let mut buffer = BufferMut::empty();
+    let mut buffer =
+        BufferMut::with_capacity(vbv.nbytes() + mask.true_count() * size_of::<ViewLength>());
     let mut value_byte_indices = Vec::new();
     for i in 0..vbv.len() {
         if mask.value(i) {
             value_byte_indices.push(buffer.len());
             // here's where we write the string lengths
             let value = vbv.bytes_at(i);
-            buffer.extend(u32::try_from(value.len())?.to_le_bytes());
+            buffer.extend(ViewLength::try_from(value.len())?.to_le_bytes());
             buffer.extend(value);
         }
     }
     Ok((buffer.freeze(), value_byte_indices))
 }
 
-fn reconstruct_views(buffer: Buffer<u8>) -> VortexResult<Buffer<BinaryView>> {
+fn reconstruct_views(buffer: ByteBuffer) -> VortexResult<Buffer<BinaryView>> {
     let mut res = BufferMut::<BinaryView>::empty();
     let mut offset = 0;
     while offset < buffer.len() {
-        let str_len = u32::from_le_bytes(
+        let str_len = ViewLength::from_le_bytes(
             buffer
-                .get(offset..offset + 4)
+                .get(offset..offset + size_of::<ViewLength>())
                 .ok_or_else(|| vortex_err!("Zstd buffer for VarBinView was corrupt"))?
                 .try_into()?,
         ) as usize;
-        offset += 4;
+        offset += size_of::<ViewLength>();
         let value = &buffer[offset..offset + str_len];
-        // slightly surprising that binary views only support u32 offsets?
         res.push(BinaryView::make_view(value, 0, u32::try_from(offset)?));
         offset += str_len;
     }
@@ -157,7 +158,7 @@ impl ZstdArray {
     }
 
     fn compress_values(
-        value_bytes: &Buffer<u8>,
+        value_bytes: &ByteBuffer,
         mut frame_byte_starts: Vec<usize>,
         level: i32,
         values_per_frame: usize,
