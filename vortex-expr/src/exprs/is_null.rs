@@ -82,6 +82,10 @@ impl IsNullExpr {
     pub fn new(child: ExprRef) -> Self {
         Self { child }
     }
+
+    pub fn new_expr(child: ExprRef) -> ExprRef {
+        Self::new(child).into_expr()
+    }
 }
 
 impl Display for IsNullExpr {
