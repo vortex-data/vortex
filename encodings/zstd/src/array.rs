@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 
+use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BinaryView, PrimitiveArray, VarBinViewArray};
 use vortex_array::compute::filter;
 use vortex_array::stats::{ArrayStats, StatsSetRef};
@@ -15,13 +16,14 @@ use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCa
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
 use crate::serde::{ZstdFrameMetadata, ZstdMetadata};
 
 // Zstd doesn't support training dictionaries on very few samples.
 const MIN_SAMPLES_FOR_DICTIONARY: usize = 8;
-type ViewLength = u32;
+type ViewLen = u32;
 
 // Overall approach here:
 // Zstd can be used on the whole array (values_per_frame = 0), resulting in a single Zstd
@@ -102,32 +104,39 @@ fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArr
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
     let mask = vbv.validity_mask()?;
-    let mut buffer =
-        BufferMut::with_capacity(vbv.nbytes() + mask.true_count() * size_of::<ViewLength>());
-    let mut value_byte_indices = Vec::new();
-    for i in 0..vbv.len() {
-        if mask.value(i) {
-            value_byte_indices.push(buffer.len());
-            // here's where we write the string lengths
-            let value = vbv.bytes_at(i);
-            buffer.extend(ViewLength::try_from(value.len())?.to_le_bytes());
-            buffer.extend(value);
+    let buffer_and_value_byte_indices = match mask.boolean_buffer() {
+        AllOr::None => (Buffer::empty(), Vec::new()),
+        _ => {
+            let mut buffer =
+                BufferMut::with_capacity(vbv.nbytes() + mask.true_count() * size_of::<ViewLen>());
+            let mut value_byte_indices = Vec::new();
+            vbv.with_iterator(|iterator| {
+                // by flattening, we should omit nulls
+                for value in iterator.flatten() {
+                    value_byte_indices.push(buffer.len());
+                    // here's where we write the string lengths
+                    buffer.extend(ViewLen::try_from(value.len())?.to_le_bytes());
+                    buffer.extend(value);
+                }
+                Ok::<_, VortexError>(())
+            })??;
+            (buffer.freeze(), value_byte_indices)
         }
-    }
-    Ok((buffer.freeze(), value_byte_indices))
+    };
+    Ok(buffer_and_value_byte_indices)
 }
 
 fn reconstruct_views(buffer: ByteBuffer) -> VortexResult<Buffer<BinaryView>> {
     let mut res = BufferMut::<BinaryView>::empty();
     let mut offset = 0;
     while offset < buffer.len() {
-        let str_len = ViewLength::from_le_bytes(
+        let str_len = ViewLen::from_le_bytes(
             buffer
-                .get(offset..offset + size_of::<ViewLength>())
+                .get(offset..offset + size_of::<ViewLen>())
                 .ok_or_else(|| vortex_err!("Zstd buffer for VarBinView was corrupt"))?
                 .try_into()?,
         ) as usize;
-        offset += size_of::<ViewLength>();
+        offset += size_of::<ViewLen>();
         let value = &buffer[offset..offset + str_len];
         res.push(BinaryView::make_view(value, 0, u32::try_from(offset)?));
         offset += str_len;
@@ -159,19 +168,22 @@ impl ZstdArray {
 
     fn compress_values(
         value_bytes: &ByteBuffer,
-        mut frame_byte_starts: Vec<usize>,
+        frame_byte_starts: &[usize],
         level: i32,
         values_per_frame: usize,
         n_values: usize,
     ) -> VortexResult<Frames> {
         let n_frames = frame_byte_starts.len();
-        frame_byte_starts.push(value_bytes.len()); // for convenience, include the stop of the last frame
 
         // Would-be sample sizes if we end up applying zstd dictionary
-        let sample_sizes: Vec<usize> = frame_byte_starts
-            .windows(2)
-            .map(|pair| pair[1] - pair[0])
-            .collect();
+        let mut sample_sizes = Vec::with_capacity(n_frames);
+        for i in 0..n_frames {
+            let frame_byte_end = frame_byte_starts
+                .get(i + 1)
+                .copied()
+                .unwrap_or(value_bytes.len());
+            sample_sizes.push(frame_byte_end - frame_byte_starts[i]);
+        }
         debug_assert_eq!(sample_sizes.iter().sum::<usize>(), value_bytes.len());
 
         let (dictionary, mut compressor) = if sample_sizes.len() < MIN_SAMPLES_FOR_DICTIONARY {
@@ -190,7 +202,11 @@ impl ZstdArray {
         let mut frame_metas = vec![];
         let mut frames = vec![];
         for i in 0..n_frames {
-            let uncompressed = &value_bytes.slice(frame_byte_starts[i]..frame_byte_starts[i + 1]);
+            let frame_byte_end = frame_byte_starts
+                .get(i + 1)
+                .copied()
+                .unwrap_or(value_bytes.len());
+            let uncompressed = &value_bytes.slice(frame_byte_starts[i]..frame_byte_end);
             let compressed = compressor
                 .compress(uncompressed)
                 .map_err(|err| VortexError::from(err).with_context("while compressing"))?;
@@ -235,7 +251,7 @@ impl ZstdArray {
             frame_metas,
         } = Self::compress_values(
             value_bytes,
-            frame_byte_starts,
+            &frame_byte_starts,
             level,
             values_per_frame,
             n_values,
@@ -290,7 +306,7 @@ impl ZstdArray {
             frame_metas,
         } = Self::compress_values(
             &value_bytes,
-            frame_byte_starts,
+            &frame_byte_starts,
             level,
             values_per_frame,
             n_values,
