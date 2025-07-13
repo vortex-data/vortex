@@ -89,10 +89,6 @@ impl CoalescedDriver {
         &self.segment_map[*id as usize]
     }
 
-    fn segment_state(&self, id: SegmentId) -> &PendingSegment {
-        self.state.get(&id).vortex_expect("segment does not exist")
-    }
-
     fn segment_state_mut(&mut self, id: SegmentId) -> &mut PendingSegment {
         self.state
             .get_mut(&id)
@@ -102,13 +98,13 @@ impl CoalescedDriver {
     /// Mark a segment as prefetched (if it hasn't been polled), and update the prefetch
     /// buffer count.
     fn mark_as_prefetched(&mut self, id: SegmentId) {
-        let state = self.segment_state(id);
-
-        // If the segment has been pre-fetched, we can remove its bytes from the buffer.
+        let state = self.segment_state_mut(id);
         assert!(!state.is_prefetched, "segment already prefetched");
+
+        // Account for these new bytes in the prefetch buffer
         if !state.polled {
+            state.is_prefetched = true;
             self.prefetched_bytes += self.segment_spec(id).length as i64;
-            self.segment_state_mut(id).is_prefetched = false;
         }
     }
 
