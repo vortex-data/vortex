@@ -4,10 +4,10 @@
 use core::panic;
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use crossbeam_queue::SegQueue;
 use dashmap::DashMap;
+use futures::executor::LocalPool;
 use futures::future::BoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
 use vortex_array::ArrayRef;
@@ -19,29 +19,31 @@ use vortex_file::{VortexFile, VortexOpenOptions};
 type ArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
 pub struct MultiFileIterator {
-    tokio_runtime: tokio::runtime::Runtime,
     file_paths: SegQueue<PathBuf>,
     files: SegQueue<VortexFile>,
     task_queues: DashMap<usize, SegQueue<(ArrayFuture, DType)>>,
     projection_expr: Option<ExprRef>,
     filter_expr: Option<ExprRef>,
     processed_tasks: DashMap<usize, FuturesUnordered<ArrayFuture>>,
+    local_pools: DashMap<usize, LocalPool>,
 }
 
 impl MultiFileIterator {
     pub fn new(num_threads: usize) -> Self {
         let thread_queues = DashMap::new();
         let processed_tasks = DashMap::new();
+        let local_pools = DashMap::new();
         for thread_id in 0..num_threads {
             thread_queues.insert(thread_id, SegQueue::new());
             processed_tasks.insert(thread_id, FuturesUnordered::new());
+            local_pools.insert(thread_id, LocalPool::new());
         }
 
         Self {
             task_queues: thread_queues,
             file_paths: SegQueue::new(),
             files: SegQueue::new(),
-            tokio_runtime: tokio::runtime::Runtime::new().unwrap(),
+            local_pools,
             projection_expr: None,
             filter_expr: None,
             processed_tasks,
@@ -103,11 +105,11 @@ impl MultiFileIterator {
     }
 
     fn push_scan_tasks_for_file(&self, file: VortexFile, thread_id: usize) -> VortexResult<()> {
-        let scan_builder = file.scan()?;
-        let scan_builder = scan_builder
-            .with_executor(Arc::new(self.tokio_runtime.handle().clone()))
+        let scan_builder = file
+            .scan()?
             .with_some_filter(self.filter_expr.clone())
             .with_projection(self.projection_expr.clone().unwrap());
+
         let (dtype, split_tasks) = scan_builder.build()?;
 
         // Get thread local task queue.
@@ -133,6 +135,10 @@ impl MultiFileIterator {
         };
 
         let Some(mut processed_tasks) = self.processed_tasks.get_mut(&thread_id) else {
+            panic!("Thread local processed tasks not found");
+        };
+
+        let Some(mut local_pool) = self.local_pools.get_mut(&thread_id) else {
             panic!("Thread local processed tasks not found");
         };
 
@@ -163,7 +169,7 @@ impl MultiFileIterator {
                 return None;
             }
 
-            let result = self.tokio_runtime.block_on(async {
+            let result = local_pool.run_until(async {
                 while let Some(result) = processed_tasks.next().await {
                     match result {
                         Ok(Some(array)) => return Some(Ok(array)),
