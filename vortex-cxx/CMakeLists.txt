@@ -80,55 +80,10 @@ if (VORTEX_ENABLE_TESTING)
     )
     FetchContent_MakeAvailable(googletest)
 
-    # Arrow dependencies
-    include(ExternalProject)
-    # Define Arrow installation directory
-    set(ARROW_INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/arrow_ep-prefix)
-    ExternalProject_Add(
-        arrow_ep
-        GIT_REPOSITORY https://github.com/apache/arrow.git
-        GIT_TAG apache-arrow-20.0.0
-        GIT_SHALLOW TRUE
-        SOURCE_SUBDIR cpp
-        CMAKE_ARGS
-            -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-            -DARROW_BUILD_SHARED=OFF
-            -DARROW_BUILD_STATIC=ON
-            -DARROW_DEPENDENCY_SOURCE=AUTO
-            -DARROW_MIMALLOC=OFF
-            # We'd like a minimal build of Arrow. The following are default options in arrow 20.0.0
-            # -DARROW_BUILD_TESTS=OFF
-            # -DARROW_BUILD_BENCHMARKS=OFF
-            # -DARROW_BUILD_EXAMPLES=OFF
-            # -DARROW_BUILD_UTILITIES=OFF
-            # -DARROW_COMPUTE=OFF
-            # -DARROW_CSV=OFF
-            # -DARROW_DATASET=OFF
-            # -DARROW_FILESYSTEM=OFF
-            # -DARROW_JSON=OFF
-            # -DARROW_PARQUET=OFF
-            # -DARROW_WITH_BROTLI=OFF
-            # -DARROW_WITH_LZ4=OFF
-            # -DARROW_WITH_SNAPPY=OFF
-            # -DARROW_WITH_ZLIB=OFF
-            # -DARROW_WITH_ZSTD=OFF
-            # -DARROW_JEMALLOC=OFF
-        UPDATE_COMMAND ""
-        BUILD_BYPRODUCTS ${ARROW_INSTALL_DIR}/lib/libarrow.a
-    )
-    file(MAKE_DIRECTORY ${ARROW_INSTALL_DIR}/include)
-    add_library(arrow_static STATIC IMPORTED)
-    add_dependencies(arrow_static arrow_ep)
-    set_target_properties(arrow_static PROPERTIES
-        IMPORTED_LOCATION ${ARROW_INSTALL_DIR}/lib/libarrow.a
-        INTERFACE_INCLUDE_DIRECTORIES ${ARROW_INSTALL_DIR}/include
-    )
-
     enable_testing()
     add_executable(vortex_cxx_test cpp/tests/basic_test.cpp)
     target_include_directories(vortex_cxx_test PUBLIC ${CPP_INCLUDE_DIRS})
-    target_link_libraries(vortex_cxx_test PRIVATE gtest_main vortex_cxx arrow_static)
+    target_link_libraries(vortex_cxx_test PRIVATE gtest_main vortex_cxx nanoarrow_static)
     # unit tests link to the bridge for the gen_test_data function only
     target_include_directories(vortex_cxx_test PRIVATE 
         ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include

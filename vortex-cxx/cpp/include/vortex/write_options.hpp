@@ -20,7 +20,7 @@ public:
     VortexWriteOptions(const VortexWriteOptions &) = delete;
     VortexWriteOptions &operator=(const VortexWriteOptions &) = delete;
 
-    /// Write an Arrow array stream to a Vortex file
+    /// Write an ArrowArrayStream to a Vortex file
     void WriteArrayStream(ArrowArrayStream &stream, const std::string &path);
 
 private:

@@ -30,6 +30,6 @@ make -j$(nproc)
 
 ## C++ Coding Convention
 
-We use `.clang-tidy` and `.clang-format` to setup converion. Both are borrowed from DuckDB.
+We use `.clang-tidy` and `.clang-format` to setup the coding convention. Both are borrowed from DuckDB.
 
 `cppcoreguidelines-avoid-non-const-global-variables` is removed from `.clang-tidy` because GTest violates it.
