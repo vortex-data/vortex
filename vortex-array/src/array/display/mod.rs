@@ -139,11 +139,7 @@ impl dyn Array + '_ {
         TreeDisplayWrapper(self.to_array())
     }
 
-    fn fmt_as(
-        &self,
-        f: &mut std::fmt::Formatter,
-        options: &DisplayOptions,
-    ) -> std::fmt::Result {
+    fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
         match options {
             DisplayOptions::MetadataOnly => {
                 write!(

@@ -6,8 +6,8 @@ use std::fmt::{self};
 use humansize::{DECIMAL, format_size};
 
 use crate::arrays::ChunkedEncoding;
-use crate::{Array, ArrayRef, ArrayVisitor};
 use crate::display::DisplayOptions;
+use crate::{Array, ArrayRef, ArrayVisitor};
 
 pub(super) struct TreeDisplayWrapper(pub(super) ArrayRef);
 
