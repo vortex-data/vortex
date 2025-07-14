@@ -2596,6 +2596,7 @@ name = "vortex-sparse"
 version = "0.1.0"
 dependencies = [
  "itertools",
+ "num-traits",
  "prost",
  "rstest_reuse",
  "vortex-array",
