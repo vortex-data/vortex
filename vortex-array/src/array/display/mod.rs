@@ -139,10 +139,7 @@ impl dyn Array + '_ {
         TreeDisplayWrapper(self.to_array())
     }
 
-    /// Format an array as specified by the options.
-    ///
-    /// See [DisplayOptions] for examples.
-    pub fn fmt_as(
+    fn fmt_as(
         &self,
         f: &mut std::fmt::Formatter,
         options: &DisplayOptions,
