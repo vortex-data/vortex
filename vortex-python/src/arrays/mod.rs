@@ -585,7 +585,7 @@ impl PyArray {
     /// Compressed arrays often have more complex, deeply nested encoding trees.
     fn tree_display(slf: &Bound<Self>) -> PyResult<String> {
         Ok(PyArrayRef::extract_bound(slf.as_any())?
-            .tree_display()
+            .display_tree()
             .to_string())
     }
 

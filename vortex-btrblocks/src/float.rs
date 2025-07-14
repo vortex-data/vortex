@@ -385,6 +385,6 @@ mod tests {
 
         let floats = values.into_array().to_primitive().unwrap();
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
-        println!("compressed: {}", compressed.tree_display())
+        println!("compressed: {}", compressed.display_tree())
     }
 }
