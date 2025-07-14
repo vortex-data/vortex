@@ -81,7 +81,7 @@ cfg-if = "1"
 chrono = "0.4.41"
 clap = "4.5"
 compio = { version = "0.15", features = ["io-uring"], default-features = false }
-crossbeam-queue = "0.3"
+crossbeam-queue = "0.3.12"
 crossterm = "0.28"
 dashmap = "6.1.0"
 datafusion = { version = "48", default-features = false }
