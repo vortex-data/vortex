@@ -144,7 +144,6 @@ fn execute_queries<B: Benchmark>(
             tracker.start_query();
         }
 
-        match engine_ctx {
         let row_count = match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
                 let (runs, (row_count, execution_plan)) = runtime.block_on(async {
@@ -216,27 +215,15 @@ fn execute_queries<B: Benchmark>(
             }
         };
 
-
-
-                query_measurements.push(QueryMeasurement {
-                    query_idx,
-                    target: Target::new(Engine::DuckDB, format),
-                    benchmark_dataset: benchmark.dataset(),
-                    storage: url_scheme_to_storage(benchmark.data_url())?,
-                    runs,
-                });
+        // Validate row count if expected counts are provided
+        if let Some(expected_counts) = expected_row_counts {
+            if query_idx < expected_counts.len() {
+                assert_eq!(
+                    row_count, expected_counts[query_idx],
+                    "Row count mismatch for query {query_idx} - duckdb:{format}",
+                );
             }
         }
-
-    // Validate row count if expected counts are provided
-    if let Some(expected_counts) = expected_row_counts {
-        if query_idx < expected_counts.len() {
-            assert_eq!(
-                row_count, expected_counts[query_idx],
-                "Row count mismatch for query {query_idx} - duckdb:{format}",
-            );
-        }
-    }
 
         // End memory tracking after query and collect measurements
         if let Some(tracker) = global_memory_tracker.as_ref() {
