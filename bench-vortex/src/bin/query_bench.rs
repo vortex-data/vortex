@@ -7,8 +7,8 @@ use bench_vortex::Target;
 use bench_vortex::benchmark_driver::{DriverConfig, run_benchmark};
 use bench_vortex::clickbench::{ClickBenchBenchmark, Flavor};
 use bench_vortex::display::DisplayFormat;
-use bench_vortex::tpch::tpch_benchmark::TpcHBenchmark;
 use bench_vortex::tpcds::TpcDsBenchmark;
+use bench_vortex::tpch::tpch_benchmark::TpcHBenchmark;
 use clap::{Parser, Subcommand, value_parser};
 
 #[derive(Parser, Debug)]
@@ -141,8 +141,8 @@ struct TpcDSArgs {
     )]
     targets: Vec<Target>,
 
-    #[arg(long, default_value_t = 1)]
-    scale_factor: u32,
+    #[arg(long, default_value = "1.0", value_parser=validate_scale_factor)]
+    scale_factor: String,
 }
 
 fn validate_scale_factor(val: &str) -> Result<String, String> {

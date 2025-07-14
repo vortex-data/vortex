@@ -19,23 +19,23 @@ use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
 /// TPC-DS benchmark implementation
 pub struct TpcDsBenchmark {
-    pub scale_factor: u32,
+    pub scale_factor: String,
     pub data_url: Url,
 }
 
 impl TpcDsBenchmark {
-    pub fn new(scale_factor: u32, use_remote_data_dir: Option<String>) -> Result<Self> {
+    pub fn new(scale_factor: String, use_remote_data_dir: Option<String>) -> Result<Self> {
         Ok(Self {
-            scale_factor,
-            data_url: Self::create_data_url(&use_remote_data_dir, scale_factor)?,
+            scale_factor: scale_factor.clone(),
+            data_url: Self::create_data_url(&use_remote_data_dir, &scale_factor)?,
         })
     }
 
-    fn create_data_url(remote_data_dir: &Option<String>, scale_factor: u32) -> Result<Url> {
+    fn create_data_url(remote_data_dir: &Option<String>, scale_factor: &str) -> Result<Url> {
         match remote_data_dir {
             None => {
                 let data_dir = "tpcds".to_data_path();
-                let data_dir_with_sf = data_dir.join(scale_factor.to_string());
+                let data_dir_with_sf = data_dir.join(scale_factor);
                 Url::from_directory_path(&data_dir_with_sf).map_err(|_| {
                     anyhow!(
                         "Failed to create URL from directory path: {:?}",
@@ -56,7 +56,7 @@ impl TpcDsBenchmark {
     /// Verify TPC-DS results against reference data (similar to TPC-H)
     pub fn verify_tpcds_results(&self, queries: Vec<usize>) -> Result<()> {
         // Only validate for scale factor 1
-        if self.scale_factor != 1 {
+        if self.scale_factor != "1" && self.scale_factor != "1.0" {
             return Ok(());
         }
 
@@ -79,7 +79,7 @@ impl TpcDsBenchmark {
             self.data_url(),
             Format::OnDiskVortex,
             &BenchmarkDataset::TpcDS {
-                scale_factor: self.scale_factor,
+                scale_factor: self.scale_factor.clone(),
             },
         )?;
 
@@ -185,7 +185,7 @@ impl Benchmark for TpcDsBenchmark {
                     .map_err(|_| anyhow!("Invalid file URL: {}", self.data_url))?;
 
                 let opts = DuckdbTpcOptions::new(base_data_dir, TpcDataset::TpcDs, target.format())
-                    .with_scale_factor(self.scale_factor);
+                    .with_scale_factor(self.scale_factor.clone());
 
                 info!(
                     "Generating TPC-DS data with scale factor {} for format {:?}",
@@ -216,7 +216,7 @@ impl Benchmark for TpcDsBenchmark {
 
     fn dataset(&self) -> BenchmarkDataset {
         BenchmarkDataset::TpcDS {
-            scale_factor: self.scale_factor,
+            scale_factor: self.scale_factor.clone(),
         }
     }
 
