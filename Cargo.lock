@@ -6822,6 +6822,7 @@ dependencies = [
  "anyhow",
  "clap",
  "crossterm",
+ "env_logger",
  "futures-util",
  "humansize",
  "indicatif",
