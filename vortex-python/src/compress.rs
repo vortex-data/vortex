@@ -38,7 +38,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///
 ///    >>> a = vx.array(list(range(1000)))
 ///    >>> str(vx.compress(a))
-///    'fastlanes.bitpacked(i64, len=1000)'
+///    'vortex.sequence(i64, len=1000)'
 ///
 /// Compress an array of increasing floating-point numbers and a few nulls:
 ///
