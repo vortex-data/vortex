@@ -64,12 +64,6 @@ target_link_libraries(vortex_cxx
     PRIVATE vortex_cxx_bridge
 )
 
-# Platform-specific configuration
-# TODO(xinyu): test on mac
-if(APPLE)
-    target_link_libraries(vortex_cxx "-framework CoreFoundation -framework Security")
-endif()
-
 # Tests
 if (VORTEX_ENABLE_TESTING)
     FetchContent_Declare(
@@ -88,8 +82,11 @@ if (VORTEX_ENABLE_TESTING)
     target_include_directories(vortex_cxx_test PRIVATE 
         ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include
     )
-    target_link_libraries(vortex_cxx_test PRIVATE vortex_cxx_bridge) 
-
+    # Platform-specific configuration
+    if(APPLE)
+        set(MAC_LINK_FLAGS "-framework CoreFoundation -framework Security")
+    endif()
+    target_link_libraries(vortex_cxx_test PRIVATE vortex_cxx_bridge ${MAC_LINK_FLAGS})
     include(GoogleTest)
     gtest_discover_tests(vortex_cxx_test)
 endif()
