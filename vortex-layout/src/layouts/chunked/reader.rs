@@ -21,24 +21,22 @@ use vortex_mask::Mask;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
-use crate::{
-    ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
-};
+use crate::{ArrayEvaluation, LazyReaderChildren, MaskEvaluation, PruningEvaluation};
 
 /// A [`LayoutReader`] for chunked layouts.
-pub struct ChunkedReader {
+pub struct ChunkedReader<'a> {
     layout: ChunkedLayout,
     name: Arc<str>,
-    lazy_children: LazyReaderChildren,
+    lazy_children: LazyReaderChildren<'a>,
     /// Row offset for each chunk
     chunk_offsets: Vec<u64>,
 }
 
-impl ChunkedReader {
+impl<'a> ChunkedReader<'a> {
     pub fn new(
         layout: ChunkedLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: &'a dyn SegmentSource,
     ) -> Self {
         let nchildren = layout.nchildren();
 
@@ -59,7 +57,7 @@ impl ChunkedReader {
     }
 
     /// Return the [`LayoutReader`] for the given chunk.
-    fn chunk_reader(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
+    fn chunk_reader(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader + 'a>> {
         self.lazy_children.get(
             idx,
             self.layout.dtype(),
@@ -83,10 +81,10 @@ impl ChunkedReader {
         start_chunk..end_chunk
     }
 
-    fn ranges<'a>(
-        &'a self,
-        row_range: &'a Range<u64>,
-    ) -> impl Iterator<Item = (usize, Range<u64>, Range<usize>)> + 'a {
+    fn ranges(
+        &self,
+        row_range: &Range<u64>,
+    ) -> impl Iterator<Item = (usize, Range<u64>, Range<usize>)> {
         self.chunk_range(row_range).map(move |chunk_idx| {
             // Figure out the chunk row range relative to the mask's row range.
             let chunk_row_range = self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
@@ -115,7 +113,7 @@ impl ChunkedReader {
     }
 }
 
-impl LayoutReader for ChunkedReader {
+impl LayoutReader for ChunkedReader<'_> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -382,7 +380,7 @@ mod test {
     ) {
         block_on(async {
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments.as_ref())
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()

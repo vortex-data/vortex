@@ -133,8 +133,6 @@ impl LayoutStrategy for FlatLayoutStrategy {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use arrow_buffer::BooleanBufferBuilder;
     use futures::executor::block_on;
     use futures::stream;
@@ -150,7 +148,7 @@ mod tests {
     use vortex_mask::{AllOr, Mask};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
         LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt as _,
@@ -178,10 +176,9 @@ mod tests {
                 .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), &segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -219,10 +216,9 @@ mod tests {
                 .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), &segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -277,12 +273,12 @@ mod tests {
                     .await
                     .unwrap();
 
-                (layout, Arc::new(segments) as Arc<dyn SegmentSource>)
+                (layout, segments)
             };
 
             // We should be able to read the array we just wrote.
             let result: ArrayRef = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), &segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()

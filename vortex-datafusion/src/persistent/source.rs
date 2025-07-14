@@ -2,9 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
-use dashmap::DashMap;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::{Result as DFResult, Statistics};
 use datafusion::config::ConfigOptions;
@@ -15,11 +14,9 @@ use datafusion::physical_plan::filter_pushdown::{
 };
 use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
-use object_store::path::Path;
 use vortex::error::VortexExpect as _;
 use vortex::expr::{ExprRef, VortexExpr, and, root};
 use vortex::file::VORTEX_FILE_EXTENSION;
-use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;
@@ -42,10 +39,6 @@ pub struct VortexSource {
     pub(crate) arrow_schema: Option<SchemaRef>,
     pub(crate) metrics: VortexMetrics,
     _unused_df_metrics: ExecutionPlanMetricsSet,
-    /// Shared layout readers, the source only lives as long as one scan.
-    ///
-    /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
-    layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
 }
 
 impl VortexSource {
@@ -59,7 +52,6 @@ impl VortexSource {
             arrow_schema: None,
             predicate: None,
             _unused_df_metrics: Default::default(),
-            layout_readers: Arc::new(DashMap::default()),
         }
     }
 
@@ -97,7 +89,6 @@ impl FileSource for VortexSource {
             batch_size,
             base_config.limit,
             partition_metrics,
-            self.layout_readers.clone(),
         );
 
         Arc::new(opener)

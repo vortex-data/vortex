@@ -2,22 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
-use dashmap::{DashMap, Entry};
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::error::ArrowError;
 use datafusion::common::{DataFusionError, Result as DFResult};
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use futures::{FutureExt as _, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
-use object_store::path::Path;
 use tokio::runtime::Handle;
 use vortex::ArrayRef;
 use vortex::error::VortexError;
 use vortex::expr::{ExprRef, VortexExpr};
 use vortex::file::scan::ScanBuilder;
-use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 
 use super::cache::VortexFileCache;
@@ -32,7 +29,6 @@ pub(crate) struct VortexFileOpener {
     pub batch_size: usize,
     pub limit: Option<usize>,
     metrics: VortexMetrics,
-    layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
 }
 
 impl VortexFileOpener {
@@ -46,7 +42,6 @@ impl VortexFileOpener {
         batch_size: usize,
         limit: Option<usize>,
         metrics: VortexMetrics,
-        layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     ) -> Self {
         Self {
             object_store,
@@ -57,7 +52,6 @@ impl VortexFileOpener {
             batch_size,
             limit,
             metrics,
-            layout_readers,
         }
     }
 }
@@ -72,7 +66,6 @@ impl FileOpener for VortexFileOpener {
         let metrics = self.metrics.clone();
         let batch_size = self.batch_size;
         let limit = self.limit;
-        let layout_reader = self.layout_readers.clone();
 
         Ok(async move {
             let vxf = file_cache
@@ -82,33 +75,9 @@ impl FileOpener for VortexFileOpener {
                     DataFusionError::Execution(format!("Failed to open Vortex file {e}"))
                 })?;
 
-            // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = match layout_reader.entry(file_meta.object_meta.location.clone()) {
-                Entry::Occupied(mut occupied_entry) => {
-                    if let Some(reader) = occupied_entry.get().upgrade() {
-                        log::trace!("reusing layout reader for {}", occupied_entry.key());
-                        reader
-                    } else {
-                        log::trace!("creating layout reader for {}", occupied_entry.key());
-                        let reader = vxf.layout_reader().map_err(|e| {
-                            DataFusionError::Execution(format!(
-                                "Failed to create layout reader: {e}"
-                            ))
-                        })?;
-                        occupied_entry.insert(Arc::downgrade(&reader));
-                        reader
-                    }
-                }
-                Entry::Vacant(vacant_entry) => {
-                    log::trace!("creating layout reader for {}", vacant_entry.key());
-                    let reader = vxf.layout_reader().map_err(|e| {
-                        DataFusionError::Execution(format!("Failed to create layout reader: {e}"))
-                    })?;
-                    vacant_entry.insert(Arc::downgrade(&reader));
-
-                    reader
-                }
-            };
+            let layout_reader = vxf.layout_reader().map_err(|e| {
+                DataFusionError::Execution(format!("Failed to create Vortex layout reader: {e}"))
+            })?;
 
             let scan_builder = ScanBuilder::new(layout_reader);
             let mut scan_builder = apply_byte_range(file_meta, vxf.row_count(), scan_builder);

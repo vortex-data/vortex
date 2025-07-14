@@ -28,14 +28,14 @@ pub(crate) type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<Zon
 pub(crate) type SharedPruningResult = Shared<BoxFuture<'static, SharedVortexResult<Option<Mask>>>>;
 pub(crate) type PredicateCache = Arc<OnceLock<Option<ExprRef>>>;
 
-pub struct ZonedReader {
+pub struct ZonedReader<'a> {
     layout: ZonedLayout,
     name: Arc<str>,
 
     /// Data layout reader
-    data_child: Arc<dyn LayoutReader>,
+    data_child: Arc<dyn LayoutReader + 'a>,
     /// Zone map layout reader.
-    zones_child: Arc<dyn LayoutReader>,
+    zones_child: Arc<dyn LayoutReader + 'a>,
 
     /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
     pruning_result: DashMap<ExprRef, Option<SharedPruningResult>>,
@@ -48,15 +48,13 @@ pub struct ZonedReader {
     pruning_predicates: Arc<DashMap<ExprRef, PredicateCache>>,
 }
 
-impl ZonedReader {
+impl<'a> ZonedReader<'a> {
     pub(super) fn try_new(
         layout: ZonedLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: &'a dyn SegmentSource,
     ) -> VortexResult<Self> {
-        let data_child = layout
-            .data
-            .new_reader(name.clone(), segment_source.clone())?;
+        let data_child = layout.data.new_reader(name.clone(), segment_source)?;
         let zones_child = layout
             .zones
             .new_reader(format!("{name}.zones").into(), segment_source)?;
@@ -163,7 +161,7 @@ impl ZonedReader {
     }
 }
 
-impl LayoutReader for ZonedReader {
+impl LayoutReader for ZonedReader<'_> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -361,7 +359,7 @@ mod test {
     ) {
         block_on(async {
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), segments.as_ref())
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -382,7 +380,7 @@ mod test {
     ) {
         block_on(async {
             let row_count = layout.row_count();
-            let reader = layout.new_reader("".into(), segments).unwrap();
+            let reader = layout.new_reader("".into(), segments.as_ref()).unwrap();
 
             // Choose a prune-able expression
             let expr = gt(root(), lit(7));

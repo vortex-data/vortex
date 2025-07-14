@@ -19,7 +19,7 @@ use crate::layouts::zoned::reader::ZonedReader;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
+    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReader, LayoutRef, VTable, vtable,
 };
 
 vtable!(Zoned);
@@ -76,11 +76,11 @@ impl VTable for ZonedVTable {
         }
     }
 
-    fn new_reader(
+    fn new_reader<'a>(
         layout: &Self::Layout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef> {
+        segment_source: &'a dyn SegmentSource,
+    ) -> VortexResult<Arc<dyn LayoutReader + 'a>> {
         Ok(Arc::new(ZonedReader::try_new(
             layout.clone(),
             name,

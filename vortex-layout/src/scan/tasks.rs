@@ -113,7 +113,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
 }
 
 /// Information needed to execute a single split task.
-pub(super) struct TaskContext<A> {
+pub(super) struct TaskContext<'a, A> {
     /// A caller-provided range of the file to read. All tasks should intersect their reads
     /// with this range to ensure that they are split as well.
     pub(super) row_range: Option<Range<u64>>,
@@ -125,7 +125,7 @@ pub(super) struct TaskContext<A> {
     pub(super) filter: Option<ExprRef>,
 
     /// The layout reader.
-    pub(super) reader: Arc<dyn LayoutReader>,
+    pub(super) reader: Arc<dyn LayoutReader + 'a>,
 
     /// The projection expression to apply to gather the scanned rows.
     pub(super) projection: ExprRef,

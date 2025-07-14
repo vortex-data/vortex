@@ -12,8 +12,8 @@ use vortex_error::VortexResult;
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    IntoLayout, Layout, LayoutChildType, LayoutEncoding, LayoutEncodingRef, LayoutId,
-    LayoutReaderRef, LayoutRef,
+    IntoLayout, Layout, LayoutChildType, LayoutEncoding, LayoutEncodingRef, LayoutId, LayoutReader,
+    LayoutRef,
 };
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
@@ -49,11 +49,11 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType;
 
     /// Create a new reader for the layout.
-    fn new_reader(
+    fn new_reader<'a>(
         layout: &Self::Layout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef>;
+        segment_source: &'a dyn SegmentSource,
+    ) -> VortexResult<Arc<dyn LayoutReader + 'a>>;
 
     /// Construct a new [`Layout`] from the provided parts.
     fn build(

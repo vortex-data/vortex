@@ -26,10 +26,10 @@ use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, root};
 use vortex_metrics::VortexMetrics;
 
+use crate::LayoutReader;
 use crate::layouts::filter::FilterLayoutReader;
 use crate::layouts::row_idx::RowIdxLayoutReader;
 use crate::scan::tasks::{TaskContext, split_exec};
-use crate::{LayoutReader, LayoutReaderRef};
 
 mod executor;
 pub mod row_mask;
@@ -38,8 +38,8 @@ mod split_by;
 mod tasks;
 
 /// A struct for building a scan operation.
-pub struct ScanBuilder<A> {
-    layout_reader: LayoutReaderRef,
+pub struct ScanBuilder<'a, A> {
+    layout_reader: Arc<dyn LayoutReader + 'a>,
     projection: ExprRef,
     filter: Option<ExprRef>,
     /// Optionally read a subset of the rows in the file.
@@ -65,7 +65,7 @@ pub struct ScanBuilder<A> {
     row_offset: u64,
 }
 
-impl<A: 'static + Send + Sync> ScanBuilder<A> {
+impl<'a, A: 'static + Send + Sync> ScanBuilder<'a, A> {
     pub fn with_filter(mut self, filter: ExprRef) -> Self {
         self.filter = Some(filter);
         self
@@ -142,7 +142,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     pub fn map<B: 'static>(
         self,
         map_fn: impl Fn(A) -> VortexResult<B> + 'static + Send + Sync,
-    ) -> ScanBuilder<B> {
+    ) -> ScanBuilder<'a, B> {
         let old_map_fn = self.map_fn;
         ScanBuilder {
             layout_reader: self.layout_reader,
@@ -165,7 +165,10 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     #[allow(clippy::unused_enumerate_index)]
     pub fn build(
         mut self,
-    ) -> VortexResult<(DType, Vec<impl Future<Output = VortexResult<Option<A>>>>)> {
+    ) -> VortexResult<(
+        DType,
+        Vec<impl Future<Output = VortexResult<Option<A>>> + use<A>>,
+    )> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
@@ -183,10 +186,13 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         // Enrich the layout reader to support RowIdx expressions.
         // Note that this is applied below the filter layout reader since it can perform
         // better over individual conjunctions.
-        layout_reader = Arc::new(RowIdxLayoutReader::new(self.row_offset, layout_reader));
+        layout_reader = Arc::new(RowIdxLayoutReader::new(
+            self.row_offset,
+            layout_reader.clone(),
+        ));
 
         if self.filter.is_some() {
-            layout_reader = Arc::new(FilterLayoutReader::new(layout_reader));
+            layout_reader = Arc::new(FilterLayoutReader::new(layout_reader.clone()));
         }
 
         // Normalize and simplify the expressions.
@@ -229,7 +235,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         Ok((dtype, split_tasks))
     }
 
-    pub fn into_stream(self) -> VortexResult<impl Stream<Item = VortexResult<A>> + 'static> {
+    pub fn into_stream(self) -> VortexResult<impl Stream<Item = VortexResult<A>> + use<A>> {
         let concurrency = self.concurrency;
         let (_, split_tasks) = self.build()?;
         Ok(stream::iter(split_tasks)
@@ -238,8 +244,8 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     }
 }
 
-impl ScanBuilder<ArrayRef> {
-    pub fn new(layout_reader: Arc<dyn LayoutReader>) -> Self {
+impl<'a> ScanBuilder<'a, ArrayRef> {
+    pub fn new(layout_reader: Arc<dyn LayoutReader + 'a>) -> Self {
         Self {
             layout_reader,
             projection: root(),
@@ -260,7 +266,7 @@ impl ScanBuilder<ArrayRef> {
     }
 
     /// Map the scan into a stream of Arrow [`RecordBatch`].
-    pub fn map_to_record_batch(self, schema: SchemaRef) -> ScanBuilder<RecordBatch> {
+    pub fn map_to_record_batch(self, schema: SchemaRef) -> ScanBuilder<'a, RecordBatch> {
         self.map(move |array| {
             let st = array.to_struct()?;
             st.into_record_batch_with_schema(schema.as_ref())

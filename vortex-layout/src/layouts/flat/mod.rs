@@ -14,7 +14,7 @@ use crate::children::LayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
+    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReader, LayoutRef, VTable, vtable,
 };
 
 vtable!(Flat);
@@ -60,11 +60,11 @@ impl VTable for FlatVTable {
         vortex_panic!("Flat layout has no children");
     }
 
-    fn new_reader(
+    fn new_reader<'a>(
         layout: &Self::Layout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef> {
+        segment_source: &'a dyn SegmentSource,
+    ) -> VortexResult<Arc<dyn LayoutReader + 'a>> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),
             name,

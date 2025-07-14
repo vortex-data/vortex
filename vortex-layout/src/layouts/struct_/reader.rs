@@ -21,14 +21,14 @@ use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEva
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
-    NoOpPruningEvaluation, PruningEvaluation,
+    ArrayEvaluation, LayoutReader, LazyReaderChildren, MaskEvaluation, NoOpPruningEvaluation,
+    PruningEvaluation,
 };
 
-pub struct StructReader {
+pub struct StructReader<'a> {
     layout: StructLayout,
     name: Arc<str>,
-    lazy_children: LazyReaderChildren,
+    lazy_children: LazyReaderChildren<'a>,
 
     /// A `pack` expression that holds each individual field of the root DType. This expansion
     /// ensures we can correctly partition expressions over the fields of the struct.
@@ -38,11 +38,11 @@ pub struct StructReader {
     partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
 }
 
-impl StructReader {
+impl<'a> StructReader<'a> {
     pub(super) fn try_new(
         layout: StructLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: &'a dyn SegmentSource,
     ) -> VortexResult<Self> {
         let struct_dt = layout.struct_fields();
 
@@ -56,8 +56,7 @@ impl StructReader {
                 .collect()
         });
 
-        let lazy_children =
-            LazyReaderChildren::new(layout.children.clone(), segment_source.clone());
+        let lazy_children = LazyReaderChildren::new(layout.children.clone(), segment_source);
 
         // Create an expanded root expression that contains all fields of the struct.
         let expanded_root_expr = replace_root_fields(root(), struct_dt);
@@ -80,7 +79,7 @@ impl StructReader {
     }
 
     /// Return the child reader for the field.
-    fn child(&self, name: &FieldName) -> VortexResult<&LayoutReaderRef> {
+    fn child(&self, name: &FieldName) -> VortexResult<&Arc<dyn LayoutReader + 'a>> {
         let idx = self
             .field_lookup
             .as_ref()
@@ -91,7 +90,7 @@ impl StructReader {
     }
 
     /// Return the child reader for the field, by index.
-    fn child_by_idx(&self, idx: usize) -> VortexResult<&LayoutReaderRef> {
+    fn child_by_idx(&self, idx: usize) -> VortexResult<&Arc<dyn LayoutReader + 'a>> {
         let field_dtype = self
             .struct_fields()
             .field_by_index(idx)
@@ -161,7 +160,7 @@ enum Partitioned {
     Multi(Arc<PartitionedExpr<FieldName>>),
 }
 
-impl LayoutReader for StructReader {
+impl LayoutReader for StructReader<'_> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -315,7 +314,7 @@ mod tests {
     fn test_struct_layout_or(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = layout.new_reader("".into(), segments.as_ref()).unwrap();
         let filt = or(
             eq(get_item_scope("a"), lit(7)),
             or(
@@ -340,7 +339,7 @@ mod tests {
     fn test_struct_layout(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = layout.new_reader("".into(), segments.as_ref()).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
         let result = block_on(
             reader
@@ -364,7 +363,7 @@ mod tests {
     fn test_struct_layout_row_mask(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = layout.new_reader("".into(), segments.as_ref()).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
         let result = block_on(
             reader
@@ -391,7 +390,7 @@ mod tests {
     fn test_struct_layout_select(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments).unwrap();
+        let reader = layout.new_reader("".into(), segments.as_ref()).unwrap();
         let expr = pack(
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             NonNullable,

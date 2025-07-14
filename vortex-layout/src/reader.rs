@@ -19,11 +19,17 @@ use vortex_mask::Mask;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentSource;
 
-pub type LayoutReaderRef = Arc<dyn LayoutReader>;
-
-/// A [`LayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
-/// evaluation operations.
-pub trait LayoutReader: 'static + Send + Sync {
+/// A [`LayoutReader`] provides a means to construct evaluation tasks for reading data.
+///
+/// Note that layout readers do not have a static lifetime, as they should be considered a
+/// temporary object by which to construct evaluation tasks. The tasks themselves _do_ have a
+/// static lifetime and therefore once constructed can be used in a static context.
+///
+/// The reason for this is that layout readers provide a means to cache state across multiple
+/// evaluation operations (e.g. if the evaluations for two row ranges share the same underlying
+/// chunk within a file. By ensuring the layout reader is dropped prior to evaluation, we can
+/// ensure that reference counted objects are not accidentally held onto indefinitely.
+pub trait LayoutReader: Send + Sync {
     /// Returns the name of the layout reader for debugging.
     fn name(&self) -> &Arc<str>;
 
@@ -117,16 +123,16 @@ pub trait ArrayEvaluation: 'static + Send + Sync {
     async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef>;
 }
 
-pub struct LazyReaderChildren {
+pub struct LazyReaderChildren<'a> {
     children: Arc<dyn LayoutChildren>,
-    segment_source: Arc<dyn SegmentSource>,
+    segment_source: &'a dyn SegmentSource,
 
     // TODO(ngates): we may want a hash map of some sort here?
-    cache: Vec<OnceCell<LayoutReaderRef>>,
+    cache: Vec<OnceCell<Arc<dyn LayoutReader + 'a>>>,
 }
 
-impl LazyReaderChildren {
-    pub fn new(children: Arc<dyn LayoutChildren>, segment_source: Arc<dyn SegmentSource>) -> Self {
+impl<'a> LazyReaderChildren<'a> {
+    pub fn new(children: Arc<dyn LayoutChildren>, segment_source: &'a dyn SegmentSource) -> Self {
         let nchildren = children.nchildren();
         let cache = (0..nchildren).map(|_| OnceCell::new()).collect();
         Self {
@@ -141,14 +147,14 @@ impl LazyReaderChildren {
         idx: usize,
         dtype: &DType,
         name: &Arc<str>,
-    ) -> VortexResult<&LayoutReaderRef> {
+    ) -> VortexResult<&Arc<dyn LayoutReader + 'a>> {
         if idx >= self.cache.len() {
             vortex_bail!("Child index out of bounds: {} of {}", idx, self.cache.len());
         }
 
         self.cache[idx].get_or_try_init(|| {
             let child = self.children.child(idx, dtype)?;
-            child.new_reader(name.clone(), self.segment_source.clone())
+            child.new_reader(name.clone(), self.segment_source)
         })
     }
 }

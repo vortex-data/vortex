@@ -19,7 +19,7 @@ use vortex_expr::ExprRef;
 use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
-use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, PruningEvaluation};
+use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
 const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
@@ -30,13 +30,13 @@ const DEFAULT_SELECTIVITY_QUANTILE: f64 = 0.1;
 ///
 /// This reader does not have a corresponding layout in the file, as it merely implements
 /// expression rewrite logic at read-time.
-pub struct FilterLayoutReader {
-    child: LayoutReaderRef,
+pub struct FilterLayoutReader<'a> {
+    child: Arc<dyn LayoutReader + 'a>,
     cache: DashMap<ExprRef, Arc<FilterExpr>>,
 }
 
-impl FilterLayoutReader {
-    pub fn new(child: LayoutReaderRef) -> Self {
+impl<'a> FilterLayoutReader<'a> {
+    pub fn new(child: Arc<dyn LayoutReader + 'a>) -> Self {
         Self {
             child,
             cache: Default::default(),
@@ -44,7 +44,7 @@ impl FilterLayoutReader {
     }
 }
 
-impl LayoutReader for FilterLayoutReader {
+impl LayoutReader for FilterLayoutReader<'_> {
     fn name(&self) -> &Arc<str> {
         self.child.name()
     }

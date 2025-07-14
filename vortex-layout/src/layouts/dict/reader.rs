@@ -21,11 +21,10 @@ use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::segments::SegmentSource;
 use crate::{
-    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
+    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
 };
 
-pub struct DictReader {
+pub struct DictReader<'a> {
     layout: DictLayout,
     #[allow(dead_code)] // Typically used for logging
     name: Arc<str>,
@@ -37,20 +36,20 @@ pub struct DictReader {
     /// Cache of expression evaluation results on the values array by expression
     values_evals: DashMap<ExprRef, SharedArrayFuture>,
 
-    values: LayoutReaderRef,
-    codes: LayoutReaderRef,
+    values: Arc<dyn LayoutReader + 'a>,
+    codes: Arc<dyn LayoutReader + 'a>,
 }
 
-impl DictReader {
+impl<'a> DictReader<'a> {
     pub(super) fn try_new(
         layout: DictLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: &'a dyn SegmentSource,
     ) -> VortexResult<Self> {
         let values_len = usize::try_from(layout.values.row_count())?;
         let values = layout
             .values
-            .new_reader(format!("{name}.values").into(), segment_source.clone())?;
+            .new_reader(format!("{name}.values").into(), segment_source)?;
         let codes = layout
             .codes
             .new_reader(format!("{name}.codes").into(), segment_source)?;
@@ -101,7 +100,7 @@ impl DictReader {
     }
 }
 
-impl LayoutReader for DictReader {
+impl LayoutReader for DictReader<'_> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -312,7 +311,7 @@ mod tests {
         );
         assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
         let actual = layout
-            .new_reader("".into(), Arc::from(segments))
+            .new_reader("".into(), &segments)
             .unwrap()
             .projection_evaluation(&(0..layout.row_count()), &expression)
             .unwrap()
@@ -388,7 +387,7 @@ mod tests {
         let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
         assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
         let actual = layout
-            .new_reader("".into(), Arc::from(segments))
+            .new_reader("".into(), &segments)
             .unwrap()
             .projection_evaluation(&(0..layout.row_count()), &expression)
             .unwrap()

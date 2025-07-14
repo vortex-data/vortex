@@ -30,18 +30,18 @@ use crate::{
 //  actual expression? Perhaps all expressions are given a selection mask to decide for themselves?
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
-pub struct FlatReader {
+pub struct FlatReader<'a> {
     layout: FlatLayout,
     name: Arc<str>,
-    segment_source: Arc<dyn SegmentSource>,
+    segment_source: &'a dyn SegmentSource,
     array: OnceLock<SharedArrayFuture>,
 }
 
-impl FlatReader {
+impl<'a> FlatReader<'a> {
     pub(crate) fn new(
         layout: FlatLayout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
+        segment_source: &'a dyn SegmentSource,
     ) -> Self {
         Self {
             layout,
@@ -86,7 +86,7 @@ impl FlatReader {
     }
 }
 
-impl LayoutReader for FlatReader {
+impl LayoutReader for FlatReader<'_> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -238,8 +238,6 @@ impl ArrayEvaluation for FlatEvaluation {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-
     use arrow_buffer::BooleanBuffer;
     use futures::executor::block_on;
     use futures::stream;
@@ -251,7 +249,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutStrategy as _, SequentialStreamAdapter, SequentialStreamExt};
 
@@ -275,10 +273,9 @@ mod test {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), &segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -315,11 +312,10 @@ mod test {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = gt(root(), lit(3i32));
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), &segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &expr)
                 .unwrap()
@@ -356,10 +352,9 @@ mod test {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments)
+                .new_reader("".into(), &segments)
                 .unwrap()
                 .projection_evaluation(&(2..4), &root())
                 .unwrap()

@@ -32,8 +32,8 @@ use crate::pruning::extract_relevant_file_stats_as_struct_row;
 pub struct VortexFile {
     /// The footer of the Vortex file, containing metadata and layout information.
     pub(crate) footer: Footer,
-    /// A factory for creating segment sources that read data from the file.
-    pub(crate) segment_source_factory: Arc<dyn SegmentSourceFactory>,
+    /// The segment source used to read segments from this file.
+    pub(crate) segment_source: Arc<dyn SegmentSource>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
 }
@@ -70,18 +70,16 @@ impl VortexFile {
     ///
     /// This may spawn a background I/O driver that will exit when the returned segment source
     /// is dropped.
-    pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
-        self.segment_source_factory
-            .segment_source(self.metrics.clone())
+    pub fn segment_source(&self) -> &dyn SegmentSource {
+        self.segment_source.as_ref()
     }
 
     /// Create a new layout reader for the file.
-    pub fn layout_reader(&self) -> VortexResult<Arc<dyn LayoutReader>> {
-        let segment_source = self.segment_source();
+    pub fn layout_reader(&self) -> VortexResult<Arc<dyn LayoutReader + '_>> {
         self.footer
             .layout()
             // TODO(ngates): we may want to allow the user pass in a name here?
-            .new_reader("".into(), segment_source)
+            .new_reader("".into(), self.segment_source())
     }
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
@@ -135,22 +133,4 @@ impl VortexFile {
             .as_constant()
             .is_some_and(|result| result.as_bool().value() == Some(true)))
     }
-}
-
-/// A factory for creating segment sources that read data from a Vortex file.
-///
-/// This trait abstracts over different implementations of segment sources, allowing
-/// for different I/O strategies (e.g., synchronous, asynchronous, memory-mapped)
-/// to be used with the same file interface.
-pub trait SegmentSourceFactory: 'static + Send + Sync {
-    /// Create a segment source for reading segments from the file.
-    ///
-    /// # Arguments
-    ///
-    /// * `metrics` - Metrics for monitoring the performance of the segment source.
-    ///
-    /// # Returns
-    ///
-    /// A new segment source that can be used to read data from the file.
-    fn segment_source(&self, metrics: VortexMetrics) -> Arc<dyn SegmentSource>;
 }

@@ -14,7 +14,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use crate::children::LayoutChildren;
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
-    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
+    LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReader, LayoutRef, VTable, vtable,
 };
 
 vtable!(Dict);
@@ -70,11 +70,11 @@ impl VTable for DictVTable {
         }
     }
 
-    fn new_reader(
+    fn new_reader<'a>(
         layout: &Self::Layout,
         name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-    ) -> VortexResult<LayoutReaderRef> {
+        segment_source: &'a dyn SegmentSource,
+    ) -> VortexResult<Arc<dyn LayoutReader + 'a>> {
         Ok(Arc::new(DictReader::try_new(
             layout.clone(),
             name,

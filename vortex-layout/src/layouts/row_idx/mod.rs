@@ -29,16 +29,16 @@ use crate::{
     PruningEvaluation,
 };
 
-pub struct RowIdxLayoutReader {
+pub struct RowIdxLayoutReader<'a> {
     name: Arc<str>,
     row_offset: u64,
-    child: Arc<dyn LayoutReader>,
+    child: Arc<dyn LayoutReader + 'a>,
 
     partition_cache: DashMap<ExactExpr, Partitioning>,
 }
 
-impl RowIdxLayoutReader {
-    pub fn new(row_offset: u64, child: Arc<dyn LayoutReader>) -> Self {
+impl<'a> RowIdxLayoutReader<'a> {
+    pub fn new(row_offset: u64, child: Arc<dyn LayoutReader + 'a>) -> Self {
         Self {
             name: child.name().clone(),
             row_offset,
@@ -111,7 +111,7 @@ impl Display for Partition {
     }
 }
 
-impl LayoutReader for RowIdxLayoutReader {
+impl LayoutReader for RowIdxLayoutReader<'_> {
     fn name(&self) -> &Arc<str> {
         &self.name
     }
@@ -277,8 +277,6 @@ impl ArrayEvaluation for RowIdxEvaluation {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use arrow_buffer::BooleanBuffer;
     use futures::executor::block_on;
     use futures::stream;
@@ -290,7 +288,7 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutReader, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
 
@@ -314,11 +312,10 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = eq(root(), lit(3i32));
             let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
+                RowIdxLayoutReader::new(0, layout.new_reader("".into(), &segments).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
@@ -354,11 +351,10 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = gt(row_idx(), lit(3u64));
             let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
+                RowIdxLayoutReader::new(0, layout.new_reader("".into(), &segments).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
@@ -394,7 +390,6 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let expr = or(
                 eq(root(), lit(3i32)),
@@ -402,7 +397,7 @@ mod tests {
             );
 
             let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
+                RowIdxLayoutReader::new(0, layout.new_reader("".into(), &segments).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
