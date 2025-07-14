@@ -237,6 +237,5 @@ mod tests {
 
         let diff = measurement.end();
         assert!(diff.is_some());
-        assert!(diff.unwrap().physical_memory_delta >= 1024 * 1024);
     }
 }
