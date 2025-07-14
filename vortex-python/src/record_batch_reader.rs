@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
-use arrow::array::{AsArray, RecordBatch, RecordBatchReader};
-use arrow::datatypes::{DataType, SchemaRef};
-use arrow::error::ArrowError;
+use arrow_array::cast::AsArray;
+use arrow_array::{RecordBatch, RecordBatchReader};
+use arrow_schema::{ArrowError, DataType, SchemaRef};
 use vortex::arrow::compute::to_arrow;
 use vortex::error::VortexResult;
 use vortex::iter::ArrayIterator;

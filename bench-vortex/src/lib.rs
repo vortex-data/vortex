@@ -22,6 +22,7 @@ pub mod datasets;
 pub mod display;
 pub mod engines;
 pub mod measurements;
+pub mod memory;
 pub mod metrics;
 pub mod public_bi;
 pub mod query_bench;

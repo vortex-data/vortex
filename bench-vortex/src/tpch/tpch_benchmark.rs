@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 use anyhow::{Result, anyhow};
+use datafusion::prelude::SessionContext;
 use ddb::DuckDBCtx;
 use glob::Pattern;
 use log::{info, warn};
@@ -168,7 +169,7 @@ impl TpcHBenchmark {
     /// Register TPCH tables with DataFusion session - extracted from load_datasets
     async fn register_tpch_tables(
         &self,
-        session: &datafusion::prelude::SessionContext,
+        session: &SessionContext,
         base_dir: &Url,
         format: Format,
     ) -> Result<()> {

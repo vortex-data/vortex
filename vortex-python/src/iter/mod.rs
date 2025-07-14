@@ -6,8 +6,8 @@ pub(crate) mod stream;
 
 use std::iter;
 
-use arrow::array::RecordBatchReader;
-use arrow::pyarrow::IntoPyArrow;
+use arrow_array::RecordBatchReader;
+use arrow_pyarrow::IntoPyArrow;
 use parking_lot::Mutex;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;

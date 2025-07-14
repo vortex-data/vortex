@@ -82,6 +82,13 @@ impl SegmentRequest {
         self.id
     }
 
+    // Helper method to know who requested the segment.
+    // Hidden from the documented API as this is only used for logging in the vortex-file crate.
+    #[doc(hidden)]
+    pub fn for_whom(&self) -> &str {
+        &self.for_whom
+    }
+
     /// Resolve the segment request with the given buffer result.
     pub fn resolve(self, buffer: VortexResult<ByteBuffer>) {
         self.events.submit_event(SegmentEvent::Resolved(self.id));

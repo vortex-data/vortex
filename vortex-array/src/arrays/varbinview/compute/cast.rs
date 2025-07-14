@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 
 use crate::arrays::{VarBinViewArray, VarBinViewVTable};
 use crate::compute::{CastKernel, CastKernelAdapter};
@@ -10,21 +10,23 @@ use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for VarBinViewVTable {
-    fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<ArrayRef> {
+    fn cast(&self, array: &VarBinViewArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
-            vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);
+            return Ok(None);
         }
 
         let new_nullability = dtype.nullability();
         let new_validity = array.validity().clone().cast_nullability(new_nullability)?;
         let new_dtype = array.dtype().with_nullability(new_nullability);
-        Ok(VarBinViewArray::try_new(
-            array.views().clone(),
-            array.buffers().to_vec(),
-            new_dtype,
-            new_validity,
-        )?
-        .into_array())
+        Ok(Some(
+            VarBinViewArray::try_new(
+                array.views().clone(),
+                array.buffers().to_vec(),
+                new_dtype,
+                new_validity,
+            )?
+            .into_array(),
+        ))
     }
 }
 

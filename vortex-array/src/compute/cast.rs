@@ -63,10 +63,12 @@ impl ComputeFnVTable for Cast {
             array.dtype(),
             dtype
         );
+
         if array.is_canonical() {
             vortex_bail!(
-                "No compute kernel to cast array {} to {}",
+                "No compute kernel to cast array {} with dtype {} to {}",
                 array.encoding_id(),
+                array.dtype(),
                 dtype
             );
         }
@@ -119,7 +121,7 @@ pub struct CastKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(CastKernelRef);
 
 pub trait CastKernel: VTable {
-    fn cast(&self, array: &Self::Array, dtype: &DType) -> VortexResult<ArrayRef>;
+    fn cast(&self, array: &Self::Array, dtype: &DType) -> VortexResult<Option<ArrayRef>>;
 }
 
 #[derive(Debug)]
@@ -137,6 +139,7 @@ impl<V: VTable + CastKernel> Kernel for CastKernelAdapter<V> {
         let Some(array) = array.as_opt::<V>() else {
             return Ok(None);
         };
-        Ok(Some(V::cast(&self.0, array, dtype)?.into()))
+
+        Ok(V::cast(&self.0, array, dtype)?.map(|o| o.into()))
     }
 }

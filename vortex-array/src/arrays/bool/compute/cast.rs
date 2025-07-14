@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 
 use crate::array::ArrayRef;
 use crate::arrays::{BoolArray, BoolVTable};
@@ -11,14 +11,16 @@ use crate::register_kernel;
 use crate::vtable::ValidityHelper;
 
 impl CastKernel for BoolVTable {
-    fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<ArrayRef> {
+    fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !matches!(dtype, DType::Bool(_)) {
-            vortex_bail!("Cannot cast {} to {}", array.dtype(), dtype);
+            return Ok(None);
         }
 
         let new_nullability = dtype.nullability();
         let new_validity = array.validity().clone().cast_nullability(new_nullability)?;
-        Ok(BoolArray::new(array.boolean_buffer().clone(), new_validity).to_array())
+        Ok(Some(
+            BoolArray::new(array.boolean_buffer().clone(), new_validity).to_array(),
+        ))
     }
 }
 
