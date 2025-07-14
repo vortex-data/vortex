@@ -134,7 +134,6 @@ struct TpcDSArgs {
 
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
         default_values = vec![
-            "datafusion:arrow",
             "datafusion:parquet",
             "datafusion:vortex",
             "duckdb:parquet",

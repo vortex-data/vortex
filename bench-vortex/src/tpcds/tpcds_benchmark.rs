@@ -3,8 +3,7 @@
 
 //! TPC-DS benchmark implementation
 
-use std::path::{Path, PathBuf};
-use std::{env, fs};
+use std::fs;
 
 use anyhow::{Result, anyhow};
 use log::info;
@@ -14,7 +13,7 @@ use crate::benchmark_trait::Benchmark;
 use crate::engines::EngineCtx;
 use crate::engines::ddb::DuckDBCtx;
 use crate::tpcds::tpcds_queries;
-use crate::tpch::duckdb::{generate_tpc, DuckdbTpcOptions, TpcDataset};
+use crate::tpch::duckdb::{DuckdbTpcOptions, TpcDataset, generate_tpc};
 use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
 /// TPC-DS benchmark implementation
@@ -52,94 +51,6 @@ impl TpcDsBenchmark {
             }
         }
     }
-
-    /// Verify TPC-DS results against reference data (similar to TPC-H)
-    pub fn verify_tpcds_results(&self, queries: Vec<usize>) -> Result<()> {
-        // Only validate for scale factor 1
-        if self.scale_factor != "1" && self.scale_factor != "1.0" {
-            return Ok(());
-        }
-
-        let query_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tpcds");
-
-        let tmp_dir = format!(
-            "{}/spiral-tpcds",
-            env::var("RUNNER_TEMP")
-                .unwrap_or_else(|_| env::temp_dir().to_string_lossy().to_string())
-        );
-
-        // Create DuckDB context and register tables
-        if Path::new(&tmp_dir).exists() {
-            fs::remove_dir_all(&tmp_dir)?;
-        }
-        fs::create_dir(&tmp_dir)?;
-
-        let duckdb_ctx = DuckDBCtx::new_in_memory()?;
-        duckdb_ctx.register_tables(
-            self.data_url(),
-            Format::OnDiskVortex,
-            &BenchmarkDataset::TpcDS {
-                scale_factor: self.scale_factor.clone(),
-            },
-        )?;
-
-        // Read and execute queries
-        let mut query_files = fs::read_dir(query_dir)?
-            .filter_map(Result::ok)
-            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "sql"))
-            .collect::<Vec<_>>();
-        query_files.sort_by_key(|entry| entry.file_name());
-
-        for entry in &query_files {
-            let query_num = entry
-                .file_name()
-                .to_string_lossy()
-                .strip_suffix(".sql")
-                .and_then(|s| s.parse::<usize>().ok())
-                .ok_or_else(|| anyhow!("Invalid query file name: {:?}", entry.file_name()))?;
-
-            if !queries.contains(&query_num) {
-                continue;
-            }
-
-            let query_path = entry.path();
-            let query = fs::read_to_string(&query_path)?;
-
-            info!("Validating TPC-DS query {}", query_num);
-
-            // Execute query and save results
-            let (duration, row_count) = duckdb_ctx.execute_query(&query)?;
-            info!(
-                "TPC-DS query {} completed in {:.3}s with {} rows",
-                query_num,
-                duration.as_secs_f64(),
-                row_count
-            );
-
-            // Save results to CSV for comparison (if needed)
-            let csv_path = PathBuf::from(&tmp_dir).join(format!("q{}.csv", query_num));
-            let _csv_file = fs::File::create(&csv_path)?;
-
-            // Execute query again to get actual data for CSV
-            // Note: This is a placeholder - actual CSV writing would be implemented here
-            // let result = duckdb_ctx.connection.prepare(&query)?.execute([])?;
-
-            // Write CSV header and data
-            // Note: This is a simplified CSV writer - in practice you'd want proper CSV handling
-            // for row in result {
-            //     // Write row data to CSV - implementation would depend on DuckDB result structure
-            //     // This is a placeholder for the actual CSV writing logic
-            // }
-        }
-
-        // Clean up
-        fs::remove_dir_all(&tmp_dir)?;
-        Ok(())
-    }
-
-    fn get_expected_row_counts(&self) -> Option<&[usize]> {
-        None
-    }
 }
 
 impl Benchmark for TpcDsBenchmark {
@@ -148,6 +59,7 @@ impl Benchmark for TpcDsBenchmark {
     }
 
     fn generate_data(&self, target: &Target) -> Result<()> {
+        // TOD: move to tpchgen-rs when it supports TPC-DS
         match target.format() {
             Format::OnDiskDuckDB => {
                 // Use DuckDB's dsdgen function to generate TPC-DS data
@@ -233,7 +145,7 @@ impl Benchmark for TpcDsBenchmark {
     }
 
     fn expected_row_counts(&self) -> Option<&[usize]> {
-        self.get_expected_row_counts()
+        None
     }
 
     fn tables(&self) -> &[&'static str] {
@@ -266,7 +178,7 @@ impl Benchmark for TpcDsBenchmark {
         ]
     }
 
-    fn validate_result(&self, queries: Vec<usize>) -> Result<()> {
-        self.verify_tpcds_results(queries)
+    fn validate_result(&self, _queries: Vec<usize>) -> Result<()> {
+        Ok(())
     }
 }
