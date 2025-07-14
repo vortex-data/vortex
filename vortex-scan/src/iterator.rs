@@ -11,7 +11,6 @@ use futures::executor::LocalPool;
 use futures::future::BoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
 use vortex_array::ArrayRef;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_file::{VortexFile, VortexOpenOptions};
