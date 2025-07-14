@@ -1,23 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(dead_code, unused_imports)]
-
 use std::path::PathBuf;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::*;
 use std::thread;
 
-use atomic::AtomicBool;
 use bitvec::macros::internal::funty::Fundamental;
-use crossbeam_queue::SegQueue;
-use vortex::arrays::StructArray;
+use vortex::ToCanonical;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::{ArrayRef, ToCanonical};
 use vortex_scan::MultiFileIterator;
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
@@ -152,16 +147,6 @@ fn extract_table_filter_expr(
         .unwrap_or_else(|| lit(true));
 
     Ok(Some(filter_expr))
-}
-
-/// Creates a lock-free queue populated with file paths from bind data.
-fn create_file_paths_queue(bind_data: &VortexBindData) -> SegQueue<PathBuf> {
-    let file_paths = SegQueue::new();
-    // Skip the first file as it is opened during bind.
-    for path in bind_data.file_paths.iter().skip(1) {
-        file_paths.push(path.clone());
-    }
-    file_paths
 }
 
 impl TableFunction for VortexTableFunction {
