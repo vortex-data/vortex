@@ -1152,7 +1152,7 @@ async fn write_nullable_top_level_struct() {
 
 async fn round_trip(
     array: &dyn Array,
-    fn_: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
+    f: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
 ) -> VortexResult<ArrayRef> {
     let buffer: Bytes = VortexWriteOptions::default()
         .write(vec![], array.to_array_stream())
@@ -1167,7 +1167,7 @@ async fn round_trip(
     assert_eq!(vxf.dtype(), array.dtype());
     assert_eq!(vxf.row_count(), array.len() as u64);
 
-    fn_(vxf.scan()?)?.into_array_stream()?.read_all().await
+    f(vxf.scan()?)?.into_array_stream()?.read_all().await
 }
 
 #[tokio::test]
