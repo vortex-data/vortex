@@ -4,15 +4,16 @@
 /// Copied of duckdb-rs (https://github.com/duckdb/duckdb-rs/blob/main/crates/duckdb/src/vtab/arrow.rs)
 use std::sync::Arc;
 
-use arrow::array::{
-    Array, BooleanArray, Date32Array, GenericBinaryBuilder, PrimitiveArray, StringArray,
-    TimestampMicrosecondArray, TimestampNanosecondArray,
-};
-use arrow::buffer::{BooleanBuffer, NullBuffer};
-use arrow::datatypes::{
+use arrow_array::builder::GenericBinaryBuilder;
+use arrow_array::types::{
     Float32Type, Float64Type, Int8Type, Int16Type, Int32Type, Int64Type, Time64MicrosecondType,
     UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
+use arrow_array::{
+    Array, BooleanArray, Date32Array, PrimitiveArray, StringArray, TimestampMicrosecondArray,
+    TimestampNanosecondArray,
+};
+use arrow_buffer::buffer::{BooleanBuffer, NullBuffer};
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::ArrayRef;
 use vortex::arrays::StructArray;

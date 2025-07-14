@@ -209,7 +209,6 @@ dependencies = [
  "arrow-ipc",
  "arrow-json",
  "arrow-ord",
- "arrow-pyarrow",
  "arrow-row",
  "arrow-schema",
  "arrow-select",
@@ -6077,7 +6076,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vortex"
 version = "0.1.0"
 dependencies = [
- "arrow",
+ "arrow-array",
  "itertools 0.14.0",
  "parquet",
  "tokio",
@@ -6343,7 +6342,9 @@ name = "vortex-duckdb"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow",
+ "arrow-array",
+ "arrow-buffer",
+ "arrow-schema",
  "bindgen",
  "bitvec",
  "cbindgen",
@@ -6580,7 +6581,8 @@ dependencies = [
 name = "vortex-jni"
 version = "0.1.0"
 dependencies = [
- "arrow",
+ "arrow-array",
+ "arrow-schema",
  "jni",
  "log",
  "object_store",
@@ -6682,7 +6684,10 @@ dependencies = [
 name = "vortex-python"
 version = "0.1.0"
 dependencies = [
- "arrow",
+ "arrow-array",
+ "arrow-data",
+ "arrow-pyarrow",
+ "arrow-schema",
  "futures",
  "itertools 0.14.0",
  "log",
