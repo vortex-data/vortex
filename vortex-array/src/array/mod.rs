@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod convert;
+mod display;
 mod statistics;
 mod visitor;
 
@@ -10,6 +11,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 
 pub use convert::*;
+use display::{DisplayArray, DisplayArrayAs, DisplayOptions};
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -66,6 +68,28 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
     ///
     /// See [`OperationsVTable::optimize`] for more details.
     fn optimize(&self) -> VortexResult<ArrayRef>;
+
+    /// Display.
+    fn display(&self) -> DisplayArray
+    where
+        Self: Sized,
+    {
+        DisplayArray(self)
+    }
+
+    /// Display with options.
+    fn display_as<'a>(&'a self, options: &'a DisplayOptions) -> DisplayArrayAs<'a>
+    where
+        Self: Sized,
+    {
+        DisplayArrayAs(self, options)
+    }
+
+    // /// Format.
+    // fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+
+    // /// Format with options.
+    // fn fmt_as(&self, f: &mut Formatter<'_>, options: &DisplayOptions) -> std::fmt::Result;
 
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {
@@ -192,6 +216,14 @@ impl Array for Arc<dyn Array> {
         self.as_ref().optimize()
     }
 
+    // fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    //     self.as_ref().fmt(f)
+    // }
+
+    // fn fmt_as(&self, f: &mut Formatter<'_>, options: &DisplayOptions) -> std::fmt::Result {
+    //     self.as_ref().fmt_as(f, options)
+    // }
+
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
         self.as_ref().is_valid(index)
     }
@@ -277,13 +309,7 @@ impl dyn Array + '_ {
 
 impl Display for dyn Array {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}({}, len={})",
-            self.encoding_id(),
-            self.dtype(),
-            self.len()
-        )
+        self.fmt_as(f, &DisplayOptions::MetadataOnly)
     }
 }
 
@@ -471,6 +497,14 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 
         Ok(result)
     }
+
+    // fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    //     <V::DisplayVTable as DisplayVTable<V>>::fmt(&self.0, f)
+    // }
+
+    // fn fmt_as(&self, f: &mut Formatter<'_>, options: &DisplayOptions) -> std::fmt::Result {
+    //     <V::DisplayVTable as DisplayVTable<V>>::fmt_as(&self.0, f, options)
+    // }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
         if index >= self.len() {

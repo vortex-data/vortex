@@ -10,6 +10,7 @@ pub use array::*;
 mod array;
 pub mod builders;
 mod compute;
+mod display;
 mod ops;
 mod serde;
 #[cfg(feature = "test-harness")]
