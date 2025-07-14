@@ -42,17 +42,12 @@ pub struct MemoryStatsDiff {
 }
 
 /// Thread-safe memory tracker using sysinfo
+#[derive(Default)]
 pub struct MemoryTracker {
     system: Mutex<System>,
     pid: u32,
     peak_physical_memory: Mutex<u64>,
     peak_virtual_memory: Mutex<u64>,
-}
-
-impl Default for MemoryTracker {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl MemoryTracker {
@@ -213,7 +208,7 @@ impl MemoryMeasurement {
         let after = self.tracker.current_memory()?;
         let before = self.before?;
 
-        Some(before.diff(&after))
+        Some(after.diff(&before))
     }
 }
 
@@ -242,5 +237,6 @@ mod tests {
 
         let diff = measurement.end();
         assert!(diff.is_some());
+        assert!(diff.unwrap().physical_memory_delta >= 1024 * 1024);
     }
 }
