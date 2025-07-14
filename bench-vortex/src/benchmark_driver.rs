@@ -16,7 +16,9 @@ use crate::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_que
 use crate::measurements::{MemoryMeasurement, QueryMeasurement};
 use crate::memory::BenchmarkMemoryTracker;
 use crate::metrics::{MetricsSetExt, export_plan_spans};
-use crate::query_bench::{filter_queries, print_results, setup_logging_and_tracing};
+use crate::query_bench::{
+    filter_queries, print_memory_usage, print_results, setup_logging_and_tracing,
+};
 use crate::utils::{new_tokio_runtime, url_scheme_to_storage};
 use crate::{Engine, Format, Target, df, vortex_panic};
 
@@ -105,19 +107,11 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
 
     // Print memory measurements if available
     if !all_memory_measurements.is_empty() && config.track_memory {
-        println!("\n=== Memory Usage Summary ===");
-        for memory_measurement in &all_memory_measurements {
-            println!(
-                "Query {}: Δ{}MB physical, Δ{}MB virtual {} | Peak: {}MB physical, {}MB virtual",
-                memory_measurement.query_idx,
-                memory_measurement.physical_memory_delta as f64 / 1024.0 / 1024.0,
-                memory_measurement.virtual_memory_delta as f64 / 1024.0 / 1024.0,
-                memory_measurement.target,
-                memory_measurement.peak_physical_memory as f64 / 1024.0 / 1024.0,
-                memory_measurement.peak_virtual_memory as f64 / 1024.0 / 1024.0,
-            );
-        }
-        println!("===========================\n");
+        print_memory_usage(
+            all_memory_measurements,
+            &config.display_format,
+            &config.targets,
+        )?;
     }
 
     print_results(
