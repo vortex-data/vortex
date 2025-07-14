@@ -10,6 +10,12 @@ use vortex_scalar::PValue;
 
 use crate::SequenceArray;
 
+/// Encodes a primitive array into a sequence array, this is possible if:
+/// 1. The array is not empty, and contains no nulls
+/// 2. The array is not a float array. (This is due to precision issues, how it will stack well with ALP).
+/// 3. The array is representable as a sequence `A[i] = base + i * multiplier` for multiplier != 0.
+/// 4. The sequence has no deviations from the equation, this could be fixed with patches. However,
+///    we might want a different array for that since sequence provide fast access.
 pub fn sequence_encode(primitive_array: &PrimitiveArray) -> VortexResult<Option<ArrayRef>> {
     if primitive_array.is_empty() {
         // we cannot encode an empty array
