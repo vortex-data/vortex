@@ -5,6 +5,7 @@ use std::env;
 use std::sync::LazyLock;
 
 use flatbuffers::{FlatBufferBuilder, VerifierOptions, WIPOffset, root_with_opts};
+use vortex_array::ArrayContext;
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, layout};
@@ -34,16 +35,22 @@ static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
 pub fn layout_from_flatbuffer(
     flatbuffer: FlatBuffer,
     dtype: &DType,
-    ctx: &LayoutContext,
+    layout_ctx: &LayoutContext,
+    array_ctx: &ArrayContext,
 ) -> VortexResult<LayoutRef> {
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
-    let encoding = ctx
+    let encoding = layout_ctx
         .lookup_encoding(fb_layout.encoding())
         .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
 
     // SAFETY: we validate the flatbuffer above in the `root` call, and extract a loc.
     let viewed_children = unsafe {
-        ViewedLayoutChildren::new_unchecked(flatbuffer.clone(), fb_layout._tab.loc(), ctx.clone())
+        ViewedLayoutChildren::new_unchecked(
+            flatbuffer.clone(),
+            fb_layout._tab.loc(),
+            array_ctx.clone(),
+            layout_ctx.clone(),
+        )
     };
 
     let layout = encoding.build(
@@ -60,6 +67,7 @@ pub fn layout_from_flatbuffer(
             .map(SegmentId::from)
             .collect(),
         &viewed_children,
+        array_ctx.clone(),
     )?;
 
     Ok(layout)

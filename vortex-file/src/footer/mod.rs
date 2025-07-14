@@ -22,18 +22,16 @@ use flatbuffers::root;
 use itertools::Itertools;
 pub(crate) use postscript::*;
 pub use segment::*;
+use vortex_array::ArrayRegistry;
 use vortex_array::stats::StatsSet;
-use vortex_array::{ArrayContext, ArrayRegistry};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, footer as fb};
-use vortex_layout::{LayoutContext, LayoutRef, LayoutRegistry, layout_from_flatbuffer};
+use vortex_layout::{LayoutRef, LayoutRegistry, layout_from_flatbuffer};
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct Footer {
-    array_ctx: ArrayContext,
-    layout_ctx: LayoutContext,
     root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
@@ -67,7 +65,7 @@ impl Footer {
             .map(|encoding| encoding.id());
         let array_ctx = array_registry.new_context(array_ids)?;
 
-        let root_layout = layout_from_flatbuffer(layout_bytes, &dtype, &layout_ctx)?;
+        let root_layout = layout_from_flatbuffer(layout_bytes, &dtype, &layout_ctx, &array_ctx)?;
 
         let segments: Arc<[SegmentSpec]> = fb_footer
             .segment_specs()
@@ -82,22 +80,10 @@ impl Footer {
         }
 
         Ok(Self {
-            array_ctx,
-            layout_ctx,
             root_layout,
             segments,
             statistics,
         })
-    }
-
-    /// Returns the array [`ArrayContext`] of the file.
-    pub fn ctx(&self) -> &ArrayContext {
-        &self.array_ctx
-    }
-
-    /// Returns the [`LayoutContext`] of the file.
-    pub fn layout_ctx(&self) -> &LayoutContext {
-        &self.layout_ctx
     }
 
     /// Returns the root [`LayoutRef`] of the file.

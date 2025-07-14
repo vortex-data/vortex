@@ -11,8 +11,8 @@ use dashmap::DashMap;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
+use vortex_array::ToCanonical;
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayContext, ToCanonical};
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::pruning::checked_pruning_expr;
@@ -53,16 +53,13 @@ impl ZonedReader {
         layout: ZonedLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<Self> {
-        let data_child =
-            layout
-                .data
-                .new_reader(name.clone(), segment_source.clone(), ctx.clone())?;
-        let zones_child =
-            layout
-                .zones
-                .new_reader(format!("{name}.zones").into(), segment_source, ctx)?;
+        let data_child = layout
+            .data
+            .new_reader(name.clone(), segment_source.clone())?;
+        let zones_child = layout
+            .zones
+            .new_reader(format!("{name}.zones").into(), segment_source)?;
 
         Ok(Self {
             layout,
@@ -332,7 +329,7 @@ mod test {
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
-    fn stats_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
+    fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -355,20 +352,16 @@ mod test {
                 ]),
             )));
         let layout = block_on(strategy.write_stream(&ctx, sequence_writer, array_stream)).unwrap();
-        (ctx, Arc::new(segments), layout)
+        (Arc::new(segments), layout)
     }
 
     #[rstest]
     fn test_stats_evaluator(
-        #[from(stats_layout)] (ctx, segments, layout): (
-            ArrayContext,
-            Arc<dyn SegmentSource>,
-            LayoutRef,
-        ),
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         block_on(async {
             let result = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -385,15 +378,11 @@ mod test {
 
     #[rstest]
     fn test_stats_pruning_mask(
-        #[from(stats_layout)] (ctx, segments, layout): (
-            ArrayContext,
-            Arc<dyn SegmentSource>,
-            LayoutRef,
-        ),
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         block_on(async {
             let row_count = layout.row_count();
-            let reader = layout.new_reader("".into(), segments, ctx).unwrap();
+            let reader = layout.new_reader("".into(), segments).unwrap();
 
             // Choose a prune-able expression
             let expr = gt(root(), lit(7));

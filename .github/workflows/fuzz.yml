@@ -11,8 +11,8 @@ jobs:
     timeout-minutes: 180
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i.4xlarge
-      - image=ubuntu24-full-x64
+      - family=m8g.2xlarge
+      - image=ubuntu24-full-arm64
       - disk=large
       - extras=s3-cache
       - tag=io-fuzz
@@ -64,8 +64,8 @@ jobs:
     timeout-minutes: 180
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7i.4xlarge
-      - image=ubuntu24-full-x64
+      - family=m8g.2xlarge
+      - image=ubuntu24-full-arm64
       - disk=large
       - extras=s3-cache
       - tag=ops-fuzz

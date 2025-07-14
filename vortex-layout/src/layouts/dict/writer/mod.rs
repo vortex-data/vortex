@@ -23,7 +23,7 @@ use crate::scan::{TaskExecutor, TaskExecutorExt as _};
 use crate::segments::SequenceWriter;
 use crate::sequence::{SequenceId, SequencePointer};
 use crate::{
-    IntoLayout, LayoutStrategy, OwnedLayoutChildren, SendableLayoutWriter,
+    IntoLayout, LayoutStrategy, OwnedLayoutChildren, SendableLayoutFuture,
     SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt,
 };
 
@@ -83,7 +83,7 @@ impl LayoutStrategy for DictStrategy {
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutWriter {
+    ) -> SendableLayoutFuture {
         if !dict_layout_supported(stream.dtype()) {
             return self.fallback.write_stream(ctx, sequence_writer, stream);
         }

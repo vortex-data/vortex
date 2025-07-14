@@ -80,7 +80,7 @@ macro_rules! match_each_decimal_value_type {
 }
 
 /// Type of the decimal values.
-#[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, prost::Enumeration, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 #[non_exhaustive]
 pub enum DecimalValueType {

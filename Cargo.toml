@@ -129,9 +129,9 @@ pco = "0.4.4"
 pin-project = "1.1.5"
 pin-project-lite = "0.2.15"
 primitive-types = { version = "0.13.1" }
-prost = "0.13.4"
-prost-build = "0.13.4"
-prost-types = "0.13.4"
+prost = "0.14"
+prost-build = "0.14"
+prost-types = "0.14"
 pyo3 = { version = "0.24.1", features = ["extension-module", "abi3-py310"] }
 pyo3-log = "0.12.1"
 rand = "0.9.0"

@@ -76,13 +76,11 @@ impl VTable for StructVTable {
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(StructReader::try_new(
             layout.clone(),
             name,
             segment_source,
-            ctx,
         )?))
     }
 
@@ -93,6 +91,7 @@ impl VTable for StructVTable {
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
+        _ctx: ArrayContext,
     ) -> VortexResult<Self::Layout> {
         let struct_dt = dtype
             .as_struct()

@@ -17,6 +17,7 @@ use vortex::encodings::dict::DictVTable;
 use vortex::encodings::fastlanes::{BitPackedVTable, DeltaVTable, FoRVTable};
 use vortex::encodings::fsst::FSSTVTable;
 use vortex::encodings::runend::RunEndVTable;
+use vortex::encodings::sequence::SequenceVTable;
 use vortex::encodings::sparse::SparseVTable;
 use vortex::encodings::zigzag::ZigZagVTable;
 use vortex::error::VortexExpect;
@@ -31,7 +32,7 @@ use crate::arrays::builtins::{
 };
 use crate::arrays::compressed::{
     PyAlpArray, PyAlpRdArray, PyDateTimePartsArray, PyDictArray, PyFsstArray, PyRunEndArray,
-    PySparseArray, PyZigZagArray,
+    PySequenceArray, PySparseArray, PyZigZagArray,
 };
 use crate::arrays::fastlanes::{
     PyFastLanesBitPackedArray, PyFastLanesDeltaArray, PyFastLanesFoRArray,
@@ -143,6 +144,10 @@ impl PyNativeArray {
 
         if array.is::<DecimalVTable>() {
             return Self::with_subclass(py, array, PyDecimalArray);
+        }
+
+        if array.is::<SequenceVTable>() {
+            return Self::with_subclass(py, array, PySequenceArray);
         }
 
         Err(PyTypeError::new_err(format!(

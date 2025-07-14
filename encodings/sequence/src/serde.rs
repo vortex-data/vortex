@@ -77,7 +77,13 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
         .pvalue()
         .vortex_expect("non-nullable primitive");
 
-        Ok(SequenceArray::unchecked_new(base, multiplier, ptype, len))
+        Ok(SequenceArray::unchecked_new(
+            base,
+            multiplier,
+            ptype,
+            dtype.nullability(),
+            len,
+        ))
     }
 }
 
@@ -88,6 +94,7 @@ mod tests {
     use arcref::ArcRef;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::stream::ArrayStreamExt;
+    use vortex_dtype::Nullability;
     use vortex_expr::{get_item, root};
     use vortex_file::{VortexOpenOptions, VortexWriteOptions};
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -96,7 +103,7 @@ mod tests {
 
     #[tokio::test]
     async fn round_trip_seq() {
-        let seq = SequenceArray::typed_new(2i8, 3, 4).unwrap();
+        let seq = SequenceArray::typed_new(2i8, 3, Nullability::NonNullable, 4).unwrap();
         let st = StructArray::from_fields(&[("a", seq.to_array())]).unwrap();
 
         let file = tokio::fs::File::create("/tmp/abc.vx").await.unwrap();

@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use itertools::Itertools;
-use vortex_array::ArrayContext;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -44,7 +43,6 @@ impl StructReader {
         layout: StructLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<Self> {
         let struct_dt = layout.struct_fields();
 
@@ -59,7 +57,7 @@ impl StructReader {
         });
 
         let lazy_children =
-            LazyReaderChildren::new(layout.children.clone(), segment_source.clone(), ctx.clone());
+            LazyReaderChildren::new(layout.children.clone(), segment_source.clone());
 
         // Create an expanded root expression that contains all fields of the struct.
         let expanded_root_expr = replace_root_fields(root(), struct_dt);
@@ -271,7 +269,7 @@ mod tests {
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
-    fn struct_layout() -> (ArrayContext, Arc<dyn SegmentSource>, LayoutRef) {
+    fn struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
@@ -310,18 +308,14 @@ mod tests {
         )
         .unwrap();
 
-        (ctx, Arc::new(segments), layout)
+        (Arc::new(segments), layout)
     }
 
     #[rstest]
     fn test_struct_layout_or(
-        #[from(struct_layout)] (ctx, segments, layout): (
-            ArrayContext,
-            Arc<dyn SegmentSource>,
-            LayoutRef,
-        ),
+        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments).unwrap();
         let filt = or(
             eq(get_item_scope("a"), lit(7)),
             or(
@@ -344,13 +338,9 @@ mod tests {
 
     #[rstest]
     fn test_struct_layout(
-        #[from(struct_layout)] (ctx, segments, layout): (
-            ArrayContext,
-            Arc<dyn SegmentSource>,
-            LayoutRef,
-        ),
+        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
         let result = block_on(
             reader
@@ -372,13 +362,9 @@ mod tests {
 
     #[rstest]
     fn test_struct_layout_row_mask(
-        #[from(struct_layout)] (ctx, segments, layout): (
-            ArrayContext,
-            Arc<dyn SegmentSource>,
-            LayoutRef,
-        ),
+        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
         let result = block_on(
             reader
@@ -403,13 +389,9 @@ mod tests {
 
     #[rstest]
     fn test_struct_layout_select(
-        #[from(struct_layout)] (ctx, segments, layout): (
-            ArrayContext,
-            Arc<dyn SegmentSource>,
-            LayoutRef,
-        ),
+        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, ctx).unwrap();
+        let reader = layout.new_reader("".into(), segments).unwrap();
         let expr = pack(
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             NonNullable,

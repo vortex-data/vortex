@@ -13,9 +13,9 @@ use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for PrimitiveVTable {
-    fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<ArrayRef> {
+    fn cast(&self, array: &PrimitiveArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let DType::Primitive(new_ptype, new_nullability) = dtype else {
-            vortex_bail!(MismatchedTypes: "primitive type", dtype);
+            return Ok(None);
         };
         let (new_ptype, new_nullability) = (*new_ptype, *new_nullability);
 
@@ -36,17 +36,21 @@ impl CastKernel for PrimitiveVTable {
 
         // If the bit width is the same, we can short-circuit and simply update the validity
         if array.ptype() == new_ptype {
-            return Ok(PrimitiveArray::from_byte_buffer(
-                array.byte_buffer().clone(),
-                array.ptype(),
-                new_validity,
-            )
-            .into_array());
+            return Ok(Some(
+                PrimitiveArray::from_byte_buffer(
+                    array.byte_buffer().clone(),
+                    array.ptype(),
+                    new_validity,
+                )
+                .into_array(),
+            ));
         }
 
         // Otherwise, we need to cast the values one-by-one
         match_each_native_ptype!(new_ptype, |T| {
-            Ok(PrimitiveArray::new(cast::<T>(array)?, new_validity).into_array())
+            Ok(Some(
+                PrimitiveArray::new(cast::<T>(array)?, new_validity).into_array(),
+            ))
         })
     }
 }

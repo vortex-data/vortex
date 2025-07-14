@@ -14,7 +14,7 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::SequenceWriter;
 use crate::{
-    IntoLayout, LayoutStrategy, SendableLayoutWriter, SendableSequentialStream,
+    IntoLayout, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
     SequentialStreamAdapter, SequentialStreamExt as _,
 };
 
@@ -37,7 +37,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         mut stream: SendableSequentialStream,
-    ) -> SendableLayoutWriter {
+    ) -> SendableLayoutFuture {
         let chunk_strategy = self.chunk_strategy.clone();
         let ctx = ctx.clone();
         Box::pin(async move {

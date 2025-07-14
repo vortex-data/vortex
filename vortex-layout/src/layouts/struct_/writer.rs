@@ -19,7 +19,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SequenceWriter;
 use crate::{
-    IntoLayout as _, LayoutStrategy, SendableLayoutWriter, SendableSequentialStream,
+    IntoLayout as _, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
     SequentialStreamAdapter, SequentialStreamExt,
 };
 
@@ -40,7 +40,7 @@ impl LayoutStrategy for StructStrategy {
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutWriter {
+    ) -> SendableLayoutFuture {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct().cloned() else {
             // nothing we can do if dtype is not struct
