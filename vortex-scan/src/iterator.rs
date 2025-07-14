@@ -19,16 +19,19 @@ pub struct MultiFileIterator {
     tokio_runtime: tokio::runtime::Runtime,
     file_paths: SegQueue<PathBuf>,
     files: SegQueue<VortexFile>,
-    task_queues: Arc<DashMap<usize, SegQueue<(ArrayFuture, DType)>>>,
+    task_queues: DashMap<usize, SegQueue<(ArrayFuture, DType)>>,
     projection_expr: Option<ExprRef>,
     filter_expr: Option<ExprRef>,
+    processed_tasks: DashMap<usize, FuturesUnordered<ArrayFuture>>,
 }
 
 impl MultiFileIterator {
     pub fn new(num_threads: usize) -> Self {
-        let thread_queues = Arc::new(DashMap::new());
+        let thread_queues = DashMap::new();
+        let processed_tasks = DashMap::new();
         for thread_id in 0..num_threads {
             thread_queues.insert(thread_id, SegQueue::new());
+            processed_tasks.insert(thread_id, FuturesUnordered::new());
         }
 
         Self {
@@ -38,6 +41,7 @@ impl MultiFileIterator {
             tokio_runtime: tokio::runtime::Runtime::new().unwrap(),
             projection_expr: None,
             filter_expr: None,
+            processed_tasks,
         }
     }
 
@@ -125,43 +129,46 @@ impl MultiFileIterator {
             panic!("Thread local queue not found");
         };
 
-        loop {
-            let mut futures = FuturesUnordered::new();
+        let Some(mut processed_tasks) = self.processed_tasks.get_mut(&thread_id) else {
+            panic!("Thread local processed tasks not found");
+        };
 
+        loop {
             // Queue up tasks if the thread local queue is almost empty.
-            if task_queue.len() <= 8 {
+            if task_queue.len() <= 4 {
                 if let Some(file) = self.files.pop() {
                     self.push_scan_tasks_for_file(file, thread_id).ok()?;
                 } else if let Some(file_path) = self.file_paths.pop() {
                     let file = VortexOpenOptions::file().open_blocking(&file_path).ok()?;
                     self.push_scan_tasks_for_file(file, thread_id).ok()?;
                 }
+                // TODO(Alex): worksteal tasks from other threads
             }
 
-            // TODO
-            // - poll multiple futures concurrently instead of just one
-            // - batch pop tasks with crossbeam deque, rather than looping
-            if let Some(work_result) = self.pop_scan_task(thread_id) {
-                match work_result {
-                    Ok((future, _dtype)) => futures.push(future),
-                    Err(e) => return Some(Err(e)),
+            // Poll 4 futures at a time.
+            while processed_tasks.len() < 4 && !task_queue.is_empty() {
+                if let Some(work_result) = self.pop_scan_task(thread_id) {
+                    match work_result {
+                        Ok((future, _dtype)) => processed_tasks.push(future),
+                        Err(e) => return Some(Err(e)),
+                    }
                 }
             }
 
-            if futures.is_empty() {
-                // Iterator is fully consumed.
+            if task_queue.is_empty() && processed_tasks.is_empty() {
+                // All tasks have been fully processed.
                 return None;
             }
 
             let result = self.tokio_runtime.block_on(async {
-                while let Some(result) = futures.next().await {
+                while let Some(result) = processed_tasks.next().await {
                     match result {
                         Ok(Some(array)) => return Some(Ok(array)),
-                        Ok(None) => continue, // No more data from this work item, try next
+                        Ok(None) => continue,
                         Err(e) => return Some(Err(e)),
                     }
                 }
-                None // All futures completed without yielding data
+                None
             });
 
             match result {
