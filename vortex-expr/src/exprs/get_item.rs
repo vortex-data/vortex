@@ -111,6 +111,10 @@ impl GetItemExpr {
         }
     }
 
+    pub fn new_expr(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
+        Self::new(field, child).into_expr()
+    }
+
     pub fn field(&self) -> &FieldName {
         &self.field
     }

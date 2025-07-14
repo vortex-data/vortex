@@ -94,6 +94,10 @@ impl CastExpr {
     pub fn new(child: ExprRef, target: DType) -> Self {
         Self { target, child }
     }
+
+    pub fn new_expr(child: ExprRef, target: DType) -> ExprRef {
+        Self::new(child, target).into_expr()
+    }
 }
 
 impl Display for CastExpr {

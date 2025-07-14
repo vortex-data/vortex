@@ -49,7 +49,7 @@ impl StatsCatalog for AnyStatsCatalog {
 
 pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldName {
     field_path
-        .path()
+        .parts()
         .iter()
         .map(|f| match f {
             Field::Name(n) => n.as_ref(),
