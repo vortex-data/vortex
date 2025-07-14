@@ -19,13 +19,13 @@ use vortex_file::{VortexFile, VortexOpenOptions};
 type ArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
 pub struct MultiFileIterator {
-    file_paths: SegQueue<PathBuf>,
     files: SegQueue<VortexFile>,
-    task_queues: DashMap<usize, SegQueue<(ArrayFuture, DType)>>,
-    projection_expr: Option<ExprRef>,
     filter_expr: Option<ExprRef>,
-    processed_tasks: DashMap<usize, FuturesUnordered<ArrayFuture>>,
     local_pools: DashMap<usize, LocalPool>,
+    paths: SegQueue<PathBuf>,
+    polled_tasks: DashMap<usize, FuturesUnordered<ArrayFuture>>,
+    projection_expr: Option<ExprRef>,
+    task_queues: DashMap<usize, SegQueue<ArrayFuture>>,
 }
 
 impl MultiFileIterator {
@@ -41,12 +41,12 @@ impl MultiFileIterator {
 
         Self {
             task_queues: thread_queues,
-            file_paths: SegQueue::new(),
+            paths: SegQueue::new(),
             files: SegQueue::new(),
             local_pools,
             projection_expr: None,
             filter_expr: None,
-            processed_tasks,
+            polled_tasks: processed_tasks,
         }
     }
 
@@ -56,7 +56,7 @@ impl MultiFileIterator {
         I: IntoIterator<Item = P>,
     {
         for path in file_paths.into_iter().map(|p| p.as_ref().to_path_buf()) {
-            self.file_paths.push(path);
+            self.paths.push(path);
         }
 
         self
@@ -83,19 +83,19 @@ impl MultiFileIterator {
         self
     }
 
-    pub fn push_scan_task<I, F>(&self, thread_id: usize, items: I, dtype: DType)
+    pub fn push_scan_task<I, F>(&self, thread_id: usize, items: I)
     where
         I: IntoIterator<Item = F>,
         F: Future<Output = VortexResult<Option<ArrayRef>>> + Send + 'static,
     {
         if let Some(task_queue) = self.task_queues.get(&thread_id) {
             for item in items {
-                task_queue.push((Box::pin(item), dtype.clone()));
+                task_queue.push(Box::pin(item));
             }
         }
     }
 
-    fn pop_scan_task(&self, preferred_thread: usize) -> Option<VortexResult<(ArrayFuture, DType)>> {
+    fn pop_scan_task(&self, preferred_thread: usize) -> Option<VortexResult<ArrayFuture>> {
         if let Some(queue) = self.task_queues.get(&preferred_thread) {
             if let Some(array_future_tuple) = queue.pop() {
                 return Some(Ok(array_future_tuple));
@@ -110,7 +110,7 @@ impl MultiFileIterator {
             .with_some_filter(self.filter_expr.clone())
             .with_projection(self.projection_expr.clone().unwrap());
 
-        let (dtype, split_tasks) = scan_builder.build()?;
+        let (_, split_tasks) = scan_builder.build()?;
 
         // Get thread local task queue.
         let Some(task_queue) = self.task_queues.get(&thread_id) else {
@@ -118,7 +118,7 @@ impl MultiFileIterator {
         };
 
         for task in split_tasks {
-            task_queue.push((Box::pin(task), dtype.clone()));
+            task_queue.push(Box::pin(task));
         }
 
         Ok(())
@@ -134,7 +134,7 @@ impl MultiFileIterator {
             panic!("Thread local queue not found");
         };
 
-        let Some(mut processed_tasks) = self.processed_tasks.get_mut(&thread_id) else {
+        let Some(mut processed_tasks) = self.polled_tasks.get_mut(&thread_id) else {
             panic!("Thread local processed tasks not found");
         };
 
@@ -147,7 +147,7 @@ impl MultiFileIterator {
             if task_queue.len() <= 4 {
                 if let Some(file) = self.files.pop() {
                     self.push_scan_tasks_for_file(file, thread_id).ok()?;
-                } else if let Some(file_path) = self.file_paths.pop() {
+                } else if let Some(file_path) = self.paths.pop() {
                     let file = VortexOpenOptions::file().open_blocking(&file_path).ok()?;
                     self.push_scan_tasks_for_file(file, thread_id).ok()?;
                 }
@@ -158,7 +158,7 @@ impl MultiFileIterator {
             while processed_tasks.len() < 4 && !task_queue.is_empty() {
                 if let Some(work_result) = self.pop_scan_task(thread_id) {
                     match work_result {
-                        Ok((future, _dtype)) => processed_tasks.push(future),
+                        Ok(future) => processed_tasks.push(future),
                         Err(e) => return Some(Err(e)),
                     }
                 }
