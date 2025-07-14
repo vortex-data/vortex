@@ -12,12 +12,16 @@ use crate::df::get_session_context;
 use crate::tpch::{register_arrow, register_parquet, register_vortex_file};
 use crate::{BenchmarkDataset, Format};
 
+pub mod tpcds_benchmark;
+
+pub use tpcds_benchmark::TpcDsBenchmark;
+
 pub fn tpcds_queries() -> impl Iterator<Item = (usize, String)> {
-    (1..=99).map(|idx| (idx, tpch_query(idx)))
+    (1..=99).map(|idx| (idx, tpcds_query(idx)))
 }
 
-// A few tpch queries have multiple statements, this handles that
-fn tpch_query(query_idx: usize) -> String {
+// A few tpcds queries have multiple statements, this handles that
+fn tpcds_query(query_idx: usize) -> String {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tpcds")
         .join(format!("{query_idx:02}"))
