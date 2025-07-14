@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+//! Convert an array into a human-readable string representation.
 
 mod tree;
 
@@ -11,6 +12,27 @@ use vortex_error::VortexExpect as _;
 
 use crate::Array;
 
+/// A shim used to display the logical contents of an array.
+///
+/// For example, an `i16` typed array containing the first five non-negative integers is displayed
+/// as: `[0i16, 1i16, 2i16, 3i16, 4i16]`.
+///
+/// # Examples
+///
+/// ```
+/// # use vortex_array::IntoArray;
+/// # use vortex_buffer::buffer;
+/// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+/// assert_eq!(
+///     format!("{}", array.display()),
+///     "[0i16, 1i16, 2i16, 3i16, 4i16]",
+/// )
+/// ```
+///
+/// See also:
+/// [Array::display](http://localhost:8000/doc/vortex_array/trait.Array.html#method.display),
+/// [Array::display_as](http://localhost:8000/doc/vortex_array/trait.Array.html#method.display_as),
+/// [DisplayArrayAs], and [DisplayOptions].
 pub struct DisplayArray<'a>(pub &'a dyn Array);
 
 impl Display for DisplayArray<'_> {
@@ -19,12 +41,19 @@ impl Display for DisplayArray<'_> {
     }
 }
 
+/// Describe how to convert an array to a string.
+///
+/// See also:
+/// [Array::display](http://localhost:8000/doc/vortex_array/trait.Array.html#method.display),
+/// [Array::display_as](http://localhost:8000/doc/vortex_array/trait.Array.html#method.display_as),
+/// [DisplayArray], and [DisplayArrayAs].
 pub enum DisplayOptions {
-    /// ```
-    /// use vortex_array::display::DisplayOptions;
-    /// use vortex_array::IntoArray;
-    /// use vortex_buffer::buffer;
+    /// Only the top-level encoding id and limited metadata: `vortex.primitive(i16, len=5)`.
     ///
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
     /// let opts = DisplayOptions::MetadataOnly;
     /// assert_eq!(
@@ -33,11 +62,12 @@ pub enum DisplayOptions {
     /// );
     /// ```
     MetadataOnly,
-    /// ```
-    /// use vortex_array::display::DisplayOptions;
-    /// use vortex_array::IntoArray;
-    /// use vortex_buffer::buffer;
+    /// Only the logical values of the array: `[0i16, 1i16, 2i16, 3i16, 4i16]`.
     ///
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
     /// let opts = DisplayOptions::default();
     /// assert_eq!(
@@ -50,11 +80,12 @@ pub enum DisplayOptions {
     /// );
     /// ```
     CommaSeparatedScalars { space_after_comma: bool },
-    /// ```
-    /// use vortex_array::display::DisplayOptions;
-    /// use vortex_array::IntoArray;
-    /// use vortex_buffer::buffer;
+    /// The tree of encodings and all metadata but no values.
     ///
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
     /// let opts = DisplayOptions::TreeDisplay;
     /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
@@ -74,6 +105,12 @@ impl Default for DisplayOptions {
     }
 }
 
+/// A shim used to display an array as specified in the options.
+///
+/// See also:
+/// [Array::display](http://localhost:8000/doc/vortex_array/trait.Array.html#method.display),
+/// [Array::display_as](http://localhost:8000/doc/vortex_array/trait.Array.html#method.display_as),
+/// [DisplayArray], and [DisplayOptions].
 pub struct DisplayArrayAs<'a>(pub &'a dyn Array, pub &'a DisplayOptions);
 
 impl Display for DisplayArrayAs<'_> {
@@ -82,6 +119,18 @@ impl Display for DisplayArrayAs<'_> {
     }
 }
 
+/// Display the encoding and limited metadata of this array.
+///
+/// # Examples
+/// ```
+/// # use vortex_array::IntoArray;
+/// # use vortex_buffer::buffer;
+/// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+/// assert_eq!(
+///     format!("{}", array),
+///     "vortex.primitive(i16, len=5)",
+/// );
+/// ```
 impl Display for dyn Array + '_ {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt_as(f, &DisplayOptions::MetadataOnly)
@@ -89,21 +138,14 @@ impl Display for dyn Array + '_ {
 }
 
 impl dyn Array + '_ {
-    pub fn tree_display(&self) -> impl Display {
-        TreeDisplayWrapper(self.to_array())
-    }
-
     /// Display the logical values of the array.
     ///
     /// # Examples
     ///
     /// ```
-    /// use vortex_array::display::DisplayOptions;
-    /// use vortex_array::IntoArray;
-    /// use vortex_buffer::buffer;
-    ///
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
-    /// let opts = DisplayOptions::default();
     /// assert_eq!(
     ///     format!("{}", array.display()),
     ///     "[0i16, 1i16, 2i16, 3i16, 4i16]",
@@ -113,10 +155,41 @@ impl dyn Array + '_ {
         DisplayArray(self)
     }
 
-    /// Display with options.
+    /// Display the array as specified by the options.
+    ///
+    /// See [DisplayOptions] for examples.
     pub fn display_as<'a>(&'a self, options: &'a DisplayOptions) -> DisplayArrayAs<'a> {
         DisplayArrayAs(self, options)
     }
+
+    /// Display the tree of encodings of this array as an indented lists.
+    ///
+    /// While some metadata (such as length, bytes and validity-rate) are included, the logical
+    /// values of the array are not displayed. To view the logical values see
+    /// [Array::display](http://localhost:8000/doc/vortex_array/trait.Array.html#method.display),
+    /// [Array::display_as](http://localhost:8000/doc/vortex_array/trait.Array.html#method.display_as),
+    /// and [DisplayOptions].
+    ///
+    /// # Examples
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let opts = DisplayOptions::TreeDisplay;
+    /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
+    ///   metadata: EmptyMetadata
+    ///   buffer (align=2): 10 B (100.00%)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(&opts)), expected);
+    /// ```
+    pub fn tree_display(&self) -> impl Display {
+        TreeDisplayWrapper(self.to_array())
+    }
+
+    /// Format an array as specified by the options.
+    ///
+    /// See [DisplayOptions] for examples.
     pub fn fmt_as(
         &self,
         f: &mut std::fmt::Formatter,
