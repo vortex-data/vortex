@@ -93,8 +93,8 @@ impl<'a> Arbitrary<'a> for StructFields {
 fn random_struct_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<StructFields> {
     let field_count = u.choose_index(3)?;
     let names: FieldNames = (0..field_count)
-        .map(|_| FieldName::arbitrary(u))
-        .collect::<Result<FieldNames>>()?;
+        .map(|idx| FieldName::from(format!("field_{idx}")))
+        .collect();
     let dtypes = (0..names.len())
         .map(|_| random_dtype(u, depth))
         .collect::<Result<Vec<_>>>()?;
