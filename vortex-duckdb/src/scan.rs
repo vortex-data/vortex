@@ -18,7 +18,7 @@ use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::{ArrayRef, ToCanonical};
-use vortex_scan::{MultiFileIterator, MultiFileScan};
+use vortex_scan::MultiFileIterator;
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
