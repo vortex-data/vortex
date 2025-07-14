@@ -131,12 +131,7 @@ impl LayoutReader for RowIdxLayoutReader {
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        // Since RowIdx isn't a field, we only need to register splits for the child layout
-        // if there are any fields in the mask at all.
-        if !field_mask.is_empty() {
-            self.child.register_splits(field_mask, row_offset, splits)?;
-        }
-        Ok(())
+        self.child.register_splits(field_mask, row_offset, splits)
     }
 
     fn pruning_evaluation(
