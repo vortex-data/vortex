@@ -257,6 +257,7 @@ fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
         export_spans: args.common.export_spans,
         show_metrics: args.common.show_metrics,
         hide_progress_bar: args.common.hide_progress_bar,
+        track_memory: args.common.track_memory,
     };
 
     // Run benchmark using the trait system
