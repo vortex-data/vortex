@@ -135,7 +135,7 @@ impl MultiFileIterator {
 
         loop {
             // Queue up tasks if the thread local queue is almost empty.
-            if task_queue.len() <= 4 {
+            if task_queue.len() <= 8 {
                 if let Some(file) = self.files.pop() {
                     self.push_scan_tasks_for_file(file, thread_id).ok()?;
                 } else if let Some(file_path) = self.file_paths.pop() {
@@ -146,7 +146,7 @@ impl MultiFileIterator {
             }
 
             // Poll 4 futures at a time.
-            while processed_tasks.len() < 4 && !task_queue.is_empty() {
+            while processed_tasks.len() < 16 && !task_queue.is_empty() {
                 if let Some(work_result) = self.pop_scan_task(thread_id) {
                     match work_result {
                         Ok((future, _dtype)) => processed_tasks.push(future),
