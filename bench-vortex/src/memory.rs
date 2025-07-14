@@ -132,7 +132,6 @@ impl MemoryTracker {
     }
 }
 
-
 /// Memory measurement guard that tracks memory usage before and after an operation
 pub struct MemoryMeasurement {
     tracker: MemoryTracker,
@@ -216,7 +215,6 @@ impl MemoryMeasurement {
 
         Some(before.diff(&after))
     }
-
 }
 
 #[cfg(test)]
@@ -245,5 +243,4 @@ mod tests {
         let diff = measurement.end();
         assert!(diff.is_some());
     }
-
 }
