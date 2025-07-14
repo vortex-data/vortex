@@ -87,7 +87,6 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
             &progress_bar,
             &mut engine_ctx,
             &benchmark,
-            config.track_memory,
             global_memory_tracker.as_mut(),
         )?;
 
@@ -138,7 +137,6 @@ fn execute_queries<B: Benchmark>(
     progress_bar: &ProgressBar,
     engine_ctx: &mut EngineCtx,
     benchmark: &B,
-    _track_memory: bool,
     mut global_memory_tracker: Option<&mut BenchmarkMemoryTracker>,
 ) -> Result<(Vec<QueryMeasurement>, Vec<MemoryMeasurement>)> {
     let mut query_measurements = Vec::new();
