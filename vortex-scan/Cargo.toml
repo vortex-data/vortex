@@ -4,6 +4,7 @@ authors.workspace = true
 description = "Multi-file scanning operations for Vortex"
 edition = { workspace = true }
 homepage = { workspace = true }
+categories = { workspace = true }
 include = { workspace = true }
 keywords = { workspace = true }
 license = { workspace = true }
