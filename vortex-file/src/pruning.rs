@@ -26,10 +26,10 @@ pub fn extract_relevant_file_stats_as_struct_row(
 
     let mut columns: Vec<(FieldName, ArrayRef)> = Vec::with_capacity(access.len() * 2);
     for (field_path, stats) in access.into_iter() {
-        if field_path.path().len() != 1 {
+        if field_path.parts().len() != 1 {
             return Ok(None);
         }
-        let Field::Name(field) = &field_path.path()[0] else {
+        let Field::Name(field) = &field_path.parts()[0] else {
             return Ok(None);
         };
 
