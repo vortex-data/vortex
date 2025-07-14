@@ -36,7 +36,6 @@ pub struct DriverConfig {
     pub show_metrics: bool,
     pub hide_progress_bar: bool,
     pub track_memory: bool,
-    pub force_memory_reclaim: bool,
 }
 
 /// Run a benchmark using the provided implementation and configuration
@@ -89,7 +88,6 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
             &mut engine_ctx,
             &benchmark,
             config.track_memory,
-            config.force_memory_reclaim,
             global_memory_tracker.as_mut(),
         )?;
 
@@ -111,13 +109,11 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
         println!("\n=== Memory Usage Summary ===");
         for memory_measurement in &all_memory_measurements {
             println!(
-                "Query {}: Δ{}MB physical, Δ{}MB virtual {} | Reclaimed: {}MB physical, {}MB virtual | Peak: {}MB physical, {}MB virtual",
+                "Query {}: Δ{}MB physical, Δ{}MB virtual {} | Peak: {}MB physical, {}MB virtual",
                 memory_measurement.query_idx,
                 memory_measurement.physical_memory_delta as f64 / 1024.0 / 1024.0,
                 memory_measurement.virtual_memory_delta as f64 / 1024.0 / 1024.0,
                 memory_measurement.target,
-                memory_measurement.physical_memory_reclaimed.abs() as f64 / 1024.0 / 1024.0,
-                memory_measurement.virtual_memory_reclaimed.abs() as f64 / 1024.0 / 1024.0,
                 memory_measurement.peak_physical_memory as f64 / 1024.0 / 1024.0,
                 memory_measurement.peak_virtual_memory as f64 / 1024.0 / 1024.0,
             );
@@ -143,7 +139,6 @@ fn execute_queries<B: Benchmark>(
     engine_ctx: &mut EngineCtx,
     benchmark: &B,
     _track_memory: bool,
-    force_memory_reclaim: bool,
     mut global_memory_tracker: Option<&mut BenchmarkMemoryTracker>,
 ) -> Result<(Vec<QueryMeasurement>, Vec<MemoryMeasurement>)> {
     let mut query_measurements = Vec::new();
@@ -233,7 +228,7 @@ fn execute_queries<B: Benchmark>(
 
         // End memory tracking after query and collect measurements
         if let Some(tracker) = global_memory_tracker.as_ref() {
-            if let Some(memory_result) = tracker.end_query(force_memory_reclaim) {
+            if let Some(memory_result) = tracker.end_query() {
                 memory_measurements.push(MemoryMeasurement {
                     query_idx,
                     target: match engine_ctx {
@@ -244,8 +239,6 @@ fn execute_queries<B: Benchmark>(
                     storage: url_scheme_to_storage(benchmark.data_url())?,
                     physical_memory_delta: memory_result.physical_memory_delta,
                     virtual_memory_delta: memory_result.virtual_memory_delta,
-                    physical_memory_reclaimed: memory_result.physical_memory_reclaimed,
-                    virtual_memory_reclaimed: memory_result.virtual_memory_reclaimed,
                     peak_physical_memory: memory_result.peak_physical_memory,
                     peak_virtual_memory: memory_result.peak_virtual_memory,
                 });

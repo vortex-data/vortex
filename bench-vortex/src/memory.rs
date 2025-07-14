@@ -49,6 +49,12 @@ pub struct MemoryTracker {
     peak_virtual_memory: Mutex<u64>,
 }
 
+impl Default for MemoryTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryTracker {
     /// Create a new memory tracker for the current process
     pub fn new() -> Self {
@@ -126,45 +132,6 @@ impl MemoryTracker {
     }
 }
 
-/// Force memory reclamation using platform-specific methods
-pub fn force_memory_reclaim() {
-    #[cfg(target_os = "linux")]
-    {
-        // Use malloc_trim on Linux (glibc)
-        unsafe {
-            libc::malloc_trim(0);
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        // Use malloc_zone_pressure_relief on macOS
-        unsafe extern "C" {
-            fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
-            fn malloc_default_zone() -> *mut std::ffi::c_void;
-        }
-
-        unsafe {
-            malloc_zone_pressure_relief(malloc_default_zone(), 0);
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        // Use _heapmin on Windows
-        extern "C" {
-            fn _heapmin() -> i32;
-        }
-
-        unsafe {
-            _heapmin();
-        }
-    }
-
-    // Force Rust garbage collection by running GC
-    // This is a hint to the allocator to release unused memory
-    std::hint::black_box(Vec::<u8>::with_capacity(1));
-}
 
 /// Memory measurement guard that tracks memory usage before and after an operation
 pub struct MemoryMeasurement {
@@ -178,9 +145,6 @@ pub struct MemoryMeasurementResult {
     /// Memory change during the operation (can be negative)
     pub physical_memory_delta: i64,
     pub virtual_memory_delta: i64,
-    /// Memory reclaimed through explicit reclamation (if requested)
-    pub physical_memory_reclaimed: i64,
-    pub virtual_memory_reclaimed: i64,
     /// Peak memory usage reached by the global tracker
     pub peak_physical_memory: u64,
     pub peak_virtual_memory: u64,
@@ -190,6 +154,12 @@ pub struct MemoryMeasurementResult {
 pub struct BenchmarkMemoryTracker {
     global_tracker: MemoryTracker,
     baseline_memory: Option<MemoryStats>,
+}
+
+impl Default for BenchmarkMemoryTracker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BenchmarkMemoryTracker {
@@ -208,22 +178,10 @@ impl BenchmarkMemoryTracker {
 
     /// Mark the end of a query execution and collect memory measurements
     /// Returns None if no baseline was set or memory tracking failed
-    pub fn end_query(&self, force_memory_reclaim: bool) -> Option<MemoryMeasurementResult> {
+    pub fn end_query(&self) -> Option<MemoryMeasurementResult> {
         let baseline = self.baseline_memory?;
         let after_memory = self.global_tracker.current_memory()?;
         let usage_diff = baseline.diff(&after_memory);
-
-        // Force memory reclamation if requested
-        let reclaim_diff = if force_memory_reclaim {
-            self::force_memory_reclaim();
-            let after_reclaim = self.global_tracker.current_memory()?;
-            after_memory.diff(&after_reclaim)
-        } else {
-            MemoryStatsDiff {
-                physical_memory_delta: 0,
-                virtual_memory_delta: 0,
-            }
-        };
 
         // Get peak memory from global tracker
         let peak_memory = self.global_tracker.peak_memory();
@@ -231,8 +189,6 @@ impl BenchmarkMemoryTracker {
         Some(MemoryMeasurementResult {
             physical_memory_delta: usage_diff.physical_memory_delta,
             virtual_memory_delta: usage_diff.virtual_memory_delta,
-            physical_memory_reclaimed: reclaim_diff.physical_memory_delta,
-            virtual_memory_reclaimed: reclaim_diff.virtual_memory_delta,
             peak_physical_memory: peak_memory.physical_memory,
             peak_virtual_memory: peak_memory.virtual_memory,
         })
@@ -261,22 +217,6 @@ impl MemoryMeasurement {
         Some(before.diff(&after))
     }
 
-    /// End the measurement, force memory reclamation, and return both measurements
-    pub fn end_with_reclaim(self) -> Option<(MemoryStatsDiff, MemoryStatsDiff)> {
-        let after = self.tracker.current_memory()?;
-        let before = self.before?;
-
-        let usage_diff = before.diff(&after);
-
-        // Force memory reclamation
-        force_memory_reclaim();
-
-        // Measure memory after reclamation
-        let after_reclaim = self.tracker.current_memory()?;
-        let reclaim_diff = after.diff(&after_reclaim);
-
-        Some((usage_diff, reclaim_diff))
-    }
 }
 
 #[cfg(test)]
@@ -306,9 +246,4 @@ mod tests {
         assert!(diff.is_some());
     }
 
-    #[test]
-    fn test_force_memory_reclaim() {
-        // This should not panic
-        force_memory_reclaim();
-    }
 }

@@ -74,9 +74,6 @@ struct CommonArgs {
 
     #[arg(long, default_value_t = false)]
     track_memory: bool,
-
-    #[arg(long, default_value_t = false)]
-    force_memory_reclaim: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -181,7 +178,6 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
         show_metrics: args.common.show_metrics,
         hide_progress_bar: args.common.hide_progress_bar,
         track_memory: args.common.track_memory,
-        force_memory_reclaim: args.common.force_memory_reclaim,
     };
 
     // Determine data URL
@@ -209,7 +205,6 @@ fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
         show_metrics: args.common.show_metrics,
         hide_progress_bar: args.common.hide_progress_bar,
         track_memory: args.common.track_memory,
-        force_memory_reclaim: args.common.force_memory_reclaim,
     };
 
     // Run benchmark using the trait system
