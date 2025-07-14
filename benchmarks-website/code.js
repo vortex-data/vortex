@@ -46,6 +46,8 @@ window.initAndRender = (function () {
       "TPC-H (S3) (SF=10)": new Map(),
       "TPC-H (NVME) (SF=100)": new Map(),
       "TPC-H (S3) (SF=100)": new Map(),
+      "TPC-H (NVME) (SF=1000)": new Map(),
+      "TPC-H (S3) (SF=1000)": new Map(),
       Clickbench: new Map(),
     };
 
@@ -84,6 +86,8 @@ window.initAndRender = (function () {
             group_id = nvme ? "TPC-H (NVME) (SF=10)" : "TPC-H (S3) (SF=10)";
           } else if (Number(scale_factor) === 100) {
             group_id = nvme ? "TPC-H (NVME) (SF=100)" : "TPC-H (S3) (SF=100)";
+          } else if (Number(scale_factor) === 1000) {
+            group_id = nvme ? "TPC-H (NVME) (SF=1000)" : "TPC-H (S3) (SF=1000)";
           } else {
             console.warn("no scale factor found in benchmark");
           }
@@ -122,6 +126,12 @@ window.initAndRender = (function () {
         continue;
       }
       group = groups[group_id];
+
+      if (group === undefined) {
+        console.warn("cannot find group element in group");
+        console.log(group_id)
+        continue;
+      }
 
       // Normalize name and units
       let [q, seriesName] = name.split("/");
@@ -170,6 +180,8 @@ window.initAndRender = (function () {
         q.slice(0, 4) === "tpch"
           ? parseInt(prettyQ.split(" ")[1].substring(1), 10)
           : 0;
+
+
 
       let arr = group.get(prettyQ);
       if (arr === undefined) {

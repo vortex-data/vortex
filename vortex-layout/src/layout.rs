@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use itertools::Itertools;
-use vortex_array::{ArrayContext, SerializeMetadata};
+use vortex_array::SerializeMetadata;
 use vortex_dtype::{DType, FieldName};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
@@ -54,7 +54,6 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
         &self,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<LayoutReaderRef>;
 }
 
@@ -248,9 +247,8 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         &self,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<LayoutReaderRef> {
-        V::new_reader(&self.0, name, segment_source, ctx)
+        V::new_reader(&self.0, name, segment_source)
     }
 }
 

@@ -15,7 +15,7 @@ use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::SendableLayoutWriter;
+use crate::SendableLayoutFuture;
 use crate::segments::SequenceWriter;
 use crate::sequence::SequenceId;
 
@@ -37,7 +37,7 @@ pub trait LayoutStrategy: 'static + Send + Sync {
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutWriter;
+    ) -> SendableLayoutFuture;
 }
 
 pub trait SequentialStreamExt: SequentialStream {

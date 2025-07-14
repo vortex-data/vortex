@@ -11,7 +11,7 @@ use futures::{FutureExt, stream};
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
-use vortex_array::{Array, ArrayContext, ArrayRef};
+use vortex_array::{Array, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult, VortexUnwrap as _};
 use vortex_expr::{ExprRef, Scope, is_root};
@@ -36,7 +36,6 @@ pub struct FlatReader {
     layout: FlatLayout,
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
-    ctx: ArrayContext,
     array: OnceLock<SharedArrayFuture>,
     len: usize,
 }
@@ -46,7 +45,6 @@ impl FlatReader {
         layout: FlatLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> Self {
         let len = layout
             .row_count
@@ -56,7 +54,6 @@ impl FlatReader {
             layout,
             name,
             segment_source,
-            ctx,
             array: Default::default(),
             len,
         }
@@ -82,7 +79,7 @@ impl FlatReader {
         Ok(self
             .array
             .get_or_init(|| {
-                let ctx = self.ctx.clone();
+                let ctx = self.layout.ctx.clone();
                 let dtype = self.layout.dtype().clone();
                 async move {
                     let segment = segment_fut.await?;
@@ -293,7 +290,7 @@ mod test {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &root())
                 .unwrap()
@@ -334,7 +331,7 @@ mod test {
 
             let expr = gt(root(), lit(3i32));
             let result = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(0..layout.row_count()), &expr)
                 .unwrap()
@@ -374,7 +371,7 @@ mod test {
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
 
             let result = layout
-                .new_reader("".into(), segments, ctx)
+                .new_reader("".into(), segments)
                 .unwrap()
                 .projection_evaluation(&(2..4), &root())
                 .unwrap()

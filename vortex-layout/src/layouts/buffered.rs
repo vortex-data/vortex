@@ -10,7 +10,7 @@ use vortex_array::ArrayContext;
 
 use crate::segments::SequenceWriter;
 use crate::{
-    LayoutStrategy, SendableLayoutWriter, SendableSequentialStream, SequentialStreamAdapter,
+    LayoutStrategy, SendableLayoutFuture, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt as _,
 };
 
@@ -31,7 +31,7 @@ impl LayoutStrategy for BufferedStrategy {
         ctx: &ArrayContext,
         sequence_writer: SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutWriter {
+    ) -> SendableLayoutFuture {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
         let buffered_stream = try_stream! {

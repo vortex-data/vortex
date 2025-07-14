@@ -102,9 +102,7 @@ mod test {
         .unwrap();
 
         let segments: Arc<dyn SegmentSource> = Arc::new(segments);
-        let reader = layout
-            .new_reader("".into(), segments, ArrayContext::empty())
-            .unwrap();
+        let reader = layout.new_reader("".into(), segments).unwrap();
 
         let splits = SplitBy::Layout
             .splits(reader.as_ref(), &[FieldMask::Exact(FieldPath::root())])
@@ -134,9 +132,7 @@ mod test {
         .unwrap();
 
         let segments: Arc<dyn SegmentSource> = Arc::new(segments);
-        let reader = layout
-            .new_reader("".into(), segments, ArrayContext::empty())
-            .unwrap();
+        let reader = layout.new_reader("".into(), segments).unwrap();
 
         let splits = SplitBy::RowCount(3)
             .splits(reader.as_ref(), &[FieldMask::Exact(FieldPath::root())])

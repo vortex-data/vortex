@@ -323,7 +323,7 @@ mod tests {
 
             let expr = eq(root(), lit(3i32));
             let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments, ctx).unwrap())
+                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
@@ -363,7 +363,7 @@ mod tests {
 
             let expr = gt(row_idx(), lit(3u64));
             let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments, ctx).unwrap())
+                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
@@ -407,7 +407,7 @@ mod tests {
             );
 
             let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments, ctx).unwrap())
+                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))

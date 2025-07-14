@@ -122,6 +122,10 @@ impl SelectExpr {
         Self { fields, child }
     }
 
+    pub fn new_expr(fields: SelectField, child: ExprRef) -> ExprRef {
+        Self::new(fields, child).into_expr()
+    }
+
     pub fn include_expr(columns: FieldNames, child: ExprRef) -> ExprRef {
         Self::new(SelectField::Include(columns), child).into_expr()
     }
