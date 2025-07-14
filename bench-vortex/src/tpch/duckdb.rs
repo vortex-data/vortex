@@ -33,8 +33,7 @@ impl DuckdbTpcOptions {
     }
 
     pub fn output_dir(&self) -> PathBuf {
-        self.base_dir
-            .join(self.format.to_string())
+        self.base_dir.join(self.format.to_string())
     }
 }
 
