@@ -3,9 +3,9 @@
 
 #[cfg(test)]
 mod test {
+    use vortex_array::IntoArray as _;
     use vortex_array::arrays::{BoolArray, ListArray, VarBinArray};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray as _};
     use vortex_buffer::buffer;
 
     use crate::DictArray;

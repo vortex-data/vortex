@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod tree;
+
 use std::fmt::Display;
 
 use itertools::Itertools as _;
+use tree::TreeDisplayWrapper;
 use vortex_error::VortexExpect as _;
 
 use crate::Array;
@@ -17,10 +20,50 @@ impl Display for DisplayArray<'_> {
 }
 
 pub enum DisplayOptions {
-    /// `EncodingId(dtype, len=123)`
+    /// ```
+    /// use vortex_array::display::DisplayOptions;
+    /// use vortex_array::IntoArray;
+    /// use vortex_buffer::buffer;
+    ///
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let opts = DisplayOptions::MetadataOnly;
+    /// assert_eq!(
+    ///     format!("{}", array.display_as(&opts)),
+    ///     "vortex.primitive(i16, len=5)",
+    /// );
+    /// ```
     MetadataOnly,
-    /// `[1i32, 2i32, 3i32]`
+    /// ```
+    /// use vortex_array::display::DisplayOptions;
+    /// use vortex_array::IntoArray;
+    /// use vortex_buffer::buffer;
+    ///
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let opts = DisplayOptions::default();
+    /// assert_eq!(
+    ///     format!("{}", array.display_as(&opts)),
+    ///     "[0i16, 1i16, 2i16, 3i16, 4i16]",
+    /// );
+    /// assert_eq!(
+    ///     format!("{}", array.display_as(&opts)),
+    ///     format!("{}", array.display()),
+    /// );
+    /// ```
     CommaSeparatedScalars { space_after_comma: bool },
+    /// ```
+    /// use vortex_array::display::DisplayOptions;
+    /// use vortex_array::IntoArray;
+    /// use vortex_buffer::buffer;
+    ///
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let opts = DisplayOptions::TreeDisplay;
+    /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
+    ///   metadata: EmptyMetadata
+    ///   buffer (align=2): 10 B (100.00%)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(&opts)), expected);
+    /// ```
+    TreeDisplay,
 }
 
 impl Default for DisplayOptions {
@@ -39,7 +82,41 @@ impl Display for DisplayArrayAs<'_> {
     }
 }
 
+impl Display for dyn Array + '_ {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.fmt_as(f, &DisplayOptions::MetadataOnly)
+    }
+}
+
 impl dyn Array + '_ {
+    pub fn tree_display(&self) -> impl Display {
+        TreeDisplayWrapper(self.to_array())
+    }
+
+    /// Display the logical values of the array.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use vortex_array::display::DisplayOptions;
+    /// use vortex_array::IntoArray;
+    /// use vortex_buffer::buffer;
+    ///
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let opts = DisplayOptions::default();
+    /// assert_eq!(
+    ///     format!("{}", array.display()),
+    ///     "[0i16, 1i16, 2i16, 3i16, 4i16]",
+    /// )
+    /// ```
+    pub fn display(&self) -> DisplayArray {
+        DisplayArray(self)
+    }
+
+    /// Display with options.
+    pub fn display_as<'a>(&'a self, options: &'a DisplayOptions) -> DisplayArrayAs<'a> {
+        DisplayArrayAs(self, options)
+    }
     pub fn fmt_as(
         &self,
         f: &mut std::fmt::Formatter,
@@ -67,6 +144,7 @@ impl dyn Array + '_ {
                 )?;
                 write!(f, "]")
             }
+            DisplayOptions::TreeDisplay => write!(f, "{}", TreeDisplayWrapper(self.to_array())),
         }
     }
 }
@@ -77,7 +155,6 @@ mod test {
     use vortex_dtype::FieldNames;
 
     use crate::IntoArray as _;
-    use crate::array::Array;
     use crate::arrays::{BoolArray, ListArray, StructArray};
     use crate::validity::Validity;
 
