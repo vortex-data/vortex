@@ -238,9 +238,13 @@ impl TableFunction for VortexTableFunction {
                 // This exporter is fully consumed.
                 local_state.exporter = None;
             } else {
-                return Ok(());
+                break;
             }
         }
+
+        assert!(!chunk.is_empty());
+
+        Ok(())
     }
 
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
