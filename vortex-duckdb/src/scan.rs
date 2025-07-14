@@ -248,9 +248,7 @@ impl TableFunction for VortexTableFunction {
         let projection_expr = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
 
-        let num_threads = thread::available_parallelism()
-            .map(|p| p.get())
-            .expect("Failed to get number of available threads");
+        let num_threads = thread::available_parallelism().map(|p| p.get())?;
 
         let multi_file_iter = MultiFileIterator::new(num_threads)
             .with_file_paths(&bind_data.file_paths[1..])
