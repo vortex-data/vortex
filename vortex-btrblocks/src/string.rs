@@ -145,7 +145,7 @@ impl Scheme for UncompressedScheme {
         _allowed_cascading: usize,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
-        stats.source().optimize()
+        Ok(stats.source().to_array())
     }
 }
 
