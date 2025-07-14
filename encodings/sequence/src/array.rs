@@ -105,7 +105,7 @@ impl SequenceArray {
         self.multiplier
     }
 
-    fn try_last(
+    pub(crate) fn try_last(
         base: PValue,
         multiplier: PValue,
         ptype: PType,

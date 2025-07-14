@@ -46,6 +46,16 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
     let Some(multiplier) = slice[1].checked_sub(&base) else {
         return Ok(None);
     };
+
+    if multiplier == P::zero() {
+        return Ok(None);
+    }
+
+    if SequenceArray::try_last(base.into(), multiplier.into(), P::PTYPE, slice.len()).is_err() {
+        // If the last value is out of range, we cannot encode
+        return Ok(None);
+    }
+
     slice
         .windows(2)
         .all(|w| Some(w[1]) == w[0].checked_add(&multiplier))
@@ -84,6 +94,14 @@ mod tests {
     #[test]
     fn test_encode_array_fail() {
         let primitive_array = PrimitiveArray::from_iter([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0]);
+
+        let encoded = sequence_encode(&primitive_array).unwrap();
+        assert!(encoded.is_none());
+    }
+
+    #[test]
+    fn test_encode_array_fail_oob() {
+        let primitive_array = PrimitiveArray::from_iter(vec![100i8; 1000]);
 
         let encoded = sequence_encode(&primitive_array).unwrap();
         assert!(encoded.is_none());
