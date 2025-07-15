@@ -6870,6 +6870,7 @@ dependencies = [
  "tokio",
  "vortex",
  "vortex-layout",
+ "vortex-scan",
 ]
 
 [[package]]

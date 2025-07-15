@@ -27,6 +27,7 @@ taffy = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 vortex = { workspace = true, features = ["tokio", "parquet"] }
 vortex-layout = { workspace = true }
+vortex-scan = { workspace = true, features = ["tokio"] }
 
 [lints]
 workspace = true
