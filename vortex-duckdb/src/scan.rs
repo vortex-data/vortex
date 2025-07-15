@@ -254,11 +254,19 @@ impl TableFunction for VortexTableFunction {
 
         let num_threads = thread::available_parallelism().map(|p| p.get())?;
 
-        let multi_file_iter = MultiFileIterator::new(num_threads)
-            .with_file_paths(&bind_data.file_paths[1..])
-            .with_vortex_files([bind_data.first_file.clone()])
-            .with_projection_expr(Some(projection_expr))
-            .with_filter_expr(filter_expr);
+        let closures = bind_data.file_paths.clone().into_iter().map(move |path| {
+            let filter_expr = filter_expr.clone();
+            let projection_expr = projection_expr.clone();
+            move || {
+                let file = VortexOpenOptions::file().open_blocking(&path).unwrap();
+                file.scan()
+                    .unwrap()
+                    .with_some_filter(filter_expr)
+                    .with_projection(projection_expr)
+            }
+        });
+
+        let multi_file_iter = MultiFileIterator::new(num_threads).with_scan_builders(closures);
 
         Ok(VortexGlobalData {
             conversion_cache_id: AtomicU64::new(0),

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use core::panic;
-use std::path::{Path, PathBuf};
 
 use crossbeam_queue::SegQueue;
 use dashmap::DashMap;
@@ -12,16 +11,15 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
-use vortex_file::{VortexFile, VortexOpenOptions};
+use vortex_file::VortexFile;
 use vortex_layout::scan::ScanBuilder;
 
 type ArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
 pub struct MultiFileIterator {
-    files: SegQueue<VortexFile>,
     filter_expr: Option<ExprRef>,
     local_pools: DashMap<usize, LocalPool>,
-    paths: SegQueue<Box<dyn FnOnce() -> ScanBuilder<ArrayRef>>>,
+    scan_builder_fns: SegQueue<Box<dyn FnOnce() -> ScanBuilder<ArrayRef>>>,
     polled_tasks: DashMap<usize, FuturesUnordered<ArrayFuture>>,
     projection_expr: Option<ExprRef>,
     task_queues: DashMap<usize, SegQueue<ArrayFuture>>,
@@ -40,8 +38,7 @@ impl MultiFileIterator {
 
         Self {
             task_queues: thread_queues,
-            paths: SegQueue::new(),
-            files: SegQueue::new(),
+            scan_builder_fns: SegQueue::new(),
             local_pools,
             projection_expr: None,
             filter_expr: None,
@@ -49,24 +46,13 @@ impl MultiFileIterator {
         }
     }
 
-    pub fn with_file_paths<P, I>(self, file_paths: I) -> Self
+    pub fn with_scan_builders<I, F>(self, closures: I) -> Self
     where
-        P: AsRef<Path>,
-        I: IntoIterator<Item = P>,
+        F: FnOnce() -> ScanBuilder<ArrayRef> + 'static,
+        I: IntoIterator<Item = F>,
     {
-        for path in file_paths.into_iter().map(|p| p.as_ref().to_path_buf()) {
-            self.paths.push(path);
-        }
-
-        self
-    }
-
-    pub fn with_vortex_files<I>(self, vortex_files: I) -> Self
-    where
-        I: IntoIterator<Item = VortexFile>,
-    {
-        for vortex_file in vortex_files.into_iter() {
-            self.files.push(vortex_file);
+        for closure in closures.into_iter() {
+            self.scan_builder_fns.push(Box::new(closure));
         }
 
         self
@@ -132,22 +118,21 @@ impl MultiFileIterator {
         loop {
             // Queue up tasks if the thread local queue is almost empty.
             if task_queue.len() <= 4 {
-                if let Some(file) = self.files.pop() {
-                    self.push_scan_tasks_for_file(file, thread_id).ok()?;
-                } else if let Some(file_path) = self.paths.pop() {
-                    let file = VortexOpenOptions::file().open_blocking(&file_path).ok()?;
-                    self.push_scan_tasks_for_file(file, thread_id).ok()?;
+                if let Some(scan_builder_fn) = self.scan_builder_fns.pop() {
+                    let split_tasks = scan_builder_fn().build().ok()?.1;
+                    for task in split_tasks {
+                        task_queue.push(Box::pin(task));
+                    }
                 }
                 // TODO(Alex): worksteal tasks from other threads
             }
 
-            // Poll 4 futures at a time.
-            while processed_tasks.len() < 4 && !task_queue.is_empty() {
-                if let Some(work_result) = self.pop_scan_task(thread_id) {
-                    match work_result {
-                        Ok(future) => processed_tasks.push(future),
-                        Err(e) => return Some(Err(e)),
-                    }
+            // Poll one future at a time. Polling multiple futures at
+            // the same time leads to contention with a layout reader.
+            if let Some(work_result) = self.pop_scan_task(thread_id) {
+                match work_result {
+                    Ok(future) => processed_tasks.push(future),
+                    Err(e) => return Some(Err(e)),
                 }
             }
 
