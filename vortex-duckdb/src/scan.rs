@@ -59,7 +59,7 @@ pub struct VortexGlobalData {
     /// ensure that each cache created has a unique id used to name those arrays
     conversion_cache_id: AtomicU64,
     multi_file_iter: Arc<MultiFileIterator>,
-    thread_count: AtomicUsize,
+    next_thread_id: AtomicUsize,
 }
 
 pub struct VortexLocalData {
@@ -263,7 +263,7 @@ impl TableFunction for VortexTableFunction {
         Ok(VortexGlobalData {
             conversion_cache_id: AtomicU64::new(0),
             multi_file_iter: Arc::new(multi_file_iter),
-            thread_count: AtomicUsize::new(0),
+            next_thread_id: AtomicUsize::new(0),
         })
     }
 
@@ -274,7 +274,7 @@ impl TableFunction for VortexTableFunction {
         Ok(VortexLocalData {
             exporter: None,
             cache: None,
-            thread_id: global.thread_count.fetch_add(1, SeqCst),
+            thread_id: global.next_thread_id.fetch_add(1, SeqCst),
         })
     }
 
