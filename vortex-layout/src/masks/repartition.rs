@@ -48,13 +48,7 @@ impl<'a> RepartitionMaskStream<'a> {
             self.buffer.push(mask);
             self.buffer_row_count += mask_len;
 
-            if self.buffer_row_count == self.target_row_count {
-                // Buffer is complete, return the concatenated mask
-                Some(self.flush_buffer())
-            } else {
-                // Buffer not yet complete
-                None
-            }
+            (self.buffer_row_count == self.target_row_count).then(|| self.flush_buffer())
         } else {
             // Mask needs to be split
             let first_part = mask.slice(0, remaining_capacity);
@@ -96,38 +90,7 @@ impl<'a> RepartitionMaskStream<'a> {
     /// Processes the current mask in the buffer, potentially yielding a complete chunk
     fn process_current_mask(&mut self) -> Option<Mask> {
         if let Some(mask) = self.current_mask.take() {
-            let mask_len = mask.len();
-            let remaining_capacity = self.target_row_count - self.buffer_row_count;
-
-            if mask_len <= remaining_capacity {
-                // Entire remaining mask fits in current buffer
-                self.buffer.push(mask);
-                self.buffer_row_count += mask_len;
-                self.current_offset = 0;
-
-                if self.buffer_row_count == self.target_row_count {
-                    // Buffer is complete
-                    Some(self.flush_buffer())
-                } else {
-                    // Buffer not yet complete
-                    None
-                }
-            } else {
-                // Need to split the mask
-                let first_part = mask.slice(0, remaining_capacity);
-                let second_part = mask.slice(remaining_capacity, mask_len - remaining_capacity);
-
-                // Add first part to complete the buffer
-                self.buffer.push(first_part);
-                self.buffer_row_count += remaining_capacity;
-
-                // Keep the second part for next iteration
-                self.current_mask = Some(second_part);
-                self.current_offset = 0;
-
-                // Return the completed buffer
-                Some(self.flush_buffer())
-            }
+            self.add_to_buffer(mask)
         } else {
             None
         }
