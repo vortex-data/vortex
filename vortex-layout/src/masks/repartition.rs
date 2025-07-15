@@ -89,7 +89,7 @@ impl<'a> RepartitionMaskStream<'a> {
             // Concatenate multiple masks
             let masks = std::mem::take(&mut self.buffer);
             self.buffer_row_count = 0;
-            Mask::from_iter(masks.into_iter())
+            Mask::from_iter(masks)
         }
     }
 
@@ -143,7 +143,7 @@ impl<'a> RepartitionMaskStream<'a> {
     }
 }
 
-impl<'a> Stream for RepartitionMaskStream<'a> {
+impl Stream for RepartitionMaskStream<'_> {
     type Item = VortexResult<Mask>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

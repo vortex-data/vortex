@@ -126,7 +126,7 @@ impl LayoutReader for RowIdxLayoutReader {
     }
 
     fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
-        // TODO: sometimes we can evaluate the ~
+        // It would be nice to know the row idx expression here and adjust the returned splits.
         self.child.row_masks(field_mask)
     }
 
