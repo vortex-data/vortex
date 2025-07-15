@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use once_cell::sync::OnceCell;
+use roaring::RoaringTreemap;
 use vortex_array::ArrayRef;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
@@ -38,7 +39,7 @@ pub trait LayoutReader: 'static + Send + Sync {
     /// Emit an iterator of [`Mask`]s from the layout reader that cover the full range of rows.
     /// These masks are likely to be partitioned in a way that is reasonable efficient for
     /// partitioning evaluation of the layout reader - but there's no guarantee.
-    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream;
+    fn row_masks(&self, selection: &RoaringTreemap, field_mask: &[FieldMask]) -> MaskStream;
 
     /// Performs an approximate evaluation of the expression against the layout reader.
     fn pruning_evaluation(

@@ -15,6 +15,7 @@ use futures::task::LocalSpawnExt;
 use futures::{FutureExt, Stream, StreamExt, stream};
 use itertools::Itertools;
 use parking_lot::Mutex;
+use roaring::RoaringTreemap;
 pub use selection::*;
 pub use split_by::*;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
@@ -207,8 +208,26 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
 
+        let selection = match &self.selection {
+            Selection::All => RoaringTreemap::full(),
+            Selection::IncludeByIndex(indices) => {
+                let mut treemap = RoaringTreemap::new();
+                for idx in indices.iter() {
+                    treemap.insert(*idx);
+                }
+                treemap
+            }
+            Selection::ExcludeByIndex(indices) => {
+                let mut treemap = RoaringTreemap::full();
+                for idx in indices.iter() {
+                    treemap.remove(*idx);
+                }
+                treemap
+            }
+        };
+
         // Set up the initial stream of RowMasks.
-        let masks = layout_reader.row_masks(&field_mask);
+        let masks = layout_reader.row_masks(&selection, &field_mask);
 
         // If we split by a fixed row count, we repartition the masks into splits.
         let masks = match self.split_by {

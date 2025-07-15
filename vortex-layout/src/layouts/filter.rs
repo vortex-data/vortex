@@ -10,6 +10,7 @@ use bit_vec::BitVec;
 use dashmap::DashMap;
 use itertools::Itertools;
 use parking_lot::RwLock;
+use roaring::RoaringTreemap;
 use sketches_ddsketch::DDSketch;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask};
@@ -57,8 +58,8 @@ impl LayoutReader for FilterLayoutReader {
         self.child.row_count()
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
-        self.child.row_masks(field_mask)
+    fn row_masks(&self, selection: &RoaringTreemap, field_mask: &[FieldMask]) -> MaskStream {
+        self.child.row_masks(selection, field_mask)
     }
 
     fn pruning_evaluation(

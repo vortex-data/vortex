@@ -9,6 +9,7 @@ use futures::future::ready;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use itertools::Itertools;
+use roaring::RoaringTreemap;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::stats::Precision;
@@ -128,15 +129,33 @@ impl LayoutReader for ChunkedReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
+    fn row_masks(&self, selection: &RoaringTreemap, field_mask: &[FieldMask]) -> MaskStream {
+        // let mut bitmaps = selection.bitmaps();
+        // let bitmap = bitmaps.next().unwrap();
+        // assert!(bitmaps.next().is_none());
+
+        // println!("chunked row_masks {:?}", self.chunk_offsets);
         let field_mask = field_mask.to_vec();
         let children: Vec<_> = (0..self.layout.nchildren())
+            .filter(|idx| {
+                let start = self.chunk_offsets[*idx];
+                let end = if *idx + 1 == self.chunk_offsets.len() {
+                    self.layout.row_count
+                } else {
+                    self.chunk_offsets[*idx + 1]
+                };
+                let mut other = RoaringTreemap::new();
+                other.insert_range(start..end);
+                // bitmap.1.contains_range(start..end);
+                let res = !selection.is_disjoint(&other);
+                res
+            })
             .map(|i| self.chunk_reader(i).cloned())
             .collect();
 
         stream::iter(children)
             .map(move |child| match child {
-                Ok(child) => child.row_masks(&field_mask),
+                Ok(child) => child.row_masks(&RoaringTreemap::new(), &field_mask),
                 Err(e) => stream::once(async move { Err(e) }).boxed(),
             })
             .flatten()

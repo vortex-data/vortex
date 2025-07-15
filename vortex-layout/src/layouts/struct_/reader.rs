@@ -8,6 +8,7 @@ use arrow_buffer::ArrowNativeType;
 use dashmap::DashMap;
 use futures::{StreamExt, stream};
 use itertools::Itertools;
+use roaring::RoaringTreemap;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -177,7 +178,7 @@ impl LayoutReader for StructReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
+    fn row_masks(&self, selection: &RoaringTreemap, field_mask: &[FieldMask]) -> MaskStream {
         // Here we construct a stream of masks for each field in the field_mask, and then take
         // the smallest mask from each field.
         // If the field_mask is empty, we return a stream of all true masks.
@@ -190,7 +191,7 @@ impl LayoutReader for StructReader {
         self.layout
             .matching_fields(field_mask, |mask, idx| {
                 let child = self.child_by_idx(idx)?;
-                field_streams.push(child.row_masks(&[mask]));
+                field_streams.push(child.row_masks(selection, &[mask]));
                 Ok(())
             })
             .vortex_expect("infallible");

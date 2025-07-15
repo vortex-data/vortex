@@ -10,6 +10,7 @@ use dashmap::DashMap;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
+use roaring::RoaringTreemap;
 use vortex_array::ToCanonical;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
@@ -176,8 +177,8 @@ impl LayoutReader for ZonedReader {
         self.data_child.row_count()
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
-        self.data_child.row_masks(field_mask)
+    fn row_masks(&self, selection: &RoaringTreemap, field_mask: &[FieldMask]) -> MaskStream {
+        self.data_child.row_masks(selection, field_mask)
     }
 
     fn pruning_evaluation(

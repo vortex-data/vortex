@@ -11,6 +11,7 @@ use Nullability::NonNullable;
 use async_trait::async_trait;
 use dashmap::DashMap;
 pub use expr::*;
+use roaring::RoaringTreemap;
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
@@ -125,9 +126,9 @@ impl LayoutReader for RowIdxLayoutReader {
         self.child.row_count()
     }
 
-    fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
+    fn row_masks(&self, selection: &RoaringTreemap, field_mask: &[FieldMask]) -> MaskStream {
         // It would be nice to know the row idx expression here and adjust the returned splits.
-        self.child.row_masks(field_mask)
+        self.child.row_masks(selection, field_mask)
     }
 
     fn pruning_evaluation(
