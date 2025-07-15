@@ -276,11 +276,9 @@ impl TableFunction for VortexTableFunction {
             }
         });
 
-        let multi_file_iter = MultiFileIterator::new(num_threads).with_scan_builders(closures);
-
         Ok(VortexGlobalData {
             conversion_cache_id: AtomicU64::new(0),
-            multi_file_iter,
+            multi_file_iter: MultiFileIterator::new(num_threads).with_scan_builders(closures),
             next_thread_id: AtomicUsize::new(0),
         })
     }
