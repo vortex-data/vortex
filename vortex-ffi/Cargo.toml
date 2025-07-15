@@ -29,6 +29,7 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 tokio-stream = { workspace = true }
 url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["object_store"] }
+vortex-scan = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

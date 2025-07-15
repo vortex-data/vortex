@@ -126,6 +126,7 @@ use vortex_fsst::FSSTEncoding;
 pub use vortex_layout::scan;
 use vortex_pco::PcoEncoding;
 use vortex_runend::RunEndEncoding;
+pub use vortex_scan as scan;
 use vortex_sequence::SequenceEncoding;
 use vortex_sparse::SparseEncoding;
 use vortex_zigzag::ZigZagEncoding;

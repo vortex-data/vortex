@@ -92,7 +92,7 @@ impl MultiFileIterator {
             }
 
             // Poll one future at a time. Polling multiple futures at
-            // the same time leads to contention with a layout reader.
+            // the same time leads to contention within a layout reader.
             if let Some(work_result) = self.pop_scan_task(thread_id) {
                 match work_result {
                     Ok(future) => polled_tasks.push(future),

@@ -6306,6 +6306,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "vortex",
+ "vortex-scan",
 ]
 
 [[package]]
@@ -6489,6 +6490,7 @@ dependencies = [
  "tokio-stream",
  "url",
  "vortex",
+ "vortex-scan",
 ]
 
 [[package]]
@@ -6531,6 +6533,7 @@ dependencies = [
  "vortex-pco",
  "vortex-runend",
  "vortex-scalar",
+ "vortex-scan",
  "vortex-sequence",
  "vortex-sparse",
  "vortex-utils",
@@ -6749,6 +6752,7 @@ dependencies = [
  "tokio",
  "url",
  "vortex",
+ "vortex-scan",
 ]
 
 [[package]]

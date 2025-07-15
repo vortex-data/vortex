@@ -15,10 +15,10 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
 use vortex::error::VortexError;
 use vortex::expr::{ExprRef, root, select};
-use vortex::file::scan::SplitBy;
 use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::stream::ArrayStreamExt;
+use vortex_scan::SplitBy;
 
 use crate::arrays::PyArrayRef;
 use crate::dataset::PyVortexDataset;
