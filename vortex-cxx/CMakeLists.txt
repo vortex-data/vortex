@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.22)
 
-project(vortex-cxx)
+project(vortex)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,10 +31,11 @@ endif()
 corrosion_import_crate(
     MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
     FEATURES ${CORROSION_FEATURES}
+    CRATES vortex-cxx
 )
 
 # Enable CXX bridge for the Rust crate
-corrosion_add_cxxbridge(vortex_cxx_bridge CRATE vortex_cxx_rs FILES lib.rs)
+corrosion_add_cxxbridge(vortex_cxx_bridge CRATE vortex_cxx FILES lib.rs)
 
 FetchContent_Declare(nanoarrow
     URL "https://www.apache.org/dyn/closer.lua?action=download&filename=arrow/apache-arrow-nanoarrow-0.7.0/apache-arrow-nanoarrow-0.7.0.tar.gz")
@@ -53,13 +54,13 @@ set(CPP_INCLUDE_DIRS
 )
 
 # Create the main library combining C++ and Rust code
-add_library(vortex_cxx STATIC ${CPP_SOURCE_FILE})
-target_include_directories(vortex_cxx PUBLIC ${CPP_INCLUDE_DIRS})
-target_include_directories(vortex_cxx PRIVATE 
+add_library(vortex STATIC ${CPP_SOURCE_FILE})
+target_include_directories(vortex PUBLIC ${CPP_INCLUDE_DIRS})
+target_include_directories(vortex PRIVATE 
     ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include
     ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/src
 )
-target_link_libraries(vortex_cxx 
+target_link_libraries(vortex 
     PUBLIC nanoarrow_static
     PRIVATE vortex_cxx_bridge
 )
@@ -77,7 +78,7 @@ if (VORTEX_ENABLE_TESTING)
     enable_testing()
     add_executable(vortex_cxx_test cpp/tests/basic_test.cpp)
     target_include_directories(vortex_cxx_test PUBLIC ${CPP_INCLUDE_DIRS})
-    target_link_libraries(vortex_cxx_test PRIVATE gtest_main vortex_cxx nanoarrow_static)
+    target_link_libraries(vortex_cxx_test PRIVATE gtest_main vortex nanoarrow_static)
     # unit tests link to the bridge for the gen_test_data function only
     target_include_directories(vortex_cxx_test PRIVATE 
         ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include
