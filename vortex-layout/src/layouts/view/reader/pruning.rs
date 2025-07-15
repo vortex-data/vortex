@@ -53,6 +53,7 @@ trait StringViewPredicate {
 }
 
 /// Build a mask
+#[allow(unused)]
 fn build_mask<Pred>(predicate: Pred, views: &[BinaryView]) -> Mask
 where
     Pred: StringViewPredicate,
@@ -61,7 +62,7 @@ where
 }
 
 #[allow(unused)]
-struct StartsWithPredicate {
+pub(crate) struct StartsWithPredicate {
     /// Length of `prefix` in bits. Must be between 1..=32
     prefix_bits: u32,
     /// The prefix, holding up to 4 characters of string data.
@@ -101,7 +102,7 @@ impl StringViewPredicate for &StartsWithPredicate {
     }
 }
 
-struct EqualsPredicate {
+pub(crate) struct EqualsPredicate {
     length: u32,
     prefix: u32,
 }

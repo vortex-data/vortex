@@ -17,7 +17,7 @@ use vortex_array::stats::Precision;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexResult};
-use vortex_expr::{ExprRef, LikeVTable, ScopeDType};
+use vortex_expr::{ExprRef, LikeVTable};
 
 use crate::layouts::view::ViewLayout;
 use crate::layouts::view::reader::array::ViewProjection;
@@ -97,8 +97,7 @@ impl ViewReader {
         ctx: ArrayContext,
     ) -> Self {
         let name = name.into();
-        let children =
-            LazyReaderChildren::new(layout.children.clone(), segment_source.clone(), ctx.clone());
+        let children = LazyReaderChildren::new(layout.children.clone(), segment_source.clone());
 
         let fetch_buffers = FetchBuffers::new(
             name.clone(),
@@ -152,10 +151,6 @@ impl LayoutReader for ViewReader {
 
     fn dtype(&self) -> &DType {
         self.layout.dtype()
-    }
-
-    fn scope_dtype(&self) -> &ScopeDType {
-        self.layout.scope_dtype()
     }
 
     fn row_count(&self) -> Precision<u64> {

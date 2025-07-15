@@ -10,7 +10,7 @@ use arcref::ArcRef;
 pub use reader::*;
 use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
 use vortex_dtype::{DType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use crate::segments::{SegmentId, SegmentSource};
 use crate::{
@@ -38,10 +38,7 @@ impl VTable for ViewVTable {
     }
 
     fn dtype(layout: &Self::Layout) -> &DType {
-        layout
-            .scope_dtype
-            .dtype(&Identifier::Identity)
-            .vortex_expect("view layout always has an identity")
+        &layout.dtype
     }
 
     fn metadata(_layout: &Self::Layout) -> Self::Metadata {
@@ -56,7 +53,7 @@ impl VTable for ViewVTable {
         segments
     }
 
-    fn nchildren(_layout: &Self::Layout) -> usize {
+    fn nchildren(_: &Self::Layout) -> usize {
         0
     }
 

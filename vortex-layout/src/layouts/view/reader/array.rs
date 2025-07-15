@@ -12,6 +12,7 @@ use vortex_mask::Mask;
 use crate::ArrayEvaluation;
 
 /// A projection evaluator over a View layout.
+#[allow(unused)]
 pub(crate) struct ViewProjection {
     pub(crate) row_range: Range<u64>,
     pub(crate) expr: ExprRef,
