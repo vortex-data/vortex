@@ -13,6 +13,7 @@ use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
 use vortex_file::{VortexFile, VortexOpenOptions};
+use vortex_layout::scan::ScanBuilder;
 
 type ArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
@@ -20,7 +21,7 @@ pub struct MultiFileIterator {
     files: SegQueue<VortexFile>,
     filter_expr: Option<ExprRef>,
     local_pools: DashMap<usize, LocalPool>,
-    paths: SegQueue<PathBuf>,
+    paths: SegQueue<Box<dyn FnOnce() -> ScanBuilder<ArrayRef>>>,
     polled_tasks: DashMap<usize, FuturesUnordered<ArrayFuture>>,
     projection_expr: Option<ExprRef>,
     task_queues: DashMap<usize, SegQueue<ArrayFuture>>,
