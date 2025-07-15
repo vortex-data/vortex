@@ -82,18 +82,6 @@ impl MultiFileIterator {
         self
     }
 
-    pub fn push_scan_task<I, F>(&self, thread_id: usize, items: I)
-    where
-        I: IntoIterator<Item = F>,
-        F: Future<Output = VortexResult<Option<ArrayRef>>> + Send + 'static,
-    {
-        if let Some(task_queue) = self.task_queues.get(&thread_id) {
-            for item in items {
-                task_queue.push(Box::pin(item));
-            }
-        }
-    }
-
     fn pop_scan_task(&self, preferred_thread: usize) -> Option<VortexResult<ArrayFuture>> {
         if let Some(queue) = self.task_queues.get(&preferred_thread) {
             if let Some(array_future_tuple) = queue.pop() {
