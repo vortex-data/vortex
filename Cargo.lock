@@ -6806,7 +6806,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-expr",
- "vortex-file",
  "vortex-layout",
  "vortex-mask",
  "vortex-metrics",

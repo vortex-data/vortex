@@ -11,7 +11,6 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
-use vortex_file::VortexFile;
 use vortex_layout::scan::ScanBuilder;
 
 type ArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
