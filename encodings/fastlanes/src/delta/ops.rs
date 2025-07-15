@@ -315,12 +315,20 @@ mod test {
 
         assert!(matches!(
             delta.scalar_at(2048),
-            Err(VortexError::OutOfBounds(2048, 0, 2048, _))
+            Err(VortexError::OutOfBounds {
+                idx: 2048,
+                start: 0,
+                stop: 2048
+            })
         ));
 
         assert!(matches!(
             delta.scalar_at(2049),
-            Err(VortexError::OutOfBounds(2049, 0, 2048, _))
+            Err(VortexError::OutOfBounds {
+                idx: 2049,
+                start: 0,
+                stop: 2048
+            })
         ));
     }
 
@@ -340,12 +348,20 @@ mod test {
 
         assert!(matches!(
             delta.scalar_at(2000),
-            Err(VortexError::OutOfBounds(2000, 0, 2000, _))
+            Err(VortexError::OutOfBounds {
+                idx: 2000,
+                start: 0,
+                stop: 2000,
+            })
         ));
 
         assert!(matches!(
             delta.scalar_at(2001),
-            Err(VortexError::OutOfBounds(2001, 0, 2000, _))
+            Err(VortexError::OutOfBounds {
+                idx: 2001,
+                start: 0,
+                stop: 2000
+            })
         ));
     }
 }

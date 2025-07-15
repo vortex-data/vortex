@@ -155,21 +155,21 @@ mod test {
     fn cast_i32_u32() {
         let arr = buffer![-1i32].into_array();
         let error = cast(&arr, PType::U32.into()).err().unwrap();
-        let VortexError::ComputeError(s, _) = error else {
+        let VortexError::ComputeError { reason } = error else {
             unreachable!()
         };
-        assert_eq!(s.to_string(), "Failed to cast -1 to U32");
+        assert_eq!(&*reason, "Failed to cast -1 to U32");
     }
 
     #[test]
     fn cast_array_with_nulls_to_nonnullable() {
         let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]);
         let err = cast(arr.as_ref(), PType::I32.into()).unwrap_err();
-        let VortexError::InvalidArgument(s, _) = err else {
+        let VortexError::InvalidArgument { reason } = err else {
             unreachable!()
         };
         assert_eq!(
-            s.to_string(),
+            &*reason,
             "invalid cast from nullable to non-nullable, since source array actually contains nulls"
         );
     }

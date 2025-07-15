@@ -368,10 +368,10 @@ mod test {
         assert_eq!(array.scalar_at(5).unwrap(), Scalar::from(Some(200_i32)));
 
         let error = array.scalar_at(10).err().unwrap();
-        let VortexError::OutOfBounds(i, start, stop, _) = error else {
+        let VortexError::OutOfBounds { idx, start, stop } = error else {
             unreachable!()
         };
-        assert_eq!(i, 10);
+        assert_eq!(idx, 10);
         assert_eq!(start, 0);
         assert_eq!(stop, 10);
     }
@@ -401,10 +401,10 @@ mod test {
         let sliced = sparse_array(nullable_fill()).slice(2, 7).unwrap();
         assert_eq!(usize::try_from(&sliced.scalar_at(0).unwrap()).unwrap(), 100);
         let error = sliced.scalar_at(5).err().unwrap();
-        let VortexError::OutOfBounds(i, start, stop, _) = error else {
+        let VortexError::OutOfBounds { idx, start, stop } = error else {
             unreachable!()
         };
-        assert_eq!(i, 5);
+        assert_eq!(idx, 5);
         assert_eq!(start, 0);
         assert_eq!(stop, 5);
     }
@@ -448,10 +448,10 @@ mod test {
             100
         );
         let error = sliced_once.scalar_at(7).err().unwrap();
-        let VortexError::OutOfBounds(i, start, stop, _) = error else {
+        let VortexError::OutOfBounds { idx, start, stop } = error else {
             unreachable!()
         };
-        assert_eq!(i, 7);
+        assert_eq!(idx, 7);
         assert_eq!(start, 0);
         assert_eq!(stop, 7);
 
@@ -461,10 +461,10 @@ mod test {
             200
         );
         let error2 = sliced_twice.scalar_at(5).err().unwrap();
-        let VortexError::OutOfBounds(i, start, stop, _) = error2 else {
+        let VortexError::OutOfBounds { idx, start, stop } = error2 else {
             unreachable!()
         };
-        assert_eq!(i, 5);
+        assert_eq!(idx, 5);
         assert_eq!(start, 0);
         assert_eq!(stop, 5);
     }
