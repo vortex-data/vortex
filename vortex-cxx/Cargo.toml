@@ -7,21 +7,18 @@ description = "C++ bindings for Vortex generated from Rust using cxx"
 license = "Apache-2.0"
 publish = false
 
-# empty workspace to keep it out of the workspace of the parent `vortex` folder
-[workspace]
-
 [lib]
 crate-type = ["staticlib"]
 
 [dependencies]
-arrow-array = { version = "55.0", features = ["ffi"] }
-arrow-schema = "55.0"
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-schema = { workspace = true }
 cxx = "1.0"
-futures = { version = "0.3.31", default-features = false }
-prost = "0.13.4"
-take_mut = "0.2.2"
-tokio = { version = "1.45.1", features = ["rt", "rt-multi-thread", "macros"] }
-vortex = { path = "../vortex", features = ["tokio"] }
+futures = { workspace = true, default-features = false }
+prost = { workspace = true }
+take_mut = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+vortex = { workspace = true, features = ["tokio"] }
 
 [build-dependencies]
 cxx-build = "1.0"

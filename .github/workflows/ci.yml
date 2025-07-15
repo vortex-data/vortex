@@ -142,7 +142,7 @@ jobs:
         run: |
           cargo doc --no-deps
           # nextest doesn't support doc tests, so we run it here
-          cargo test --doc --workspace --all-features --exclude vortex-python --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
+          cargo test --doc --workspace --all-features --exclude vortex-cxx-rs --exclude vortex-python --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
@@ -181,7 +181,7 @@ jobs:
             target: wasm32-unknown-unknown
             env:
               rustflags: 'RUSTFLAGS="-A warnings --cfg getrandom_backend=\"wasm_js\""'
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
+            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-cxx-rs"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -327,7 +327,7 @@ jobs:
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
-            --ignore 'vortex-ffi/examples/*' \
+            --ignore 'vortex-ffi/examples/*' --ignore 'vortex-cxx/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
@@ -411,6 +411,7 @@ jobs:
         run: |
           cargo codspeed build --features test-harness \
             --exclude bench-vortex \
+            --exclude vortex-cxx-rs \
             --exclude vortex-datafusion \
             --exclude vortex-duckdb \
             --exclude vortex-fuzz \
@@ -522,7 +523,7 @@ jobs:
           cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout \
           --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr \
           --exclude vortex-scalar --exclude vortex-duckdb --exclude vortex-ffi --exclude bench-vortex \
-          --exclude vortex-python --exclude vortex-jni
+          --exclude vortex-python --exclude vortex-jni --exclude vortex-cxx-rs
       - name: Run Miri
         run: cargo miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
 
