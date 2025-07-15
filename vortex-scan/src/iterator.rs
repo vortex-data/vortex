@@ -24,20 +24,20 @@ pub struct MultiFileIterator {
 
 impl MultiFileIterator {
     pub fn new(num_threads: usize) -> Self {
-        let thread_queues = DashMap::new();
-        let processed_tasks = DashMap::new();
+        let task_queues = DashMap::new();
+        let polled_tasks = DashMap::new();
         let local_pools = DashMap::new();
         for thread_id in 0..num_threads {
-            thread_queues.insert(thread_id, SegQueue::new());
-            processed_tasks.insert(thread_id, FuturesUnordered::new());
+            task_queues.insert(thread_id, SegQueue::new());
+            polled_tasks.insert(thread_id, FuturesUnordered::new());
             local_pools.insert(thread_id, LocalPool::new());
         }
 
         Self {
-            task_queues: thread_queues,
+            task_queues,
             scan_builder_fns: SegQueue::new(),
             local_pools,
-            polled_tasks: processed_tasks,
+            polled_tasks,
         }
     }
 
