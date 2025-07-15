@@ -50,7 +50,7 @@ mod test {
         // [convert]
         use std::fs::File;
 
-        use arrow::array::RecordBatchReader;
+        use arrow_array::RecordBatchReader;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
         use vortex::Array;
         use vortex::arrays::ChunkedArray;

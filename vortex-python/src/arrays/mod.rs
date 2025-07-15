@@ -8,8 +8,8 @@ pub(crate) mod from_arrow;
 mod native;
 pub(crate) mod py;
 
-use arrow::array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
-use arrow::pyarrow::ToPyArrow;
+use arrow_array::{Array as ArrowArray, ArrayRef as ArrowArrayRef};
+use arrow_pyarrow::ToPyArrow;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};

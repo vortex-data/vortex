@@ -20,6 +20,14 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::SegmentSpec;
 
+macro_rules! trace_log {
+    ($($tts:tt)*) => {
+        if ::log::log_enabled!(::log::Level::Trace) {
+            ::log::trace!($($tts)*);
+        }
+    };
+}
+
 /// An I/O driver that assembles coalesced requests based on a performance hint and a
 /// pre-configured pre-fetching window.
 pub struct CoalescedDriver {
@@ -89,10 +97,6 @@ impl CoalescedDriver {
         &self.segment_map[*id as usize]
     }
 
-    fn segment_state(&self, id: SegmentId) -> &PendingSegment {
-        self.state.get(&id).vortex_expect("segment does not exist")
-    }
-
     fn segment_state_mut(&mut self, id: SegmentId) -> &mut PendingSegment {
         self.state
             .get_mut(&id)
@@ -102,13 +106,13 @@ impl CoalescedDriver {
     /// Mark a segment as prefetched (if it hasn't been polled), and update the prefetch
     /// buffer count.
     fn mark_as_prefetched(&mut self, id: SegmentId) {
-        let state = self.segment_state(id);
-
-        // If the segment has been pre-fetched, we can remove its bytes from the buffer.
+        let state = self.segment_state_mut(id);
         assert!(!state.is_prefetched, "segment already prefetched");
+
+        // Account for these new bytes in the prefetch buffer
         if !state.polled {
+            state.is_prefetched = true;
             self.prefetched_bytes += self.segment_spec(id).length as i64;
-            self.segment_state_mut(id).is_prefetched = false;
         }
     }
 
@@ -126,6 +130,11 @@ impl CoalescedDriver {
     }
 
     fn on_requested(&mut self, request: SegmentRequest) {
+        trace_log!(
+            "on_requested: segment={} for_whom={}",
+            *request.id(),
+            request.for_whom(),
+        );
         self.requested.insert_if_absent(request.id());
         self.state.insert(
             request.id(),
@@ -139,6 +148,8 @@ impl CoalescedDriver {
     }
 
     fn on_polled(&mut self, id: SegmentId) {
+        trace_log!("on_polled: segment={}", *id);
+
         // We don't launch _any_ I/O until the first poll.
         self.first_poll = true;
 
@@ -152,6 +163,8 @@ impl CoalescedDriver {
     }
 
     fn on_dropped(&mut self, id: SegmentId) {
+        trace_log!("on_dropped: segment={}", *id);
+
         // If the segment has been pre-fetched, we can remove its bytes from the buffer.
         self.unmark_as_prefetched(id);
         self.state.remove(&id);
@@ -159,7 +172,9 @@ impl CoalescedDriver {
         self.requested.remove(&id);
     }
 
-    fn on_resolved(&mut self, _id: SegmentId) {}
+    fn on_resolved(&mut self, id: SegmentId) {
+        trace_log!("on_resolved: segment={}", id);
+    }
 
     /// Request a segment from the underlying storage.
     fn coalesce_request(
@@ -259,7 +274,10 @@ impl CoalescedDriver {
             self.mark_as_prefetched(request.id());
         }
 
-        log::debug!("Coalesced request: {coalesced:?}");
+        trace_log!(
+            "Coalesced request of {} segments: {coalesced:?}",
+            coalesced.requests.len()
+        );
         self.coalesced_counter.inc();
         self.coalesced_bytes_counter
             .add(coalesced.size_bytes().try_into().vortex_expect("isize"));
@@ -281,7 +299,7 @@ impl Stream for CoalescedDriver {
             };
 
             // Process the event.
-            log::debug!("Processing: {event:?}");
+            trace_log!("Processing: {event:?}");
             match event {
                 SegmentEvent::Requested(req) => this.on_requested(req),
                 SegmentEvent::Polled(id) => this.on_polled(id),
@@ -302,12 +320,17 @@ impl Stream for CoalescedDriver {
                 .get_mut(&id)
                 .and_then(|state| state.request.take())
             {
-                return Poll::Ready(Some(this.coalesce_request(request, None)));
+                let coalesced = this.coalesce_request(request, None);
+                trace_log!(
+                    "Coalescing {} adjacent segments: {coalesced:?}",
+                    coalesced.requests.len()
+                );
+                return Poll::Ready(Some(coalesced));
             }
         }
 
         // Only perform pre-fetching if we have spare capacity.
-        log::trace!(
+        trace_log!(
             "Used {} / {} prefetched bytes",
             this.prefetched_bytes,
             this.max_prefetch_bytes
@@ -325,7 +348,10 @@ impl Stream for CoalescedDriver {
                 {
                     let coalesced =
                         this.coalesce_request(request, Some(this.inflight_prefetch_lease.clone()));
-                    log::debug!("Prefetching: {coalesced:?}");
+                    trace_log!(
+                        "Prefetching {} segments: {coalesced:?}",
+                        coalesced.requests.len()
+                    );
                     return Poll::Ready(Some(coalesced));
                 }
             }

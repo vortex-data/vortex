@@ -17,7 +17,8 @@ rust-version = { workspace = true }
 categories = { workspace = true }
 
 [dependencies]
-arrow = { workspace = true, features = ["ffi"] }
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-schema = { workspace = true }
 jni = "0.21.1"
 log = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }

@@ -6,13 +6,14 @@ pub(crate) mod stream;
 
 use std::iter;
 
-use arrow::array::RecordBatchReader;
-use arrow::pyarrow::IntoPyArrow;
+use arrow_array::RecordBatchReader;
+use arrow_pyarrow::IntoPyArrow;
 use parking_lot::Mutex;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use pyo3::{Bound, PyResult, Python};
 pub(crate) use stream::*;
+use vortex::arrow::VortexRecordBatchReader;
 use vortex::dtype::DType;
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{Canonical, IntoArray};
@@ -21,7 +22,6 @@ use crate::arrays::PyArrayRef;
 use crate::dtype::PyDType;
 use crate::install_module;
 use crate::iter::python::PythonArrayIterator;
-use crate::record_batch_reader::VortexRecordBatchReader;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "iter")?;

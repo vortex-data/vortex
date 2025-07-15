@@ -2,11 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod convert;
+pub mod display;
 mod statistics;
 mod visitor;
 
 use std::any::Any;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 pub use convert::*;
@@ -272,18 +273,6 @@ impl dyn Array + '_ {
     /// Is self an array with encoding from vtable `V`.
     pub fn is<V: VTable>(&self) -> bool {
         self.as_opt::<V>().is_some()
-    }
-}
-
-impl Display for dyn Array {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}({}, len={})",
-            self.encoding_id(),
-            self.dtype(),
-            self.len()
-        )
     }
 }
 

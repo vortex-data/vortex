@@ -21,7 +21,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
 anyhow = { workspace = true }
-arrow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-schema = { workspace = true }
 bitvec = { workspace = true }
 crossbeam-queue = { workspace = true }
 glob = { workspace = true }

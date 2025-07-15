@@ -17,6 +17,7 @@ version = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 crossterm = { workspace = true }
+env_logger = { version = "0.11" }
 futures-util = { workspace = true }
 humansize = { workspace = true }
 indicatif = { workspace = true, features = ["futures"] }

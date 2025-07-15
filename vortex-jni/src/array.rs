@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrow::datatypes::{DataType, FieldRef, Fields};
-use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
+use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
+use arrow_schema::{DataType, FieldRef, Fields};
 use jni::JNIEnv;
 use jni::objects::{JClass, JIntArray, JLongArray, JObject, JValue};
 use jni::sys::{
@@ -86,7 +86,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_exportToArrow<'loc
 
         let arrow_array = array_ref.inner.clone().into_arrow(&viewless_arrow_type)?;
         let (ffi_array, ffi_schema) =
-            arrow::ffi::to_ffi(&arrow_array.to_data()).map_err(VortexError::from)?;
+            arrow_array::ffi::to_ffi(&arrow_array.to_data()).map_err(VortexError::from)?;
 
         let ffi_schema_ptr = Box::into_raw(Box::new(ffi_schema));
         let ffi_array_ptr = Box::into_raw(Box::new(ffi_array));

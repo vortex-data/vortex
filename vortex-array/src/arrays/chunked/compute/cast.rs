@@ -9,13 +9,15 @@ use crate::compute::{CastKernel, CastKernelAdapter, cast};
 use crate::{ArrayRef, IntoArray, register_kernel};
 
 impl CastKernel for ChunkedVTable {
-    fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<ArrayRef> {
+    fn cast(&self, array: &ChunkedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let mut cast_chunks = Vec::new();
         for chunk in array.chunks() {
             cast_chunks.push(cast(chunk, dtype)?);
         }
 
-        Ok(ChunkedArray::new_unchecked(cast_chunks, dtype.clone()).into_array())
+        Ok(Some(
+            ChunkedArray::new_unchecked(cast_chunks, dtype.clone()).into_array(),
+        ))
     }
 }
 

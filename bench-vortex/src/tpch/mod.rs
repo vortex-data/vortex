@@ -36,34 +36,6 @@ pub const EXPECTED_ROW_COUNTS_SF10: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
     0, 4, 100, 10, 5, 5, 1, 4, 2, 175, 20, 0, 2, 46, 1, 1, 27840, 1, 100, 1, 1804, 100, 7,
 ];
 
-pub mod named_locks {
-    use std::future::Future;
-    use std::sync::{Arc, LazyLock};
-
-    use tokio::sync::Mutex;
-    use vortex::utils::aliases::hash_map::HashMap;
-
-    type NamedLocksMap = LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>>;
-    static NAMED_LOCKS: NamedLocksMap = LazyLock::new(|| Mutex::new(HashMap::new()));
-
-    pub async fn get(name: String) -> Arc<Mutex<()>> {
-        let named_locks = &mut *NAMED_LOCKS.lock().await;
-        let mutex: &Arc<Mutex<()>> = named_locks
-            .entry(name)
-            .or_insert_with(|| Arc::new(Mutex::new(())));
-        mutex.clone()
-    }
-
-    pub async fn with_lock<F, T, E>(name: String, f: impl FnOnce() -> F) -> Result<T, E>
-    where
-        F: Future<Output = Result<T, E>>,
-    {
-        let lock = get(name).await;
-        let _guard = lock.lock().await;
-        f().await
-    }
-}
-
 pub async fn register_arrow(
     session: &SessionContext,
     name: &str,

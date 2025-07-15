@@ -3,12 +3,48 @@
 
 use std::sync::Arc;
 
-use arrow::array::{AsArray, RecordBatch, RecordBatchReader};
-use arrow::datatypes::{DataType, SchemaRef};
-use arrow::error::ArrowError;
-use vortex::arrow::compute::to_arrow;
-use vortex::error::VortexResult;
-use vortex::iter::ArrayIterator;
+use arrow_array::cast::AsArray;
+use arrow_array::{RecordBatch, RecordBatchReader, ffi_stream};
+use arrow_schema::{ArrowError, DataType, SchemaRef};
+use vortex_dtype::DType;
+use vortex_dtype::arrow::FromArrowType;
+use vortex_error::{VortexError, VortexResult};
+
+use crate::ArrayRef;
+use crate::arrow::FromArrowArray;
+use crate::arrow::compute::to_arrow;
+use crate::iter::ArrayIterator;
+
+/// An adapter for converting an `ArrowArrayStreamReader` into a Vortex `ArrayStream`.
+pub struct ArrowArrayStreamAdapter {
+    stream: ffi_stream::ArrowArrayStreamReader,
+    dtype: DType,
+}
+
+impl ArrowArrayStreamAdapter {
+    pub fn new(stream: ffi_stream::ArrowArrayStreamReader, dtype: DType) -> Self {
+        Self { stream, dtype }
+    }
+}
+
+impl ArrayIterator for ArrowArrayStreamAdapter {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+}
+
+impl Iterator for ArrowArrayStreamAdapter {
+    type Item = VortexResult<ArrayRef>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let batch = self.stream.next()?;
+
+        Some(batch.map_err(VortexError::from).map(|b| {
+            debug_assert_eq!(&self.dtype, &DType::from_arrow(b.schema()));
+            ArrayRef::from_arrow(b, false)
+        }))
+    }
+}
 
 /// Adapter for converting a [`ArrayIterator`] into an Arrow [`RecordBatchReader`].
 pub struct VortexRecordBatchReader<I> {

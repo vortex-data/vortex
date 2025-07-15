@@ -18,7 +18,7 @@ pub struct LiteralOpts {
     pub value: ::core::option::Option<super::scalar::Scalar>,
 }
 /// Options for `vortex.pack`
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct PackOpts {
     #[prost(string, repeated, tag = "1")]
     pub paths: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -26,13 +26,13 @@ pub struct PackOpts {
     pub nullable: bool,
 }
 /// Options for `vortex.getitem`
-#[derive(Clone, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetItemOpts {
     #[prost(string, tag = "1")]
     pub path: ::prost::alloc::string::String,
 }
 /// Options for `vortex.binary`
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BinaryOpts {
     #[prost(enumeration = "binary_opts::BinaryOp", tag = "1")]
     pub op: i32,
@@ -97,14 +97,14 @@ pub mod binary_opts {
         }
     }
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BetweenOpts {
     #[prost(bool, tag = "1")]
     pub lower_strict: bool,
     #[prost(bool, tag = "2")]
     pub upper_strict: bool,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct LikeOpts {
     #[prost(bool, tag = "1")]
     pub negated: bool,

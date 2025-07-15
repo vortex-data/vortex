@@ -4,26 +4,28 @@
 use vortex_array::compute::{CastKernel, CastKernelAdapter, cast};
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 
 use crate::{DateTimePartsArray, DateTimePartsVTable};
 
 impl CastKernel for DateTimePartsVTable {
-    fn cast(&self, array: &DateTimePartsArray, dtype: &DType) -> VortexResult<ArrayRef> {
+    fn cast(&self, array: &DateTimePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
-            vortex_bail!("cannot cast from {} to {}", array.dtype(), dtype);
+            return Ok(None);
         };
 
-        Ok(DateTimePartsArray::try_new(
-            dtype.clone(),
-            cast(
-                array.days().as_ref(),
-                &array.days().dtype().with_nullability(dtype.nullability()),
-            )?,
-            array.seconds().clone(),
-            array.subseconds().clone(),
-        )?
-        .into_array())
+        Ok(Some(
+            DateTimePartsArray::try_new(
+                dtype.clone(),
+                cast(
+                    array.days().as_ref(),
+                    &array.days().dtype().with_nullability(dtype.nullability()),
+                )?,
+                array.seconds().clone(),
+                array.subseconds().clone(),
+            )?
+            .into_array(),
+        ))
     }
 }
 
@@ -86,10 +88,10 @@ mod tests {
         let array = date_time_array(validity);
         let result = cast(&array, &DType::Bool(Nullability::NonNullable));
         assert!(
-            result
-                .as_ref()
-                .is_err_and(|err| err.to_string().contains("cannot cast from")),
-            "{result:?}"
+            result.as_ref().is_err_and(|err| err.to_string().contains(
+                "No compute kernel to cast array vortex.ext with dtype ext(vortex.timestamp, i64, ExtMetadata([2, 3, 0, 85, 84, 67]))? to bool"
+            )),
+            "Got error: {result:?}"
         );
 
         let result = cast(
@@ -100,7 +102,7 @@ mod tests {
             result.as_ref().is_err_and(|err| err
                 .to_string()
                 .contains("invalid cast from nullable to non-nullable")),
-            "{result:?}"
+            "Got error: {result:?}"
         );
     }
 }

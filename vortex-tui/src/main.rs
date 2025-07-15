@@ -63,6 +63,8 @@ impl Commands {
 }
 
 fn main() -> anyhow::Result<()> {
+    env_logger::init();
+
     let cli = Cli::parse();
 
     let path = cli.command.file_path();

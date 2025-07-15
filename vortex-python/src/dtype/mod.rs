@@ -15,8 +15,8 @@ mod utf8;
 
 use std::ops::Deref;
 
-use arrow::datatypes::{DataType, Field};
-use arrow::pyarrow::{FromPyArrow, IntoPyArrow};
+use arrow_pyarrow::{FromPyArrow, IntoPyArrow};
+use arrow_schema::{DataType, Field};
 pub(crate) use ptype::*;
 use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
 use pyo3::types::PyType;

@@ -47,7 +47,7 @@ vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
-arrow = { workspace = true }
+arrow-array = { workspace = true }
 itertools = { workspace = true }
 parquet = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
