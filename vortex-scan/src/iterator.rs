@@ -16,7 +16,6 @@ use vortex_layout::scan::ScanBuilder;
 type ArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
 pub struct MultiFileIterator {
-    filter_expr: Option<ExprRef>,
     local_pools: DashMap<usize, LocalPool>,
     scan_builder_fns: SegQueue<Box<dyn FnOnce() -> ScanBuilder<ArrayRef>>>,
     polled_tasks: DashMap<usize, FuturesUnordered<ArrayFuture>>,
@@ -40,7 +39,6 @@ impl MultiFileIterator {
             scan_builder_fns: SegQueue::new(),
             local_pools,
             projection_expr: None,
-            filter_expr: None,
             polled_tasks: processed_tasks,
         }
     }
@@ -59,11 +57,6 @@ impl MultiFileIterator {
 
     pub fn with_projection_expr(mut self, projection_expr: Option<ExprRef>) -> Self {
         self.projection_expr = projection_expr;
-        self
-    }
-
-    pub fn with_filter_expr(mut self, filter_expr: Option<ExprRef>) -> Self {
-        self.filter_expr = filter_expr;
         self
     }
 
