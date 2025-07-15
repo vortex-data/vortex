@@ -30,9 +30,10 @@ crossbeam-queue = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
+roaring = { workspace = true, optional = true }
 tokio = { workspace = true }
 
 [features]
 default = ["tokio"]
 tokio = ["vortex-layout/tokio"]
-roaring = ["vortex-layout/roaring"]
+roaring = ["dep:roaring", "vortex-layout/roaring"]

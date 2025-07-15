@@ -6800,6 +6800,7 @@ dependencies = [
  "dashmap",
  "futures",
  "itertools 0.14.0",
+ "roaring",
  "tokio",
  "vortex-array",
  "vortex-buffer",

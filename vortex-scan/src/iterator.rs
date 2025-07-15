@@ -10,7 +10,8 @@ use futures::future::BoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
-use vortex_layout::scan::ScanBuilder;
+
+use crate::ScanBuilder;
 
 type ArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
