@@ -44,10 +44,10 @@ pub enum DisplayOptions {
     /// );
     /// assert_eq!(
     ///     format!("{}", array.display_as(DisplayOptions::default())),
-    ///     format!("{}", array),
+    ///     format!("{}", array.display_values()),
     /// );
     /// ```
-    CommaSeparatedScalars { space_after_comma: bool },
+    CommaSeparatedScalars { omit_comma_after_space: bool },
     /// The tree of encodings and all metadata but no values.
     ///
     /// ```
@@ -67,7 +67,7 @@ pub enum DisplayOptions {
 impl Default for DisplayOptions {
     fn default() -> Self {
         Self::CommaSeparatedScalars {
-            space_after_comma: true,
+            omit_comma_after_space: false,
         }
     }
 }
@@ -85,7 +85,7 @@ impl Display for DisplayArrayAs<'_> {
     }
 }
 
-/// Display the logical values of this array.
+/// Display the encoding and limited metadata of this array.
 ///
 /// # Examples
 /// ```
@@ -94,21 +94,45 @@ impl Display for DisplayArrayAs<'_> {
 /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
 /// assert_eq!(
 ///     format!("{}", array),
-///     "[0i16, 1i16, 2i16, 3i16, 4i16]",
+///     "vortex.primitive(i16, len=5)",
 /// );
 /// ```
 impl Display for dyn Array + '_ {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.fmt_as(
-            f,
-            &DisplayOptions::CommaSeparatedScalars {
-                space_after_comma: true,
-            },
-        )
+        self.fmt_as(f, &DisplayOptions::MetadataOnly)
     }
 }
 
 impl dyn Array + '_ {
+    /// Display logical values of the array
+    ///
+    /// For example, an `i16` typed array containing the first five non-negative integers is displayed
+    /// as: `[0i16, 1i16, 2i16, 3i16, 4i16]`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// assert_eq!(
+    ///     format!("{}", array.display_values()),
+    ///     "[0i16, 1i16, 2i16, 3i16, 4i16]",
+    /// )
+    /// ```
+    ///
+    /// See also:
+    /// [Array::display_as](..//trait.Array.html#method.display_as),
+    /// [DisplayArrayAs], and [DisplayOptions].
+    pub fn display_values(&self) -> DisplayArrayAs<'_> {
+        DisplayArrayAs(
+            self,
+            DisplayOptions::CommaSeparatedScalars {
+                omit_comma_after_space: false,
+            },
+        )
+    }
+
     /// Display the array as specified by the options.
     ///
     /// See [DisplayOptions] for examples.
@@ -136,7 +160,7 @@ impl dyn Array + '_ {
     /// assert_eq!(format!("{}", array.display_tree()), expected);
     /// ```
     pub fn display_tree(&self) -> impl Display {
-        TreeDisplayWrapper(self.to_array())
+        DisplayArrayAs(self, DisplayOptions::TreeDisplay)
     }
 
     fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
@@ -150,9 +174,11 @@ impl dyn Array + '_ {
                     self.len()
                 )
             }
-            DisplayOptions::CommaSeparatedScalars { space_after_comma } => {
+            DisplayOptions::CommaSeparatedScalars {
+                omit_comma_after_space,
+            } => {
                 write!(f, "[")?;
-                let sep = if *space_after_comma { ", " } else { "," };
+                let sep = if *omit_comma_after_space { "," } else { ", " };
                 write!(
                     f,
                     "{}",
@@ -179,13 +205,13 @@ mod test {
     #[test]
     fn test_primitive() {
         let x = Buffer::<u32>::empty().into_array();
-        assert_eq!(x.to_string(), "[]");
+        assert_eq!(x.display_values().to_string(), "[]");
 
         let x = buffer![1].into_array();
-        assert_eq!(x.to_string(), "[1i32]");
+        assert_eq!(x.display_values().to_string(), "[1i32]");
 
         let x = buffer![1, 2, 3, 4].into_array();
-        assert_eq!(x.to_string(), "[1i32, 2i32, 3i32, 4i32]");
+        assert_eq!(x.display_values().to_string(), "[1i32, 2i32, 3i32, 4i32]");
     }
 
     #[test]
@@ -198,7 +224,7 @@ mod test {
         )
         .unwrap()
         .into_array();
-        assert_eq!(s.to_string(), "[{}, null, {}]");
+        assert_eq!(s.display_values().to_string(), "[{}, null, {}]");
     }
 
     #[test]
@@ -210,7 +236,7 @@ mod test {
         .unwrap()
         .into_array();
         assert_eq!(
-            s.to_string(),
+            s.display_values().to_string(),
             "[{x: 1i32, y: -1i32}, {x: 2i32, y: -2i32}, {x: 3i32, y: -3i32}, {x: 4i32, y: -4i32}]"
         );
     }
@@ -224,6 +250,9 @@ mod test {
         )
         .unwrap()
         .into_array();
-        assert_eq!(x.to_string(), "[[], [1i32], null, [2i32], [3i32, 4i32]]");
+        assert_eq!(
+            x.display_values().to_string(),
+            "[[], [1i32], null, [2i32], [3i32, 4i32]]"
+        );
     }
 }

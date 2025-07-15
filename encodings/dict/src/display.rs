@@ -20,7 +20,7 @@ mod test {
         .into_array();
 
         assert_eq!(
-            x.to_string(),
+            x.display_values().to_string(),
             "[\"Hello\", \"Hello\", \"Hello\", \"你好\", \"Hello\", \"Hola\"]"
         )
     }
@@ -42,7 +42,7 @@ mod test {
         .into_array();
 
         assert_eq!(
-            elements.to_string(),
+            elements.display_values().to_string(),
             "[\"Hello\", \"Hello\", \"Hello\", \"你好\", \"Hello\", \"Bonjour\", \"Bonjour\", null]"
         );
 
@@ -57,7 +57,7 @@ mod test {
         .into_array();
 
         assert_eq!(
-            lists.to_string(),
+            lists.display_values().to_string(),
             "[[\"Hello\"], [], null, [\"Hello\", \"Hello\"], null, [\"你好\", \"Hello\"], [\"Bonjour\", \"Bonjour\", null]]"
         );
 
@@ -66,7 +66,7 @@ mod test {
             .into_array();
 
         assert_eq!(
-            x.to_string(),
+            x.display_values().to_string(),
             "[[\"Bonjour\", \"Bonjour\", null], [\"你好\", \"Hello\"], null, [\"Hello\", \"Hello\"], null, []]"
         )
     }
