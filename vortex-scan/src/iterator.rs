@@ -15,10 +15,10 @@ use crate::ScanBuilder;
 
 type ArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
-struct MultiScan<S, A> {
-    readers: SegQueue<Box<dyn FnOnce() -> (S, ScanBuilder<A>)>>,
-    scan_state: Vec<Option<S>>,
-}
+// struct MultiScan<S, A> {
+//     readers: SegQueue<Box<dyn FnOnce() -> (S, ScanBuilder<A>)>>,
+//     scan_state: Vec<Option<S>>,
+// }
 
 // impl MultiScan {
 //   fn into_stream(self) -> impl Stream<Item = (S, A)> {}

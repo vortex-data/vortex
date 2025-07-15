@@ -6148,6 +6148,7 @@ dependencies = [
  "vortex-proto",
  "vortex-runend",
  "vortex-scalar",
+ "vortex-scan",
  "vortex-sequence",
  "vortex-sparse",
  "vortex-utils",
@@ -6405,7 +6406,6 @@ dependencies = [
  "tokio-stream",
  "vortex",
  "vortex-file",
- "vortex-scan",
  "walkdir",
  "zip",
 ]
@@ -6490,7 +6490,6 @@ dependencies = [
  "tokio-stream",
  "url",
  "vortex",
- "vortex-scan",
 ]
 
 [[package]]

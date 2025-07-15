@@ -23,7 +23,7 @@ use vortex::expr::{ExprRef, ExprRegistryExt};
 use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::proto::expr::Expr;
-use vortex_scan::ScanBuilder;
+use vortex::scan::ScanBuilder;
 
 use crate::array::vx_array;
 use crate::array_iterator::vx_array_iterator;
