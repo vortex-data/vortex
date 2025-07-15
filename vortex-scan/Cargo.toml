@@ -31,10 +31,7 @@ crossbeam-queue = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
-tokio = { workspace = true, optional = false, features = [
-    "rt-multi-thread",
-    "macros",
-] }
+tokio = { workspace = true }
 
 [features]
 default = ["tokio"]

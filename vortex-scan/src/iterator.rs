@@ -138,7 +138,7 @@ impl MultiFileIterator {
         };
 
         let Some(mut local_pool) = self.local_pools.get_mut(&thread_id) else {
-            panic!("Thread local processed tasks not found");
+            panic!("Thread local pool not found");
         };
 
         loop {
