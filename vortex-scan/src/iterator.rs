@@ -76,26 +76,6 @@ impl MultiFileIterator {
         }
         None
     }
-
-    fn push_scan_tasks_for_file(&self, file: VortexFile, thread_id: usize) -> VortexResult<()> {
-        let scan_builder = file
-            .scan()?
-            .with_some_filter(self.filter_expr.clone())
-            .with_projection(self.projection_expr.clone().unwrap());
-
-        let (_, split_tasks) = scan_builder.build()?;
-
-        // Get thread local task queue.
-        let Some(task_queue) = self.task_queues.get(&thread_id) else {
-            panic!("Thread local queue not found");
-        };
-
-        for task in split_tasks {
-            task_queue.push(Box::pin(task));
-        }
-
-        Ok(())
-    }
 }
 
 impl MultiFileIterator {
