@@ -6,6 +6,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use arrow_buffer::ArrowNativeType;
 use futures::FutureExt;
 use futures::future::{BoxFuture, ok};
 use vortex_array::ArrayRef;
@@ -40,9 +41,10 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
     let split_range = split_mask.row_range();
     // Apply the selection to calculate a read mask
     let read_mask = split_mask.intersect(&ctx.selection.row_mask(&split_range));
+    let split_range_start = split_range.start.as_usize();
 
     let read_range = match &ctx.row_range {
-        None => split_range.clone(),
+        None => split_range,
         Some(row_range) => {
             if row_range.start >= split_range.end || row_range.end < split_range.start {
                 // No overlap for this task
@@ -56,8 +58,8 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
     };
 
     let read_mask = read_mask.slice(
-        read_range.start as usize - split_range.start as usize,
-        (read_range.end - read_range.start) as usize,
+        read_range.start.as_usize() - split_range_start,
+        (read_range.end - read_range.start).as_usize(),
     );
 
     // Early exit if the read mask is empty.

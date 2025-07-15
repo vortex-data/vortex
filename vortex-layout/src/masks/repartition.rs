@@ -5,7 +5,7 @@ use std::pin::Pin;
 
 use futures::stream::{BoxStream, Stream};
 use futures::task::{Context, Poll};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 pub struct RepartitionMaskStream<'a> {
@@ -76,7 +76,7 @@ impl<'a> RepartitionMaskStream<'a> {
 
         if self.buffer.len() == 1 {
             // Optimization: if only one mask, return it directly
-            let mask = self.buffer.pop().unwrap();
+            let mask = self.buffer.pop().vortex_expect("Buffer cannot be empty");
             self.buffer_row_count = 0;
             mask
         } else {
@@ -98,11 +98,7 @@ impl<'a> RepartitionMaskStream<'a> {
 
     /// Finishes the stream by returning any remaining buffered data
     fn finish(&mut self) -> Option<VortexResult<Mask>> {
-        if self.buffer_row_count > 0 {
-            Some(Ok(self.flush_buffer()))
-        } else {
-            None
-        }
+        (self.buffer_row_count > 0).then(|| Ok(self.flush_buffer()))
     }
 }
 
