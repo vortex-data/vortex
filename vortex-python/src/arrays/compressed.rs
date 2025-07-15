@@ -7,6 +7,7 @@ use vortex::encodings::datetime_parts::DateTimePartsVTable;
 use vortex::encodings::dict::DictVTable;
 use vortex::encodings::fsst::FSSTVTable;
 use vortex::encodings::runend::RunEndVTable;
+use vortex::encodings::sequence::SequenceVTable;
 use vortex::encodings::sparse::SparseVTable;
 use vortex::encodings::zigzag::ZigZagVTable;
 
@@ -74,4 +75,12 @@ pub(crate) struct PyZigZagArray;
 
 impl EncodingSubclass for PyZigZagArray {
     type VTable = ZigZagVTable;
+}
+
+/// Concrete class for arrays with `vortex.sequence` encoding.
+#[pyclass(name = "SequenceArray", module = "vortex", extends=PyNativeArray, frozen)]
+pub(crate) struct PySequenceArray;
+
+impl EncodingSubclass for PySequenceArray {
+    type VTable = SequenceVTable;
 }

@@ -8,13 +8,14 @@ use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
 
+use Nullability::NonNullable;
 use async_trait::async_trait;
 use dashmap::DashMap;
 pub use expr::*;
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
-use vortex_dtype::{DType, FieldMask, PType};
+use vortex_dtype::{DType, FieldMask, Nullability, PType};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_expr::transform::partition::{PartitionedExpr, partition};
 use vortex_expr::transform::replace::replace;
@@ -130,12 +131,7 @@ impl LayoutReader for RowIdxLayoutReader {
         row_offset: u64,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        // Since RowIdx isn't a field, we only need to register splits for the child layout
-        // if there are any fields in the mask at all.
-        if !field_mask.is_empty() {
-            self.child.register_splits(field_mask, row_offset, splits)?;
-        }
-        Ok(())
+        self.child.register_splits(field_mask, row_offset, splits)
     }
 
     fn pruning_evaluation(
@@ -227,6 +223,7 @@ impl RowIdxEvaluation {
             PValue::U64(row_offset + row_range.start),
             PValue::U64(1),
             PType::U64,
+            NonNullable,
             usize::try_from(row_range.end - row_range.start)
                 .vortex_expect("Row range length must fit in usize"),
         )
@@ -318,7 +315,7 @@ mod tests {
 
             let expr = eq(root(), lit(3i32));
             let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments, ctx).unwrap())
+                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
@@ -358,7 +355,7 @@ mod tests {
 
             let expr = gt(row_idx(), lit(3u64));
             let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments, ctx).unwrap())
+                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))
@@ -402,7 +399,7 @@ mod tests {
             );
 
             let result =
-                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments, ctx).unwrap())
+                RowIdxLayoutReader::new(0, layout.new_reader("".into(), segments).unwrap())
                     .projection_evaluation(&(0..layout.row_count()), &expr)
                     .unwrap()
                     .invoke(Mask::new_true(layout.row_count().try_into().unwrap()))

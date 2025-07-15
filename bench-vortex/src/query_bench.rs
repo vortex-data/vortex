@@ -8,7 +8,7 @@ use std::io::{Write, stdout};
 use std::path::PathBuf;
 
 use crate::display::{DisplayFormat, print_measurements_json, render_table};
-use crate::measurements::QueryMeasurement;
+use crate::measurements::{MemoryMeasurement, QueryMeasurement};
 use crate::{Target, default_env_filter};
 
 /// Common benchmark configuration
@@ -83,6 +83,19 @@ pub fn print_results(
     match display_format {
         DisplayFormat::Table => render_table(&mut writer, query_measurements, targets),
         DisplayFormat::GhJson => print_measurements_json(&mut writer, query_measurements),
+    }
+}
+
+/// Print memory usage
+pub fn print_memory_usage(
+    memory_measurements: Vec<MemoryMeasurement>,
+    display_format: &DisplayFormat,
+    targets: &[Target],
+) -> anyhow::Result<()> {
+    let mut writer = Box::new(stdout()) as Box<dyn Write>;
+    match display_format {
+        DisplayFormat::Table => render_table(&mut writer, memory_measurements, targets),
+        DisplayFormat::GhJson => print_measurements_json(&mut writer, memory_measurements),
     }
 }
 

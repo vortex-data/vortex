@@ -8,13 +8,7 @@ use humansize::{DECIMAL, format_size};
 use crate::arrays::ChunkedEncoding;
 use crate::{Array, ArrayRef, ArrayVisitor};
 
-impl dyn Array + '_ {
-    pub fn tree_display(&self) -> impl fmt::Display {
-        TreeDisplayWrapper(self.to_array())
-    }
-}
-
-struct TreeDisplayWrapper(ArrayRef);
+pub(super) struct TreeDisplayWrapper(pub(super) ArrayRef);
 
 impl fmt::Display for TreeDisplayWrapper {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {

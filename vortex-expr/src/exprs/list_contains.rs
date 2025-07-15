@@ -96,6 +96,10 @@ impl ListContainsExpr {
         Self { list, value }
     }
 
+    pub fn new_expr(list: ExprRef, value: ExprRef) -> ExprRef {
+        Self::new(list, value).into_expr()
+    }
+
     pub fn value(&self) -> &ExprRef {
         &self.value
     }

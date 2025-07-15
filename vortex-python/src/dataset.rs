@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
-use arrow::array::RecordBatchReader;
-use arrow::datatypes::SchemaRef;
-use arrow::pyarrow::{IntoPyArrow, ToPyArrow};
+use arrow_array::RecordBatchReader;
+use arrow_pyarrow::{IntoPyArrow, ToPyArrow};
+use arrow_schema::SchemaRef;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;

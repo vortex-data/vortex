@@ -11,8 +11,10 @@ use vortex_array::vtable::{
 use vortex_array::{
     ArrayBufferVisitor, ArrayChildVisitor, ArrayRef, Canonical, EncodingId, EncodingRef, vtable,
 };
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::{DType, NativePType, PType, match_each_integer_ptype, match_each_native_ptype};
+use vortex_buffer::BufferMut;
+use vortex_dtype::{
+    DType, NativePType, Nullability, PType, match_each_integer_ptype, match_each_native_ptype,
+};
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::{PValue, Scalar, ScalarValue};
@@ -33,9 +35,16 @@ impl SequenceArray {
     pub fn typed_new<T: NativePType + Into<PValue>>(
         base: T,
         multiplier: T,
+        nullability: Nullability,
         length: usize,
     ) -> VortexResult<Self> {
-        Self::new(base.into(), multiplier.into(), T::PTYPE, length)
+        Self::new(
+            base.into(),
+            multiplier.into(),
+            T::PTYPE,
+            nullability,
+            length,
+        )
     }
 
     /// Constructs a sequence array using two integer values (with the same ptype).
@@ -43,6 +52,7 @@ impl SequenceArray {
         base: PValue,
         multiplier: PValue,
         ptype: PType,
+        nullability: Nullability,
         length: usize,
     ) -> VortexResult<Self> {
         if !ptype.is_int() {
@@ -56,16 +66,23 @@ impl SequenceArray {
             ))
         })?;
 
-        Ok(Self::unchecked_new(base, multiplier, ptype, length))
+        Ok(Self::unchecked_new(
+            base,
+            multiplier,
+            ptype,
+            nullability,
+            length,
+        ))
     }
 
     pub(crate) fn unchecked_new(
         base: PValue,
         multiplier: PValue,
         ptype: PType,
+        nullability: Nullability,
         length: usize,
     ) -> Self {
-        let dtype = DType::Primitive(ptype, NonNullable);
+        let dtype = DType::Primitive(ptype, nullability);
         Self {
             base,
             multiplier,
@@ -88,7 +105,7 @@ impl SequenceArray {
         self.multiplier
     }
 
-    fn try_last(
+    pub(crate) fn try_last(
         base: PValue,
         multiplier: PValue,
         ptype: PType,
@@ -170,10 +187,11 @@ impl CanonicalVTable<SequenceVTable> for SequenceVTable {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
             let base = array.base().as_primitive::<P>()?;
             let multiplier = array.multiplier().as_primitive::<P>()?;
-            PrimitiveArray::from_iter(
+            let values = BufferMut::from_iter(
                 (0..array.len())
                     .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
-            )
+            );
+            PrimitiveArray::new(values, array.dtype.nullability().into())
         });
 
         Ok(Canonical::Primitive(prim))
@@ -186,6 +204,7 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
             array.index_value(start)?,
             array.multiplier,
             array.ptype(),
+            array.dtype().nullability(),
             stop - start,
         )
         .to_array())
@@ -232,13 +251,14 @@ pub struct SequenceEncoding;
 #[cfg(test)]
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_dtype::Nullability;
     use vortex_scalar::{Scalar, ScalarValue};
 
     use crate::array::SequenceArray;
 
     #[test]
     fn test_sequence_canonical() {
-        let arr = SequenceArray::typed_new(2i64, 3, 4).unwrap();
+        let arr = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4).unwrap();
 
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i64 + i * 3));
 
@@ -254,7 +274,7 @@ mod tests {
 
     #[test]
     fn test_sequence_slice_canonical() {
-        let arr = SequenceArray::typed_new(2i64, 3, 4)
+        let arr = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
             .slice(2, 3)
             .unwrap();
@@ -273,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_sequence_scalar_at() {
-        let scalar = SequenceArray::typed_new(2i64, 3, 4)
+        let scalar = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
             .scalar_at(2)
             .unwrap();
@@ -286,13 +306,13 @@ mod tests {
 
     #[test]
     fn test_sequence_min_max() {
-        assert!(SequenceArray::typed_new(-127i8, -1i8, 2).is_ok());
-        assert!(SequenceArray::typed_new(126i8, -1i8, 2).is_ok());
+        assert!(SequenceArray::typed_new(-127i8, -1i8, Nullability::NonNullable, 2).is_ok());
+        assert!(SequenceArray::typed_new(126i8, -1i8, Nullability::NonNullable, 2).is_ok());
     }
 
     #[test]
     fn test_sequence_too_big() {
-        assert!(SequenceArray::typed_new(127i8, 1i8, 2).is_err());
-        assert!(SequenceArray::typed_new(-128i8, -1i8, 2).is_err());
+        assert!(SequenceArray::typed_new(127i8, 1i8, Nullability::NonNullable, 2).is_err());
+        assert!(SequenceArray::typed_new(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
     }
 }

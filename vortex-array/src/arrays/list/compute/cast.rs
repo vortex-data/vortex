@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::VortexResult;
 
 use crate::arrays::{ListArray, ListVTable};
 use crate::compute::{CastKernel, CastKernelAdapter, cast};
@@ -10,9 +10,9 @@ use crate::vtable::ValidityHelper;
 use crate::{ArrayRef, register_kernel};
 
 impl CastKernel for ListVTable {
-    fn cast(&self, array: &Self::Array, dtype: &DType) -> VortexResult<ArrayRef> {
+    fn cast(&self, array: &Self::Array, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let Some(target_element_type) = dtype.as_list_element() else {
-            vortex_bail!("cannot cast {} to {}", array.dtype(), dtype);
+            return Ok(None);
         };
 
         let validity = array
@@ -25,7 +25,7 @@ impl CastKernel for ListVTable {
             array.offsets().clone(),
             validity,
         )
-        .map(|a| a.to_array())
+        .map(|a| Some(a.to_array()))
     }
 }
 

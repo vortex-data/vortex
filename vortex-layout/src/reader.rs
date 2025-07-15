@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use once_cell::sync::OnceCell;
+use vortex_array::ArrayRef;
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{SharedVortexResult, VortexError, VortexResult, vortex_bail};
 use vortex_expr::ExprRef;
@@ -120,24 +120,18 @@ pub trait ArrayEvaluation: 'static + Send + Sync {
 pub struct LazyReaderChildren {
     children: Arc<dyn LayoutChildren>,
     segment_source: Arc<dyn SegmentSource>,
-    ctx: ArrayContext,
 
     // TODO(ngates): we may want a hash map of some sort here?
     cache: Vec<OnceCell<LayoutReaderRef>>,
 }
 
 impl LazyReaderChildren {
-    pub fn new(
-        children: Arc<dyn LayoutChildren>,
-        segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
-    ) -> Self {
+    pub fn new(children: Arc<dyn LayoutChildren>, segment_source: Arc<dyn SegmentSource>) -> Self {
         let nchildren = children.nchildren();
         let cache = (0..nchildren).map(|_| OnceCell::new()).collect();
         Self {
             children,
             segment_source,
-            ctx,
             cache,
         }
     }
@@ -154,7 +148,7 @@ impl LazyReaderChildren {
 
         self.cache[idx].get_or_try_init(|| {
             let child = self.children.child(idx, dtype)?;
-            child.new_reader(name.clone(), self.segment_source.clone(), self.ctx.clone())
+            child.new_reader(name.clone(), self.segment_source.clone())
         })
     }
 }

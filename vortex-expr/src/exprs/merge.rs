@@ -162,6 +162,10 @@ impl MergeExpr {
         }
     }
 
+    pub fn new_expr(values: Vec<ExprRef>, nullability: Nullability) -> ExprRef {
+        Self::new(values, nullability).into_expr()
+    }
+
     pub fn nullability(&self) -> Nullability {
         self.nullability
     }

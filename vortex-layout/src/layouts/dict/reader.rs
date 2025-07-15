@@ -8,9 +8,9 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::{FutureExt, join};
+use vortex_array::ArrayRef;
 use vortex_array::compute::{MinMaxResult, filter, min_max};
 use vortex_array::stats::Precision;
-use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dict::DictArray;
 use vortex_dtype::{DType, FieldMask};
 use vortex_error::{VortexExpect, VortexResult};
@@ -46,17 +46,14 @@ impl DictReader {
         layout: DictLayout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
-        ctx: ArrayContext,
     ) -> VortexResult<Self> {
         let values_len = usize::try_from(layout.values.row_count())?;
-        let values = layout.values.new_reader(
-            format!("{name}.values").into(),
-            segment_source.clone(),
-            ctx.clone(),
-        )?;
+        let values = layout
+            .values
+            .new_reader(format!("{name}.values").into(), segment_source.clone())?;
         let codes = layout
             .codes
-            .new_reader(format!("{name}.codes").into(), segment_source, ctx)?;
+            .new_reader(format!("{name}.codes").into(), segment_source)?;
 
         Ok(Self {
             layout,
@@ -315,7 +312,7 @@ mod tests {
         );
         assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
         let actual = layout
-            .new_reader("".into(), Arc::from(segments), ctx)
+            .new_reader("".into(), Arc::from(segments))
             .unwrap()
             .projection_evaluation(&(0..layout.row_count()), &expression)
             .unwrap()
@@ -391,7 +388,7 @@ mod tests {
         let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
         assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
         let actual = layout
-            .new_reader("".into(), Arc::from(segments), ctx)
+            .new_reader("".into(), Arc::from(segments))
             .unwrap()
             .projection_evaluation(&(0..layout.row_count()), &expression)
             .unwrap()

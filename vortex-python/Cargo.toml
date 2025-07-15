@@ -23,7 +23,10 @@ crate-type = ["rlib", "cdylib"]
 doctest = false                 # TODO(ngates): why?
 
 [dependencies]
-arrow = { workspace = true, features = ["pyarrow"] }
+arrow-array = { workspace = true }
+arrow-data = { workspace = true }
+arrow-pyarrow = { workspace = true }
+arrow-schema = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }

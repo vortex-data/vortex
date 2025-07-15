@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use arrow::array::RecordBatchReader;
-use arrow::pyarrow::IntoPyArrow;
+use arrow_array::RecordBatchReader;
+use arrow_pyarrow::IntoPyArrow;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;

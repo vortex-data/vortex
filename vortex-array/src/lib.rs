@@ -41,7 +41,6 @@ pub mod stats;
 pub mod stream;
 #[cfg(feature = "test-harness")]
 pub mod test_harness;
-mod tree;
 pub mod validity;
 pub mod variants;
 pub mod vtable;

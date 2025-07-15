@@ -118,11 +118,16 @@ pub async fn generate_tpch_tables(options: &TpchGenOptions) -> Result<()> {
 
     // Process futures with bounded concurrency
     // Map each future to a spawned task, then use buffer_unordered to limit concurrency
-    stream::iter(all_futures.into_iter().flatten())
+    let results: Vec<_> = stream::iter(all_futures.into_iter().flatten())
         .map(|future| tokio::spawn(future))
         .buffer_unordered(MAX_CONCURRENT_FILES)
-        .try_for_each(|_| async { Ok(()) })
+        .try_collect()
         .await?;
+
+    // Check all spawned tasks completed successfully
+    for result in results {
+        result?;
+    }
 
     Ok(())
 }
@@ -310,7 +315,7 @@ struct VortexWriter {
 
 impl VortexWriter {
     fn new(path: PathBuf, schema: SchemaRef) -> Result<Self> {
-        // limit the number of in flight rows.
+        // Increase buffer size to avoid backpressure issues
         let (sender, receiver) = mpsc::channel(2);
         let dtype = DType::from_arrow(schema);
         let file_path = path;
@@ -347,7 +352,7 @@ impl FileWriter for VortexWriter {
 
     async fn finalize(mut self: Box<Self>) -> Result<()> {
         // Close the sender to signal end of stream
-        drop(self.sender);
+        self.sender.take();
 
         // Wait for write task to complete
         if let Some(task) = self.write_task.take() {
