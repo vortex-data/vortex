@@ -147,8 +147,7 @@ impl LayoutReader for ChunkedReader {
                 let mut other = RoaringTreemap::new();
                 other.insert_range(start..end);
                 // bitmap.1.contains_range(start..end);
-                let res = !selection.is_disjoint(&other);
-                res
+                !selection.is_disjoint(&other)
             })
             .map(|i| self.chunk_reader(i).cloned())
             .collect();
