@@ -37,9 +37,28 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
     limit: Option<&mut usize>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
     // // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
-    let row_range = split_mask.row_range();
+    let split_range = split_mask.row_range();
     // Apply the selection to calculate a read mask
-    let read_mask = split_mask.intersect(&ctx.selection.row_mask(&row_range));
+    let read_mask = split_mask.intersect(&ctx.selection.row_mask(&split_range));
+
+    let read_range = match &ctx.row_range {
+        None => split_range.clone(),
+        Some(row_range) => {
+            if row_range.start >= split_range.end || row_range.end < split_range.start {
+                // No overlap for this task
+                return Ok(ok(None).boxed());
+            }
+
+            let intersect_start = row_range.start.max(split_range.start);
+            let intersect_end = row_range.end.min(split_range.end);
+            intersect_start..intersect_end
+        }
+    };
+
+    let read_mask = read_mask.slice(
+        read_range.start as usize - split_range.start as usize,
+        (read_range.end - read_range.start) as usize,
+    );
 
     // Early exit if the read mask is empty.
     if read_mask.all_false() {
@@ -57,7 +76,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
                     *l -= usize::min(*l, true_count);
                     row_mask
                 }
-                None => read_mask.into_mask(),
+                None => read_mask,
             };
 
             ok(mask).boxed()
@@ -67,11 +86,11 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
             // NOTE: it's very important that the pruning and filter evaluations are built OUTSIDE
             // of the future. Registering these row ranges eagerly is a hint to the IO system that
             // we want to start prefetching the IO for this split.
-            let prune = ctx.reader.pruning_evaluation(&row_range, filter)?;
-            let eval = ctx.reader.filter_evaluation(&row_range, filter)?;
+            let prune = ctx.reader.pruning_evaluation(&read_range, filter)?;
+            let eval = ctx.reader.filter_evaluation(&read_range, filter)?;
 
             async move {
-                let pruned_mask = prune.invoke(read_mask.into_mask()).await?;
+                let pruned_mask = prune.invoke(read_mask).await?;
 
                 // Step 3: apply exact filtering. The pruning step has already eliminated entire blocks
                 // where we know the filter won't match any rows, so the amount of work to do here
@@ -85,7 +104,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
     // Step 4: execute the projection, only at the mask for rows which match the filter
     let exec = ctx
         .reader
-        .projection_evaluation(&row_range, &ctx.projection)?;
+        .projection_evaluation(&read_range, &ctx.projection)?;
     let mapper = ctx.mapper.clone();
     let array_fut = async move {
         let filtered_mask = filter.await?;

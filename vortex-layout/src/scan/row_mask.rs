@@ -38,9 +38,9 @@ impl RowMask {
         &self.mask
     }
 
-    pub fn into_mask(self) -> Mask {
-        self.mask
-    }
+    // pub fn into_mask(self) -> Mask {
+    //     self.mask
+    // }
 
     pub fn intersect(&self, other: &Mask) -> Self {
         assert_eq!(
