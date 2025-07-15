@@ -258,9 +258,11 @@ impl TableFunction for VortexTableFunction {
             let filter_expr = filter_expr.clone();
             let projection_expr = projection_expr.clone();
             move || {
-                let file = VortexOpenOptions::file().open_blocking(&path).unwrap();
+                let file = VortexOpenOptions::file()
+                    .open_blocking(&path)
+                    .vortex_expect("Failed to open Vortex file");
                 file.scan()
-                    .unwrap()
+                    .vortex_expect("Failed to create scan builder")
                     .with_some_filter(filter_expr)
                     .with_projection(projection_expr)
             }
