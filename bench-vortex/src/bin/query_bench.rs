@@ -5,10 +5,10 @@ use std::path::PathBuf;
 
 use bench_vortex::Target;
 use bench_vortex::benchmark_driver::{DriverConfig, run_benchmark};
-use bench_vortex::clickbench::Flavor;
-use bench_vortex::clickbench_benchmark::ClickBenchBenchmark;
+use bench_vortex::clickbench::{ClickBenchBenchmark, Flavor};
 use bench_vortex::display::DisplayFormat;
-use bench_vortex::tpch_benchmark::TpcHBenchmark;
+use bench_vortex::tpcds::TpcDsBenchmark;
+use bench_vortex::tpch::tpch_benchmark::TpcHBenchmark;
 use clap::{Parser, Subcommand, value_parser};
 
 #[derive(Parser, Debug)]
@@ -27,6 +27,10 @@ enum Commands {
     /// Run TPC-H queries
     #[command(name = "tpch")]
     TpcH(TpcHArgs),
+
+    /// Run TPC-DS queries
+    #[command(name = "tpcds")]
+    TpcDS(TpcDSArgs),
 }
 
 /// Common arguments shared across benchmarks
@@ -123,6 +127,26 @@ struct TpcHArgs {
     scale_factor: String,
 }
 
+#[derive(Parser, Debug)]
+struct TpcDSArgs {
+    #[command(flatten)]
+    common: CommonArgs,
+
+    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Target),
+        default_values = vec![
+            "datafusion:parquet",
+            "datafusion:vortex",
+            "duckdb:parquet",
+            "duckdb:vortex",
+            "duckdb:duckdb"
+        ]
+    )]
+    targets: Vec<Target>,
+
+    #[arg(long, default_value = "1.0", value_parser=validate_scale_factor)]
+    scale_factor: String,
+}
+
 fn validate_scale_factor(val: &str) -> Result<String, String> {
     match val.parse::<f32>() {
         Ok(n) if [0.01, 0.1, 1., 10., 100., 1000.].contains(&n) => {
@@ -150,6 +174,7 @@ fn main() -> anyhow::Result<()> {
     match args.command {
         Commands::ClickBench(clickbench_args) => run_clickbench(clickbench_args),
         Commands::TpcH(tpch_args) => run_tpch(tpch_args),
+        Commands::TpcDS(tpcds_args) => run_tpcds(tpcds_args),
     }
 }
 
@@ -188,6 +213,34 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
 fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
     // Create benchmark instance
     let benchmark = TpcHBenchmark::new(args.scale_factor, args.common.use_remote_data_dir)?;
+
+    // Configure driver
+    let config = DriverConfig {
+        targets: args.targets,
+        iterations: args.common.iterations,
+        threads: args.common.threads,
+        verbose: args.common.verbose,
+        display_format: args.common.display_format,
+        disable_datafusion_cache: args.common.disable_datafusion_cache,
+        queries: args.common.queries,
+        exclude_queries: args.common.exclude_queries,
+        output_path: args.common.output_path,
+        emit_plan: args.common.emit_plan,
+        export_spans: args.common.export_spans,
+        show_metrics: args.common.show_metrics,
+        hide_progress_bar: args.common.hide_progress_bar,
+        track_memory: args.common.track_memory,
+    };
+
+    // Run benchmark using the trait system
+    run_benchmark(benchmark, config)?;
+
+    Ok(())
+}
+
+fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
+    // Create benchmark instance
+    let benchmark = TpcDsBenchmark::new(args.scale_factor, args.common.use_remote_data_dir)?;
 
     // Configure driver
     let config = DriverConfig {
