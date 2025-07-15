@@ -70,7 +70,7 @@ impl MultiFileIterator {
             panic!("Thread local queue not found");
         };
 
-        let Some(mut processed_tasks) = self.polled_tasks.get_mut(&thread_id) else {
+        let Some(mut polled_tasks) = self.polled_tasks.get_mut(&thread_id) else {
             panic!("Thread local processed tasks not found");
         };
 
@@ -94,18 +94,18 @@ impl MultiFileIterator {
             // the same time leads to contention with a layout reader.
             if let Some(work_result) = self.pop_scan_task(thread_id) {
                 match work_result {
-                    Ok(future) => processed_tasks.push(future),
+                    Ok(future) => polled_tasks.push(future),
                     Err(e) => return Some(Err(e)),
                 }
             }
 
-            if task_queue.is_empty() && processed_tasks.is_empty() {
+            if task_queue.is_empty() && polled_tasks.is_empty() {
                 // All tasks have been fully processed.
                 return None;
             }
 
             let result = local_pool.run_until(async {
-                while let Some(result) = processed_tasks.next().await {
+                while let Some(result) = polled_tasks.next().await {
                     match result {
                         Ok(Some(array)) => return Some(Ok(array)),
                         Ok(None) => continue,
