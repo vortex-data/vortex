@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use core::panic;
-use std::future::Future;
 use std::path::{Path, PathBuf};
 
 use crossbeam_queue::SegQueue;
