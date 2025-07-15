@@ -58,7 +58,7 @@ pub struct VortexGlobalData {
     /// We currently use a conversion cache to cache converted arrays, this id is used to
     /// ensure that each cache created has a unique id used to name those arrays
     conversion_cache_id: AtomicU64,
-    multi_file_iter: Arc<MultiFileIterator>,
+    multi_file_iter: MultiFileIterator,
     next_thread_id: AtomicUsize,
 }
 
@@ -262,7 +262,7 @@ impl TableFunction for VortexTableFunction {
 
         Ok(VortexGlobalData {
             conversion_cache_id: AtomicU64::new(0),
-            multi_file_iter: Arc::new(multi_file_iter),
+            multi_file_iter,
             next_thread_id: AtomicUsize::new(0),
         })
     }
