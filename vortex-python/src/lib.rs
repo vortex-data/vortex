@@ -19,7 +19,6 @@ mod io;
 mod iter;
 mod object_store_urls;
 mod python_repr;
-mod record_batch_reader;
 mod registry;
 pub(crate) mod scalar;
 mod serde;

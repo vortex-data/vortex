@@ -23,7 +23,7 @@ rustversion = { workspace = true }
 arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
 arrow-arith = { workspace = true }
-arrow-array = { workspace = true }
+arrow-array = { workspace = true, features = ["ffi"] }
 arrow-buffer = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-data = { workspace = true }

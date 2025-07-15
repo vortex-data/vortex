@@ -9,6 +9,7 @@ use arrow_schema::SchemaRef;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
+use vortex::arrow::VortexRecordBatchReader;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, SelectExpr, root};
@@ -20,7 +21,6 @@ use crate::arrays::PyArrayRef;
 use crate::expr::PyExpr;
 use crate::iter::ArrayStreamToIterator;
 use crate::object_store_urls::object_store_from_url;
-use crate::record_batch_reader::VortexRecordBatchReader;
 use crate::{TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
