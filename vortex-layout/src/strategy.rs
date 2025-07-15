@@ -9,15 +9,16 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::Stream;
+use futures::future::BoxFuture;
+use futures::{FutureExt, Stream};
 use pin_project_lite::pin_project;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::SendableLayoutFuture;
 use crate::segments::SequenceWriter;
 use crate::sequence::SequenceId;
+use crate::{LayoutRef, SendableLayoutFuture};
 
 pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
     fn dtype(&self) -> &DType;
@@ -31,6 +32,13 @@ impl SequentialStream for SendableSequentialStream {
     }
 }
 
+/// A LayoutStrategy is how a stream of data chunks becomes
+/// a Layout.
+///
+/// The strategy accepts a stream of chunks, and yields a new
+/// layout
+// Tag for Python docs:
+// [layout writer]
 pub trait LayoutStrategy: 'static + Send + Sync {
     fn write_stream(
         &self,
@@ -39,6 +47,7 @@ pub trait LayoutStrategy: 'static + Send + Sync {
         stream: SendableSequentialStream,
     ) -> SendableLayoutFuture;
 }
+// [layout writer]
 
 pub trait SequentialStreamExt: SequentialStream {
     // not named boxed to prevent clashing with StreamExt

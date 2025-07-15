@@ -60,7 +60,7 @@ impl LayoutStrategy for StructStrategy {
             Ok((sequence_id, chunk))
         });
 
-        // There are now fields so this is the layout leaf
+        // There are no fields so this is the layout leaf
         if struct_dtype.nfields() == 0 {
             return Box::pin(async move {
                 let row_count = stream

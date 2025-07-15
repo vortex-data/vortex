@@ -85,18 +85,18 @@ There are some additional layouts that we plan to add in the future:
 As with most parts of Vortex, users can define their own layout types. Reach out on the Vortex GitHub Discussions
 page if you need help defining a custom layout.
 
-## Layout Writer
+## Layout Strategy
 
-A `LayoutWriter` defines a way to serialize a stream of array chunks into a layout tree. The writer is given a
-buffer writer that takes a `ByteBuffer` and returns a `BufferId`. These identifiers are used to construct the layout
-tree.
+A `LayoutStrategy` defines a way to serialize a stream of array chunks into a layout tree.
 
 The Rust trait looks like this:
 
-:::{literalinclude} ../../vortex-layout/src/writer.rs
+:::{literalinclude} ../../vortex-layout/src/strategy.rs
 :start-after: [layout writer]
 :end-before: [layout writer]
 :::
+
+Checkout the source for more information.
 
 ### File-level Compression
 
