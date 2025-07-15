@@ -80,7 +80,7 @@ fn fsst_into_varbin_view(
         let mut offset = 0;
         for len in uncompressed_lens_array.as_slice::<P>() {
             let len = *len as usize;
-            let view = BinaryView::make_view(
+            let view = BinaryView::new_view(
                 &uncompressed_bytes[offset..][..len],
                 block_offset,
                 offset as u32,

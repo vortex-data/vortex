@@ -1,26 +1,35 @@
 //  SPDX-License-Identifier: Apache-2.0
 //  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
-use async_trait::async_trait;
-use vortex_array::ArrayRef;
+use vortex_array::compute::filter;
+use vortex_array::{ArrayRef, IntoArray};
 use vortex_error::VortexResult;
-use vortex_expr::ExprRef;
+use vortex_expr::{Scope, is_root};
 use vortex_mask::Mask;
 
 use crate::ArrayEvaluation;
+use crate::layouts::view::ViewEvaluation;
 
-/// A projection evaluator over a View layout.
-#[allow(unused)]
-pub(crate) struct ViewProjection {
-    pub(crate) row_range: Range<u64>,
-    pub(crate) expr: ExprRef,
-}
+#[async_trait::async_trait]
+impl ArrayEvaluation for ViewEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<ArrayRef> {
+        let mut array = self.build_array(&mask).await?.into_array();
 
-#[async_trait]
-impl ArrayEvaluation for ViewProjection {
-    async fn invoke(&self, _mask: Mask) -> VortexResult<ArrayRef> {
-        todo!()
+        // Slice the array based on the row mask.
+        if self.row_range.start > 0 || self.row_range.end < array.len() {
+            array = array.slice(self.row_range.start, self.row_range.end)?;
+        }
+
+        // Filter the array based on the row mask.
+        if !mask.all_true() {
+            array = filter(&array, &mask)?;
+        }
+
+        // Evaluate the projection expression.
+        if !is_root(&self.expr) {
+            array = self.expr.evaluate(&Scope::new(array))?;
+        }
+
+        Ok(array)
     }
 }

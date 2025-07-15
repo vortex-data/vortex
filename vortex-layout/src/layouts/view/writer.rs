@@ -8,13 +8,14 @@ use std::sync::Arc;
 use futures::StreamExt;
 use futures::stream::once;
 use vortex_array::arrays::VarBinViewVTable;
+use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{Array, ArrayContext};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::vortex_bail;
 
 use crate::children::OwnedLayoutChildren;
-use crate::layouts::view::ViewLayout;
+use crate::layouts::view::{ValidityTag, ViewLayout};
 use crate::segments::SequenceWriter;
 use crate::{
     IntoLayout, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
@@ -26,8 +27,8 @@ use crate::{
 /// This will yield `ViewLayout`s, which at scan time can eliminate many buffer reads that
 /// are unnecessary, improving performance for arrays with large values.
 pub struct ViewStrategy {
-    validity_strategy: Arc<dyn LayoutStrategy>,
-    fallback_strategy: Arc<dyn LayoutStrategy>,
+    pub(crate) validity_strategy: Arc<dyn LayoutStrategy>,
+    pub(crate) fallback_strategy: Arc<dyn LayoutStrategy>,
 }
 
 const VALIDITY_DTYPE: DType = DType::Bool(Nullability::NonNullable);
@@ -67,6 +68,14 @@ impl LayoutStrategy for ViewStrategy {
                 }
 
                 // Write the validity child, if present.
+                // Record metadata about if the validity is all valid, all invalid, or an array.
+                let validity_tag = match view_array.validity() {
+                    Validity::NonNullable => ValidityTag::NonNullable,
+                    Validity::AllValid => ValidityTag::AllValid,
+                    Validity::AllInvalid => ValidityTag::AllInvalid,
+                    Validity::Array(_) => ValidityTag::Array,
+                };
+
                 let children =
                     if let Some(validity_array) = view_array.validity().clone().into_array() {
                         let child = validity_strategy
@@ -89,6 +98,7 @@ impl LayoutStrategy for ViewStrategy {
                 Ok(ViewLayout::new(
                     row_count,
                     chunk.dtype().clone(),
+                    validity_tag,
                     views_segment,
                     buffer_segments,
                     OwnedLayoutChildren::layout_children(children),

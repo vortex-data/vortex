@@ -118,7 +118,7 @@ impl BinaryView {
     /// Adapted from arrow-rs <https://github.com/apache/arrow-rs/blob/f4fde769ab6e1a9b75f890b7f8b47bc22800830b/arrow-array/src/builder/generic_bytes_view_builder.rs#L524>
     /// Explicitly enumerating inlined view produces code that avoids calling generic `ptr::copy_non_interleave` that's slower than explicit stores
     #[inline(never)]
-    pub fn make_view(value: &[u8], block: u32, offset: u32) -> Self {
+    pub fn new_view(value: &[u8], block: u32, offset: u32) -> Self {
         match value.len() {
             0 => Self {
                 inlined: Inlined::new::<0>(value),
@@ -185,7 +185,7 @@ impl BinaryView {
             value.len()
         );
 
-        Self::make_view(value, 0, 0)
+        Self::new_view(value, 0, 0)
     }
 
     #[inline]

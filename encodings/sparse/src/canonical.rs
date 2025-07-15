@@ -426,14 +426,14 @@ fn canonicalize_varbin_inner<I: NativePType>(
 
     let fill = if let Some(buffer) = &fill_value {
         buffers.push(buffer.clone());
-        BinaryView::make_view(
+        BinaryView::new_view(
             buffer.as_ref(),
             u32::try_from(n_patch_buffers).vortex_expect("too many buffers"),
             0,
         )
     } else {
         // any <=12 character value will do
-        BinaryView::make_view(&[], 0, 0)
+        BinaryView::new_view(&[], 0, 0)
     };
 
     let mut views = buffer_mut![fill; len];

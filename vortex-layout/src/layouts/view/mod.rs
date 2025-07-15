@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 pub use reader::*;
-use vortex_array::{ArrayContext, DeserializeMetadata, EmptyMetadata};
+use vortex_array::{ArrayContext, DeserializeMetadata, RawMetadata};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
@@ -20,10 +20,19 @@ use crate::{
 
 vtable!(View);
 
+#[repr(u8)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ValidityTag {
+    NonNullable,
+    AllValid,
+    AllInvalid,
+    Array,
+}
+
 impl VTable for ViewVTable {
     type Layout = ViewLayout;
     type Encoding = ViewLayoutEncoding;
-    type Metadata = EmptyMetadata;
+    type Metadata = RawMetadata;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
         ArcRef::new_ref("vortex.view")
@@ -41,8 +50,8 @@ impl VTable for ViewVTable {
         &layout.dtype
     }
 
-    fn metadata(_layout: &Self::Layout) -> Self::Metadata {
-        EmptyMetadata
+    fn metadata(layout: &Self::Layout) -> Self::Metadata {
+        RawMetadata(vec![layout.validity_tag as u8])
     }
 
     fn segment_ids(layout: &Self::Layout) -> Vec<SegmentId> {
@@ -101,11 +110,19 @@ impl VTable for ViewVTable {
         _encoding: &Self::Encoding,
         dtype: &DType,
         row_count: u64,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         mut segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         ctx: ArrayContext,
     ) -> VortexResult<Self::Layout> {
+        let validity_tag = match metadata[0] {
+            0 => ValidityTag::NonNullable,
+            1 => ValidityTag::AllValid,
+            2 => ValidityTag::AllInvalid,
+            3 => ValidityTag::Array,
+            invalid => vortex_bail!("Invalid value for ValidityTag {invalid}"),
+        };
+
         if segment_ids.is_empty() {
             vortex_bail!("ViewLayout must have at least one segment to hold views");
         }
@@ -115,6 +132,7 @@ impl VTable for ViewVTable {
         Ok(ViewLayout::new(
             row_count,
             dtype.clone(),
+            validity_tag,
             views,
             segment_ids,
             children.to_arc(),
@@ -130,6 +148,7 @@ pub struct ViewLayoutEncoding;
 pub struct ViewLayout {
     row_count: u64,
     dtype: DType,
+    validity_tag: ValidityTag,
     views: SegmentId,
     buffers: Vec<SegmentId>,
     // Handle to lookup children. This will contain
@@ -142,6 +161,7 @@ impl ViewLayout {
     pub fn new(
         row_count: u64,
         dtype: DType,
+        validity_tag: ValidityTag,
         views: SegmentId,
         buffers: Vec<SegmentId>,
         children: Arc<dyn LayoutChildren>,
@@ -150,6 +170,7 @@ impl ViewLayout {
         Self {
             row_count,
             dtype,
+            validity_tag,
             views,
             buffers,
             children,

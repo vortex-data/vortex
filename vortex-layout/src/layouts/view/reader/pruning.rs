@@ -9,13 +9,13 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 use crate::PruningEvaluation;
-use crate::layouts::view::reader::BinaryViewFuture;
+use crate::layouts::view::reader::SharedBinaryViewFuture;
 
 /// Pruning evaluator for a ViewLayout, which is able to pushdown certain string expressions
 /// which operate over binary views.
 #[allow(unused)]
 pub(crate) struct ViewPruning {
-    views: BinaryViewFuture,
+    views: SharedBinaryViewFuture,
     pushdown_expr: StringPushdownExpr,
 }
 

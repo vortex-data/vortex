@@ -9,16 +9,15 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::future::BoxFuture;
-use futures::{FutureExt, Stream};
+use futures::Stream;
 use pin_project_lite::pin_project;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
+use crate::SendableLayoutFuture;
 use crate::segments::SequenceWriter;
 use crate::sequence::SequenceId;
-use crate::{LayoutRef, SendableLayoutFuture};
 
 pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
     fn dtype(&self) -> &DType;

@@ -12,6 +12,8 @@ use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::compressed::BtrBlocksCompressedStrategy;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::DEFAULT_FLAT_STRATEGY;
+#[cfg(feature = "zstd")]
+use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
