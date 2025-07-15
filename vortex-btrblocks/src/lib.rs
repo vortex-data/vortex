@@ -216,7 +216,7 @@ pub trait Compressor {
         if output.nbytes() < array.nbytes() {
             Ok(output)
         } else {
-            log::debug!("resulting tree too large: {}", output.tree_display());
+            log::debug!("resulting tree too large: {}", output.display_tree());
             Ok(array.to_array())
         }
     }
