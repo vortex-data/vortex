@@ -16,8 +16,8 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect, VortexResult};
 use vortex::file::{VortexLayoutStrategy, VortexWriteOptions};
+use vortex::layout::LocalExecutor;
 use vortex::stream::ArrayStreamAdapter;
-use vortex_layout::scan::LocalExecutor;
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Strategy {
