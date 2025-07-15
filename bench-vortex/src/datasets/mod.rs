@@ -150,6 +150,22 @@ impl BenchmarkDataset {
                 )
                 .await?;
             }
+            (BenchmarkDataset::ClickBench { single_file, .. }, Format::VortexCompact) => {
+                // Use glob pattern for partitioned files, specific file pattern for single file
+                let glob = if *single_file {
+                    Some(glob::Pattern::new("hits_0.vortex-compact")?)
+                } else {
+                    Some(glob::Pattern::new("*.vortex-compact")?)
+                };
+                clickbench::register_vortex_compact_files(
+                    session.clone(),
+                    "hits",
+                    base_url,
+                    Some(clickbench::HITS_SCHEMA.clone()),
+                    glob,
+                )
+                .await?;
+            }
             (BenchmarkDataset::ClickBench { .. }, _) => {
                 anyhow::bail!("Unsupported format for ClickBench: {}", format);
             }

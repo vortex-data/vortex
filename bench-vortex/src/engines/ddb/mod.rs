@@ -83,7 +83,7 @@ impl DuckDBCtx {
         dataset: &BenchmarkDataset,
     ) -> Result<()> {
         let object = match file_format {
-            Format::Parquet | Format::OnDiskVortex => DuckDBObject::View,
+            Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => DuckDBObject::View,
             Format::OnDiskDuckDB => DuckDBObject::Table,
             format => anyhow::bail!("Format {format} isn't supported for DuckDB"),
         };
@@ -97,7 +97,7 @@ impl DuckDBCtx {
         let effective_url = self.resolve_storage_url(base_url, load_format, dataset)?;
         let extension = match load_format {
             Format::Parquet => "parquet",
-            Format::OnDiskVortex => "vortex",
+            Format::OnDiskVortex | Format::VortexCompact => "vortex",
             other => anyhow::bail!("Format {other} isn't supported for DuckDB"),
         };
 
