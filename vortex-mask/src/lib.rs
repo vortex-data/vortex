@@ -683,7 +683,7 @@ mod test {
     #[test]
     fn limit_all_true_mask() {
         let all_true = Mask::new_true(4);
-        let limited_mask = all_true.clone().limit(2);
+        let limited_mask = all_true.limit(2);
         assert_eq!(all_true.len(), limited_mask.len());
         assert_eq!(limited_mask.true_count(), 2);
         assert_eq!(
@@ -691,14 +691,14 @@ mod test {
             AllOr::Some(&BooleanBuffer::from_iter([true, true, false, false]))
         );
 
-        let limited_mask = all_true.clone().limit(5);
+        let limited_mask = all_true.limit(5);
         assert_eq!(limited_mask, all_true);
     }
 
     #[test]
     fn limit_mask_values() {
         let original_mask = Mask::from_iter([true, true, false, true, false, true]);
-        let limited_mask = original_mask.clone().limit(2);
+        let limited_mask = original_mask.limit(2);
 
         assert_eq!(
             limited_mask.boolean_buffer(),
@@ -719,7 +719,7 @@ mod test {
         assert_eq!(limited_mask.true_count(), 3);
 
         let original_mask = Mask::from_iter([true, true, false, true, false, true]);
-        let limited_mask = original_mask.clone().limit(100);
+        let limited_mask = original_mask.limit(100);
 
         assert_eq!(original_mask, limited_mask);
     }

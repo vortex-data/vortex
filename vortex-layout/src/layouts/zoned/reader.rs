@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
@@ -179,16 +178,6 @@ impl LayoutReader for ZonedReader {
 
     fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
         self.data_child.row_masks(field_mask)
-    }
-
-    fn register_splits(
-        &self,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        self.data_child
-            .register_splits(field_mask, row_offset, splits)
     }
 
     fn pruning_evaluation(

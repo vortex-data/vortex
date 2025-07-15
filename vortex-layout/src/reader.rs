@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -40,15 +39,6 @@ pub trait LayoutReader: 'static + Send + Sync {
     /// These masks are likely to be partitioned in a way that is reasonable efficient for
     /// partitioning evaluation of the layout reader - but there's no guarantee.
     fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream;
-
-    /// Register the splits of this layout reader.
-    // TODO(ngates): this is a temporary API until we make layout readers stream based.
-    fn register_splits(
-        &self,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()>;
 
     /// Performs an approximate evaluation of the expression against the layout reader.
     fn pruning_evaluation(

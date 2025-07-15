@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
+use arrow_buffer::ArrowNativeType;
 use dashmap::DashMap;
-use futures::StreamExt;
+use futures::{StreamExt, stream};
 use itertools::Itertools;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
@@ -16,6 +16,7 @@ use vortex_expr::transform::partition::{PartitionedExpr, partition};
 use vortex_expr::transform::replace::{replace, replace_root_fields};
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExactExpr, ExprRef, col, root};
+use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
@@ -179,6 +180,12 @@ impl LayoutReader for StructReader {
     fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
         // Here we construct a stream of masks for each field in the field_mask, and then take
         // the smallest mask from each field.
+        // If the field_mask is empty, we return a stream of all true masks.
+        if field_mask.is_empty() {
+            let row_count = self.layout.row_count().as_usize();
+            return Box::pin(stream::once(async move { Ok(Mask::AllTrue(row_count)) })).boxed();
+        }
+
         let mut field_streams = Vec::with_capacity(field_mask.len());
         self.layout
             .matching_fields(field_mask, |mask, idx| {
@@ -190,21 +197,6 @@ impl LayoutReader for StructReader {
 
         // FIXME(ngates): if there are no fields, we need a stream of masks that covers row_count.
         IntersectionMaskStream::new(field_streams).boxed()
-    }
-
-    fn register_splits(
-        &self,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        // In the case of an empty struct, we need to register the end split.
-        splits.insert(row_offset + self.layout.row_count);
-
-        self.layout.matching_fields(field_mask, |mask, idx| {
-            self.child_by_idx(idx)?
-                .register_splits(&[mask], row_offset, splits)
-        })
     }
 
     fn pruning_evaluation(

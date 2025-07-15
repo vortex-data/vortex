@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -142,22 +141,6 @@ impl LayoutReader for ChunkedReader {
             })
             .flatten()
             .boxed()
-    }
-
-    fn register_splits(
-        &self,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        let mut offset = row_offset;
-        for i in 0..self.layout.nchildren() {
-            let child = self.chunk_reader(i)?;
-            child.register_splits(field_mask, offset, splits)?;
-            offset += self.layout.child(i)?.row_count();
-            splits.insert(offset);
-        }
-        Ok(())
     }
 
     fn pruning_evaluation(

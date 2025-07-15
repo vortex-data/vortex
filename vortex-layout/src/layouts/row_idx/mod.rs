@@ -3,7 +3,6 @@
 
 mod expr;
 
-use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
 use std::ops::{BitAnd, Range};
 use std::sync::Arc;
@@ -126,21 +125,8 @@ impl LayoutReader for RowIdxLayoutReader {
     }
 
     fn row_masks(&self, field_mask: &[FieldMask]) -> MaskStream {
+        // TODO: sometimes we can evaluate the ~
         self.child.row_masks(field_mask)
-    }
-
-    fn register_splits(
-        &self,
-        field_mask: &[FieldMask],
-        row_offset: u64,
-        splits: &mut BTreeSet<u64>,
-    ) -> VortexResult<()> {
-        // Since RowIdx isn't a field, we only need to register splits for the child layout
-        // if there are any fields in the mask at all.
-        if !field_mask.is_empty() {
-            self.child.register_splits(field_mask, row_offset, splits)?;
-        }
-        Ok(())
     }
 
     fn pruning_evaluation(

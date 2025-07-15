@@ -243,14 +243,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             // TODO(ngates): filter_map by the provided row_indices / selection.
             .filter_map(move |row_mask| {
                 let ctx = ctx.clone();
-                async move {
-                    // let mut guard = limit.lock();
-                    // if guard.is_some_and(|l| *l == 0) {
-                    //     None
-                    // } else {
-                    Some(async move { split_exec(ctx, row_mask?, None)?.await }.boxed())
-                    // }
-                }
+                async move { Some(async move { split_exec(ctx, row_mask?, None)?.await }.boxed()) }
             });
 
         Ok(tasks.boxed())

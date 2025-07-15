@@ -37,22 +37,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
     limit: Option<&mut usize>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
     // // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
-    // let read_range = match &ctx.row_range {
-    //     None => row_mask.row_range(),
-    //     Some(row_range) => {
-    //         if row_range.start >= split.end || row_range.end < split.start {
-    //             // No overlap for this task
-    //             return Ok(ok(None).boxed());
-    //         }
-    //
-    //         let intersect_start = row_range.start.max(split.start);
-    //         let intersect_end = row_range.end.min(split.end);
-    //         intersect_start..intersect_end
-    //     }
-    // };
-
     let row_range = split_mask.row_range();
-
     // Apply the selection to calculate a read mask
     let read_mask = split_mask.intersect(&ctx.selection.row_mask(&row_range));
 
@@ -65,14 +50,14 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
         // No filter == immediate task
         None => {
             let mask = match limit {
-                Some(l) if *l == 0 => Mask::new_false(split_mask.len()),
+                Some(l) if *l == 0 => Mask::new_false(read_mask.len()),
                 Some(l) => {
-                    let true_count = split_mask.true_count();
-                    let row_mask = split_mask.limit(*l);
+                    let true_count = read_mask.true_count();
+                    let row_mask = read_mask.limit(*l);
                     *l -= usize::min(*l, true_count);
                     row_mask
                 }
-                None => split_mask.into_mask(),
+                None => read_mask.into_mask(),
             };
 
             ok(mask).boxed()
