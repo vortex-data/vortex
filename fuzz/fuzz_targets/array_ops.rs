@@ -72,7 +72,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 if let Err(e) = assert_array_eq(&expected.array(), &compare_result, i) {
                     vortex_panic!(
                         "Failed to compare {}with {op} {v}\nError: {e}",
-                        current_array.tree_display()
+                        current_array.display_tree()
                     )
                 }
                 current_array = compare_result;
@@ -82,7 +82,7 @@ fuzz_target!(|fuzz_action: FuzzArrayAction| -> Corpus {
                 if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i) {
                     vortex_panic!(
                         "Failed to cast {} to dtype {to}\nError: {e}",
-                        current_array.tree_display()
+                        current_array.display_tree()
                     )
                 }
                 current_array = cast_result;

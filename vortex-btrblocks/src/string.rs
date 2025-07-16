@@ -288,10 +288,10 @@ mod tests {
         }
         let strings = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
 
-        println!("original array: {}", strings.as_ref().tree_display());
+        println!("original array: {}", strings.as_ref().display_tree());
 
         let compressed = StringCompressor::compress(&strings, false, 3, &[]).unwrap();
 
-        println!("compression tree: {}", compressed.tree_display());
+        println!("compression tree: {}", compressed.display_tree());
     }
 }

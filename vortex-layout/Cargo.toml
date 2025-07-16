@@ -30,6 +30,7 @@ log = { workspace = true }
 once_cell = { workspace = true, features = ["parking_lot"] }
 parking_lot = { workspace = true }
 paste = { workspace = true }
+pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
 roaring = { workspace = true, optional = true }
@@ -49,9 +50,11 @@ vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-pco = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-utils = { workspace = true }
+vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 futures = { workspace = true, features = ["executor"] }
@@ -63,6 +66,7 @@ vortex-layout = { path = ".", features = ["tokio"] }
 roaring = ["dep:roaring"]
 tokio = ["dep:tokio", "vortex-error/tokio"]
 tracing = ["dep:tracing", "dep:tracing-futures"]
+zstd = ["dep:vortex-zstd"]
 
 [lints]
 workspace = true

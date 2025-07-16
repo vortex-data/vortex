@@ -19,7 +19,7 @@ pub async fn exec_tree(file: impl AsRef<Path>) -> VortexResult<()> {
         .read_all()
         .await?;
 
-    println!("{}", full.tree_display());
+    println!("{}", full.display_tree());
 
     Ok(())
 }

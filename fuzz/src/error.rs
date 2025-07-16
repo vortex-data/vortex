@@ -10,7 +10,7 @@ use vortex_error::VortexError;
 use vortex_scalar::Scalar;
 
 fn tree_display(arr: &ArrayRef) -> impl Display {
-    arr.tree_display()
+    arr.display_tree()
 }
 
 #[derive(thiserror::Error)]

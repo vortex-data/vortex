@@ -178,7 +178,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .split(widget_area);
         let table = Table::new(rows, [Constraint::Min(6), Constraint::Min(6)]).header(header);
         // Tree-display the active array
-        let tree = Paragraph::new(array.tree_display().to_string()).wrap(Wrap { trim: false });
+        let tree = Paragraph::new(array.display_tree().to_string()).wrap(Wrap { trim: false });
 
         let stats_container = Block::new()
             .title("Statistics")

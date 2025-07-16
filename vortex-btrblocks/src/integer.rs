@@ -77,7 +77,7 @@ impl IntCompressor {
         if output.nbytes() < array.nbytes() {
             Ok(output)
         } else {
-            log::debug!("resulting tree too large: {}", output.tree_display());
+            log::debug!("resulting tree too large: {}", output.display_tree());
             Ok(array.to_array())
         }
     }
@@ -353,7 +353,7 @@ impl Scheme for ZigZagScheme {
         let compressed =
             IntCompressor::compress(&encoded, is_sample, allowed_cascading - 1, &new_excludes)?;
 
-        log::debug!("zigzag output: {}", compressed.tree_display());
+        log::debug!("zigzag output: {}", compressed.display_tree());
 
         Ok(ZigZagArray::try_new(compressed)?.into_array())
     }
@@ -771,7 +771,7 @@ mod tests {
 
         let primitive = codes.freeze().into_array().to_primitive().unwrap();
         let compressed = IntCompressor::compress(&primitive, false, 3, &[]).unwrap();
-        log::info!("compressed values: {}", compressed.tree_display());
+        log::info!("compressed values: {}", compressed.display_tree());
     }
 
     #[test]
@@ -797,7 +797,7 @@ mod tests {
 
         let array = values.freeze().into_array().to_primitive().unwrap();
         let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
-        log::info!("WindowName compressed: {}", compressed.tree_display());
+        log::info!("WindowName compressed: {}", compressed.display_tree());
     }
 
     #[test]
