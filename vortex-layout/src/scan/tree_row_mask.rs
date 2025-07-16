@@ -18,6 +18,8 @@ pub struct TreeRowMask {
     length: u64,
     /// Empty if the treemap is all full
     treemap: Option<Arc<RoaringTreemap>>,
+    /// True if the treemap is used for exclude, not include
+    treemap_exclude: bool,
 }
 
 impl TreeRowMask {
@@ -29,6 +31,7 @@ impl TreeRowMask {
             offset: 0,
             length,
             treemap: None,
+            treemap_exclude: false,
         }
     }
 
@@ -39,6 +42,18 @@ impl TreeRowMask {
             offset: 0,
             length,
             treemap: Some(Arc::new(treemap)),
+            treemap_exclude: false,
+        }
+    }
+
+    pub fn exclude(range: RangeInclusive<u64>, treemap: RoaringTreemap) -> Self {
+        let length = (range.end() - *range.start()).saturating_add(1);
+        Self {
+            range,
+            offset: 0,
+            length,
+            treemap: Some(Arc::new(treemap)),
+            treemap_exclude: true,
         }
     }
 
@@ -46,6 +61,60 @@ impl TreeRowMask {
     pub fn range(&self) -> RangeInclusive<u64> {
         assert!(*self.range.end() >= self.range.start() + self.offset + self.length - 1);
         self.range.start() + self.offset..=self.range.start() + self.offset + self.length - 1
+    }
+
+    fn all_empty_treemap_range(treemap: &RoaringTreemap, start: u64, end: u64) -> bool {
+        let start_partition = (start >> 32) as u32;
+        let end_partition = (end >> 32) as u32;
+
+        treemap
+            .bitmaps()
+            .skip_while(|(key, _)| *key < start_partition)
+            .take_while(|(key, _)| *key <= end_partition)
+            .all(|(partition_key, bitmap)| {
+                let (low_start, low_end) =
+                    Self::clamp_range_to_partition(partition_key, start, end);
+
+                // Check all not values match the range
+                bitmap.range(low_start..=low_end).next().is_none()
+            })
+    }
+
+    fn clamp_range_to_partition(partition_key: u32, start: u64, end: u64) -> (u32, u32) {
+        let start_partition = (start >> 32) as u32;
+        let end_partition = (end >> 32) as u32;
+
+        if partition_key == start_partition && partition_key == end_partition {
+            // Same partition - use exact range
+            ((start & 0xFFFFFFFF) as u32, (end & 0xFFFFFFFF) as u32)
+        } else if partition_key == start_partition {
+            // First partition - from start to end of partition
+            ((start & 0xFFFFFFFF) as u32, u32::MAX)
+        } else if partition_key == end_partition {
+            // Last partition - from start of partition to end
+            (0, (end & 0xFFFFFFFF) as u32)
+        } else {
+            // Middle partition - entire range
+            (0, u32::MAX)
+        }
+    }
+
+    fn non_empty_treemap_range(treemap: &RoaringTreemap, start: u64, end: u64) -> bool {
+        // Find the upper 32 bits, the keys of the treemap.
+        let start_partition = (start >> 32) as u32;
+        let end_partition = (end >> 32) as u32;
+
+        treemap
+            .bitmaps()
+            .skip_while(|(key, _)| *key < start_partition)
+            .take_while(|(key, _)| *key <= end_partition)
+            .any(|(partition_key, bitmap)| {
+                let (low_start, low_end) =
+                    Self::clamp_range_to_partition(partition_key, start, end);
+
+                // Check if this bitmap contains any values in the range
+                bitmap.range(low_start..=low_end).next().is_some()
+            })
     }
 
     pub fn non_empty_range(&self, range: RangeInclusive<u64>) -> bool {
@@ -58,43 +127,20 @@ impl TreeRowMask {
             return false;
         }
 
-        // Clamp to mask boundaries
-        let clamped_start = start.max(self.range.start() + self.offset);
-        let clamped_end = end.min(mask_end);
         if let Some(treemap) = &self.treemap {
-            // Find the upper 32 bits, the keys of the treemap.
-            let start_partition = (clamped_start >> 32) as u32;
-            let end_partition = (clamped_end >> 32) as u32;
-
-            treemap
-                .bitmaps()
-                .skip_while(|(key, _)| *key < start_partition)
-                .take_while(|(key, _)| *key <= end_partition)
-                .any(|(partition_key, bitmap)| {
-                    let (low_start, low_end) =
-                        if partition_key == start_partition && partition_key == end_partition {
-                            // Same partition - use exact range
-                            (
-                                (clamped_start & 0xFFFFFFFF) as u32,
-                                (clamped_end & 0xFFFFFFFF) as u32,
-                            )
-                        } else if partition_key == start_partition {
-                            // First partition - from start to end of partition
-                            ((clamped_start & 0xFFFFFFFF) as u32, u32::MAX)
-                        } else if partition_key == end_partition {
-                            // Last partition - from start of partition to end
-                            (0, (clamped_end & 0xFFFFFFFF) as u32)
-                        } else {
-                            // Middle partition - entire range
-                            (0, u32::MAX)
-                        };
-
-                    // Check if this bitmap contains any values in the range
-                    bitmap.range(low_start..=low_end).next().is_some()
-                })
+            if self.treemap_exclude {
+                Self::all_empty_treemap_range(treemap, start, end)
+            } else {
+                Self::non_empty_treemap_range(treemap, start, end)
+            }
         } else {
-            // no treemap means a full range
-            true
+            if self.treemap_exclude {
+                // all exclude mask
+                false
+            } else {
+                // all include mask
+                true
+            }
         }
     }
 
@@ -301,5 +347,17 @@ mod tests {
 
         // Test empty range between values in different partitions
         assert!(!mask.non_empty_range(0x100000002..=0x1FFFFFFFF));
+    }
+
+    #[test]
+    fn test_exclude_mask() {
+        let mut treemap = RoaringTreemap::new();
+        treemap.insert(100);
+
+        let mask = TreeRowMask::exclude(0..=1000, treemap);
+
+        assert!(mask.non_empty_range(0..=99));
+        assert!(mask.non_empty_range(101..=200));
+        assert!(!mask.non_empty_range(100..=100));
     }
 }

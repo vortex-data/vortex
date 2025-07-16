@@ -3,9 +3,12 @@
 
 use std::ops::{Not, Range};
 
+use roaring::RoaringTreemap;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
+
+use crate::scan::tree_row_mask::TreeRowMask;
 
 /// A selection identifies a set of rows to include in the scan (in addition to applying any
 /// filter predicates).
@@ -26,31 +29,35 @@ pub enum Selection {
     ExcludeRoaring(roaring::RoaringTreemap),
 }
 
-// impl Selection {
-//     pub fn tree_row_mask(&self, range: &Range<u64>) -> Option<Mask> {
-//         match &self {
-//             Selection::All => TreeRowMask::all(0..=u64::MAX),
-//             Selection::IncludeByIndex(indices) => {
-//                 let mut treemap = RoaringTreemap::new();
-//                 for idx in indices.iter() {
-//                     treemap.insert(*idx);
-//                 }
-//                 TreeRowMask::new(0..=u64::MAX, treemap)
-//             }
-//             Selection::ExcludeByIndex(indices) => {
-//                 let mut treemap = RoaringTreemap::full();
-//                 for idx in indices.iter() {
-//                     treemap.remove(*idx);
-//                 }
-//                 TreeRowMask::new(treemap)
-//             }
-//             #[cfg(feature = "roaring")]
-//             Selection::IncludeRoaring(mask) => TreeRowMask::new(0..=u64::MAX, mask.clone()),
-//             #[cfg(feature = "roaring")]
-//             Selection::ExcludeRoaring(_) => todo!(),
-//         };
-//     }
-// }
+impl Selection {
+    pub fn tree_row_mask(&self, range: &Range<u64>) -> TreeRowMask {
+        if range.start == range.end {
+            return TreeRowMask::all(range.start..=(range.start - 1));
+        }
+        let inclusive_range = range.start..=range.end - 1;
+        match &self {
+            Selection::All => TreeRowMask::all(inclusive_range).into(),
+            Selection::IncludeByIndex(indices) => {
+                let mut treemap = RoaringTreemap::new();
+                for idx in indices.iter() {
+                    treemap.insert(*idx);
+                }
+                TreeRowMask::new(inclusive_range, treemap)
+            }
+            Selection::ExcludeByIndex(indices) => {
+                let mut treemap = RoaringTreemap::new();
+                for idx in indices.iter() {
+                    treemap.insert(*idx);
+                }
+                TreeRowMask::exclude(inclusive_range, treemap)
+            }
+            #[cfg(feature = "roaring")]
+            Selection::IncludeRoaring(mask) => TreeRowMask::new(inclusive_range, mask.clone()),
+            #[cfg(feature = "roaring")]
+            Selection::ExcludeRoaring(mask) => TreeRowMask::exclude(inclusive_range, mask.clone()),
+        }
+    }
+}
 
 impl Selection {
     /// Extract the [`RowMask`] for the given range from this selection.
