@@ -83,14 +83,12 @@ impl TreeRowMask {
             } else {
                 non_empty_treemap_range(treemap, clamped_start, clamped_end)
             }
+        } else if self.treemap_exclude {
+            // all exclude mask
+            false
         } else {
-            if self.treemap_exclude {
-                // all exclude mask
-                false
-            } else {
-                // all include mask
-                true
-            }
+            // all include mask
+            true
         }
     }
 
@@ -103,7 +101,7 @@ impl TreeRowMask {
             "Subset range exceeds current mask length"
         );
 
-        self.offset = self.offset + offset;
+        self.offset += offset;
         self.length = length;
         self
     }
