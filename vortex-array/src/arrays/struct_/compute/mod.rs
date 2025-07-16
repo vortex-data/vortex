@@ -71,7 +71,7 @@ impl IsConstantKernel for StructVTable {
     ) -> VortexResult<Option<bool>> {
         let children = array.children();
         if children.is_empty() {
-            return Ok(None);
+            return Ok(Some(true));
         }
 
         for child in children.iter() {
@@ -91,16 +91,16 @@ register_kernel!(IsConstantKernelAdapter(StructVTable).lift());
 
 #[cfg(test)]
 mod tests {
-
     use Nullability::{NonNullable, Nullable};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
+    use vortex_error::VortexUnwrap;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
     use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::conformance::mask::test_mask;
-    use crate::compute::{cast, filter, take};
+    use crate::compute::{cast, filter, is_constant, take};
     use crate::validity::Validity;
     use crate::{Array, IntoArray as _};
 
@@ -342,5 +342,12 @@ mod tests {
         );
         let casted = cast(&fully_nullable_array, &non_null_xs).unwrap();
         assert_eq!(casted.dtype(), &non_null_xs);
+    }
+
+    #[test]
+    fn test_empty_struct_is_constant() {
+        let array = StructArray::new_with_len(2);
+        let is_constant = is_constant(array.as_ref()).vortex_unwrap();
+        assert_eq!(is_constant, Some(true));
     }
 }
