@@ -14,6 +14,11 @@ use crate::ScanBuilder;
 
 type ArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
+/// A concurrent scan coordinator that manages multiple scan operations.
+///
+/// `MultiScan` allows to queue up multiple scan operations to execute in
+/// parallel when iterating. In particular, `MultiScan` enables scanning
+/// multiple file in parallel.
 pub struct MultiScan {
     scan_builder_fns: Arc<SegQueue<Box<dyn FnOnce() -> ScanBuilder<ArrayRef> + Send + Sync>>>,
 }
@@ -37,7 +42,8 @@ impl MultiScan {
         self
     }
 
-    pub fn new_iterator(&self) -> MultiScanIterator {
+    /// Creates a new iterator to participate in the scan.
+    pub fn new_scan_iterator(&self) -> MultiScanIterator {
         MultiScanIterator {
             scan_builder_fns: self.scan_builder_fns.clone(),
             local_pool: LocalPool::new(),
@@ -47,9 +53,13 @@ impl MultiScan {
     }
 }
 
+/// Scan iterator to participate in a `MultiScan`.
 pub struct MultiScanIterator {
     local_pool: LocalPool,
     polled_tasks: FuturesUnordered<ArrayFuture>,
+
+    /// Thread-safe queue of closures that lazily produce [`ScanBuilder`] instances.
+    /// This queue is shared across all iterators being created with `new_scan_iterator`.
     scan_builder_fns: Arc<SegQueue<Box<dyn FnOnce() -> ScanBuilder<ArrayRef> + Send + Sync>>>,
     task_queue: SegQueue<ArrayFuture>,
 }

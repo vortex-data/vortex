@@ -276,7 +276,7 @@ impl TableFunction for VortexTableFunction {
         global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
         Ok(VortexLocalData {
-            multi_scan_iterator: global.multi_scan.new_iterator(),
+            multi_scan_iterator: global.multi_scan.new_scan_iterator(),
             exporter: None,
             conversion_cache: ConversionCache::new(0),
         })
