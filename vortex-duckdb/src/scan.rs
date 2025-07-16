@@ -53,11 +53,11 @@ impl std::fmt::Debug for VortexBindData {
 }
 
 pub struct VortexGlobalData {
-    multi_file_scan: MultiScan,
+    multi_scan: MultiScan,
 }
 
 pub struct VortexLocalData {
-    multi_file_iterator: MultiScanIterator,
+    multi_scan_iterator: MultiScanIterator,
     exporter: Option<ArrayExporter>,
 
     // TODO(Alex): replace with global conversion cache
@@ -204,7 +204,7 @@ impl TableFunction for VortexTableFunction {
     ) -> VortexResult<()> {
         loop {
             if local_state.exporter.is_none() {
-                let Some(array_result) = local_state.multi_file_iterator.next() else {
+                let Some(array_result) = local_state.multi_scan_iterator.next() else {
                     return Ok(());
                 };
 
@@ -267,7 +267,7 @@ impl TableFunction for VortexTableFunction {
         });
 
         Ok(VortexGlobalData {
-            multi_file_scan: MultiScan::new().with_scan_builders(closures),
+            multi_scan: MultiScan::new().with_scan_builders(closures),
         })
     }
 
@@ -276,7 +276,7 @@ impl TableFunction for VortexTableFunction {
         global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
         Ok(VortexLocalData {
-            multi_file_iterator: global.multi_file_scan.new_iterator(),
+            multi_scan_iterator: global.multi_scan.new_iterator(),
             exporter: None,
             conversion_cache: ConversionCache::new(0),
         })
