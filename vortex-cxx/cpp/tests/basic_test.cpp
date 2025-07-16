@@ -31,7 +31,7 @@ protected:
         return target_path.string();
     }
     // Helper function to validate struct array data
-    // This depends on the data in `build.rs`
+    // NOTE: This depends on the test data generated from `generate_test_vortex_file` in `src/lib.rs`
     void ValidateStructArray(const nanoarrow::UniqueArray &struct_array,
                              const nanoarrow::UniqueSchema &schema) {
         // Validate struct array properties
@@ -118,10 +118,10 @@ TEST_F(VortexTest, ScanToStream) {
     ValidateStructArray(array, schema);
 }
 
-TEST_F(VortexTest, ScanOptionsWithLimit) {
+TEST_F(VortexTest, ScanOptionsWithLimitWithRowRange) {
     auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
 
-    auto stream = file.CreateScanBuilder().SetLimit(3).IntoStream();
+    auto stream = file.CreateScanBuilder().WithLimit(2).WithRowRange(1, 4).IntoStream();
 
     // Create nanoarrow ArrayStream wrapper
     nanoarrow::UniqueArrayStream array_stream;
@@ -138,7 +138,7 @@ TEST_F(VortexTest, ScanOptionsWithLimit) {
     ASSERT_EQ(get_next_result, 0);
 
     // Should have limited rows (3 instead of 5)
-    ASSERT_EQ(array->length, 3);
+    ASSERT_EQ(array->length, 2);
     ASSERT_EQ(array->null_count, 0);
     ASSERT_EQ(schema->n_children, 2);
 
@@ -149,18 +149,17 @@ TEST_F(VortexTest, ScanOptionsWithLimit) {
     ArrowErrorCode set_result = ArrowArrayViewSetArray(array_view.get(), array.get(), nullptr);
     ASSERT_EQ(set_result, NANOARROW_OK);
 
-    // Test field "a" - first 3 values
+    // Test field "a" - first 2 values
     ArrowArrayView *field_a_view = array_view->children[0];
-    ASSERT_EQ(field_a_view->array->length, 3);
+    ASSERT_EQ(field_a_view->array->length, 2);
     ASSERT_EQ(field_a_view->array->null_count, 0);
 
-    int32_t values_a[3];
-    for (int64_t i = 0; i < 3; ++i) {
+    int32_t values_a[2];
+    for (int64_t i = 0; i < 2; ++i) {
         values_a[i] = static_cast<int32_t>(ArrowArrayViewGetIntUnsafe(field_a_view, i));
     }
-    ASSERT_EQ(values_a[0], 10);
-    ASSERT_EQ(values_a[1], 20);
-    ASSERT_EQ(values_a[2], 30);
+    ASSERT_EQ(values_a[0], 20);
+    ASSERT_EQ(values_a[1], 30);
 }
 
 TEST_F(VortexTest, WriteArrayStream) {

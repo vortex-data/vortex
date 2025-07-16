@@ -22,11 +22,11 @@ public:
     ScanBuilder(const ScanBuilder &) = delete;
     ScanBuilder &operator=(const ScanBuilder &) = delete;
 
-    /// Set the filter on the scan builder.
-    ScanBuilder &SetFilter(std::string_view filter);
+    /// Set the row range [row_range_start, row_range_end) on the scan builder.
+    ScanBuilder &WithRowRange(uint64_t row_range_start, uint64_t row_range_end);
 
     /// Set the limit on the number of rows to scan.
-    ScanBuilder &SetLimit(uint64_t limit);
+    ScanBuilder &WithLimit(uint64_t limit);
 
     /// Consume the scan builder to a stream of record batches.
     /// The scan builder is consumed and cannot be used after this call.

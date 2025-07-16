@@ -39,19 +39,17 @@ ScanBuilder &ScanBuilder::operator=(ScanBuilder &&other) noexcept {
 
 ScanBuilder::~ScanBuilder() = default;
 
-ScanBuilder &ScanBuilder::SetFilter(std::string_view filter) {
+ScanBuilder &ScanBuilder::WithRowRange(uint64_t row_range_start, uint64_t row_range_end) {
     try {
-        ffi::scan_builder_set_filter(
-            *impl_->rust_impl,
-            rust::Slice<const uint8_t>(reinterpret_cast<const uint8_t *>(filter.data()), filter.size()));
+        ffi::scan_builder_with_row_range(*impl_->rust_impl, row_range_start, row_range_end);
     } catch (const rust::cxxbridge1::Error &e) {
         throw VortexException(e.what());
     }
     return *this;
 }
 
-ScanBuilder &ScanBuilder::SetLimit(uint64_t limit) {
-    ffi::scan_builder_set_limit(*impl_->rust_impl, limit);
+ScanBuilder &ScanBuilder::WithLimit(uint64_t limit) {
+    ffi::scan_builder_with_limit(*impl_->rust_impl, limit);
     return *this;
 }
 

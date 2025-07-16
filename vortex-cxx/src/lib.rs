@@ -8,18 +8,14 @@ use arrow_array::RecordBatchReader;
 use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
 use futures::stream;
-use prost::Message;
 use tokio::runtime::Runtime;
 use vortex::ArrayRef;
 use vortex::arrow::{FromArrowArray, IntoArrowArray, VortexRecordBatchReader};
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};
-use vortex::expr::proto::deserialize_expr_proto;
-use vortex::expr::{ExprRegistry, ExprRegistryExt};
 use vortex::file::scan::ScanBuilder;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions as WriteOptions};
-use vortex::proto::expr::Expr;
 use vortex::stream::{
     ArrayStream, ArrayStreamAdapter, ArrayStreamExt, ArrayStreamToIterator, AsyncRuntime,
     SendableArrayStream,
@@ -92,8 +88,12 @@ mod ffi {
         fn file_scan_builder(file: &VortexFile) -> Result<Box<VortexScanBuilder>>;
 
         type VortexScanBuilder;
-        fn scan_builder_set_filter(builder: &mut VortexScanBuilder, filter: &[u8]) -> Result<()>;
-        fn scan_builder_set_limit(builder: &mut VortexScanBuilder, limit: usize);
+        fn scan_builder_with_row_range(
+            builder: &mut VortexScanBuilder,
+            row_range_start: u64,
+            row_range_end: u64,
+        ) -> Result<()>;
+        fn scan_builder_with_limit(builder: &mut VortexScanBuilder, limit: usize);
         unsafe fn scan_builder_into_arrow(
             builder: Box<VortexScanBuilder>,
             out_array: *mut u8,
@@ -143,17 +143,18 @@ pub struct VortexScanBuilder {
     inner: ScanBuilder<ArrayRef>,
 }
 
-fn scan_builder_set_filter(
+fn scan_builder_with_row_range(
     builder: &mut VortexScanBuilder,
-    filter: &[u8],
+    row_range_start: u64,
+    row_range_end: u64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let filter = deserialize_expr_proto(&Expr::decode(filter)?, &ExprRegistry::default())
-        .map_err(|e| e.with_context("deserializing filter expr"))?;
-    take_mut::take(&mut builder.inner, |inner| inner.with_filter(filter));
+    take_mut::take(&mut builder.inner, |inner| {
+        inner.with_row_range(row_range_start..row_range_end)
+    });
     Ok(())
 }
 
-fn scan_builder_set_limit(builder: &mut VortexScanBuilder, limit: usize) {
+fn scan_builder_with_limit(builder: &mut VortexScanBuilder, limit: usize) {
     // Overwrite inner without dropping it.
     take_mut::take(&mut builder.inner, |inner| inner.with_limit(limit));
 }
