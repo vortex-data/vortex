@@ -145,7 +145,7 @@ impl<'a, A: Annotation + Display> StructFieldExpressionSplitter<'a, A> {
     /// Each annotation may be associated with multiple sub-expressions, so we need to
     /// a unique name for each sub-expression.
     fn field_name(annotation: &A, idx: usize) -> FieldName {
-        format!("{}_{}", annotation, idx).into()
+        format!("{annotation}_{idx}").into()
     }
 }
 
