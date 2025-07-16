@@ -71,7 +71,12 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-vortex = { workspace = true, features = ["object_store", "parquet", "files", "zstd"] }
+vortex = { workspace = true, features = [
+    "object_store",
+    "parquet",
+    "files",
+    "zstd",
+] }
 vortex-datafusion = { workspace = true }
 vortex-duckdb = { workspace = true }
 vortex-file = { workspace = true }
