@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bitvec::macros::internal::funty::Fundamental;
 use num_traits::AsPrimitive;
 use vortex::arrays::PrimitiveArray;
 use vortex::dtype::{NativePType, match_each_integer_ptype};
 use vortex::encodings::dict::DictArray;
-use vortex::error::VortexResult;
+use vortex::error::{VortexExpect, VortexResult};
 use vortex::{Array, ToCanonical};
 
 use crate::duckdb::{SelectionVector, Vector};
@@ -18,7 +18,7 @@ use crate::exporter::{ColumnExporter, new_array_exporter};
 
 struct DictExporter<I: NativePType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
-    values_vector: Vector, // NOTE(ngates): not actually flat...
+    values_vector: Arc<Mutex<Vector>>, // NOTE(ngates): not actually flat...
     values_len: u32,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
@@ -28,23 +28,32 @@ struct DictExporter<I: NativePType> {
 
 pub(crate) fn new_exporter(
     array: &DictArray,
-    cache: &mut ConversionCache,
+    cache: Arc<ConversionCache>,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
     let values = array.values();
     let values_key = Arc::as_ptr(values).addr();
-    let values_vector = match cache.values_cache.get(&values_key) {
+
+    // Check if we have a cached vector and extract it if we do.
+    let cached_vector = cache
+        .values_cache
+        .get(&values_key)
+        .map(|entry| entry.value().1.clone());
+
+    let values_vector = match cached_vector {
+        Some(vector) => vector,
         None => {
             // Create a new DuckDB vector for the values.
             let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
-            new_array_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
-            let unowned = vector.clone();
+            new_array_exporter(values, cache.clone())?.export(0, values.len(), &mut vector)?;
+            let unowned = Arc::new(Mutex::new(vector));
+
             cache
                 .values_cache
-                .insert(values_key, (values.clone(), vector));
+                .insert(values_key, (values.clone(), unowned.clone()));
+
             unowned
         }
-        Some((_array, vector)) => vector.clone(),
     };
 
     let codes = array.codes().to_primitive()?;
@@ -63,7 +72,11 @@ pub(crate) fn new_exporter(
 impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Copy across the dictionary values.
-        vector.reference(&self.values_vector);
+        let ref_vector = self
+            .values_vector
+            .lock()
+            .vortex_expect("error: failed to get lock");
+        vector.reference(&*ref_vector);
 
         // Slice with a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);

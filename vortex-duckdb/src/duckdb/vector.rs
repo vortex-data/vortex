@@ -17,6 +17,19 @@ pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
 
 wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 
+/// Safety: It is safe to mark `Vector` as `Send` as the memory it points is `Send`.
+///
+/// Exceptions from a raw pointer not being `Send` would be pointing to
+/// thread-local storage or other types that are not `Send`, e.g. `RefCell`.
+///
+/// ```
+/// pub struct Vector {
+///     ptr: *mut _duckdb_vector,
+///     owned: bool,
+/// }
+/// ```
+unsafe impl Send for Vector {}
+
 impl Vector {
     /// Create a new vector with the given type and capacity.
     pub fn with_capacity(logical_type: LogicalType, len: usize) -> Self {

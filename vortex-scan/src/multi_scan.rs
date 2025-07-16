@@ -12,27 +12,29 @@ use vortex_error::VortexResult;
 
 use crate::ScanBuilder;
 
-type ArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
-type ScanBuilderFactory = Arc<SegQueue<Box<dyn FnOnce() -> ScanBuilder<ArrayRef> + Send + Sync>>>;
+type ArrayFuture<S> = BoxFuture<'static, VortexResult<Option<(ArrayRef, S)>>>;
+type ScanBuilderFactory<S> =
+    Arc<SegQueue<Box<(dyn FnOnce() -> ScanBuilder<(ArrayRef, S)> + Send + Sync)>>>;
 
 /// Coordinator to orchestrate multiple scan operations.
 ///
 /// `MultiScan` allows to queue multiple scan operations in order to execute
 /// them in parallel. In particular, this enables scanning multiple files.
-#[derive(Default)]
-pub struct MultiScan {
-    scan_builder_factory: ScanBuilderFactory,
+pub struct MultiScan<S> {
+    scan_builder_factory: ScanBuilderFactory<S>,
 }
 
-impl MultiScan {
+impl<S> MultiScan<S> {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            scan_builder_factory: Arc::new(SegQueue::new()),
+        }
     }
 
-    /// `ScanBuilder`s are passed through closures to decouple how the they are created.
+    /// Add lazily constructed scan builders paired with their corresponding states.
     pub fn with_scan_builders<I, F>(self, closures: I) -> Self
     where
-        F: FnOnce() -> ScanBuilder<ArrayRef> + 'static + Send + Sync,
+        F: FnOnce() -> ScanBuilder<(ArrayRef, S)> + 'static + Send + Sync,
         I: IntoIterator<Item = F>,
     {
         for closure in closures.into_iter() {
@@ -45,7 +47,7 @@ impl MultiScan {
     /// Creates a new iterator to participate in the scan.
     ///
     /// The scan progresses when calling `next` on the iterator.
-    pub fn new_scan_iterator(&self) -> MultiScanIterator {
+    pub fn new_scan_iterator(&self) -> MultiScanIterator<S> {
         MultiScanIterator {
             scan_builder_factory: self.scan_builder_factory.clone(),
             local_pool: LocalPool::new(),
@@ -56,29 +58,29 @@ impl MultiScan {
 }
 
 /// Scan iterator to participate in a `MultiScan`.
-pub struct MultiScanIterator {
+pub struct MultiScanIterator<S> {
     local_pool: LocalPool,
-    polled_tasks: FuturesUnordered<ArrayFuture>,
+    polled_tasks: FuturesUnordered<ArrayFuture<S>>,
 
     /// Thread-safe queue of closures that lazily produce [`ScanBuilder`] instances.
     /// This queue is shared across all iterators being created with `new_scan_iterator`.
-    scan_builder_factory: ScanBuilderFactory,
-    task_queue: SegQueue<ArrayFuture>,
+    scan_builder_factory: ScanBuilderFactory<S>,
+    task_queue: SegQueue<ArrayFuture<S>>,
 }
 
-impl MultiScanIterator {
-    fn pop_scan_task(&self) -> Option<VortexResult<ArrayFuture>> {
-        if let Some(array_future_tuple) = self.task_queue.pop() {
-            return Some(Ok(array_future_tuple));
+impl<S> MultiScanIterator<S> {
+    fn pop_scan_task(&self) -> Option<VortexResult<ArrayFuture<S>>> {
+        if let Some(task_with_state) = self.task_queue.pop() {
+            return Some(Ok(task_with_state));
         }
         None
     }
 }
 
-impl Iterator for MultiScanIterator {
-    type Item = VortexResult<ArrayRef>;
+impl<S: Send + Sync + 'static> Iterator for MultiScanIterator<S> {
+    type Item = VortexResult<(ArrayRef, S)>;
 
-    fn next(&mut self) -> Option<VortexResult<ArrayRef>> {
+    fn next(&mut self) -> Option<VortexResult<(ArrayRef, S)>> {
         loop {
             // Queue up tasks if the thread local queue is almost empty.
             if self.task_queue.len() <= 4 {
@@ -93,7 +95,9 @@ impl Iterator for MultiScanIterator {
 
             if let Some(work_result) = self.pop_scan_task() {
                 match work_result {
-                    Ok(future) => self.polled_tasks.push(future),
+                    Ok(task) => {
+                        self.polled_tasks.push(task);
+                    }
                     Err(e) => return Some(Err(e)),
                 }
             }
@@ -115,7 +119,9 @@ impl Iterator for MultiScanIterator {
             });
 
             match result {
-                Some(Ok(array)) => return Some(Ok(array)),
+                Some(Ok(array)) => {
+                    return Some(Ok(array));
+                }
                 Some(Err(e)) => return Some(Err(e)),
                 None => continue, // Try next batch of futures
             }

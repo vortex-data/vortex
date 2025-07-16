@@ -26,6 +26,7 @@ arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
 bitvec = { workspace = true }
 crossbeam-queue = { workspace = true }
+dashmap = { workspace = true }
 glob = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }

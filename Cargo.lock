@@ -6396,6 +6396,7 @@ dependencies = [
  "cbindgen",
  "cc",
  "crossbeam-queue",
+ "dashmap",
  "glob",
  "itertools 0.14.0",
  "log",
