@@ -244,7 +244,6 @@ impl TableFunction for VortexTableFunction {
         let bind_data = init_input.bind_data();
         let projection_expr = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
-        // let num_threads = thread::available_parallelism().map(|p| p.get())?;
         let is_first_file_queued = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let closures = bind_data.file_paths.clone().into_iter().map(move |path| {
