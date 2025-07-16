@@ -16,7 +16,7 @@ use vortex_mask::Mask;
 
 use crate::LayoutReader;
 use crate::scan::row_mask::RowMask;
-use crate::scan::{Selection, TaskExecutor, TaskExecutorExt};
+use crate::scan::{TaskExecutor, TaskExecutorExt};
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
@@ -122,14 +122,10 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
 }
 
 /// Information needed to execute a single split task.
-#[allow(dead_code)]
 pub(super) struct TaskContext<A> {
     /// A caller-provided range of the file to read. All tasks should intersect their reads
     /// with this range to ensure that they are split as well.
     pub(super) row_range: Option<Range<u64>>,
-
-    /// A row selection to apply.
-    pub(super) selection: Selection,
 
     /// The filter expression for the current task.
     pub(super) filter: Option<ExprRef>,

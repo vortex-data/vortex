@@ -37,21 +37,4 @@ impl RowMask {
     pub fn mask(&self) -> &Mask {
         &self.mask
     }
-
-    // pub fn into_mask(self) -> Mask {
-    //     self.mask
-    // }
-
-    // pub fn intersect(&self, other: &Mask) -> Self {
-    //     assert_eq!(
-    //         self.mask.len(),
-    //         other.len(),
-    //         "Masks must have the same length"
-    //     );
-    //     let new_mask = self.mask.bitand(other);
-    //     Self {
-    //         row_offset: self.row_offset,
-    //         mask: new_mask,
-    //     }
-    // }
 }

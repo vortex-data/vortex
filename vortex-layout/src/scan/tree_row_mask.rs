@@ -10,44 +10,61 @@ use roaring::RoaringTreemap;
 /// This can be refined and a row range query can be performed.
 #[derive(Debug, Clone)]
 pub struct TreeRowMask {
-    /// The projected row range
+    /// The covering row range, this must be checked along with the treemap
     range: RangeInclusive<u64>,
+    /// The offset into the range
+    offset: u64,
+    /// The length of the value offseted range
+    length: u64,
     /// Empty if the treemap is all full
     treemap: Option<Arc<RoaringTreemap>>,
 }
 
 impl TreeRowMask {
-    /// Create a mask for all rows in the range
+    /// Create a full mask for all rows in the range
     pub fn all(range: RangeInclusive<u64>) -> Self {
+        let length = range.end().saturating_sub(*range.start()).saturating_add(1);
         Self {
             range,
+            offset: 0,
+            length,
             treemap: None,
         }
     }
 
     pub fn new(range: RangeInclusive<u64>, treemap: RoaringTreemap) -> Self {
+        let length = (range.end() - *range.start()).saturating_add(1);
         Self {
             range,
+            offset: 0,
+            length,
             treemap: Some(Arc::new(treemap)),
         }
     }
 
     /// Get the range of this mask
-    pub fn range(&self) -> &RangeInclusive<u64> {
-        &self.range
+    pub fn range(&self) -> RangeInclusive<u64> {
+        assert!(*self.range.end() >= self.range.start() + self.offset + self.length - 1);
+        self.range.start() + self.offset..=self.range.start() + self.offset + self.length - 1
     }
 
     pub fn non_empty_range(&self, range: RangeInclusive<u64>) -> bool {
-        let start = range.start() + self.range.start();
-        let end = range.end() + self.range.start();
-        if *self.range.end() < start || end < *self.range.start() {
-            return false;
-        };
+        let start = self.range.start() + self.offset + range.start();
+        let end = self.range.start() + self.offset + range.end();
+        let mask_end = self.range.start() + self.offset + self.length - 1;
 
+        // Check if query range overlaps with mask's effective range
+        if start > mask_end || end < self.range.start() + self.offset {
+            return false;
+        }
+
+        // Clamp to mask boundaries
+        let clamped_start = start.max(self.range.start() + self.offset);
+        let clamped_end = end.min(mask_end);
         if let Some(treemap) = &self.treemap {
             // Find the upper 32 bits, the keys of the treemap.
-            let start_partition = (start >> 32) as u32;
-            let end_partition = (end >> 32) as u32;
+            let start_partition = (clamped_start >> 32) as u32;
+            let end_partition = (clamped_end >> 32) as u32;
 
             treemap
                 .bitmaps()
@@ -57,17 +74,21 @@ impl TreeRowMask {
                     let (low_start, low_end) =
                         if partition_key == start_partition && partition_key == end_partition {
                             // Same partition - use exact range
-                            ((start & 0xFFFFFFFF) as u32, (end & 0xFFFFFFFF) as u32)
+                            (
+                                (clamped_start & 0xFFFFFFFF) as u32,
+                                (clamped_end & 0xFFFFFFFF) as u32,
+                            )
                         } else if partition_key == start_partition {
                             // First partition - from start to end of partition
-                            ((start & 0xFFFFFFFF) as u32, u32::MAX)
+                            ((clamped_start & 0xFFFFFFFF) as u32, u32::MAX)
                         } else if partition_key == end_partition {
                             // Last partition - from start of partition to end
-                            (0, (end & 0xFFFFFFFF) as u32)
+                            (0, (clamped_end & 0xFFFFFFFF) as u32)
                         } else {
                             // Middle partition - entire range
                             (0, u32::MAX)
                         };
+
                     // Check if this bitmap contains any values in the range
                     bitmap.range(low_start..=low_end).next().is_some()
                 })
@@ -78,19 +99,16 @@ impl TreeRowMask {
     }
 
     pub fn subset(mut self, range: RangeInclusive<u64>) -> Self {
-        let start = *range.start();
-        let end = *range.end();
-        assert!(start <= end, "Invalid range: start > end");
+        let offset = *range.start();
+        let length = *range.end() - *range.start() + 1;
+
         assert!(
-            start + self.range.start() <= *self.range.end(),
-            "Start offset exceeds current range"
-        );
-        assert!(
-            end + *self.range.start() <= *self.range.end(),
-            "End offset exceeds current range"
+            offset + length <= self.length,
+            "Subset range exceeds current mask length"
         );
 
-        self.range = start + self.range.start()..=end + self.range.start();
+        self.offset = self.offset + offset;
+        self.length = length;
         self
     }
 }
@@ -125,8 +143,9 @@ mod tests {
         treemap.insert(120);
         treemap.insert(180);
 
-        let mask = TreeRowMask::new(100..=200, treemap);
-        let subset = mask.subset(10..=50);
+        let mask = TreeRowMask::new(0..=1000, treemap);
+        let subset = mask.subset(100..=200);
+        let subset = subset.subset(10..=50);
 
         assert_eq!(*subset.range().start(), 110);
         assert_eq!(*subset.range().end(), 150);
@@ -143,10 +162,11 @@ mod tests {
             treemap.insert(i);
         }
 
-        let original_mask = TreeRowMask::new(0..=1000, treemap);
+        let original_mask = TreeRowMask::new(0..=2000, treemap);
+        let subset_mask = original_mask.subset(0..=1000);
 
         // Create subset that covers positions 100-200 in the original range
-        let subset_mask = original_mask.subset(100..=200);
+        let subset_mask = subset_mask.subset(100..=200);
 
         assert_eq!(*subset_mask.range().start(), 100);
         assert_eq!(*subset_mask.range().end(), 200);
@@ -176,8 +196,9 @@ mod tests {
         treemap.insert(base + 2000);
         treemap.insert(base + 3000);
 
-        let mask = TreeRowMask::new(base..=base + 10000, treemap);
-        let subset = mask.subset(500..=2500);
+        let mask = TreeRowMask::new(base..=base + 20000, treemap);
+        let subset = mask.subset(500..=10500);
+        let subset = subset.subset(0..=2000);
 
         assert_eq!(*subset.range().start(), base + 500);
         assert_eq!(*subset.range().end(), base + 2500);
@@ -195,7 +216,8 @@ mod tests {
         treemap.insert(50);
         treemap.insert(150);
 
-        let mask = TreeRowMask::new(0..=200, treemap);
+        let mask = TreeRowMask::new(0..=1000, treemap);
+        let mask = mask.subset(0..=200);
 
         // Test exact boundaries
         assert!(mask.non_empty_range(50..=50)); // Exact match
@@ -217,7 +239,7 @@ mod tests {
         assert!(mask.non_empty_range(50..=600)); // Even overlapping ranges
 
         // But not for completely non-overlapping ranges
-        assert!(!mask.non_empty_range(0..=50));
+        assert!(!mask.non_empty_range(501..=502));
         assert!(!mask.non_empty_range(600..=700));
     }
 
@@ -228,7 +250,8 @@ mod tests {
             treemap.insert(i);
         }
 
-        let mask = TreeRowMask::new(0..=100, treemap);
+        let mask = TreeRowMask::new(0..=1000, treemap);
+        let mask = mask.subset(0..=100);
 
         // Subset that starts at the beginning
         let subset1 = mask.clone().subset(0..=50);
@@ -261,7 +284,8 @@ mod tests {
         // Partition 2 (upper 32 bits = 2)
         treemap.insert(0x200000000); // First value in partition 2
 
-        let mask = TreeRowMask::new(0..=0x300000000, treemap);
+        let mask = TreeRowMask::new(0..=0x400000000, treemap);
+        let mask = mask.subset(0..=0x300000000);
 
         // Test range that spans from partition 0 to partition 1
         assert!(mask.non_empty_range(0xFFFFFFF0..=0x100000010));

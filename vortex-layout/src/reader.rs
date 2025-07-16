@@ -36,9 +36,9 @@ pub trait LayoutReader: 'static + Send + Sync {
     /// FIXME(ngates): remove this.
     fn row_count(&self) -> Precision<u64>;
 
-    /// Emit an iterator of [`Mask`]s from the layout reader that cover the full range of rows.
+    /// Emit a stream of [`Mask`]s from the layout reader that cover the full range of rows.
     /// These masks are likely to be partitioned in a way that is reasonable efficient for
-    /// partitioning evaluation of the layout reader - but there's no guarantee.
+    /// partitioning evaluation of the [`LayoutReader`] - but there's no guarantee.
     fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> MaskStream;
 
     /// Performs an approximate evaluation of the expression against the layout reader.

@@ -26,6 +26,32 @@ pub enum Selection {
     ExcludeRoaring(roaring::RoaringTreemap),
 }
 
+// impl Selection {
+//     pub fn tree_row_mask(&self, range: &Range<u64>) -> Option<Mask> {
+//         match &self {
+//             Selection::All => TreeRowMask::all(0..=u64::MAX),
+//             Selection::IncludeByIndex(indices) => {
+//                 let mut treemap = RoaringTreemap::new();
+//                 for idx in indices.iter() {
+//                     treemap.insert(*idx);
+//                 }
+//                 TreeRowMask::new(0..=u64::MAX, treemap)
+//             }
+//             Selection::ExcludeByIndex(indices) => {
+//                 let mut treemap = RoaringTreemap::full();
+//                 for idx in indices.iter() {
+//                     treemap.remove(*idx);
+//                 }
+//                 TreeRowMask::new(treemap)
+//             }
+//             #[cfg(feature = "roaring")]
+//             Selection::IncludeRoaring(mask) => TreeRowMask::new(0..=u64::MAX, mask.clone()),
+//             #[cfg(feature = "roaring")]
+//             Selection::ExcludeRoaring(_) => todo!(),
+//         };
+//     }
+// }
+
 impl Selection {
     /// Extract the [`RowMask`] for the given range from this selection.
     #[allow(dead_code)]

@@ -243,7 +243,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         let ctx = Arc::new(TaskContext {
             row_range: self.row_range.clone(),
-            selection: self.selection.clone(),
             filter: self.filter.clone(),
             reader: layout_reader.clone(),
             projection: projection.clone(),
