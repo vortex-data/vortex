@@ -96,8 +96,7 @@ impl DuckDBCtx {
 
         let effective_url = self.resolve_storage_url(base_url, load_format, dataset)?;
         let extension = match load_format {
-            Format::Parquet => "parquet",
-            Format::OnDiskVortex | Format::VortexCompact => "vortex",
+            Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => load_format.ext(),
             other => anyhow::bail!("Format {other} isn't supported for DuckDB"),
         };
 
