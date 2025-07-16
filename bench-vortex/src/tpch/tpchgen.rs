@@ -30,8 +30,8 @@ use vortex::error::VortexExpect;
 use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
 use vortex_file::VortexLayoutStrategy;
+use vortex_layout::LocalExecutor;
 use vortex_layout::layouts::compact::CompactCompressor;
-use vortex_layout::scan::LocalExecutor;
 
 use crate::utils::file_utils::idempotent_async;
 use crate::{Format, IdempotentPath};

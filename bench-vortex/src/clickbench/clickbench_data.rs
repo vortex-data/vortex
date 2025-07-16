@@ -28,8 +28,8 @@ use vortex::error::VortexExpect;
 use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex_datafusion::VortexFormat;
 use vortex_file::VortexLayoutStrategy;
+use vortex_layout::LocalExecutor;
 use vortex_layout::layouts::compact::CompactCompressor;
-use vortex_layout::scan::LocalExecutor;
 
 use crate::Format;
 use crate::conversions::parquet_to_vortex;

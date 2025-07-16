@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -12,18 +12,11 @@ use datafusion::datasource::listing::{
 };
 use datafusion::prelude::SessionContext;
 use glob::Pattern;
-use tokio::fs::OpenOptions;
 use tracing::info;
 use url::Url;
-use vortex::file::VortexWriteOptions;
 use vortex_datafusion::VortexFormat;
-use vortex_file::VortexLayoutStrategy;
-use vortex_layout::layouts::compact::CompactCompressor;
-use vortex_layout::scan::LocalExecutor;
 
-use crate::conversions::parquet_to_vortex;
 use crate::datasets::BenchmarkDataset;
-use crate::idempotent_async;
 
 pub async fn convert_parquet_to_vortex(
     input_path: &Path,
@@ -195,59 +188,6 @@ pub async fn register_vortex_compact_files(
         }
         BenchmarkDataset::PublicBi { .. } => todo!(),
     }
-
-    Ok(())
-}
-
-pub async fn parquet_file_to_vortex(parquet_path: &Path, vortex_path: &PathBuf) -> Result<()> {
-    idempotent_async(vortex_path, async |vtx_file| {
-        info!("Converting {:?} to Vortex format", parquet_path);
-
-        let array_stream = parquet_to_vortex(parquet_path.to_path_buf())?;
-
-        let f = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(&vtx_file)
-            .await?;
-
-        VortexWriteOptions::default().write(f, array_stream).await?;
-
-        anyhow::Ok(())
-    })
-    .await?;
-
-    Ok(())
-}
-
-pub async fn parquet_file_to_vortex_compact(
-    parquet_path: &Path,
-    vortex_compact_path: &PathBuf,
-) -> Result<()> {
-    idempotent_async(vortex_compact_path, async |vtx_file| {
-        info!("Converting {:?} to Vortex compact format", parquet_path);
-
-        let array_stream = parquet_to_vortex(parquet_path.to_path_buf())?;
-
-        let f = OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(&vtx_file)
-            .await?;
-
-        let executor = Arc::new(LocalExecutor);
-        let compressor = CompactCompressor::default();
-        let compact_strategy = VortexLayoutStrategy::compact_with_executor(executor, compressor);
-
-        let compact_options = VortexWriteOptions::default().with_strategy(compact_strategy);
-
-        compact_options.write(f, array_stream).await?;
-
-        anyhow::Ok(())
-    })
-    .await?;
 
     Ok(())
 }
