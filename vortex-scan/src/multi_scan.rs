@@ -13,19 +13,20 @@ use vortex_error::VortexResult;
 use crate::ScanBuilder;
 
 type ArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
+type ScanBuilderFactory = Arc<SegQueue<Box<dyn FnOnce() -> ScanBuilder<ArrayRef> + Send + Sync>>>;
 
 /// Coordinator to orchestrate multiple scan operations.
 ///
 /// `MultiScan` allows to queue multiple scan operations in order to execute
 /// them in parallel. In particular, this enables scanning multiple files.
 pub struct MultiScan {
-    scan_builder_fns: Arc<SegQueue<Box<dyn FnOnce() -> ScanBuilder<ArrayRef> + Send + Sync>>>,
+    scan_builder_factory: ScanBuilderFactory,
 }
 
 impl MultiScan {
     pub fn new() -> Self {
         Self {
-            scan_builder_fns: Arc::new(SegQueue::new()),
+            scan_builder_factory: Arc::new(SegQueue::new()),
         }
     }
 
@@ -36,7 +37,7 @@ impl MultiScan {
         I: IntoIterator<Item = F>,
     {
         for closure in closures.into_iter() {
-            self.scan_builder_fns.push(Box::new(closure));
+            self.scan_builder_factory.push(Box::new(closure));
         }
 
         self
@@ -47,7 +48,7 @@ impl MultiScan {
     /// The scan progresses when calling `next` on the iterator.
     pub fn new_scan_iterator(&self) -> MultiScanIterator {
         MultiScanIterator {
-            scan_builder_fns: self.scan_builder_fns.clone(),
+            scan_builder_factory: self.scan_builder_factory.clone(),
             local_pool: LocalPool::new(),
             polled_tasks: FuturesUnordered::new(),
             task_queue: SegQueue::new(),
@@ -62,7 +63,7 @@ pub struct MultiScanIterator {
 
     /// Thread-safe queue of closures that lazily produce [`ScanBuilder`] instances.
     /// This queue is shared across all iterators being created with `new_scan_iterator`.
-    scan_builder_fns: Arc<SegQueue<Box<dyn FnOnce() -> ScanBuilder<ArrayRef> + Send + Sync>>>,
+    scan_builder_factory: ScanBuilderFactory,
     task_queue: SegQueue<ArrayFuture>,
 }
 
@@ -82,7 +83,7 @@ impl Iterator for MultiScanIterator {
         loop {
             // Queue up tasks if the thread local queue is almost empty.
             if self.task_queue.len() <= 4 {
-                if let Some(scan_builder_fn) = self.scan_builder_fns.pop() {
+                if let Some(scan_builder_fn) = self.scan_builder_factory.pop() {
                     let split_tasks = scan_builder_fn().build().ok()?.1;
                     for task in split_tasks {
                         self.task_queue.push(Box::pin(task));
