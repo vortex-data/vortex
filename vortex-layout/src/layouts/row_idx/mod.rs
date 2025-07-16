@@ -11,7 +11,6 @@ use Nullability::NonNullable;
 use async_trait::async_trait;
 use dashmap::DashMap;
 pub use expr::*;
-use roaring::RoaringTreemap;
 use vortex_array::compute::filter;
 use vortex_array::stats::Precision;
 use vortex_array::{ArrayRef, IntoArray};
@@ -26,6 +25,7 @@ use vortex_sequence::SequenceArray;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::masks::MaskStream;
+use crate::scan::tree_row_mask::TreeRowMask;
 use crate::{
     ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, NoOpPruningEvaluation,
     PruningEvaluation,
@@ -126,7 +126,7 @@ impl LayoutReader for RowIdxLayoutReader {
         self.child.row_count()
     }
 
-    fn row_masks(&self, selection: &RoaringTreemap, field_mask: &[FieldMask]) -> MaskStream {
+    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> MaskStream {
         // It would be nice to know the row idx expression here and adjust the returned splits.
         self.child.row_masks(selection, field_mask)
     }

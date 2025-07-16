@@ -40,7 +40,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
     // // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
     let split_range = split_mask.row_range();
     // Apply the selection to calculate a read mask
-    let read_mask = split_mask.intersect(&ctx.selection.row_mask(&split_range));
+    // let read_mask = split_mask.intersect(&ctx.selection.row_mask(&split_range));
     let split_range_start = split_range.start.as_usize();
 
     let read_range = match &ctx.row_range {
@@ -57,7 +57,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
         }
     };
 
-    let read_mask = read_mask.slice(
+    let read_mask = split_mask.slice(
         read_range.start.as_usize() - split_range_start,
         (read_range.end - read_range.start).as_usize(),
     );

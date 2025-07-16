@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::{BitAnd, Deref, Range};
+use std::ops::{Deref, Range};
 
 use vortex_mask::Mask;
 
@@ -42,16 +42,16 @@ impl RowMask {
     //     self.mask
     // }
 
-    pub fn intersect(&self, other: &Mask) -> Self {
-        assert_eq!(
-            self.mask.len(),
-            other.len(),
-            "Masks must have the same length"
-        );
-        let new_mask = self.mask.bitand(other);
-        Self {
-            row_offset: self.row_offset,
-            mask: new_mask,
-        }
-    }
+    // pub fn intersect(&self, other: &Mask) -> Self {
+    //     assert_eq!(
+    //         self.mask.len(),
+    //         other.len(),
+    //         "Masks must have the same length"
+    //     );
+    //     let new_mask = self.mask.bitand(other);
+    //     Self {
+    //         row_offset: self.row_offset,
+    //         mask: new_mask,
+    //     }
+    // }
 }

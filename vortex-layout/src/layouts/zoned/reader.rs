@@ -10,7 +10,6 @@ use dashmap::DashMap;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
-use roaring::RoaringTreemap;
 use vortex_array::ToCanonical;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
@@ -22,6 +21,7 @@ use vortex_mask::Mask;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::masks::MaskStream;
+use crate::scan::tree_row_mask::TreeRowMask;
 use crate::segments::SegmentSource;
 use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
 
@@ -177,7 +177,7 @@ impl LayoutReader for ZonedReader {
         self.data_child.row_count()
     }
 
-    fn row_masks(&self, selection: &RoaringTreemap, field_mask: &[FieldMask]) -> MaskStream {
+    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> MaskStream {
         self.data_child.row_masks(selection, field_mask)
     }
 

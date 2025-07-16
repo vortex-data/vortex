@@ -9,7 +9,6 @@ use futures::future::ready;
 use futures::stream::FuturesOrdered;
 use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use itertools::Itertools;
-use roaring::RoaringTreemap;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::stats::Precision;
@@ -21,6 +20,7 @@ use vortex_mask::Mask;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::masks::MaskStream;
 use crate::reader::LayoutReader;
+use crate::scan::tree_row_mask::TreeRowMask;
 use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
@@ -129,32 +129,28 @@ impl LayoutReader for ChunkedReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, selection: &RoaringTreemap, field_mask: &[FieldMask]) -> MaskStream {
-        // let mut bitmaps = selection.bitmaps();
-        // let bitmap = bitmaps.next().unwrap();
-        // assert!(bitmaps.next().is_none());
-
-        // println!("chunked row_masks {:?}", self.chunk_offsets);
+    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> MaskStream {
         let field_mask = field_mask.to_vec();
         let children: Vec<_> = (0..self.layout.nchildren())
-            .filter(|idx| {
-                let start = self.chunk_offsets[*idx];
-                let end = if *idx + 1 == self.chunk_offsets.len() {
+            .filter_map(|idx| {
+                let start = self.chunk_offsets[idx];
+                let end = if idx + 1 == self.chunk_offsets.len() {
                     self.layout.row_count
                 } else {
-                    self.chunk_offsets[*idx + 1]
+                    self.chunk_offsets[idx + 1]
                 };
-                let mut other = RoaringTreemap::new();
-                other.insert_range(start..end);
-                // bitmap.1.contains_range(start..end);
-                !selection.is_disjoint(&other)
+                selection.non_empty_range(start, end).then(|| {
+                    Ok((
+                        selection.clone().subset(start, end),
+                        self.chunk_reader(idx)?.clone(),
+                    ))
+                })
             })
-            .map(|i| self.chunk_reader(i).cloned())
             .collect();
 
         stream::iter(children)
             .map(move |child| match child {
-                Ok(child) => child.row_masks(&RoaringTreemap::new(), &field_mask),
+                Ok((selection, child)) => child.row_masks(&selection, &field_mask),
                 Err(e) => stream::once(async move { Err(e) }).boxed(),
             })
             .flatten()

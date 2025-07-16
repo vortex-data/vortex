@@ -7,7 +7,6 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use futures::future::ok;
 use futures::{FutureExt, stream};
-use roaring::RoaringTreemap;
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayParts;
 use vortex_array::stats::Precision;
@@ -20,6 +19,7 @@ use vortex_mask::Mask;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::masks::MaskStream;
+use crate::scan::tree_row_mask::TreeRowMask;
 use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
@@ -107,7 +107,7 @@ impl LayoutReader for FlatReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, _selection: &RoaringTreemap, _field_mask: &[FieldMask]) -> MaskStream {
+    fn row_masks(&self, _selection: &TreeRowMask, _field_mask: &[FieldMask]) -> MaskStream {
         Box::pin(stream::once(ok(Mask::new_true(self.len))))
     }
 

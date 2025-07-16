@@ -27,6 +27,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::scan::tree_row_mask::TreeRowMask;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
@@ -55,7 +56,10 @@ mod test {
         let segments: Arc<dyn SegmentSource> = Arc::new(segments);
         let reader = layout.new_reader("".into(), segments).unwrap();
         let splits = reader
-            .row_masks(&[FieldMask::Exact(FieldPath::root())])
+            .row_masks(
+                &TreeRowMask::all(0, 10),
+                &[FieldMask::Exact(FieldPath::root())],
+            )
             .try_collect::<Vec<Mask>>()
             .await
             .unwrap();

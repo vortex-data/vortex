@@ -8,7 +8,6 @@ use arrow_buffer::ArrowNativeType;
 use dashmap::DashMap;
 use futures::{StreamExt, stream};
 use itertools::Itertools;
-use roaring::RoaringTreemap;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
@@ -23,6 +22,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::layouts::struct_::StructLayout;
 use crate::masks::{IntersectionMaskStream, MaskStream};
+use crate::scan::tree_row_mask::TreeRowMask;
 use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
@@ -178,7 +178,7 @@ impl LayoutReader for StructReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, selection: &RoaringTreemap, field_mask: &[FieldMask]) -> MaskStream {
+    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> MaskStream {
         // Here we construct a stream of masks for each field in the field_mask, and then take
         // the smallest mask from each field.
         // If the field_mask is empty, we return a stream of all true masks.

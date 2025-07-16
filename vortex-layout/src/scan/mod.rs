@@ -18,6 +18,7 @@ use parking_lot::Mutex;
 use roaring::RoaringTreemap;
 pub use selection::*;
 pub use split_by::*;
+use tree_row_mask::TreeRowMask;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
@@ -42,6 +43,7 @@ pub mod row_mask;
 mod selection;
 mod split_by;
 mod tasks;
+pub mod tree_row_mask;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
@@ -209,20 +211,20 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
 
         let selection = match &self.selection {
-            Selection::All => RoaringTreemap::full(),
+            Selection::All => TreeRowMask::all(0, 0),
             Selection::IncludeByIndex(indices) => {
                 let mut treemap = RoaringTreemap::new();
                 for idx in indices.iter() {
                     treemap.insert(*idx);
                 }
-                treemap
+                TreeRowMask::new(0, 0, treemap)
             }
             Selection::ExcludeByIndex(indices) => {
                 let mut treemap = RoaringTreemap::full();
                 for idx in indices.iter() {
                     treemap.remove(*idx);
                 }
-                treemap
+                TreeRowMask::new(0, 0, treemap)
             }
         };
 

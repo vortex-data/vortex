@@ -7,7 +7,6 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::{FutureExt, join};
-use roaring::RoaringTreemap;
 use vortex_array::ArrayRef;
 use vortex_array::compute::{MinMaxResult, filter, min_max};
 use vortex_array::stats::Precision;
@@ -20,6 +19,7 @@ use vortex_mask::Mask;
 use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::masks::MaskStream;
+use crate::scan::tree_row_mask::TreeRowMask;
 use crate::segments::SegmentSource;
 use crate::{
     ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpPruningEvaluation,
@@ -115,7 +115,7 @@ impl LayoutReader for DictReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, selection: &RoaringTreemap, field_mask: &[FieldMask]) -> MaskStream {
+    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> MaskStream {
         self.codes.row_masks(selection, field_mask)
     }
 

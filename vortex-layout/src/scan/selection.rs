@@ -28,6 +28,7 @@ pub enum Selection {
 
 impl Selection {
     /// Extract the [`RowMask`] for the given range from this selection.
+    #[allow(dead_code)]
     pub(crate) fn row_mask(&self, range: &Range<u64>) -> Mask {
         let range_len = usize::try_from(range.end - range.start)
             .vortex_expect("Range length does not fit into a usize");
@@ -104,6 +105,7 @@ impl Selection {
 }
 
 /// Find the positional range within row_indices that covers all rows in the given range.
+#[allow(dead_code)]
 fn indices_range(range: &Range<u64>, row_indices: &[u64]) -> Option<Range<usize>> {
     if row_indices.first().is_some_and(|&first| first >= range.end)
         || row_indices.last().is_some_and(|&last| range.start > last)
