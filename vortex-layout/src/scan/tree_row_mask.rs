@@ -11,9 +11,9 @@ use roaring::RoaringTreemap;
 #[derive(Debug, Clone)]
 pub struct TreeRowMask {
     /// The projected row range
-    pub(crate) range: RangeInclusive<u64>,
+    range: RangeInclusive<u64>,
     /// Empty if the treemap is all full
-    pub treemap: Option<Arc<RoaringTreemap>>,
+    treemap: Option<Arc<RoaringTreemap>>,
 }
 
 impl TreeRowMask {
@@ -30,6 +30,11 @@ impl TreeRowMask {
             range,
             treemap: Some(Arc::new(treemap)),
         }
+    }
+
+    /// Get the range of this mask
+    pub fn range(&self) -> &RangeInclusive<u64> {
+        &self.range
     }
 
     pub fn non_empty_range(&self, range: RangeInclusive<u64>) -> bool {
@@ -85,12 +90,10 @@ impl TreeRowMask {
             "End offset exceeds current range"
         );
 
-        self.range = start + self.range.start()..=(end - start) + self.range.start();
+        self.range = start + self.range.start()..=end + self.range.start();
         self
     }
 }
-
-// writes tests
 
 #[cfg(test)]
 mod tests {
@@ -100,18 +103,18 @@ mod tests {
 
     #[test]
     fn test_contains_range() {
-        let mask = TreeRowMask::all(0, 100);
-        assert!(mask.non_empty_range(0, 100));
-        assert!(!mask.non_empty_range(101, 102));
+        let mask = TreeRowMask::all(0..=100);
+        assert!(mask.non_empty_range(0..=100));
+        assert!(!mask.non_empty_range(101..=102));
     }
 
     #[test]
     fn test_subset_basic() {
-        let mask = TreeRowMask::all(100, 200);
-        let subset = mask.subset(10, 50);
+        let mask = TreeRowMask::all(100..=200);
+        let subset = mask.subset(10..=50);
 
-        assert_eq!(subset.start, 110); // 100 + 10
-        assert_eq!(subset.end, 150); // 100 + 50
+        assert_eq!(*subset.range().start(), 110); // 100 + 10
+        assert_eq!(*subset.range().end(), 150); // 100 + 50
     }
 
     #[test]
@@ -122,11 +125,11 @@ mod tests {
         treemap.insert(120);
         treemap.insert(180);
 
-        let mask = TreeRowMask::new(100, 200, treemap);
-        let subset = mask.subset(10, 50);
+        let mask = TreeRowMask::new(100..=200, treemap);
+        let subset = mask.subset(10..=50);
 
-        assert_eq!(subset.start, 110);
-        assert_eq!(subset.end, 150);
+        assert_eq!(*subset.range().start(), 110);
+        assert_eq!(*subset.range().end(), 150);
 
         // Should still have the same treemap reference
         assert!(subset.treemap.is_some());
@@ -140,28 +143,28 @@ mod tests {
             treemap.insert(i);
         }
 
-        let original_mask = TreeRowMask::new(0, 1000, treemap);
+        let original_mask = TreeRowMask::new(0..=1000, treemap);
 
         // Create subset that covers positions 100-200 in the original range
-        let subset_mask = original_mask.subset(100, 200);
+        let subset_mask = original_mask.subset(100..=200);
 
-        assert_eq!(subset_mask.start, 100);
-        assert_eq!(subset_mask.end, 200);
+        assert_eq!(*subset_mask.range().start(), 100);
+        assert_eq!(*subset_mask.range().end(), 200);
 
         // Test that non_empty_range works correctly on the subset
-        assert!(subset_mask.non_empty_range(10, 20)); // Should find value at 110
-        assert!(subset_mask.non_empty_range(50, 60)); // Should find value at 150
-        assert!(!subset_mask.non_empty_range(250, 260)); // Outside subset range
+        assert!(subset_mask.non_empty_range(10..=20)); // Should find value at 110
+        assert!(subset_mask.non_empty_range(50..=60)); // Should find value at 150
+        assert!(!subset_mask.non_empty_range(250..=260)); // Outside subset range
     }
 
     #[test]
     fn test_subset_chain() {
-        let mask = TreeRowMask::all(0, 1000);
-        let subset1 = mask.subset(100, 500); // Range becomes [100, 500]
-        let subset2 = subset1.subset(50, 150); // Range becomes [150, 250]
+        let mask = TreeRowMask::all(0..=1000);
+        let subset1 = mask.subset(100..=500); // Range becomes [100, 500]
+        let subset2 = subset1.subset(50..=150); // Range becomes [150, 250]
 
-        assert_eq!(subset2.start, 150);
-        assert_eq!(subset2.end, 250);
+        assert_eq!(*subset2.range().start(), 150);
+        assert_eq!(*subset2.range().end(), 250);
     }
 
     #[test]
@@ -173,17 +176,17 @@ mod tests {
         treemap.insert(base + 2000);
         treemap.insert(base + 3000);
 
-        let mask = TreeRowMask::new(base, base + 10000, treemap);
-        let subset = mask.subset(500, 2500);
+        let mask = TreeRowMask::new(base..=base + 10000, treemap);
+        let subset = mask.subset(500..=2500);
 
-        assert_eq!(subset.start, base + 500);
-        assert_eq!(subset.end, base + 2500);
+        assert_eq!(*subset.range().start(), base + 500);
+        assert_eq!(*subset.range().end(), base + 2500);
 
         // match: base + 500 + 1400..base + 500 + 1600 == base + 1900..base + 2100
-        assert!(subset.non_empty_range(1400, 1500));
+        assert!(subset.non_empty_range(1400..=1500));
         // Should not find values outside the subset range
-        assert!(!subset.non_empty_range(1400, 1499));
-        assert!(!subset.non_empty_range(1501, 2499));
+        assert!(!subset.non_empty_range(1400..=1499));
+        assert!(!subset.non_empty_range(1501..=2499));
     }
 
     #[test]
@@ -192,30 +195,30 @@ mod tests {
         treemap.insert(50);
         treemap.insert(150);
 
-        let mask = TreeRowMask::new(0, 200, treemap);
+        let mask = TreeRowMask::new(0..=200, treemap);
 
         // Test exact boundaries
-        assert!(mask.non_empty_range(50, 50)); // Exact match
-        assert!(mask.non_empty_range(49, 51)); // Contains 50
-        assert!(!mask.non_empty_range(51, 149)); // Gap between values
+        assert!(mask.non_empty_range(50..=50)); // Exact match
+        assert!(mask.non_empty_range(49..=51)); // Contains 50
+        assert!(!mask.non_empty_range(51..=149)); // Gap between values
 
         // Test range completely outside mask bounds
-        assert!(!mask.non_empty_range(300, 400));
-        assert!(!mask.non_empty_range(0, 0)); // Before mask start (but mask starts at 0)
+        assert!(!mask.non_empty_range(300..=400));
+        assert!(!mask.non_empty_range(0..=0)); // Before mask start (but mask starts at 0)
     }
 
     #[test]
     fn test_all_mask_behavior() {
-        let mask = TreeRowMask::all(100, 500);
+        let mask = TreeRowMask::all(100..=500);
 
         // All mask should always return true for non_empty_range
-        assert!(mask.non_empty_range(150, 200));
-        assert!(mask.non_empty_range(100, 500));
-        assert!(mask.non_empty_range(50, 600)); // Even overlapping ranges
+        assert!(mask.non_empty_range(150..=200));
+        assert!(mask.non_empty_range(100..=500));
+        assert!(mask.non_empty_range(50..=600)); // Even overlapping ranges
 
         // But not for completely non-overlapping ranges
-        assert!(!mask.non_empty_range(0, 50));
-        assert!(!mask.non_empty_range(600, 700));
+        assert!(!mask.non_empty_range(0..=50));
+        assert!(!mask.non_empty_range(600..=700));
     }
 
     #[test]
@@ -225,21 +228,21 @@ mod tests {
             treemap.insert(i);
         }
 
-        let mask = TreeRowMask::new(0, 100, treemap);
+        let mask = TreeRowMask::new(0..=100, treemap);
 
         // Subset that starts at the beginning
-        let subset1 = mask.clone().subset(0, 50);
-        assert_eq!(subset1.start, 0);
-        assert_eq!(subset1.end, 50);
+        let subset1 = mask.clone().subset(0..=50);
+        assert_eq!(*subset1.range().start(), 0);
+        assert_eq!(*subset1.range().end(), 50);
 
         // Subset that ends at the end
-        let subset2 = mask.clone().subset(50, 100);
-        assert_eq!(subset2.start, 50);
-        assert_eq!(subset2.end, 100);
+        let subset2 = mask.clone().subset(50..=100);
+        assert_eq!(*subset2.range().start(), 50);
+        assert_eq!(*subset2.range().end(), 100);
 
         // Single point subset
-        let subset3 = mask.clone().subset(25, 25);
-        assert_eq!(subset3.start, 25);
-        assert_eq!(subset3.end, 25);
+        let subset3 = mask.clone().subset(25..=25);
+        assert_eq!(*subset3.range().start(), 25);
+        assert_eq!(*subset3.range().end(), 25);
     }
 }
