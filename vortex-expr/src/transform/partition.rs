@@ -395,10 +395,10 @@ mod tests {
 
         let part_a = partitioned.find_partition(&"a".into()).unwrap();
         let expected_a = pack([("a_0", col("a"))], NonNullable);
-        assert_eq!(part_a, &expected_a, "{} {}", part_a, expected_a);
+        assert_eq!(part_a, &expected_a, "{part_a} {expected_a}");
 
         let part_b = partitioned.find_partition(&"b".into()).unwrap();
         let expected_b = pack([("b_0", pack([("b", col("b"))], NonNullable))], NonNullable);
-        assert_eq!(part_b, &expected_b, "{} {}", part_b, expected_b);
+        assert_eq!(part_b, &expected_b, "{part_b} {expected_b}");
     }
 }

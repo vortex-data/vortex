@@ -364,6 +364,9 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
+          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
@@ -463,6 +466,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
         with:
+          toolchain: nightly
           targets: "wasm32-wasip1"
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v3.1
@@ -485,7 +489,8 @@ jobs:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
         with:
-          rust-version: nightly
+          toolchain: nightly
+          components: "rust-src, rustfmt, clippy, miri"
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest@0.9.98
