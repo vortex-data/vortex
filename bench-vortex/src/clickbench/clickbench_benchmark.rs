@@ -123,7 +123,8 @@ impl Benchmark for ClickBenchBenchmark {
                             // Use tokio runtime to handle async conversion
                             let rt = tokio::runtime::Runtime::new()?;
                             rt.block_on(async {
-                                crate::file::convert_parquet_to_vortex_compact(&file_path, &dataset).await
+                                crate::file::convert_parquet_to_vortex_compact(&file_path, &dataset)
+                                    .await
                             })?;
                         }
                     }

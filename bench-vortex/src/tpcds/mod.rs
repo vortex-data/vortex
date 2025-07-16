@@ -9,7 +9,9 @@ use itertools::Itertools;
 use url::Url;
 
 use crate::df::get_session_context;
-use crate::tpch::{register_arrow, register_parquet, register_vortex_file, register_vortex_compact_file};
+use crate::tpch::{
+    register_arrow, register_parquet, register_vortex_compact_file, register_vortex_file,
+};
 use crate::{BenchmarkDataset, Format};
 
 pub mod tpcds_benchmark;

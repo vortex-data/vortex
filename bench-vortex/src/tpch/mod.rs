@@ -99,7 +99,8 @@ pub async fn register_vortex_compact_file(
     schema: Option<Schema>,
     dataset: &BenchmarkDataset,
 ) -> anyhow::Result<()> {
-    datasets::file::register_vortex_compact_files(session, table_name, file, glob, schema, dataset).await
+    datasets::file::register_vortex_compact_files(session, table_name, file, glob, schema, dataset)
+        .await
 }
 
 /// Load a table as an uncompressed Vortex array.

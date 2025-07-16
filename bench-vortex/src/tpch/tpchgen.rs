@@ -385,11 +385,12 @@ impl VortexCompactWriter {
             let stream = ArrayStreamAdapter::new(dtype, ReceiverStream::new(receiver));
 
             let file = TokioFile::create(&file_path).await?;
-            
+
             let executor = std::sync::Arc::new(LocalExecutor);
             let compressor = CompactCompressor::default();
-            let compact_strategy = VortexLayoutStrategy::compact_with_executor(executor, compressor);
-            
+            let compact_strategy =
+                VortexLayoutStrategy::compact_with_executor(executor, compressor);
+
             VortexWriteOptions::default()
                 .with_strategy(compact_strategy)
                 .write(file, stream)

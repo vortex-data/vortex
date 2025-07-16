@@ -231,7 +231,8 @@ pub async fn convert_parquet_to_vortex_compact(input_path: &Path) -> anyhow::Res
                 temp.file_name().unwrap().to_str().unwrap().to_string()
             };
             let parquet_file_path = parquet_path.join(format!("{filename}.parquet"));
-            let output_path = vortex_compact_dir.join(format!("{filename}.{}", Format::VortexCompact.ext()));
+            let output_path =
+                vortex_compact_dir.join(format!("{filename}.{}", Format::VortexCompact.ext()));
 
             tokio::spawn(async move {
                 idempotent_async(&output_path, move |vtx_file| async move {
@@ -246,10 +247,11 @@ pub async fn convert_parquet_to_vortex_compact(input_path: &Path) -> anyhow::Res
 
                     let executor = Arc::new(LocalExecutor);
                     let compressor = CompactCompressor::default();
-                    let compact_strategy = VortexLayoutStrategy::compact_with_executor(executor, compressor);
+                    let compact_strategy =
+                        VortexLayoutStrategy::compact_with_executor(executor, compressor);
 
-                    let compact_options = VortexWriteOptions::default()
-                        .with_strategy(compact_strategy);
+                    let compact_options =
+                        VortexWriteOptions::default().with_strategy(compact_strategy);
 
                     compact_options.write(f, array_stream).await?;
 

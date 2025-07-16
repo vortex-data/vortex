@@ -221,7 +221,10 @@ pub async fn parquet_file_to_vortex(parquet_path: &Path, vortex_path: &PathBuf) 
     Ok(())
 }
 
-pub async fn parquet_file_to_vortex_compact(parquet_path: &Path, vortex_compact_path: &PathBuf) -> Result<()> {
+pub async fn parquet_file_to_vortex_compact(
+    parquet_path: &Path,
+    vortex_compact_path: &PathBuf,
+) -> Result<()> {
     idempotent_async(vortex_compact_path, async |vtx_file| {
         info!("Converting {:?} to Vortex compact format", parquet_path);
 
@@ -238,8 +241,7 @@ pub async fn parquet_file_to_vortex_compact(parquet_path: &Path, vortex_compact_
         let compressor = CompactCompressor::default();
         let compact_strategy = VortexLayoutStrategy::compact_with_executor(executor, compressor);
 
-        let compact_options = VortexWriteOptions::default()
-            .with_strategy(compact_strategy);
+        let compact_options = VortexWriteOptions::default().with_strategy(compact_strategy);
 
         compact_options.write(f, array_stream).await?;
 
