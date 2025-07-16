@@ -58,7 +58,7 @@ fn compress_primitive<T: NativePType + Delta + Transpose + WrappingSub, const LA
             Transpose::transpose(chunk, &mut transposed);
 
             // Initialize and store the base vector for each chunk
-            bases.extend(&transposed[0..T::LANES]);
+            bases.extend_from_slice(&transposed[0..T::LANES]);
 
             deltas.reserve(1024);
             let delta_len = deltas.len();

@@ -24,7 +24,7 @@ runs:
       with:
         toolchain: "${{ steps.rust-version.outputs.version }}"
         targets: "${{inputs.targets || ''}}"
-        components: clippy, rustfmt, miri, llvm-tools-preview
+        components: clippy, rustfmt
 
     - name: Rust Dependency Cache
       uses: Swatinem/rust-cache@v2

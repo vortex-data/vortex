@@ -24,6 +24,8 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
+        with:
+          rust-version: nightly
       - name: Install cargo fuzz
         run: cargo install --locked cargo-fuzz
       - name: Restore corpus

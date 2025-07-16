@@ -115,8 +115,9 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usi
                 for value in iterator.flatten() {
                     value_byte_indices.push(buffer.len());
                     // here's where we write the string lengths
-                    buffer.extend(ViewLen::try_from(value.len())?.to_le_bytes());
-                    buffer.extend(value);
+                    buffer
+                        .extend_trusted(ViewLen::try_from(value.len())?.to_le_bytes().into_iter());
+                    buffer.extend_from_slice(value);
                 }
                 Ok::<_, VortexError>(())
             })??;
