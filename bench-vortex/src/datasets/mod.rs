@@ -134,7 +134,10 @@ impl BenchmarkDataset {
                     Some(glob),
                 )?;
             }
-            (BenchmarkDataset::ClickBench { single_file, .. }, Format::OnDiskVortex) => {
+            (
+                BenchmarkDataset::ClickBench { single_file, .. },
+                Format::OnDiskVortex | Format::VortexCompact,
+            ) => {
                 // Use glob pattern for partitioned files, specific file pattern for single file
                 let glob = if *single_file {
                     Some(glob::Pattern::new("hits_0.vortex")?)
@@ -142,22 +145,6 @@ impl BenchmarkDataset {
                     Some(glob::Pattern::new("*.vortex")?)
                 };
                 clickbench::register_vortex_files(
-                    session.clone(),
-                    "hits",
-                    base_url,
-                    Some(clickbench::HITS_SCHEMA.clone()),
-                    glob,
-                )
-                .await?;
-            }
-            (BenchmarkDataset::ClickBench { single_file, .. }, Format::VortexCompact) => {
-                // Use glob pattern for partitioned files, specific file pattern for single file
-                let glob = if *single_file {
-                    Some(glob::Pattern::new("hits_0.vortex")?)
-                } else {
-                    Some(glob::Pattern::new("*.vortex")?)
-                };
-                clickbench::register_vortex_compact_files(
                     session.clone(),
                     "hits",
                     base_url,
