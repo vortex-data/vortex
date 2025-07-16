@@ -468,6 +468,7 @@ jobs:
         with:
           toolchain: nightly
           targets: "wasm32-wasip1"
+          components: "rust-src"
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v3.1
       - run: cargo +nightly -Zbuild-std=panic_abort,std build --target wasm32-wasip1
