@@ -1,0 +1,39 @@
+[package]
+name = "vortex-scan"
+authors.workspace = true
+description = "Scanning operations for Vortex"
+edition = { workspace = true }
+homepage = { workspace = true }
+categories = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-dtype = { workspace = true }
+vortex-error = { workspace = true }
+vortex-expr = { workspace = true }
+vortex-layout = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-metrics = { workspace = true }
+
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+async-trait = { workspace = true }
+crossbeam-queue = { workspace = true }
+dashmap = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+roaring = { workspace = true, optional = true }
+tokio = { workspace = true }
+
+[features]
+default = ["tokio"]
+tokio = ["vortex-layout/tokio"]
+roaring = ["dep:roaring", "vortex-layout/roaring"]

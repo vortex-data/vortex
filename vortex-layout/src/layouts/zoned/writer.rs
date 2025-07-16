@@ -15,12 +15,11 @@ use vortex_error::VortexResult;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
-use crate::scan::{TaskExecutor, TaskExecutorExt};
 use crate::segments::SequenceWriter;
 use crate::sequence::SequenceId;
 use crate::{
     IntoLayout, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt,
+    SequentialStreamAdapter, SequentialStreamExt, TaskExecutor, TaskExecutorExt,
 };
 
 pub struct ZonedLayoutOptions {

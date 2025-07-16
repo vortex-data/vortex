@@ -54,6 +54,7 @@ vortex-metrics = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-scan = { workspace = true, features = ["tokio"] }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }

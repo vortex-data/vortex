@@ -6148,6 +6148,7 @@ dependencies = [
  "vortex-proto",
  "vortex-runend",
  "vortex-scalar",
+ "vortex-scan",
  "vortex-sequence",
  "vortex-sparse",
  "vortex-utils",
@@ -6530,6 +6531,7 @@ dependencies = [
  "vortex-pco",
  "vortex-runend",
  "vortex-scalar",
+ "vortex-scan",
  "vortex-sequence",
  "vortex-sparse",
  "vortex-utils",
@@ -6789,6 +6791,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-scan"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "crossbeam-queue",
+ "dashmap",
+ "futures",
+ "itertools 0.14.0",
+ "roaring",
+ "tokio",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-layout",
+ "vortex-mask",
+ "vortex-metrics",
+]
+
+[[package]]
 name = "vortex-sequence"
 version = "0.1.0"
 dependencies = [
@@ -6841,7 +6866,6 @@ dependencies = [
  "taffy",
  "tokio",
  "vortex",
- "vortex-layout",
 ]
 
 [[package]]

@@ -14,7 +14,7 @@ use vortex_error::VortexResult;
 use vortex_pco::PcoArray;
 use vortex_zstd::ZstdArray;
 
-use crate::scan::{TaskExecutor, TaskExecutorExt as _};
+use crate::executor::{TaskExecutor, TaskExecutorExt as _};
 use crate::segments::SequenceWriter;
 use crate::{
     LayoutStrategy, SendableLayoutFuture, SendableSequentialStream, SequentialStreamAdapter,
