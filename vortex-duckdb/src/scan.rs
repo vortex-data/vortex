@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::SeqCst;
 
 use bitvec::macros::internal::funty::Fundamental;
@@ -54,6 +55,7 @@ impl std::fmt::Debug for VortexBindData {
 
 pub struct VortexGlobalData {
     multi_scan: MultiScan,
+    cache_id: AtomicU64,
 }
 
 pub struct VortexLocalData {
@@ -199,7 +201,7 @@ impl TableFunction for VortexTableFunction {
     fn scan(
         _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
-        _global_state: &mut Self::GlobalState,
+        global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
         loop {
@@ -209,7 +211,8 @@ impl TableFunction for VortexTableFunction {
                 };
 
                 // TODO(Alex): replace with global conversion cache
-                local_state.conversion_cache = ConversionCache::new(0);
+                local_state.conversion_cache =
+                    ConversionCache::new(global_state.cache_id.fetch_add(1, SeqCst));
 
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result?.to_struct()?,
@@ -268,6 +271,7 @@ impl TableFunction for VortexTableFunction {
 
         Ok(VortexGlobalData {
             multi_scan: MultiScan::new().with_scan_builders(closures),
+            cache_id: AtomicU64::new(0),
         })
     }
 
@@ -278,7 +282,7 @@ impl TableFunction for VortexTableFunction {
         Ok(VortexLocalData {
             multi_scan_iterator: global.multi_scan.new_scan_iterator(),
             exporter: None,
-            conversion_cache: ConversionCache::new(0),
+            conversion_cache: ConversionCache::new(global.cache_id.fetch_add(1, SeqCst)),
         })
     }
 
