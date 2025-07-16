@@ -19,7 +19,7 @@ use crate::{
 #[derive(Clone)]
 pub struct RepartitionWriterOptions {
     /// The minimum uncompressed size in bytes for a block.
-    pub block_size_minimum: usize,
+    pub block_size_minimum: u64,
     /// The multiple of the number of rows in each block.
     pub block_len_multiple: usize,
 }
@@ -113,7 +113,7 @@ impl LayoutStrategy for RepartitionStrategy {
 struct ChunksBuffer {
     data: VecDeque<ArrayRef>,
     row_count: usize,
-    nbytes: usize,
+    nbytes: u64,
     options: RepartitionWriterOptions,
 }
 
