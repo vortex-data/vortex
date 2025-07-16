@@ -143,7 +143,7 @@ impl Format {
             Format::Arrow => "arrow",
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
-            Format::VortexCompact => "vortex-compact",
+            Format::VortexCompact => "vortex",
             Format::OnDiskDuckDB => "duckdb",
         }
     }

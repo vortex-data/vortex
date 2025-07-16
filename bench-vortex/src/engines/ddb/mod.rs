@@ -103,8 +103,8 @@ impl DuckDBCtx {
 
         // Generate and execute table registration commands
         let commands = self.generate_table_commands(&effective_url, extension, dataset, object);
-        self.execute_query(&commands)?;
         trace!("Executing table registration commands: {}", commands);
+        self.execute_query(&commands)?;
 
         Ok(())
     }
@@ -116,7 +116,10 @@ impl DuckDBCtx {
         file_format: Format,
         dataset: &BenchmarkDataset,
     ) -> Result<Url> {
-        if file_format == Format::OnDiskVortex || file_format == Format::Parquet {
+        if file_format == Format::OnDiskVortex
+            || file_format == Format::Parquet
+            || file_format == Format::VortexCompact
+        {
             match dataset.format_path(file_format, base_url) {
                 Ok(vortex_url) => Ok(vortex_url),
                 Err(_) => Ok(base_url.clone()),

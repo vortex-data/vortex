@@ -107,6 +107,26 @@ impl Benchmark for ClickBenchBenchmark {
                             })?;
                         }
                     }
+                    Format::VortexCompact => {
+                        // Download Parquet files if they don't exist
+                        let client = reqwest::blocking::Client::default();
+                        self.flavor.download(&client, basepath.as_path())?;
+
+                        // Convert parquet to vortex-compact format
+                        if self.data_url.scheme() == "file" {
+                            let file_path = self.data_url.to_file_path().map_err(|_| {
+                                anyhow::anyhow!("invalid file URL: {}", self.data_url)
+                            })?;
+
+                            let dataset = self.dataset();
+
+                            // Use tokio runtime to handle async conversion
+                            let rt = tokio::runtime::Runtime::new()?;
+                            rt.block_on(async {
+                                crate::file::convert_parquet_to_vortex_compact(&file_path, &dataset).await
+                            })?;
+                        }
+                    }
                     Format::OnDiskDuckDB => {
                         // For DuckDB format, we typically start with Parquet and let DuckDB handle it
                         let client = reqwest::blocking::Client::default();
