@@ -241,7 +241,7 @@ mod tests {
         assert_eq!(*subset2.range().end(), 100);
 
         // Single point subset
-        let subset3 = mask.clone().subset(25..=25);
+        let subset3 = mask.subset(25..=25);
         assert_eq!(*subset3.range().start(), 25);
         assert_eq!(*subset3.range().end(), 25);
     }
@@ -249,32 +249,32 @@ mod tests {
     #[test]
     fn test_non_empty_range_spans_partitions() {
         let mut treemap = RoaringTreemap::new();
-        
+
         // Insert values in two different partitions
         // Partition 0 (upper 32 bits = 0)
         treemap.insert(0xFFFFFFFF); // Last value in partition 0
-        
+
         // Partition 1 (upper 32 bits = 1)
         treemap.insert(0x100000000); // First value in partition 1
         treemap.insert(0x100000001); // Second value in partition 1
-        
+
         // Partition 2 (upper 32 bits = 2)
         treemap.insert(0x200000000); // First value in partition 2
-        
+
         let mask = TreeRowMask::new(0..=0x300000000, treemap);
-        
+
         // Test range that spans from partition 0 to partition 1
         assert!(mask.non_empty_range(0xFFFFFFF0..=0x100000010));
-        
+
         // Test range that spans from partition 1 to partition 2
         assert!(mask.non_empty_range(0x100000000..=0x200000000));
-        
+
         // Test range in middle of partition 1 with no values
         assert!(!mask.non_empty_range(0x100000010..=0x1FFFFFFFE));
-        
+
         // Test range that spans all three partitions
         assert!(mask.non_empty_range(0..=0x300000000));
-        
+
         // Test empty range between values in different partitions
         assert!(!mask.non_empty_range(0x100000002..=0x1FFFFFFFF));
     }

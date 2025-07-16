@@ -226,6 +226,10 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
                 }
                 TreeRowMask::new(0..=u64::MAX, treemap)
             }
+            #[cfg(feature = "roaring")]
+            Selection::IncludeRoaring(mask) => TreeRowMask::new(0..=u64::MAX, mask.clone()),
+            #[cfg(feature = "roaring")]
+            Selection::ExcludeRoaring(_) => todo!(),
         };
 
         // Set up the initial stream of RowMasks.
