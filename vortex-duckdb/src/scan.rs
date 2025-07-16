@@ -271,7 +271,7 @@ impl TableFunction for VortexTableFunction {
         });
 
         Ok(VortexGlobalData {
-            multi_scan: MultiScan::new().with_scan_builders(closures),
+            multi_scan: MultiScan::default().with_scan_builders(closures),
             cache_id: AtomicU64::new(0),
         })
     }
