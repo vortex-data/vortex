@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::{max, min};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -64,20 +65,23 @@ impl TreeRowMask {
     }
 
     pub fn non_empty_range(&self, range: Range<u64>) -> bool {
-        let start = self.range.start + self.offset + range.start;
-        let end = self.range.start + self.offset + range.end;
+        let mask_start = self.range.start + self.offset;
         let mask_end = self.range.start + self.offset + self.length;
 
         // Check if query range overlaps with mask's effective range
-        if start > mask_end || end <= self.range.start + self.offset {
+        if range.start >= mask_end || range.end <= mask_start {
             return false;
         }
 
         if let Some(treemap) = &self.treemap {
+            // Clamp the query range to the mask's range
+            let clamped_start = max(range.start, mask_start);
+            let clamped_end = min(range.end, mask_end);
+
             if self.treemap_exclude {
-                all_empty_treemap_range(treemap, start, end)
+                all_empty_treemap_range(treemap, clamped_start, clamped_end)
             } else {
-                non_empty_treemap_range(treemap, start, end)
+                non_empty_treemap_range(treemap, clamped_start, clamped_end)
             }
         } else {
             if self.treemap_exclude {
@@ -165,9 +169,10 @@ mod tests {
 
     #[test]
     fn test_contains_range() {
-        let mask = TreeRowMask::all(0..101);
+        let mask = TreeRowMask::all(2..101);
         assert!(mask.non_empty_range(0..101));
         assert!(!mask.non_empty_range(101..103));
+        assert!(!mask.non_empty_range(0..2));
     }
 
     #[test]
@@ -216,8 +221,8 @@ mod tests {
         assert_eq!(subset_mask.range().end, 201);
 
         // Test that non_empty_range works correctly on the subset
-        assert!(subset_mask.non_empty_range(10..21)); // Should find value at 110
-        assert!(subset_mask.non_empty_range(50..61)); // Should find value at 150
+        assert!(subset_mask.non_empty_range(110..121)); // Should find value at 110
+        assert!(subset_mask.non_empty_range(150..161)); // Should find value at 150
         assert!(!subset_mask.non_empty_range(250..261)); // Outside subset range
     }
 
@@ -248,10 +253,10 @@ mod tests {
         assert_eq!(subset.range().end, base + 2501);
 
         // match: base + 500 + 1400..base + 500 + 1600 == base + 1900..base + 2100
-        assert!(subset.non_empty_range(1400..1501));
+        assert!(subset.non_empty_range(base + 1900..base + 2001));
         // Should not find values outside the subset range
-        assert!(!subset.non_empty_range(1400..1500));
-        assert!(!subset.non_empty_range(1501..2500));
+        assert!(!subset.non_empty_range(base + 1900..base + 2000));
+        assert!(!subset.non_empty_range(base + 2001..base + 2500));
     }
 
     #[test]
@@ -359,7 +364,7 @@ mod tests {
         assert!(mask.non_empty_range(101..201));
         assert!(mask.non_empty_range(101..499));
         assert!(mask.non_empty_range(501..(u32::MAX as u64)));
-        assert!(!mask.non_empty_range(101..102));
+        assert!(!mask.non_empty_range(100..101));
         assert!(!mask.non_empty_range(500..501));
         assert!(!mask.non_empty_range(0..10000));
     }
