@@ -10,11 +10,17 @@ pub use vortex_array::*;
 #[cfg(feature = "files")]
 pub use vortex_file as file;
 pub use {
-    vortex_btrblocks as compressor, vortex_buffer as buffer, vortex_dtype as dtype,
-    vortex_error as error, vortex_expr as expr, vortex_flatbuffers as flatbuffers,
-    vortex_ipc as ipc, vortex_layout as layout, vortex_mask as mask, vortex_metrics as metrics,
-    vortex_proto as proto, vortex_scalar as scalar, vortex_utils as utils,
+    vortex_buffer as buffer, vortex_dtype as dtype, vortex_error as error, vortex_expr as expr,
+    vortex_flatbuffers as flatbuffers, vortex_ipc as ipc, vortex_layout as layout,
+    vortex_mask as mask, vortex_metrics as metrics, vortex_proto as proto, vortex_scalar as scalar,
+    vortex_scan as scan, vortex_utils as utils,
 };
+
+pub mod compressor {
+    pub use vortex_btrblocks::BtrBlocksCompressor;
+    #[cfg(feature = "zstd")]
+    pub use vortex_layout::layouts::compact::CompactCompressor;
+}
 
 pub mod encodings {
     #[cfg(feature = "zstd")]
@@ -33,15 +39,20 @@ pub mod encodings {
 /// get too verbose if we include _everything_.
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
-    use vortex_array::{ArrayRef, IntoArray};
+    use vortex_array::vtable::ValidityHelper;
+    use vortex_array::{ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_expr::{gt, lit, root};
-    use vortex_file::{VortexOpenOptions, VortexWriteOptions};
+    use vortex_file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
+    use vortex_layout::LocalExecutor;
+    use vortex_layout::layouts::compact::CompactCompressor;
 
     use crate as vortex;
 
@@ -78,12 +89,23 @@ mod test {
     #[test]
     fn compress() -> VortexResult<()> {
         // [compress]
-        use vortex::compressor::BtrBlocksCompressor;
+        use vortex::compressor::{BtrBlocksCompressor, CompactCompressor};
 
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
+        // You can compress an array in-memory with the BtrBlocks compressor
         let compressed = BtrBlocksCompressor.compress(array.as_ref())?;
-        println!("{} / {}", compressed.nbytes(), array.nbytes());
+        println!(
+            "BtrBlocks size: {} / {}",
+            compressed.nbytes(),
+            array.nbytes()
+        );
+
+        // Or apply generally stronger compression with the compact compressor
+        let compressed = CompactCompressor::default()
+            .with_values_per_page(8192)
+            .compress(array.as_ref())?;
+        println!("Compact size: {} / {}", compressed.nbytes(), array.nbytes());
         // [compress]
 
         Ok(())
@@ -119,6 +141,41 @@ mod test {
         // [read]
 
         std::fs::remove_file("example.vortex")?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn compact_read_write() -> VortexResult<()> {
+        // [compact write]
+        let array = PrimitiveArray::new(buffer![0u64, 1, 2, 3, 4], Validity::NonNullable);
+
+        VortexWriteOptions::default()
+            .with_strategy(VortexLayoutStrategy::compact_with_executor(
+                Arc::new(LocalExecutor),
+                CompactCompressor::default(),
+            ))
+            .write(
+                tokio::fs::File::create("example_compact.vortex").await?,
+                array.to_array_stream(),
+            )
+            .await?;
+
+        // [compact read]
+        let recovered_array = VortexOpenOptions::file()
+            .open("example_compact.vortex")
+            .await?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
+
+        assert_eq!(recovered_array.len(), array.len());
+        let recovered_primitive = recovered_array.to_primitive().unwrap();
+        assert_eq!(recovered_primitive.validity(), array.validity());
+        assert_eq!(recovered_primitive.buffer::<u64>(), array.buffer::<u64>());
+
+        std::fs::remove_file("example_compact.vortex")?;
 
         Ok(())
     }

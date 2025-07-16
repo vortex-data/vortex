@@ -249,11 +249,11 @@ mod tests {
 
     use crate::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::scan::LocalExecutor;
     use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
-        LayoutId, LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt,
+        LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, SequentialStreamAdapter,
+        SequentialStreamExt,
     };
 
     #[tokio::test]

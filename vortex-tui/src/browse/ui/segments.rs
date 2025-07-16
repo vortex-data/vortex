@@ -16,8 +16,8 @@ use taffy::{
 };
 use vortex::error::{VortexExpect, VortexResult, VortexUnwrap, vortex_err};
 use vortex::file::SegmentSpec;
+use vortex::layout::{Layout, LayoutChildType};
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex_layout::{Layout, LayoutChildType};
 
 use crate::browse::app::AppState;
 

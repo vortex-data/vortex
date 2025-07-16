@@ -6,7 +6,7 @@ use std::ops::Range;
 use roaring::RoaringTreemap;
 use vortex_buffer::Buffer;
 
-use crate::scan::tree_row_mask::TreeRowMask;
+use crate::tree_row_mask::TreeRowMask;
 
 /// A selection identifies a set of rows to include in the scan (in addition to applying any
 /// filter predicates).

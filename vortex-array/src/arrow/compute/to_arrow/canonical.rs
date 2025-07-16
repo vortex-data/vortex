@@ -280,7 +280,7 @@ fn to_arrow_struct(array: StructArray, fields: &[FieldRef]) -> VortexResult<Arro
                 vortex_bail!(
                     "Field {} is non-nullable but has nulls {}",
                     field,
-                    arr.tree_display()
+                    arr.display_tree()
                 );
             }
 

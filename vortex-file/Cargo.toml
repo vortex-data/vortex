@@ -51,12 +51,15 @@ vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-pco = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-scan = { workspace = true, features = ["tokio"] }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
+vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
@@ -85,3 +88,4 @@ tracing = [
     "vortex-io/tracing",
     "vortex-layout/tracing",
 ]
+zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]

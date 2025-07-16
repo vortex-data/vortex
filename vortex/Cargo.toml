@@ -40,6 +40,7 @@ vortex-pco = { workspace = true }
 vortex-proto = { workspace = true, default-features = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
@@ -62,4 +63,4 @@ parquet = ["vortex-error/parquet"]
 python = ["vortex-error/python"]
 tokio = ["vortex-file/tokio"]
 tracing = ["vortex-file/tracing", "vortex-layout/tracing"]
-zstd = ["dep:vortex-zstd"]
+zstd = ["dep:vortex-zstd", "vortex-file/zstd", "vortex-layout/zstd"]

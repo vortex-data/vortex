@@ -19,12 +19,12 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex
 
 use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::scan::{TaskExecutor, TaskExecutorExt as _};
 use crate::segments::SequenceWriter;
 use crate::sequence::{SequenceId, SequencePointer};
 use crate::{
     IntoLayout, LayoutStrategy, OwnedLayoutChildren, SendableLayoutFuture,
-    SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt,
+    SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt, TaskExecutor,
+    TaskExecutorExt as _,
 };
 
 #[derive(Clone)]

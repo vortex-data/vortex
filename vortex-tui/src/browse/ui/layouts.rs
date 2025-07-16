@@ -11,10 +11,10 @@ use ratatui::widgets::{
 };
 use vortex::error::VortexExpect;
 use vortex::expr::root;
+use vortex::layout::layouts::flat::FlatVTable;
+use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::mask::Mask;
 use vortex::{Array, ArrayRef, ToCanonical};
-use vortex_layout::layouts::flat::FlatVTable;
-use vortex_layout::layouts::zoned::ZonedVTable;
 
 use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
@@ -178,7 +178,7 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
             .split(widget_area);
         let table = Table::new(rows, [Constraint::Min(6), Constraint::Min(6)]).header(header);
         // Tree-display the active array
-        let tree = Paragraph::new(array.tree_display().to_string()).wrap(Wrap { trim: false });
+        let tree = Paragraph::new(array.display_tree().to_string()).wrap(Wrap { trim: false });
 
         let stats_container = Block::new()
             .title("Statistics")

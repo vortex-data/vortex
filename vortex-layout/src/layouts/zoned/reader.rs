@@ -318,9 +318,8 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
-    use crate::scan::LocalExecutor;
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use crate::{LayoutRef, LayoutStrategy};
+    use crate::{LayoutRef, LayoutStrategy, LocalExecutor};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.

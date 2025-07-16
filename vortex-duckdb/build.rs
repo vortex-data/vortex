@@ -33,7 +33,7 @@ fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> 
 
     if !archive_path.exists() {
         println!("Downloading DuckDB libraries from {url}");
-        let response = reqwest::blocking::get(&url)?;
+        let response = http_client()?.get(&url).send()?;
         fs::write(&archive_path, &response.bytes()?)?;
         println!("Downloaded to {}", archive_path.display());
     } else {
@@ -81,7 +81,7 @@ fn download_duckdb_source_archive() -> Result<PathBuf, Box<dyn std::error::Error
 
     if !archive_path.exists() {
         println!("Downloading DuckDB source code from {url}");
-        let response = reqwest::blocking::get(&url)?;
+        let response = http_client()?.get(&url).send()?;
         fs::write(&archive_path, &response.bytes()?)?;
         println!("Downloaded to {}", archive_path.display());
     } else {
@@ -115,6 +115,19 @@ fn extract_duckdb_source(archive_path: PathBuf) -> Result<PathBuf, Box<dyn std::
     );
 
     Ok(duckdb_source_dir)
+}
+
+fn http_client() -> Result<reqwest::blocking::Client, Box<dyn std::error::Error>> {
+    let timeout_secs = env::var("CARGO_HTTP_TIMEOUT")
+        .or_else(|_| env::var("HTTP_TIMEOUT"))
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(90);
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()?;
+    Ok(client)
 }
 
 fn main() {

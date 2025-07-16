@@ -14,9 +14,8 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::accumulate_stats;
-use vortex_layout::scan::LocalExecutor;
 use vortex_layout::segments::SequenceWriter;
-use vortex_layout::{LayoutContext, LayoutStrategy};
+use vortex_layout::{LayoutContext, LayoutStrategy, LocalExecutor};
 
 use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, PostscriptSegment};
 use crate::segments::writer::SerialSegmentWriter;

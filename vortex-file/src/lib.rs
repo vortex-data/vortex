@@ -123,8 +123,9 @@ use vortex_decimal_byte_parts::DecimalBytePartsEncoding;
 use vortex_dict::DictEncoding;
 use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;
-pub use vortex_layout::scan;
+use vortex_pco::PcoEncoding;
 use vortex_runend::RunEndEncoding;
+pub use vortex_scan as scan;
 use vortex_sequence::SequenceEncoding;
 use vortex_sparse::SparseEncoding;
 use vortex_zigzag::ZigZagEncoding;
@@ -177,10 +178,13 @@ pub static DEFAULT_REGISTRY: LazyLock<Arc<ArrayRegistry>> = LazyLock::new(|| {
         EncodingRef::new_ref(DictEncoding.as_ref()),
         EncodingRef::new_ref(FSSTEncoding.as_ref()),
         EncodingRef::new_ref(FoREncoding.as_ref()),
+        EncodingRef::new_ref(PcoEncoding.as_ref()),
         EncodingRef::new_ref(RunEndEncoding.as_ref()),
         EncodingRef::new_ref(SequenceEncoding.as_ref()),
         EncodingRef::new_ref(SparseEncoding.as_ref()),
         EncodingRef::new_ref(ZigZagEncoding.as_ref()),
+        #[cfg(feature = "zstd")]
+        EncodingRef::new_ref(vortex_zstd::ZstdEncoding.as_ref()),
     ]);
     Arc::new(registry)
 });

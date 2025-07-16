@@ -6,6 +6,7 @@ use std::fmt::{self};
 use humansize::{DECIMAL, format_size};
 
 use crate::arrays::ChunkedEncoding;
+use crate::display::DisplayOptions;
 use crate::{Array, ArrayRef, ArrayVisitor};
 
 pub(super) struct TreeDisplayWrapper(pub(super) ArrayRef);
@@ -35,7 +36,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
             self,
             "{}: {} nbytes={} ({:.2}%)",
             name,
-            array,
+            array.display_as(DisplayOptions::MetadataOnly),
             format_size(nbytes, DECIMAL),
             100_f64 * nbytes as f64 / total_size as f64
         )?;

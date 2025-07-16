@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::Future;
 use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-pub use executor::*;
 use futures::executor::LocalPool;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
@@ -27,21 +27,21 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, root};
+use vortex_layout::layouts::filter::FilterLayoutReader;
+use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
+use vortex_layout::{LayoutReader, LayoutReaderRef};
+pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
 
-use crate::layouts::filter::FilterLayoutReader;
-use crate::layouts::row_idx::RowIdxLayoutReader;
-use crate::masks::MaskStreamExt;
-use crate::scan::row_mask::RowMask;
-use crate::scan::tasks::{TaskContext, split_exec};
-use crate::{LayoutReader, LayoutReaderRef};
-
-mod executor;
+mod multi_scan;
 pub mod row_mask;
 mod selection;
 mod split_by;
 mod tasks;
 pub mod tree_row_mask;
+
+pub use multi_scan::{MultiScan, MultiScanIterator};
+use tasks::{TaskContext, split_exec};
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {

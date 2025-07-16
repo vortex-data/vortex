@@ -2304,9 +2304,9 @@ dependencies = [
 
 [[package]]
 name = "fastlanes"
-version = "0.1.8"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0504746b2d3b8249642d675325a6de910351f5aefc909a08450b2e239b169fd2"
+checksum = "f9504b2eddaa58bb69cf825baa2f46c4e97a5891dd1f167eab788d9c22692aa5"
 dependencies = [
  "arrayref",
  "const_for",
@@ -3824,9 +3824,9 @@ dependencies = [
 
 [[package]]
 name = "object_store"
-version = "0.12.2"
+version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7781f96d79ed0f961a7021424ab01840efbda64ae7a505aaea195efc91eaaec4"
+checksum = "efc4f07659e11cd45a341cd24d71e683e3be65d9ff1f8150061678fe60437496"
 dependencies = [
  "async-trait",
  "base64",
@@ -4341,7 +4341,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac6c3320f9abac597dcbc668774ef006702672474aad53c6d596b62e487b40b1"
 dependencies = [
  "heck",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "once_cell",
@@ -4361,7 +4361,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.104",
@@ -4374,7 +4374,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9120690fafc389a67ba3803df527d0ec9cbbc9cc45e4cc20b332996dfb672425"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.104",
@@ -4474,9 +4474,9 @@ dependencies = [
 
 [[package]]
 name = "quick-xml"
-version = "0.37.5"
+version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "331e97a1af0bf59823e6eadffe373d7b27f485be8748f71471c662c1f269b7fb"
+checksum = "8927b0664f5c5a98265138b7e3f90aa19a6b21353182469ace36d4ac527b7b1b"
 dependencies = [
  "memchr",
  "serde",
@@ -4825,9 +4825,9 @@ dependencies = [
 
 [[package]]
 name = "roaring"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a728d3a68e1cf244b26b3fec3d045a6d69b7890eda1ba6ea451ea88889824e01"
+checksum = "18f79304aff09c245934bb9558a215e53a4cfbbe6aa8ac2a79847be551264979"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -6148,6 +6148,7 @@ dependencies = [
  "vortex-proto",
  "vortex-runend",
  "vortex-scalar",
+ "vortex-scan",
  "vortex-sequence",
  "vortex-sparse",
  "vortex-utils",
@@ -6527,12 +6528,15 @@ dependencies = [
  "vortex-io",
  "vortex-layout",
  "vortex-metrics",
+ "vortex-pco",
  "vortex-runend",
  "vortex-scalar",
+ "vortex-scan",
  "vortex-sequence",
  "vortex-sparse",
  "vortex-utils",
  "vortex-zigzag",
+ "vortex-zstd",
 ]
 
 [[package]]
@@ -6659,6 +6663,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "paste",
+ "pco",
  "pin-project-lite",
  "prost 0.14.1",
  "roaring",
@@ -6678,9 +6683,11 @@ dependencies = [
  "vortex-layout",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-pco",
  "vortex-scalar",
  "vortex-sequence",
  "vortex-utils",
+ "vortex-zstd",
 ]
 
 [[package]]
@@ -6784,6 +6791,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-scan"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "crossbeam-queue",
+ "dashmap",
+ "futures",
+ "itertools 0.14.0",
+ "roaring",
+ "tokio",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-dtype",
+ "vortex-error",
+ "vortex-expr",
+ "vortex-layout",
+ "vortex-mask",
+ "vortex-metrics",
+]
+
+[[package]]
 name = "vortex-sequence"
 version = "0.1.0"
 dependencies = [
@@ -6836,7 +6866,6 @@ dependencies = [
  "taffy",
  "tokio",
  "vortex",
- "vortex-layout",
 ]
 
 [[package]]

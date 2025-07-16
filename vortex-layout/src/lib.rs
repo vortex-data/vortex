@@ -3,6 +3,8 @@
 
 mod registry;
 pub use registry::*;
+mod executor;
+pub use executor::*;
 pub mod layouts;
 
 pub use children::*;
@@ -20,7 +22,6 @@ mod flatbuffers;
 mod layout;
 mod masks;
 mod reader;
-pub mod scan;
 pub mod segments;
 pub mod sequence;
 mod strategy;
