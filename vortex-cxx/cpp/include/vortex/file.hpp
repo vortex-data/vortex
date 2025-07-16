@@ -12,38 +12,7 @@
 #include <utility>
 
 namespace vortex {
-
-class ScanBuilder {
-public:
-    ScanBuilder(ScanBuilder &&other) noexcept;
-    ScanBuilder &operator=(ScanBuilder &&other) noexcept;
-    ~ScanBuilder();
-
-    ScanBuilder(const ScanBuilder &) = delete;
-    ScanBuilder &operator=(const ScanBuilder &) = delete;
-
-    /// Set the row range [row_range_start, row_range_end) on the scan builder.
-    ScanBuilder &WithRowRange(uint64_t row_range_start, uint64_t row_range_end);
-
-    /// Set the limit on the number of rows to scan.
-    ScanBuilder &WithLimit(uint64_t limit);
-
-    /// Consume the scan builder to a stream of record batches.
-    /// The scan builder is consumed and cannot be used after this call.
-    ArrowArrayStream IntoStream();
-
-    /// Consume the scan builder to an Arrow array and schema.
-    /// The scan builder is consumed and cannot be used after this call.
-    std::pair<ArrowArray, ArrowSchema> IntoArray();
-
-private:
-    friend class VortexFile;
-
-    struct Impl;
-    explicit ScanBuilder(std::unique_ptr<Impl> impl);
-
-    std::unique_ptr<Impl> impl_;
-};
+class ScanBuilder;
 
 class VortexFile {
 public:

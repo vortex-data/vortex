@@ -43,9 +43,10 @@ FetchContent_MakeAvailable(nanoarrow)
 
 # C++ source files
 set(CPP_SOURCE_FILE
-    cpp/write_options.cpp
-    cpp/file.cpp
-    cpp/runtime.cpp
+    cpp/src/write_options.cpp
+    cpp/src/file.cpp
+    cpp/src/runtime.cpp
+    cpp/src/scan.cpp
 )
 
 # Public headers
@@ -53,10 +54,16 @@ set(CPP_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/cpp/include
 )
 
+# Private headers
+set(CPP_PRIVATE_INCLUDE_DIRS
+    ${CMAKE_CURRENT_SOURCE_DIR}/cpp/src
+)
+
 # Create the main library combining C++ and Rust code
 add_library(vortex STATIC ${CPP_SOURCE_FILE})
 target_include_directories(vortex PUBLIC ${CPP_INCLUDE_DIRS})
 target_include_directories(vortex PRIVATE 
+    ${CPP_PRIVATE_INCLUDE_DIRS}
     ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/include
     ${CMAKE_CURRENT_BINARY_DIR}/corrosion_generated/cxxbridge/vortex_cxx_bridge/src
 )

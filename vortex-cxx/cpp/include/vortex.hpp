@@ -4,6 +4,7 @@
 #pragma once
 
 #include "vortex/file.hpp"
+#include "vortex/scan.hpp"
 #include "vortex/runtime.hpp"
 #include "vortex/write_options.hpp"
 #include "vortex/exception.hpp"
