@@ -189,8 +189,9 @@ impl MaskEvaluation for DictMaskEvaluation {
                 return Ok(Mask::AllFalse(mask.len()));
             }
             if min.as_bool().value().unwrap_or(false) {
-                // All values are true
-                return Ok(mask);
+                // All values are true, but we still need to respect codes validity
+                let codes = self.codes_eval.invoke(Mask::new_true(mask.len())).await?;
+                return Ok(mask.bitand(&codes.validity_mask()?));
             }
         }
 
@@ -243,6 +244,7 @@ mod tests {
     use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream;
+    use rstest::rstest;
     use vortex_array::arrays::{StructArray, VarBinArray};
     use vortex_array::arrow::IntoArrowArray;
     use vortex_array::validity::Validity;
@@ -340,6 +342,70 @@ mod tests {
         let expected = expected.into_arrow_preferred().unwrap();
         assert_eq!(actual.data_type(), expected.data_type());
         assert_eq!(&actual, &expected);
+    }
+
+    #[rstest]
+    #[case::all_true_case(
+        vec![Some(""), None, Some("")], // Dict values: [""]
+        "", // Filter for empty string
+        vec![true, false, true], // Expected: nulls excluded, all dict values match
+    )]
+    #[case::all_false_case(
+        vec![Some("x"), None, Some("x")], // Dict values: ["x"] 
+        "", // Filter for empty string
+        vec![false, false, false], // Expected: all false, no dict values match
+    )]
+    #[tokio::test]
+    async fn shortpathes_filtering(
+        #[case] data: Vec<Option<&str>>,
+        #[case] filter_value: &str,
+        #[case] expected: Vec<bool>,
+    ) {
+        let strategy = DictStrategy::new(
+            ArcRef::from(Arc::from(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>),
+            ArcRef::from(Arc::from(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>),
+            ArcRef::from(Arc::from(FlatLayoutStrategy::default()) as Arc<dyn LayoutStrategy>),
+            DictLayoutOptions::default(),
+            Arc::new(LocalExecutor),
+        );
+
+        let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).to_array();
+
+        let ctx = ArrayContext::empty();
+        let segments = TestSegments::default();
+        let layout: LayoutRef = block_on(
+            strategy.write_stream(
+                &ctx,
+                SequenceWriter::new(Box::new(segments.clone())),
+                SequentialStreamAdapter::new(
+                    DType::Utf8(Nullability::Nullable),
+                    stream::once(async move { Ok((SequenceId::root().downgrade(), array)) }),
+                )
+                .sendable(),
+            ),
+        )
+        .unwrap();
+
+        let filter = vortex_expr::eq(
+            root(),
+            vortex_expr::lit(vortex_scalar::Scalar::utf8(
+                filter_value,
+                Nullability::Nullable,
+            )),
+        );
+        let mask = layout
+            .new_reader("".into(), Arc::from(segments))
+            .unwrap()
+            .filter_evaluation(&(0..3), &filter)
+            .unwrap()
+            .invoke(Mask::new_true(3))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            mask.to_boolean_buffer().iter().collect::<Vec<_>>(),
+            expected
+        );
     }
 
     #[tokio::test]
