@@ -123,7 +123,7 @@ impl ComputeFn {
                 args.inputs
                     .iter()
                     .filter_map(|input| input.array())
-                    .format_with(",", |array, f| f(&array.tree_display()))
+                    .format_with(",", |array, f| f(&array.display_tree()))
             );
         }
         if output.len() != expected_len {

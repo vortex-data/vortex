@@ -8,11 +8,12 @@ use std::path::PathBuf;
 use anyhow::Result;
 use indicatif::ProgressBar;
 use log::warn;
+use vortex::error::VortexExpect;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
 use crate::benchmark_trait::Benchmark;
 use crate::display::DisplayFormat;
-use crate::engines::{EngineCtx, benchmark_datafusion_query, benchmark_duckdb_query};
+use crate::engines::{EngineCtx, benchmark_datafusion_query};
 use crate::measurements::{MemoryMeasurement, QueryMeasurement};
 use crate::memory::BenchmarkMemoryTracker;
 use crate::metrics::{MetricsSetExt, export_plan_spans};
@@ -143,13 +144,12 @@ fn execute_queries<B: Benchmark>(
             tracker.start_query();
         }
 
-        match engine_ctx {
+        let row_count = match engine_ctx {
             EngineCtx::DataFusion(ctx) => {
                 let (runs, (row_count, execution_plan)) = runtime.block_on(async {
                     benchmark_datafusion_query(iterations, || async {
-                        let (batches, plan) = df::execute_query(&ctx.session, query_string)
-                            .await
-                            .unwrap_or_else(|err| {
+                        let (batches, plan) =
+                            ctx.execute_query(query_string).await.unwrap_or_else(|err| {
                                 vortex_panic!("query: {query_idx} failed with: {err}")
                             });
                         let row_count: usize = batches.iter().map(|batch| batch.num_rows()).sum();
@@ -157,16 +157,6 @@ fn execute_queries<B: Benchmark>(
                     })
                     .await
                 });
-
-                // Validate row count if expected counts are provided
-                if let Some(expected_counts) = expected_row_counts {
-                    if query_idx < expected_counts.len() {
-                        assert_eq!(
-                            row_count, expected_counts[query_idx],
-                            "Row count mismatch for query {query_idx} - datafusion:{format}",
-                        );
-                    }
-                }
 
                 ctx.execution_plans
                     .push((query_idx, execution_plan.clone()));
@@ -193,19 +183,24 @@ fn execute_queries<B: Benchmark>(
                     storage: url_scheme_to_storage(benchmark.data_url())?,
                     runs,
                 });
+
+                row_count
             }
             EngineCtx::DuckDB(ctx) => {
-                let (runs, row_count) =
-                    benchmark_duckdb_query(query_idx, query_string, iterations, ctx);
+                let mut runs = Vec::with_capacity(iterations);
+                let mut row_count = None;
 
-                // Validate row count if expected counts are provided
-                if let Some(expected_counts) = expected_row_counts {
-                    if query_idx < expected_counts.len() {
-                        assert_eq!(
-                            row_count, expected_counts[query_idx],
-                            "Row count mismatch for query {query_idx} - duckdb:{format}",
-                        );
-                    }
+                for _ in 0..iterations {
+                    let (duration, current_row_count) =
+                        ctx.execute_query(query_string).unwrap_or_else(|err| {
+                            vortex_panic!("query: {query_idx} failed with: {err}")
+                        });
+
+                    runs.push(duration);
+                    row_count.inspect(|rc| {
+                        assert_eq!(*rc, current_row_count, "each row count must match")
+                    });
+                    row_count = Some(current_row_count);
                 }
 
                 query_measurements.push(QueryMeasurement {
@@ -215,6 +210,18 @@ fn execute_queries<B: Benchmark>(
                     storage: url_scheme_to_storage(benchmark.data_url())?,
                     runs,
                 });
+
+                row_count.vortex_expect("cannot have zero runs")
+            }
+        };
+
+        // Validate row count if expected counts are provided
+        if let Some(expected_counts) = expected_row_counts {
+            if query_idx < expected_counts.len() {
+                assert_eq!(
+                    row_count, expected_counts[query_idx],
+                    "Row count mismatch for query {query_idx} - duckdb:{format}",
+                );
             }
         }
 

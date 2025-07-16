@@ -11,10 +11,11 @@ mod array;
 pub mod compute;
 mod convert;
 mod datum;
+mod iter;
 mod record_batch;
-pub mod record_batch_reader;
 
 pub use datum::*;
+pub use iter::*;
 
 use crate::arrow::compute::ToArrowOptions;
 

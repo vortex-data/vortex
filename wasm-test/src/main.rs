@@ -15,5 +15,5 @@ pub fn main() {
 
     let compressed = BtrBlocksCompressor.compress(&array).unwrap();
     println!("Compressed size: {}", compressed.len());
-    println!("Tree view: {}", compressed.tree_display());
+    println!("Tree view: {}", compressed.display_tree());
 }

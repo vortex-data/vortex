@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ToCanonical;
-use vortex_array::arrays::{BoolArray, PrimitiveArray};
+use vortex_array::arrays::{BoolArray, PrimitiveArray, VarBinViewArray};
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
+use vortex_dtype::{DType, Nullability};
 use vortex_mask::Mask;
 
 use crate::ZstdArray;
@@ -131,4 +132,29 @@ fn test_validity_vtable() {
         compressed.slice(1, 4).unwrap().validity_mask().unwrap(),
         Mask::from_iter(vec![true, true, false])
     );
+}
+
+#[test]
+fn test_zstd_var_bin_view() {
+    let data: [Option<&'static [u8]>; 5] = [
+        Some(b"foo"),
+        Some(b"bar"),
+        None,
+        Some(b"Lorem ipsum dolor sit amet"),
+        Some(b"baz"),
+    ];
+    let array = VarBinViewArray::from_iter(data, DType::Utf8(Nullability::Nullable));
+
+    let compressed = ZstdArray::from_var_bin_view(&array, 0, 3).unwrap();
+    assert!(compressed.dictionary.is_none());
+    assert_nth_scalar!(compressed, 0, "foo");
+    assert_nth_scalar!(compressed, 1, "bar");
+    assert_nth_scalar!(compressed, 2, None::<String>);
+    assert_nth_scalar!(compressed, 3, "Lorem ipsum dolor sit amet");
+    assert_nth_scalar!(compressed, 4, "baz");
+
+    let sliced = compressed.slice(1, 4).unwrap();
+    assert_nth_scalar!(sliced, 0, "bar");
+    assert_nth_scalar!(sliced, 1, None::<String>);
+    assert_nth_scalar!(sliced, 2, "Lorem ipsum dolor sit amet");
 }

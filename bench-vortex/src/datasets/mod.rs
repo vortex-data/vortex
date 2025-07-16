@@ -31,7 +31,7 @@ pub enum BenchmarkDataset {
     #[serde(rename = "tpch")]
     TpcH { scale_factor: String },
     #[serde(rename = "tpcds")]
-    TpcDS { scale_factor: u32 },
+    TpcDS { scale_factor: String },
     #[serde(rename = "clickbench")]
     ClickBench { single_file: bool, flavor: Flavor },
     #[serde(rename = "public-bi")]

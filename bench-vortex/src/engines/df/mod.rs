@@ -122,6 +122,15 @@ pub fn make_object_store(
     }
 }
 
+impl DataFusionCtx {
+    pub async fn execute_query(
+        &self,
+        query: &str,
+    ) -> anyhow::Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
+        execute_query(&self.session, query).await
+    }
+}
+
 pub async fn execute_query(
     ctx: &SessionContext,
     query: &str,

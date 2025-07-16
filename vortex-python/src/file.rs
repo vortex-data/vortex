@@ -9,7 +9,7 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use vortex::ToCanonical;
-use vortex::arrow::record_batch_reader::VortexRecordBatchReader;
+use vortex::arrow::VortexRecordBatchReader;
 use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};

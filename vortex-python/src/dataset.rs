@@ -9,7 +9,7 @@ use arrow_schema::SchemaRef;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
-use vortex::arrow::record_batch_reader::VortexRecordBatchReader;
+use vortex::arrow::VortexRecordBatchReader;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, SelectExpr, root};

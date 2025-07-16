@@ -573,7 +573,7 @@ impl PyArray {
     ///
     ///     >>> import vortex as vx
     ///     >>> arr = vx.array([1, 2, None, 3])
-    ///     >>> print(arr.tree_display())
+    ///     >>> print(arr.display_tree())
     ///     root: vortex.primitive(i64?, len=4) nbytes=33 B (100.00%)
     ///       metadata: EmptyMetadata
     ///       buffer (align=8): 32 B (96.97%)
@@ -583,9 +583,9 @@ impl PyArray {
     ///     <BLANKLINE>
     ///
     /// Compressed arrays often have more complex, deeply nested encoding trees.
-    fn tree_display(slf: &Bound<Self>) -> PyResult<String> {
+    fn display_tree(slf: &Bound<Self>) -> PyResult<String> {
         Ok(PyArrayRef::extract_bound(slf.as_any())?
-            .tree_display()
+            .display_tree()
             .to_string())
     }
 

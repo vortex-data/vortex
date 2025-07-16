@@ -110,8 +110,8 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             {
                 vortex_panic!(
                     "Failed to match original array {}with{}",
-                    expected_array.tree_display(),
-                    output_array.tree_display()
+                    expected_array.display_tree(),
+                    output_array.display_tree()
                 );
             }
         }
@@ -134,8 +134,8 @@ fn compare_struct(expected: ArrayRef, actual: ArrayRef) {
         comparison_result.count_set_bits(),
         arrow_expected.len(),
         "\nEXPECTED: {}ACTUAL: {}",
-        expected.tree_display(),
-        actual.tree_display()
+        expected.display_tree(),
+        actual.display_tree()
     );
 }
 

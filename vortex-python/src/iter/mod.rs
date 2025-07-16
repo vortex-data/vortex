@@ -13,7 +13,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use pyo3::{Bound, PyResult, Python};
 pub(crate) use stream::*;
-use vortex::arrow::record_batch_reader::VortexRecordBatchReader;
+use vortex::arrow::VortexRecordBatchReader;
 use vortex::dtype::DType;
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{Canonical, IntoArray};

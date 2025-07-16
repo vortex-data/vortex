@@ -16,7 +16,7 @@ pub enum TpcDataset {
 
 pub struct DuckdbTpcOptions {
     /// Scale factor of the data in GB.
-    pub scale_factor: u32,
+    pub scale_factor: String,
 
     /// Location on-disk to store generated files.
     pub base_dir: PathBuf,
@@ -29,20 +29,18 @@ pub struct DuckdbTpcOptions {
 impl DuckdbTpcOptions {
     // TODO(joe); this is not unused fix this in tpch
     pub fn csvs_dir(&self) -> PathBuf {
-        self.base_dir.join(self.scale_factor.to_string())
+        self.base_dir.join(&self.scale_factor)
     }
 
     pub fn output_dir(&self) -> PathBuf {
-        self.base_dir
-            .join(self.scale_factor.to_string())
-            .join(self.format.to_string())
+        self.base_dir.join(self.format.to_string())
     }
 }
 
 impl DuckdbTpcOptions {
     pub fn new(base_dir: PathBuf, dataset: TpcDataset, format: Format) -> Self {
         Self {
-            scale_factor: 1,
+            scale_factor: "1".to_string(),
             base_dir,
             dataset,
             format,
@@ -56,7 +54,7 @@ impl DuckdbTpcOptions {
         self
     }
 
-    pub fn with_scale_factor(mut self, scale_factor: u32) -> Self {
+    pub fn with_scale_factor(mut self, scale_factor: String) -> Self {
         self.scale_factor = scale_factor;
         self
     }
@@ -75,7 +73,7 @@ impl DuckdbTpcOptions {
 pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
     let sh = Shell::new()?;
 
-    let scale_factor = opts.scale_factor;
+    let scale_factor = &opts.scale_factor;
 
     // mkdir -p the output directory
     let output_dir = opts.output_dir();
