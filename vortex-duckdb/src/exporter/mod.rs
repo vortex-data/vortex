@@ -12,7 +12,7 @@ mod sequence;
 mod temporal;
 mod varbinview;
 
-use cache::*;
+pub use cache::ConversionCache;
 use itertools::Itertools;
 use vortex::arrays::{ConstantVTable, StructArray, TemporalArray};
 use vortex::dtype::datetime::is_temporal_ext_type;

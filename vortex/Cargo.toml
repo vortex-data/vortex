@@ -40,6 +40,7 @@ vortex-pco = { workspace = true }
 vortex-proto = { workspace = true, default-features = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }

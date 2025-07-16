@@ -9,11 +9,10 @@ use vortex_array::ArrayContext;
 use vortex_array::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
 
-use crate::scan::{TaskExecutor, TaskExecutorExt as _};
 use crate::segments::SequenceWriter;
 use crate::{
     LayoutStrategy, SendableLayoutFuture, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt as _,
+    SequentialStreamExt as _, TaskExecutor, TaskExecutorExt as _,
 };
 
 /// A layout writer that compresses chunks using a sampling compressor.

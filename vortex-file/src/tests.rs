@@ -22,8 +22,8 @@ use vortex_dtype::PType::I32;
 use vortex_dtype::{DType, DecimalDType, Nullability, PType, StructFields};
 use vortex_error::VortexResult;
 use vortex_expr::{PackExpr, and, eq, get_item, gt, gt_eq, lit, lt, lt_eq, or, root, select};
-use vortex_layout::scan::ScanBuilder;
 use vortex_scalar::Scalar;
+use vortex_scan::ScanBuilder;
 
 use crate::{V1_FOOTER_FBS_SIZE, VERSION, VortexFile, VortexOpenOptions, VortexWriteOptions};
 

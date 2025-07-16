@@ -7,7 +7,7 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
-use crate::scan::row_mask::RowMask;
+use crate::row_mask::RowMask;
 
 /// A selection identifies a set of rows to include in the scan (in addition to applying any
 /// filter predicates).

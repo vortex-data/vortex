@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_array::stats::PRUNING_STATS;
-use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::compressed::BtrBlocksCompressedStrategy;
@@ -16,7 +15,7 @@ use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
-use vortex_layout::scan::TaskExecutor;
+use vortex_layout::{LayoutStrategy, TaskExecutor};
 
 const ROW_BLOCK_SIZE: usize = 8192;
 
