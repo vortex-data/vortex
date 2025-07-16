@@ -23,13 +23,13 @@ mod test {
     use vortex_array::{ArrayContext, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, FieldPath, PType};
+    use vortex_dtype::{DType, FieldMask, FieldPath, PType};
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::segments::{SegmentSource, SequenceWriter, TestSegments};
     use vortex_layout::sequence::SequenceId;
+    use vortex_layout::tree_row_mask::TreeRowMask;
     use vortex_layout::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
-
-    use super::*;
+    use vortex_mask::Mask;
 
     #[tokio::test]
     async fn test_layout_splits_flat() {

@@ -6801,6 +6801,7 @@ dependencies = [
  "dashmap",
  "futures",
  "itertools 0.14.0",
+ "parking_lot",
  "roaring",
  "tokio",
  "vortex-array",

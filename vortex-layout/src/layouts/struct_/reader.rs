@@ -22,8 +22,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::layouts::struct_::StructLayout;
 use crate::masks::{IntersectionMaskStream, MaskStream};
-use crate::scan::tree_row_mask::TreeRowMask;
 use crate::segments::SegmentSource;
+use crate::tree_row_mask::TreeRowMask;
 use crate::{
     ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
     NoOpPruningEvaluation, PruningEvaluation,

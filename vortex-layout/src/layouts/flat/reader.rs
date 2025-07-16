@@ -19,8 +19,8 @@ use vortex_mask::Mask;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::masks::MaskStream;
-use crate::scan::tree_row_mask::TreeRowMask;
 use crate::segments::SegmentSource;
+use crate::tree_row_mask::TreeRowMask;
 use crate::{
     ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
 };

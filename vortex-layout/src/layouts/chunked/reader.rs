@@ -20,8 +20,8 @@ use vortex_mask::Mask;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::masks::MaskStream;
 use crate::reader::LayoutReader;
-use crate::scan::tree_row_mask::TreeRowMask;
 use crate::segments::SegmentSource;
+use crate::tree_row_mask::TreeRowMask;
 use crate::{
     ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
 };

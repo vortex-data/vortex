@@ -21,8 +21,8 @@ use vortex_mask::Mask;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::masks::MaskStream;
-use crate::scan::tree_row_mask::TreeRowMask;
 use crate::segments::SegmentSource;
+use crate::tree_row_mask::TreeRowMask;
 use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
 
 pub(crate) type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;

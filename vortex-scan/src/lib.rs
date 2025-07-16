@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future::Future;
 use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
@@ -38,10 +37,13 @@ pub mod row_mask;
 mod selection;
 mod split_by;
 mod tasks;
-pub mod tree_row_mask;
 
 pub use multi_scan::{MultiScan, MultiScanIterator};
 use tasks::{TaskContext, split_exec};
+use vortex_layout::masks::MaskStreamExt;
+pub use vortex_layout::tree_row_mask::TreeRowMask;
+
+use crate::row_mask::RowMask;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {

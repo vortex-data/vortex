@@ -6,18 +6,15 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use arrow_buffer::ArrowNativeType;
 use futures::FutureExt;
 use futures::future::{BoxFuture, ok};
 use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_expr::ExprRef;
-use vortex_layout::LayoutReader;
+use vortex_layout::{LayoutReader, TaskExecutor, TaskExecutorExt};
 use vortex_mask::Mask;
 
-use crate::LayoutReader;
-use crate::scan::row_mask::RowMask;
-use crate::scan::{TaskExecutor, TaskExecutorExt};
+use crate::row_mask::RowMask;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
@@ -42,7 +39,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
     let split_range = split_mask.row_range();
     // Apply the selection to calculate a read mask
     // let read_mask = split_mask.intersect(&ctx.selection.row_mask(&split_range));
-    let split_range_start = split_range.start.as_usize();
+    let split_range_start = split_range.start as usize;
 
     let read_range = match &ctx.row_range {
         None => split_range,
@@ -59,8 +56,8 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
     };
 
     let read_mask = split_mask.slice(
-        read_range.start.as_usize() - split_range_start,
-        (read_range.end - read_range.start).as_usize(),
+        read_range.start as usize - split_range_start,
+        (read_range.end - read_range.start) as usize,
     );
 
     // Early exit if the read mask is empty.

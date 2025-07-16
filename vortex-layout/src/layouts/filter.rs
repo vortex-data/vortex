@@ -19,7 +19,7 @@ use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
 use crate::masks::MaskStream;
-use crate::scan::tree_row_mask::TreeRowMask;
+use crate::tree_row_mask::TreeRowMask;
 use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, PruningEvaluation};
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.

@@ -17,8 +17,8 @@ use vortex_mask::Mask;
 
 use crate::children::LayoutChildren;
 use crate::masks::MaskStream;
-use crate::scan::tree_row_mask::TreeRowMask;
 use crate::segments::SegmentSource;
+use crate::tree_row_mask::TreeRowMask;
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 

@@ -5,8 +5,7 @@ use std::ops::Range;
 
 use roaring::RoaringTreemap;
 use vortex_buffer::Buffer;
-
-use crate::tree_row_mask::TreeRowMask;
+use vortex_layout::tree_row_mask::TreeRowMask;
 
 /// A selection identifies a set of rows to include in the scan (in addition to applying any
 /// filter predicates).
@@ -21,10 +20,8 @@ pub enum Selection {
     /// A selection of rows to exclude by index.
     ExcludeByIndex(Buffer<u64>),
     /// A selection of rows to include using a [`roaring::RoaringTreemap`].
-    #[cfg(feature = "roaring")]
     IncludeRoaring(RoaringTreemap),
     /// A selection of rows to exclude using a [`roaring::RoaringTreemap`].
-    #[cfg(feature = "roaring")]
     ExcludeRoaring(RoaringTreemap),
 }
 

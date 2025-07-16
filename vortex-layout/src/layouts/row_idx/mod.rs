@@ -25,7 +25,7 @@ use vortex_sequence::SequenceArray;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::masks::MaskStream;
-use crate::scan::tree_row_mask::TreeRowMask;
+use crate::tree_row_mask::TreeRowMask;
 use crate::{
     ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, NoOpPruningEvaluation,
     PruningEvaluation,
