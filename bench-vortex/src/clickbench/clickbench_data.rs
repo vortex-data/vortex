@@ -27,8 +27,9 @@ use url::Url;
 use vortex::error::VortexExpect;
 use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
 use vortex_datafusion::VortexFormat;
-use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-use arcref::ArcRef;
+use vortex_file::VortexLayoutStrategy;
+use vortex_layout::layouts::compact::CompactCompressor;
+use vortex_layout::scan::LocalExecutor;
 
 use crate::Format;
 use crate::conversions::parquet_to_vortex;
@@ -243,8 +244,12 @@ pub async fn convert_parquet_to_vortex_compact(input_path: &Path) -> anyhow::Res
                         .open(&vtx_file)
                         .await?;
 
+                    let executor = Arc::new(LocalExecutor);
+                    let compressor = CompactCompressor::default();
+                    let compact_strategy = VortexLayoutStrategy::compact_with_executor(executor, compressor);
+
                     let compact_options = VortexWriteOptions::default()
-                        .with_strategy(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+                        .with_strategy(compact_strategy);
 
                     compact_options.write(f, array_stream).await?;
 

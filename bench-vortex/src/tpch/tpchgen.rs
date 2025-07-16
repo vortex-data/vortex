@@ -29,6 +29,9 @@ use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexExpect;
 use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
+use vortex_file::VortexLayoutStrategy;
+use vortex_layout::layouts::compact::CompactCompressor;
+use vortex_layout::scan::LocalExecutor;
 
 use crate::utils::file_utils::idempotent_async;
 use crate::{Format, IdempotentPath};
@@ -170,6 +173,7 @@ fn generate_table_files(
     let write_format = match options.format {
         Format::Parquet | Format::Arrow | Format::OnDiskDuckDB => Format::Parquet,
         Format::OnDiskVortex => Format::OnDiskVortex,
+        Format::VortexCompact => Format::VortexCompact,
         f @ Format::Csv => {
             anyhow::bail!("{f} format is not supported by tpchgen");
         }
@@ -203,6 +207,7 @@ fn generate_table_files(
                 let mut writer: Box<dyn FileWriter + Send> = match write_format {
                     Format::Parquet => Box::new(ParquetWriter::new(path, schema).await?),
                     Format::OnDiskVortex => Box::new(VortexWriter::new(path, schema)?),
+                    Format::VortexCompact => Box::new(VortexCompactWriter::new(path, schema)?),
                     _ => unreachable!(),
                 };
 
@@ -340,6 +345,69 @@ impl VortexWriter {
 
 #[async_trait::async_trait]
 impl FileWriter for VortexWriter {
+    async fn write_batch(&mut self, batch: &RecordBatch) -> Result<()> {
+        let array = ArrayRef::from_arrow(batch, false);
+        self.sender
+            .as_ref()
+            .vortex_expect("sender closed early")
+            .send(Ok(array))
+            .await
+            .map_err(|_| anyhow!("Failed to send array to write task"))
+    }
+
+    async fn finalize(mut self: Box<Self>) -> Result<()> {
+        // Close the sender to signal end of stream
+        self.sender.take();
+
+        // Wait for write task to complete
+        if let Some(task) = self.write_task.take() {
+            task.await
+                .map_err(|e| anyhow!("Write task failed: {}", e))??;
+        }
+
+        Ok(())
+    }
+}
+
+/// Vortex compact writer for streaming TPC-H data
+struct VortexCompactWriter {
+    sender: Option<mpsc::Sender<vortex::error::VortexResult<ArrayRef>>>,
+    write_task: Option<tokio::task::JoinHandle<Result<()>>>,
+}
+
+impl VortexCompactWriter {
+    fn new(path: PathBuf, schema: SchemaRef) -> Result<Self> {
+        // Increase buffer size to avoid backpressure issues
+        let (sender, receiver) = mpsc::channel(2);
+        let dtype = DType::from_arrow(schema);
+        let file_path = path;
+        let write_task = Some(tokio::spawn(async move {
+            let stream = ArrayStreamAdapter::new(dtype, ReceiverStream::new(receiver));
+
+            let file = TokioFile::create(&file_path).await?;
+            
+            let executor = std::sync::Arc::new(LocalExecutor);
+            let compressor = CompactCompressor::default();
+            let compact_strategy = VortexLayoutStrategy::compact_with_executor(executor, compressor);
+            
+            VortexWriteOptions::default()
+                .with_strategy(compact_strategy)
+                .write(file, stream)
+                .await
+                .map_err(|e| anyhow!("Vortex compact write failed: {}", e))?;
+
+            Ok(())
+        }));
+
+        Ok(Self {
+            sender: Some(sender),
+            write_task,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl FileWriter for VortexCompactWriter {
     async fn write_batch(&mut self, batch: &RecordBatch) -> Result<()> {
         let array = ArrayRef::from_arrow(batch, false);
         self.sender
