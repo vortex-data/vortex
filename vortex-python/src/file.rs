@@ -17,8 +17,8 @@ use vortex::error::VortexError;
 use vortex::expr::{ExprRef, root, select};
 use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::scan::SplitBy;
 use vortex::stream::ArrayStreamExt;
-use vortex_scan::SplitBy;
 
 use crate::arrays::PyArrayRef;
 use crate::dataset::PyVortexDataset;

@@ -6750,7 +6750,6 @@ dependencies = [
  "tokio",
  "url",
  "vortex",
- "vortex-scan",
 ]
 
 [[package]]
