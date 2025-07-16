@@ -284,6 +284,11 @@ impl DType {
         matches!(self, Struct(_, _))
     }
 
+    /// Check if `self` is a `ListDType`
+    pub fn is_list(&self) -> bool {
+        matches!(self, List(_, _))
+    }
+
     /// Check if `self` is a primitive tpye
     pub fn is_primitive(&self) -> bool {
         matches!(self, Primitive(_, _))

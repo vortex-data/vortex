@@ -37,7 +37,7 @@ pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Ex
         .filter_map(|_| {
             match u.choose_iter(struct_dtype.names().iter().zip(struct_dtype.fields())) {
                 Ok((col, dtype)) => {
-                    if dtype.is_struct() {
+                    if dtype.is_struct() || dtype.is_list() {
                         None
                     } else {
                         Some(random_comparison(u, col, &dtype))
