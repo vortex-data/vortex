@@ -254,6 +254,8 @@ impl TableFunction for VortexTableFunction {
 
             move || {
                 let file = if !is_first_file_queued.swap(true, SeqCst) {
+                    // The first path from `file_paths` is skipped as the first
+                    // file was already opened during bind.
                     first_file
                 } else {
                     VortexOpenOptions::file()

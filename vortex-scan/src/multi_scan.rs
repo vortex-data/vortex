@@ -92,8 +92,6 @@ impl Iterator for MultiScanIterator {
                 // TODO(Alex): worksteal tasks from other threads
             }
 
-            // Poll one future at a time. Polling multiple futures at
-            // the same time leads to contention within a layout reader.
             if let Some(work_result) = self.pop_scan_task() {
                 match work_result {
                     Ok(future) => self.polled_tasks.push(future),

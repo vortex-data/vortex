@@ -6866,8 +6866,6 @@ dependencies = [
  "taffy",
  "tokio",
  "vortex",
- "vortex-layout",
- "vortex-scan",
 ]
 
 [[package]]
