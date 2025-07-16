@@ -211,23 +211,23 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
 
         let selection = match &self.selection {
-            Selection::All => TreeRowMask::all(0..=u64::MAX),
+            Selection::All => TreeRowMask::all(0..u64::MAX),
             Selection::IncludeByIndex(indices) => {
                 let mut treemap = RoaringTreemap::new();
                 for idx in indices.iter() {
                     treemap.insert(*idx);
                 }
-                TreeRowMask::new(0..=u64::MAX, treemap)
+                TreeRowMask::new(0..u64::MAX, treemap)
             }
             Selection::ExcludeByIndex(indices) => {
                 let mut treemap = RoaringTreemap::full();
                 for idx in indices.iter() {
                     treemap.remove(*idx);
                 }
-                TreeRowMask::new(0..=u64::MAX, treemap)
+                TreeRowMask::new(0..u64::MAX, treemap)
             }
             #[cfg(feature = "roaring")]
-            Selection::IncludeRoaring(mask) => TreeRowMask::new(0..=u64::MAX, mask.clone()),
+            Selection::IncludeRoaring(mask) => TreeRowMask::new(0..u64::MAX, mask.clone()),
             #[cfg(feature = "roaring")]
             Selection::ExcludeRoaring(_) => todo!(),
         };

@@ -139,9 +139,9 @@ impl LayoutReader for ChunkedReader {
                 } else {
                     self.chunk_offsets[idx + 1]
                 };
-                selection.non_empty_range(start..=end).then(|| {
+                selection.non_empty_range(start..end).then(|| {
                     Ok((
-                        selection.clone().subset(start..=end),
+                        selection.clone().slice(start..end),
                         self.chunk_reader(idx)?.clone(),
                     ))
                 })

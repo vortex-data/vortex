@@ -57,7 +57,7 @@ mod test {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let splits = reader
             .row_masks(
-                &TreeRowMask::all(0..=10),
+                &TreeRowMask::all(0..11),
                 &[FieldMask::Exact(FieldPath::root())],
             )
             .try_collect::<Vec<Mask>>()

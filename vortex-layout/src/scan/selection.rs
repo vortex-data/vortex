@@ -32,29 +32,28 @@ pub enum Selection {
 impl Selection {
     pub fn tree_row_mask(&self, range: &Range<u64>) -> TreeRowMask {
         if range.start == range.end {
-            return TreeRowMask::all(range.start..=(range.start - 1));
+            return TreeRowMask::all(range.start..range.start);
         }
-        let inclusive_range = range.start..=range.end - 1;
         match &self {
-            Selection::All => TreeRowMask::all(inclusive_range).into(),
+            Selection::All => TreeRowMask::all(range.clone()).into(),
             Selection::IncludeByIndex(indices) => {
                 let mut treemap = RoaringTreemap::new();
                 for idx in indices.iter() {
                     treemap.insert(*idx);
                 }
-                TreeRowMask::new(inclusive_range, treemap)
+                TreeRowMask::new(range.clone(), treemap)
             }
             Selection::ExcludeByIndex(indices) => {
                 let mut treemap = RoaringTreemap::new();
                 for idx in indices.iter() {
                     treemap.insert(*idx);
                 }
-                TreeRowMask::exclude(inclusive_range, treemap)
+                TreeRowMask::exclude(range.clone(), treemap)
             }
             #[cfg(feature = "roaring")]
-            Selection::IncludeRoaring(mask) => TreeRowMask::new(inclusive_range, mask.clone()),
+            Selection::IncludeRoaring(mask) => TreeRowMask::new(range.clone(), mask.clone()),
             #[cfg(feature = "roaring")]
-            Selection::ExcludeRoaring(mask) => TreeRowMask::exclude(inclusive_range, mask.clone()),
+            Selection::ExcludeRoaring(mask) => TreeRowMask::exclude(range.clone(), mask.clone()),
         }
     }
 }
