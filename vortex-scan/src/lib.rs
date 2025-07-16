@@ -30,13 +30,13 @@ use vortex_layout::{LayoutReader, LayoutReaderRef};
 pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
 
-mod iterator;
+mod multi_scan;
 pub mod row_mask;
 mod selection;
 mod split_by;
 mod tasks;
 
-pub use iterator::MultiFileIterator;
+pub use multi_scan::{MultiScan, MultiScanIterator};
 use tasks::{TaskContext, split_exec};
 
 /// A struct for building a scan operation.

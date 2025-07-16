@@ -4,8 +4,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
-use std::sync::atomic::{AtomicU64, AtomicUsize};
-use std::thread;
 
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::ToCanonical;
@@ -13,7 +11,7 @@ use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::scan::MultiFileIterator;
+use vortex::scan::{MultiScan, MultiScanIterator};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
@@ -55,17 +53,15 @@ impl std::fmt::Debug for VortexBindData {
 }
 
 pub struct VortexGlobalData {
-    /// We currently use a conversion cache to cache converted arrays, this id is used to
-    /// ensure that each cache created has a unique id used to name those arrays
-    conversion_cache_id: AtomicU64,
-    multi_file_iter: MultiFileIterator,
-    next_thread_id: AtomicUsize,
+    multi_file_scan: MultiScan,
 }
 
 pub struct VortexLocalData {
+    multi_file_iterator: MultiScanIterator,
     exporter: Option<ArrayExporter>,
-    cache: Option<ConversionCache>,
-    thread_id: usize,
+
+    // TODO(Alex): replace with global conversion cache
+    conversion_cache: ConversionCache,
 }
 
 #[derive(Debug)]
@@ -203,27 +199,21 @@ impl TableFunction for VortexTableFunction {
     fn scan(
         _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
-        global_state: &mut Self::GlobalState,
+        _global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
         loop {
             if local_state.exporter.is_none() {
-                let Some(array_result) = global_state.multi_file_iter.next(local_state.thread_id)
-                else {
+                let Some(array_result) = local_state.multi_file_iterator.next() else {
                     return Ok(());
                 };
 
-                if local_state.cache.is_none() {
-                    let cache_id = global_state.conversion_cache_id.fetch_add(1, SeqCst);
-                    local_state.cache = Some(ConversionCache::new(cache_id));
-                }
+                // TODO(Alex): replace with global conversion cache
+                local_state.conversion_cache = ConversionCache::new(0);
 
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result?.to_struct()?,
-                    local_state
-                        .cache
-                        .as_mut()
-                        .vortex_expect("cache should exist"),
+                    &mut local_state.conversion_cache,
                 )?);
             }
 
@@ -251,7 +241,7 @@ impl TableFunction for VortexTableFunction {
         let bind_data = init_input.bind_data();
         let projection_expr = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
-        let num_threads = thread::available_parallelism().map(|p| p.get())?;
+        // let num_threads = thread::available_parallelism().map(|p| p.get())?;
         let is_first_file_queued = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let closures = bind_data.file_paths.clone().into_iter().map(move |path| {
@@ -277,9 +267,7 @@ impl TableFunction for VortexTableFunction {
         });
 
         Ok(VortexGlobalData {
-            conversion_cache_id: AtomicU64::new(0),
-            multi_file_iter: MultiFileIterator::new(num_threads).with_scan_builders(closures),
-            next_thread_id: AtomicUsize::new(0),
+            multi_file_scan: MultiScan::new().with_scan_builders(closures),
         })
     }
 
@@ -288,9 +276,9 @@ impl TableFunction for VortexTableFunction {
         global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
         Ok(VortexLocalData {
+            multi_file_iterator: global.multi_file_scan.new_iterator(),
             exporter: None,
-            cache: None,
-            thread_id: global.next_thread_id.fetch_add(1, SeqCst),
+            conversion_cache: ConversionCache::new(0),
         })
     }
 
