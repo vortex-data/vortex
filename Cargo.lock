@@ -6307,7 +6307,6 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "vortex",
- "vortex-scan",
 ]
 
 [[package]]
