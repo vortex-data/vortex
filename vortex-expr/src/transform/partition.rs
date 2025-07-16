@@ -12,8 +12,8 @@ use crate::transform::annotations::{
     Annotation, AnnotationFn, Annotations, descendent_annotations,
 };
 use crate::transform::simplify_typed::simplify_typed;
-use crate::traversal::{FoldDown, FoldUp, FolderMut, MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, GetItemVTable, get_item, pack, root};
+use crate::traversal::{FoldDown, FoldUp, FolderMut, Node};
+use crate::{ExprRef, get_item, pack, root};
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -194,21 +194,6 @@ impl<A: Annotation + Display> FolderMut for StructFieldExpressionSplitter<'_, A>
         children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>> {
         Ok(FoldUp::Continue(node.with_children(children)?))
-    }
-}
-
-pub(crate) struct ReplaceAccessesWithChild(Vec<FieldName>);
-
-impl MutNodeVisitor for ReplaceAccessesWithChild {
-    type NodeTy = ExprRef;
-
-    fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<ExprRef>> {
-        if let Some(item) = node.as_opt::<GetItemVTable>() {
-            if self.0.contains(item.field()) {
-                return Ok(TransformResult::yes(item.child().clone()));
-            }
-        }
-        Ok(TransformResult::no(node))
     }
 }
 
