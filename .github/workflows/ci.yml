@@ -470,7 +470,7 @@ jobs:
           targets: "wasm32-wasip1"
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v3.1
-      - run: cargo -Zbuild-std=panic_abort,std build --target wasm32-wasip1
+      - run: cargo +nightly -Zbuild-std=panic_abort,std build --target wasm32-wasip1
         working-directory: ./wasm-test
       - run: wasmer run ./target/wasm32-wasip1/debug/wasm-test.wasm
         working-directory: ./wasm-test
@@ -498,10 +498,10 @@ jobs:
         # For now, we only run Miri against known "fiddly" crates.
         if: false
         run: |
-          cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout \
+          cargo +nightly miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout \
           --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr \
           --exclude vortex-scalar --exclude vortex-duckdb --exclude vortex-ffi --exclude bench-vortex \
-          --exclude vortex-python --exclude vortex-jni
+          --exclude vortex-python --exclude vortex-jni --exclude vortex-fuzz
       - name: Run Miri
         run: cargo miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
 

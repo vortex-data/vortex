@@ -106,7 +106,7 @@ impl BenchmarkDataset {
     }
 
     pub fn format_path(&self, format: Format, base_url: &Url) -> Result<Url> {
-        Ok(base_url.join(&format!("{}/", format))?)
+        Ok(base_url.join(&format!("{format}/"))?)
     }
 
     pub async fn register_tables(
