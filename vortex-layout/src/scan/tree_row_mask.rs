@@ -1,35 +1,41 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use roaring::RoaringTreemap;
 
+/// Uses a roaring treemap to store a set of row indices.
+/// This can be refined and a row range query can be performed.
 #[derive(Debug, Clone)]
 pub struct TreeRowMask {
-    pub start: u64,
-    pub end: u64,
+    /// The projected row range
+    pub(crate) range: RangeInclusive<u64>,
+    /// Empty if the treemap is all full
     pub treemap: Option<Arc<RoaringTreemap>>,
 }
 
 impl TreeRowMask {
-    pub fn all(start: u64, end: u64) -> Self {
+    /// Create a mask for all rows in the range
+    pub fn all(range: RangeInclusive<u64>) -> Self {
         Self {
-            start,
-            end,
+            range,
             treemap: None,
         }
     }
 
-    pub fn new(start: u64, end: u64, treemap: RoaringTreemap) -> Self {
+    pub fn new(range: RangeInclusive<u64>, treemap: RoaringTreemap) -> Self {
         Self {
-            start,
-            end,
+            range,
             treemap: Some(Arc::new(treemap)),
         }
     }
 
-    pub fn non_empty_range(&self, start: u64, end: u64) -> bool {
-        let start = start + self.start;
-        let end = end + self.start;
-        if self.end < start || end < self.start {
+    pub fn non_empty_range(&self, range: RangeInclusive<u64>) -> bool {
+        let start = range.start() + self.range.start();
+        let end = range.end() + self.range.start();
+        if *self.range.end() < start || end < *self.range.start() {
             return false;
         };
 
@@ -66,19 +72,20 @@ impl TreeRowMask {
         }
     }
 
-    pub fn subset(mut self, start: u64, end: u64) -> Self {
+    pub fn subset(mut self, range: RangeInclusive<u64>) -> Self {
+        let start = *range.start();
+        let end = *range.end();
         assert!(start <= end, "Invalid range: start > end");
         assert!(
-            start + self.start <= self.end,
+            start + self.range.start() <= *self.range.end(),
             "Start offset exceeds current range"
         );
         assert!(
-            end + self.start <= self.end,
+            end + *self.range.start() <= *self.range.end(),
             "End offset exceeds current range"
         );
 
-        self.start = start + self.start;
-        self.end = (end - start) + self.start;
+        self.range = start + self.range.start()..=(end - start) + self.range.start();
         self
     }
 }
