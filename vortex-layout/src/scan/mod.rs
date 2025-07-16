@@ -15,10 +15,8 @@ use futures::task::LocalSpawnExt;
 use futures::{FutureExt, Stream, StreamExt, stream};
 use itertools::Itertools;
 use parking_lot::Mutex;
-use roaring::RoaringTreemap;
 pub use selection::*;
 pub use split_by::*;
-use tree_row_mask::TreeRowMask;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
@@ -210,30 +208,16 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
 
-        let selection = match &self.selection {
-            Selection::All => TreeRowMask::all(0..u64::MAX),
-            Selection::IncludeByIndex(indices) => {
-                let mut treemap = RoaringTreemap::new();
-                for idx in indices.iter() {
-                    treemap.insert(*idx);
-                }
-                TreeRowMask::new(0..u64::MAX, treemap)
-            }
-            Selection::ExcludeByIndex(indices) => {
-                let mut treemap = RoaringTreemap::full();
-                for idx in indices.iter() {
-                    treemap.remove(*idx);
-                }
-                TreeRowMask::new(0..u64::MAX, treemap)
-            }
-            #[cfg(feature = "roaring")]
-            Selection::IncludeRoaring(mask) => TreeRowMask::new(0..u64::MAX, mask.clone()),
-            #[cfg(feature = "roaring")]
-            Selection::ExcludeRoaring(_) => todo!(),
-        };
+        let row_count = layout_reader.row_count();
 
         // Set up the initial stream of RowMasks.
-        let masks = layout_reader.row_masks(&selection, &field_mask);
+        let tree_mask = self.selection.tree_row_mask(
+            &self
+                .row_range
+                .clone()
+                .unwrap_or_else(|| 0..row_count.as_exact().unwrap_or(u64::MAX)),
+        );
+        let masks = layout_reader.row_masks(&tree_mask, &field_mask);
 
         // If we split by a fixed row count, we repartition the masks into splits.
         let masks = match self.split_by {
