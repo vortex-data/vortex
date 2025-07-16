@@ -211,20 +211,20 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
 
         let selection = match &self.selection {
-            Selection::All => TreeRowMask::all(0, 0),
+            Selection::All => TreeRowMask::all(0..=u64::MAX),
             Selection::IncludeByIndex(indices) => {
                 let mut treemap = RoaringTreemap::new();
                 for idx in indices.iter() {
                     treemap.insert(*idx);
                 }
-                TreeRowMask::new(0, 0, treemap)
+                TreeRowMask::new(0..=u64::MAX, treemap)
             }
             Selection::ExcludeByIndex(indices) => {
                 let mut treemap = RoaringTreemap::full();
                 for idx in indices.iter() {
                     treemap.remove(*idx);
                 }
-                TreeRowMask::new(0, 0, treemap)
+                TreeRowMask::new(0..=u64::MAX, treemap)
             }
         };
 
