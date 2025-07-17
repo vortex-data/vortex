@@ -19,10 +19,11 @@ use vortex_array::validity::Validity;
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::{DType, FieldMask, Nullability};
 use vortex_error::{SharedVortexResult, VortexExpect, VortexResult, vortex_bail};
-use vortex_expr::{ExprRef, LikeVTable, root};
+use vortex_expr::{BinaryVTable, ExprRef, GetItemVTable, LikeVTable, LiteralExpr, Operator, root};
 use vortex_mask::{AllOr, Mask};
 use vortex_utils::aliases::hash_set::HashSet;
 
+use self::pruning::{EqualsPredicate, StartsWithPredicate, StringPushdownExpr, ViewPruning};
 use crate::layouts::SharedByteBufferFuture;
 use crate::layouts::view::{ValidityTag, ViewLayout};
 use crate::segments::SegmentSource;
@@ -50,6 +51,60 @@ pub struct ViewReader {
 }
 
 impl ViewReader {
+    /// Analyze an expression to determine if it can be pushed down to ViewPruning
+    fn analyze_for_view_pruning(expr: &ExprRef) -> Option<StringPushdownExpr> {
+        // Handle LIKE expressions (e.g., column LIKE 'prefix%')
+        if let Some(like_expr) = expr.as_opt::<LikeVTable>() {
+            // Only handle non-negated, case-sensitive LIKE expressions
+            if !like_expr.negated() && !like_expr.case_insensitive() {
+                // Check if the child is a column reference
+                if like_expr.child().as_opt::<GetItemVTable>().is_some() {
+                    // Check if pattern is a literal string
+                    if let Some(pattern_lit) = LiteralExpr::maybe_from(like_expr.pattern()) {
+                        if let Some(pattern_buf) = pattern_lit.value().as_utf8().value() {
+                            let pattern_str = pattern_buf.as_str();
+                            // Handle prefix patterns like 'ABC%' (but not '%ABC%' or '%ABC')
+                            if pattern_str.ends_with('%')
+                                && !pattern_str.starts_with('%')
+                                && pattern_str.len() > 1
+                            {
+                                let prefix = &pattern_str[..pattern_str.len() - 1];
+                                if !prefix.is_empty() {
+                                    return Some(StringPushdownExpr::StartsWith(
+                                        StartsWithPredicate::from(prefix),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Handle equality expressions (e.g., column = 'value')
+        if let Some(binary_expr) = expr.as_opt::<BinaryVTable>() {
+            if binary_expr.op() == Operator::Eq {
+                // Check for column = 'literal' or 'literal' = column patterns.
+                let lit_expr = if binary_expr.lhs().as_opt::<GetItemVTable>().is_some() {
+                    binary_expr.rhs()
+                } else if binary_expr.rhs().as_opt::<GetItemVTable>().is_some() {
+                    binary_expr.lhs()
+                } else {
+                    return None;
+                };
+
+                if let Some(literal_expr) = LiteralExpr::maybe_from(lit_expr) {
+                    if let Some(value_buf) = literal_expr.value().as_utf8().value() {
+                        let value_str = value_buf.as_str();
+                        return Some(StringPushdownExpr::Equals(EqualsPredicate::from(value_str)));
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     pub fn new(
         layout: ViewLayout,
         name: impl Into<Arc<str>>,
@@ -117,20 +172,23 @@ impl LayoutReader for ViewReader {
         Ok(())
     }
 
-    #[allow(clippy::dbg_macro)]
     fn pruning_evaluation(
         &self,
-        _row_range: &Range<u64>,
+        row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn PruningEvaluation>> {
-        // Attempt to prune if top-level is `LIKE` or `<>`
-        if expr.is::<LikeVTable>() {
-            let like_expr = expr.as_::<LikeVTable>();
-            dbg!(like_expr);
-            dbg!(like_expr.pattern());
-        };
-
-        Ok(Box::new(NoOpPruningEvaluation))
+        // Try to analyze the expression for ViewPruning pushdown, falling back to NoOpPruning.
+        if let Some(pushdown_expr) = Self::analyze_for_view_pruning(expr) {
+            let row_range = usize::try_from(row_range.start)?..usize::try_from(row_range.end)?;
+            Ok(Box::new(ViewPruning::new(
+                self.views.clone(),
+                pushdown_expr,
+                row_range,
+            )))
+        } else {
+            // Fallback to no-op pruning if the expression can't be pushed down
+            Ok(Box::new(NoOpPruningEvaluation))
+        }
     }
 
     fn filter_evaluation(
@@ -270,10 +328,7 @@ impl ViewEvaluation {
         }
 
         // Force each required buffer to be loaded before executing the filter.
-        println!(
-            "VIEW_FILTER.invoke: required buffers: {:?}",
-            required_buffers
-        );
+        println!("VIEW_FILTER.invoke: required buffers: {required_buffers:?}");
 
         let buffer_count = required_buffers.iter().copied().max().unwrap_or(0);
 
@@ -369,6 +424,69 @@ mod tests {
 
         let layout = block_on(strategy.write_stream(&ctx, writer, stream)).unwrap();
         (layout, Arc::new(segment_source))
+    }
+
+    #[test]
+    fn test_view_pruning_analysis() {
+        use vortex_expr::{LikeExpr, col, eq, lit};
+
+        // Test LIKE expression with prefix
+        let like_expr = LikeExpr::new_expr(col("name"), lit("ABC%"), false, false);
+        let result = super::ViewReader::analyze_for_view_pruning(&like_expr);
+        assert!(result.is_some());
+
+        // Test equality expression
+        let eq_expr = eq(col("name"), lit("test"));
+        let result = super::ViewReader::analyze_for_view_pruning(&eq_expr);
+        assert!(result.is_some());
+
+        // Test unsupported expressions (should return None)
+        let unsupported1 = LikeExpr::new_expr(col("name"), lit("ABC"), false, false); // no % suffix
+        let result = super::ViewReader::analyze_for_view_pruning(&unsupported1);
+        assert!(result.is_none());
+
+        let unsupported2 = LikeExpr::new_expr(col("name"), lit("%ABC%"), false, false); // starts and ends with %
+        let result = super::ViewReader::analyze_for_view_pruning(&unsupported2);
+        assert!(result.is_none());
+
+        let unsupported3 = LikeExpr::new_expr(col("name"), lit("%ABC"), false, false); // starts with %
+        let result = super::ViewReader::analyze_for_view_pruning(&unsupported3);
+        assert!(result.is_none());
+
+        let unsupported4 = LikeExpr::new_expr(col("name"), lit("%"), false, false); // only %
+        let result = super::ViewReader::analyze_for_view_pruning(&unsupported4);
+        assert!(result.is_none());
+
+        let unsupported5 = LikeExpr::new_expr(col("name"), lit("ABC%"), false, true); // case-insensitive
+        let result = super::ViewReader::analyze_for_view_pruning(&unsupported5);
+        assert!(result.is_none());
+
+        let unsupported6 = LikeExpr::new_expr(col("name"), lit("ABC%"), true, false); // NOT LIKE
+        let result = super::ViewReader::analyze_for_view_pruning(&unsupported6);
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_view_pruning_with_row_range() {
+        use vortex_expr::{LikeExpr, col, lit};
+
+        let (layout, segment_source) = view_layout();
+        let reader = layout
+            .new_reader("test_reader".into(), segment_source)
+            .unwrap();
+
+        // Test pruning evaluation with a specific row range
+        let row_range = 1u64..4u64; // Only middle rows
+        let like_expr = LikeExpr::new_expr(col("name"), lit("inlined%"), false, false);
+
+        let pruning_eval = reader.pruning_evaluation(&row_range, &like_expr).unwrap();
+
+        // Create a test mask covering the row range
+        let input_mask = Mask::from_iter([true, true, true]); // 3 rows in range
+        let result_mask = pruning_eval.invoke(input_mask).await.unwrap();
+
+        // The result should be a mask of the same length as the row range
+        assert_eq!(result_mask.len(), 3);
     }
 
     #[tokio::test]

@@ -1,7 +1,7 @@
 //  SPDX-License-Identifier: Apache-2.0
 //  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::BitAnd;
+use std::ops::{BitAnd, Range};
 
 use async_trait::async_trait;
 use vortex_array::arrays::BinaryView;
@@ -17,6 +17,21 @@ use crate::layouts::view::reader::SharedBinaryViewFuture;
 pub(crate) struct ViewPruning {
     views: SharedBinaryViewFuture,
     pushdown_expr: StringPushdownExpr,
+    row_range: Range<usize>,
+}
+
+impl ViewPruning {
+    pub fn new(
+        views: SharedBinaryViewFuture,
+        pushdown_expr: StringPushdownExpr,
+        row_range: Range<usize>,
+    ) -> Self {
+        Self {
+            views,
+            pushdown_expr,
+            row_range,
+        }
+    }
 }
 
 // An expression over StringView data that is able to pushdown and evaluate over the views alone.
@@ -32,8 +47,14 @@ pub(crate) enum StringPushdownExpr {
 impl PruningEvaluation for ViewPruning {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
         // Wait for the views.
-        let views = self.views.clone().await?;
-        // Figure out how to validate the ByteBuffer views instead.
+        let mut views = self.views.clone().await?;
+
+        // Slice the views buffer to the specified row range
+        if self.row_range.start > 0 || self.row_range.end < views.len() {
+            views = views.slice(self.row_range.start..self.row_range.end);
+        }
+
+        // Apply the pushdown predicate to the sliced views
         let prune_result = match self.pushdown_expr {
             StringPushdownExpr::StartsWith(ref pred) => build_mask(pred, &views),
             StringPushdownExpr::Equals(ref pred) => build_mask(pred, &views),
