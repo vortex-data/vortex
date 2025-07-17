@@ -47,13 +47,13 @@ pub(crate) fn new_exporter(
             // Create a new DuckDB vector for the values.
             let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
             new_array_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
-            let unowned = Arc::new(Mutex::new(vector));
 
+            let vector = Arc::new(Mutex::new(vector));
             cache
                 .values_cache
-                .insert(values_key, (values.clone(), unowned.clone()));
+                .insert(values_key, (values.clone(), vector.clone()));
 
-            unowned
+            vector
         }
     };
 
