@@ -50,7 +50,9 @@ impl Expression {
                         children_count: 0,
                         type_: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
                     };
-                    unsafe { cpp::duckdb_vx_expr_get_bound_conjunction(self.as_ptr(), &mut out) };
+                    unsafe {
+                        cpp::duckdb_vx_expr_get_bound_conjunction(self.as_ptr(), &raw mut out)
+                    };
 
                     let children =
                         unsafe { std::slice::from_raw_parts(out.children, out.children_count) };
@@ -66,7 +68,9 @@ impl Expression {
                         right: ptr::null_mut(),
                         type_: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
                     };
-                    unsafe { cpp::duckdb_vx_expr_get_bound_comparison(self.as_ptr(), &mut out) };
+                    unsafe {
+                        cpp::duckdb_vx_expr_get_bound_comparison(self.as_ptr(), &raw mut out)
+                    };
 
                     ExpressionClass::BoundComparison(BoundComparison {
                         left: unsafe { Expression::borrow(out.left) },
@@ -83,7 +87,7 @@ impl Expression {
                         upper_inclusive: false,
                     };
                     unsafe {
-                        cpp::duckdb_vx_expr_get_bound_between(self.as_ptr(), &mut out);
+                        cpp::duckdb_vx_expr_get_bound_between(self.as_ptr(), &raw mut out);
                     }
 
                     ExpressionClass::BoundBetween(BoundBetween {
@@ -100,7 +104,7 @@ impl Expression {
                         children_count: 0,
                         type_: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
                     };
-                    unsafe { cpp::duckdb_vx_expr_get_bound_operator(self.as_ptr(), &mut out) };
+                    unsafe { cpp::duckdb_vx_expr_get_bound_operator(self.as_ptr(), &raw mut out) };
 
                     let children =
                         unsafe { std::slice::from_raw_parts(out.children, out.children_count) };
@@ -117,7 +121,7 @@ impl Expression {
                         scalar_function: ptr::null_mut(),
                         bind_info: ptr::null_mut(),
                     };
-                    unsafe { cpp::duckdb_vx_expr_get_bound_function(self.as_ptr(), &mut out) };
+                    unsafe { cpp::duckdb_vx_expr_get_bound_function(self.as_ptr(), &raw mut out) };
 
                     let children =
                         unsafe { std::slice::from_raw_parts(out.children, out.children_count) };

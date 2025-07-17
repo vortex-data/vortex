@@ -314,7 +314,7 @@ jobs:
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast
+          cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast
       - name: Run TPC-H
         if: ${{ matrix.suite == 'tpc-h' }}
         run: |
@@ -364,6 +364,9 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
+          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
@@ -371,7 +374,7 @@ jobs:
       - name: Rust Tests
         # vortex-duckdb-ext currently fails linking for cargo test targets.
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast --target x86_64-unknown-linux-gnu
+          cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast --target x86_64-unknown-linux-gnu
 
   build-java:
     name: "Java"
@@ -463,10 +466,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
         with:
+          toolchain: nightly
           targets: "wasm32-wasip1"
+          components: "rust-src"
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v3.1
-      - run: cargo -Zbuild-std=panic_abort,std build --target wasm32-wasip1
+      - run: cargo +nightly -Zbuild-std=panic_abort,std build --target wasm32-wasip1
         working-directory: ./wasm-test
       - run: wasmer run ./target/wasm32-wasip1/debug/wasm-test.wasm
         working-directory: ./wasm-test
@@ -484,19 +489,14 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
+          components: "rust-src, rustfmt, clippy, miri"
       - uses: taiki-e/install-action@v2
         with:
           tool: nextest@0.9.98
-      - name: Run all tests with Miri
-        # For now, we only run Miri against known "fiddly" crates.
-        if: false
-        run: |
-          cargo miri nextest run --no-fail-fast --workspace --exclude vortex-file --exclude vortex-layout \
-          --exclude vortex-fsst --exclude vortex-array --exclude vortex-dtype --exclude vortex-expr \
-          --exclude vortex-scalar --exclude vortex-duckdb --exclude vortex-ffi --exclude bench-vortex \
-          --exclude vortex-python --exclude vortex-jni
       - name: Run Miri
-        run: cargo miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
+        run: cargo +nightly miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
 
   generated-files:
     name: "Check generated proto/fbs files are up to date"

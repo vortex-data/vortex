@@ -141,7 +141,8 @@ impl Vector {
 
     pub fn try_to_string(&self, len: u64) -> VortexResult<String> {
         let mut err: duckdb_vx_error = ptr::null_mut();
-        let debug = unsafe { cpp::duckdb_vector_to_string(self.as_ptr(), len.as_u64(), &mut err) };
+        let debug =
+            unsafe { cpp::duckdb_vector_to_string(self.as_ptr(), len.as_u64(), &raw mut err) };
         if !err.is_null() {
             vortex_bail!("{}", unsafe {
                 CStr::from_ptr(cpp::duckdb_vx_error_value(err)).to_string_lossy()

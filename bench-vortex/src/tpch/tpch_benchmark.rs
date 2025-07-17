@@ -297,7 +297,7 @@ impl TpcHBenchmark {
                         ChangeTag::Insert => "+",
                         ChangeTag::Equal => " ",
                     };
-                    print!("{}{}", sign, change);
+                    print!("{sign}{change}");
                 }
 
                 eprintln!("query output does not match the reference for {query_name}");

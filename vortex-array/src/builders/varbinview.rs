@@ -4,7 +4,7 @@
 use std::any::Any;
 use std::cmp::max;
 
-use vortex_buffer::{BufferMut, ByteBuffer, ByteBufferMut};
+use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
@@ -107,14 +107,14 @@ impl VarBinViewBuilder {
     // the view length.
     pub fn push_buffer_and_adjusted_views(
         &mut self,
-        buffer: impl IntoIterator<Item = ByteBuffer>,
-        views: impl IntoIterator<Item = BinaryView>,
+        buffer: &[ByteBuffer],
+        views: &Buffer<BinaryView>,
         validity_mask: Mask,
     ) {
         self.flush_in_progress();
 
-        self.completed.extend(buffer);
-        self.views_builder.extend(views);
+        self.completed.extend(buffer.iter().cloned());
+        self.views_builder.extend_trusted(views.iter().copied());
         self.push_only_validity_mask(validity_mask);
 
         debug_assert_eq!(self.null_buffer_builder.len(), self.views_builder.len())
@@ -190,7 +190,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         let buffers_offset = u32::try_from(self.completed.len())?;
         self.completed.extend_from_slice(array.buffers());
 
-        self.views_builder.extend(
+        self.views_builder.extend_trusted(
             array
                 .views()
                 .iter()

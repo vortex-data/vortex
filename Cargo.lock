@@ -6216,7 +6216,6 @@ dependencies = [
  "rstest",
  "rstest_reuse",
  "rustc-hash",
- "rustversion",
  "serde",
  "static_assertions",
  "vortex-array",

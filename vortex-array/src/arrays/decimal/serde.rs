@@ -108,7 +108,7 @@ mod tests {
         // Concat into a single buffer
         let mut concat = ByteBufferMut::empty();
         for buf in out {
-            concat.extend(buf.as_ref());
+            concat.extend_from_slice(buf.as_ref());
         }
 
         let concat = concat.freeze();

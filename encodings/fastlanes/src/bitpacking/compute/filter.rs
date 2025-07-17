@@ -133,14 +133,14 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
                 let dst: &mut [T] = mem::transmute(dst);
                 BitPacking::unchecked_unpack(bit_width, packed, dst);
             }
-            values.extend(
+            values.extend_trusted(
                 indices_within_chunk
                     .iter()
                     .map(|&idx| unsafe { unpacked.get_unchecked(idx).assume_init() }),
             );
         } else {
             // Otherwise, unpack each element individually.
-            values.extend(indices_within_chunk.iter().map(|&idx| unsafe {
+            values.extend_trusted(indices_within_chunk.iter().map(|&idx| unsafe {
                 BitPacking::unchecked_unpack_single(bit_width, packed, idx)
             }));
         }

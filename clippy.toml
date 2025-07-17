@@ -2,10 +2,12 @@ allow-dbg-in-tests = true
 allow-expect-in-tests = true
 allow-unwrap-in-tests = true
 single-char-binding-names-threshold = 2
-# We prefer using parking_lot for improved ergonomics and performance.
-disallowed-types = ["std::collections::HashMap", "std::collections::HashSet", "std::sync::Mutex", "std::sync::RwLock"]
+disallowed-types = [
+	{ path = "std::collections::HashMap", reason = "Use the HashMap in vortex_utils::aliases for better performance" }, 
+	{ path = "std::collections::HashSet", reason = "Use the HashSet in vortex_utils::aliases for better performance" },
+	{ path = "std::sync::Mutex", reason = "Prefer using parking_lot Mutex for improved ergonomics and performance" },
+	{ path = "std::sync::RwLock", reason = "Prefer using parking_lot RwLock for improved ergonomics and performance" }]
 
 disallowed-methods = [
-    # It uses the default hasher and is very easy to just inline with a faster implementation
-    "itertools::Itertools::counts"
-    ]
+    { path = "itertools::Itertools::counts", reason = "It uses the default hasher which is slow for primitives. Just inline the loop for better performance." }
+]

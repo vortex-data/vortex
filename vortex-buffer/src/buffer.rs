@@ -177,8 +177,10 @@ impl<T> Buffer<T> {
     }
 
     /// Returns an iterator over the buffer of elements of type T.
-    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.as_slice().iter()
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter {
+            inner: self.as_slice().iter(),
+        }
     }
 
     /// Returns a slice of self for the provided range.
@@ -395,6 +397,43 @@ impl<T> Buffer<T> {
         } else {
             vortex_panic!("Buffer is not aligned to requested alignment {}", alignment)
         }
+    }
+}
+
+/// An iterator over Buffer elements.
+///
+/// This is an analog to the `std::slice::Iter` type.
+pub struct Iter<'a, T> {
+    inner: std::slice::Iter<'a, T>,
+}
+
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+
+    fn count(self) -> usize {
+        self.inner.count()
+    }
+
+    fn last(self) -> Option<Self::Item> {
+        self.inner.last()
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.inner.nth(n)
+    }
+}
+
+impl<T> ExactSizeIterator for Iter<'_, T> {
+    fn len(&self) -> usize {
+        self.inner.len()
     }
 }
 

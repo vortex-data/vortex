@@ -155,6 +155,9 @@ name = "arrow-schema"
 version = "55.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af7686986a3bf2254c9fb130c623cdcb2f8e1f15763e7c71c310f0834da3d292"
+dependencies = [
+ "bitflags",
+]
 
 [[package]]
 name = "arrow-select"
@@ -458,9 +461,9 @@ dependencies = [
 
 [[package]]
 name = "fastlanes"
-version = "0.1.8"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0504746b2d3b8249642d675325a6de910351f5aefc909a08450b2e239b169fd2"
+checksum = "f9504b2eddaa58bb69cf825baa2f46c4e97a5891dd1f167eab788d9c22692aa5"
 dependencies = [
  "arrayref",
  "const_for",
@@ -1296,9 +1299,9 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.13.5"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2796faa41db3ec313a31f7624d9286acf277b52de526150b7e69f3debf891ee5"
+checksum = "7231bd9b3d3d33c86b58adbac74b5ec0ad9f496b19d22801d773636feaa95f3d"
 dependencies = [
  "bytes",
  "prost-derive",
@@ -1306,9 +1309,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.13.5"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
+checksum = "9120690fafc389a67ba3803df527d0ec9cbbc9cc45e4cc20b332996dfb672425"
 dependencies = [
  "anyhow",
  "itertools",
@@ -1319,9 +1322,9 @@ dependencies = [
 
 [[package]]
 name = "prost-types"
-version = "0.13.5"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52c2c1bf36ddb1a1c396b3601a3cec27c2462e45f07c386894ec3ccf5332bd16"
+checksum = "b9b4db3d6da204ed77bb26ba83b6122a73aeb2e87e25fbf7ad2e84c4ccbf8f72"
 dependencies = [
  "prost",
 ]
@@ -1738,7 +1741,6 @@ dependencies = [
  "prost",
  "rand 0.9.1",
  "rustc-hash",
- "rustversion",
  "serde",
  "static_assertions",
  "vortex-buffer",
@@ -1774,6 +1776,7 @@ dependencies = [
  "vortex-mask",
  "vortex-runend",
  "vortex-scalar",
+ "vortex-sequence",
  "vortex-sparse",
  "vortex-utils",
  "vortex-zigzag",
@@ -1976,6 +1979,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "paste",
+ "pco",
  "pin-project-lite",
  "prost",
  "sketches-ddsketch",
@@ -1989,6 +1993,7 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-pco",
  "vortex-scalar",
  "vortex-sequence",
  "vortex-utils",

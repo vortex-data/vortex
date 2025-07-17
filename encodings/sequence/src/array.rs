@@ -61,8 +61,7 @@ impl SequenceArray {
 
         Self::try_last(base, multiplier, ptype, length).map_err(|e| {
             e.with_context(format!(
-                "final value not expressible, base = {:?}, multiplier = {:?}, len = {} ",
-                base, multiplier, length
+                "final value not expressible, base = {base:?}, multiplier = {multiplier:?}, len = {length} ",
             ))
         })?;
 
