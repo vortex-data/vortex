@@ -31,10 +31,9 @@ dashmap = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
-roaring = { workspace = true, optional = true }
+roaring = { workspace = true }
 tokio = { workspace = true }
 
 [features]
 default = ["tokio"]
 tokio = ["vortex-layout/tokio"]
-roaring = ["dep:roaring", "vortex-layout/roaring"]

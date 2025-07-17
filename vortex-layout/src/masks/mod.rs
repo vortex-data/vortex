@@ -4,22 +4,26 @@
 mod intersection;
 mod repartition;
 
-use futures::stream::BoxStream;
-use futures::{Stream, StreamExt};
 pub use intersection::*;
 pub use repartition::*;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-pub type MaskStream = BoxStream<'static, VortexResult<Mask>>;
+/// A trait for mask iterators that can be implemented by different iterator types
+pub trait MaskIterator: Iterator<Item = VortexResult<Mask>> + Send + 'static {}
 
-pub trait MaskStreamExt: Stream<Item = VortexResult<Mask>> {
-    fn repartition(self, target_size: usize) -> RepartitionMaskStream<'static>
+impl<T> MaskIterator for T where T: Iterator<Item = VortexResult<Mask>> + Send + 'static {}
+
+/// A boxed mask iterator type that can be used as a trait object
+pub type BoxMaskIterator = Box<dyn MaskIterator>;
+
+pub trait MaskIteratorExt: MaskIterator {
+    fn repartition(self, target_size: usize) -> RepartitionMaskIterator
     where
         Self: Sized + Send + 'static,
     {
-        RepartitionMaskStream::new(self.boxed(), target_size)
+        RepartitionMaskIterator::new(Box::new(self), target_size)
     }
 }
 
-impl<S: Stream<Item = VortexResult<Mask>> + ?Sized> MaskStreamExt for S {}
+impl<T> MaskIteratorExt for T where T: MaskIterator {}

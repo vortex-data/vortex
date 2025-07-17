@@ -46,9 +46,7 @@ impl Selection {
                 }
                 TreeRowMask::exclude(range.clone(), treemap)
             }
-            #[cfg(feature = "roaring")]
             Selection::IncludeRoaring(mask) => TreeRowMask::new(range.clone(), mask.clone()),
-            #[cfg(feature = "roaring")]
             Selection::ExcludeRoaring(mask) => TreeRowMask::exclude(range.clone(), mask.clone()),
         }
     }

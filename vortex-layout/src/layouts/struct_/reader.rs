@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use arrow_buffer::ArrowNativeType;
 use dashmap::DashMap;
-use futures::{StreamExt, stream};
 use itertools::Itertools;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldName, StructFields};
@@ -21,7 +20,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::layouts::struct_::StructLayout;
-use crate::masks::{IntersectionMaskStream, MaskStream};
+use crate::masks::{BoxMaskIterator, IntersectionMaskIterator};
 use crate::segments::SegmentSource;
 use crate::tree_row_mask::TreeRowMask;
 use crate::{
@@ -178,26 +177,27 @@ impl LayoutReader for StructReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> MaskStream {
+    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> BoxMaskIterator {
         // Here we construct a stream of masks for each field in the field_mask, and then take
         // the smallest mask from each field.
-        // If the field_mask is empty, we return a stream of all true masks.
+        // If the field_mask is empty, we return an iterator of all true masks.
         if field_mask.is_empty() {
             let row_count = self.layout.row_count().as_usize();
-            return Box::pin(stream::once(async move { Ok(Mask::AllTrue(row_count)) })).boxed();
+            return Box::new(std::iter::once(Ok(Mask::AllTrue(row_count))));
         }
 
-        let mut field_streams = Vec::with_capacity(field_mask.len());
+        let mut field_iterators = Vec::with_capacity(field_mask.len());
         self.layout
             .matching_fields(field_mask, |mask, idx| {
                 let child = self.child_by_idx(idx)?;
-                field_streams.push(child.row_masks(selection, &[mask]));
+                field_iterators.push(child.row_masks(selection, &[mask]));
                 Ok(())
             })
             .vortex_expect("infallible");
 
-        // FIXME(ngates): if there are no fields, we need a stream of masks that covers row_count.
-        IntersectionMaskStream::new(field_streams).boxed()
+        // FIXME(ngates): if there are no fields, we need an iterator of masks that covers row_count.
+        // Now we can use the iterator directly without conversion to streams
+        Box::new(IntersectionMaskIterator::new(field_iterators))
     }
 
     fn pruning_evaluation(

@@ -2,54 +2,53 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::BitAnd;
-use std::pin::Pin;
 
-use futures::stream::{BoxStream, Stream};
-use futures::task::{Context, Poll};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-/// A stream that merges multiple unaligned mask streams while performing an intersection.
-pub struct IntersectionMaskStream<'a> {
-    streams: Vec<BoxStream<'a, VortexResult<Mask>>>,
-    // For each stream, we keep track of the current mask and the offset within it.
-    next: Vec<Option<(Mask, usize)>>,
+use super::BoxMaskIterator;
+
+/// An iterator that merges multiple mask iterators while performing an intersection.
+pub struct IntersectionMaskIterator {
+    iterators: Vec<BoxMaskIterator>,
+    // For each iterator, we keep track of the current mask and the offset within it.
+    current: Vec<Option<(Mask, usize)>>,
     finished: bool,
 }
 
-impl<'a> IntersectionMaskStream<'a> {
-    pub fn new(streams: Vec<BoxStream<'a, VortexResult<Mask>>>) -> Self {
-        assert!(!streams.is_empty(), "must have at least one stream");
-        let stream_count = streams.len();
+impl IntersectionMaskIterator {
+    pub fn new(iterators: Vec<BoxMaskIterator>) -> Self {
+        assert!(!iterators.is_empty(), "must have at least one iterator");
+        let iter_count = iterators.len();
         Self {
-            streams,
-            next: vec![None; stream_count],
+            iterators,
+            current: vec![None; iter_count],
             finished: false,
         }
     }
 
     /// Finds the minimum remaining length across all current masks
     fn min_remaining_length(&self) -> Option<usize> {
-        self.next
+        self.current
             .iter()
             .filter_map(|opt| opt.as_ref())
             .map(|(mask, offset)| mask.len().saturating_sub(*offset))
             .min()
     }
 
-    /// Checks if all streams have current masks available
+    /// Checks if all iterators have current masks available
     fn all_masks_available(&self) -> bool {
-        self.next.iter().all(|opt| opt.is_some())
+        self.current.iter().all(|opt| opt.is_some())
     }
 
     /// Advances all offsets by the given amount
     fn advance_offsets(&mut self, advance_by: usize) {
-        for next_item in &mut self.next {
-            if let Some((mask, offset)) = next_item {
+        for current_item in &mut self.current {
+            if let Some((mask, offset)) = current_item {
                 *offset += advance_by;
                 // If we've consumed the entire mask, clear it
                 if *offset >= mask.len() {
-                    *next_item = None;
+                    *current_item = None;
                 }
             }
         }
@@ -59,7 +58,7 @@ impl<'a> IntersectionMaskStream<'a> {
     fn intersect_current_slices(&self, slice_length: usize) -> Mask {
         let mut result_mask = None;
 
-        for (mask, offset) in self.next.iter().filter_map(|opt| opt.as_ref()) {
+        for (mask, offset) in self.current.iter().filter_map(|opt| opt.as_ref()) {
             let slice = mask.slice(*offset, slice_length);
 
             match result_mask {
@@ -72,50 +71,54 @@ impl<'a> IntersectionMaskStream<'a> {
 
         result_mask.vortex_expect("no masks")
     }
-}
 
-impl Stream for IntersectionMaskStream<'_> {
-    type Item = VortexResult<Mask>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self.finished {
-            return Poll::Ready(None);
-        }
-
-        loop {
-            // First, try to fill any empty slots in our next array
-            for i in 0..self.streams.len() {
-                if self.next[i].is_none() {
-                    match Pin::new(&mut self.streams[i]).poll_next(cx) {
-                        Poll::Ready(Some(Ok(mask))) => {
-                            self.next[i] = Some((mask, 0));
-                        }
-                        Poll::Ready(Some(Err(e))) => {
-                            self.finished = true;
-                            return Poll::Ready(Some(Err(e)));
-                        }
-                        Poll::Ready(None) => {
-                            // Stream is exhausted
-                            self.finished = true;
-                            return Poll::Ready(None);
-                        }
-                        Poll::Pending => {
-                            // Continue to check other streams
-                            continue;
-                        }
+    /// Tries to fill any empty slots in the current array
+    fn try_fill_empty_slots(&mut self) -> VortexResult<()> {
+        for i in 0..self.iterators.len() {
+            if self.current[i].is_none() {
+                match self.iterators[i].next() {
+                    Some(Ok(mask)) => {
+                        self.current[i] = Some((mask, 0));
+                    }
+                    Some(Err(e)) => {
+                        return Err(e);
+                    }
+                    None => {
+                        // Iterator is exhausted
+                        self.finished = true;
+                        return Ok(());
                     }
                 }
             }
+        }
+        Ok(())
+    }
+}
 
-            // Check if all streams are exhausted
-            if self.next.iter().all(|opt| opt.is_none()) {
+impl Iterator for IntersectionMaskIterator {
+    type Item = VortexResult<Mask>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.finished {
+            return None;
+        }
+
+        loop {
+            // Try to fill any empty slots
+            if let Err(e) = self.try_fill_empty_slots() {
                 self.finished = true;
-                return Poll::Ready(None);
+                return Some(Err(e));
             }
 
-            // If we don't have masks from all streams, we can't proceed
+            // Check if all iterators are exhausted
+            if self.current.iter().all(|opt| opt.is_none()) {
+                self.finished = true;
+                return None;
+            }
+
+            // If we don't have masks from all iterators, we can't proceed
             if !self.all_masks_available() {
-                return Poll::Pending;
+                continue;
             }
 
             // Find the minimum remaining length
@@ -132,43 +135,38 @@ impl Stream for IntersectionMaskStream<'_> {
             // Advance all offsets
             self.advance_offsets(min_length);
 
-            return Poll::Ready(Some(Ok(result_mask)));
+            return Some(Ok(result_mask));
         }
     }
 }
 
-// Example usage and helper functions
 #[cfg(test)]
-impl<'a> IntersectionMaskStream<'a> {
+impl IntersectionMaskIterator {
     /// Convenience method to create from a vector of mask vectors (for testing)
     pub fn from_mask_vecs(mask_vecs: Vec<Vec<Mask>>) -> Self {
-        use futures::{StreamExt, stream};
-
-        let streams: Vec<BoxStream<'a, VortexResult<Mask>>> = mask_vecs
+        let iterators: Vec<BoxMaskIterator> = mask_vecs
             .into_iter()
-            .map(|masks| stream::iter(masks.into_iter().map(Ok)).boxed())
+            .map(|masks| Box::new(masks.into_iter().map(Ok)) as BoxMaskIterator)
             .collect();
 
-        Self::new(streams)
+        Self::new(iterators)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use futures::StreamExt;
     use itertools::Itertools;
 
     use super::*;
-
-    #[tokio::test]
-    async fn test_basic_intersection() {
+    #[test]
+    fn test_iterator_basic_intersection() {
         // Create some test masks
         let mask1 = Mask::from_iter([true, true, false, true].iter().cloned());
         let mask2 = Mask::from_iter([true, false, true, true].iter().cloned());
 
-        let stream = IntersectionMaskStream::from_mask_vecs(vec![vec![mask1], vec![mask2]]);
+        let iterator = IntersectionMaskIterator::from_mask_vecs(vec![vec![mask1], vec![mask2]]);
 
-        let results: Vec<_> = stream.collect().await;
+        let results: Vec<_> = iterator.collect();
         assert_eq!(results.len(), 1);
 
         let result_mask = results[0].as_ref().unwrap();
@@ -179,15 +177,16 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_different_sized_masks() {
+    #[test]
+    fn test_iterator_different_sized_masks() {
         let mask1 = Mask::from_iter([true, true].iter().cloned());
         let mask2 = Mask::from_iter([true, false].iter().cloned());
         let mask3 = Mask::from_iter([true, false, true, true].iter().cloned());
 
-        let stream = IntersectionMaskStream::from_mask_vecs(vec![vec![mask1, mask2], vec![mask3]]);
+        let iterator =
+            IntersectionMaskIterator::from_mask_vecs(vec![vec![mask1, mask2], vec![mask3]]);
 
-        let results: Vec<_> = stream.collect().await;
+        let results: Vec<_> = iterator.collect();
         assert_eq!(results.len(), 2);
 
         let result = results

@@ -16,7 +16,7 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::children::LayoutChildren;
-use crate::masks::MaskStream;
+use crate::masks::BoxMaskIterator;
 use crate::segments::SegmentSource;
 use crate::tree_row_mask::TreeRowMask;
 
@@ -36,10 +36,10 @@ pub trait LayoutReader: 'static + Send + Sync {
     /// FIXME(ngates): remove this.
     fn row_count(&self) -> Precision<u64>;
 
-    /// Emit a stream of [`Mask`]s from the layout reader that cover the full range of rows.
+    /// Emit an iterator of [`Mask`]s from the layout reader that cover the full range of rows.
     /// These masks are likely to be partitioned in a way that is reasonable efficient for
     /// partitioning evaluation of the [`LayoutReader`] - but there's no guarantee.
-    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> MaskStream;
+    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> BoxMaskIterator;
 
     /// Performs an approximate evaluation of the expression against the layout reader.
     fn pruning_evaluation(

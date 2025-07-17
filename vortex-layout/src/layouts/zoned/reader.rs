@@ -20,7 +20,7 @@ use vortex_mask::Mask;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::masks::MaskStream;
+use crate::masks::BoxMaskIterator;
 use crate::segments::SegmentSource;
 use crate::tree_row_mask::TreeRowMask;
 use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
@@ -177,7 +177,7 @@ impl LayoutReader for ZonedReader {
         self.data_child.row_count()
     }
 
-    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> MaskStream {
+    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> BoxMaskIterator {
         self.data_child.row_masks(selection, field_mask)
     }
 

@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::pin::Pin;
-
-use futures::stream::{BoxStream, Stream};
-use futures::task::{Context, Poll};
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
-pub struct RepartitionMaskStream<'a> {
-    source: BoxStream<'a, VortexResult<Mask>>,
+use super::BoxMaskIterator;
+
+/// An iterator that repartitions masks from a source iterator to a target row count.
+pub struct RepartitionMaskIterator {
+    source: BoxMaskIterator,
     target_row_count: usize,
 
     // Buffer to accumulate masks until we have enough for a complete chunk
@@ -23,8 +22,8 @@ pub struct RepartitionMaskStream<'a> {
     finished: bool,
 }
 
-impl<'a> RepartitionMaskStream<'a> {
-    pub fn new(source: BoxStream<'a, VortexResult<Mask>>, target_row_count: usize) -> Self {
+impl RepartitionMaskIterator {
+    pub fn new(source: BoxMaskIterator, target_row_count: usize) -> Self {
         assert!(target_row_count > 0, "Target row count must be positive");
 
         Self {
@@ -96,55 +95,52 @@ impl<'a> RepartitionMaskStream<'a> {
         }
     }
 
-    /// Finishes the stream by returning any remaining buffered data
+    /// Finishes the iterator by returning any remaining buffered data
     fn finish(&mut self) -> Option<VortexResult<Mask>> {
         (self.buffer_row_count > 0).then(|| Ok(self.flush_buffer()))
     }
 }
 
-impl Stream for RepartitionMaskStream<'_> {
+impl Iterator for RepartitionMaskIterator {
     type Item = VortexResult<Mask>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn next(&mut self) -> Option<Self::Item> {
         if self.finished {
-            return Poll::Ready(None);
+            return None;
         }
 
         loop {
             // First, try to process any current mask we have buffered
             if self.current_mask.is_some() {
                 match self.process_current_mask() {
-                    Some(mask) => return Poll::Ready(Some(Ok(mask))),
+                    Some(mask) => return Some(Ok(mask)),
                     None => {
                         // Continue to fetch more data
                     }
                 }
             }
 
-            // Try to get the next mask from the source stream
-            match Pin::new(&mut self.source).poll_next(cx) {
-                Poll::Ready(Some(Ok(mask))) => {
+            // Try to get the next mask from the source iterator
+            match self.source.next() {
+                Some(Ok(mask)) => {
                     match self.add_to_buffer(mask) {
                         Some(result_mask) => {
-                            return Poll::Ready(Some(Ok(result_mask)));
+                            return Some(Ok(result_mask));
                         }
                         None => {
-                            // Buffer not yet complete, continue polling
+                            // Buffer not yet complete, continue iterating
                             continue;
                         }
                     }
                 }
-                Poll::Ready(Some(Err(e))) => {
+                Some(Err(e)) => {
                     self.finished = true;
-                    return Poll::Ready(Some(Err(e)));
+                    return Some(Err(e));
                 }
-                Poll::Ready(None) => {
-                    // Source stream is exhausted
+                None => {
+                    // Source iterator is exhausted
                     self.finished = true;
-                    return Poll::Ready(self.finish());
-                }
-                Poll::Pending => {
-                    return Poll::Pending;
+                    return self.finish();
                 }
             }
         }
@@ -153,12 +149,10 @@ impl Stream for RepartitionMaskStream<'_> {
 
 #[cfg(test)]
 mod tests {
-    use futures::{StreamExt, stream};
-
     use super::*;
 
-    #[tokio::test]
-    async fn test_exact_repartition() {
+    #[test]
+    fn test_iterator_exact_repartition() {
         // Input: masks of size [2, 2, 2], target: 3
         // Expected: [3, 3] (first 3 elements, then next 3)
         let masks = vec![
@@ -167,10 +161,10 @@ mod tests {
             Mask::from_iter([false, true].iter().cloned()),
         ];
 
-        let source = stream::iter(masks.into_iter().map(Ok)).boxed();
-        let repartition_stream = RepartitionMaskStream::new(source, 3);
+        let source = Box::new(masks.into_iter().map(Ok)) as BoxMaskIterator;
+        let repartition_iter = RepartitionMaskIterator::new(source, 3);
 
-        let results: Vec<_> = repartition_stream.collect().await;
+        let results: Vec<_> = repartition_iter.collect();
         assert_eq!(results.len(), 2);
 
         let mask1 = results[0].as_ref().unwrap();
@@ -185,8 +179,8 @@ mod tests {
         assert_eq!(mask2.to_vec(), [true, false, true]);
     }
 
-    #[tokio::test]
-    async fn test_uneven_repartition() {
+    #[test]
+    fn test_iterator_uneven_repartition() {
         // Input: masks of size [3, 2], target: 2
         // Expected: [2, 2, 1] (first 2 elements, next 2, last 1)
         let masks = vec![
@@ -194,10 +188,10 @@ mod tests {
             Mask::from_iter([false, true].iter().cloned()),
         ];
 
-        let source = stream::iter(masks.into_iter().map(Ok)).boxed();
-        let repartition_stream = RepartitionMaskStream::new(source, 2);
+        let source = Box::new(masks.into_iter().map(Ok)) as BoxMaskIterator;
+        let repartition_iter = RepartitionMaskIterator::new(source, 2);
 
-        let results: Vec<_> = repartition_stream.collect().await;
+        let results: Vec<_> = repartition_iter.collect();
         assert_eq!(results.len(), 3);
 
         let mask1 = results[0].as_ref().unwrap();
@@ -213,8 +207,8 @@ mod tests {
         assert_eq!(mask3.to_vec(), [true]);
     }
 
-    #[tokio::test]
-    async fn test_larger_target_than_input() {
+    #[test]
+    fn test_iterator_larger_target_than_input() {
         // Input: masks of size [2, 1], target: 5
         // Expected: [3] (all elements combined, less than target)
         let masks = vec![
@@ -222,10 +216,10 @@ mod tests {
             Mask::from_iter([true].iter().cloned()),
         ];
 
-        let source = stream::iter(masks.into_iter().map(Ok)).boxed();
-        let repartition_stream = RepartitionMaskStream::new(source, 5);
+        let source = Box::new(masks.into_iter().map(Ok)) as BoxMaskIterator;
+        let repartition_iter = RepartitionMaskIterator::new(source, 5);
 
-        let results: Vec<_> = repartition_stream.collect().await;
+        let results: Vec<_> = repartition_iter.collect();
         assert_eq!(results.len(), 1);
 
         let mask = results[0].as_ref().unwrap();
@@ -233,8 +227,8 @@ mod tests {
         assert_eq!(mask.to_vec(), [true, false, true]);
     }
 
-    #[tokio::test]
-    async fn test_single_large_mask() {
+    #[test]
+    fn test_iterator_single_large_mask() {
         // Input: single mask of size 7, target: 3
         // Expected: [3, 3, 1]
         let mask = Mask::from_iter(
@@ -243,10 +237,10 @@ mod tests {
                 .cloned(),
         );
 
-        let source = stream::iter(vec![mask].into_iter().map(Ok)).boxed();
-        let repartition_stream = RepartitionMaskStream::new(source, 3);
+        let source = Box::new(vec![mask].into_iter().map(Ok)) as BoxMaskIterator;
+        let repartition_iter = RepartitionMaskIterator::new(source, 3);
 
-        let results: Vec<_> = repartition_stream.collect().await;
+        let results: Vec<_> = repartition_iter.collect();
         assert_eq!(results.len(), 3);
 
         let mask1 = results[0].as_ref().unwrap();
@@ -262,12 +256,12 @@ mod tests {
         assert_eq!(mask3.to_vec(), [true]);
     }
 
-    #[tokio::test]
-    async fn test_empty_stream() {
-        let source = stream::iter(Vec::<VortexResult<Mask>>::new()).boxed();
-        let repartition_stream = RepartitionMaskStream::new(source, 3);
+    #[test]
+    fn test_iterator_empty() {
+        let source = Box::new(Vec::<VortexResult<Mask>>::new().into_iter()) as BoxMaskIterator;
+        let repartition_iter = RepartitionMaskIterator::new(source, 3);
 
-        let results: Vec<_> = repartition_stream.collect().await;
+        let results: Vec<_> = repartition_iter.collect();
         assert_eq!(results.len(), 0);
     }
 }

@@ -18,12 +18,13 @@ mod test {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use futures::{TryStreamExt, stream};
+    use futures::stream;
     use itertools::Itertools;
     use vortex_array::{ArrayContext, IntoArray};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::{DType, FieldMask, FieldPath, PType};
+    use vortex_error::VortexResult;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::segments::{SegmentSource, SequenceWriter, TestSegments};
     use vortex_layout::sequence::SequenceId;
@@ -31,8 +32,8 @@ mod test {
     use vortex_layout::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
     use vortex_mask::Mask;
 
-    #[tokio::test]
-    async fn test_layout_splits_flat() {
+    #[test]
+    fn test_layout_splits_flat() {
         let segments = TestSegments::default();
         let layout = block_on(
             FlatLayoutStrategy::default().write_stream(
@@ -59,8 +60,7 @@ mod test {
                 &TreeRowMask::all(0..11),
                 &[FieldMask::Exact(FieldPath::root())],
             )
-            .try_collect::<Vec<Mask>>()
-            .await
+            .collect::<VortexResult<Vec<Mask>>>()
             .unwrap();
 
         assert_eq!(splits, vec![Mask::from_indices(10, (0..10).collect_vec())]);

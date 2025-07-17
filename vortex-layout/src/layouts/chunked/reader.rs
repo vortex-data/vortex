@@ -7,7 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::ready;
 use futures::stream::FuturesOrdered;
-use futures::{FutureExt, StreamExt, TryStreamExt, stream};
+use futures::{FutureExt, TryStreamExt};
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::ChunkedArray;
@@ -18,7 +18,7 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::chunked::ChunkedLayout;
-use crate::masks::MaskStream;
+use crate::masks::BoxMaskIterator;
 use crate::reader::LayoutReader;
 use crate::segments::SegmentSource;
 use crate::tree_row_mask::TreeRowMask;
@@ -129,7 +129,7 @@ impl LayoutReader for ChunkedReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> MaskStream {
+    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> BoxMaskIterator {
         let field_mask = field_mask.to_vec();
         let children: Vec<_> = (0..self.layout.nchildren())
             .filter_map(|idx| {
@@ -148,13 +148,15 @@ impl LayoutReader for ChunkedReader {
             })
             .collect();
 
-        stream::iter(children)
-            .map(move |child| match child {
+        let iterators: Vec<_> = children
+            .into_iter()
+            .map(|child| match child {
                 Ok((selection, child)) => child.row_masks(&selection, &field_mask),
-                Err(e) => stream::once(async move { Err(e) }).boxed(),
+                Err(e) => Box::new(std::iter::once(Err(e))) as BoxMaskIterator,
             })
-            .flatten()
-            .boxed()
+            .collect();
+        
+        Box::new(iterators.into_iter().flatten())
     }
 
     fn pruning_evaluation(
