@@ -179,7 +179,7 @@ impl Validity {
         }
     }
 
-    /// If this validity is backed by an array, [`optimize`][crate::vtable::operations::OperationsVTable]
+    /// If this validity is backed by an array, [`optimize`][crate::vtable::OperationsVTable]
     /// the underlying array. Otherwise, returns the original validity unchanged.
     pub fn optimize(&self) -> VortexResult<Self> {
         match self {
