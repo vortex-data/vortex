@@ -9,10 +9,6 @@ use crate::{ExprRef, col, pack, root};
 
 /// Replaces all occurrences of `needle` in the expression `expr` with `replacement`.
 pub fn replace(expr: ExprRef, needle: &ExprRef, replacement: ExprRef) -> ExprRef {
-    // let mut transform = ReplaceVisitor {
-    //     needle,
-    //     replacement,
-    // };
     expr.transform_up(|node| replace_transformer(node, needle, &replacement))
         .vortex_expect("ReplaceVisitor should not fail")
         .into_inner()

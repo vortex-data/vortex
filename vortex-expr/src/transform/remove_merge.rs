@@ -13,45 +13,42 @@ pub(crate) fn remove_merge(e: ExprRef, ctx: &DType) -> VortexResult<ExprRef> {
 }
 
 fn merge_transform(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprRef>> {
-    if let Some(merge) = node.as_opt::<MergeVTable>() {
-        // Try to guess the capacity.
-        let mut names = Vec::with_capacity(merge.children().len() * 2);
-        let mut children = Vec::with_capacity(merge.children().len() * 2);
+    match node.as_opt::<MergeVTable>() {
+        None => Ok(Transformed::no(node)),
+        Some(merge) => {
+            let mut names = Vec::with_capacity(merge.children().len() * 2);
+            let mut children = Vec::with_capacity(merge.children().len() * 2);
+            let mut all_nullable = true;
+            for child in merge.children() {
+                let child_dtype = child.return_dtype(ctx)?;
+                if !child_dtype.is_struct() {
+                    return Err(vortex_err!(
+                        "Merge child must return a non-nullable struct dtype, got {}",
+                        child_dtype
+                    ));
+                }
+                all_nullable = all_nullable && child_dtype.is_nullable();
 
-        let mut all_nullable = true;
-        for child in merge.children() {
-            let child_dtype = child.return_dtype(ctx)?;
-            if !child_dtype.is_struct() {
-                return Err(vortex_err!(
-                    "Merge child must return a non-nullable struct dtype, got {}",
-                    child_dtype
-                ));
-            }
-            all_nullable = all_nullable && child_dtype.is_nullable();
+                let child_dtype = child_dtype.as_struct().vortex_expect("expected struct");
 
-            let child_dtype = child_dtype.as_struct().vortex_expect("expected struct");
-
-            for name in child_dtype.names().iter() {
-                if let Some(idx) = names.iter().position(|n| n == name) {
-                    children[idx] = child.clone();
-                } else {
-                    names.push(name.clone());
-                    children.push(child.clone());
+                for name in child_dtype.names().iter() {
+                    if let Some(idx) = names.iter().position(|n| n == name) {
+                        children[idx] = child.clone();
+                    } else {
+                        names.push(name.clone());
+                        children.push(child.clone());
+                    }
                 }
             }
+            let expr = pack(
+                names
+                    .into_iter()
+                    .zip(children)
+                    .map(|(name, child)| (name.clone(), get_item(name, child))),
+                merge.nullability(),
+            );
+            Ok(Transformed::yes(expr))
         }
-
-        let expr = pack(
-            names
-                .into_iter()
-                .zip(children)
-                .map(|(name, child)| (name.clone(), get_item(name, child))),
-            merge.nullability(),
-        );
-
-        Ok(Transformed::yes(expr))
-    } else {
-        Ok(Transformed::no(node))
     }
 }
 

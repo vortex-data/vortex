@@ -12,7 +12,7 @@ use crate::transform::annotations::{
     Annotation, AnnotationFn, Annotations, descendent_annotations,
 };
 use crate::transform::simplify_typed::simplify_typed;
-use crate::traversal::{FoldDown, FoldUp, FolderMut, Node};
+use crate::traversal::{Node, NodeRewriter, Transformed, TraversalOrder};
 use crate::{ExprRef, get_item, pack, root};
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
@@ -39,12 +39,8 @@ where
 
     // Now we split the original expression into sub-expressions based on the annotations, and
     // generate a root expression to re-assemble the results.
-
     let mut splitter = StructFieldExpressionSplitter::<A::Annotation>::new(&annotations);
-    let root = expr
-        .clone()
-        .transform_with_context(&mut splitter, ())?
-        .value();
+    let root = expr.clone().rewrite(&mut splitter)?.value;
 
     let mut partitions = Vec::with_capacity(splitter.sub_expressions.len());
     let mut partition_annotations = Vec::with_capacity(splitter.sub_expressions.len());
@@ -149,19 +145,12 @@ impl<'a, A: Annotation + Display> StructFieldExpressionSplitter<'a, A> {
     }
 }
 
-// FIXME(ngates): rewrite as MutNodeVisitor that skips down when annotations.len() == 1
-impl<A: Annotation + Display> FolderMut for StructFieldExpressionSplitter<'_, A> {
+impl<A: Annotation + Display> NodeRewriter for StructFieldExpressionSplitter<'_, A> {
     type NodeTy = ExprRef;
-    type Out = ExprRef;
-    type Context = ();
 
-    fn visit_down(
-        &mut self,
-        node: &Self::NodeTy,
-        _context: Self::Context,
-    ) -> VortexResult<FoldDown<ExprRef, Self::Context>> {
+    fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
         // If this expression only accesses a single field, then we can skip the children
-        let annotations = self.annotations.get(node);
+        let annotations = self.annotations.get(&node);
         if annotations.as_ref().is_some_and(|a| a.len() == 1) {
             let annotation = annotations
                 .vortex_expect("access is non-empty")
@@ -175,25 +164,26 @@ impl<A: Annotation + Display> FolderMut for StructFieldExpressionSplitter<'_, A>
 
             // In the root, we replace the annotated sub-expression with a `&.<A>.<A_idx>` since
             // we assemble all sub-expressions for the same annotation into a single child.
-            let replacement = get_item(
+            let value = get_item(
                 StructFieldExpressionSplitter::field_name(annotation, idx),
                 get_item(FieldName::from(annotation.to_string()), root()),
             );
 
-            return Ok(FoldDown::SkipChildren(replacement));
+            return Ok(Transformed {
+                value,
+                changed: true,
+                order: TraversalOrder::Skip,
+            });
+
+            // return Ok(FoldDown::SkipChildren(replacement));
         };
 
-        // Otherwise, continue traversing.
-        Ok(FoldDown::Continue(()))
+        // If this expression only accesses a single field, then we can skip the children
+        Ok(Transformed::no(node))
     }
 
-    fn visit_up(
-        &mut self,
-        node: Self::NodeTy,
-        _context: Self::Context,
-        children: Vec<Self::Out>,
-    ) -> VortexResult<FoldUp<Self::Out>> {
-        Ok(FoldUp::Continue(node.with_children(children)?))
+    fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
+        Ok(Transformed::no(node))
     }
 }
 
@@ -209,7 +199,9 @@ mod tests {
     use crate::transform::simplify::simplify;
     use crate::transform::simplify_typed::simplify_typed;
     use crate::{and, col, get_item, lit, merge, pack, root, select};
+    use rstest::{fixture, rstest};
 
+    #[fixture]
     fn dtype() -> DType {
         DType::Struct(
             StructFields::from_iter([
@@ -227,9 +219,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn test_expr_top_level_ref() {
-        let dtype = dtype();
+    #[rstest]
+    fn test_expr_top_level_ref(dtype: DType) {
         let fields = dtype.as_struct().unwrap();
 
         let expr = root();
@@ -246,9 +237,8 @@ mod tests {
         assert_eq!(partitioned.partitions.len(), fields.names().len());
     }
 
-    #[test]
-    fn test_expr_top_level_ref_get_item_and_split() {
-        let dtype = dtype();
+    #[rstest]
+    fn test_expr_top_level_ref_get_item_and_split(dtype: DType) {
         let fields = dtype.as_struct().unwrap();
 
         let expr = get_item("y", get_item("a", root()));
@@ -257,9 +247,8 @@ mod tests {
         assert_eq!(&partitioned.root, &get_item("a_0", get_item("a", root())));
     }
 
-    #[test]
-    fn test_expr_top_level_ref_get_item_and_split_pack() {
-        let dtype = dtype();
+    #[rstest]
+    fn test_expr_top_level_ref_get_item_and_split_pack(dtype: DType) {
         let fields = dtype.as_struct().unwrap();
 
         let expr = pack(
@@ -285,9 +274,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_expr_top_level_ref_get_item_add() {
-        let dtype = dtype();
+    #[rstest]
+    fn test_expr_top_level_ref_get_item_add(dtype: DType) {
         let fields = dtype.as_struct().unwrap();
 
         let expr = and(get_item("y", get_item("a", root())), lit(1));
@@ -297,9 +285,8 @@ mod tests {
         assert_eq!(partitioned.partitions.len(), 1);
     }
 
-    #[test]
-    fn test_expr_top_level_ref_get_item_add_cannot_split() {
-        let dtype = dtype();
+    #[rstest]
+    fn test_expr_top_level_ref_get_item_add_cannot_split(dtype: DType) {
         let fields = dtype.as_struct().unwrap();
 
         let expr = and(get_item("y", get_item("a", root())), get_item("b", root()));
@@ -310,9 +297,8 @@ mod tests {
     }
 
     // Test that typed_simplify removes select and partition precise
-    #[test]
-    fn test_expr_partition_many_occurrences_of_field() {
-        let dtype = dtype();
+    #[rstest]
+    fn test_expr_partition_many_occurrences_of_field(dtype: DType) {
         let fields = dtype.as_struct().unwrap();
 
         let expr = and(
@@ -351,9 +337,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn test_expr_merge() {
-        let dtype = dtype();
+    #[rstest]
+    fn test_expr_merge(dtype: DType) {
         let fields = dtype.as_struct().unwrap();
 
         let expr = merge(
