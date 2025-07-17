@@ -242,8 +242,10 @@ jobs:
         with:
           submodules: "recursive"
       - uses: ./.github/actions/setup-rust
+        with:
+          toolchain: nightly
       - name: Rust Lint - Format
-        run: cargo fmt --all --check
+        run: cargo +nightly fmt --all --check
       - name: Rustc check
         run: cargo check --locked --all-features --all-targets
       - name: Rust Lint - Clippy All Features
