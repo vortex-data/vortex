@@ -116,6 +116,11 @@ impl ChunkedReader {
     }
 }
 
+enum MatchedChunk<T, U> {
+    Matched(T),
+    Unmatched(U),
+}
+
 impl LayoutReader for ChunkedReader {
     fn name(&self) -> &Arc<str> {
         &self.name
@@ -131,32 +136,38 @@ impl LayoutReader for ChunkedReader {
 
     fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> BoxMaskIterator {
         let field_mask = field_mask.to_vec();
-        let children: Vec<_> = (0..self.layout.nchildren())
-            .filter_map(|idx| {
+        let children = (0..self.layout.nchildren())
+            .map(|idx| {
                 let start = self.chunk_offsets[idx];
                 let end = if idx + 1 == self.chunk_offsets.len() {
                     self.layout.row_count
                 } else {
                     self.chunk_offsets[idx + 1]
                 };
-                selection.non_empty_range(start..end).then(|| {
-                    Ok((
-                        selection.clone().slice(start..end),
-                        self.chunk_reader(idx)?.clone(),
-                    ))
-                })
+                if selection.non_empty_range(start..end) {
+                    MatchedChunk::Matched((idx, selection.clone().slice(start..end)))
+                } else {
+                    MatchedChunk::Unmatched(start..end)
+                }
             })
-            .collect();
-
-        let iterators: Vec<_> = children
-            .into_iter()
+            .coalesce(|elem1, elem2| match (&elem1, &elem2) {
+                (MatchedChunk::Unmatched(u1), MatchedChunk::Unmatched(u2)) => {
+                    Ok(MatchedChunk::Unmatched(u1.start..u2.end))
+                }
+                _ => Err((elem1, elem2)),
+            })
             .map(|child| match child {
-                Ok((selection, child)) => child.row_masks(&selection, &field_mask),
-                Err(e) => Box::new(std::iter::once(Err(e))) as BoxMaskIterator,
+                MatchedChunk::Unmatched(range) => Box::new(std::iter::once(Ok(Mask::AllFalse(
+                    (range.end - range.start) as usize,
+                )))) as BoxMaskIterator,
+                MatchedChunk::Matched((idx, selection)) => {
+                    let child = self.chunk_reader(idx).vortex_expect("infallible");
+                    child.row_masks(&selection, &field_mask)
+                }
             })
-            .collect();
-        
-        Box::new(iterators.into_iter().flatten())
+            .collect_vec();
+
+        Box::new(children.into_iter().flatten())
     }
 
     fn pruning_evaluation(

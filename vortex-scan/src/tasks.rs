@@ -35,6 +35,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
     split_mask: RowMask,
     limit: Option<&mut usize>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
+    // println!("split_exec {:?}", split_mask);
     // // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
     let split_range = split_mask.row_range();
     // Apply the selection to calculate a read mask

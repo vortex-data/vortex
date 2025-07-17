@@ -73,7 +73,9 @@ impl IntersectionMaskIterator {
     }
 
     /// Tries to fill any empty slots in the current array
-    fn try_fill_empty_slots(&mut self) -> VortexResult<()> {
+    /// Returns true if any iterator is exhausted (which means intersection is complete)
+    fn try_fill_empty_slots(&mut self) -> VortexResult<bool> {
+        let mut any_exhausted = false;
         for i in 0..self.iterators.len() {
             if self.current[i].is_none() {
                 match self.iterators[i].next() {
@@ -84,14 +86,14 @@ impl IntersectionMaskIterator {
                         return Err(e);
                     }
                     None => {
-                        // Iterator is exhausted
-                        self.finished = true;
-                        return Ok(());
+                        // Iterator is exhausted - for intersection, if ANY iterator is exhausted, 
+                        // the intersection is complete
+                        any_exhausted = true;
                     }
                 }
             }
         }
-        Ok(())
+        Ok(any_exhausted)
     }
 }
 
@@ -105,9 +107,18 @@ impl Iterator for IntersectionMaskIterator {
 
         loop {
             // Try to fill any empty slots
-            if let Err(e) = self.try_fill_empty_slots() {
+            let any_exhausted = match self.try_fill_empty_slots() {
+                Ok(exhausted) => exhausted,
+                Err(e) => {
+                    self.finished = true;
+                    return Some(Err(e));
+                }
+            };
+
+            // If any iterator is exhausted, intersection is complete
+            if any_exhausted {
                 self.finished = true;
-                return Some(Err(e));
+                return None;
             }
 
             // Check if all iterators are exhausted
@@ -118,7 +129,9 @@ impl Iterator for IntersectionMaskIterator {
 
             // If we don't have masks from all iterators, we can't proceed
             if !self.all_masks_available() {
-                continue;
+                // This should not happen if try_fill_empty_slots worked correctly
+                self.finished = true;
+                return None;
             }
 
             // Find the minimum remaining length

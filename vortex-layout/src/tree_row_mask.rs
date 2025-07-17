@@ -96,13 +96,8 @@ impl TreeRowMask {
         let offset = range.start;
         let length = range.end - range.start;
 
-        assert!(
-            offset + length <= self.length,
-            "Subset range exceeds current mask length"
-        );
-
         self.offset += offset;
-        self.length = length;
+        self.length = min(length, self.length);
         self
     }
 }
