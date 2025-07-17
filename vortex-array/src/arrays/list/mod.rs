@@ -174,8 +174,8 @@ impl OperationsVTable<ListVTable> for ListVTable {
     /// Implements the optimization operation by pushing it down into the children.
     fn optimize(array: &ListArray) -> VortexResult<ListArray> {
         ListArray::try_new(
-            array.offsets().optimize()?,
             array.elements().optimize()?,
+            array.offsets().optimize()?,
             array.validity().optimize()?,
         )
     }
