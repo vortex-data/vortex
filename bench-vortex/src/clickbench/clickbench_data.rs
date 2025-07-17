@@ -23,18 +23,15 @@ use reqwest::IntoUrl;
 use reqwest::blocking::Response;
 use serde::Serialize;
 use tokio::fs::{OpenOptions, create_dir_all};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use url::Url;
 use vortex::error::VortexExpect;
-use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
+use vortex::file::VortexWriteOptions;
 use vortex_datafusion::VortexFormat;
-use vortex_file::VortexLayoutStrategy;
-use vortex_layout::LocalExecutor;
-use vortex_layout::layouts::compact::CompactCompressor;
 
-use crate::Format;
 use crate::conversions::parquet_to_vortex;
 use crate::utils::file_utils::{idempotent, idempotent_async};
+use crate::{CompactionStrategy, Format};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -155,8 +152,16 @@ pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     ])
 });
 
-pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> {
-    let vortex_dir = input_path.join(Format::OnDiskVortex.name());
+pub async fn convert_parquet_to_vortex(
+    input_path: &Path,
+    compaction: CompactionStrategy,
+) -> anyhow::Result<()> {
+    let (format, dir_name) = match compaction {
+        CompactionStrategy::Compact => (Format::VortexCompact, Format::VortexCompact.name()),
+        CompactionStrategy::Default => (Format::OnDiskVortex, Format::OnDiskVortex.name()),
+    };
+
+    let vortex_dir = input_path.join(dir_name);
     let parquet_path = input_path.join(Format::Parquet.name());
     create_dir_all(&vortex_dir).await?;
 
@@ -180,11 +185,14 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
                 temp.file_name().unwrap().to_str().unwrap().to_string()
             };
             let parquet_file_path = parquet_path.join(format!("{filename}.parquet"));
-            let output_path = vortex_dir.join(format!("{filename}.{VORTEX_FILE_EXTENSION}"));
+            let output_path = vortex_dir.join(format!("{filename}.{}", format.ext()));
 
             tokio::spawn(async move {
                 idempotent_async(&output_path, move |vtx_file| async move {
-                    info!("Processing file '{filename}'");
+                    info!(
+                        "Processing file '{filename}' with {:?} strategy",
+                        compaction
+                    );
                     let array_stream = parquet_to_vortex(parquet_file_path)?;
                     let f = OpenOptions::new()
                         .write(true)
@@ -193,73 +201,14 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
                         .open(&vtx_file)
                         .await?;
 
-                    VortexWriteOptions::default().write(f, array_stream).await?;
+                    let write_options = compaction.apply_options(VortexWriteOptions::default());
+
+                    write_options.write(f, array_stream).await?;
 
                     anyhow::Ok(())
                 })
                 .await
                 .expect("Failed to write Vortex file")
-            })
-        })
-        .buffer_unordered(16)
-        .try_collect::<Vec<_>>()
-        .await?;
-    Ok(())
-}
-
-pub async fn convert_parquet_to_vortex_compact(input_path: &Path) -> anyhow::Result<()> {
-    let vortex_compact_dir = input_path.join(Format::VortexCompact.name());
-    let parquet_path = input_path.join(Format::Parquet.name());
-    create_dir_all(&vortex_compact_dir).await?;
-
-    let parquet_inputs = fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
-
-    trace!(
-        "Found {} parquet files in {}",
-        parquet_inputs.len(),
-        parquet_path.to_str().unwrap()
-    );
-
-    let iter = parquet_inputs
-        .iter()
-        .filter(|entry| entry.path().extension().is_some_and(|e| e == "parquet"));
-
-    stream::iter(iter)
-        .map(|dir_entry| {
-            let filename = {
-                let mut temp = dir_entry.path();
-                temp.set_extension("");
-                temp.file_name().unwrap().to_str().unwrap().to_string()
-            };
-            let parquet_file_path = parquet_path.join(format!("{filename}.parquet"));
-            let output_path =
-                vortex_compact_dir.join(format!("{filename}.{}", Format::VortexCompact.ext()));
-
-            tokio::spawn(async move {
-                idempotent_async(&output_path, move |vtx_file| async move {
-                    info!("Processing file '{filename}' for vortex-compact");
-                    let array_stream = parquet_to_vortex(parquet_file_path)?;
-                    let f = OpenOptions::new()
-                        .write(true)
-                        .truncate(true)
-                        .create(true)
-                        .open(&vtx_file)
-                        .await?;
-
-                    let executor = Arc::new(LocalExecutor);
-                    let compressor = CompactCompressor::default();
-                    let compact_strategy =
-                        VortexLayoutStrategy::compact_with_executor(executor, compressor);
-
-                    let compact_options =
-                        VortexWriteOptions::default().with_strategy(compact_strategy);
-
-                    compact_options.write(f, array_stream).await?;
-
-                    anyhow::Ok(())
-                })
-                .await
-                .expect("Failed to write Vortex compact file")
             })
         })
         .buffer_unordered(16)

@@ -9,11 +9,9 @@ use url::Url;
 use vortex::error::VortexExpect;
 
 use crate::benchmark_trait::Benchmark;
-use crate::clickbench::{
-    Flavor, clickbench_queries, convert_parquet_to_vortex, convert_parquet_to_vortex_compact,
-};
+use crate::clickbench::{Flavor, clickbench_queries, convert_parquet_to_vortex};
 use crate::engines::EngineCtx;
-use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
+use crate::{BenchmarkDataset, CompactionStrategy, Format, IdempotentPath, Target};
 
 /// ClickBench benchmark implementation
 pub struct ClickBenchBenchmark {
@@ -105,10 +103,18 @@ impl Benchmark for ClickBenchBenchmark {
                             rt.block_on(async {
                                 match target.format {
                                     Format::OnDiskVortex => {
-                                        convert_parquet_to_vortex(&file_path).await
+                                        convert_parquet_to_vortex(
+                                            &file_path,
+                                            CompactionStrategy::Default,
+                                        )
+                                        .await
                                     }
                                     Format::VortexCompact => {
-                                        convert_parquet_to_vortex_compact(&file_path).await
+                                        convert_parquet_to_vortex(
+                                            &file_path,
+                                            CompactionStrategy::Compact,
+                                        )
+                                        .await
                                     }
                                     _ => unreachable!(),
                                 }

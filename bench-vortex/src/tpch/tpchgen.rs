@@ -29,12 +29,9 @@ use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexExpect;
 use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
-use vortex_file::VortexLayoutStrategy;
-use vortex_layout::LocalExecutor;
-use vortex_layout::layouts::compact::CompactCompressor;
 
 use crate::utils::file_utils::idempotent_async;
-use crate::{Format, IdempotentPath};
+use crate::{CompactionStrategy, Format, IdempotentPath};
 
 type TableFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
@@ -320,11 +317,6 @@ impl FileWriter for ParquetWriter {
     }
 }
 
-enum CompactionStrategy {
-    Default,
-    Compact,
-}
-
 /// Vortex writer for streaming TPC-H data
 struct VortexWriter {
     sender: Option<mpsc::Sender<vortex::error::VortexResult<ArrayRef>>>,
@@ -345,20 +337,8 @@ impl VortexWriter {
             let stream = ArrayStreamAdapter::new(dtype, ReceiverStream::new(receiver));
 
             let file = TokioFile::create(&file_path).await?;
-            let options = VortexWriteOptions::default();
-
-            let options = match compaction_strategy {
-                CompactionStrategy::Compact => {
-                    let executor = std::sync::Arc::new(LocalExecutor);
-                    let compressor = CompactCompressor::default();
-                    let compact_strategy =
-                        VortexLayoutStrategy::compact_with_executor(executor, compressor);
-                    options.with_strategy(compact_strategy)
-                }
-                CompactionStrategy::Default => options,
-            };
-
-            options
+            compaction_strategy
+                .apply_options(VortexWriteOptions::default())
                 .write(file, stream)
                 .await
                 .map_err(|e| anyhow!("Vortex write failed: {}", e))?;
