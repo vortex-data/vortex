@@ -83,7 +83,7 @@ impl DuckDBCtx {
         dataset: &BenchmarkDataset,
     ) -> Result<()> {
         let object = match file_format {
-            Format::Parquet | Format::OnDiskVortex => DuckDBObject::View,
+            Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => DuckDBObject::View,
             Format::OnDiskDuckDB => DuckDBObject::Table,
             format => anyhow::bail!("Format {format} isn't supported for DuckDB"),
         };
@@ -96,15 +96,14 @@ impl DuckDBCtx {
 
         let effective_url = self.resolve_storage_url(base_url, load_format, dataset)?;
         let extension = match load_format {
-            Format::Parquet => "parquet",
-            Format::OnDiskVortex => "vortex",
+            Format::Parquet | Format::OnDiskVortex | Format::VortexCompact => load_format.ext(),
             other => anyhow::bail!("Format {other} isn't supported for DuckDB"),
         };
 
         // Generate and execute table registration commands
         let commands = self.generate_table_commands(&effective_url, extension, dataset, object);
-        self.execute_query(&commands)?;
         trace!("Executing table registration commands: {commands}");
+        self.execute_query(&commands)?;
 
         Ok(())
     }
@@ -116,7 +115,10 @@ impl DuckDBCtx {
         file_format: Format,
         dataset: &BenchmarkDataset,
     ) -> Result<Url> {
-        if file_format == Format::OnDiskVortex || file_format == Format::Parquet {
+        if file_format == Format::OnDiskVortex
+            || file_format == Format::Parquet
+            || file_format == Format::VortexCompact
+        {
             match dataset.format_path(file_format, base_url) {
                 Ok(vortex_url) => Ok(vortex_url),
                 Err(_) => Ok(base_url.clone()),

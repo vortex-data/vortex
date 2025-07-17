@@ -7,7 +7,7 @@ use vortex::iter::ArrayIterator;
 
 use crate::array::vx_array;
 use crate::box_dyn_wrapper;
-use crate::error::{try_or, vx_error};
+use crate::error::{try_or_default, vx_error};
 
 box_dyn_wrapper!(
     /// A Vortex array iterator.
@@ -36,7 +36,7 @@ pub unsafe extern "C-unwind" fn vx_array_iterator_next(
     error_out: *mut *mut vx_error,
 ) -> *const vx_array {
     let iter = vx_array_iterator::as_mut(iter);
-    try_or(error_out, ptr::null_mut(), || {
+    try_or_default(error_out, || {
         let element = iter.next();
 
         if let Some(element) = element {

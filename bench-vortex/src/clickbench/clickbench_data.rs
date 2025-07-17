@@ -17,20 +17,21 @@ use datafusion::datasource::listing::{
 use datafusion::prelude::SessionContext;
 use futures::{StreamExt, TryStreamExt, stream};
 use glob::Pattern;
+use log::trace;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use reqwest::IntoUrl;
 use reqwest::blocking::Response;
 use serde::Serialize;
 use tokio::fs::{OpenOptions, create_dir_all};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use url::Url;
 use vortex::error::VortexExpect;
-use vortex::file::{VORTEX_FILE_EXTENSION, VortexWriteOptions};
+use vortex::file::VortexWriteOptions;
 use vortex_datafusion::VortexFormat;
 
-use crate::Format;
 use crate::conversions::parquet_to_vortex;
 use crate::utils::file_utils::{idempotent, idempotent_async};
+use crate::{CompactionStrategy, Format};
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     use DataType::*;
@@ -151,14 +152,22 @@ pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
     ])
 });
 
-pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> {
-    let vortex_dir = input_path.join(Format::OnDiskVortex.name());
+pub async fn convert_parquet_to_vortex(
+    input_path: &Path,
+    compaction: CompactionStrategy,
+) -> anyhow::Result<()> {
+    let (format, dir_name) = match compaction {
+        CompactionStrategy::Compact => (Format::VortexCompact, Format::VortexCompact.name()),
+        CompactionStrategy::Default => (Format::OnDiskVortex, Format::OnDiskVortex.name()),
+    };
+
+    let vortex_dir = input_path.join(dir_name);
     let parquet_path = input_path.join(Format::Parquet.name());
     create_dir_all(&vortex_dir).await?;
 
     let parquet_inputs = fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
 
-    debug!(
+    trace!(
         "Found {} parquet files in {}",
         parquet_inputs.len(),
         parquet_path.to_str().unwrap()
@@ -176,11 +185,14 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
                 temp.file_name().unwrap().to_str().unwrap().to_string()
             };
             let parquet_file_path = parquet_path.join(format!("{filename}.parquet"));
-            let output_path = vortex_dir.join(format!("{filename}.{VORTEX_FILE_EXTENSION}"));
+            let output_path = vortex_dir.join(format!("{filename}.{}", format.ext()));
 
             tokio::spawn(async move {
                 idempotent_async(&output_path, move |vtx_file| async move {
-                    info!("Processing file '{filename}'");
+                    info!(
+                        "Processing file '{filename}' with {:?} strategy",
+                        compaction
+                    );
                     let array_stream = parquet_to_vortex(parquet_file_path)?;
                     let f = OpenOptions::new()
                         .write(true)
@@ -189,7 +201,9 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
                         .open(&vtx_file)
                         .await?;
 
-                    VortexWriteOptions::default().write(f, array_stream).await?;
+                    let write_options = compaction.apply_options(VortexWriteOptions::default());
+
+                    write_options.write(f, array_stream).await?;
 
                     anyhow::Ok(())
                 })
@@ -219,6 +233,39 @@ pub async fn register_vortex_files(
     );
 
     let table_url = ListingTableUrl::try_new(vortex_path, glob_pattern)?;
+
+    let config = ListingTableConfig::new(table_url).with_listing_options(
+        ListingOptions::new(format).with_session_config_options(session.state().config()),
+    );
+
+    let config = if let Some(schema) = schema {
+        config.with_schema(schema.into())
+    } else {
+        config.infer_schema(&session.state()).await?
+    };
+
+    let listing_table = Arc::new(ListingTable::try_new(config)?);
+    session.register_table(table_name, listing_table)?;
+
+    Ok(())
+}
+
+pub async fn register_vortex_compact_files(
+    session: SessionContext,
+    table_name: &str,
+    input_path: &Url,
+    schema: Option<Schema>,
+    glob_pattern: Option<Pattern>,
+) -> anyhow::Result<()> {
+    let vortex_compact_path = input_path.join(&format!("{}/", Format::VortexCompact.name()))?;
+    let format = Arc::new(VortexFormat::default());
+
+    info!(
+        "Registering vortex-compact table from {vortex_compact_path} with glob {:?}",
+        glob_pattern.as_ref().map(|p| p.as_str()).unwrap_or("")
+    );
+
+    let table_url = ListingTableUrl::try_new(vortex_compact_path, glob_pattern)?;
 
     let config = ListingTableConfig::new(table_url).with_listing_options(
         ListingOptions::new(format).with_session_config_options(session.state().config()),

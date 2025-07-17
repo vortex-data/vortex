@@ -31,7 +31,7 @@ use vortex::file::VortexWriteOptions;
 use vortex::stream::ArrayStreamAdapter;
 
 use crate::utils::file_utils::idempotent_async;
-use crate::{Format, IdempotentPath};
+use crate::{CompactionStrategy, Format, IdempotentPath};
 
 type TableFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 
@@ -170,6 +170,7 @@ fn generate_table_files(
     let write_format = match options.format {
         Format::Parquet | Format::Arrow | Format::OnDiskDuckDB => Format::Parquet,
         Format::OnDiskVortex => Format::OnDiskVortex,
+        Format::VortexCompact => Format::VortexCompact,
         f @ Format::Csv => {
             anyhow::bail!("{f} format is not supported by tpchgen");
         }
@@ -202,7 +203,16 @@ fn generate_table_files(
                 // Create writer based on format
                 let mut writer: Box<dyn FileWriter + Send> = match write_format {
                     Format::Parquet => Box::new(ParquetWriter::new(path, schema).await?),
-                    Format::OnDiskVortex => Box::new(VortexWriter::new(path, schema)?),
+                    Format::OnDiskVortex => Box::new(VortexWriter::new(
+                        path,
+                        schema,
+                        CompactionStrategy::Default,
+                    )?),
+                    Format::VortexCompact => Box::new(VortexWriter::new(
+                        path,
+                        schema,
+                        CompactionStrategy::Compact,
+                    )?),
                     _ => unreachable!(),
                 };
 
@@ -314,7 +324,11 @@ struct VortexWriter {
 }
 
 impl VortexWriter {
-    fn new(path: PathBuf, schema: SchemaRef) -> Result<Self> {
+    fn new(
+        path: PathBuf,
+        schema: SchemaRef,
+        compaction_strategy: CompactionStrategy,
+    ) -> Result<Self> {
         // Increase buffer size to avoid backpressure issues
         let (sender, receiver) = mpsc::channel(2);
         let dtype = DType::from_arrow(schema);
@@ -323,7 +337,8 @@ impl VortexWriter {
             let stream = ArrayStreamAdapter::new(dtype, ReceiverStream::new(receiver));
 
             let file = TokioFile::create(&file_path).await?;
-            VortexWriteOptions::default()
+            compaction_strategy
+                .apply_options(VortexWriteOptions::default())
                 .write(file, stream)
                 .await
                 .map_err(|e| anyhow!("Vortex write failed: {}", e))?;
