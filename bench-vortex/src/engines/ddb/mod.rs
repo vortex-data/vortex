@@ -66,7 +66,7 @@ impl DuckDBCtx {
 
     /// Execute DuckDB queries for benchmarks using the internal connection
     pub fn execute_query(&self, query: &str) -> Result<(Duration, usize)> {
-        trace!("execute duckdb query: {}", query);
+        trace!("execute duckdb query: {query}");
         let time_instant = Instant::now();
         let result = self.connection.query(query)?;
         let query_time = time_instant.elapsed();
@@ -104,7 +104,7 @@ impl DuckDBCtx {
         // Generate and execute table registration commands
         let commands = self.generate_table_commands(&effective_url, extension, dataset, object);
         self.execute_query(&commands)?;
-        trace!("Executing table registration commands: {}", commands);
+        trace!("Executing table registration commands: {commands}");
 
         Ok(())
     }

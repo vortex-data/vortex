@@ -16,9 +16,9 @@ use tokio::runtime::Handle;
 use vortex::ArrayRef;
 use vortex::error::VortexError;
 use vortex::expr::{ExprRef, VortexExpr};
-use vortex::file::scan::ScanBuilder;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
+use vortex::scan::ScanBuilder;
 
 use super::cache::VortexFileCache;
 

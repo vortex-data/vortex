@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::{CStr, c_char};
-use std::ptr;
 
 use mpsc::Sender;
 use tokio::fs::File;
@@ -17,7 +16,7 @@ use vortex::stream::ArrayStreamAdapter;
 use crate::RUNTIME;
 use crate::array::vx_array;
 use crate::dtype::vx_dtype;
-use crate::error::{try_or, vx_error};
+use crate::error::{try_or_default, vx_error};
 
 #[allow(non_camel_case_types)]
 /// The `sink` interface is used to collect array chunks and place them into a resource
@@ -35,7 +34,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
     dtype: *const vx_dtype,
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_sink {
-    try_or(error_out, ptr::null_mut(), || {
+    try_or_default(error_out, || {
         let path = unsafe { path.as_ref() }.vortex_expect("null path");
         let path = unsafe { CStr::from_ptr(path) }
             .to_string_lossy()
@@ -66,7 +65,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
 ) {
     let array = vx_array::as_ref(array);
     let sink = unsafe { sink.as_ref().vortex_expect("null array stream") };
-    try_or(error_out, (), || {
+    try_or_default(error_out, || {
         sink.sink
             .blocking_send(Ok(array.clone()))
             .map_err(|e| vortex_err!("send error {}", e.to_string()))
@@ -80,7 +79,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_close(
     sink: *mut vx_array_sink,
     error_out: *mut *mut vx_error,
 ) {
-    try_or(error_out, (), || {
+    try_or_default(error_out, || {
         let vx_array_sink { sink, writer } = *unsafe { Box::from_raw(sink) };
         drop(sink);
 

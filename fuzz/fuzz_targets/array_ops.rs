@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![no_main]
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::result_large_err)]
+
+use std::backtrace::Backtrace;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::arrays::{
@@ -108,6 +110,7 @@ fn assert_search_sorted(
             side,
             search_result,
             step,
+            Backtrace::capture(),
         ))
     } else {
         Ok(())
@@ -123,6 +126,7 @@ fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzRes
             lhs.to_array(),
             rhs.to_array(),
             step,
+            Backtrace::capture(),
         ));
     }
     for idx in 0..lhs.len() {
@@ -137,6 +141,7 @@ fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzRes
                 lhs.clone(),
                 rhs.clone(),
                 step,
+                Backtrace::capture(),
             ));
         }
     }

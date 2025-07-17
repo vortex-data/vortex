@@ -437,9 +437,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             let result_nbytes = result.nbytes();
             assert!(
                 result_nbytes <= nbytes,
-                "optimize() made the array larger: {} bytes -> {} bytes",
-                nbytes,
-                result_nbytes
+                "optimize() made the array larger: {nbytes} bytes -> {result_nbytes} bytes",
             );
         }
 

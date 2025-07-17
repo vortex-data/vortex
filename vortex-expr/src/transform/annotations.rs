@@ -35,7 +35,7 @@ pub type Annotations<'a, A> = HashMap<&'a ExprRef, HashSet<A>>;
 pub fn descendent_annotations<A: AnnotationFn>(
     expr: &ExprRef,
     annotate: A,
-) -> Annotations<A::Annotation> {
+) -> Annotations<'_, A::Annotation> {
     let mut visitor = AnnotationVisitor {
         annotations: Default::default(),
         annotate,

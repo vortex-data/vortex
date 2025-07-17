@@ -2,23 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::SeqCst;
-use std::sync::*;
 
-use atomic::AtomicBool;
 use bitvec::macros::internal::funty::Fundamental;
-use crossbeam_queue::SegQueue;
+use vortex::ToCanonical;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::scan::{MultiScan, MultiScanIterator};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
     BindInput, BindResult, DataChunk, Expression, LogicalType, TableFunction, TableInitInput,
 };
-use crate::exporter::ArrayIteratorExporter;
+use crate::exporter::{ArrayExporter, ConversionCache};
 
 pub struct VortexBindData {
     first_file: VortexFile,
@@ -54,17 +54,16 @@ impl std::fmt::Debug for VortexBindData {
 }
 
 pub struct VortexGlobalData {
-    file_paths: SegQueue<PathBuf>,
-    is_first_file_processed: AtomicBool,
-    /// We currently use a conversion cache to cache converted arrays, this id is used to
-    /// ensure that each cache created has a unique id used to name those arrays
-    conversion_cache_id: AtomicU64,
-    filter_expr: Option<ExprRef>,
-    projection_expr: ExprRef,
+    multi_scan: MultiScan,
+    cache_id: AtomicU64,
 }
 
 pub struct VortexLocalData {
-    exporter: Option<ArrayIteratorExporter>,
+    multi_scan_iterator: MultiScanIterator,
+    exporter: Option<ArrayExporter>,
+
+    // TODO(Alex): replace with global conversion cache
+    conversion_cache: ConversionCache,
 }
 
 #[derive(Debug)]
@@ -148,16 +147,6 @@ fn extract_table_filter_expr(
     Ok(Some(filter_expr))
 }
 
-/// Creates a lock-free queue populated with file paths from bind data.
-fn create_file_paths_queue(bind_data: &VortexBindData) -> SegQueue<PathBuf> {
-    let file_paths = SegQueue::new();
-    // Skip the first file as it is opened during bind.
-    for path in bind_data.file_paths.iter().skip(1) {
-        file_paths.push(path.clone());
-    }
-    file_paths
-}
-
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
     type GlobalState = VortexGlobalData;
@@ -210,82 +199,92 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn scan(
-        bind_data: &Self::BindData,
+        _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
         global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
-        let exporter_for_file =
-            |file: &VortexFile, id: u64| -> VortexResult<ArrayIteratorExporter> {
-                let array_iterator = file
-                    .scan()?
-                    .with_projection(global_state.projection_expr.clone())
-                    .with_some_filter(global_state.filter_expr.clone())
-                    .into_array_iter()
-                    .map_err(|e| vortex_err!("Failed to create array iterator: {}", e))?;
-
-                Ok(ArrayIteratorExporter::new(Box::new(array_iterator), id))
-            };
-
         loop {
             if local_state.exporter.is_none() {
-                if !global_state.is_first_file_processed.swap(true, SeqCst) {
-                    let cache_id = global_state.conversion_cache_id.fetch_add(1, SeqCst);
-                    local_state.exporter =
-                        Some(exporter_for_file(&bind_data.first_file, cache_id)?);
-                }
-                // Retrieve a file path from the shared lock-free queue.
-                else if let Some(file_path) = global_state.file_paths.pop() {
-                    let file = VortexOpenOptions::file()
-                        .open_blocking(&file_path)
-                        .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
-
-                    let cache_id = global_state.conversion_cache_id.fetch_add(1, SeqCst);
-                    local_state.exporter = Some(exporter_for_file(&file, cache_id)?);
-                } else {
-                    // If the exporter is None and there are no more files to process, signal that the scan finished.
-                    chunk.set_len(0);
+                let Some(array_result) = local_state.multi_scan_iterator.next() else {
                     return Ok(());
-                }
+                };
+
+                // TODO(Alex): replace with global conversion cache
+                local_state.conversion_cache =
+                    ConversionCache::new(global_state.cache_id.fetch_add(1, SeqCst));
+
+                local_state.exporter = Some(ArrayExporter::try_new(
+                    &array_result?.to_struct()?,
+                    &mut local_state.conversion_cache,
+                )?);
             }
 
-            let Some(ref mut exporter) = local_state.exporter else {
-                vortex_bail!("ArrayIteratorExporter is not set")
-            };
+            let exporter = local_state
+                .exporter
+                .as_mut()
+                .vortex_expect("exporter should exist");
 
-            let is_data_left_to_scan = !exporter
-                .export(chunk)
-                .map_err(|e| vortex_err!("Failed to export data: {}", e))?;
+            let has_more_data = exporter.export(chunk)?;
 
-            if is_data_left_to_scan {
+            if !has_more_data {
+                // This exporter is fully consumed.
                 local_state.exporter = None;
             } else {
-                assert!(!chunk.is_empty());
-                return Ok(());
+                break;
             }
         }
+
+        assert!(!chunk.is_empty());
+
+        Ok(())
     }
 
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
         let bind_data = init_input.bind_data();
-        let file_paths = create_file_paths_queue(bind_data);
         let projection_expr = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
+        let is_first_file_queued = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let closures = bind_data.file_paths.clone().into_iter().map(move |path| {
+            let first_file = bind_data.first_file.clone();
+            let filter_expr = filter_expr.clone();
+            let projection_expr = projection_expr.clone();
+            let is_first_file_queued = is_first_file_queued.clone();
+
+            move || {
+                let file = if !is_first_file_queued.swap(true, SeqCst) {
+                    // The first path from `file_paths` is skipped as the first
+                    // file was already opened during bind.
+                    first_file
+                } else {
+                    VortexOpenOptions::file()
+                        .open_blocking(&path)
+                        .vortex_expect("Failed to open Vortex file")
+                };
+
+                file.scan()
+                    .vortex_expect("Failed to create scan builder")
+                    .with_some_filter(filter_expr)
+                    .with_projection(projection_expr)
+            }
+        });
 
         Ok(VortexGlobalData {
-            file_paths,
-            is_first_file_processed: AtomicBool::new(false),
-            conversion_cache_id: AtomicU64::new(0),
-            filter_expr,
-            projection_expr,
+            multi_scan: MultiScan::default().with_scan_builders(closures),
+            cache_id: AtomicU64::new(0),
         })
     }
 
     fn init_local(
         _init: &TableInitInput<Self>,
-        _global: &mut Self::GlobalState,
+        global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
-        Ok(VortexLocalData { exporter: None })
+        Ok(VortexLocalData {
+            multi_scan_iterator: global.multi_scan.new_scan_iterator(),
+            exporter: None,
+            conversion_cache: ConversionCache::new(global.cache_id.fetch_add(1, SeqCst)),
+        })
     }
 
     fn pushdown_complex_filter(

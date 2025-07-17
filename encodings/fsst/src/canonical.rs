@@ -26,8 +26,8 @@ impl CanonicalVTable<FSSTVTable> for FSSTVTable {
             fsst_into_varbin_view(array.decompressor(), array, builder.completed_block_count())?;
 
         builder.push_buffer_and_adjusted_views(
-            view.buffers().iter().cloned(),
-            view.views().iter().cloned(),
+            view.buffers(),
+            view.views(),
             array.validity_mask()?,
         );
         Ok(())

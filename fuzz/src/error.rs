@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::backtrace::Backtrace;
+use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -13,9 +15,8 @@ fn tree_display(arr: &ArrayRef) -> impl Display {
     arr.display_tree()
 }
 
-#[derive(thiserror::Error)]
+#[non_exhaustive]
 pub enum VortexFuzzError {
-    #[error("Expected to find {0} at {1} in {tree} from {3} but instead found it at {4} in step {5}", tree = tree_display(.2))]
     SearchSortedError(
         Scalar,
         SearchResult,
@@ -23,25 +24,71 @@ pub enum VortexFuzzError {
         SearchSortedSide,
         SearchResult,
         usize,
+        Backtrace,
     ),
 
-    #[error("{0} != {1} at index {2}, lhs is {lhs_tree} rhs is {rhs_tree} in step {5}",lhs_tree = tree_display(.3), rhs_tree = tree_display(.4))]
-    ArrayNotEqual(Scalar, Scalar, usize, ArrayRef, ArrayRef, usize),
+    ArrayNotEqual(Scalar, Scalar, usize, ArrayRef, ArrayRef, usize, Backtrace),
 
-    #[error("LHS len {0} != RHS len {1}, lhs is {lhs_tree} rhs is {rhs_tree} in step {4}", lhs_tree = tree_display(.2), rhs_tree = tree_display(.3))]
-    LengthMismatch(usize, usize, ArrayRef, ArrayRef, usize),
+    LengthMismatch(usize, usize, ArrayRef, ArrayRef, usize, Backtrace),
 
-    #[error(transparent)]
-    VortexError(
-        #[from]
-        #[backtrace]
-        VortexError,
-    ),
+    VortexError(VortexError, Backtrace),
 }
 
 impl Debug for VortexFuzzError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(self, f)
+    }
+}
+
+impl Display for VortexFuzzError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            VortexFuzzError::SearchSortedError(
+                a,
+                expected,
+                array,
+                from,
+                actual,
+                step,
+                backtrace,
+            ) => {
+                write!(
+                    f,
+                    "Expected to find {a} at {expected} in {} from {from} but instead found it at {actual} in step {step}\nBacktrace:\n{backtrace}",
+                    tree_display(array),
+                )
+            }
+            VortexFuzzError::ArrayNotEqual(expected, actual, idx, lhs, rhs, step, backtrace) => {
+                write!(
+                    f,
+                    "{expected} != {actual} at index {idx}, lhs is {} rhs is {} in step {step}\nBacktrace:\n{backtrace}",
+                    tree_display(lhs),
+                    tree_display(rhs),
+                )
+            }
+            VortexFuzzError::LengthMismatch(lhs_len, rhs_len, lhs, rhs, step, backtrace) => {
+                write!(
+                    f,
+                    "LHS len {lhs_len} != RHS len {rhs_len}, lhs is {} rhs is {} in step {step}\nBacktrace:\n{backtrace}",
+                    tree_display(lhs),
+                    tree_display(rhs),
+                )
+            }
+            VortexFuzzError::VortexError(err, backtrace) => {
+                write!(f, "{err}\nBacktrace:\n{backtrace}")
+            }
+        }
+    }
+}
+
+impl Error for VortexFuzzError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            VortexFuzzError::SearchSortedError(..) => None,
+            VortexFuzzError::ArrayNotEqual(..) => None,
+            VortexFuzzError::LengthMismatch(..) => None,
+            VortexFuzzError::VortexError(err, ..) => Some(err),
+        }
     }
 }
 

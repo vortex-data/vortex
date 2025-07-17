@@ -16,7 +16,7 @@ wrapper! {
     |ptr: &mut *mut cpp::duckdb_result| {
         if !ptr.is_null() {
             unsafe {
-                cpp::duckdb_destroy_result(&mut **ptr);
+                cpp::duckdb_destroy_result(&raw mut **ptr);
                 drop(Box::from_raw(*ptr));
             }
         }

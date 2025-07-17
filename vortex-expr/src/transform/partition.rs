@@ -12,8 +12,8 @@ use crate::transform::annotations::{
     Annotation, AnnotationFn, Annotations, descendent_annotations,
 };
 use crate::transform::simplify_typed::simplify_typed;
-use crate::traversal::{FoldDown, FoldUp, FolderMut, MutNodeVisitor, Node, TransformResult};
-use crate::{ExprRef, GetItemVTable, get_item, pack, root};
+use crate::traversal::{FoldDown, FoldUp, FolderMut, Node};
+use crate::{ExprRef, get_item, pack, root};
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -145,7 +145,7 @@ impl<'a, A: Annotation + Display> StructFieldExpressionSplitter<'a, A> {
     /// Each annotation may be associated with multiple sub-expressions, so we need to
     /// a unique name for each sub-expression.
     fn field_name(annotation: &A, idx: usize) -> FieldName {
-        format!("{}_{}", annotation, idx).into()
+        format!("{annotation}_{idx}").into()
     }
 }
 
@@ -194,21 +194,6 @@ impl<A: Annotation + Display> FolderMut for StructFieldExpressionSplitter<'_, A>
         children: Vec<Self::Out>,
     ) -> VortexResult<FoldUp<Self::Out>> {
         Ok(FoldUp::Continue(node.with_children(children)?))
-    }
-}
-
-pub(crate) struct ReplaceAccessesWithChild(Vec<FieldName>);
-
-impl MutNodeVisitor for ReplaceAccessesWithChild {
-    type NodeTy = ExprRef;
-
-    fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<TransformResult<ExprRef>> {
-        if let Some(item) = node.as_opt::<GetItemVTable>() {
-            if self.0.contains(item.field()) {
-                return Ok(TransformResult::yes(item.child().clone()));
-            }
-        }
-        Ok(TransformResult::no(node))
     }
 }
 
@@ -395,10 +380,10 @@ mod tests {
 
         let part_a = partitioned.find_partition(&"a".into()).unwrap();
         let expected_a = pack([("a_0", col("a"))], NonNullable);
-        assert_eq!(part_a, &expected_a, "{} {}", part_a, expected_a);
+        assert_eq!(part_a, &expected_a, "{part_a} {expected_a}");
 
         let part_b = partitioned.find_partition(&"b".into()).unwrap();
         let expected_b = pack([("b_0", pack([("b", col("b"))], NonNullable))], NonNullable);
-        assert_eq!(part_b, &expected_b, "{} {}", part_b, expected_b);
+        assert_eq!(part_b, &expected_b, "{part_b} {expected_b}");
     }
 }

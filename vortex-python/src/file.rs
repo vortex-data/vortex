@@ -15,9 +15,9 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
 use vortex::error::VortexError;
 use vortex::expr::{ExprRef, root, select};
-use vortex::file::scan::SplitBy;
 use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::scan::SplitBy;
 use vortex::stream::ArrayStreamExt;
 
 use crate::arrays::PyArrayRef;

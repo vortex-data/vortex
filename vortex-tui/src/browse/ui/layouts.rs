@@ -11,10 +11,10 @@ use ratatui::widgets::{
 };
 use vortex::error::VortexExpect;
 use vortex::expr::root;
+use vortex::layout::layouts::flat::FlatVTable;
+use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::mask::Mask;
 use vortex::{Array, ArrayRef, ToCanonical};
-use vortex_layout::layouts::flat::FlatVTable;
-use vortex_layout::layouts::zoned::ZonedVTable;
 
 use crate::TOKIO_RUNTIME;
 use crate::browse::app::{AppState, LayoutCursor};
