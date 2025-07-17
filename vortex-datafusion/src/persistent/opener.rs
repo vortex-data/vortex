@@ -161,7 +161,6 @@ impl FileOpener for VortexFileOpener {
                             .map(Ok),
                     )
                 })
-                //.map_err(|e: VortexError| ArrowError::ExternalError(Box::new(e)))
                 .try_flatten()
                 .boxed();
 

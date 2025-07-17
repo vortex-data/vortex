@@ -3,7 +3,6 @@
 
 #![allow(clippy::cast_possible_truncation)]
 use std::iter;
-use std::pin::pin;
 use std::sync::Arc;
 use vortex_array::iter::ArrayIteratorExt;
 
@@ -284,19 +283,17 @@ fn unequal_batches() {
         block_on(VortexWriteOptions::default().write(ByteBufferMut::empty(), st.to_array_stream()))
             .unwrap();
 
-    let mut stream = pin!(
-        VortexOpenOptions::in_memory()
-            .open(buf)
-            .unwrap()
-            .scan()
-            .unwrap()
-            .into_array_iter()
-            .unwrap()
-    );
+    let iter = VortexOpenOptions::in_memory()
+        .open(buf)
+        .unwrap()
+        .scan()
+        .unwrap()
+        .into_array_iter()
+        .unwrap();
 
     let mut item_count = 0;
 
-    for array in stream.by_ref() {
+    for array in iter {
         let array = array.unwrap();
         item_count += array.len();
 
@@ -344,17 +341,15 @@ fn write_chunked() {
     )
     .unwrap();
 
-    let mut stream = pin!(
-        VortexOpenOptions::in_memory()
-            .open(buf)
-            .unwrap()
-            .scan()
-            .unwrap()
-            .into_array_iter()
-            .unwrap()
-    );
+    let iter = VortexOpenOptions::in_memory()
+        .open(buf)
+        .unwrap()
+        .scan()
+        .unwrap()
+        .into_array_iter()
+        .unwrap();
     let mut array_len: usize = 0;
-    for array in stream.by_ref() {
+    for array in iter {
         array_len += array.unwrap().len();
     }
     assert_eq!(array_len, 48);
