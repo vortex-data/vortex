@@ -22,7 +22,7 @@ wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 /// Exceptions from a raw pointer not being `Send` would be pointing to
 /// thread-local storage or other types that are not `Send`, e.g. `RefCell`.
 ///
-/// ```
+/// ```no_test
 /// pub struct Vector {
 ///     ptr: *mut _duckdb_vector,
 ///     owned: bool,
