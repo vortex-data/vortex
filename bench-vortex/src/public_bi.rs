@@ -28,7 +28,7 @@ use regex::Regex;
 use tokio::fs::File;
 use tokio::process::Command as TokioCommand;
 use tokio::runtime::Handle;
-use tracing::{debug, info};
+use tracing::info;
 use url::Url;
 use vortex::ArrayRef;
 use vortex::error::{VortexResult, vortex_err};
