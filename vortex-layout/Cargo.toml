@@ -23,7 +23,12 @@ async-trait = { workspace = true }
 bit-vec = { workspace = true }
 dashmap = { workspace = true }
 flatbuffers = { workspace = true }
-futures = { workspace = true, features = ["alloc", "async-await", "executor", "thread-pool"] }
+futures = { workspace = true, features = [
+    "alloc",
+    "async-await",
+    "executor",
+    "thread-pool",
+] }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
