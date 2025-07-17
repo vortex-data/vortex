@@ -206,8 +206,16 @@ fn generate_table_files(
                 // Create writer based on format
                 let mut writer: Box<dyn FileWriter + Send> = match write_format {
                     Format::Parquet => Box::new(ParquetWriter::new(path, schema).await?),
-                    Format::OnDiskVortex => Box::new(VortexWriter::new(path, schema)?),
-                    Format::VortexCompact => Box::new(VortexCompactWriter::new(path, schema)?),
+                    Format::OnDiskVortex => Box::new(VortexWriter::new(
+                        path,
+                        schema,
+                        CompactionStrategy::Default,
+                    )?),
+                    Format::VortexCompact => Box::new(VortexWriter::new(
+                        path,
+                        schema,
+                        CompactionStrategy::Compact,
+                    )?),
                     _ => unreachable!(),
                 };
 
@@ -312,6 +320,11 @@ impl FileWriter for ParquetWriter {
     }
 }
 
+enum CompactionStrategy {
+    Default,
+    Compact,
+}
+
 /// Vortex writer for streaming TPC-H data
 struct VortexWriter {
     sender: Option<mpsc::Sender<vortex::error::VortexResult<ArrayRef>>>,
@@ -319,7 +332,11 @@ struct VortexWriter {
 }
 
 impl VortexWriter {
-    fn new(path: PathBuf, schema: SchemaRef) -> Result<Self> {
+    fn new(
+        path: PathBuf,
+        schema: SchemaRef,
+        compaction_strategy: CompactionStrategy,
+    ) -> Result<Self> {
         // Increase buffer size to avoid backpressure issues
         let (sender, receiver) = mpsc::channel(2);
         let dtype = DType::from_arrow(schema);
@@ -328,7 +345,20 @@ impl VortexWriter {
             let stream = ArrayStreamAdapter::new(dtype, ReceiverStream::new(receiver));
 
             let file = TokioFile::create(&file_path).await?;
-            VortexWriteOptions::default()
+            let options = VortexWriteOptions::default();
+
+            let options = match compaction_strategy {
+                CompactionStrategy::Compact => {
+                    let executor = std::sync::Arc::new(LocalExecutor);
+                    let compressor = CompactCompressor::default();
+                    let compact_strategy =
+                        VortexLayoutStrategy::compact_with_executor(executor, compressor);
+                    options.with_strategy(compact_strategy)
+                }
+                CompactionStrategy::Default => options,
+            };
+
+            options
                 .write(file, stream)
                 .await
                 .map_err(|e| anyhow!("Vortex write failed: {}", e))?;
@@ -345,70 +375,6 @@ impl VortexWriter {
 
 #[async_trait::async_trait]
 impl FileWriter for VortexWriter {
-    async fn write_batch(&mut self, batch: &RecordBatch) -> Result<()> {
-        let array = ArrayRef::from_arrow(batch, false);
-        self.sender
-            .as_ref()
-            .vortex_expect("sender closed early")
-            .send(Ok(array))
-            .await
-            .map_err(|_| anyhow!("Failed to send array to write task"))
-    }
-
-    async fn finalize(mut self: Box<Self>) -> Result<()> {
-        // Close the sender to signal end of stream
-        self.sender.take();
-
-        // Wait for write task to complete
-        if let Some(task) = self.write_task.take() {
-            task.await
-                .map_err(|e| anyhow!("Write task failed: {}", e))??;
-        }
-
-        Ok(())
-    }
-}
-
-/// Vortex compact writer for streaming TPC-H data
-struct VortexCompactWriter {
-    sender: Option<mpsc::Sender<vortex::error::VortexResult<ArrayRef>>>,
-    write_task: Option<tokio::task::JoinHandle<Result<()>>>,
-}
-
-impl VortexCompactWriter {
-    fn new(path: PathBuf, schema: SchemaRef) -> Result<Self> {
-        // Increase buffer size to avoid backpressure issues
-        let (sender, receiver) = mpsc::channel(2);
-        let dtype = DType::from_arrow(schema);
-        let file_path = path;
-        let write_task = Some(tokio::spawn(async move {
-            let stream = ArrayStreamAdapter::new(dtype, ReceiverStream::new(receiver));
-
-            let file = TokioFile::create(&file_path).await?;
-
-            let executor = std::sync::Arc::new(LocalExecutor);
-            let compressor = CompactCompressor::default();
-            let compact_strategy =
-                VortexLayoutStrategy::compact_with_executor(executor, compressor);
-
-            VortexWriteOptions::default()
-                .with_strategy(compact_strategy)
-                .write(file, stream)
-                .await
-                .map_err(|e| anyhow!("Vortex compact write failed: {}", e))?;
-
-            Ok(())
-        }));
-
-        Ok(Self {
-            sender: Some(sender),
-            write_task,
-        })
-    }
-}
-
-#[async_trait::async_trait]
-impl FileWriter for VortexCompactWriter {
     async fn write_batch(&mut self, batch: &RecordBatch) -> Result<()> {
         let array = ArrayRef::from_arrow(batch, false);
         self.sender
