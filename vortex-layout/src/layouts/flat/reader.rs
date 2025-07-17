@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter::once;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
@@ -36,6 +37,7 @@ pub struct FlatReader {
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
     array: OnceLock<SharedArrayFuture>,
+    #[allow(dead_code)]
     len: usize,
 }
 
@@ -106,8 +108,8 @@ impl LayoutReader for FlatReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, _selection: &TreeRowMask, _field_mask: &[FieldMask]) -> BoxMaskIterator {
-        Box::new(std::iter::once(Ok(Mask::new_true(self.len))))
+    fn row_masks(&self, selection: &TreeRowMask, _field_mask: &[FieldMask]) -> BoxMaskIterator {
+        Box::new(once(Ok(selection.mask())))
     }
 
     fn pruning_evaluation(

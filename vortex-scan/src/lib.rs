@@ -208,6 +208,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         let row_count = layout_reader.row_count();
 
+        println!("row mask: {:?}", row_count);
         // Set up the initial stream of RowMasks.
         let tree_mask = self.selection.tree_row_mask(
             &self
@@ -215,6 +216,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
                 .clone()
                 .unwrap_or_else(|| 0..row_count.as_exact().unwrap_or(u64::MAX)),
         );
+        println!("tree mask: {tree_mask:?}");
         let masks = layout_reader.row_masks(&tree_mask, &field_mask);
 
         // If we split by a fixed row count, we repartition the masks into splits.
