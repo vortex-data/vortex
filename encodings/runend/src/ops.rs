@@ -25,6 +25,7 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
             (physical_start, physical_stop + 1)
         };
 
+        // If the sliced range contains only a single run, opt to return a ConstantArray.
         if slice_begin + 1 == slice_end {
             let value = array.values().scalar_at(slice_begin)?;
             return Ok(ConstantArray::new(value, new_length).into_array());
@@ -78,7 +79,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::RunEndArray;
+    use crate::{RunEndArray, RunEndVTable};
 
     #[test]
     fn slice_array() {
@@ -183,13 +184,25 @@ mod tests {
 
     #[test]
     fn slice_and_optimize() {
+        // Encodes as
+        //   ends:   [4, 8]
+        //   values: [1, 2]
         let original = RunEndArray::encode(
             buffer![1u32, 1u32, 1u32, 1u32, 2u32, 2u32, 2u32, 2u32].into_array(),
         )
         .unwrap();
 
+        // After slicing:
+        //   ends:   [4, 8]
+        //   values: [1, 2]
         let sliced = original.slice(2, 5).unwrap();
+
+        // After optimizing:
+        //  ends:   [0, 4]
+        //  values: [1, 2]
         let optimized = sliced.optimize().unwrap();
+
+        assert_eq!(optimized.as_::<RunEndVTable>().offset(), 0);
 
         let values = optimized.to_primitive().unwrap();
         assert_eq!(values.as_slice::<u32>(), &[1u32, 1u32, 2u32]);
