@@ -4,13 +4,14 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
-use clap::ValueEnum;
-use itertools::Itertools;
-use serde::Serialize;
 use std::clone::Clone;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::Arc;
+
+use clap::ValueEnum;
+use itertools::Itertools;
+use serde::Serialize;
 
 pub mod bench_run;
 pub mod benchmark_driver;

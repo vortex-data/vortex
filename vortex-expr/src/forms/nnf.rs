@@ -136,9 +136,8 @@ impl FolderMut for NNFVisitor {
 
 #[cfg(test)]
 mod tests {
-    use crate::{and, lit, or};
-
     use super::*;
+    use crate::{and, lit, or};
 
     #[test]
     fn basic_nnf_test() {
