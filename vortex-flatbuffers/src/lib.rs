@@ -107,7 +107,7 @@ pub mod footer;
 #[allow(missing_docs)]
 #[rustfmt::skip]
 #[path = "./generated/layout.rs"]
-/// A serialized sequence of arrays, each with its buffers.
+/// Structures describing the physical layout of Vortex arrays in random access storage.
 ///
 /// `layout.fbs`:
 /// ```flatbuffers
@@ -161,12 +161,12 @@ pub trait ReadFlatBuffer: Sized {
     /// The error type returned when reading fails.
     type Error: From<InvalidFlatbuffer>;
 
-    /// Reads this type from a FlatBuffer.
+    /// Reads this type from a FlatBuffer source.
     fn read_flatbuffer<'buf>(
         fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
     ) -> Result<Self, Self::Error>;
 
-    /// Reads this type from FlatBuffer bytes.
+    /// Reads this type from bytes representing a FlatBuffer source.
     fn read_flatbuffer_bytes<'buf>(bytes: &'buf [u8]) -> Result<Self, Self::Error>
     where
         <Self as ReadFlatBuffer>::Source<'buf>: 'buf,
@@ -181,7 +181,7 @@ pub trait WriteFlatBuffer {
     /// The FlatBuffer type that this type can be written to.
     type Target<'a>;
 
-    /// Writes this type to a FlatBuffer.
+    /// Writes this type to a FlatBuffer builder.
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
@@ -190,7 +190,7 @@ pub trait WriteFlatBuffer {
 
 /// Extension trait for types that can be written as FlatBuffer root objects.
 pub trait WriteFlatBufferExt: WriteFlatBuffer + FlatBufferRoot {
-    /// Write the flatbuffer into a [`FlatBuffer`].
+    /// Writes self as a FlatBuffer root object into a [`FlatBuffer`] byte buffer.
     fn write_flatbuffer_bytes(&self) -> FlatBuffer;
 }
 

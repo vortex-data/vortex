@@ -23,12 +23,12 @@ use crate::decimal::DecimalValue;
 use crate::pvalue::PValue;
 use crate::{ScalarType, i256};
 
-/// Represents the internal data of a scalar value. Must be interpreted by wrapping
-/// up with a DType to make a Scalar.
+/// Represents the internal data of a scalar value. Must be interpreted by wrapping up with a
+/// [`DType`] to make a [`super::Scalar`].
 ///
-/// Note that these values can be deserialized from JSON or other formats. So a PValue may not
-/// have the correct width for what the DType expects. Primitive values should therefore be
-/// read using [crate::PrimitiveScalar] which will handle the conversion.
+/// Note that these values can be deserialized from JSON or other formats. So a [`PValue`] may not
+/// have the correct width for what the [`DType`] expects. Primitive values should therefore be
+/// read using [`super::PrimitiveScalar`] which will handle the conversion.
 #[derive(Debug, Clone)]
 pub struct ScalarValue(pub(crate) InnerScalarValue);
 

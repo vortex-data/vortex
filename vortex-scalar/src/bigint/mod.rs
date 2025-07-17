@@ -12,7 +12,7 @@ use vortex_error::VortexExpect;
 
 /// Signed 256-bit integer type.
 ///
-/// This one of the physical representations of `DecimalScalar` values and can be safely converted
+/// This is one of the physical representations of `DecimalScalar` values and can be safely converted
 /// back and forth with Arrow's [`i256`][arrow_buffer::i256].
 #[repr(transparent)]
 #[allow(non_camel_case_types)]
@@ -21,13 +21,13 @@ pub struct i256(arrow_buffer::i256);
 
 #[allow(clippy::same_name_method)]
 impl i256 {
-    /// The zero value for i256.
+    /// The zero value for `i256`.
     pub const ZERO: Self = Self(arrow_buffer::i256::ZERO);
-    /// The one value for i256.
+    /// The one value for `i256`.
     pub const ONE: Self = Self(arrow_buffer::i256::ONE);
-    /// The maximum value for i256.
+    /// The maximum value for `i256`.
     pub const MAX: Self = Self(arrow_buffer::i256::MAX);
-    /// The minimum value for i256.
+    /// The minimum value for `i256`.
     pub const MIN: Self = Self(arrow_buffer::i256::MIN);
 
     /// Construct a new `i256` from an unsigned `lower` bits and a signed `upper` bits.
@@ -47,14 +47,14 @@ impl i256 {
         self.0.to_i128()
     }
 
-    /// Create an integer value from its representation as a byte array in little-endian.
+    /// Create an integer value from its little-endian byte array representation.
     pub const fn from_le_bytes(bytes: [u8; 32]) -> Self {
         Self(arrow_buffer::i256::from_le_bytes(bytes))
     }
 
     /// Split the 256-bit signed integer value into an unsigned lower bits and a signed upper bits.
     ///
-    /// This versions gives us ownership of the value.
+    /// This version gives us ownership of the value.
     pub const fn into_parts(self) -> (u128, i128) {
         self.0.to_parts()
     }
