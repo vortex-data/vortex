@@ -12,6 +12,10 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
+/// A scalar value representing a struct with named fields.
+///
+/// This type provides a view into a struct scalar value, which can contain
+/// named fields with different types, or be null.
 pub struct StructScalar<'a> {
     dtype: &'a DType,
     fields: Option<&'a Arc<[ScalarValue]>>,
@@ -79,11 +83,13 @@ impl<'a> StructScalar<'a> {
         })
     }
 
+    /// Returns the data type of this struct scalar.
     #[inline]
     pub fn dtype(&self) -> &'a DType {
         self.dtype
     }
 
+    /// Returns the struct field definitions.
     #[inline]
     pub fn struct_fields(&self) -> &StructFields {
         self.dtype
@@ -91,19 +97,31 @@ impl<'a> StructScalar<'a> {
             .vortex_expect("StructScalar always has struct dtype")
     }
 
+    /// Returns the field names of the struct.
     pub fn names(&self) -> &FieldNames {
         self.struct_fields().names()
     }
 
+    /// Returns true if the struct is null.
     pub fn is_null(&self) -> bool {
         self.fields.is_none()
     }
 
+    /// Returns the field with the given name as a scalar.
+    ///
+    /// Returns None if the field doesn't exist.
     pub fn field(&self, name: impl AsRef<str>) -> Option<Scalar> {
         let idx = self.struct_fields().find(name)?;
         self.field_by_idx(idx)
     }
 
+    /// Returns the field at the given index as a scalar.
+    ///
+    /// Returns None if the index is out of bounds.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the struct is null.
     pub fn field_by_idx(&self, idx: usize) -> Option<Scalar> {
         let fields = self
             .fields
@@ -131,6 +149,11 @@ impl<'a> StructScalar<'a> {
         self.fields.map(Arc::deref)
     }
 
+    /// Casts this struct scalar to another struct type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the target type is not a struct or if the number of fields don't match.
     pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         let DType::Struct(st, _) = dtype else {
             vortex_bail!("Can only cast struct to another struct")
@@ -172,6 +195,11 @@ impl<'a> StructScalar<'a> {
         }
     }
 
+    /// Projects this struct scalar to include only the specified fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the struct cannot be projected or if a field is not found.
     pub fn project(&self, projection: &[FieldName]) -> VortexResult<Scalar> {
         let struct_dtype = self
             .dtype
@@ -201,6 +229,7 @@ impl<'a> StructScalar<'a> {
 }
 
 impl Scalar {
+    /// Creates a new struct scalar with the given fields.
     pub fn struct_(dtype: DType, children: Vec<Scalar>) -> Self {
         Self {
             dtype,

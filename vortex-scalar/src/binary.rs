@@ -11,6 +11,10 @@ use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vo
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
+/// A scalar value representing binary data.
+///
+/// This type provides a view into a binary scalar value, which can be either
+/// a valid byte buffer or null.
 #[derive(Debug, Hash)]
 pub struct BinaryScalar<'a> {
     dtype: &'a DType,
@@ -51,6 +55,11 @@ impl Ord for BinaryScalar<'_> {
 }
 
 impl<'a> BinaryScalar<'a> {
+    /// Creates a binary scalar from a data type and scalar value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the data type is not a binary type.
     pub fn from_scalar_value(dtype: &'a DType, value: ScalarValue) -> VortexResult<Self> {
         if !matches!(dtype, DType::Binary(..)) {
             vortex_bail!("Can only construct binary scalar from binary dtype, found {dtype}")
@@ -61,18 +70,20 @@ impl<'a> BinaryScalar<'a> {
         })
     }
 
+    /// Returns the data type of this binary scalar.
     #[inline]
     pub fn dtype(&self) -> &'a DType {
         self.dtype
     }
 
+    /// Returns the binary value as a byte buffer, or None if null.
     pub fn value(&self) -> Option<ByteBuffer> {
         self.value.as_ref().map(|v| v.as_ref().clone())
     }
 
-    /// Construct a value at most `max_length` in size that's greater than ourselves.
+    /// Constructs a value at most `max_length` in size that's greater than this value.
     ///
-    /// Will return None if constructing greater value overflows
+    /// Returns None if constructing a greater value would overflow.
     pub fn upper_bound(self, max_length: usize) -> Option<Self> {
         if let Some(value) = self.value {
             if value.len() > max_length {
@@ -156,6 +167,7 @@ impl<'a> BinaryScalar<'a> {
 }
 
 impl Scalar {
+    /// Creates a new binary scalar from a byte buffer.
     pub fn binary(buffer: impl Into<Arc<ByteBuffer>>, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Binary(nullability),

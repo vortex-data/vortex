@@ -5,7 +5,7 @@ use crate::i256;
 
 /// Checked conversion from one primitive type to another.
 ///
-/// This is meant to mirror the `ToPrimitive` trait from `num-traits` but with awareness of `i256`.
+/// This is meant to extend the `ToPrimitive` trait from `num-traits` with awareness of `i256`.
 pub trait ToPrimitive: num_traits::ToPrimitive {
     /// Converts the value of `self` to an `i256`. If the value cannot be
     /// represented by an `i256`, then `None` is returned.
