@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering::SeqCst;
 
 use bitvec::macros::internal::funty::Fundamental;
+use vortex::ArrayRef;
 use vortex::ToCanonical;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
@@ -53,11 +54,11 @@ impl std::fmt::Debug for VortexBindData {
 }
 
 pub struct VortexGlobalData {
-    multi_scan: MultiScan<Arc<ConversionCache>>,
+    multi_scan: MultiScan<(ArrayRef, Arc<ConversionCache>)>,
 }
 
 pub struct VortexLocalData {
-    multi_scan_iterator: MultiScanIterator<Arc<ConversionCache>>,
+    multi_scan_iterator: MultiScanIterator<(ArrayRef, Arc<ConversionCache>)>,
     exporter: Option<ArrayExporter>,
 }
 

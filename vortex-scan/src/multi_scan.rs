@@ -7,30 +7,28 @@ use crossbeam_queue::SegQueue;
 use futures::executor::LocalPool;
 use futures::future::BoxFuture;
 use futures::stream::{FuturesUnordered, StreamExt};
-use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 
 use crate::ScanBuilder;
 
-type ArrayFuture<S> = BoxFuture<'static, VortexResult<Option<(ArrayRef, S)>>>;
-type ScanBuilderFactory<S> =
-    Arc<SegQueue<Box<(dyn FnOnce() -> ScanBuilder<(ArrayRef, S)> + Send + Sync)>>>;
+type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
+type ScanBuilderFactory<T> = Arc<SegQueue<Box<(dyn FnOnce() -> ScanBuilder<T> + Send + Sync)>>>;
 
 /// Coordinator to orchestrate multiple scan operations.
 ///
 /// `MultiScan` allows to queue multiple scan operations in order to execute
 /// them in parallel. In particular, this enables scanning multiple files.
-pub struct MultiScan<S> {
-    scan_builder_factory: ScanBuilderFactory<S>,
+pub struct MultiScan<T> {
+    scan_builder_factory: ScanBuilderFactory<T>,
 }
 
-impl<S> Default for MultiScan<S> {
+impl<T> Default for MultiScan<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<S> MultiScan<S> {
+impl<T> MultiScan<T> {
     pub fn new() -> Self {
         Self {
             scan_builder_factory: Arc::new(SegQueue::new()),
@@ -40,7 +38,7 @@ impl<S> MultiScan<S> {
     /// Add lazily constructed scan builders paired with their corresponding states.
     pub fn with_scan_builders<I, F>(self, closures: I) -> Self
     where
-        F: FnOnce() -> ScanBuilder<(ArrayRef, S)> + 'static + Send + Sync,
+        F: FnOnce() -> ScanBuilder<T> + 'static + Send + Sync,
         I: IntoIterator<Item = F>,
     {
         for closure in closures.into_iter() {
@@ -53,7 +51,7 @@ impl<S> MultiScan<S> {
     /// Creates a new iterator to participate in the scan.
     ///
     /// The scan progresses when calling `next` on the iterator.
-    pub fn new_scan_iterator(&self) -> MultiScanIterator<S> {
+    pub fn new_scan_iterator(&self) -> MultiScanIterator<T> {
         MultiScanIterator {
             scan_builder_factory: self.scan_builder_factory.clone(),
             local_pool: LocalPool::new(),
@@ -64,18 +62,18 @@ impl<S> MultiScan<S> {
 }
 
 /// Scan iterator to participate in a `MultiScan`.
-pub struct MultiScanIterator<S> {
+pub struct MultiScanIterator<T> {
     local_pool: LocalPool,
-    polled_tasks: FuturesUnordered<ArrayFuture<S>>,
+    polled_tasks: FuturesUnordered<ArrayFuture<T>>,
 
     /// Thread-safe queue of closures that lazily produce [`ScanBuilder`] instances.
     /// This queue is shared across all iterators being created with `new_scan_iterator`.
-    scan_builder_factory: ScanBuilderFactory<S>,
-    task_queue: SegQueue<ArrayFuture<S>>,
+    scan_builder_factory: ScanBuilderFactory<T>,
+    task_queue: SegQueue<ArrayFuture<T>>,
 }
 
-impl<S> MultiScanIterator<S> {
-    fn pop_scan_task(&self) -> Option<VortexResult<ArrayFuture<S>>> {
+impl<T> MultiScanIterator<T> {
+    fn pop_scan_task(&self) -> Option<VortexResult<ArrayFuture<T>>> {
         if let Some(task_with_state) = self.task_queue.pop() {
             return Some(Ok(task_with_state));
         }
@@ -83,10 +81,10 @@ impl<S> MultiScanIterator<S> {
     }
 }
 
-impl<S: Send + Sync + 'static> Iterator for MultiScanIterator<S> {
-    type Item = VortexResult<(ArrayRef, S)>;
+impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
+    type Item = VortexResult<T>;
 
-    fn next(&mut self) -> Option<VortexResult<(ArrayRef, S)>> {
+    fn next(&mut self) -> Option<VortexResult<T>> {
         loop {
             // Queue up tasks if the thread local queue is almost empty.
             if self.task_queue.len() <= 4 {
