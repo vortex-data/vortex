@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 use num_traits::{FromPrimitive, ToPrimitive};
 use vortex::arrays::PrimitiveArray;
@@ -29,11 +28,11 @@ struct RunEndExporter<E: NativePType> {
 
 pub(crate) fn new_exporter(
     array: &RunEndArray,
-    cache: Arc<ConversionCache>,
+    cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let ends = array.ends().to_primitive()?;
     let values = array.values().clone();
-    let values_exporter = new_array_exporter(array.values(), cache.clone())?;
+    let values_exporter = new_array_exporter(array.values(), cache)?;
 
     match_each_integer_ptype!(ends.ptype(), |E| {
         Ok(Box::new(RunEndExporter {

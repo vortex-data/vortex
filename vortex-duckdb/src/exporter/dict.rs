@@ -28,7 +28,7 @@ struct DictExporter<I: NativePType> {
 
 pub(crate) fn new_exporter(
     array: &DictArray,
-    cache: Arc<ConversionCache>,
+    cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
     let values = array.values();
@@ -45,7 +45,7 @@ pub(crate) fn new_exporter(
         None => {
             // Create a new DuckDB vector for the values.
             let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
-            new_array_exporter(values, cache.clone())?.export(0, values.len(), &mut vector)?;
+            new_array_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
             let unowned = Arc::new(Mutex::new(vector));
 
             cache
@@ -76,7 +76,7 @@ impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
             .values_vector
             .lock()
             .vortex_expect("error: failed to get lock");
-        vector.reference(&*ref_vector);
+        vector.reference(&ref_vector);
 
         // Slice with a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);

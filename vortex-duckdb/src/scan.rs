@@ -209,7 +209,7 @@ impl TableFunction for VortexTableFunction {
 
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result.to_struct()?,
-                    conversion_cache.clone(),
+                    &conversion_cache,
                 )?);
             }
 
@@ -250,7 +250,7 @@ impl TableFunction for VortexTableFunction {
             let cache_id = cache_id.clone();
             let conversion_cache = Arc::new(ConversionCache::new(cache_id.fetch_add(1, SeqCst)));
 
-            let closure = move || {
+            move || {
                 let file = if !is_first_file.swap(true, SeqCst) {
                     // The first path from `file_paths` is skipped as
                     // the first file was already opened during bind.
@@ -266,9 +266,7 @@ impl TableFunction for VortexTableFunction {
                     .with_some_filter(filter_expr)
                     .with_projection(projection_expr)
                     .map(move |split| Ok((split, conversion_cache.clone())))
-            };
-
-            closure
+            }
         });
 
         Ok(VortexGlobalData {

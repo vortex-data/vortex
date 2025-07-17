@@ -24,6 +24,12 @@ pub struct MultiScan<S> {
     scan_builder_factory: ScanBuilderFactory<S>,
 }
 
+impl<S> Default for MultiScan<S> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<S> MultiScan<S> {
     pub fn new() -> Self {
         Self {

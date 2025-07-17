@@ -52,7 +52,7 @@ impl ArrayIteratorExporter {
                 if let Some(array) = self.iter.next() {
                     // Create a new array exporter for the current array.
                     let array = array?.to_struct()?;
-                    self.array_exporter = Some(ArrayExporter::try_new(&array, self.cache.clone())?);
+                    self.array_exporter = Some(ArrayExporter::try_new(&array, &self.cache)?);
                 } else {
                     // No more arrays to export.
                     return Ok(false);
@@ -81,11 +81,11 @@ pub struct ArrayExporter {
 }
 
 impl ArrayExporter {
-    pub fn try_new(array: &StructArray, cache: Arc<ConversionCache>) -> VortexResult<Self> {
+    pub fn try_new(array: &StructArray, cache: &ConversionCache) -> VortexResult<Self> {
         let fields = array
             .fields()
             .iter()
-            .map(|field| new_array_exporter(field.as_ref(), cache.clone()))
+            .map(|field| new_array_exporter(field.as_ref(), cache))
             .try_collect()?;
         Ok(Self {
             fields,
@@ -138,7 +138,7 @@ pub trait ColumnExporter {
 /// Create a DuckDB exporter for the given Vortex array.
 fn new_array_exporter(
     array: &dyn Array,
-    cache: Arc<ConversionCache>,
+    cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     if let Some(array) = array.as_opt::<ConstantVTable>() {
         return constant::new_exporter(array);
