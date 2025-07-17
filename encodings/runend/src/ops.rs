@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::ConstantArray;
-use vortex_array::vtable::OperationsVTable;
+use vortex_array::arrays::{ConstantArray, PrimitiveArray};
+use vortex_array::vtable::{OperationsVTable, ValidityHelper};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{NativePType, match_each_native_ptype};
@@ -56,10 +56,9 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
         // Renumber the ends to account for the offset.
         let ends = array.ends().to_primitive()?;
         let new_ends = match_each_native_ptype!(ends.ptype(), |P| {
-            renumber_ends(ends.as_slice::<P>(), array.offset()).into_array()
+            let buffer = renumber_ends(ends.as_slice::<P>(), array.offset());
+            PrimitiveArray::new(buffer, ends.validity().clone()).into_array()
         });
-
-        // The ends final value should be capped at the end of the array instead.
 
         // New values, sliced properly
         RunEndArray::with_offset_and_length(new_ends, array.values().clone(), 0, array.len())
