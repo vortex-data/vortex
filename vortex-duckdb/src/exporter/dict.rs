@@ -64,7 +64,7 @@ pub(crate) fn new_exporter(
             values_len: values.len().as_u32(),
             codes,
             codes_type: PhantomData::<I>,
-            cache_id: cache.instance_id,
+            cache_id: cache.instance_id(),
             value_id: values_key,
         }))
     })

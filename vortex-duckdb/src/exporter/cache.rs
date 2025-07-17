@@ -19,7 +19,7 @@ pub struct ConversionCache {
     pub values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
     pub canonical_cache: DashMap<usize, (ArrayRef, Canonical)>,
     // A value which must be unique for a given DuckDB pipeline.
-    pub instance_id: u64,
+    instance_id: u64,
 }
 
 impl ConversionCache {
@@ -28,6 +28,10 @@ impl ConversionCache {
             instance_id: id,
             ..Self::default()
         }
+    }
+
+    pub fn instance_id(&self) -> u64 {
+        self.instance_id
     }
 
     fn insert_cached_array(&self, arr_value: usize, array: &ArrayRef) -> VortexResult<ArrayRef> {

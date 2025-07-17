@@ -32,7 +32,6 @@ use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, Vector};
 pub struct ArrayIteratorExporter {
     iter: Box<dyn ArrayIterator>,
     cache: Arc<ConversionCache>,
-
     array_exporter: Option<ArrayExporter>,
 }
 
