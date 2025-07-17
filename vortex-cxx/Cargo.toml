@@ -1,11 +1,21 @@
 [package]
 name = "vortex-cxx"
-version = "0.1.0"
-edition = "2021"
-authors = ["Vortex Authors <hello@vortex.dev>"]
+authors = { workspace = true }
+categories = { workspace = true }
 description = "C++ bindings for Vortex generated from Rust using cxx"
-license = "Apache-2.0"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
 publish = false
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
 
 [lib]
 crate-type = ["staticlib"]

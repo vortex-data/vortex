@@ -191,8 +191,8 @@ unsafe fn scan_builder_into_arrow(
     let out_schema = out_schema as *mut FFI_ArrowSchema;
     // # Safety
     // Arrow C ABI
-    std::ptr::write(out_array, ffi_array);
-    std::ptr::write(out_schema, ffi_schema);
+    unsafe { std::ptr::write(out_array, ffi_array) };
+    unsafe { std::ptr::write(out_schema, ffi_schema) };
     Ok(())
 }
 
@@ -210,7 +210,7 @@ unsafe fn scan_builder_into_stream(
     let out_stream = out_stream as *mut FFI_ArrowArrayStream;
     // # Safety
     // Arrow C ABI
-    std::ptr::write(out_stream, stream);
+    unsafe { std::ptr::write(out_stream, stream) };
     Ok(())
 }
 
@@ -234,7 +234,7 @@ unsafe fn write_array_stream(
     path: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let stream_reader =
-        ArrowArrayStreamReader::from_raw(input_stream as *mut FFI_ArrowArrayStream)?;
+        unsafe { ArrowArrayStreamReader::from_raw(input_stream as *mut FFI_ArrowArrayStream) }?;
 
     let rt = get_runtime();
     let path = path.to_string();
