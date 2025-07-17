@@ -8,10 +8,9 @@ use std::fmt::Display;
 
 use itertools::Itertools as _;
 use tree::TreeDisplayWrapper;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect as _;
 
-use crate::{Array, ToCanonical};
+use crate::Array;
 
 /// Describe how to convert an array to a string.
 ///
@@ -250,15 +249,16 @@ impl dyn Array + '_ {
             DisplayOptions::TreeDisplay => write!(f, "{}", TreeDisplayWrapper(self.to_array())),
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
+                use crate::canonical::ToCanonical;
                 let mut builder = tabled::builder::Builder::default();
 
                 let table = match self.dtype() {
-                    DType::Struct(sf, _) => {
+                    vortex_dtype::DType::Struct(sf, _) => {
                         let struct_ = self.to_struct().vortex_expect("struct array");
                         builder.push_record(sf.names().iter().map(|name| name.to_string()));
 
                         for row_idx in 0..self.len() {
-                            if !self.is_valid(row_idx).expect("index in bounds") {
+                            if !self.is_valid(row_idx).vortex_expect("index in bounds") {
                                 let null_row = vec!["null".to_string(); sf.names().len()];
                                 builder.push_record(null_row);
                             } else {
@@ -282,7 +282,7 @@ impl dyn Array + '_ {
                         }
 
                         for row_idx in 0..self.len() {
-                            if !self.is_valid(row_idx).expect("index is in bounds") {
+                            if !self.is_valid(row_idx).vortex_expect("index is in bounds") {
                                 table.modify(
                                     (1 + row_idx, 0),
                                     tabled::settings::Span::column(sf.names().len() as isize),
@@ -308,7 +308,7 @@ impl dyn Array + '_ {
                         table
                     }
                 };
-                write!(f, "{}", table)
+                write!(f, "{table}")
             }
         }
     }
