@@ -73,7 +73,13 @@ trait StringViewPredicate {
     fn matches(&self, view: BinaryView) -> bool;
 }
 
-/// Build a mask
+/// Build a pruning mask by applying the `predicate` over the `views`.
+///
+/// The predicate will return true if the item may match the predicate, or false if it
+/// *definitely* does not match the predicate.
+///
+/// This is executed at the pruning stage of a scan and can reduce the number of string data
+/// buffers that need to be fetched over the network.
 #[allow(unused)]
 fn build_mask<Pred>(predicate: Pred, views: &[BinaryView]) -> Mask
 where
@@ -114,7 +120,7 @@ impl From<&str> for StartsWithPredicate {
 impl StringViewPredicate for StartsWithPredicate {
     fn matches(&self, view: BinaryView) -> bool {
         // First check: the string is at least as long as the prefix
-        view.len() > self.prefix_bits &&
+        8 * view.len() > self.prefix_bits &&
         // Second check: the search prefix bytes must match the front of the view.
         // Otherwise, it certainly does not match.
         (self.prefix << (32 - self.prefix_bits)) == (view.prefix() << (32 - self.prefix_bits))
@@ -168,29 +174,81 @@ impl StringViewPredicate for &EqualsPredicate {
 
 #[cfg(test)]
 mod tests {
+    use rstest::{fixture, rstest};
     use vortex_array::arrays::VarBinViewArray;
 
-    use super::{StartsWithPredicate, StringViewPredicate};
+    use super::{EqualsPredicate, StartsWithPredicate, build_mask};
 
     #[test]
-    fn test_stringview_predicates() {
+    fn test_mask_startswith() {
         let array = VarBinViewArray::from_iter_nullable_str([
-            Some("AquaTeen Hunger Force"),
+            Some("Adult Swim"),
             Some("Samurai Jack"),
             Some("Batman Beyond"),
             Some("Johnny Bravo"),
         ]);
 
-        // An inexact match
         let starts_with = StartsWithPredicate::from("Bat");
 
-        for &view in array.views().iter() {
-            println!(
-                "{} LIKE {} ? {}",
-                str::from_utf8(starts_with.prefix.to_le_bytes().as_slice()).unwrap(),
-                str::from_utf8(view.prefix().to_le_bytes().as_slice()).unwrap(),
-                starts_with.matches(view)
-            );
-        }
+        let matches = build_mask(starts_with, array.views());
+
+        assert_eq!(
+            [
+                matches.value(0),
+                matches.value(1),
+                matches.value(2),
+                matches.value(3),
+            ],
+            [false, false, true, false]
+        );
+    }
+
+    #[fixture]
+    fn test_array() -> VarBinViewArray {
+        VarBinViewArray::from_iter_nullable_str([
+            Some("Adult Swim"),
+            Some("Samurai Jack"),
+            Some("Batman Beyond"),
+            Some("Batman The Animated Series"),
+            Some("Johnny Bravo"),
+        ])
+    }
+
+    #[rstest]
+    fn test_startswith(test_array: VarBinViewArray) {
+        let starts_with = StartsWithPredicate::from("Bat");
+
+        let matches = build_mask(starts_with, test_array.views());
+
+        assert_eq!(
+            [
+                matches.value(0),
+                matches.value(1),
+                matches.value(2),
+                matches.value(3),
+                matches.value(4),
+            ],
+            [false, false, true, true, false]
+        );
+    }
+
+    #[rstest]
+    fn test_equals(test_array: VarBinViewArray) {
+        // We craft a predicate that will succeed for the pruning stage, and ultimately get
+        // thrown away at the filter stage.
+        let equals = EqualsPredicate::from("Batman 53y0nd");
+
+        let matches = build_mask(equals, test_array.views());
+
+        assert_eq!(
+            [
+                matches.value(0),
+                matches.value(1),
+                matches.value(2),
+                matches.value(3),
+                matches.value(4),
+            ],
+            [false, false, true, false, false]
+        );
     }
 }
