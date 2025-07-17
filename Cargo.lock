@@ -6218,6 +6218,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "static_assertions",
+ "tabled",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
