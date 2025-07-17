@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod python;
-pub(crate) mod stream;
 
 use std::iter;
 
@@ -12,7 +11,6 @@ use parking_lot::Mutex;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use pyo3::{Bound, PyResult, Python};
-pub(crate) use stream::*;
 use vortex::arrow::VortexRecordBatchReader;
 use vortex::dtype::DType;
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};

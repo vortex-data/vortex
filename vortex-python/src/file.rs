@@ -18,14 +18,13 @@ use vortex::expr::{ExprRef, root, select};
 use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::SplitBy;
-use vortex::stream::ArrayStreamExt;
 
 use crate::arrays::PyArrayRef;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
 use crate::expr::PyExpr;
-use crate::iter::{ArrayStreamToIterator, PyArrayIterator};
-use crate::{TOKIO_RUNTIME, install_module};
+use crate::iter::PyArrayIterator;
+use crate::{THREAD_POOL, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "file")?;
@@ -154,7 +153,6 @@ impl PyVortexFile {
             .get()
             .vxf
             .scan()?
-            .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
             .with_some_filter(expr.map(|e| e.into_inner()))
             .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
 
@@ -169,7 +167,8 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(builder.into_array_stream()?));
+        let iter = builder.into_array_thread_pool_iter(THREAD_POOL.clone())?;
+
         Ok(PyArrayIterator::new(Box::new(iter)))
     }
 
@@ -184,10 +183,9 @@ impl PyVortexFile {
     ) -> PyResult<PyObject> {
         let vxf = slf.get().vxf.clone();
 
-        let stream = slf.py().allow_threads(|| {
+        let reader: Box<dyn RecordBatchReader + Send> = slf.py().allow_threads(|| {
             let mut builder = vxf
                 .scan()?
-                .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
                 .with_some_filter(expr.map(|e| e.into_inner()))
                 .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
 
@@ -195,14 +193,11 @@ impl PyVortexFile {
                 builder = builder.with_split_by(SplitBy::RowCount(batch_size));
             }
 
-            // TODO(ngates): use ScanBuilder::map_to_record_batch
-            Ok::<_, VortexError>(ArrayStreamExt::boxed(builder.into_array_stream()?))
+            let iter = builder.into_array_thread_pool_iter(THREAD_POOL.clone())?;
+            Ok::<_, VortexError>(Box::new(VortexRecordBatchReader::try_new(iter)?))
         })?;
 
-        let iter = ArrayStreamToIterator::new(stream);
-        let rbr: Box<dyn RecordBatchReader + Send> =
-            Box::new(VortexRecordBatchReader::try_new(iter)?);
-        rbr.into_pyarrow(slf.py())
+        reader.into_pyarrow(slf.py())
     }
 
     /// Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API.

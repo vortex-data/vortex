@@ -6,15 +6,14 @@ use std::sync::{Arc, Weak};
 
 use dashmap::{DashMap, Entry};
 use datafusion::arrow::datatypes::SchemaRef;
-use datafusion::arrow::error::ArrowError;
 use datafusion::common::{DataFusionError, Result as DFResult};
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
-use futures::{FutureExt as _, StreamExt, TryStreamExt};
+use futures::{FutureExt as _, StreamExt, TryFutureExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
 use tokio::runtime::Handle;
 use vortex::ArrayRef;
-use vortex::error::VortexError;
+use vortex::error::vortex_err;
 use vortex::expr::{ExprRef, VortexExpr};
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
@@ -119,19 +118,31 @@ impl FileOpener for VortexFileOpener {
                 }
             }
 
-            let stream = scan_builder
-                .with_tokio_executor(Handle::current())
+            let tasks = scan_builder
                 .with_metrics(metrics)
                 .with_projection(projection)
                 .with_some_filter(filter)
                 .map_to_record_batch(projected_arrow_schema.clone())
-                .into_stream()
+                .build()
+                .map_err(|e| {
+                    DataFusionError::Execution(format!("Failed to build Vortex scan: {e}"))
+                })?;
+
+            let stream = stream::iter(tasks)
+                .map(|task| {
+                    let fut = Handle::current()
+                        .spawn(task)
+                        .map_err(|e| vortex_err!("Failed to spawn task: {e}"));
+                    async move { fut.await? }
+                })
+                .buffer_unordered(16)
+                .filter_map(|r| async move { r.transpose() })
                 .map_err(|e| {
                     DataFusionError::Execution(format!("Failed to create Vortex stream: {e}"))
-                })?
+                })
                 .map_ok(move |rb| {
                     // We try and slice the stream into respecting datafusion's configured batch size.
-                    futures::stream::iter(
+                    stream::iter(
                         (0..rb.num_rows().div_ceil(batch_size * 2))
                             .flat_map(move |block_idx| {
                                 let offset = block_idx * batch_size * 2;
@@ -150,7 +161,7 @@ impl FileOpener for VortexFileOpener {
                             .map(Ok),
                     )
                 })
-                .map_err(|e: VortexError| ArrowError::ExternalError(Box::new(e)))
+                //.map_err(|e: VortexError| ArrowError::ExternalError(Box::new(e)))
                 .try_flatten()
                 .boxed();
 

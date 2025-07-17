@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::channel::oneshot;
+use futures::executor::ThreadPool;
 use futures::future::BoxFuture;
+use futures::task::SpawnExt;
 use vortex_error::{ResultExt, VortexResult, vortex_err};
 
 pub trait TaskExecutor: 'static + Send + Sync {
@@ -78,5 +80,17 @@ impl TaskExecutor for LocalExecutor {
         fut: BoxFuture<'static, VortexResult<()>>,
     ) -> BoxFuture<'static, VortexResult<()>> {
         fut
+    }
+}
+
+impl TaskExecutor for ThreadPool {
+    fn do_spawn(
+        &self,
+        fut: BoxFuture<'static, VortexResult<()>>,
+    ) -> BoxFuture<'static, VortexResult<()>> {
+        let fut = self
+            .spawn_with_handle(fut)
+            .map_err(|e| vortex_err!("Failed to spawn task: {}", e));
+        async move { fut?.await }.boxed()
     }
 }

@@ -25,7 +25,7 @@ def vxf(tmpdir_factory) -> vortex.VortexFile:
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"
 
     if not os.path.exists(fname):
-        a = pa.array([record(x) for x in range(1_000_000)])
+        a = pa.array([record(x) for x in range(10_000)])
         arr = vx.compress(vx.array(a))
         vortex.io.write(arr, str(fname))
     return vortex.open(str(fname))
@@ -38,7 +38,7 @@ def test_dtype(vxf):
 
 
 def test_row_count(vxf):
-    assert len(vxf) == 1_000_000
+    assert len(vxf) == 10_000
 
 
 def test_scan(vxf):
@@ -46,10 +46,16 @@ def test_scan(vxf):
 
 
 def test_to_arrow_batch_size(vxf):
-    assert len(list(vxf.to_arrow(batch_size=1_000_000))) == 1, "batch_size=1_000_000"
-    assert len(list(vxf.to_arrow(batch_size=1_000))) == 1_000, "batch_size=1_000"
+    assert len(list(vxf.to_arrow(batch_size=10_000))) == 1, "batch_size=10_000"
+    assert len(list(vxf.to_arrow(batch_size=100))) == 100, "batch_size=100"
 
 
 def test_to_arrow_columns(vxf):
     rbr = vxf.to_arrow(projection=["string", "bool"])
     assert rbr.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])
+
+
+def test_read_write(vxf, tmpdir_factory):
+    stream = vxf.scan()
+    out_name = tmpdir_factory.mktemp("data") / "output.vortex"
+    vx.io.write(stream, str(out_name))

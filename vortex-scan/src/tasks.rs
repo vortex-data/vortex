@@ -14,7 +14,7 @@ use vortex_expr::ExprRef;
 use vortex_layout::LayoutReader;
 use vortex_mask::Mask;
 
-use crate::{Selection, TaskExecutor, TaskExecutorExt};
+use crate::Selection;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
@@ -22,7 +22,7 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 ///
 /// # Task execution flow
 ///
-/// First, the tasks's row range (split) is intersected with the global file row-range requested,
+/// First, the task's row range (split) is intersected with the global file row-range requested,
 /// if any.
 ///
 /// Then intersected row range is then further reduced via expression-based pruning. After pruning
@@ -105,11 +105,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
         mapper(array_ref).map(Some)
     };
 
-    match &ctx.task_executor {
-        None => Ok(array_fut.boxed()),
-        // If caller provided an executor for the CPU work, spawn onto that and await the result
-        Some(executor) => Ok(executor.clone().spawn(array_fut.boxed())),
-    }
+    Ok(array_fut.boxed())
 }
 
 /// Information needed to execute a single split task.
@@ -132,6 +128,4 @@ pub(super) struct TaskContext<A> {
 
     /// Function that maps into an A.
     pub(super) mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-
-    pub(super) task_executor: Option<Arc<dyn TaskExecutor>>,
 }

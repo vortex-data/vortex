@@ -3,11 +3,11 @@
 
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use std::ops::Deref;
-use std::sync::LazyLock;
-
+use futures::executor::ThreadPool;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use std::ops::Deref;
+use std::sync::LazyLock;
 
 pub(crate) mod arrays;
 mod compress;
@@ -30,6 +30,13 @@ use vortex::error::{VortexError, VortexExpect as _};
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+static THREAD_POOL: LazyLock<ThreadPool> = LazyLock::new(|| {
+    ThreadPool::builder()
+        .create()
+        .map_err(VortexError::from)
+        .vortex_expect("thread pool must not fail to start")
+});
 
 static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Runtime::new()
