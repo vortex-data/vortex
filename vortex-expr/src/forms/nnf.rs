@@ -81,13 +81,6 @@ impl FolderMut for NNFVisitor {
     ) -> VortexResult<FoldDown<ExprRef, bool>> {
         if node.is::<NotVTable>() {
             return Ok(FoldDown::Continue(!negating));
-        } else if let Some(binary_expr) = node.as_opt::<BinaryVTable>() {
-            match binary_expr.op() {
-                Operator::And | Operator::Or => {
-                    return Ok(FoldDown::Continue(negating));
-                }
-                _ => {}
-            }
         }
 
         Ok(FoldDown::Continue(negating))
@@ -104,7 +97,7 @@ impl FolderMut for NNFVisitor {
             new_children.remove(0)
         } else if let Some(binary_expr) = node.as_opt::<BinaryVTable>() {
             if !negating {
-                node
+                node.with_children(new_children)?
             } else {
                 let new_op = match binary_expr.op() {
                     Operator::Eq => Operator::NotEq,
@@ -138,5 +131,28 @@ impl FolderMut for NNFVisitor {
         };
 
         Ok(FoldUp::Continue(new_node))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{and, lit, or};
+
+    use super::*;
+
+    #[test]
+    fn basic_nnf_test() {
+        let expr = and(not(and(lit(true), lit(true))), and(lit(true), lit(true)));
+        let expected = and(
+            or(not(lit(true)), not(lit(true))),
+            and(lit(true), lit(true)),
+        );
+        let mut rewriter = NNFVisitor::default();
+        let value = expr
+            .transform_with_context(&mut rewriter, false)
+            .unwrap()
+            .result();
+
+        assert_eq!(&value, &expected);
     }
 }
