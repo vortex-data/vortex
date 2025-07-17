@@ -6401,6 +6401,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "num-traits",
+ "parking_lot",
  "reqwest",
  "tempfile",
  "tokio",

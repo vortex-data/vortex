@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use parking_lot::Mutex;
 use std::marker::PhantomData;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use bitvec::macros::internal::funty::Fundamental;
 use num_traits::AsPrimitive;
 use vortex::arrays::PrimitiveArray;
 use vortex::dtype::{NativePType, match_each_integer_ptype};
 use vortex::encodings::dict::DictArray;
-use vortex::error::{VortexExpect, VortexResult};
+use vortex::error::VortexResult;
 use vortex::{Array, ToCanonical};
 
 use crate::duckdb::{SelectionVector, Vector};
@@ -72,11 +73,7 @@ pub(crate) fn new_exporter(
 impl<I: NativePType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Copy across the dictionary values.
-        let ref_vector = self
-            .values_vector
-            .lock()
-            .vortex_expect("error: failed to get lock");
-        vector.reference(&ref_vector);
+        vector.reference(&self.values_vector.lock());
 
         // Slice with a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);
