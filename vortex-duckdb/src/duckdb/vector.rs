@@ -166,10 +166,3 @@ impl Vector {
         Ok(string)
     }
 }
-
-impl Clone for Vector {
-    fn clone(&self) -> Self {
-        // Return an unowned copy of the vector
-        unsafe { Vector::borrow(self.as_ptr()) }
-    }
-}
