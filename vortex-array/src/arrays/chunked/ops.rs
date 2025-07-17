@@ -53,7 +53,10 @@ impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
             .map(|chunk| chunk.optimize())
             .collect::<VortexResult<Vec<_>>>()?;
 
-        ChunkedArray::try_new(optimized_chunks, array.dtype().clone())
+        Ok(ChunkedArray::new_unchecked(
+            optimized_chunks,
+            array.dtype().clone(),
+        ))
     }
 }
 
