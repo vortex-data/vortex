@@ -37,14 +37,14 @@ impl Dataset for StructListOfInts {
         &self.name
     }
 
-    async fn to_vortex_array(&self) -> ArrayRef {
+    async fn to_vortex_array(&self) -> anyhow::Result<ArrayRef> {
         let names: FieldNames = (0..self.num_columns)
             .map(|col_idx| (col_idx.to_string()))
             .collect();
         let mut rng = rand::rngs::StdRng::seed_from_u64(0);
 
         let rows_per_chunk = (self.row_count / self.chunk_count).max(1usize);
-        (0..self.row_count)
+        Ok((0..self.row_count)
             .step_by(rows_per_chunk)
             .map(|starting_row| rows_per_chunk.min(self.row_count - starting_row))
             .map(|chunk_row_count| {
@@ -72,8 +72,7 @@ impl Dataset for StructListOfInts {
                 )
                 .map(|a| a.into_array())
             })
-            .collect::<VortexResult<ChunkedArray>>()
-            .unwrap()
-            .into_array()
+            .collect::<VortexResult<ChunkedArray>>()?
+            .into_array())
     }
 }

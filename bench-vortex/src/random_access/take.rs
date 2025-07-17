@@ -4,6 +4,7 @@
 use std::iter;
 use std::path::Path;
 
+use crate::THREAD_POOL;
 use arrow_array::types::Int64Type;
 use arrow_array::{PrimitiveArray, RecordBatch};
 use arrow_select::concat::concat_batches;
@@ -15,10 +16,9 @@ use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
 use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
-use tokio::runtime::Handle;
 use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
-use vortex::stream::ArrayStreamExt;
+use vortex::iter::ArrayIteratorExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, IntoArray};
 
@@ -36,11 +36,9 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::
         .open(reader)
         .await?
         .scan()?
-        .with_tokio_executor(Handle::current())
         .with_row_indices(indices)
-        .into_array_stream()?
-        .read_all()
-        .await?
+        .into_array_thread_pool_iter(THREAD_POOL.clone())?
+        .read_all()?
         // For equivalence.... we decompress to make sure we're not cheating too much.
         .to_canonical()
         .map(|a| a.into_array())?)

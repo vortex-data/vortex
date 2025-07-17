@@ -6579,10 +6579,9 @@ version = "0.1.0"
 dependencies = [
  "arrow-buffer",
  "arrow-ord",
- "futures-util",
+ "itertools 0.14.0",
  "libfuzzer-sys",
  "strum 0.27.1",
- "thiserror 2.0.12",
  "tokio",
  "vortex-array",
  "vortex-btrblocks",

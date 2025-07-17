@@ -55,7 +55,7 @@ fn test_read_simple() {
         block_on(VortexWriteOptions::default().write(ByteBufferMut::empty(), st.to_array_stream()))
             .unwrap();
 
-    let mut iter = VortexOpenOptions::in_memory()
+    let iter = VortexOpenOptions::in_memory()
         .open(buf)
         .unwrap()
         .scan()
@@ -65,7 +65,7 @@ fn test_read_simple() {
 
     let mut row_count = 0;
 
-    while let Some(array) = iter.next() {
+    for array in iter {
         let array = array.unwrap();
         row_count += array.len();
     }
@@ -225,7 +225,7 @@ fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            StructFields::new(vec!["strings".into()].into(), vec![strings_dtype.clone()]),
+            StructFields::new(vec!["strings".into()].into(), vec![strings_dtype]),
             Nullability::NonNullable,
         )
     );
@@ -252,7 +252,7 @@ fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            StructFields::new(["numbers"].into(), vec![numbers_dtype.clone()]),
+            StructFields::new(["numbers"].into(), vec![numbers_dtype]),
             Nullability::NonNullable,
         )
     );
@@ -296,7 +296,7 @@ fn unequal_batches() {
 
     let mut item_count = 0;
 
-    while let Some(array) = stream.next() {
+    for array in stream.by_ref() {
         let array = array.unwrap();
         item_count += array.len();
 
@@ -354,7 +354,7 @@ fn write_chunked() {
             .unwrap()
     );
     let mut array_len: usize = 0;
-    while let Some(array) = stream.next() {
+    for array in stream.by_ref() {
         array_len += array.unwrap().len();
     }
     assert_eq!(array_len, 48);

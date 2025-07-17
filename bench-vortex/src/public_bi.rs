@@ -8,6 +8,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, LazyLock};
+use vortex::iter::ArrayIteratorExt;
 
 use anyhow::{anyhow, bail};
 use arrow_schema::{DataType, Field, Schema};
@@ -32,7 +33,6 @@ use url::Url;
 use vortex::ArrayRef;
 use vortex::error::{VortexResult, vortex_err};
 use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
-use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_datafusion::VortexFormat;
 
@@ -415,8 +415,8 @@ impl Dataset for PBIBenchmark {
         &self.name
     }
 
-    async fn to_vortex_array(&self) -> ArrayRef {
-        let dataset = self.dataset().expect("failed to parse tables");
+    async fn to_vortex_array(&self) -> anyhow::Result<ArrayRef> {
+        let dataset = self.dataset()?;
         dataset.write_as_vortex().await;
         // reading only the first table, each table in a PBI benchmark
         // has its own schema.
@@ -426,17 +426,12 @@ impl Dataset for PBIBenchmark {
             .expect("must have at least one table")
             .clone();
 
-        async move {
-            VortexOpenOptions::file()
-                .open(&path)
-                .await?
-                .scan()?
-                .into_array_stream()?
-                .read_all()
-                .await
-        }
-        .await
-        .expect("must be able to read table")
+        Ok(VortexOpenOptions::file()
+            .open(&path)
+            .await?
+            .scan()?
+            .into_array_iter()?
+            .read_all()?)
     }
 }
 

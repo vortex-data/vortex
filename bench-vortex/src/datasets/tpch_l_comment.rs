@@ -18,9 +18,9 @@ impl Dataset for TPCHLCommentChunked {
         "TPC-H l_comment chunked"
     }
 
-    async fn to_vortex_array(&self) -> ArrayRef {
+    async fn to_vortex_array(&self) -> anyhow::Result<ArrayRef> {
         let opts = DuckdbTpcOptions::new("tpch".to_data_path(), TpcDataset::TpcH, Format::Csv);
-        let data_dir = generate_tpc(opts).expect("gen tpch");
+        let data_dir = generate_tpc(opts)?;
 
         let lineitem_vortex = tpch::load_table(data_dir, "lineitem", &tpch::schema::LINEITEM).await;
 
@@ -28,12 +28,12 @@ impl Dataset for TPCHLCommentChunked {
         let comment_chunks = lineitem_chunked.chunks().iter().map(|chunk| {
             chunk
                 .to_struct()
-                .unwrap()
+                .expect("Failed to convert chunk to struct")
                 .project(&[FieldName::from("l_comment")])
-                .unwrap()
+                .expect("Failed to project l_comment field")
                 .into_array()
         });
-        ChunkedArray::from_iter(comment_chunks).into_array()
+        Ok(ChunkedArray::from_iter(comment_chunks).into_array())
     }
 }
 
@@ -45,13 +45,12 @@ impl Dataset for TPCHLCommentCanonical {
         "TPC-H l_comment canonical"
     }
 
-    async fn to_vortex_array(&self) -> ArrayRef {
+    async fn to_vortex_array(&self) -> anyhow::Result<ArrayRef> {
         let comments_canonical = TPCHLCommentChunked
             .to_vortex_array()
-            .await
-            .to_struct()
-            .unwrap()
+            .await?
+            .to_struct()?
             .into_array();
-        ChunkedArray::from_iter([comments_canonical]).into_array()
+        Ok(ChunkedArray::from_iter([comments_canonical]).into_array())
     }
 }

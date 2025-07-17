@@ -3,15 +3,14 @@
 
 use std::fmt::Display;
 
+use crate::clickbench::Flavor;
+use crate::{Format, clickbench};
 use anyhow::Result;
 use async_trait::async_trait;
 use datafusion::prelude::SessionContext;
 use serde::Serialize;
 use url::Url;
 use vortex::ArrayRef;
-
-use crate::clickbench::Flavor;
-use crate::{Format, clickbench};
 
 pub mod data_downloads;
 pub mod file;
@@ -23,7 +22,7 @@ pub mod tpch_l_comment;
 pub trait Dataset {
     fn name(&self) -> &str;
 
-    async fn to_vortex_array(&self) -> ArrayRef;
+    async fn to_vortex_array(&self) -> Result<ArrayRef>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

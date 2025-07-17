@@ -2,15 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::path::PathBuf;
+use vortex::iter::ArrayIteratorExt;
 
 use async_trait::async_trait;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use tokio::runtime::Handle;
 use vortex::ArrayRef;
 use vortex::error::VortexError;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
-use vortex::stream::ArrayStreamExt;
 
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
@@ -25,7 +24,7 @@ impl Dataset for TaxiData {
         "taxi"
     }
 
-    async fn to_vortex_array(&self) -> ArrayRef {
+    async fn to_vortex_array(&self) -> anyhow::Result<ArrayRef> {
         fetch_taxi_data().await
     }
 }
@@ -37,20 +36,14 @@ pub async fn taxi_data_parquet() -> PathBuf {
     download_data(taxi_parquet_fpath, taxi_data_url).await
 }
 
-pub async fn fetch_taxi_data() -> ArrayRef {
+pub async fn fetch_taxi_data() -> anyhow::Result<ArrayRef> {
     let vortex_data = taxi_data_vortex().await;
-    VortexOpenOptions::file()
+    Ok(VortexOpenOptions::file()
         .open(vortex_data)
-        .await
-        .unwrap()
-        .scan()
-        .unwrap()
-        .with_tokio_executor(Handle::current())
-        .into_array_stream()
-        .unwrap()
-        .read_all()
-        .await
-        .unwrap()
+        .await?
+        .scan()?
+        .into_array_iter()?
+        .read_all()?)
 }
 
 pub async fn taxi_data_vortex() -> PathBuf {

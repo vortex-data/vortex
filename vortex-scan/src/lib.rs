@@ -206,6 +206,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     ///
     /// All work will be performed on the current thread, with tasks interleaved per the
     /// configured concurrency. Any configured executor will be ignored.
+    #[allow(clippy::should_implement_trait)]
     pub fn into_iter(self) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
         // As we're using a `LocalPool` here, we want tasks to actually run fully on the current thread,
         // so we have to make sure to zero out any currently configured executor.

@@ -60,7 +60,9 @@ pub fn benchmark_compress(
     let bench_name = dataset_handle.name();
     tracing::info!("Running {bench_name} benchmark");
 
-    let vx_array = runtime.block_on(async { dataset_handle.to_vortex_array().await });
+    let vx_array = runtime
+        .block_on(dataset_handle.to_vortex_array())
+        .expect("failed to load dataset");
     let uncompressed = ChunkedArray::from_iter(
         vx_array
             .as_::<ChunkedVTable>()
@@ -160,7 +162,7 @@ pub fn benchmark_compress(
         LazyCell::force(&buffer);
 
         let time = run(runtime, iterations, || async {
-            vortex_decompress_read(buffer.clone()).await.unwrap()
+            vortex_decompress_read(buffer.clone()).unwrap()
         });
         vortex_decompress_time = Some(time);
         timings.push(CompressionTimingMeasurement {

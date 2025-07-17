@@ -4,13 +4,14 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
+use clap::ValueEnum;
+use futures::executor::ThreadPool;
+use itertools::Itertools;
+use serde::Serialize;
 use std::clone::Clone;
 use std::fmt::Display;
 use std::str::FromStr;
-
-use clap::ValueEnum;
-use itertools::Itertools;
-use serde::Serialize;
+use std::sync::LazyLock;
 
 pub mod bench_run;
 pub mod benchmark_driver;
@@ -38,6 +39,13 @@ pub use vortex::error::vortex_panic;
 // All benchmarks run with mimalloc for consistency.
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+pub(crate) static THREAD_POOL: LazyLock<ThreadPool> = LazyLock::new(|| {
+    ThreadPool::builder()
+        .create()
+        .map_err(VortexError::from)
+        .vortex_expect("thread pool must not fail to start")
+});
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Target {
@@ -171,4 +179,4 @@ impl Display for Engine {
 
 pub use utils::file_utils::*;
 pub use utils::logging::*;
-use vortex::error::{VortexUnwrap, vortex_err};
+use vortex::error::{VortexError, VortexExpect, VortexUnwrap, vortex_err};
