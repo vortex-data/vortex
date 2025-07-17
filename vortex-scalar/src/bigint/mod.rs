@@ -21,9 +21,13 @@ pub struct i256(arrow_buffer::i256);
 
 #[allow(clippy::same_name_method)]
 impl i256 {
+    /// The zero value for i256.
     pub const ZERO: Self = Self(arrow_buffer::i256::ZERO);
+    /// The one value for i256.
     pub const ONE: Self = Self(arrow_buffer::i256::ONE);
+    /// The maximum value for i256.
     pub const MAX: Self = Self(arrow_buffer::i256::MAX);
+    /// The minimum value for i256.
     pub const MIN: Self = Self(arrow_buffer::i256::MIN);
 
     /// Construct a new `i256` from an unsigned `lower` bits and a signed `upper` bits.
@@ -36,6 +40,9 @@ impl i256 {
         Self(arrow_buffer::i256::from_i128(i))
     }
 
+    /// Attempts to convert this i256 to an i128.
+    ///
+    /// Returns None if the value is too large to fit in an i128.
     pub fn maybe_i128(self) -> Option<i128> {
         self.0.to_i128()
     }
@@ -57,10 +64,12 @@ impl i256 {
         self.0.to_parts()
     }
 
+    /// Raises self to the power of `exp`, wrapping around on overflow.
     pub fn wrapping_pow(&self, exp: u32) -> Self {
         Self(self.0.wrapping_pow(exp))
     }
 
+    /// Wrapping (modular) addition. Computes `self + other`, wrapping around at the boundary.
     pub fn wrapping_add(&self, other: Self) -> Self {
         Self(self.0.wrapping_add(other.0))
     }

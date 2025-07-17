@@ -44,6 +44,7 @@ pub(crate) enum InnerScalarValue {
 }
 
 impl ScalarValue {
+    /// Serializes the scalar value to Protocol Buffers format.
     pub fn to_protobytes<B: BufMut + Default>(&self) -> B {
         let pb_scalar = pb::ScalarValue::from(self);
 
@@ -55,6 +56,7 @@ impl ScalarValue {
         buf
     }
 
+    /// Deserializes a scalar value from Protocol Buffers format.
     pub fn from_protobytes(buf: &[u8]) -> VortexResult<Self> {
         ScalarValue::try_from(
             &pb::ScalarValue::decode(buf)
@@ -116,14 +118,17 @@ impl Display for InnerScalarValue {
 }
 
 impl ScalarValue {
+    /// Creates a null scalar value.
     pub const fn null() -> Self {
         ScalarValue(InnerScalarValue::Null)
     }
 
+    /// Returns true if this is a null value.
     pub fn is_null(&self) -> bool {
         self.0.is_null()
     }
 
+    /// Returns true if this value is compatible with the given data type.
     pub fn is_instance_of(&self, dtype: &DType) -> bool {
         self.0.is_instance_of(dtype)
     }
