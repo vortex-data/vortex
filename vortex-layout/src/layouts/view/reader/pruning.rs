@@ -61,9 +61,11 @@ where
     Mask::from_iter(views.iter().map(|&view| predicate.matches(view)))
 }
 
+/// Predicate for prefix query pushdown, e.g. `LIKE 'ABC%'`
 #[allow(unused)]
 pub(crate) struct StartsWithPredicate {
-    /// Length of `prefix` in bits. Must be between 1..=32
+    /// Length of `prefix` in bits. Must be between 1..=32 and a multiple of 8,
+    /// but we pre-compute the bits to save a mul op on the hot path.
     prefix_bits: u32,
     /// The prefix, holding up to 4 characters of string data.
     prefix: u32,
@@ -74,6 +76,7 @@ impl From<&str> for StartsWithPredicate {
     fn from(value: &str) -> Self {
         let mut prefix = [0u8; 4];
         let bytes = value.as_bytes();
+        // cap the prefix len at 4 bytes
         let len = bytes.len().min(4);
         assert!(len >= 1, "Prefix must be at least one byte");
 
@@ -89,9 +92,10 @@ impl From<&str> for StartsWithPredicate {
 
 impl StringViewPredicate for StartsWithPredicate {
     fn matches(&self, view: BinaryView) -> bool {
-        // The string must be longer than the prefix, and the prefix bytes must match.
+        // First check: the string is at least as long as the prefix
+        view.len() > self.prefix_bits &&
+        // Second check: the search prefix bytes must match the front of the view.
         // Otherwise, it certainly does not match.
-        // Shift up the prefix bytes instead
         (self.prefix << (32 - self.prefix_bits)) == (view.prefix() << (32 - self.prefix_bits))
     }
 }
@@ -102,6 +106,9 @@ impl StringViewPredicate for &StartsWithPredicate {
     }
 }
 
+/// Predicate for equality matching.
+///
+/// This predicate evaluates to true IFF the length and prefix both match the BinaryView.
 pub(crate) struct EqualsPredicate {
     length: u32,
     prefix: u32,
@@ -153,13 +160,14 @@ mod tests {
             Some("Johnny Bravo"),
         ]);
 
-        let starts_with = StartsWithPredicate::from("Batman B3yond");
+        // An inexact match
+        let starts_with = StartsWithPredicate::from("Bat");
 
         for &view in array.views().iter() {
             println!(
                 "{} LIKE {} ? {}",
-                starts_with.prefix,
-                view.prefix(),
+                str::from_utf8(starts_with.prefix.to_le_bytes().as_slice()).unwrap(),
+                str::from_utf8(view.prefix().to_le_bytes().as_slice()).unwrap(),
                 starts_with.matches(view)
             );
         }
