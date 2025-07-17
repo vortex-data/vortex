@@ -3,16 +3,16 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
 
 use bitvec::macros::internal::funty::Fundamental;
-use vortex::ArrayRef;
-use vortex::ToCanonical;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
+use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
@@ -240,8 +240,8 @@ impl TableFunction for VortexTableFunction {
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
 
         // Atomic as the closures can be called from different threads.
-        let is_first_file = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let cache_id = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let is_first_file = Arc::new(AtomicBool::new(false));
+        let cache_id = Arc::new(AtomicU64::new(0));
 
         let closures = bind_data.file_paths.clone().into_iter().map(move |path| {
             let first_file = bind_data.first_file.clone();

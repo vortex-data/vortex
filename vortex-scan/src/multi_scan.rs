@@ -18,14 +18,9 @@ type ScanBuilderFactory<T> = Arc<SegQueue<Box<(dyn FnOnce() -> ScanBuilder<T> + 
 ///
 /// `MultiScan` allows to queue multiple scan operations in order to execute
 /// them in parallel. In particular, this enables scanning multiple files.
+#[derive(Default)]
 pub struct MultiScan<T> {
     scan_builder_factory: ScanBuilderFactory<T>,
-}
-
-impl<T> Default for MultiScan<T> {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl<T> MultiScan<T> {
