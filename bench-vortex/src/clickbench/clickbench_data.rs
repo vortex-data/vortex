@@ -17,6 +17,7 @@ use datafusion::datasource::listing::{
 use datafusion::prelude::SessionContext;
 use futures::{StreamExt, TryStreamExt, stream};
 use glob::Pattern;
+use log::trace;
 use rayon::prelude::{IntoParallelIterator, ParallelIterator};
 use reqwest::IntoUrl;
 use reqwest::blocking::Response;
@@ -161,7 +162,7 @@ pub async fn convert_parquet_to_vortex(input_path: &Path) -> anyhow::Result<()> 
 
     let parquet_inputs = fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
 
-    debug!(
+    trace!(
         "Found {} parquet files in {}",
         parquet_inputs.len(),
         parquet_path.to_str().unwrap()
@@ -213,7 +214,7 @@ pub async fn convert_parquet_to_vortex_compact(input_path: &Path) -> anyhow::Res
 
     let parquet_inputs = fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
 
-    debug!(
+    trace!(
         "Found {} parquet files in {}",
         parquet_inputs.len(),
         parquet_path.to_str().unwrap()

@@ -23,6 +23,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_common::{DFSchema, Result, TableReference};
 use futures::future::{join_all, try_join_all};
 use humansize::{DECIMAL, format_size};
+use log::trace;
 use regex::Regex;
 use tokio::fs::File;
 use tokio::process::Command as TokioCommand;
@@ -354,7 +355,7 @@ impl PBIData {
                     .expect("Failed to get metadata")
                     .len();
 
-                debug!(
+                trace!(
                     "Vortex size: {}, {}B",
                     format_size(vx_size, DECIMAL),
                     vx_size

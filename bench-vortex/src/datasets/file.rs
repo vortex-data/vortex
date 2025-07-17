@@ -18,38 +18,6 @@ use vortex_datafusion::VortexFormat;
 
 use crate::datasets::BenchmarkDataset;
 
-pub async fn convert_parquet_to_vortex(
-    input_path: &Path,
-    dataset: &BenchmarkDataset,
-) -> Result<()> {
-    match dataset {
-        BenchmarkDataset::TpcH { .. } => {
-            // This is done on-demand by the register_vortex_file function
-            Ok(())
-        }
-        BenchmarkDataset::ClickBench { .. } => {
-            crate::clickbench::convert_parquet_to_vortex(input_path).await
-        }
-        _ => todo!(),
-    }
-}
-
-pub async fn convert_parquet_to_vortex_compact(
-    input_path: &Path,
-    dataset: &BenchmarkDataset,
-) -> Result<()> {
-    match dataset {
-        BenchmarkDataset::TpcH { .. } => {
-            // This is done on-demand by the register_vortex_compact_file function
-            Ok(())
-        }
-        BenchmarkDataset::ClickBench { .. } => {
-            crate::clickbench::convert_parquet_to_vortex_compact(input_path).await
-        }
-        _ => todo!(),
-    }
-}
-
 pub async fn register_parquet_files(
     session: &SessionContext,
     table_name: &str,
