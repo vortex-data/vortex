@@ -3,8 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering::SeqCst;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
 
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::dtype::FieldNames;
