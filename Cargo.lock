@@ -767,9 +767,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.29"
+version = "1.2.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c1599538de2394445747c8cf7935946e3cc27e9625f889d979bfb2aaf569362"
+checksum = "deec109607ca693028562ed836a5f1c4b8bd77755c4e132fc5ce11b0b6211ae7"
 dependencies = [
  "jobserver",
  "libc",
@@ -889,17 +889,6 @@ name = "clap_lex"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
-
-[[package]]
-name = "codespan-reporting"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe6d2e5af09e8c8ad56c969f2157a3d4238cebc7c55f0a517728c38f7b200f81"
-dependencies = [
- "serde",
- "termcolor",
- "unicode-width 0.2.0",
-]
 
 [[package]]
 name = "codspeed"
@@ -1459,68 +1448,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d02f3b0da4c6504f86e9cd789d8dbafab48c2321be74e9987593de5a894d93d"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "cxx"
-version = "1.0.160"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be1149bab7a5580cb267215751389597c021bfad13c0bb00c54e19559333764c"
-dependencies = [
- "cc",
- "cxxbridge-cmd",
- "cxxbridge-flags",
- "cxxbridge-macro",
- "foldhash",
- "link-cplusplus",
-]
-
-[[package]]
-name = "cxx-build"
-version = "1.0.160"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6aeeaf1aefae8e0f5141920a7ecbc64a22ab038d4b4ac59f2d19e0effafd5b53"
-dependencies = [
- "cc",
- "codespan-reporting",
- "indexmap",
- "proc-macro2",
- "quote",
- "scratch",
- "syn 2.0.104",
-]
-
-[[package]]
-name = "cxxbridge-cmd"
-version = "1.0.160"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c36ac1f9a72064b1f41fd7b49a4c1b3bf33b9ccb1274874dda6d264f57c55964"
-dependencies = [
- "clap",
- "codespan-reporting",
- "indexmap",
- "proc-macro2",
- "quote",
- "syn 2.0.104",
-]
-
-[[package]]
-name = "cxxbridge-flags"
-version = "1.0.160"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "170c6ff5d009663866857a91ebee55b98ea4d4b34e7d7aba6dc4a4c95cc7b748"
-
-[[package]]
-name = "cxxbridge-macro"
-version = "1.0.160"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4984a142211026786011a7e79fa22faa1eca1e9cbf0e60bffecfd57fd3db88f1"
-dependencies = [
- "indexmap",
- "proc-macro2",
- "quote",
- "rustversion",
- "syn 2.0.104",
 ]
 
 [[package]]
@@ -3447,15 +3374,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "link-cplusplus"
-version = "1.0.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a6f6da007f968f9def0d65a05b187e2960183de70c160204ecfccf0ee330212"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "linked-hash-map"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5121,12 +5039,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "scratch"
-version = "1.0.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f6280af86e5f559536da57a45ebc84948833b3bee313a7dd25232e09c878a52"
-
-[[package]]
 name = "security-framework"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5547,9 +5459,9 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.36.0"
+version = "0.36.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aab138f5c1bb35231de19049060a87977ad23e04f2303e953bc5c2947ac7dec4"
+checksum = "252800745060e7b9ffb7b2badbd8b31cfa4aa2e61af879d0a3bf2a317c20217d"
 dependencies = [
  "libc",
  "memchr",
@@ -5607,12 +5519,6 @@ name = "tagptr"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
-
-[[package]]
-name = "take_mut"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f764005d11ee5f36500a149ace24e00e3da98b0158b3e2d53a7495660d3f4d60"
 
 [[package]]
 name = "tap"
@@ -6392,21 +6298,6 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-scalar",
-]
-
-[[package]]
-name = "vortex-cxx"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "arrow-schema",
- "cxx",
- "cxx-build",
- "futures",
- "prost 0.14.1",
- "take_mut",
- "tokio",
- "vortex",
 ]
 
 [[package]]

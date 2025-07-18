@@ -7,7 +7,6 @@ members = [
     "vortex-array",
     "vortex-btrblocks",
     "vortex-buffer",
-    "vortex-cxx",
     "vortex-datafusion",
     "vortex-dtype",
     "vortex-duckdb",
@@ -164,7 +163,6 @@ strum = "0.27"
 sysinfo = "0.36.0"
 tabled = { version = "0.20.0", default-features = false }
 taffy = "0.8.0"
-take_mut = "0.2.2"
 tar = "0.4"
 target-lexicon = "0.13"
 tempfile = "3"
@@ -222,7 +220,6 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 # END crates published by this project
 
 # No version contraints for unpublished crates.
-vortex-cxx = { path = "./vortex-cxx", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
 
