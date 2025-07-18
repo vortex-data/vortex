@@ -40,7 +40,7 @@ use vortex_datafusion::VortexFormat;
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::{decompress_bz2, download_data};
-use crate::{IdempotentPath, idempotent_async, vortex_panic};
+use crate::{IdempotentPath, THREAD_POOL, idempotent_async, vortex_panic};
 
 pub static PBI_DATASETS: LazyLock<PBIDatasets> = LazyLock::new(|| {
     PBIDatasets::try_new(fetch_schemas_and_queries().expect("failed to fetch public bi queries"))
@@ -431,7 +431,7 @@ impl Dataset for PBIBenchmark {
             .open(&path)
             .await?
             .scan()?
-            .into_array_iter()?
+            .into_threaded_array_iter(THREAD_POOL.clone())?
             .read_all()?)
     }
 }

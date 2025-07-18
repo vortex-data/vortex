@@ -4,6 +4,7 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
+use crate::THREAD_POOL;
 use arrow_array::ArrayRef;
 use bytes::Bytes;
 use itertools::Itertools;
@@ -29,7 +30,7 @@ pub fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<Vec<ArrayRef>> {
     Ok(VortexOpenOptions::in_memory()
         .open(buf)?
         .scan()?
-        .into_array_iter()?
+        .into_threaded_array_iter(THREAD_POOL.clone())?
         .try_collect::<_, Vec<_>, _>()?
         .into_iter()
         .map(|a| a.into_arrow_preferred())

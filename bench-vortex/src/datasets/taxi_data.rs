@@ -14,7 +14,7 @@ use vortex::file::{VortexOpenOptions, VortexWriteOptions};
 use crate::conversions::parquet_to_vortex;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
-use crate::{IdempotentPath, idempotent_async};
+use crate::{IdempotentPath, THREAD_POOL, idempotent_async};
 
 pub struct TaxiData;
 
@@ -42,7 +42,7 @@ pub async fn fetch_taxi_data() -> anyhow::Result<ArrayRef> {
         .open(vortex_data)
         .await?
         .scan()?
-        .into_array_iter()?
+        .into_threaded_array_iter(THREAD_POOL.clone())?
         .read_all()?)
 }
 
