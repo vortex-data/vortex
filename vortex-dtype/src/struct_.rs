@@ -304,7 +304,7 @@ impl StructFields {
             .names
             .iter()
             .enumerate()
-            .filter(|&(i, _)| (i != index))
+            .filter(|&(i, _)| i != index)
             .map(|(_, name)| name.clone())
             .collect::<FieldNames>();
 
@@ -313,7 +313,7 @@ impl StructFields {
             .dtypes
             .iter()
             .enumerate()
-            .filter(|&(i, _)| (i != index))
+            .filter(|&(i, _)| i != index)
             .map(|(_, dtype)| dtype.clone())
             .collect::<Vec<_>>();
 

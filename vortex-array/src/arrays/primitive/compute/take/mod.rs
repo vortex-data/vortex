@@ -4,7 +4,7 @@
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
 
-#[cfg(feature = "nightly")]
+#[cfg(vortex_nightly)]
 mod portable;
 
 use std::sync::LazyLock;
@@ -25,7 +25,7 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 // and runtime feature detection to infer the best kernel for the platform.
 static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(|| {
     cfg_if::cfg_if! {
-        if #[cfg(feature = "nightly")] {
+        if #[cfg(vortex_nightly)] {
             // nightly codepath: use portable_simd kernel
             &portable::TakeKernelPortableSimd
         } else if #[cfg(target_arch = "x86_64")] {

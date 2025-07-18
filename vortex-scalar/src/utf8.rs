@@ -11,6 +11,10 @@ use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vo
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
+/// A scalar value representing a UTF-8 encoded string.
+///
+/// This type provides a view into a UTF-8 string scalar value, which can be either
+/// a valid UTF-8 string or null.
 #[derive(Debug, Hash)]
 pub struct Utf8Scalar<'a> {
     dtype: &'a DType,
@@ -47,6 +51,11 @@ impl Ord for Utf8Scalar<'_> {
 }
 
 impl<'a> Utf8Scalar<'a> {
+    /// Creates a UTF-8 scalar from a data type and scalar value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the data type is not a UTF-8 type.
     pub fn from_scalar_value(dtype: &'a DType, value: ScalarValue) -> VortexResult<Self> {
         if !matches!(dtype, DType::Utf8(..)) {
             vortex_bail!("Can only construct utf8 scalar from utf8 dtype, found {dtype}")
@@ -57,18 +66,20 @@ impl<'a> Utf8Scalar<'a> {
         })
     }
 
+    /// Returns the data type of this UTF-8 scalar.
     #[inline]
     pub fn dtype(&self) -> &'a DType {
         self.dtype
     }
 
+    /// Returns the string value, or None if null.
     pub fn value(&self) -> Option<BufferString> {
         self.value.as_ref().map(|v| v.as_ref().clone())
     }
 
-    /// Construct a value at most `max_length` in size that's greater than ourselves.
+    /// Constructs a value at most `max_length` in size that's greater than this value.
     ///
-    /// Will return None if constructing greater value overflows
+    /// Returns None if constructing a greater value would overflow.
     pub fn upper_bound(self, max_length: usize) -> Option<Self> {
         if let Some(value) = self.value {
             if value.len() > max_length {
@@ -172,6 +183,11 @@ impl<'a> Utf8Scalar<'a> {
 }
 
 impl Scalar {
+    /// Creates a new UTF-8 scalar from a string-like value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the input cannot be converted to a valid UTF-8 string.
     pub fn utf8<B>(str: B, nullability: Nullability) -> Self
     where
         B: Into<BufferString>,
@@ -179,6 +195,11 @@ impl Scalar {
         Self::try_utf8(str, nullability).unwrap()
     }
 
+    /// Tries to create a new UTF-8 scalar from a string-like value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the input cannot be converted to a valid UTF-8 string.
     pub fn try_utf8<B>(
         str: B,
         nullability: Nullability,

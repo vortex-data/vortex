@@ -9,9 +9,9 @@ use url::Url;
 use vortex::error::VortexExpect;
 
 use crate::benchmark_trait::Benchmark;
-use crate::clickbench::{Flavor, clickbench_queries};
+use crate::clickbench::{Flavor, clickbench_queries, convert_parquet_to_vortex};
 use crate::engines::EngineCtx;
-use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
+use crate::{BenchmarkDataset, CompactionStrategy, Format, IdempotentPath, Target};
 
 /// ClickBench benchmark implementation
 pub struct ClickBenchBenchmark {
@@ -80,16 +80,16 @@ impl Benchmark for ClickBenchBenchmark {
         match self.data_url.scheme() {
             "file" => {
                 let basepath = clickbench_flavor(self.flavor).to_data_path();
+                let client = reqwest::blocking::Client::default();
 
                 match target.format() {
-                    Format::Parquet => {
+                    Format::Parquet | Format::OnDiskDuckDB => {
                         // Download Parquet files (idempotent - won't re-download if already present)
-                        let client = reqwest::blocking::Client::default();
+                        // For DuckDB format, we typically start with Parquet and let DuckDB handle it
                         self.flavor.download(&client, basepath.as_path())?;
                     }
-                    Format::OnDiskVortex => {
+                    Format::OnDiskVortex | Format::VortexCompact => {
                         // First ensure Parquet files exist
-                        let client = reqwest::blocking::Client::default();
                         self.flavor.download(&client, basepath.as_path())?;
 
                         // Then convert to Vortex format (idempotent)
@@ -98,19 +98,28 @@ impl Benchmark for ClickBenchBenchmark {
                                 anyhow::anyhow!("invalid file URL: {}", self.data_url)
                             })?;
 
-                            let dataset = self.dataset();
-
                             // Use tokio runtime to handle async conversion
                             let rt = tokio::runtime::Runtime::new()?;
                             rt.block_on(async {
-                                crate::file::convert_parquet_to_vortex(&file_path, &dataset).await
-                            })?;
+                                match target.format {
+                                    Format::OnDiskVortex => {
+                                        convert_parquet_to_vortex(
+                                            &file_path,
+                                            CompactionStrategy::Default,
+                                        )
+                                        .await
+                                    }
+                                    Format::VortexCompact => {
+                                        convert_parquet_to_vortex(
+                                            &file_path,
+                                            CompactionStrategy::Compact,
+                                        )
+                                        .await
+                                    }
+                                    _ => unreachable!(),
+                                }
+                            })?
                         }
-                    }
-                    Format::OnDiskDuckDB => {
-                        // For DuckDB format, we typically start with Parquet and let DuckDB handle it
-                        let client = reqwest::blocking::Client::default();
-                        self.flavor.download(&client, basepath.as_path())?;
                     }
                     f => {
                         todo!("format {f} unsupported in clickbench")

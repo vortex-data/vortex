@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Arbitrary scalar value generation.
+//!
+//! This module provides functions to generate arbitrary scalar values of various data types.
+//! It is used by the fuzzer to test the correctness of the scalar value implementation.
+
 mod decimal;
 
 use std::iter;
@@ -14,6 +19,7 @@ use vortex_dtype::{DType, PType};
 
 use crate::{InnerScalarValue, PValue, Scalar, ScalarValue};
 
+/// Generate an arbitrary scalar value of the given data type.
 pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
     Ok(Scalar::new(dtype.clone(), random_scalar_value(u, dtype)?))
 }

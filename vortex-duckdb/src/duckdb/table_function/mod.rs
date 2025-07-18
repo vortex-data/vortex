@@ -136,7 +136,7 @@ impl Connection {
         };
 
         duckdb_try!(
-            unsafe { cpp::duckdb_vx_tfunc_register(self.as_ptr(), &vtab) },
+            unsafe { cpp::duckdb_vx_tfunc_register(self.as_ptr(), &raw const vtab) },
             "Failed to register table function '{}'",
             name.to_string_lossy()
         );

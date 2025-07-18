@@ -162,7 +162,7 @@ The Vortex project benefits enormously from groundbreaking work from the academi
 - [FSST](https://www.vldb.org/pvldb/vol13/p2649-boncz.pdf) - Fast random access string compression
 - [ALP](https://ir.cwi.nl/pub/33334/33334.pdf) - Adaptive lossless floating-point compression
 - [Procella](https://dl.acm.org/citation.cfm?id=3360438) - YouTube's unified data system
-- [Cloud Object Storage Analytics](https://www.durner.dev/app/media/papers/anyblob-vldb23.pdf) - High-performance
+- [Anyblob](https://www.durner.dev/app/media/papers/anyblob-vldb23.pdf) - High-performance
   access to object storage
 - [ClickHouse](https://www.vldb.org/pvldb/vol17/p3731-schulze.pdf) - Fast analytics for everyone
 

@@ -276,7 +276,14 @@ pub struct BtrBlocksCompressor;
 
 impl BtrBlocksCompressor {
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
-        self.compress_canonical(array.to_canonical()?)
+        // Canonicalize the array, compact it, then compress it.
+        // The order here is important: it's possible that the input array may be
+        // something that is compressed but not compact (e.g. a sliced BitPackedArray),
+        // so that we always return a compact result from compression.
+        let canonical = array.to_canonical()?;
+        let compact = canonical.into_array().optimize()?.to_canonical()?;
+
+        self.compress_canonical(compact)
     }
 
     pub fn compress_canonical(&self, array: Canonical) -> VortexResult<ArrayRef> {

@@ -45,6 +45,19 @@ impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
         let (chunk_index, chunk_offset) = array.find_chunk_idx(index);
         array.chunk(chunk_index)?.scalar_at(chunk_offset)
     }
+
+    fn optimize(array: &ChunkedArray) -> VortexResult<ChunkedArray> {
+        let optimized_chunks = array
+            .chunks()
+            .iter()
+            .map(|chunk| chunk.optimize())
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Ok(ChunkedArray::new_unchecked(
+            optimized_chunks,
+            array.dtype().clone(),
+        ))
+    }
 }
 
 #[cfg(test)]

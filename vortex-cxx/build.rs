@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[rustversion::nightly]
 fn main() {
-    println!("cargo:rustc-cfg=nightly");
-}
+    let mut _builder = cxx_build::bridge("src/lib.rs");
 
-#[rustversion::not(nightly)]
-fn main() {}
+    println!("cargo:rerun-if-changed=src/");
+}

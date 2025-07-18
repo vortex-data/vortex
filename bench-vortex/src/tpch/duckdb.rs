@@ -125,6 +125,12 @@ pub fn generate_tpc(opts: DuckdbTpcOptions) -> Result<PathBuf> {
                 output_dir.to_string_lossy(),
             ));
         }
+        Format::VortexCompact => {
+            command.arg("-c").arg(format!(
+                "EXPORT DATABASE '{}' (format VORTEX);",
+                output_dir.to_string_lossy(),
+            ));
+        }
         Format::OnDiskDuckDB | Format::Arrow => { /* Do nothing */ }
     };
 

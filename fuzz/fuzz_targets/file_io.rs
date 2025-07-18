@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![no_main]
+#![allow(clippy::result_large_err)]
 
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::ord::make_comparator;

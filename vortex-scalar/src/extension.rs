@@ -11,6 +11,9 @@ use vortex_error::{VortexError, VortexResult, vortex_bail};
 
 use crate::{Scalar, ScalarValue};
 
+/// A scalar value representing an extension type.
+///
+/// Extension types allow wrapping a storage type with custom semantics.
 pub struct ExtScalar<'a> {
     ext_dtype: &'a ExtDType,
     value: &'a ScalarValue,
@@ -68,6 +71,11 @@ impl Hash for ExtScalar<'_> {
 }
 
 impl<'a> ExtScalar<'a> {
+    /// Creates a new extension scalar from a data type and scalar value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the data type is not an extension type.
     pub fn try_new(dtype: &'a DType, value: &'a ScalarValue) -> VortexResult<Self> {
         let DType::Extension(ext_dtype) = dtype else {
             vortex_bail!("Expected extension scalar, found {}", dtype)
@@ -81,6 +89,7 @@ impl<'a> ExtScalar<'a> {
         Scalar::new(self.ext_dtype.storage_dtype().clone(), self.value.clone())
     }
 
+    /// Returns the extension data type.
     pub fn ext_dtype(&self) -> &'a ExtDType {
         self.ext_dtype
     }
@@ -124,6 +133,7 @@ impl<'a> TryFrom<&'a Scalar> for ExtScalar<'a> {
 }
 
 impl Scalar {
+    /// Creates a new extension scalar wrapping the given storage value.
     pub fn extension(ext_dtype: Arc<ExtDType>, value: Scalar) -> Self {
         // TODO(joe): enable once we use rust duckdb
         // assert_eq!(ext_dtype.storage_dtype(), value.dtype());

@@ -9,7 +9,9 @@ use itertools::Itertools;
 use url::Url;
 
 use crate::df::get_session_context;
-use crate::tpch::{register_arrow, register_parquet, register_vortex_file};
+use crate::tpch::{
+    register_arrow, register_parquet, register_vortex_compact_file, register_vortex_file,
+};
 use crate::{BenchmarkDataset, Format};
 
 pub mod tpcds_benchmark;
@@ -65,6 +67,9 @@ pub async fn load_datasets(
             }
             Format::OnDiskVortex => {
                 register_vortex_file(&context, name, &path, None, schema, dataset).await?
+            }
+            Format::VortexCompact => {
+                register_vortex_compact_file(&context, name, &path, None, schema, dataset).await?
             }
             Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
             Format::Csv => todo!(),

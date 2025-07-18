@@ -3,10 +3,13 @@
 
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
-use crate::traversal::{FoldDown, FoldUp, FolderMut, Node as _};
-use crate::{BinaryExpr, BinaryVTable, ExprRef, IntoExpr, NotVTable, Operator, not};
+use crate::traversal::{FoldDown, FoldUp, FolderMut, Node as _, NodeVisitor, TraversalOrder};
+use crate::{
+    BinaryExpr, BinaryVTable, ExprRef, GetItemVTable, IntoExpr, LiteralVTable, NotVTable, Operator,
+    not,
+};
 
-/// Return an equivalent expression in Negative Normal Form (NNF).
+/// Return an equivalent expression in Negative Normal Form ([NNF](https://en.wikipedia.org/wiki/Negation_normal_form)).
 ///
 /// In NNF, [crate::NotExpr] expressions may only contain terminal nodes such as [Literal](crate::LiteralExpr) or
 /// [GetItem](crate::GetItemExpr). They *may not* contain [crate::BinaryExpr], [crate::NotExpr], etc.
@@ -66,6 +69,15 @@ pub fn nnf(expr: ExprRef) -> ExprRef {
         .result()
 }
 
+/// Verifies whether the expression is in Negative Normal Form ([NNF](https://en.wikipedia.org/wiki/Negation_normal_form)).
+///
+/// Note that NNF isn't canonical, different expressions might be logically equivalent but different.
+pub fn is_nnf(expr: &ExprRef) -> bool {
+    let mut visitor = NNFValidationVisitor::default();
+    expr.accept(&mut visitor).vortex_expect("never fails");
+    visitor.is_nnf
+}
+
 #[derive(Default)]
 struct NNFVisitor {}
 
@@ -81,13 +93,6 @@ impl FolderMut for NNFVisitor {
     ) -> VortexResult<FoldDown<ExprRef, bool>> {
         if node.is::<NotVTable>() {
             return Ok(FoldDown::Continue(!negating));
-        } else if let Some(binary_expr) = node.as_opt::<BinaryVTable>() {
-            match binary_expr.op() {
-                Operator::And | Operator::Or => {
-                    return Ok(FoldDown::Continue(negating));
-                }
-                _ => {}
-            }
         }
 
         Ok(FoldDown::Continue(negating))
@@ -104,7 +109,7 @@ impl FolderMut for NNFVisitor {
             new_children.remove(0)
         } else if let Some(binary_expr) = node.as_opt::<BinaryVTable>() {
             if !negating {
-                node
+                node.with_children(new_children)?
             } else {
                 let new_op = match binary_expr.op() {
                     Operator::Eq => Operator::NotEq,
@@ -138,5 +143,62 @@ impl FolderMut for NNFVisitor {
         };
 
         Ok(FoldUp::Continue(new_node))
+    }
+}
+
+struct NNFValidationVisitor {
+    is_nnf: bool,
+}
+
+impl Default for NNFValidationVisitor {
+    fn default() -> Self {
+        Self { is_nnf: true }
+    }
+}
+
+impl<'a> NodeVisitor<'a> for NNFValidationVisitor {
+    type NodeTy = ExprRef;
+
+    fn visit_down(&mut self, node: &'a Self::NodeTy) -> VortexResult<TraversalOrder> {
+        if let Some(not_expr) = node.as_opt::<NotVTable>() {
+            let is_var =
+                not_expr.child().is::<GetItemVTable>() || not_expr.child().is::<LiteralVTable>();
+            self.is_nnf &= is_var;
+            if !is_var {
+                return Ok(TraversalOrder::Stop);
+            }
+        }
+
+        Ok(TraversalOrder::Continue)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+    use crate::{and, col, gt_eq, lit, lt, or};
+
+    #[rstest]
+    #[case(
+        and(not(and(lit(true), lit(true))), and(lit(true), lit(true))),
+        and(or(not(lit(true)), not(lit(true))), and(lit(true), lit(true)),)
+    )]
+    #[case(not(not(col("a"))), col("a"))]
+    #[case(not(not(not(col("a")))), not(col("a")))]
+    #[case(not(and(col("a"), col("b"))), or(not(col("a")), not(col("b"))))]
+    #[case(
+        not(and(gt_eq(col("a"), lit(3)), col("b"))),
+        or(lt(col("a"), lit(3)), not(col("b")))
+    )]
+    fn basic_nnf_test(#[case] input: ExprRef, #[case] expected: ExprRef) {
+        let output = nnf(input.clone());
+
+        assert_eq!(
+            &output, &expected,
+            "\nOriginal expr: {input}]\nRewritten expr: {output}\nexpected expr:{expected}"
+        );
+        assert!(is_nnf(&output));
     }
 }

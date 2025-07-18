@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Scalar values and types for the Vortex system.
+//!
+//! This crate provides scalar types and values that can be used to represent individual
+//! data elements in the Vortex array system. Scalars are composed of a logical data type
+//! ([`DType`]) and a value ([`ScalarValue`]).
+
+#![deny(missing_docs)]
+
 use std::cmp::Ordering;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -56,38 +64,50 @@ pub struct Scalar {
 }
 
 impl Scalar {
+    /// Creates a new scalar with the given data type and value.
     pub fn new(dtype: DType, value: ScalarValue) -> Self {
         Self { dtype, value }
     }
 
+    /// Returns a reference to the scalar's data type.
     #[inline]
     pub fn dtype(&self) -> &DType {
         &self.dtype
     }
 
+    /// Returns a reference to the scalar's underlying value.
     #[inline]
     pub fn value(&self) -> &ScalarValue {
         &self.value
     }
 
+    /// Consumes the scalar and returns its data type and value as a tuple.
     #[inline]
     pub fn into_parts(self) -> (DType, ScalarValue) {
         (self.dtype, self.value)
     }
 
+    /// Consumes the scalar and returns its underlying value.
     #[inline]
     pub fn into_value(self) -> ScalarValue {
         self.value
     }
 
+    /// Returns true if the scalar is not null.
     pub fn is_valid(&self) -> bool {
         !self.value.is_null()
     }
 
+    /// Returns true if the scalar is null.
     pub fn is_null(&self) -> bool {
         self.value.is_null()
     }
 
+    /// Creates a null scalar with the given nullable data type.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the data type is not nullable.
     pub fn null(dtype: DType) -> Self {
         assert!(
             dtype.is_nullable(),
@@ -99,6 +119,9 @@ impl Scalar {
         }
     }
 
+    /// Creates a null scalar for the given scalar type.
+    ///
+    /// The resulting scalar will have a nullable version of the type's data type.
     pub fn null_typed<T: ScalarType>() -> Self {
         Self {
             dtype: T::dtype().as_nullable(),
@@ -106,6 +129,10 @@ impl Scalar {
         }
     }
 
+    /// Casts the scalar to the target data type.
+    ///
+    /// Returns an error if the cast is not supported or if the value cannot be represented
+    /// in the target type.
     pub fn cast(&self, target: &DType) -> VortexResult<Self> {
         if let DType::Extension(ext_dtype) = target {
             let storage_scalar = self.cast_to_non_extension(ext_dtype.storage_dtype())?;
@@ -142,6 +169,7 @@ impl Scalar {
         }
     }
 
+    /// Converts the scalar to have a nullable version of its data type.
     pub fn into_nullable(self) -> Self {
         Self {
             dtype: self.dtype.as_nullable(),
@@ -149,7 +177,7 @@ impl Scalar {
         }
     }
 
-    /// Size of the scalar in bytes, uncompressed.
+    /// Returns the size of the scalar in bytes, uncompressed.
     pub fn nbytes(&self) -> usize {
         match self.dtype() {
             DType::Null => 0,
@@ -182,7 +210,10 @@ impl Scalar {
         }
     }
 
-    /// Create a "default" scalar value for the given data type.
+    /// Creates a "default" scalar value for the given data type.
+    ///
+    /// For nullable types, returns null. For non-nullable types, returns
+    /// an appropriate zero/empty value.
     pub fn default_value(dtype: DType) -> Self {
         if dtype.is_nullable() {
             return Self::null(dtype);
@@ -213,66 +244,114 @@ impl Scalar {
 }
 
 impl Scalar {
+    /// Returns a view of the scalar as a boolean scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar is not a boolean type.
     pub fn as_bool(&self) -> BoolScalar<'_> {
         BoolScalar::try_from(self).vortex_expect("Failed to convert scalar to bool")
     }
 
+    /// Returns a view of the scalar as a boolean scalar if it has a boolean type.
     pub fn as_bool_opt(&self) -> Option<BoolScalar<'_>> {
         matches!(self.dtype, DType::Bool(..)).then(|| self.as_bool())
     }
 
+    /// Returns a view of the scalar as a primitive scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar is not a primitive type.
     pub fn as_primitive(&self) -> PrimitiveScalar<'_> {
         PrimitiveScalar::try_from(self).vortex_expect("Failed to convert scalar to primitive")
     }
 
+    /// Returns a view of the scalar as a primitive scalar if it has a primitive type.
     pub fn as_primitive_opt(&self) -> Option<PrimitiveScalar<'_>> {
         matches!(self.dtype, DType::Primitive(..)).then(|| self.as_primitive())
     }
 
+    /// Returns a view of the scalar as a decimal scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar is not a decimal type.
     pub fn as_decimal(&self) -> DecimalScalar<'_> {
         DecimalScalar::try_from(self).vortex_expect("Failed to convert scalar to decimal")
     }
 
+    /// Returns a view of the scalar as a decimal scalar if it has a decimal type.
     pub fn as_decimal_opt(&self) -> Option<DecimalScalar<'_>> {
         matches!(self.dtype, DType::Decimal(..)).then(|| self.as_decimal())
     }
 
+    /// Returns a view of the scalar as a UTF-8 string scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar is not a UTF-8 type.
     pub fn as_utf8(&self) -> Utf8Scalar<'_> {
         Utf8Scalar::try_from(self).vortex_expect("Failed to convert scalar to utf8")
     }
 
+    /// Returns a view of the scalar as a UTF-8 string scalar if it has a UTF-8 type.
     pub fn as_utf8_opt(&self) -> Option<Utf8Scalar<'_>> {
         matches!(self.dtype, DType::Utf8(..)).then(|| self.as_utf8())
     }
 
+    /// Returns a view of the scalar as a binary scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar is not a binary type.
     pub fn as_binary(&self) -> BinaryScalar<'_> {
         BinaryScalar::try_from(self).vortex_expect("Failed to convert scalar to binary")
     }
 
+    /// Returns a view of the scalar as a binary scalar if it has a binary type.
     pub fn as_binary_opt(&self) -> Option<BinaryScalar<'_>> {
         matches!(self.dtype, DType::Binary(..)).then(|| self.as_binary())
     }
 
+    /// Returns a view of the scalar as a struct scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar is not a struct type.
     pub fn as_struct(&self) -> StructScalar<'_> {
         StructScalar::try_from(self).vortex_expect("Failed to convert scalar to struct")
     }
 
+    /// Returns a view of the scalar as a struct scalar if it has a struct type.
     pub fn as_struct_opt(&self) -> Option<StructScalar<'_>> {
         matches!(self.dtype, DType::Struct(..)).then(|| self.as_struct())
     }
 
+    /// Returns a view of the scalar as a list scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar is not a list type.
     pub fn as_list(&self) -> ListScalar<'_> {
         ListScalar::try_from(self).vortex_expect("Failed to convert scalar to list")
     }
 
+    /// Returns a view of the scalar as a list scalar if it has a list type.
     pub fn as_list_opt(&self) -> Option<ListScalar<'_>> {
         matches!(self.dtype, DType::List(..)).then(|| self.as_list())
     }
 
+    /// Returns a view of the scalar as an extension scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar is not an extension type.
     pub fn as_extension(&self) -> ExtScalar<'_> {
         ExtScalar::try_from(self).vortex_expect("Failed to convert scalar to extension")
     }
 
+    /// Returns a view of the scalar as an extension scalar if it has an extension type.
     pub fn as_extension_opt(&self) -> Option<ExtScalar<'_>> {
         matches!(self.dtype, DType::Extension(..)).then(|| self.as_extension())
     }

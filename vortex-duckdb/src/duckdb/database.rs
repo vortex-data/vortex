@@ -22,7 +22,7 @@ impl Database {
     pub fn open_in_memory() -> VortexResult<Self> {
         let mut ptr: cpp::duckdb_database = ptr::null_mut();
         duckdb_try!(
-            unsafe { cpp::duckdb_open(ptr::null(), &mut ptr) },
+            unsafe { cpp::duckdb_open(ptr::null(), &raw mut ptr) },
             "Failed to open in-memory DuckDB database"
         );
         Ok(unsafe { Self::own(ptr) })
@@ -41,7 +41,7 @@ impl Database {
 
         let mut ptr: cpp::duckdb_database = ptr::null_mut();
         duckdb_try!(
-            unsafe { cpp::duckdb_open(path_cstr.as_ptr(), &mut ptr) },
+            unsafe { cpp::duckdb_open(path_cstr.as_ptr(), &raw mut ptr) },
             "Failed to open DuckDB database at path: {}",
             path_str
         );

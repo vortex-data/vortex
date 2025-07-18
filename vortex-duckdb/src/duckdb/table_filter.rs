@@ -20,7 +20,11 @@ impl TableFilterSet {
         let mut filter_set: duckdb_vx_table_filter = ptr::null_mut();
 
         let column_index = unsafe {
-            cpp::duckdb_vx_table_filter_set_get(self.as_ptr(), index.as_usize(), &mut filter_set)
+            cpp::duckdb_vx_table_filter_set_get(
+                self.as_ptr(),
+                index.as_usize(),
+                &raw mut filter_set,
+            )
         };
 
         if filter_set.is_null() {
@@ -68,7 +72,7 @@ impl TableFilter {
                         value: ptr::null_mut(),
                         comparison_type: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
                     };
-                    unsafe { cpp::duckdb_vx_table_filter_get_constant(self.as_ptr(), &mut out) };
+                    unsafe { cpp::duckdb_vx_table_filter_get_constant(self.as_ptr(), &raw mut out) };
 
                     TableFilterClass::ConstantComparison(ConstantComparison {
                         value: unsafe { Value::borrow(out.value) },
@@ -86,7 +90,7 @@ impl TableFilter {
                         children: ptr::null_mut(),
                         children_count: 0,
                     };
-                    unsafe { cpp::duckdb_vx_table_filter_get_conjunction_or(self.as_ptr(), &mut out) };
+                    unsafe { cpp::duckdb_vx_table_filter_get_conjunction_or(self.as_ptr(), &raw mut out) };
 
                     TableFilterClass::ConjunctionOr(Conjunction {
                         children: unsafe {
@@ -100,7 +104,7 @@ impl TableFilter {
                         children_count: 0,
                     };
                     unsafe {
-                        cpp::duckdb_vx_table_filter_get_conjunction_and(self.as_ptr(), &mut out)
+                        cpp::duckdb_vx_table_filter_get_conjunction_and(self.as_ptr(), &raw mut out)
                     };
 
                     TableFilterClass::ConjunctionAnd(Conjunction {

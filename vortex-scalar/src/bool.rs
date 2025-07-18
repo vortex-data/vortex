@@ -10,6 +10,10 @@ use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_bail, vo
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
+/// A scalar value representing a boolean.
+///
+/// This type provides a view into a boolean scalar value, which can be either
+/// true, false, or null.
 #[derive(Debug, Hash)]
 pub struct BoolScalar<'a> {
     dtype: &'a DType,
@@ -46,11 +50,13 @@ impl Ord for BoolScalar<'_> {
 }
 
 impl<'a> BoolScalar<'a> {
+    /// Returns the data type of this boolean scalar.
     #[inline]
     pub fn dtype(&self) -> &'a DType {
         self.dtype
     }
 
+    /// Returns the boolean value, or None if null.
     pub fn value(&self) -> Option<bool> {
         self.value
     }
@@ -65,6 +71,9 @@ impl<'a> BoolScalar<'a> {
         ))
     }
 
+    /// Returns a new boolean scalar with the inverted value.
+    ///
+    /// Null values remain null.
     pub fn invert(self) -> BoolScalar<'a> {
         BoolScalar {
             dtype: self.dtype,
@@ -72,6 +81,7 @@ impl<'a> BoolScalar<'a> {
         }
     }
 
+    /// Converts this boolean scalar into a general scalar.
     pub fn into_scalar(self) -> Scalar {
         Scalar {
             dtype: self.dtype.clone(),
@@ -84,6 +94,7 @@ impl<'a> BoolScalar<'a> {
 }
 
 impl Scalar {
+    /// Creates a new boolean scalar with the given value and nullability.
     pub fn bool(value: bool, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Bool(nullability),
