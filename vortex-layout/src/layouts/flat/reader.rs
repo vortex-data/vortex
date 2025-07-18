@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter::once;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
@@ -109,7 +108,11 @@ impl LayoutReader for FlatReader {
     }
 
     fn row_masks(&self, selection: &TreeRowMask, _field_mask: &[FieldMask]) -> BoxMaskIterator {
-        Box::new(once(Ok(selection.mask())))
+        selection.mask()
+        // Box::new(selection.mask().inspect(|mask| {
+        // println!("flat mask: {:?}", mask.as_ref().map(|m| m.indices()));
+        // println!("flat mask: {:?}", mask.as_ref().map(|m| m.len()));
+        // }))
     }
 
     fn pruning_evaluation(

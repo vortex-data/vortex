@@ -37,32 +37,8 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
 ) -> VortexResult<TaskFuture<Option<A>>> {
     // println!("split_exec {:?}", split_mask);
     // // Step 1: using the caller-provided row range and selection, attempt to disregard this split.
-    let split_range = split_mask.row_range();
-    // Apply the selection to calculate a read mask
-    // let read_mask = split_mask.intersect(&ctx.selection.row_mask(&split_range));
-    let split_range_start = split_range.start as usize;
-
+    let read_range = split_mask.row_range();
     let read_mask = split_mask.into_mask();
-    let read_range = split_range;
-
-    // let read_range = match &ctx.row_range {
-    //     None => split_range,
-    //     Some(row_range) => {
-    //         if row_range.start >= split_range.end || row_range.end < split_range.start {
-    //             // No overlap for this task
-    //             return Ok(ok(None).boxed());
-    //         }
-    //
-    //         let intersect_start = row_range.start.max(split_range.start);
-    //         let intersect_end = row_range.end.min(split_range.end);
-    //         intersect_start..intersect_end
-    //     }
-    // };
-
-    // let read_mask = split_mask.slice(
-    //     read_range.start as usize - split_range_start,
-    //     (read_range.end - read_range.start) as usize,
-    // );
 
     // Early exit if the read mask is empty.
     if read_mask.all_false() {
@@ -125,10 +101,6 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
 
 /// Information needed to execute a single split task.
 pub(super) struct TaskContext<A> {
-    /// A caller-provided range of the file to read. All tasks should intersect their reads
-    /// with this range to ensure that they are split as well.
-    pub(super) row_range: Option<Range<u64>>,
-
     /// The filter expression for the current task.
     pub(super) filter: Option<ExprRef>,
 

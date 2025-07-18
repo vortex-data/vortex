@@ -2,12 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::{max, min};
+use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools;
 use roaring::RoaringTreemap;
 use vortex_mask::Mask;
+
+use crate::masks::BoxMaskIterator;
 
 #[allow(dead_code)]
 #[derive(Clone)]
@@ -63,7 +66,7 @@ impl TreeRowMask {
         self
     }
 
-    pub fn mask(&self) -> Mask {
+    pub fn mask(&self) -> BoxMaskIterator {
         match &self.value_constraints {
             ValueConstraint::Range(range) => {
                 let start = range.start;
@@ -74,9 +77,15 @@ impl TreeRowMask {
                     .collect_vec();
 
                 if self.exclude {
-                    Mask::from_excluded_indices(self.length as usize, idx)
+                    Box::new(iter::once(Ok(Mask::from_excluded_indices(
+                        self.length as usize,
+                        idx,
+                    ))))
                 } else {
-                    Mask::from_indices(self.length as usize, idx)
+                    Box::new(iter::once(Ok(Mask::from_indices(
+                        self.length as usize,
+                        idx,
+                    ))))
                 }
             }
             ValueConstraint::TreeMap(SlicedTreemap {
@@ -93,7 +102,7 @@ impl TreeRowMask {
 
                 let mut masks = vec![];
                 if r1.start < r1.end {
-                    masks.push(Mask::AllFalse((r1.end - r1.start) as usize));
+                    masks.push(Ok(Mask::AllFalse((r1.end - r1.start) as usize)));
                 }
 
                 if r2.start < r2.end {
@@ -119,19 +128,19 @@ impl TreeRowMask {
                         .collect_vec();
 
                     if self.exclude {
-                        masks.push(Mask::from_excluded_indices(
+                        masks.push(Ok(Mask::from_excluded_indices(
                             (r2.end - r2.start) as usize,
                             iter,
-                        ))
+                        )))
                     } else {
-                        masks.push(Mask::from_indices((r2.end - r2.start) as usize, iter))
+                        masks.push(Ok(Mask::from_indices((r2.end - r2.start) as usize, iter)))
                     }
                 }
 
                 if r3.start < r3.end {
-                    masks.push(Mask::AllFalse((r1.end - r1.start) as usize));
+                    masks.push(Ok(Mask::AllFalse((r1.end - r1.start) as usize)));
                 }
-                Mask::from_iter(masks)
+                Box::new(masks.into_iter())
             }
         }
     }
@@ -378,6 +387,8 @@ fn non_empty_treemap_range(treemap: &RoaringTreemap, start: u64, end: u64) -> bo
 
 #[cfg(test)]
 mod tests {
+    use vortex_error::VortexResult;
+
     use super::*;
 
     #[test]
@@ -392,9 +403,15 @@ mod tests {
     fn test_subset_basic() {
         let mask = TreeRowMask::all(201).with_range(100..201);
         let subset = mask.clone().slice(10..51);
-        assert_eq!(subset.mask(), Mask::AllFalse(41)); // 100 + 10
+        assert_eq!(
+            subset.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::AllFalse(41)
+        ); // 100 + 10
         let subset = mask.clone().slice(100..151);
-        assert_eq!(subset.mask(), Mask::AllTrue(51)); // 100 + 10
+        assert_eq!(
+            subset.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::AllTrue(51)
+        ); // 100 + 10
     }
 
     #[test]
@@ -403,7 +420,10 @@ mod tests {
         let subset1 = mask.slice(100..501); // Range becomes [100, 501)
         let subset2 = subset1.slice(50..151); // Range becomes [150, 251)
 
-        assert_eq!(subset2.mask(), Mask::AllTrue(101));
+        assert_eq!(
+            subset2.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::AllTrue(101)
+        );
     }
 
     #[test]
@@ -416,17 +436,29 @@ mod tests {
 
         assert_eq!(
             Mask::from_indices(10, (5..10).collect_vec()),
-            mask.clone().slice(0..10).mask()
+            mask.clone()
+                .slice(0..10)
+                .mask()
+                .collect::<VortexResult<Mask>>()
+                .unwrap(),
         );
 
         assert_eq!(
             Mask::from_indices(10, (0..5).collect_vec()),
-            mask.clone().slice(10..20).mask()
+            mask.clone()
+                .slice(10..20)
+                .mask()
+                .collect::<VortexResult<Mask>>()
+                .unwrap(),
         );
 
         assert_eq!(
             Mask::from_indices(10, vec![]),
-            mask.clone().slice(20..30).mask()
+            mask.clone()
+                .slice(20..30)
+                .mask()
+                .collect::<VortexResult<Mask>>()
+                .unwrap(),
         );
     }
 
@@ -447,7 +479,10 @@ mod tests {
         let subset = mask.slice(100..201);
         let subset = subset.slice(10..21);
 
-        assert_eq!(subset.mask(), Mask::from_indices(11, vec![10]));
+        assert_eq!(
+            subset.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::from_indices(11, vec![10])
+        );
     }
 
     #[test]
@@ -474,29 +509,35 @@ mod tests {
         assert!(!subset_mask.non_empty_range(150..161)); // Outside subset range
     }
 
-    // #[test]
-    // fn test_subset_with_large_numbers() {
-    //     let mut treemap = RoaringTreemap::new();
-    //     // Use large numbers that span multiple partitions
-    //     let base = 0x123456780000000u64;
-    //     treemap.insert(base + 1000);
-    //     treemap.insert(base + 2000);
-    //     treemap.insert(base + 3000);
-    //
-    //     let mask = TreeRowMask::new(0..u64::MAX, treemap);
-    //     let slice = mask.slice(base..base + 20001);
-    //     let slice = slice.slice(500..10501);
-    //     let slice = slice.slice(0..2001);
-    //
-    //     assert_eq!(slice.range().start, base + 500);
-    //     assert_eq!(slice.range().end, base + 2501);
-    //
-    //     // match: base + 500 + 1500..base + 500 + 1600 == base + 1900..base + 2100
-    //     assert!(slice.non_empty_range(1500..2001));
-    //     // Should not find values outside the subset range
-    //     assert!(!slice.non_empty_range(1900..2000));
-    //     assert!(!slice.non_empty_range(2001..2500));
-    // }
+    #[test]
+    fn test_subset_with_large_numbers() {
+        let mut treemap = RoaringTreemap::new();
+        // Use large numbers that span multiple partitions
+        let base = 0x123456780000000u64;
+        treemap.insert(base + 1000);
+        treemap.insert(base + 2000);
+        treemap.insert(base + 3000);
+
+        let mask = TreeRowMask::all(u64::MAX).with_treemap(SlicedTreemap {
+            treemap: Arc::new(treemap),
+            offset: 0,
+            length: base + 4000,
+        });
+        let slice = mask.slice(base..base + 20001);
+        let slice = slice.slice(500..10501);
+        let slice = slice.slice(0..2001);
+
+        assert_eq!(
+            slice.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::from_indices(2001, vec![500, 1500])
+        );
+
+        // match: base + 500 + 1500..base + 500 + 1600 == base + 1900..base + 2100
+        assert!(slice.non_empty_range(1500..2001));
+        // Should not find values outside the subset range
+        assert!(!slice.non_empty_range(1900..2000));
+        assert!(!slice.non_empty_range(2001..2500));
+    }
     //
     // #[test]
     // fn test_non_empty_range_edge_cases() {
