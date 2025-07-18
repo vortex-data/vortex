@@ -20,10 +20,9 @@ use vortex::{ArrayRef, IntoArray};
 
 /// The tokio runtime for the write-side.
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("Failed to create tokio runtime")
+    Runtime::new()
+        .map_err(VortexError::from)
+        .vortex_expect("Failed to create tokio runtime")
 });
 
 /// The thread pool for the read-side.
