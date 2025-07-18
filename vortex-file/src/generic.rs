@@ -361,7 +361,7 @@ impl Default for GenericFileOptions {
             segment_cache: Arc::new(NoOpSegmentCache),
             initial_read_size: 0,
             initial_read_segments: Default::default(),
-            io_concurrency: 8,
+            io_concurrency: 2,
             io_dispatcher: IoDispatcher::shared(),
         }
     }

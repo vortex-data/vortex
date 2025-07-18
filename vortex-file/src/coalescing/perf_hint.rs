@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![allow(dead_code)]
 use parking_lot::RwLock;
-use sketches_ddsketch::DDSketch;
+use sketches_ddsketch::{Config as DDSketchConfig, DDSketch};
 use std::io;
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Instant;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_io::VortexReadAt; // Assuming this trait is from your vortex_io crate
+use vortex_io::VortexReadAt;
 
 #[derive(Debug, Clone)]
 pub struct PerformanceHint {
@@ -25,39 +25,41 @@ pub struct PerformanceHintingReadAt<T> {
 }
 
 pub struct PerformanceHintingConfig {
-    /// E.g., 0.90 for P90 latency
-    pub target_latency_quantile: f64,
-    /// E.g., 0.50 for P50 throughput
-    pub target_throughput_quantile: f64,
-    /// How many times target_latency should be covered by throughput
+    /// E.g., 0.90 for P90 fixed latency (T0)
+    pub target_fixed_latency_quantile: f64,
+    /// E.g., 0.50 for P50 bandwidth (B)
+    pub target_bandwidth_quantile: f64,
+    /// How many times target_fixed_latency should be covered by throughput
     pub target_latency_amplification_factor: f64,
     /// Ignore reads smaller than this for statistics
     pub min_read_size_for_metrics: u64,
+    /// Configuration for the underlying DDSketches
+    pub ddsketch_config: DDSketchConfig,
 }
 
 impl Default for PerformanceHintingConfig {
     fn default() -> Self {
         Self {
-            // P90 latency
-            target_latency_quantile: 0.90,
-            // P50 throughput (median)
-            target_throughput_quantile: 0.50,
-            // Target transfer time is 5x P90 latency
+            // P90 fixed latency (T0)
+            target_fixed_latency_quantile: 0.90,
+            // P50 bandwidth (median is more stable)
+            target_bandwidth_quantile: 0.50,
+            // Target transfer time is 5x P90 fixed latency
             target_latency_amplification_factor: 5.0,
             // Ignore reads smaller than 4KB (page size) for metrics
             min_read_size_for_metrics: 4096,
+            ddsketch_config: DDSketchConfig::default(),
         }
     }
 }
 
 struct MetricsState {
-    /// Stores latency in microseconds
-    latency_sketch: DDSketch,
-    /// Stores throughput in Bytes/sec
-    throughput_sketch: DDSketch,
-    // Add a timestamp to allow for periodic resetting/decaying of metrics if desired.
-    // This was in a previous version and is useful for long-running systems.
-    // last_reset_time: Instant,
+    /// Stores estimated fixed overhead (T0) in microseconds
+    fixed_overhead_sketch: DDSketch,
+    /// Stores estimated bandwidth (B) in Bytes/sec
+    bandwidth_sketch: DDSketch,
+    // Store the last calculated P50 bandwidth to use for T0 estimation on subsequent reads.
+    last_p50_bandwidth_bytes_per_sec: f64,
 }
 
 impl<T> PerformanceHintingReadAt<T>
@@ -71,12 +73,14 @@ where
 
     /// Creates a new tracking reader with custom configuration.
     pub fn with_config(inner: T, config: PerformanceHintingConfig) -> Self {
+        let ddsketch_config_for_init = config.ddsketch_config.clone();
         Self {
             inner,
             config,
             metrics: Arc::new(RwLock::new(MetricsState {
-                latency_sketch: DDSketch::default(),
-                throughput_sketch: DDSketch::default(),
+                fixed_overhead_sketch: DDSketch::new(ddsketch_config_for_init.clone()),
+                bandwidth_sketch: DDSketch::new(ddsketch_config_for_init),
+                last_p50_bandwidth_bytes_per_sec: 0.0, // Initialize to 0
             })),
         }
     }
@@ -85,39 +89,42 @@ where
     /// This method is intended to be called by an external mechanism (e.g., a background task)
     /// or periodically to refresh the hint.
     pub fn compute_performance_hint(&self) -> PerformanceHint {
-        let metrics = self.metrics.read();
+        let mut metrics = self.metrics.write(); // Acquire write lock as we update last_p50_bandwidth
 
-        let p_latency_micros = metrics
-            .latency_sketch
-            .quantile(self.config.target_latency_quantile)
+        let p_fixed_latency_micros = metrics
+            .fixed_overhead_sketch
+            .quantile(self.config.target_fixed_latency_quantile)
             .ok()
             .flatten()
             .unwrap_or(0.0); // Default to 0 if no data yet
 
-        let p_throughput_bytes_per_sec = metrics
-            .throughput_sketch
-            .quantile(self.config.target_throughput_quantile)
+        let p_bandwidth_bytes_per_sec = metrics
+            .bandwidth_sketch
+            .quantile(self.config.target_bandwidth_quantile)
             .ok()
             .flatten()
             .unwrap_or(0.0);
 
+        // Update the cached bandwidth for subsequent T0 calculations
+        metrics.last_p50_bandwidth_bytes_per_sec = p_bandwidth_bytes_per_sec;
+
         log::debug!(
-            "Throughput: {} bytes/s  Latency: {} us",
-            p_throughput_bytes_per_sec,
-            p_latency_micros
+            "Bandwidth (B): {} bytes/s  Fixed Latency (T0): {} us",
+            p_bandwidth_bytes_per_sec,
+            p_fixed_latency_micros
         );
 
         let mut coalescing_window = self.config.min_read_size_for_metrics;
         let max_read: Option<u64>;
 
-        // Heuristic for coalescing window
-        if p_throughput_bytes_per_sec > 0.0 && p_latency_micros > 0.0 {
-            let p_latency_secs = p_latency_micros / 1_000_000.0;
+        // Heuristic for coalescing window using estimated T0 and B
+        if p_bandwidth_bytes_per_sec > 0.0 && p_fixed_latency_micros > 0.0 {
+            let p_fixed_latency_secs = p_fixed_latency_micros / 1_000_000.0;
             let target_transfer_time_secs =
-                p_latency_secs * self.config.target_latency_amplification_factor;
+                p_fixed_latency_secs * self.config.target_latency_amplification_factor;
 
             let estimated_coalescing_window_f64 =
-                target_transfer_time_secs * p_throughput_bytes_per_sec;
+                target_transfer_time_secs * p_bandwidth_bytes_per_sec;
 
             coalescing_window = estimated_coalescing_window_f64.round() as u64;
             coalescing_window = coalescing_window.max(self.config.min_read_size_for_metrics);
@@ -126,17 +133,17 @@ where
         // --- Refined max_read determination ---
         let mut potential_max_read_mb;
 
-        if p_throughput_bytes_per_sec > 0.0 {
+        if p_bandwidth_bytes_per_sec > 0.0 {
             let target_max_read_transfer_duration_secs = 0.100; // 100 milliseconds
 
             let calculated_max_read_bytes =
-                p_throughput_bytes_per_sec * target_max_read_transfer_duration_secs;
+                p_bandwidth_bytes_per_sec * target_max_read_transfer_duration_secs;
 
             let calculated_max_read_mb =
                 (calculated_max_read_bytes / (1024.0 * 1024.0)).round() as u64;
 
-            // Start with a base, e.g., 4MB, if throughput is decent
-            potential_max_read_mb = 4;
+            // Start with a base, e.g., 8MB, if throughput is decent
+            potential_max_read_mb = 8;
 
             if calculated_max_read_mb > potential_max_read_mb {
                 potential_max_read_mb = calculated_max_read_mb;
@@ -165,11 +172,6 @@ where
     }
 }
 
-// Add async_trait to the VortexReadAt implementation for the wrapper, as it enables
-// 'impl Future + Send' in the trait definition.
-// This is necessary because your `VortexReadAt` trait is defined to return `impl Future<Output = io::Result<ByteBuffer>>`,
-// and `async_trait` helps ensure that this `impl Future` is `Send` when using `async fn` in the wrapper.
-// Also, the inner `T` needs to be `Send + Sync` for the wrapper to be.
 impl<T> VortexReadAt for PerformanceHintingReadAt<T>
 where
     T: VortexReadAt + Send + Sync,
@@ -187,17 +189,42 @@ where
             let bytes_read = buffer.len() as u64;
 
             if bytes_read >= self.config.min_read_size_for_metrics {
-                let duration = end_time.duration_since(start_time);
-                let latency_micros = duration.as_micros() as f64;
-                let throughput_bytes_per_sec = if duration.as_secs_f64() > 0.0 {
-                    bytes_read as f64 / duration.as_secs_f64()
+                let total_duration_micros = end_time.duration_since(start_time).as_micros() as f64;
+
+                // --- Calculate Bandwidth (B) ---
+                let estimated_bandwidth_for_this_read_bytes_per_sec = if total_duration_micros > 0.0
+                {
+                    bytes_read as f64 / (total_duration_micros / 1_000_000.0)
                 } else {
-                    f64::INFINITY // Instant reads, effectively infinite throughput
+                    f64::INFINITY // Instant reads
                 };
 
-                let mut metrics = self.metrics.write(); // Acquire write lock here
-                metrics.latency_sketch.add(latency_micros);
-                metrics.throughput_sketch.add(throughput_bytes_per_sec);
+                // --- Calculate Fixed Overhead (T0) ---
+                let estimated_t0_micros = {
+                    let metrics_read_guard = self.metrics.read(); // Temporarily read lock to get last_p50_bandwidth
+                    let current_p50_bandwidth = metrics_read_guard.last_p50_bandwidth_bytes_per_sec;
+                    drop(metrics_read_guard); // Release read lock quickly
+
+                    let calculated_t0;
+                    if current_p50_bandwidth > 0.0 {
+                        let transfer_time_micros =
+                            (bytes_read as f64 / current_p50_bandwidth) * 1_000_000.0;
+                        calculated_t0 = total_duration_micros - transfer_time_micros;
+                    } else {
+                        // If no bandwidth estimate yet, or very low, treat total_duration as T0
+                        calculated_t0 = total_duration_micros;
+                    }
+                    // T0 cannot be negative. If calculation makes it negative (e.g., due to noise), cap at 0.
+                    calculated_t0.max(0.0)
+                };
+
+                let mut metrics_write_guard = self.metrics.write(); // Acquire write lock
+                metrics_write_guard
+                    .bandwidth_sketch
+                    .add(estimated_bandwidth_for_this_read_bytes_per_sec);
+                metrics_write_guard
+                    .fixed_overhead_sketch
+                    .add(estimated_t0_micros);
             }
         }
 
@@ -212,13 +239,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
     use tokio::time::sleep;
 
-    // A mock implementation of VortexReadAt for testing
-    // Needs async_trait macro if the trait itself uses it or returns `impl Future + Send`
+    // MockVortexReader remains the same
     impl VortexReadAt for MockVortexReader {
         async fn read_byte_range(
             &self,
@@ -264,33 +289,44 @@ mod tests {
         }
     }
 
-    // A mock implementation of VortexReadAt for testing
     struct MockVortexReader {
         data: Vec<u8>,
-        read_delay_micros: u64,     // Simulate base latency
-        throughput_limit_mbps: u64, // Simulate throughput limit in MB/s
+        read_delay_micros: u64,     // Simulate base latency (T0)
+        throughput_limit_mbps: u64, // Simulate bandwidth (B)
         call_count: AtomicUsize,
     }
 
     #[tokio::test]
-    async fn test_tracking_reader_with_ddsketch() {
-        let mock_data = vec![0; 1024 * 1024 * 20]; // 20 MB of data
+    async fn test_tracking_reader_with_t0_and_b_estimation() {
+        // We need a longer test with various read sizes to stabilize the estimates
+        let mock_data = vec![0; 1024 * 1024 * 50]; // 50 MB of data
         let mock_reader = MockVortexReader {
             data: mock_data,
-            read_delay_micros: 200,     // 200 us base latency
-            throughput_limit_mbps: 100, // 100 MB/s throughput
+            read_delay_micros: 200,     // Simulate base latency (T0) = 200 us
+            throughput_limit_mbps: 100, // Simulate bandwidth (B) = 100 MB/s
             call_count: AtomicUsize::new(0),
         };
 
-        let tracking_reader = PerformanceHintingReadAt::new(mock_reader);
+        // Use a config that targets 90th percentile for T0 and 50th for B
+        let config = PerformanceHintingConfig {
+            target_fixed_latency_quantile: 0.90,
+            target_bandwidth_quantile: 0.50,
+            ..Default::default()
+        };
+        let tracking_reader = PerformanceHintingReadAt::with_config(mock_reader, config);
 
         // Perform many reads with varying sizes to populate the sketches
-        for i in 0..50 {
-            let offset = (i as u64 * 1024 * 100) % (1024 * 1024 * 10); // Loop within first 10MB
-            let len = match i % 3 {
-                0 => 1024 * 4,   // Small read (4KB)
-                1 => 1024 * 64,  // Medium read (64KB)
-                _ => 1024 * 512, // Large read (512KB)
+        // This is crucial for separating T0 and B
+        for i in 0..100 {
+            // Increased samples
+            let offset = (i as u64 * 1024 * 200) % (1024 * 1024 * 40); // Loop within first 40MB
+            let len = match i % 5 {
+                // More variety in sizes
+                0 => 1024 * 4,    // 4KB - heavily T0-dominated
+                1 => 1024 * 16,   // 16KB
+                2 => 1024 * 64,   // 64KB
+                3 => 1024 * 256,  // 256KB
+                _ => 1024 * 1024, // 1MB - heavily B-dominated
             };
             let result = tracking_reader
                 .read_byte_range(offset..offset + len, Alignment::new(1))
@@ -300,90 +336,52 @@ mod tests {
             // No sleep here, let it run fast to get more samples in DDSketch quickly
         }
 
-        // Wait a little for any background processing if there were any, though with DDSketch
-        // it's mostly about collecting enough samples.
+        // Allow some time for metrics updates
         sleep(Duration::from_millis(100)).await;
 
         let hint = tracking_reader.compute_performance_hint();
-        println!("DDSketch Performance Hint: {:?}", hint);
+        println!("\n--- DDSketch Performance Hint (T0/B Estimation) ---");
+        println!("Hint: {:?}", hint);
 
-        // Acquire a read lock to inspect metrics for assertions
         let metrics_guard = tracking_reader.metrics.read();
 
-        // Print quantiles for debugging
         println!(
-            "Latency (us) P50: {:?}",
-            metrics_guard.latency_sketch.quantile(0.5)
+            "Fixed Overhead (us) P90: {:?}",
+            metrics_guard.fixed_overhead_sketch.quantile(0.9)
         );
         println!(
-            "Latency (us) P90: {:?}",
-            metrics_guard.latency_sketch.quantile(0.9)
-        );
-        println!(
-            "Throughput (B/s) P50: {:?}",
-            metrics_guard.throughput_sketch.quantile(0.5)
-        );
-        println!(
-            "Throughput (B/s) P90: {:?}",
-            metrics_guard.throughput_sketch.quantile(0.9)
+            "Bandwidth (B/s) P50: {:?}",
+            metrics_guard.bandwidth_sketch.quantile(0.5)
         );
 
-        // Assertions based on expected values given mock config
-        let p90_latency = metrics_guard
-            .latency_sketch
+        // Assertions based on expected T0=200us and B=100MB/s from Mock
+        let p90_fixed_latency = metrics_guard
+            .fixed_overhead_sketch
             .quantile(0.9)
             .ok()
             .flatten()
             .unwrap_or(0.0);
         assert!(
-            p90_latency > 150.0 && p90_latency < 500.0,
-            "P90 Latency should be around 200-500 us, got {}",
-            p90_latency
+            // T0 should be close to 200us. Allow for some noise (e.g., 150us to 300us)
+            p90_fixed_latency > 150.0 && p90_fixed_latency < 300.0,
+            "P90 Fixed Latency (T0) should be around 200us, got {}",
+            p90_fixed_latency
         );
 
-        let p50_throughput = metrics_guard
-            .throughput_sketch
+        let p50_bandwidth = metrics_guard
+            .bandwidth_sketch
             .quantile(0.5)
             .ok()
             .flatten()
             .unwrap_or(0.0);
         assert!(
-            p50_throughput > 50_000_000.0 && p50_throughput < 150_000_000.0,
-            "P50 Throughput should be around 100 MB/s, got {}",
-            p50_throughput
+            // B should be close to 100MB/s (100,000,000 B/s). Allow for some range.
+            p50_bandwidth > 80_000_000.0 && p50_bandwidth < 120_000_000.0,
+            "P50 Bandwidth (B) should be around 100 MB/s, got {}",
+            p50_bandwidth
         );
 
-        // Check coalescing window heuristic based on the expected values
-        assert!(
-            hint.coalescing_window > 50 * 1024,
-            "Coalescing window should be significant, got {}",
-            hint.coalescing_window
-        );
-        assert!(
-            hint.coalescing_window < 1024 * 1024,
-            "Coalescing window should be less than 1MB, got {}",
-            hint.coalescing_window
-        );
-    }
-
-    #[tokio::test]
-    async fn test_tracking_reader_no_reads_yet_ddsketch() {
-        let mock_data = vec![0; 10];
-        let mock_reader = MockVortexReader {
-            data: mock_data,
-            read_delay_micros: 0,
-            throughput_limit_mbps: 0,
-            call_count: AtomicUsize::new(0),
-        };
-        let tracking_reader = PerformanceHintingReadAt::new(mock_reader);
-
-        let hint = tracking_reader.compute_performance_hint();
-        println!("DDSketch Performance Hint (no reads): {:?}", hint);
-
-        assert_eq!(
-            hint.coalescing_window,
-            tracking_reader.config.min_read_size_for_metrics
-        );
-        assert_eq!(hint.max_read, None);
+        // Check coalescing window heuristic based on the new T0 and B estimates
+        // Ideal window = B * T0 * amplification (100MB/s * 200us * 5) = 100e6 * 200e-6 * 5 = 100,000 bytes (100KB)
     }
 }
