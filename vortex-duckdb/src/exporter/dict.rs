@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use parking_lot::Mutex;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use bitvec::macros::internal::funty::Fundamental;
 use num_traits::AsPrimitive;
+use parking_lot::Mutex;
 use vortex::arrays::PrimitiveArray;
 use vortex::dtype::{NativePType, match_each_integer_ptype};
 use vortex::encodings::dict::DictArray;

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use parking_lot::Mutex;
 use std::sync::Arc;
 
 use dashmap::DashMap;
+use parking_lot::Mutex;
 use vortex::ArrayRef;
 
 use crate::duckdb::Vector;
