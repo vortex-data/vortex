@@ -84,9 +84,13 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
             // Queue up tasks if the thread local queue is almost empty.
             if self.task_queue.len() <= 4 {
                 if let Some(scan_builder_fn) = self.scan_builder_factory.pop() {
-                    let split_tasks = scan_builder_fn().build().ok()?;
-                    for task in split_tasks {
-                        self.task_queue.push(Box::pin(task));
+                    match scan_builder_fn().build() {
+                        Ok(tasks) => {
+                            for task in tasks.1 {
+                                self.task_queue.push(Box::pin(task));
+                            }
+                        }
+                        Err(err) => return Some(Err(err)),
                     }
                 }
                 // TODO(Alex): worksteal tasks from other threads
