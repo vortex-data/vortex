@@ -6606,6 +6606,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "vortex-buffer",
  "vortex-error",
  "vortex-metrics",
