@@ -19,9 +19,12 @@ use crate::vtable::{
 use crate::{Canonical, EncodingId, EncodingRef, vtable};
 
 mod accessor;
+mod compact;
 mod compute;
 mod ops;
 mod serde;
+
+pub use compact::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C, align(8))]

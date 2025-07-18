@@ -179,15 +179,6 @@ impl Validity {
         }
     }
 
-    /// If this validity is backed by an array, [`optimize`][crate::vtable::OperationsVTable]
-    /// the underlying array. Otherwise, returns the original validity unchanged.
-    pub fn optimize(&self) -> VortexResult<Self> {
-        match self {
-            Validity::Array(array) => array.optimize().map(Validity::Array),
-            x => Ok(x.clone()),
-        }
-    }
-
     /// Set to false any entries for which the mask is true.
     ///
     /// The result is always nullable. The result has the same length as self.

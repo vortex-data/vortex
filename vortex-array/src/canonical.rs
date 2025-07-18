@@ -8,7 +8,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::{
     BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray,
-    VarBinViewArray,
+    VarBinViewArray, compact_buffers,
 };
 use crate::builders::builder_with_capacity;
 use crate::{Array, ArrayRef, IntoArray};
@@ -83,6 +83,22 @@ impl Canonical {
             .finish()
             .to_canonical()
             .vortex_expect("cannot fail to convert an empty array to canonical")
+    }
+}
+
+impl Canonical {
+    /// Performs a (potentially expensive) compaction operation on the array before it is complete.
+    ///
+    /// This is mostly relevant for the variable-length types such as Utf8, Binary or List where
+    /// they can accumulate wasted space after slicing and taking operations.
+    ///
+    /// This operation is very expensive and can result in things like allocations, full-scans
+    /// and copy operations.
+    pub fn compact(&self) -> VortexResult<Canonical> {
+        match self {
+            Canonical::VarBinView(array) => Ok(Canonical::VarBinView(compact_buffers(array)?)),
+            other => Ok(other.clone()),
+        }
     }
 }
 
