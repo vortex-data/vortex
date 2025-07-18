@@ -149,37 +149,30 @@ impl<A: Annotation + Display> NodeRewriter for StructFieldExpressionSplitter<'_,
     type NodeTy = ExprRef;
 
     fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
-        // If this expression only accesses a single field, then we can skip the children
-        let annotations = self.annotations.get(&node);
-        if annotations.as_ref().is_some_and(|a| a.len() == 1) {
-            let annotation = annotations
-                .vortex_expect("access is non-empty")
-                .iter()
-                .next()
-                .vortex_expect("expected one field");
+        match self.annotations.get(&node) {
+            // If this expression only accesses a single field, then we can skip the children
+            Some(annotations) if annotations.len() == 1 => {
+                let annotation = annotations
+                    .iter()
+                    .next()
+                    .vortex_expect("expected one field");
+                let sub_exprs = self.sub_expressions.entry(annotation.clone()).or_default();
+                let idx = sub_exprs.len();
+                sub_exprs.push(node.clone());
+                let value = get_item(
+                    StructFieldExpressionSplitter::field_name(annotation, idx),
+                    get_item(FieldName::from(annotation.to_string()), root()),
+                );
+                Ok(Transformed {
+                    value,
+                    changed: true,
+                    order: TraversalOrder::Skip,
+                })
+            }
 
-            let sub_exprs = self.sub_expressions.entry(annotation.clone()).or_default();
-            let idx = sub_exprs.len();
-            sub_exprs.push(node.clone());
-
-            // In the root, we replace the annotated sub-expression with a `&.<A>.<A_idx>` since
-            // we assemble all sub-expressions for the same annotation into a single child.
-            let value = get_item(
-                StructFieldExpressionSplitter::field_name(annotation, idx),
-                get_item(FieldName::from(annotation.to_string()), root()),
-            );
-
-            return Ok(Transformed {
-                value,
-                changed: true,
-                order: TraversalOrder::Skip,
-            });
-
-            // return Ok(FoldDown::SkipChildren(replacement));
-        };
-
-        // If this expression only accesses a single field, then we can skip the children
-        Ok(Transformed::no(node))
+            // Otherwise, continue traversing.
+            _ => Ok(Transformed::no(node)),
+        }
     }
 
     fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
@@ -189,6 +182,7 @@ impl<A: Annotation + Display> NodeRewriter for StructFieldExpressionSplitter<'_,
 
 #[cfg(test)]
 mod tests {
+    use rstest::{fixture, rstest};
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
@@ -199,7 +193,6 @@ mod tests {
     use crate::transform::simplify::simplify;
     use crate::transform::simplify_typed::simplify_typed;
     use crate::{and, col, get_item, lit, merge, pack, root, select};
-    use rstest::{fixture, rstest};
 
     #[fixture]
     fn dtype() -> DType {

@@ -56,19 +56,16 @@ use crate::{
 /// use vortex_expr::{not, col, and, or, lt, lit, gt_eq};
 /// use vortex_expr::forms::nnf::nnf;
 ///
-/// let output = nnf(not(and(gt_eq(col("a"), lit(3)), col("b"))));
-/// let expected = or(lt(col("a"), lit(3)), not(col("b")));
-///
-/// println!("{output}");
-/// println!("{expected}");
 /// assert_eq!(
-///     &output,
-///     &expected
+///     &nnf(not(and(gt_eq(col("a"), lit(3)), col("b")))),
+///     &or(lt(col("a"), lit(3)), not(col("b")))
 /// );
 /// ```
 pub fn nnf(expr: ExprRef) -> ExprRef {
     let mut rewriter = NNFRewriter::default();
-    expr.rewrite(&mut rewriter).expect("cannot fail").value
+    expr.rewrite(&mut rewriter)
+        .vortex_expect("cannot fail")
+        .value
 }
 
 /// Verifies whether the expression is in Negative Normal Form ([NNF](https://en.wikipedia.org/wiki/Negation_normal_form)).
@@ -113,11 +110,11 @@ impl NodeRewriter for NNFRewriter {
                         _ => (binary_expr.lhs().clone(), binary_expr.rhs().clone()),
                     };
 
-                    return Ok(Transformed::yes(
+                    Ok(Transformed::yes(
                         BinaryExpr::new(lhs, new_op, rhs).into_expr(),
-                    ));
+                    ))
                 } else if let Some(inner_not_expr) = child.as_opt::<NotVTable>() {
-                    return Ok(Transformed::yes(inner_not_expr.child().clone()));
+                    Ok(Transformed::yes(inner_not_expr.child().clone()))
                 } else {
                     Ok(Transformed::no(node))
                 }
