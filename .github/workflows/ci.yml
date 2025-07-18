@@ -39,9 +39,10 @@ jobs:
         run: |
           # Lint the workflows and yamllint's configuration file.
           yamllint \
-              -c yamllint-config.yaml \
-              yamllint-config.yaml \
-              .github/
+            --strict \
+            -c yamllint-config.yaml \
+            yamllint-config.yaml \
+            .github/
 
   python-lint:
     name: "Python (lint)"
