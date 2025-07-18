@@ -202,16 +202,16 @@ impl TableFunction for VortexTableFunction {
     ) -> VortexResult<()> {
         loop {
             if local_state.exporter.is_none() {
-                match local_state.multi_scan_iterator.next() {
-                    Some(Ok((array_result, conversion_cache))) => {
-                        local_state.exporter = Some(ArrayExporter::try_new(
-                            &array_result.to_struct()?,
-                            &conversion_cache,
-                        )?);
-                    }
-                    Some(Err(err)) => return Err(err),
-                    None => return Ok(()),
-                }
+                let Some(result) = local_state.multi_scan_iterator.next() else {
+                    return Ok(());
+                };
+
+                let (array_result, conversion_cache) = result?;
+
+                local_state.exporter = Some(ArrayExporter::try_new(
+                    &array_result.to_struct()?,
+                    &conversion_cache,
+                )?);
             }
 
             let exporter = local_state
