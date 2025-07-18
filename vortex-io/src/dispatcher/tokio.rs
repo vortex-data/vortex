@@ -7,12 +7,11 @@ use std::thread::JoinHandle;
 
 use futures::channel::oneshot;
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
+#[cfg(feature = "tracing")]
+use tracing::Instrument;
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use super::{Dispatch, JoinHandle as VortexJoinHandle};
-
-#[cfg(feature = "tracing")]
-use tracing::Instrument;
 
 trait TokioSpawn {
     fn spawn(self: Box<Self>) -> TokioJoinHandle<()>;

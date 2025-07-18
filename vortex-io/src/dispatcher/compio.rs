@@ -7,12 +7,11 @@ use std::thread::JoinHandle;
 
 use compio::runtime::{JoinHandle as CompioJoinHandle, Runtime, RuntimeBuilder};
 use futures::channel::oneshot;
+#[cfg(feature = "tracing")]
+use tracing::Instrument;
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use super::{Dispatch, JoinHandle as VortexJoinHandle};
-
-#[cfg(feature = "tracing")]
-use tracing::Instrument;
 
 trait CompioSpawn {
     fn spawn(self: Box<Self>) -> CompioJoinHandle<()>;
