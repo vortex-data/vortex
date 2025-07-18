@@ -1,27 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future::Future;
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
+use futures::executor::ThreadPool;
 use futures::stream;
 use tokio::runtime::Runtime;
-use vortex::ArrayRef;
 use vortex::arrow::{FromArrowArray, IntoArrowArray, VortexRecordBatchReader};
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};
 use vortex::file::scan::ScanBuilder;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions as WriteOptions};
-use vortex::stream::{
-    ArrayStream, ArrayStreamAdapter, ArrayStreamExt, ArrayStreamToIterator, AsyncRuntime,
-    SendableArrayStream,
-};
+use vortex::iter::ArrayIteratorAdapter;
+use vortex::stream::ArrayStreamAdapter;
+use vortex::{ArrayRef, IntoArray};
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+
+static THREAD_POOL: LazyLock<ThreadPool> = LazyLock::new(|| {
+    ThreadPool::builder()
+        .create()
+        .map_err(VortexError::from)
+        .vortex_expect("thread pool must not fail to start")
+});
 
 /// Runtime configuration for the tokio runtime
 #[derive(Clone)]
@@ -60,23 +65,6 @@ fn create_runtime_with_config(config: &RuntimeConfig) -> Result<Runtime, std::io
     }
 
     builder.build()
-}
-
-/// Runtime adapter for vortex-cxx that uses the global static runtime
-struct CxxRuntimeAdapter;
-
-impl AsyncRuntime for CxxRuntimeAdapter {
-    fn block_on<F: Future>(&self, fut: F) -> F::Output {
-        get_runtime().block_on(fut)
-    }
-}
-
-/// Convenience function to create an ArrayStreamToIterator with the global runtime
-fn array_stream_to_iterator<S>(stream: S) -> ArrayStreamToIterator<S, CxxRuntimeAdapter>
-where
-    S: ArrayStream + Unpin + Send,
-{
-    ArrayStreamToIterator::new(stream, CxxRuntimeAdapter)
 }
 
 #[cxx::bridge(namespace = "vortex::ffi")]
@@ -172,12 +160,19 @@ unsafe fn scan_builder_into_arrow(
     out_array: *mut u8,
     out_schema: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let rt = get_runtime();
-    let array = rt
-        .block_on(async {
-            let stream = builder.inner.into_array_stream()?;
-            stream.read_all().await
-        })?
+    let dtype = builder.inner.dtype()?;
+    let iter = ArrayIteratorAdapter::new(
+        dtype.clone(),
+        builder.inner.into_thread_pool_iter(THREAD_POOL.clone())?,
+    );
+    let reader = VortexRecordBatchReader::try_new(iter)?;
+
+    let arrays: Vec<_> = reader
+        .map(|batch| batch.map(|b| ArrayRef::from_arrow(b, false)))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let array = vortex::arrays::ChunkedArray::try_new(arrays, dtype)?
+        .into_array()
         .into_arrow_preferred()?;
 
     let ffi_array = FFI_ArrowArray::new(&array.to_data());
@@ -203,8 +198,11 @@ unsafe fn scan_builder_into_stream(
     builder: Box<VortexScanBuilder>,
     out_stream: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let iter =
-        array_stream_to_iterator(builder.inner.into_array_stream()?.boxed() as SendableArrayStream);
+    let dtype = builder.inner.dtype()?;
+    let iter = ArrayIteratorAdapter::new(
+        dtype,
+        builder.inner.into_thread_pool_iter(THREAD_POOL.clone())?,
+    );
     let reader = VortexRecordBatchReader::try_new(iter)?;
     let stream = FFI_ArrowArrayStream::new(Box::new(reader));
     let out_stream = out_stream as *mut FFI_ArrowArrayStream;

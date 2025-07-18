@@ -24,7 +24,7 @@ crate-type = ["staticlib"]
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-schema = { workspace = true }
 cxx = "1.0"
-futures = { workspace = true, default-features = false }
+futures = { workspace = true, features = ["thread-pool"] }
 prost = { workspace = true }
 take_mut = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }

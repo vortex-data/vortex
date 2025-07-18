@@ -83,7 +83,7 @@ impl Iterator for MultiScanIterator {
             // Queue up tasks if the thread local queue is almost empty.
             if self.task_queue.len() <= 4 {
                 if let Some(scan_builder_fn) = self.scan_builder_factory.pop() {
-                    let split_tasks = scan_builder_fn().build().ok()?.1;
+                    let split_tasks = scan_builder_fn().build().ok()?;
                     for task in split_tasks {
                         self.task_queue.push(Box::pin(task));
                     }
