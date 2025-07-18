@@ -141,7 +141,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    pub fn build(mut self) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<A>>>>> {
+    pub fn build(mut self) -> VortexResult<Vec<impl Future<Output=VortexResult<Option<A>>>>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
@@ -207,7 +207,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     /// All work will be performed on the current thread, with tasks interleaved per the
     /// configured concurrency. Any configured executor will be ignored.
     #[allow(clippy::should_implement_trait)]
-    pub fn into_iter(self) -> VortexResult<impl Iterator<Item = VortexResult<A>> + 'static> {
+    pub fn into_iter(self) -> VortexResult<impl Iterator<Item=VortexResult<A>> + 'static> {
         // As we're using a `LocalPool` here, we want tasks to actually run fully on the current thread,
         // so we have to make sure to zero out any currently configured executor.
         let mut local_pool = LocalPool::new();
@@ -233,7 +233,28 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     pub fn into_thread_pool_iter(
         self,
         pool: ThreadPool,
-    ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + Send + 'static> {
+    ) -> VortexResult<impl Iterator<Item=VortexResult<A>> + Send + 'static> {
+        let futures: FuturesOrdered<_> = self
+            .build()?
+            .into_iter()
+            .map(|task| {
+                let fut = pool.spawn_with_handle(task);
+                async move {
+                    fut.map_err(|e| vortex_err!("Failed to spawn task onto thread pool {e}"))?
+                        .await
+                }
+            })
+            .collect();
+
+        Ok(futures::executor::block_on_stream(futures).filter_map_ok(|v| v))
+    }
+
+    /// Returns a blocking iterator over the scan, where tasks perform CPU work on the provided
+    /// thread pool.
+    pub fn into_thread_pool_iter(
+        self,
+        pool: ThreadPool,
+    ) -> VortexResult<impl Iterator<Item=VortexResult<A>> + Send + 'static> {
         let futures: FuturesOrdered<_> = self
             .build()?
             .into_iter()

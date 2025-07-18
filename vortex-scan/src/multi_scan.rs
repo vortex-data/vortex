@@ -6,34 +6,34 @@ use std::sync::Arc;
 use crossbeam_queue::SegQueue;
 use futures::executor::LocalPool;
 use futures::future::BoxFuture;
-use futures::stream::{FuturesUnordered, StreamExt};
-use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 
 use crate::ScanBuilder;
 
-type ArrayFuture = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
-type ScanBuilderFactory = Arc<SegQueue<Box<dyn FnOnce() -> ScanBuilder<ArrayRef> + Send + Sync>>>;
+type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
+type ScanBuilderFactory<T> = Arc<SegQueue<Box<(dyn FnOnce() -> ScanBuilder<T> + Send + Sync)>>>;
 
 /// Coordinator to orchestrate multiple scan operations.
 ///
 /// `MultiScan` allows to queue multiple scan operations in order to execute
 /// them in parallel. In particular, this enables scanning multiple files.
 #[derive(Default)]
-pub struct MultiScan {
-    scan_builder_factory: ScanBuilderFactory,
+pub struct MultiScan<T> {
+    scan_builder_factory: ScanBuilderFactory<T>,
 }
 
-impl MultiScan {
+impl<T> MultiScan<T> {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            scan_builder_factory: Arc::new(SegQueue::new()),
+        }
     }
 
-    /// `ScanBuilder`s are passed through closures to decouple how the they are created.
+    /// Add lazily constructed scan builders paired with their corresponding states.
     pub fn with_scan_builders<I, F>(self, closures: I) -> Self
     where
-        F: FnOnce() -> ScanBuilder<ArrayRef> + 'static + Send + Sync,
-        I: IntoIterator<Item = F>,
+        F: FnOnce() -> ScanBuilder<T> + 'static + Send + Sync,
+        I: IntoIterator<Item=F>,
     {
         for closure in closures.into_iter() {
             self.scan_builder_factory.push(Box::new(closure));
@@ -45,82 +45,51 @@ impl MultiScan {
     /// Creates a new iterator to participate in the scan.
     ///
     /// The scan progresses when calling `next` on the iterator.
-    pub fn new_scan_iterator(&self) -> MultiScanIterator {
+    pub fn new_scan_iterator(&self) -> MultiScanIterator<T> {
         MultiScanIterator {
             scan_builder_factory: self.scan_builder_factory.clone(),
             local_pool: LocalPool::new(),
-            polled_tasks: FuturesUnordered::new(),
             task_queue: SegQueue::new(),
         }
     }
 }
 
 /// Scan iterator to participate in a `MultiScan`.
-pub struct MultiScanIterator {
+pub struct MultiScanIterator<T> {
     local_pool: LocalPool,
-    polled_tasks: FuturesUnordered<ArrayFuture>,
 
     /// Thread-safe queue of closures that lazily produce [`ScanBuilder`] instances.
     /// This queue is shared across all iterators being created with `new_scan_iterator`.
-    scan_builder_factory: ScanBuilderFactory,
-    task_queue: SegQueue<ArrayFuture>,
+    scan_builder_factory: ScanBuilderFactory<T>,
+    task_queue: SegQueue<ArrayFuture<T>>,
 }
 
-impl MultiScanIterator {
-    fn pop_scan_task(&self) -> Option<VortexResult<ArrayFuture>> {
-        if let Some(array_future_tuple) = self.task_queue.pop() {
-            return Some(Ok(array_future_tuple));
-        }
-        None
-    }
-}
 
-impl Iterator for MultiScanIterator {
-    type Item = VortexResult<ArrayRef>;
+impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
+    type Item = VortexResult<T>;
 
-    fn next(&mut self) -> Option<VortexResult<ArrayRef>> {
-        loop {
-            // Queue up tasks if the thread local queue is almost empty.
-            if self.task_queue.len() <= 4 {
-                if let Some(scan_builder_fn) = self.scan_builder_factory.pop() {
-                    let scan_builder = scan_builder_fn();
-                    // FIXME(ngates): this should not call ok()
-                    let split_tasks = scan_builder.build().ok()?;
-                    for task in split_tasks {
-                        self.task_queue.push(Box::pin(task));
+    fn next(&mut self) -> Option<VortexResult<T>> {
+        // Queue up tasks if the thread local queue is empty.
+        if self.task_queue.is_empty() {
+            if let Some(scan_builder_fn) = self.scan_builder_factory.pop() {
+                match scan_builder_fn().build() {
+                    Ok(tasks) => {
+                        for task in tasks {
+                            self.task_queue.push(Box::pin(task));
+                        }
                     }
-                }
-                // TODO(Alex): worksteal tasks from other threads
-            }
-
-            if let Some(work_result) = self.pop_scan_task() {
-                match work_result {
-                    Ok(future) => self.polled_tasks.push(future),
-                    Err(e) => return Some(Err(e)),
+                    Err(err) => return Some(Err(err)),
                 }
             }
-
-            if self.task_queue.is_empty() && self.polled_tasks.is_empty() {
-                // All tasks have been fully processed.
-                return None;
-            }
-
-            let result = self.local_pool.run_until(async {
-                while let Some(result) = self.polled_tasks.next().await {
-                    match result {
-                        Ok(Some(array)) => return Some(Ok(array)),
-                        Ok(None) => continue,
-                        Err(e) => return Some(Err(e)),
-                    }
-                }
-                None
-            });
-
-            match result {
-                Some(Ok(array)) => return Some(Ok(array)),
-                Some(Err(e)) => return Some(Err(e)),
-                None => continue, // Try next batch of futures
-            }
+            // TODO(Alex): worksteal tasks from other threads
         }
+
+        let task = self.task_queue.pop()?;
+
+        Some(
+            self.local_pool
+                .run_until(async { task.await })
+                .transpose()?,
+        )
     }
 }

@@ -7,6 +7,8 @@ use std::thread::JoinHandle;
 
 use compio::runtime::{JoinHandle as CompioJoinHandle, Runtime, RuntimeBuilder};
 use futures::channel::oneshot;
+#[cfg(feature = "tracing")]
+use tracing::Instrument;
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use super::{Dispatch, JoinHandle as VortexJoinHandle};
@@ -18,6 +20,8 @@ trait CompioSpawn {
 struct CompioTask<F, R> {
     task: F,
     result: oneshot::Sender<R>,
+    #[cfg(feature = "tracing")]
+    span: tracing::Span,
 }
 
 impl<F, Fut, R> CompioSpawn for CompioTask<F, R>
@@ -27,10 +31,19 @@ where
     R: Send + 'static,
 {
     fn spawn(self: Box<Self>) -> CompioJoinHandle<()> {
-        let CompioTask { task, result } = *self;
+        let CompioTask {
+            task,
+            result,
+            #[cfg(feature = "tracing")]
+            span,
+        } = *self;
         Runtime::with_current(|rt| {
             rt.spawn(async move {
+                #[cfg(feature = "tracing")]
+                let task_output = task().instrument(span).await;
+                #[cfg(not(feature = "tracing"))]
                 let task_output = task().await;
+
                 result.send(task_output).ok();
             })
         })
@@ -81,7 +94,12 @@ impl Dispatch for CompioDispatcher {
         R: Send + 'static,
     {
         let (tx, rx) = oneshot::channel();
-        let compio_task = Box::new(CompioTask { task, result: tx });
+        let compio_task = Box::new(CompioTask {
+            task,
+            result: tx,
+            #[cfg(feature = "tracing")]
+            span: tracing::Span::current(),
+        });
         match self.submitter.send(compio_task) {
             Ok(()) => Ok(VortexJoinHandle(rx)),
             Err(err) => vortex_bail!("Dispatcher error spawning task: {err}"),

@@ -28,9 +28,16 @@ impl Dispatch for WasmDispatcher {
         Fut: Future<Output = R> + 'static,
         R: Send + 'static,
     {
+        #[cfg(feature = "tracing")]
+        let span = tracing::Span::current();
+
         let (tx, rx) = oneshot::channel();
         wasm_bindgen_futures::spawn_local(async move {
+            #[cfg(feature = "tracing")]
+            let result = task().instrument(span).await;
+            #[cfg(not(feature = "tracing"))]
             let result = task().await;
+
             tx.send(result)
                 // NOTE: We don't know if the err is Debug
                 .unwrap_or_else(|_err| vortex_panic!("WasmDispatcher: task submit failed"));

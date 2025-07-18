@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::arrays::ConstantArray;
-use vortex_array::vtable::OperationsVTable;
-use vortex_array::{Array, ArrayRef, IntoArray};
-use vortex_error::VortexResult;
+use vortex_array::arrays::{ConstantArray, PrimitiveArray};
+use vortex_array::vtable::{OperationsVTable, ValidityHelper};
+use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
+use vortex_buffer::Buffer;
+use vortex_dtype::{NativePType, match_each_native_ptype};
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_scalar::Scalar;
 
 use crate::{RunEndArray, RunEndVTable};
@@ -23,6 +25,7 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
             (physical_start, physical_stop + 1)
         };
 
+        // If the sliced range contains only a single run, opt to return a ConstantArray.
         if slice_begin + 1 == slice_end {
             let value = array.values().scalar_at(slice_begin)?;
             return Ok(ConstantArray::new(value, new_length).into_array());
@@ -44,17 +47,39 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
     fn scalar_at(array: &RunEndArray, index: usize) -> VortexResult<Scalar> {
         array.values().scalar_at(array.find_physical_index(index)?)
     }
+
+    fn optimize(array: &RunEndArray) -> VortexResult<RunEndArray> {
+        // Only optimize sliced RunEndArray
+        if array.offset() == 0 {
+            return Ok(array.clone());
+        }
+
+        // Renumber the ends to account for the offset.
+        let ends = array.ends().to_primitive()?;
+        let new_ends = match_each_native_ptype!(ends.ptype(), |P| {
+            let buffer = renumber_ends(ends.as_slice::<P>(), array.offset());
+            PrimitiveArray::new(buffer, ends.validity().clone()).into_array()
+        });
+
+        // New values, sliced properly
+        RunEndArray::with_offset_and_length(new_ends, array.values().clone(), 0, array.len())
+    }
+}
+
+/// Subtract the offset out from all of the ends.
+fn renumber_ends<I: NativePType>(ends: &[I], offset: usize) -> Buffer<I> {
+    let offset = I::from(offset).vortex_expect("offset must fit into index type");
+    ends.iter().map(|&end| end - offset).collect()
 }
 
 #[cfg(test)]
 mod tests {
-
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
-    use crate::RunEndArray;
+    use crate::{RunEndArray, RunEndVTable};
 
     #[test]
     fn slice_array() {
@@ -155,5 +180,31 @@ mod tests {
         .scalar_at(11)
         .unwrap();
         assert_eq!(scalar, 5.into());
+    }
+
+    #[test]
+    fn slice_and_optimize() {
+        // Encodes as
+        //   ends:   [4, 8]
+        //   values: [1, 2]
+        let original = RunEndArray::encode(
+            buffer![1u32, 1u32, 1u32, 1u32, 2u32, 2u32, 2u32, 2u32].into_array(),
+        )
+        .unwrap();
+
+        // After slicing:
+        //   ends:   [4, 8]
+        //   values: [1, 2]
+        let sliced = original.slice(2, 5).unwrap();
+
+        // After optimizing:
+        //  ends:   [0, 4]
+        //  values: [1, 2]
+        let optimized = sliced.optimize().unwrap();
+
+        assert_eq!(optimized.as_::<RunEndVTable>().offset(), 0);
+
+        let values = optimized.to_primitive().unwrap();
+        assert_eq!(values.as_slice::<u32>(), &[1u32, 1u32, 2u32]);
     }
 }

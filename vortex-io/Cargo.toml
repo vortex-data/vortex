@@ -37,6 +37,7 @@ wasm-bindgen-futures = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+tracing-subscriber = { workspace = true }
 
 [features]
 compio = ["dep:compio", "vortex-buffer/compio"]

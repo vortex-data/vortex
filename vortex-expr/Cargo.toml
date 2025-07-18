@@ -35,6 +35,7 @@ vortex-scalar = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
+rstest = { workspace = true }
 vortex-expr = { path = ".", features = ["test-harness"] }
 
 [features]
