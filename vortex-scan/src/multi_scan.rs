@@ -73,7 +73,7 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
             if let Some(scan_builder_fn) = self.scan_builder_factory.pop() {
                 match scan_builder_fn().build() {
                     Ok(tasks) => {
-                        for task in tasks.1 {
+                        for task in tasks {
                             self.task_queue.push(Box::pin(task));
                         }
                     }
