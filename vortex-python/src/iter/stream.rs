@@ -1,34 +1,59 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future::Future;
-
+use futures::StreamExt;
 use tokio::runtime::Handle;
-use vortex::stream::{ArrayStream, ArrayStreamToIterator, AsyncRuntime};
+use vortex::ArrayRef;
+use vortex::dtype::DType;
+use vortex::error::VortexResult;
+use vortex::iter::ArrayIterator;
+use vortex::stream::ArrayStream;
 
 use crate::TOKIO_RUNTIME;
 
-/// Tokio runtime adapter for use with ArrayStreamToIterator
-pub(crate) struct TokioRuntimeAdapter(Handle);
-
-impl TokioRuntimeAdapter {
-    pub(crate) fn new() -> Self {
-        Self(TOKIO_RUNTIME.handle().clone())
-    }
+pub(crate) trait AsyncRuntime {
+    fn block_on<F: Future>(&self, fut: F) -> F::Output;
 }
 
-impl AsyncRuntime for TokioRuntimeAdapter {
+impl AsyncRuntime for Handle {
     fn block_on<F: Future>(&self, fut: F) -> F::Output {
-        self.0.block_on(fut)
+        self.block_on(fut)
     }
 }
 
-/// Convenience function to create an ArrayStreamToIterator with the global tokio runtime
-pub(crate) fn array_stream_to_iterator<S>(
+/// Adapter for converting an [`ArrayStream`] into an [`ArrayIterator`].
+pub(crate) struct ArrayStreamToIterator<S, AR> {
     stream: S,
-) -> ArrayStreamToIterator<S, TokioRuntimeAdapter>
+    runtime: AR,
+}
+
+impl<S: ArrayStream + Unpin + Send> ArrayStreamToIterator<S, Handle> {
+    pub(crate) fn new(stream: S) -> Self {
+        Self {
+            stream,
+            runtime: TOKIO_RUNTIME.handle().clone(),
+        }
+    }
+}
+
+impl<S, AR> ArrayIterator for ArrayStreamToIterator<S, AR>
 where
     S: ArrayStream + Unpin + Send,
+    AR: AsyncRuntime,
 {
-    ArrayStreamToIterator::new(stream, TokioRuntimeAdapter::new())
+    fn dtype(&self) -> &DType {
+        self.stream.dtype()
+    }
+}
+
+impl<S, AR> Iterator for ArrayStreamToIterator<S, AR>
+where
+    S: ArrayStream + Unpin + Send,
+    AR: AsyncRuntime,
+{
+    type Item = VortexResult<ArrayRef>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.runtime.block_on(self.stream.next())
+    }
 }

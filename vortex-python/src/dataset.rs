@@ -19,7 +19,7 @@ use vortex::{ArrayRef, ToCanonical};
 
 use crate::arrays::PyArrayRef;
 use crate::expr::PyExpr;
-use crate::iter::array_stream_to_iterator;
+use crate::iter::ArrayStreamToIterator;
 use crate::object_store_urls::object_store_from_url;
 use crate::{TOKIO_RUNTIME, install_module};
 
@@ -139,7 +139,7 @@ impl PyVortexDataset {
         }
 
         let iter =
-            array_stream_to_iterator(scan.into_array_stream()?.boxed() as SendableArrayStream);
+            ArrayStreamToIterator::new(scan.into_array_stream()?.boxed() as SendableArrayStream);
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(iter)?);
 

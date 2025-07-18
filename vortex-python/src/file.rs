@@ -24,7 +24,7 @@ use crate::arrays::PyArrayRef;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
 use crate::expr::PyExpr;
-use crate::iter::{PyArrayIterator, array_stream_to_iterator};
+use crate::iter::{ArrayStreamToIterator, PyArrayIterator};
 use crate::{TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -169,7 +169,7 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let iter = array_stream_to_iterator(ArrayStreamExt::boxed(builder.into_array_stream()?));
+        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(builder.into_array_stream()?));
         Ok(PyArrayIterator::new(Box::new(iter)))
     }
 
@@ -199,7 +199,7 @@ impl PyVortexFile {
             Ok::<_, VortexError>(ArrayStreamExt::boxed(builder.into_array_stream()?))
         })?;
 
-        let iter = array_stream_to_iterator(stream);
+        let iter = ArrayStreamToIterator::new(stream);
         let rbr: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(iter)?);
         rbr.into_pyarrow(slf.py())
