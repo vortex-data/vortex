@@ -5,6 +5,7 @@
 #include <filesystem>
 
 #include "vortex.hpp"
+#include "vortex/thread_pool.hpp"
 #include "vortex_cxx_bridge/lib.h"
 
 #include <nanoarrow/nanoarrow.hpp>
@@ -13,6 +14,7 @@
 class VortexTest : public ::testing::Test {
 public:
     static void SetUpTestSuite() {
+        vortex::ConfigureThreadPool(1);
         std::string test_data_path = GetTestDataPath("test_data.vortex");
         vortex::ffi::generate_test_vortex_file(test_data_path.c_str());
     }
@@ -30,51 +32,86 @@ protected:
         std::filesystem::path target_path = vortex_test_dir / filename;
         return target_path.string();
     }
+
+    // Helper function to create nanoarrow objects from Arrow C ABI structs
+    std::pair<nanoarrow::UniqueArray, nanoarrow::UniqueSchema> CreateNanoarrowFromCAPI(ArrowArray &arrow,
+                                                                                       ArrowSchema &schema) {
+        nanoarrow::UniqueArray array_obj;
+        ArrowArrayMove(&arrow, array_obj.get());
+
+        nanoarrow::UniqueSchema schema_obj;
+        ArrowSchemaMove(&schema, schema_obj.get());
+
+        return {std::move(array_obj), std::move(schema_obj)};
+    }
+
+    // Helper function to create and initialize array view
+    nanoarrow::UniqueArrayView CreateArrayView(const nanoarrow::UniqueArray &array,
+                                               const nanoarrow::UniqueSchema &schema) {
+        nanoarrow::UniqueArrayView array_view;
+        ArrowErrorCode init_result = ArrowArrayViewInitFromSchema(array_view.get(), schema.get(), nullptr);
+        EXPECT_EQ(init_result, NANOARROW_OK);
+        ArrowErrorCode set_result = ArrowArrayViewSetArray(array_view.get(), array.get(), nullptr);
+        EXPECT_EQ(set_result, NANOARROW_OK);
+        return array_view;
+    }
+
+    // Helper function to create array stream and get schema
+    std::pair<nanoarrow::UniqueArrayStream, nanoarrow::UniqueSchema>
+    CreateArrayStreamWithSchema(ArrowArrayStream &stream) {
+        nanoarrow::UniqueArrayStream array_stream;
+        ArrowArrayStreamMove(&stream, array_stream.get());
+
+        nanoarrow::UniqueSchema schema;
+        int get_schema_result = array_stream->get_schema(array_stream.get(), schema.get());
+        EXPECT_EQ(get_schema_result, 0);
+
+        return {std::move(array_stream), std::move(schema)};
+    }
+
+    // Helper function to validate basic array properties
+    void ValidateBasicArrayProperties(const nanoarrow::UniqueArray &array, int64_t expected_length,
+                                      int64_t expected_null_count) {
+        ASSERT_EQ(array->length, expected_length);
+        ASSERT_EQ(array->null_count, expected_null_count);
+    }
+
+    // Helper function to extract field values
+    std::vector<int32_t> ExtractFieldValues(ArrowArrayView *field_view, int64_t count) {
+        EXPECT_EQ(field_view->array->length, count);
+        EXPECT_EQ(field_view->array->null_count, 0);
+
+        std::vector<int32_t> values(count);
+        for (int64_t i = 0; i < count; ++i) {
+            values[i] = static_cast<int32_t>(ArrowArrayViewGetIntUnsafe(field_view, i));
+        }
+        return values;
+    }
+
+    // Helper function to validate field values against expected values
+    void ValidateFieldValues(ArrowArrayView *field_view, const std::vector<int32_t> &expected_values) {
+        auto actual_values = ExtractFieldValues(field_view, static_cast<int64_t>(expected_values.size()));
+        for (size_t i = 0; i < expected_values.size(); ++i) {
+            ASSERT_EQ(actual_values[i], expected_values[i]);
+        }
+    }
+
     // Helper function to validate struct array data
     // NOTE: This depends on the test data generated from `generate_test_vortex_file` in `src/lib.rs`
     void ValidateStructArray(const nanoarrow::UniqueArray &struct_array,
                              const nanoarrow::UniqueSchema &schema) {
-        // Validate struct array properties
-        ASSERT_EQ(struct_array->length, 5);
-        ASSERT_EQ(struct_array->null_count, 0);
+        ValidateBasicArrayProperties(struct_array, 5, 0);
         ASSERT_EQ(schema->n_children, 2);
 
-        // Create array views for easier access
-        nanoarrow::UniqueArrayView array_view;
-        ArrowErrorCode init_result = ArrowArrayViewInitFromSchema(array_view.get(), schema.get(), nullptr);
-        ASSERT_EQ(init_result, NANOARROW_OK);
-        ArrowErrorCode set_result = ArrowArrayViewSetArray(array_view.get(), struct_array.get(), nullptr);
-        ASSERT_EQ(set_result, NANOARROW_OK);
+        auto array_view = CreateArrayView(struct_array, schema);
 
         // Test field "a" (first child)
-        ArrowArrayView *field_a_view = array_view->children[0];
-        ASSERT_EQ(field_a_view->array->length, 5);
-        ASSERT_EQ(field_a_view->array->null_count, 0);
-
-        int32_t values_a[5];
-        for (int64_t i = 0; i < 5; ++i) {
-            values_a[i] = static_cast<int32_t>(ArrowArrayViewGetIntUnsafe(field_a_view, i));
-        }
-        ASSERT_EQ(values_a[0], 10);
-        ASSERT_EQ(values_a[1], 20);
-        ASSERT_EQ(values_a[2], 30);
-        ASSERT_EQ(values_a[3], 40);
-        ASSERT_EQ(values_a[4], 50);
+        std::vector<int32_t> expected_values_a = {10, 20, 30, 40, 50};
+        ValidateFieldValues(array_view->children[0], expected_values_a);
 
         // Test field "b" (second child)
-        ArrowArrayView *field_b_view = array_view->children[1];
-        ASSERT_EQ(field_b_view->array->length, 5);
-        ASSERT_EQ(field_b_view->array->null_count, 0);
-
-        int32_t values_b[5];
-        for (int64_t i = 0; i < 5; ++i) {
-            values_b[i] = static_cast<int32_t>(ArrowArrayViewGetIntUnsafe(field_b_view, i));
-        }
-        ASSERT_EQ(values_b[0], 10);
-        ASSERT_EQ(values_b[1], 20);
-        ASSERT_EQ(values_b[2], 30);
-        ASSERT_EQ(values_b[3], 40);
-        ASSERT_EQ(values_b[4], 50);
+        std::vector<int32_t> expected_values_b = {10, 20, 30, 40, 50};
+        ValidateFieldValues(array_view->children[1], expected_values_b);
     }
 };
 
@@ -84,12 +121,8 @@ TEST_F(VortexTest, ScanToArray) {
     // Test scanning to Arrow C ABI
     auto [arrow, schema] = file.CreateScanBuilder().IntoArray();
 
-    // Create nanoarrow UniqueArray and UniqueSchema from C ABI structs
-    nanoarrow::UniqueArray struct_array;
-    ArrowArrayMove(&arrow, struct_array.get());
-
-    nanoarrow::UniqueSchema schema_obj;
-    ArrowSchemaMove(&schema, schema_obj.get());
+    // Create nanoarrow objects from C ABI structs
+    auto [struct_array, schema_obj] = CreateNanoarrowFromCAPI(arrow, schema);
 
     ValidateStructArray(struct_array, schema_obj);
 }
@@ -100,15 +133,8 @@ TEST_F(VortexTest, ScanToStream) {
     // Test scanning to ArrowArrayStream
     auto stream = file.CreateScanBuilder().IntoStream();
 
-    // Create nanoarrow ArrayStream wrapper
-    nanoarrow::UniqueArrayStream array_stream;
-    ArrowArrayStreamMove(&stream, array_stream.get());
-
-    // Test that we can get the schema
-    nanoarrow::UniqueSchema schema;
-    int get_schema_result = array_stream->get_schema(array_stream.get(), schema.get());
-    ASSERT_EQ(get_schema_result, 0);
-    ASSERT_EQ(schema->n_children, 2);
+    // Create nanoarrow ArrayStream wrapper and get schema
+    auto [array_stream, schema] = CreateArrayStreamWithSchema(stream);
 
     // Test that we can read arrays from the stream
     nanoarrow::UniqueArray array;
@@ -123,43 +149,27 @@ TEST_F(VortexTest, ScanOptionsWithLimitWithRowRange) {
 
     auto stream = file.CreateScanBuilder().WithLimit(2).WithRowRange(1, 4).IntoStream();
 
-    // Create nanoarrow ArrayStream wrapper
-    nanoarrow::UniqueArrayStream array_stream;
-    ArrowArrayStreamMove(&stream, array_stream.get());
-
-    // Get the schema
-    nanoarrow::UniqueSchema schema;
-    int get_schema_result = array_stream->get_schema(array_stream.get(), schema.get());
-    ASSERT_EQ(get_schema_result, 0);
+    // Create nanoarrow ArrayStream wrapper and get schema
+    auto [array_stream, schema] = CreateArrayStreamWithSchema(stream);
 
     // Read the array from the stream
     nanoarrow::UniqueArray array;
     int get_next_result = array_stream->get_next(array_stream.get(), array.get());
     ASSERT_EQ(get_next_result, 0);
 
-    // Should have limited rows (3 instead of 5)
-    ASSERT_EQ(array->length, 2);
-    ASSERT_EQ(array->null_count, 0);
-    ASSERT_EQ(schema->n_children, 2);
+    // Should have limited rows (2 instead of 5)
+    ValidateBasicArrayProperties(array, 2, 0);
 
     // Create array view for validation
-    nanoarrow::UniqueArrayView array_view;
-    ArrowErrorCode init_result = ArrowArrayViewInitFromSchema(array_view.get(), schema.get(), nullptr);
-    ASSERT_EQ(init_result, NANOARROW_OK);
-    ArrowErrorCode set_result = ArrowArrayViewSetArray(array_view.get(), array.get(), nullptr);
-    ASSERT_EQ(set_result, NANOARROW_OK);
+    auto array_view = CreateArrayView(array, schema);
 
-    // Test field "a" - first 2 values
-    ArrowArrayView *field_a_view = array_view->children[0];
-    ASSERT_EQ(field_a_view->array->length, 2);
-    ASSERT_EQ(field_a_view->array->null_count, 0);
+    // Test field "a" - should contain values 20, 30 (rows 1-2 from original data)
+    std::vector<int32_t> expected_values_a = {20, 30};
+    ValidateFieldValues(array_view->children[0], expected_values_a);
 
-    int32_t values_a[2];
-    for (int64_t i = 0; i < 2; ++i) {
-        values_a[i] = static_cast<int32_t>(ArrowArrayViewGetIntUnsafe(field_a_view, i));
-    }
-    ASSERT_EQ(values_a[0], 20);
-    ASSERT_EQ(values_a[1], 30);
+    // Test field "b" - should contain values 20, 30 (rows 1-2 from original data)
+    std::vector<int32_t> expected_values_b = {20, 30};
+    ValidateFieldValues(array_view->children[1], expected_values_b);
 }
 
 TEST_F(VortexTest, WriteArrayStream) {
@@ -179,12 +189,8 @@ TEST_F(VortexTest, WriteArrayStream) {
     // Verify data integrity by scanning the written file
     auto [arrow, schema] = written_file.CreateScanBuilder().IntoArray();
 
-    // Create nanoarrow UniqueArray and UniqueSchema from C ABI structs
-    nanoarrow::UniqueArray struct_array;
-    ArrowArrayMove(&arrow, struct_array.get());
-
-    nanoarrow::UniqueSchema schema_obj;
-    ArrowSchemaMove(&schema, schema_obj.get());
+    // Create nanoarrow objects from C ABI structs
+    auto [struct_array, schema_obj] = CreateNanoarrowFromCAPI(arrow, schema);
 
     ValidateStructArray(struct_array, schema_obj);
 }
