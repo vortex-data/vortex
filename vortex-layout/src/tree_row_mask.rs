@@ -124,8 +124,7 @@ impl TreeRowMask {
                                 ((((partition_key as u64) << 32) + (i as u64)) - self.offset)
                                     as usize
                             })
-                        })
-                        .collect_vec();
+                        });
 
                     if self.exclude {
                         masks.push(Ok(Mask::from_excluded_indices(
@@ -133,7 +132,48 @@ impl TreeRowMask {
                             iter,
                         )))
                     } else {
-                        masks.push(Ok(Mask::from_indices((r2.end - r2.start) as usize, iter)))
+                        let iter = iter.fold(Vec::new(), |mut groups: Vec<Vec<_>>, value| {
+                            match groups.last_mut() {
+                                Some(last_group)
+                                    if last_group.iter().all(|&x| (value - x) < 2048) =>
+                                {
+                                    last_group.push(value);
+                                }
+                                _ => {
+                                    groups.push(vec![value]);
+                                }
+                            }
+                            groups
+                        });
+
+                        let mut last_end = 0;
+
+                        for group in iter {
+                            let group_start = *group.first().unwrap();
+                            let group_end = *group.last().unwrap();
+
+                            // Add gap before this group if there is one
+                            if last_end < group_start {
+                                masks.push(Ok(Mask::AllFalse(group_start - last_end)));
+                            }
+
+                            // Add the group itself
+                            let len = group_end - group_start + 1;
+                            masks.push(Ok(Mask::from_indices(
+                                len,
+                                group.iter().map(|i| *i - group_start).collect_vec(),
+                            )));
+
+                            last_end = group_end + 1;
+                        }
+
+                        // println!("masks1 {masks:?}");
+                        // Add final gap if there is one
+                        if last_end < r2.end as usize {
+                            masks.push(Ok(Mask::AllFalse((end - start) as usize - last_end)));
+                        }
+                        // println!("masks {masks:?}");
+                        // masks.push(Ok(Mask::from_indices((r2.end - r2.start) as usize, iter)))
                     }
                 }
 
@@ -518,7 +558,7 @@ mod tests {
         treemap.insert(base + 2000);
         treemap.insert(base + 3000);
 
-        let mask = TreeRowMask::all(u64::MAX).with_treemap(SlicedTreemap {
+        let mask = TreeRowMask::all(base + 5000).with_treemap(SlicedTreemap {
             treemap: Arc::new(treemap),
             offset: 0,
             length: base + 4000,

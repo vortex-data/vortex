@@ -3,7 +3,6 @@
 
 //! Split scanning task implementation.
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use futures::FutureExt;

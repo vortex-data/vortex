@@ -109,10 +109,6 @@ impl LayoutReader for FlatReader {
 
     fn row_masks(&self, selection: &TreeRowMask, _field_mask: &[FieldMask]) -> BoxMaskIterator {
         selection.mask()
-        // Box::new(selection.mask().inspect(|mask| {
-        // println!("flat mask: {:?}", mask.as_ref().map(|m| m.indices()));
-        // println!("flat mask: {:?}", mask.as_ref().map(|m| m.len()));
-        // }))
     }
 
     fn pruning_evaluation(

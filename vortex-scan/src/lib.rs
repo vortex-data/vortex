@@ -183,7 +183,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         // The ultimate short circuit
         if is_empty_range || is_zero_limit {
-            let dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
             return Ok(vec![]);
         }
 
@@ -215,8 +214,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         let row_count = layout_reader.row_count();
 
-        // println!("row row_range: {:?}", self.row_range);
-
         // Set up the initial stream of RowMasks.
         let tree_mask = self.selection.tree_row_mask(
             row_count.as_exact().unwrap(),
@@ -239,7 +236,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         });
 
         let mut limit = self.limit;
-
         masks
             .into_iter()
             .scan(0, |offset, mask| {
@@ -255,7 +251,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             })
             .map(move |row_mask| split_exec(ctx.clone(), row_mask?, limit.as_mut()))
             .collect::<VortexResult<Vec<_>>>()
-
     }
 
     pub fn into_stream(self) -> VortexResult<impl Stream<Item = VortexResult<A>> + 'static> {
