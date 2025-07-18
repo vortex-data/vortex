@@ -6924,6 +6924,7 @@ dependencies = [
  "arrow-schema",
  "crossbeam-deque",
  "crossbeam-queue",
+ "dashmap",
  "futures",
  "itertools 0.14.0",
  "parking_lot",
