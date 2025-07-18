@@ -7,7 +7,12 @@ use vortex_buffer::{BufferString, ByteBuffer};
 use vortex_dtype::half::f16;
 use vortex_dtype::{DType, NativePType, Nullability, PType};
 
+/// A trait for types that can be used as scalar values.
+///
+/// This trait is implemented by native Rust types that can be converted
+/// to and from Vortex scalar values.
 pub trait ScalarType {
+    /// Returns the Vortex data type for this scalar type.
     fn dtype() -> DType;
 }
 

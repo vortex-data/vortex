@@ -8,7 +8,7 @@ use std::hash::Hash;
 use itertools::Itertools as _;
 use num_traits::{NumCast, ToPrimitive};
 use serde::{Deserialize, Serialize};
-use vortex_buffer::BufferMut;
+use vortex_buffer::{Buffer, BufferMut};
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{
     DType, NativePType, PType, match_each_integer_ptype, match_each_unsigned_integer_ptype,
@@ -308,6 +308,31 @@ impl Patches {
         )))
     }
 
+    /// Optimize the Patches, shifting off any offsets and optimizing the child arrays
+    /// to create a more compact Patches representation for serialization.
+    pub fn optimize(&self) -> VortexResult<Self> {
+        if self.offset == 0 {
+            let indices = self.indices.optimize()?;
+            let values = self.values.optimize()?;
+
+            Ok(Self::new(self.array_len, self.offset, indices, values))
+        } else {
+            // Shift off the offset, renumber all of the inputs to be relative to zero.
+            let indices = self.indices.to_primitive()?;
+            let zeroed_indices = match_each_integer_ptype!(indices.ptype(), |T| {
+                let buffer = renumber_indices(indices.as_slice::<T>(), self.offset);
+                PrimitiveArray::new(buffer, indices.validity().clone()).into_array()
+            });
+
+            Ok(Self::new(
+                self.array_len,
+                0,
+                zeroed_indices,
+                self.values.clone(),
+            ))
+        }
+    }
+
     // https://docs.google.com/spreadsheets/d/1D9vBZ1QJ6mwcIvV5wIL0hjGgVchcEnAyhvitqWu2ugU
     const PREFER_MAP_WHEN_PATCHES_OVER_INDICES_LESS_THAN: f64 = 5.0;
 
@@ -426,6 +451,11 @@ impl Patches {
         }
         Ok(Self::new(self.array_len, self.offset, self.indices, values))
     }
+}
+
+fn renumber_indices<T: NativePType>(indices: &[T], offset: usize) -> Buffer<T> {
+    let offset = T::from(offset).vortex_expect("offset must fit into index type");
+    indices.iter().map(|&idx| idx - offset).collect()
 }
 
 fn take_search<I: NativePType + NumCast + PartialOrd, T: NativePType + NumCast>(
@@ -797,5 +827,28 @@ mod test {
         let primitive_doubly_sliced = doubly_sliced.values().to_primitive().unwrap();
 
         assert_eq!(primitive_doubly_sliced.as_slice::<u32>(), &[13531]);
+    }
+
+    #[test]
+    fn slice_optimize() {
+        let values = buffer![15_u32, 135, 13531, 42].into_array();
+        let indices = buffer![10_u64, 11, 50, 100].into_array();
+
+        let patches = Patches::new(101, 0, indices, values);
+        let sliced = patches.slice(15, 101).unwrap().unwrap();
+        assert_eq!(sliced.array_len(), 86);
+
+        // Before optimization: indices are still referenced to the offset.
+        assert_eq!(sliced.offset(), 15);
+        assert_eq!(
+            sliced.indices().to_primitive().unwrap().as_slice::<u64>(),
+            &[50, 100]
+        );
+
+        // After optimization: indices are shifted to zero out the offset.
+        let optimized = sliced.optimize().unwrap();
+        assert_eq!(optimized.offset(), 0);
+        let indices = optimized.indices().to_primitive().unwrap();
+        assert_eq!(indices.as_slice::<u64>(), &[35, 85]);
     }
 }

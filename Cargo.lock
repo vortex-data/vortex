@@ -568,6 +568,8 @@ dependencies = [
  "vortex",
  "vortex-datafusion",
  "vortex-duckdb",
+ "vortex-file",
+ "vortex-layout",
  "xshell",
 ]
 
