@@ -4,6 +4,7 @@
 use std::fmt::{self};
 
 use humansize::{DECIMAL, format_size};
+
 use crate::arrays::ChunkedEncoding;
 use crate::display::DisplayOptions;
 use crate::{Array, ArrayRef, ArrayVisitor};
