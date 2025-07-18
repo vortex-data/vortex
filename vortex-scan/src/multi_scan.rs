@@ -68,30 +68,26 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
     type Item = VortexResult<T>;
 
     fn next(&mut self) -> Option<VortexResult<T>> {
-        loop {
-            // Queue up tasks if the thread local queue is empty.
-            if self.task_queue.is_empty() {
-                if let Some(scan_builder_fn) = self.scan_builder_factory.pop() {
-                    match scan_builder_fn().build() {
-                        Ok(tasks) => {
-                            for task in tasks.1 {
-                                self.task_queue.push(Box::pin(task));
-                            }
+        // Queue up tasks if the thread local queue is empty.
+        if self.task_queue.is_empty() {
+            if let Some(scan_builder_fn) = self.scan_builder_factory.pop() {
+                match scan_builder_fn().build() {
+                    Ok(tasks) => {
+                        for task in tasks.1 {
+                            self.task_queue.push(Box::pin(task));
                         }
-                        Err(err) => return Some(Err(err)),
                     }
+                    Err(err) => return Some(Err(err)),
                 }
             }
             // TODO(Alex): worksteal tasks from other threads
+        }
 
-            let task = self.task_queue.pop()?;
+        let task = self.task_queue.pop()?;
 
-            // self.local_pool.run_until_stalled();
-
-            match self.local_pool.run_until(async { task.await }) {
-                Ok(task) => return Some(Ok(task?)),
-                Err(err) => return Some(Err(err)),
-            }
+        match self.local_pool.run_until(async { task.await }) {
+            Ok(task) => return Some(Ok(task?)),
+            Err(err) => return Some(Err(err)),
         }
     }
 }
