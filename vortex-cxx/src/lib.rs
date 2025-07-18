@@ -7,7 +7,6 @@ use arrow_array::RecordBatchReader;
 use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
 use futures::executor::ThreadPool;
-use futures::stream;
 use tokio::runtime::Runtime;
 use vortex::arrow::{FromArrowArray, IntoArrowArray, VortexRecordBatchReader};
 use vortex::dtype::DType;
@@ -15,8 +14,8 @@ use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};
 use vortex::file::scan::ScanBuilder;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions as WriteOptions};
-use vortex::iter::ArrayIteratorAdapter;
-use vortex::stream::ArrayStreamAdapter;
+use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
+use vortex::stream::ArrayStream;
 use vortex::{ArrayRef, IntoArray};
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
@@ -222,6 +221,22 @@ fn write_options_new() -> Box<VortexWriteOptions> {
     })
 }
 
+/// Convert an ArrowArrayStreamReader to a Vortex ArrayStream
+fn arrow_stream_to_vortex_stream(
+    reader: ArrowArrayStreamReader,
+) -> Result<impl ArrayStream, Box<dyn std::error::Error + Send + Sync>> {
+    let array_iter = ArrayIteratorAdapter::new(
+        DType::from_arrow(reader.schema()),
+        reader.map(|result| {
+            result
+                .map(|record_batch| ArrayRef::from_arrow(record_batch, false))
+                .map_err(|e| VortexError::from(e))
+        }),
+    );
+
+    Ok(array_iter.into_array_stream())
+}
+
 /// # Safety
 ///
 /// input_stream should be valid FFI_ArrowArrayStream.
@@ -231,37 +246,18 @@ unsafe fn write_array_stream(
     input_stream: *mut u8,
     path: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let stream_reader =
-        unsafe { ArrowArrayStreamReader::from_raw(input_stream as *mut FFI_ArrowArrayStream) }?;
-
     let rt = get_runtime();
     let path = path.to_string();
 
-    // TODO: this actually materializes all the data into memory, should expose async write API to C++, see vortex-ffi/src/sink.rs
-    // Read all data from the Arrow stream synchronously before entering async context
-    let mut arrays: Vec<ArrayRef> = Vec::new();
-    let schema = stream_reader.schema();
-    let dtype = DType::from_arrow(schema);
+    let stream_reader =
+        unsafe { ArrowArrayStreamReader::from_raw(input_stream as *mut FFI_ArrowArrayStream) }?;
 
-    // Convert Arrow RecordBatches to Vortex Arrays synchronously
-    for batch_result in stream_reader {
-        let batch = batch_result?;
-        let vortex_array = ArrayRef::from_arrow(batch, false);
-        arrays.push(vortex_array);
-    }
-
-    if arrays.is_empty() {
-        return Err("No arrays to write".into());
-    }
+    let vortex_stream = arrow_stream_to_vortex_stream(stream_reader)?;
 
     rt.block_on(async {
         let file = tokio::fs::File::create(path).await?;
 
-        // Create a stream from the collected arrays
-        let stream = stream::iter(arrays.into_iter().map(Ok::<_, VortexError>));
-        let array_stream = ArrayStreamAdapter::new(dtype, stream);
-
-        options.inner.write(file, array_stream).await?;
+        options.inner.write(file, vortex_stream).await?;
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     })
 }
