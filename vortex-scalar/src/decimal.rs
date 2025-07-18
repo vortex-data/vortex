@@ -12,6 +12,15 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail};
 use crate::scalar_value::InnerScalarValue;
 use crate::{BigCast, Scalar, ScalarValue, ToPrimitive, i256};
 
+/// Matches over each decimal value variant, binding the inner value to a variable.
+///
+/// # Example
+///
+/// ```ignore
+/// match_each_decimal_value!(value, |v| {
+///     println!("Value: {}", v);
+/// });
+/// ```
 #[macro_export]
 macro_rules! match_each_decimal_value {
     ($self:expr, | $value:ident | $body:block) => {{
@@ -84,21 +93,37 @@ macro_rules! match_each_decimal_value_type {
 #[repr(u8)]
 #[non_exhaustive]
 pub enum DecimalValueType {
+    /// 8-bit decimal value type.
     I8 = 0,
+    /// 16-bit decimal value type.
     I16 = 1,
+    /// 32-bit decimal value type.
     I32 = 2,
+    /// 64-bit decimal value type.
     I64 = 3,
+    /// 128-bit decimal value type.
     I128 = 4,
+    /// 256-bit decimal value type.
     I256 = 5,
 }
 
+/// A decimal value that can be stored in various integer widths.
+///
+/// This enum represents decimal values with different storage sizes,
+/// from 8-bit to 256-bit integers.
 #[derive(Debug, Clone, Copy)]
 pub enum DecimalValue {
+    /// 8-bit signed decimal value.
     I8(i8),
+    /// 16-bit signed decimal value.
     I16(i16),
+    /// 32-bit signed decimal value.
     I32(i32),
+    /// 64-bit signed decimal value.
     I64(i64),
+    /// 128-bit signed decimal value.
     I128(i128),
+    /// 256-bit signed decimal value.
     I256(i256),
 }
 
@@ -158,11 +183,16 @@ impl Hash for DecimalValue {
 }
 
 /// Type of decimal scalar values.
+///
+/// This trait is implemented by native integer types that can be used
+/// to store decimal values.
 pub trait NativeDecimalType:
     Copy + Eq + Ord + Default + Send + Sync + BigCast + Debug + Display + 'static
 {
+    /// The decimal value type corresponding to this native type.
     const VALUES_TYPE: DecimalValueType;
 
+    /// Attempts to convert a decimal value to this native type.
     fn maybe_from(decimal_type: DecimalValue) -> Option<Self>;
 }
 
@@ -246,6 +276,7 @@ impl Display for DecimalValue {
 }
 
 impl Scalar {
+    /// Creates a new decimal scalar with the given value, precision, scale, and nullability.
     pub fn decimal(
         value: DecimalValue,
         decimal_type: DecimalDType,
@@ -258,6 +289,7 @@ impl Scalar {
     }
 }
 
+/// A scalar value representing a decimal number with fixed precision and scale.
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct DecimalScalar<'a> {
     dtype: &'a DType,
@@ -266,6 +298,11 @@ pub struct DecimalScalar<'a> {
 }
 
 impl<'a> DecimalScalar<'a> {
+    /// Creates a new decimal scalar from a data type and scalar value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the data type is not a decimal type.
     pub fn try_new(dtype: &'a DType, value: &ScalarValue) -> VortexResult<Self> {
         let decimal_type = DecimalDType::try_from(dtype)?;
         let value = value.as_decimal()?;
@@ -277,11 +314,13 @@ impl<'a> DecimalScalar<'a> {
         })
     }
 
+    /// Returns the data type of this decimal scalar.
     #[inline]
     pub fn dtype(&self) -> &'a DType {
         self.dtype
     }
 
+    /// Returns the decimal value, or None if null.
     pub fn decimal_value(&self) -> &Option<DecimalValue> {
         &self.value
     }

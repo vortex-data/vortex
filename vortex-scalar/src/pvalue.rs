@@ -11,18 +11,33 @@ use vortex_dtype::half::f16;
 use vortex_dtype::{NativePType, PType, ToBytes};
 use vortex_error::{VortexError, VortexExpect, vortex_err};
 
+/// A primitive value that can represent any primitive type supported by Vortex.
+///
+/// `PValue` is used to store primitive scalar values in a type-erased manner,
+/// supporting all primitive types (integers, floats) with various bit widths.
 #[derive(Debug, Clone, Copy)]
 pub enum PValue {
+    /// Unsigned 8-bit integer.
     U8(u8),
+    /// Unsigned 16-bit integer.
     U16(u16),
+    /// Unsigned 32-bit integer.
     U32(u32),
+    /// Unsigned 64-bit integer.
     U64(u64),
+    /// Signed 8-bit integer.
     I8(i8),
+    /// Signed 16-bit integer.
     I16(i16),
+    /// Signed 32-bit integer.
     I32(i32),
+    /// Signed 64-bit integer.
     I64(i64),
+    /// 16-bit floating point.
     F16(f16),
+    /// 32-bit floating point.
     F32(f32),
+    /// 64-bit floating point.
     F64(f64),
 }
 
@@ -124,6 +139,7 @@ macro_rules! as_primitive {
 }
 
 impl PValue {
+    /// Creates a zero value for the given primitive type.
     pub fn zero(ptype: PType) -> PValue {
         match ptype {
             PType::U8 => PValue::U8(0),
@@ -140,6 +156,7 @@ impl PValue {
         }
     }
 
+    /// Returns the primitive type of this value.
     pub fn ptype(&self) -> PType {
         match self {
             Self::U8(_) => PType::U8,
@@ -156,10 +173,14 @@ impl PValue {
         }
     }
 
+    /// Returns true if this value is of the given primitive type.
     pub fn is_instance_of(&self, ptype: &PType) -> bool {
         &self.ptype() == ptype
     }
 
+    /// Converts this value to a specific native primitive type.
+    ///
+    /// Returns an error if the conversion is not supported or would overflow.
     #[inline]
     pub fn as_primitive<T: NativePType + TryFrom<PValue, Error = VortexError>>(
         &self,
@@ -167,6 +188,13 @@ impl PValue {
         T::try_from(*self)
     }
 
+    /// Reinterprets the bits of this value as a different primitive type.
+    ///
+    /// This performs a bitwise cast between types of the same width.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the target type has a different byte width than this value.
     pub fn reinterpret_cast(&self, ptype: PType) -> Self {
         if ptype == self.ptype() {
             return *self;

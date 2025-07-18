@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use parking_lot::Mutex;
 use std::sync::Arc;
 
-use vortex::error::{VortexExpect, VortexResult};
-use vortex::utils::aliases::hash_map::HashMap;
-use vortex::{Array, ArrayRef, Canonical, IntoArray};
+use dashmap::DashMap;
+use vortex::ArrayRef;
 
 use crate::duckdb::Vector;
 
+/// Cache for array conversions from Vortex to DuckDB.
+///
+/// Uses the memory address of `ArrayRef` pointers as cache keys
+/// to avoid redundant conversions of the same array instances.
 #[derive(Default)]
 pub struct ConversionCache {
-    pub values_cache: HashMap<usize, (ArrayRef, Vector)>,
-    pub canonical_cache: HashMap<usize, (ArrayRef, Canonical)>,
-    // A value which must be unique for a given duckdb pipeline.
-    pub instance_id: u64,
+    pub values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
+    // A value which must be unique for a given DuckDB pipeline.
+    instance_id: u64,
 }
 
 impl ConversionCache {
@@ -25,36 +28,7 @@ impl ConversionCache {
         }
     }
 
-    fn insert_cached_array(
-        &mut self,
-        arr_value: usize,
-        array: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let canon = array.to_canonical()?;
-        self.canonical_cache
-            .insert(arr_value, (array.clone(), canon));
-        Ok(self
-            .canonical_cache
-            .get(&arr_value)
-            .vortex_expect("just added")
-            .1
-            .clone()
-            .into_array())
-    }
-
-    pub fn cached_array(&mut self, array: &ArrayRef) -> VortexResult<ArrayRef> {
-        let arr_value = Arc::as_ptr(array).addr();
-
-        let entry = self.canonical_cache.get(&arr_value);
-        match entry {
-            None => self.insert_cached_array(arr_value, array),
-            Some((cached_array_ref, cached_canonical)) => {
-                if Arc::ptr_eq(cached_array_ref, array) {
-                    Ok(cached_canonical.clone().into_array())
-                } else {
-                    self.insert_cached_array(arr_value, array)
-                }
-            }
-        }
+    pub fn instance_id(&self) -> u64 {
+        self.instance_id
     }
 }

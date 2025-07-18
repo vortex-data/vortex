@@ -14,6 +14,10 @@ use vortex_error::{
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
+/// A scalar value representing a list (array) of elements.
+///
+/// This type provides a view into a list scalar value, which can contain
+/// zero or more elements of the same type, or be null.
 pub struct ListScalar<'a> {
     dtype: &'a DType,
     element_dtype: &'a Arc<DType>,
@@ -67,16 +71,21 @@ impl Hash for ListScalar<'_> {
 }
 
 impl<'a> ListScalar<'a> {
+    /// Returns the data type of this list scalar.
     #[inline]
     pub fn dtype(&self) -> &'a DType {
         self.dtype
     }
 
+    /// Returns the number of elements in the list.
+    ///
+    /// Returns 0 if the list is null.
     #[inline]
     pub fn len(&self) -> usize {
         self.elements.as_ref().map(|e| e.len()).unwrap_or(0)
     }
 
+    /// Returns true if the list has no elements or is null.
     #[inline]
     pub fn is_empty(&self) -> bool {
         match self.elements.as_ref() {
@@ -85,11 +94,13 @@ impl<'a> ListScalar<'a> {
         }
     }
 
+    /// Returns true if the list is null.
     #[inline]
     pub fn is_null(&self) -> bool {
         self.elements.is_none()
     }
 
+    /// Returns the data type of the list's elements.
     pub fn element_dtype(&self) -> &DType {
         let DType::List(element_type, _) = self.dtype() else {
             unreachable!();
@@ -97,6 +108,9 @@ impl<'a> ListScalar<'a> {
         (*element_type).deref()
     }
 
+    /// Returns the element at the given index as a scalar.
+    ///
+    /// Returns None if the list is null or the index is out of bounds.
     pub fn element(&self, idx: usize) -> Option<Scalar> {
         self.elements
             .as_ref()
@@ -107,6 +121,9 @@ impl<'a> ListScalar<'a> {
             })
     }
 
+    /// Returns all elements in the list as a vector of scalars.
+    ///
+    /// Returns None if the list is null.
     pub fn elements(&self) -> Option<Vec<Scalar>> {
         self.elements.as_ref().map(|elems| {
             elems
@@ -140,6 +157,11 @@ impl<'a> ListScalar<'a> {
 }
 
 impl Scalar {
+    /// Creates a new list scalar with the given element type and children.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any child scalar has a different type than the element type.
     pub fn list(
         element_dtype: Arc<DType>,
         children: Vec<Scalar>,
@@ -162,6 +184,7 @@ impl Scalar {
         }
     }
 
+    /// Creates a new empty list scalar with the given element type.
     pub fn list_empty(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
         Self {
             dtype: DType::List(element_dtype, nullability),

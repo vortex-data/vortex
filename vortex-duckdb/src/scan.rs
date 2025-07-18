@@ -3,16 +3,15 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering::SeqCst;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::SeqCst};
 
 use bitvec::macros::internal::funty::Fundamental;
-use vortex::ToCanonical;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
+use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
@@ -54,16 +53,12 @@ impl std::fmt::Debug for VortexBindData {
 }
 
 pub struct VortexGlobalData {
-    multi_scan: MultiScan,
-    cache_id: AtomicU64,
+    multi_scan: MultiScan<(ArrayRef, Arc<ConversionCache>)>,
 }
 
 pub struct VortexLocalData {
-    multi_scan_iterator: MultiScanIterator,
+    multi_scan_iterator: MultiScanIterator<(ArrayRef, Arc<ConversionCache>)>,
     exporter: Option<ArrayExporter>,
-
-    // TODO(Alex): replace with global conversion cache
-    conversion_cache: ConversionCache,
 }
 
 #[derive(Debug)]
@@ -201,29 +196,27 @@ impl TableFunction for VortexTableFunction {
     fn scan(
         _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
-        global_state: &mut Self::GlobalState,
+        _global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
         loop {
             if local_state.exporter.is_none() {
-                let Some(array_result) = local_state.multi_scan_iterator.next() else {
+                let Some(result) = local_state.multi_scan_iterator.next() else {
                     return Ok(());
                 };
 
-                // TODO(Alex): replace with global conversion cache
-                local_state.conversion_cache =
-                    ConversionCache::new(global_state.cache_id.fetch_add(1, SeqCst));
+                let (array_result, conversion_cache) = result?;
 
                 local_state.exporter = Some(ArrayExporter::try_new(
-                    &array_result?.to_struct()?,
-                    &mut local_state.conversion_cache,
+                    &array_result.to_struct()?,
+                    &conversion_cache,
                 )?);
             }
 
             let exporter = local_state
                 .exporter
                 .as_mut()
-                .vortex_expect("exporter should exist");
+                .vortex_expect("error: exporter missing");
 
             let has_more_data = exporter.export(chunk)?;
 
@@ -244,18 +237,23 @@ impl TableFunction for VortexTableFunction {
         let bind_data = init_input.bind_data();
         let projection_expr = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
-        let is_first_file_queued = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        // Atomic as the closures can be called from different threads.
+        let is_first_file = Arc::new(AtomicBool::new(false));
+        let cache_id = Arc::new(AtomicU64::new(0));
 
         let closures = bind_data.file_paths.clone().into_iter().map(move |path| {
             let first_file = bind_data.first_file.clone();
             let filter_expr = filter_expr.clone();
             let projection_expr = projection_expr.clone();
-            let is_first_file_queued = is_first_file_queued.clone();
+            let is_first_file = is_first_file.clone();
+            let cache_id = cache_id.clone();
+            let conversion_cache = Arc::new(ConversionCache::new(cache_id.fetch_add(1, SeqCst)));
 
             move || {
-                let file = if !is_first_file_queued.swap(true, SeqCst) {
-                    // The first path from `file_paths` is skipped as the first
-                    // file was already opened during bind.
+                let file = if !is_first_file.swap(true, SeqCst) {
+                    // The first path from `file_paths` is skipped as
+                    // the first file was already opened during bind.
                     first_file
                 } else {
                     VortexOpenOptions::file()
@@ -267,12 +265,12 @@ impl TableFunction for VortexTableFunction {
                     .vortex_expect("Failed to create scan builder")
                     .with_some_filter(filter_expr)
                     .with_projection(projection_expr)
+                    .map(move |split| Ok((split, conversion_cache.clone())))
             }
         });
 
         Ok(VortexGlobalData {
-            multi_scan: MultiScan::default().with_scan_builders(closures),
-            cache_id: AtomicU64::new(0),
+            multi_scan: MultiScan::new().with_scan_builders(closures),
         })
     }
 
@@ -283,7 +281,6 @@ impl TableFunction for VortexTableFunction {
         Ok(VortexLocalData {
             multi_scan_iterator: global.multi_scan.new_scan_iterator(),
             exporter: None,
-            conversion_cache: ConversionCache::new(global.cache_id.fetch_add(1, SeqCst)),
         })
     }
 
