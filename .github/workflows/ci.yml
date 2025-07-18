@@ -143,7 +143,7 @@ jobs:
         run: |
           cargo doc --no-deps
           # nextest doesn't support doc tests, so we run it here
-          cargo test --doc --workspace --all-features --exclude vortex-python --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
+          cargo test --doc --workspace --all-features --exclude vortex-cxx --exclude vortex-python --exclude vortex-jni --exclude vortex-ffi --exclude xtask --no-fail-fast
 
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
@@ -330,7 +330,7 @@ jobs:
             --ignore 'home/*' --ignore 'xtask/*' --ignore 'target/*'\
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
-            --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' \
+            --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Coveralls
         uses: coverallsapp/github-action@v2
@@ -460,6 +460,34 @@ jobs:
       - uses: ./.github/actions/setup-rust
       - run: cargo build -p vortex-ffi
       - run: cargo run -p vortex-ffi --example hello_vortex
+
+  cxx-test:
+    name: "C++ build"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+      - name: Build and run C++ unit tests
+        working-directory: vortex-cxx/
+        run: |
+          mkdir -p build/debug
+          cd build/debug
+          cmake -DVORTEX_ENABLE_TESTING=ON ../..
+          cmake --build .
+          ctest -V
+      - name: Build the static library in release mode
+        working-directory: vortex-cxx/
+        run: |
+          mkdir -p build/release
+          cd build/release
+          cmake -DCMAKE_BUILD_TYPE=Release ../..
+          cmake --build .
 
   wasm-integration:
     name: "wasm-integration"

@@ -8,8 +8,9 @@ use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use futures::executor::LocalPool;
-use futures::task::LocalSpawnExt;
+use futures::executor::{LocalPool, ThreadPool};
+use futures::stream::FuturesOrdered;
+use futures::task::{LocalSpawnExt, SpawnExt};
 use futures::{Stream, StreamExt, stream};
 use itertools::Itertools;
 pub use selection::*;
@@ -140,6 +141,11 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         self
     }
 
+    /// The [`DType`] returned by the scan, after applying the projection.
+    pub fn dtype(&self) -> VortexResult<DType> {
+        self.projection.return_dtype(self.layout_reader.dtype())
+    }
+
     /// Map each split of the scan. The function will be run on the spawned task.
     pub fn map<B: 'static>(
         self,
@@ -164,18 +170,14 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    #[allow(clippy::unused_enumerate_index)]
-    pub fn build(
-        mut self,
-    ) -> VortexResult<(DType, Vec<impl Future<Output = VortexResult<Option<A>>>>)> {
+    pub fn build(mut self) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<A>>>>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
 
         // The ultimate short circuit
         if self.limit.is_some_and(|l| l == 0) {
-            let dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
-            return Ok((dtype, Vec::new()));
+            return Ok(vec![]);
         }
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
@@ -227,16 +229,36 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             })
             .try_collect()?;
 
-        let dtype = self.projection.return_dtype(layout_reader.dtype())?;
-        Ok((dtype, split_tasks))
+        Ok(split_tasks)
     }
 
     pub fn into_stream(self) -> VortexResult<impl Stream<Item = VortexResult<A>> + 'static> {
         let concurrency = self.concurrency;
-        let (_, split_tasks) = self.build()?;
+        let split_tasks = self.build()?;
         Ok(stream::iter(split_tasks)
             .buffered(concurrency)
             .filter_map(|r| async move { r.transpose() }))
+    }
+
+    /// Returns a blocking iterator over the scan, where tasks perform CPU work on the provided
+    /// thread pool.
+    pub fn into_thread_pool_iter(
+        self,
+        pool: ThreadPool,
+    ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + Send + 'static> {
+        let futures: FuturesOrdered<_> = self
+            .build()?
+            .into_iter()
+            .map(|task| {
+                let fut = pool.spawn_with_handle(task);
+                async move {
+                    fut.map_err(|e| vortex_err!("Failed to spawn task onto thread pool {e}"))?
+                        .await
+                }
+            })
+            .collect();
+
+        Ok(futures::executor::block_on_stream(futures).filter_map_ok(|v| v))
     }
 }
 
@@ -273,7 +295,8 @@ impl ScanBuilder<ArrayRef> {
     /// the behaviour of [`futures::stream::Buffered`].
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
         let concurrency = self.concurrency;
-        let (dtype, split_tasks) = self.build()?;
+        let dtype = self.dtype()?;
+        let split_tasks = self.build()?;
         Ok(ArrayStreamAdapter::new(
             dtype,
             stream::iter(split_tasks)
@@ -295,7 +318,8 @@ impl ScanBuilder<ArrayRef> {
         let mut local_pool = LocalPool::new();
         let spawner = local_pool.spawner();
 
-        let (dtype, split_tasks) = self.build()?;
+        let dtype = self.dtype()?;
+        let split_tasks = self.build()?;
         let mut stream = stream::iter(split_tasks)
             .map(move |task| {
                 spawner
