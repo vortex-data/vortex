@@ -32,55 +32,11 @@ pub trait VortexReadAt: 'static {
         alignment: Alignment,
     ) -> impl Future<Output = io::Result<ByteBuffer>>;
 
-    // TODO(ngates): the read implementation should be able to hint at its latency/throughput
-    //  allowing the caller to make better decisions about how to coalesce reads.
-    fn performance_hint(&self) -> PerformanceHint {
-        PerformanceHint::local()
-    }
-
     /// Asynchronously get the number of bytes of data readable.
     ///
     /// For a file it will be the size in bytes, for an object in an
     /// `ObjectStore` it will be the `ObjectMeta::size`.
     fn size(&self) -> impl Future<Output = io::Result<u64>>;
-}
-
-#[derive(Debug, Clone)]
-pub struct PerformanceHint {
-    coalescing_window: u64,
-    max_read: Option<u64>,
-}
-
-impl PerformanceHint {
-    pub fn new(coalescing_window: u64, max_read: Option<u64>) -> Self {
-        Self {
-            coalescing_window,
-            max_read,
-        }
-    }
-
-    /// Creates a new instance with a profile appropriate for fast local storage, like memory or files on NVMe devices.
-    pub fn local() -> Self {
-        // Coalesce ~8K page size, also ensures we span padding for adjacent segments.
-        Self::new(8192, Some(8192))
-    }
-
-    pub fn object_storage() -> Self {
-        Self::new(
-            1 << 20,       // 1MB,
-            Some(8 << 20), // 8MB,
-        )
-    }
-
-    /// The maximum distance between two reads that should coalesced into a single operation.
-    pub fn coalescing_window(&self) -> u64 {
-        self.coalescing_window
-    }
-
-    /// Maximum number of bytes in a coalesced read.
-    pub fn max_read(&self) -> Option<u64> {
-        self.max_read
-    }
 }
 
 impl<T: VortexReadAt> VortexReadAt for Arc<T> {
@@ -90,10 +46,6 @@ impl<T: VortexReadAt> VortexReadAt for Arc<T> {
         alignment: Alignment,
     ) -> io::Result<ByteBuffer> {
         T::read_byte_range(self, range, alignment).await
-    }
-
-    fn performance_hint(&self) -> PerformanceHint {
-        T::performance_hint(self)
     }
 
     async fn size(&self) -> io::Result<u64> {
@@ -116,10 +68,6 @@ impl VortexReadAt for ByteBuffer {
             ));
         }
         Ok(self.clone().slice_unaligned(start..end).aligned(alignment))
-    }
-
-    fn performance_hint(&self) -> PerformanceHint {
-        PerformanceHint::local()
     }
 
     async fn size(&self) -> io::Result<u64> {
@@ -160,9 +108,5 @@ impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
     #[inline]
     async fn size(&self) -> io::Result<u64> {
         self.read.size().await
-    }
-
-    fn performance_hint(&self) -> PerformanceHint {
-        self.read.performance_hint()
     }
 }

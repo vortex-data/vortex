@@ -12,7 +12,7 @@ use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentId, SegmentSource};
 use vortex_metrics::VortexMetrics;
 
-use crate::driver::CoalescedDriver;
+use crate::coalescing::{CoalescedDriver, PerformanceHintingReadAt};
 use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
@@ -91,7 +91,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         self,
         read: R,
     ) -> VortexResult<VortexFile> {
-        let read = Arc::new(read);
+        let read = Arc::new(PerformanceHintingReadAt::new(read));
 
         let footer = if let Some(footer) = self.footer {
             footer
@@ -266,7 +266,7 @@ impl VortexOpenOptions<GenericVortexFile> {
 }
 
 struct GenericVortexFileIo<R> {
-    read: Arc<R>,
+    read: Arc<PerformanceHintingReadAt<R>>,
     segment_map: Arc<[SegmentSpec]>,
     segment_cache: Arc<dyn SegmentCache>,
     io_dispatcher: IoDispatcher,
@@ -285,9 +285,10 @@ impl<R: VortexReadAt + Send + Sync> SegmentSourceFactory for GenericVortexFileIo
         ));
 
         let read = InstrumentedReadAt::new(self.read.clone(), &metrics);
+        let read2 = self.read.clone();
 
         let driver = CoalescedDriver::new(
-            read.performance_hint(),
+            Box::new(move || read2.compute_performance_hint()),
             self.segment_map.clone(),
             events,
             metrics,
@@ -337,12 +338,8 @@ impl VortexOpenOptions<GenericVortexFile> {
             // Local disk is too fast to justify prefetching.
             self.open(local_path).await
         } else {
-            self.open_read_at(ObjectStoreReadAt::new(
-                object_store.clone(),
-                path.into(),
-                None,
-            ))
-            .await
+            self.open_read_at(ObjectStoreReadAt::new(object_store.clone(), path.into()))
+                .await
         }
     }
 }

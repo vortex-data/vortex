@@ -1,24 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod perf_hint;
+
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use crate::SegmentSpec;
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use linked_hash_set::LinkedHashSet;
+pub use perf_hint::*;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
-use vortex_io::{PerformanceHint, VortexReadAt};
+use vortex_io::VortexReadAt;
 use vortex_layout::segments::{SegmentEvent, SegmentId, SegmentRequest};
 use vortex_metrics::{Counter, VortexMetrics};
 use vortex_utils::aliases::hash_map::HashMap;
-
-use crate::SegmentSpec;
 
 macro_rules! trace_log {
     ($($tts:tt)*) => {
@@ -39,7 +41,7 @@ pub struct CoalescedDriver {
     coalesced_counter: Arc<Counter>,
     coalesced_bytes_counter: Arc<Counter>,
 
-    performance_hint: PerformanceHint,
+    performance_hint: Box<dyn Fn() -> PerformanceHint + Send>,
     /// The maximum number of bytes to hold in the prefetch buffer.
     max_prefetch_bytes: i64,
     max_prefetch_inflight_requests: usize,
@@ -66,7 +68,7 @@ struct PendingSegment {
 
 impl CoalescedDriver {
     pub(crate) fn new(
-        performance_hint: PerformanceHint,
+        performance_hint: Box<dyn Fn() -> PerformanceHint + Send>,
         segment_map: Arc<[SegmentSpec]>,
         events: BoxStream<'static, SegmentEvent>,
         metrics: VortexMetrics,
@@ -195,8 +197,7 @@ impl CoalescedDriver {
 
         // TODO(ngates): dynamically update the coalescing window based on request duration.
         //  We should estimate latency + bandwidth.
-        let window = self.performance_hint.coalescing_window();
-        let max_read = self.performance_hint.max_read();
+        let hint = (self.performance_hint)();
 
         // We keep expanding our coalesced window until we reach max_read or no more segments
         // can be coalesced.
@@ -206,11 +207,19 @@ impl CoalescedDriver {
             // We find the range of segment IDs that intersect the coalescing window. We can do
             // this because segments are ordered by byte offset.
             let lowest_segment = self.segment_map.partition_point(|s| {
-                (s.offset + s.length as u64) < coalesced.byte_range.start.saturating_sub(window)
+                (s.offset + s.length as u64)
+                    < coalesced
+                        .byte_range
+                        .start
+                        .saturating_sub(hint.coalescing_window)
             });
-            let highest_segment = self
-                .segment_map
-                .partition_point(|s| s.offset < coalesced.byte_range.end.saturating_add(window));
+            let highest_segment = self.segment_map.partition_point(|s| {
+                s.offset
+                    < coalesced
+                        .byte_range
+                        .end
+                        .saturating_add(hint.coalescing_window)
+            });
 
             for id in lowest_segment..highest_segment {
                 let segment_id = SegmentId::try_from(id).vortex_expect("ID not a u32");
@@ -244,7 +253,8 @@ impl CoalescedDriver {
                 }
 
                 // If the new range exceeds the max read, we skip the segment.
-                if max_read
+                if hint
+                    .max_read
                     .map(|max_read| new_range.end - new_range.start > max_read)
                     .unwrap_or(false)
                 {

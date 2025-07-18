@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Core traits and implementations for asynchronous IO.
+//! This crate provides the abstract I/O interface for Vortex. It uses async/await syntax, although
+//! please carefully read the documentation for each trait since many of them require
+//! runtime-agnostic implementations.
 //!
-//! Vortex implements an IPC streaming format as well as a file format, both of which
-//! run on top of a variety of storage systems that can be accessed from multiple async
-//! runtimes.
-//!
-//! This crate provides core traits for positioned and streaming IO, and via feature
-//! flags implements the core traits for several common async runtimes and backing stores.
+//! To remain runtime-agnostic, many of the implementations in this crate will dispatch I/O tasks
+//! onto blocking on async worker pools.
 
 pub use dispatcher::*;
 pub use io_buf::*;

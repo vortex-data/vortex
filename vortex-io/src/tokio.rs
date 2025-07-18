@@ -13,7 +13,7 @@ use tokio::task::spawn_blocking;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::VortexExpect;
 
-use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
+use crate::{IoBuf, VortexReadAt, VortexWrite};
 
 /// A cheaply cloneable, readonly file that executes operations
 /// on a tokio blocking threadpool.
@@ -69,10 +69,6 @@ impl VortexReadAt for TokioFile {
             Ok(buffer.freeze())
         })
         .await?
-    }
-
-    fn performance_hint(&self) -> PerformanceHint {
-        PerformanceHint::local()
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
