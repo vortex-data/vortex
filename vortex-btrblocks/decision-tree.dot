@@ -1,0 +1,97 @@
+digraph {
+   graph [splines=ortho]
+   rankdir=TB;
+   node [shape=box];
+
+   // Top level nodes - Data Types
+   Integer [fillcolor="#90C695", style=filled];
+   Float [fillcolor="#90C695", style=filled];
+   String [fillcolor="#90C695", style=filled];
+
+   // Integer compression outcomes
+   Constant1 [label="Constant", fillcolor="#87CEEB", style=filled];
+   FOR [label="FOR", fillcolor="#87CEEB", style=filled];
+   ZigZag [label="ZigZag", fillcolor="#87CEEB", style=filled];
+   BitPacking1 [label="BitPacking", fillcolor="#87CEEB", style=filled];
+   Sparse [label="Sparse", fillcolor="#87CEEB", style=filled];
+   Dict1 [label="Dict", fillcolor="#87CEEB", style=filled];
+   RunEnd [label="RunEnd", fillcolor="#87CEEB", style=filled];
+   Sequence [label="Sequence", fillcolor="#87CEEB", style=filled];
+   Uncompressed1 [label="Uncom-\npressed", fillcolor="#87CEEB", style=filled];
+
+   // Float compression outcomes
+   Constant2 [label="Constant", fillcolor="#87CEEB", style=filled];
+   ALP [label="ALP", fillcolor="#87CEEB", style=filled];
+   ALPRD [label="ALPRD", fillcolor="#87CEEB", style=filled];
+   Dict2 [label="Dict", fillcolor="#87CEEB", style=filled];
+   Uncompressed2 [label="Uncom-\npressed", fillcolor="#87CEEB", style=filled];
+
+   // String compression outcomes
+   Dict3 [label="Dict", fillcolor="#87CEEB", style=filled];
+   FSST [label="FSST", fillcolor="#87CEEB", style=filled];
+   DictFSST [label="Dict +\nFSST", fillcolor="#87CEEB", style=filled];
+   Uncompressed3 [label="Uncom-\npressed", fillcolor="#87CEEB", style=filled];
+
+   // Cascading compression targets (recursive strategies)
+   BitPacking2 [label="BitPacking", fillcolor="white", style=filled];
+   BitPacking3 [label="BitPacking", fillcolor="white", style=filled];
+   Integer1 [label="Integer", fillcolor="#90C695", style=filled];
+   Integer21 [label="Integer", fillcolor="#90C695", style=filled];
+   Integer22 [label="Integer", fillcolor="#90C695", style=filled];
+   Integer3 [label="Integer", fillcolor="#90C695", style=filled];
+   Integer41 [label="Integer", fillcolor="#90C695", style=filled];
+   Integer42 [label="Integer", fillcolor="#90C695", style=filled];
+   Integer51 [label="Integer", fillcolor="#90C695", style=filled];
+   Float52 [label="Float", fillcolor="#90C695", style=filled];
+   Integer71 [label="Integer", fillcolor="#90C695", style=filled];
+   Uncompressed4 [label="Uncom-\npressed", fillcolor="white", style=filled];
+   Uncompressed5 [label="Uncom-\npressed", fillcolor="white", style=filled];
+   FSST21 [label="FSST", fillcolor="white", style=filled];
+   Integer62 [label="Integer", fillcolor="#90C695", style=filled];
+
+   // Integer compression edges
+   Integer -> Constant1;
+   Integer -> FOR;
+   Integer -> ZigZag;
+   Integer -> BitPacking1;
+   Integer -> Sparse;
+   Integer -> Dict1;
+   Integer -> RunEnd;
+   Integer -> Sequence;
+   Integer -> Uncompressed1;
+
+   // Float compression edges
+   Float -> Constant2;
+   Float -> ALP;
+   Float -> ALPRD;
+   Float -> Dict2;
+   Float -> Uncompressed2;
+
+   // String compression edges
+   String -> Dict3;
+   String -> FSST;
+   String -> DictFSST;
+   String -> Uncompressed3;
+
+   // Cascading edges for integers
+   FOR -> BitPacking2;
+   ZigZag -> Integer1;
+   Sparse -> Integer21 [xlabel="positions"];
+   Sparse -> Integer22 [xlabel="values"];
+   Dict1 -> Integer3 [xlabel="codes"];
+   Dict1 -> Uncompressed5 [xlabel="values"];
+   RunEnd -> Integer41 [xlabel="ends"];
+   RunEnd -> Integer42 [xlabel="values"];
+
+   // Cascading edges for floats
+   ALP -> BitPacking3;
+   ALPRD -> BitPacking3;
+   Dict2 -> Integer51 [xlabel="codes"];
+   Dict2 -> Float52 [xlabel="values"];
+
+   // Cascading edges for strings
+   Dict3 -> Integer71 [xlabel="codes"];
+   Dict3 -> Uncompressed4 [xlabel="values"];
+   DictFSST -> FSST21 [xlabel="values"];
+   DictFSST -> Integer62 [xlabel="codes"];
+}
