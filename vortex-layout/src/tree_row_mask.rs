@@ -29,6 +29,7 @@ pub struct TreeRowMask {
 impl TreeRowMask {
     /// Create a full mask for all rows in the range
     pub fn all(range: Range<u64>) -> Self {
+        println!("TreeRowMask::all({range:?})");
         let length = range.end - range.start;
         Self {
             range,
@@ -135,6 +136,7 @@ impl TreeRowMask {
             if self.treemap_exclude {
                 Mask::from_excluded_indices(self.length as usize, iter)
             } else {
+                println!("indices {iter:?}");
                 Mask::from_indices(self.length as usize, iter)
             }
         } else if self.treemap_exclude {
@@ -164,13 +166,6 @@ fn clamp_range_to_partition(partition_key: u32, start: u64, end: u64) -> (u32, u
     }
 }
 
-// fn set_indices(treemap: &RoaringTreemap, start: u64, end: u64) -> impl Iterator<Item = u64> {
-//     let start_partition = (start >> 32) as u32;
-//     let end_partition = (end >> 32) as u32;
-//
-//
-// }
-
 fn all_empty_treemap_range(treemap: &RoaringTreemap, start: u64, end: u64) -> bool {
     let start_partition = (start >> 32) as u32;
     let end_partition = (end >> 32) as u32;
@@ -198,16 +193,6 @@ fn non_empty_treemap_range(treemap: &RoaringTreemap, start: u64, end: u64) -> bo
         .take_while(|(key, _)| *key <= end_partition)
         .any(|(partition_key, bitmap)| {
             let (low_start, low_end) = clamp_range_to_partition(partition_key, start, end);
-            println!(
-                "Range: {}-{} Partition: {}-{} Low: {}-{}",
-                start,
-                end,
-                partition_key,
-                u32::MAX,
-                low_start,
-                low_end
-            );
-
             // Check if this bitmap contains any values in the range
             bitmap.range(low_start..low_end).next().is_some()
         })

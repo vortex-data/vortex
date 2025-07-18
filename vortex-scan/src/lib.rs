@@ -174,8 +174,11 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
 
+        let is_empty_range = self.row_range.as_ref().is_some_and(|r| r.is_empty());
+        let is_zero_limit = self.limit.is_some_and(|l| l == 0);
+
         // The ultimate short circuit
-        if self.limit.is_some_and(|l| l == 0) {
+        if is_empty_range || is_zero_limit {
             let dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
             return Ok((dtype, vec![]));
         }
@@ -208,7 +211,8 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         let row_count = layout_reader.row_count();
 
-        println!("row mask: {:?}", row_count);
+        println!("row row_range: {:?}", self.row_range);
+
         // Set up the initial stream of RowMasks.
         let tree_mask = self.selection.tree_row_mask(
             &self
@@ -216,7 +220,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
                 .clone()
                 .unwrap_or_else(|| 0..row_count.as_exact().unwrap_or(u64::MAX)),
         );
-        println!("tree mask: {tree_mask:?}");
         let masks = layout_reader.row_masks(&tree_mask, &field_mask);
 
         // If we split by a fixed row count, we repartition the masks into splits.
