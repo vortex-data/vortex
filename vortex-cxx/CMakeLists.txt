@@ -45,7 +45,7 @@ FetchContent_MakeAvailable(nanoarrow)
 set(CPP_SOURCE_FILE
     cpp/src/write_options.cpp
     cpp/src/file.cpp
-    cpp/src/runtime.cpp
+    cpp/src/thread_pool.cpp
     cpp/src/scan.cpp
 )
 

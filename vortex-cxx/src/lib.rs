@@ -18,22 +18,24 @@ use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::stream::ArrayStream;
 use vortex::{ArrayRef, IntoArray};
 
-static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-
-static THREAD_POOL: LazyLock<ThreadPool> = LazyLock::new(|| {
-    ThreadPool::builder()
-        .create()
-        .map_err(VortexError::from)
-        .vortex_expect("thread pool must not fail to start")
+/// The tokio runtime for the write-side.
+static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create tokio runtime")
 });
 
-/// Runtime configuration for the tokio runtime
+/// The thread pool for the read-side.
+static THREAD_POOL: OnceLock<ThreadPool> = OnceLock::new();
+
+/// Thread pool configuration for the read-side.
 #[derive(Clone)]
-struct RuntimeConfig {
+struct ThreadPoolConfig {
     worker_threads: Option<usize>,
 }
 
-impl RuntimeConfig {
+impl ThreadPoolConfig {
     const fn new() -> Self {
         Self {
             worker_threads: None,
@@ -41,29 +43,29 @@ impl RuntimeConfig {
     }
 }
 
-impl Default for RuntimeConfig {
+impl Default for ThreadPoolConfig {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Get or initialize the tokio runtime with the default settings
-fn get_runtime() -> &'static Runtime {
-    RUNTIME.get_or_init(|| {
-        create_runtime_with_config(&RuntimeConfig::default()).vortex_expect("Cannot start runtime")
+/// Get or initialize the thread pool with the default settings
+fn get_thread_pool() -> &'static ThreadPool {
+    THREAD_POOL.get_or_init(|| {
+        create_thread_pool_with_config(&ThreadPoolConfig::default())
+            .vortex_expect("Cannot start thread pool")
     })
 }
 
-/// Create a tokio runtime with the given configuration
-fn create_runtime_with_config(config: &RuntimeConfig) -> Result<Runtime, std::io::Error> {
-    let mut builder = tokio::runtime::Builder::new_multi_thread();
-    builder.enable_all();
+/// Create a thread pool with the given configuration
+fn create_thread_pool_with_config(config: &ThreadPoolConfig) -> Result<ThreadPool, std::io::Error> {
+    let mut builder = ThreadPool::builder();
 
     if let Some(worker_threads) = config.worker_threads {
-        builder.worker_threads(worker_threads);
+        builder.pool_size(worker_threads);
     }
 
-    builder.build()
+    builder.create()
 }
 
 #[cxx::bridge(namespace = "vortex::ffi")]
@@ -99,7 +101,7 @@ mod ffi {
             path: &str,
         ) -> Result<()>;
 
-        fn configure_runtime(worker_threads: usize) -> Result<()>;
+        fn configure_thread_pool(worker_threads: usize) -> Result<()>;
     }
 }
 
@@ -162,7 +164,9 @@ unsafe fn scan_builder_into_arrow(
     let dtype = builder.inner.dtype()?;
     let iter = ArrayIteratorAdapter::new(
         dtype.clone(),
-        builder.inner.into_thread_pool_iter(THREAD_POOL.clone())?,
+        builder
+            .inner
+            .into_thread_pool_iter(get_thread_pool().clone())?,
     );
     let reader = VortexRecordBatchReader::try_new(iter)?;
 
@@ -200,7 +204,9 @@ unsafe fn scan_builder_into_stream(
     let dtype = builder.inner.dtype()?;
     let iter = ArrayIteratorAdapter::new(
         dtype,
-        builder.inner.into_thread_pool_iter(THREAD_POOL.clone())?,
+        builder
+            .inner
+            .into_thread_pool_iter(get_thread_pool().clone())?,
     );
     let reader = VortexRecordBatchReader::try_new(iter)?;
     let stream = FFI_ArrowArrayStream::new(Box::new(reader));
@@ -246,7 +252,6 @@ unsafe fn write_array_stream(
     input_stream: *mut u8,
     path: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let rt = get_runtime();
     let path = path.to_string();
 
     let stream_reader =
@@ -254,7 +259,7 @@ unsafe fn write_array_stream(
 
     let vortex_stream = arrow_stream_to_vortex_stream(stream_reader)?;
 
-    rt.block_on(async {
+    RUNTIME.block_on(async {
         let file = tokio::fs::File::create(path).await?;
 
         options.inner.write(file, vortex_stream).await?;
@@ -262,22 +267,22 @@ unsafe fn write_array_stream(
     })
 }
 
-/// Configure the tokio runtime with the specified number of worker threads
+/// Configure the read-side thread pool with the specified number of worker threads
 ///
-/// If the runtime has already been initialized, this function will return an error.
-fn configure_runtime(
+/// If the thread pool has already been initialized, this function will return an error.
+fn configure_thread_pool(
     worker_threads: usize,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Check if runtime has already been initialized
-    if RUNTIME.get().is_some() {
-        return Err("Runtime has already been initialized. ".into());
+    // Check if thread pool has already been initialized
+    if THREAD_POOL.get().is_some() {
+        return Err("Thread pool has already been initialized. ".into());
     }
 
-    RUNTIME.get_or_init(|| {
-        create_runtime_with_config(&RuntimeConfig {
+    THREAD_POOL.get_or_init(|| {
+        create_thread_pool_with_config(&ThreadPoolConfig {
             worker_threads: Some(worker_threads),
         })
-        .vortex_expect("Cannot start runtime")
+        .vortex_expect("Cannot start thread pool")
     });
 
     Ok(())
