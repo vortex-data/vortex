@@ -320,7 +320,7 @@ mod test {
     use vortex_dtype::FieldNames;
 
     use crate::IntoArray as _;
-    use crate::arrays::{BoolArray, ListArray, PrimitiveArray, StructArray};
+    use crate::arrays::{BoolArray, ListArray, StructArray};
     use crate::validity::Validity;
 
     #[test]
@@ -406,7 +406,7 @@ mod test {
         use crate::display::DisplayOptions;
 
         let array =
-            PrimitiveArray::from_option_iter(vec![Some(-1), Some(-2), Some(-3), None]).into_array();
+            crate::arrays::PrimitiveArray::from_option_iter(vec![Some(-1), Some(-2), Some(-3), None]).into_array();
 
         let struct_ = StructArray::try_from_iter_with_validity(
             [("x", buffer![1, 2, 3, 4].into_array()), ("y", array)],
