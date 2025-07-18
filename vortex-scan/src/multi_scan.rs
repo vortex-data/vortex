@@ -11,7 +11,7 @@ use vortex_error::VortexResult;
 use crate::ScanBuilder;
 
 type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
-type ScanBuilderFactory<T> = Arc<SegQueue<Box<(dyn FnOnce() -> ScanBuilder<T> + Send + Sync)>>>;
+type ScanBuilderFactory<T> = Arc<SegQueue<Box<dyn FnOnce() -> ScanBuilder<T> + Send + Sync>>>;
 
 /// Coordinator to orchestrate multiple scan operations.
 ///
@@ -85,10 +85,6 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
 
         let task = self.task_queue.pop()?;
 
-        Some(
-            self.local_pool
-                .run_until(async { task.await })
-                .transpose()?,
-        )
+        self.local_pool.run_until(task).transpose()
     }
 }
