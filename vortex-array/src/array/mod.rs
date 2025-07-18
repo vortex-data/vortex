@@ -279,7 +279,7 @@ impl dyn Array + '_ {
 impl dyn Array + '_ {
     /// Total size of the array in bytes, including all children and buffers.
     pub fn nbytes(&self) -> u64 {
-        let mut nbytes = size_of_val(self) as u64;
+        let mut nbytes = 0u64;
         for array in self.depth_first_traversal() {
             for buffer in array.buffers() {
                 nbytes += buffer.len() as u64;
