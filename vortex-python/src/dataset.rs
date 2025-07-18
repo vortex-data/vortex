@@ -49,7 +49,7 @@ pub fn read_array_from_reader(
         scan = scan.with_row_indices(indices);
     }
 
-    scan.into_array_thread_pool_iter(THREAD_POOL.clone())?
+    scan.into_threaded_array_iter(THREAD_POOL.clone())?
         .read_all()
 }
 
@@ -144,7 +144,7 @@ impl PyVortexDataset {
         }
 
         let reader: Box<dyn RecordBatchReader + Send> = Box::new(VortexRecordBatchReader::try_new(
-            scan.into_array_thread_pool_iter(THREAD_POOL.clone())?,
+            scan.into_threaded_array_iter(THREAD_POOL.clone())?,
         )?);
 
         reader.into_pyarrow(self_.py())

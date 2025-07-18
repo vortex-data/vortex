@@ -167,7 +167,7 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let iter = builder.into_array_thread_pool_iter(THREAD_POOL.clone())?;
+        let iter = builder.into_threaded_array_iter(THREAD_POOL.clone())?;
 
         Ok(PyArrayIterator::new(Box::new(iter)))
     }
@@ -193,7 +193,7 @@ impl PyVortexFile {
                 builder = builder.with_split_by(SplitBy::RowCount(batch_size));
             }
 
-            let iter = builder.into_array_thread_pool_iter(THREAD_POOL.clone())?;
+            let iter = builder.into_threaded_array_iter(THREAD_POOL.clone())?;
             Ok::<_, VortexError>(Box::new(VortexRecordBatchReader::try_new(iter)?))
         })?;
 

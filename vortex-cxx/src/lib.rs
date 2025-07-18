@@ -165,7 +165,7 @@ unsafe fn scan_builder_into_arrow(
         dtype.clone(),
         builder
             .inner
-            .into_thread_pool_iter(get_thread_pool().clone())?,
+            .into_threaded_iter(get_thread_pool().clone())?,
     );
     let reader = VortexRecordBatchReader::try_new(iter)?;
 
@@ -205,7 +205,7 @@ unsafe fn scan_builder_into_stream(
         dtype,
         builder
             .inner
-            .into_thread_pool_iter(get_thread_pool().clone())?,
+            .into_threaded_iter(get_thread_pool().clone())?,
     );
     let reader = VortexRecordBatchReader::try_new(iter)?;
     let stream = FFI_ArrowArrayStream::new(Box::new(reader));
