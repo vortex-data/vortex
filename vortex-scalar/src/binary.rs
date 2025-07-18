@@ -168,10 +168,10 @@ impl<'a> BinaryScalar<'a> {
 
 impl Scalar {
     /// Creates a new binary scalar from a byte buffer.
-    pub fn binary(buffer: impl Into<Arc<ByteBuffer>>, nullability: Nullability) -> Self {
+    pub fn binary(buffer: impl Into<ByteBuffer>, nullability: Nullability) -> Self {
         Self {
             dtype: DType::Binary(nullability),
-            value: ScalarValue(InnerScalarValue::Buffer(buffer.into())),
+            value: ScalarValue(InnerScalarValue::Buffer(Arc::new(buffer.into()))),
         }
     }
 }
