@@ -32,4 +32,8 @@ impl RowMask {
     pub fn row_range(&self) -> Range<u64> {
         self.row_offset..self.row_offset + self.mask.len() as u64
     }
+
+    pub fn into_mask(self) -> Mask {
+        self.mask
+    }
 }

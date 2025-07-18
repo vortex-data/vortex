@@ -42,24 +42,27 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
     // let read_mask = split_mask.intersect(&ctx.selection.row_mask(&split_range));
     let split_range_start = split_range.start as usize;
 
-    let read_range = match &ctx.row_range {
-        None => split_range,
-        Some(row_range) => {
-            if row_range.start >= split_range.end || row_range.end < split_range.start {
-                // No overlap for this task
-                return Ok(ok(None).boxed());
-            }
+    let read_mask = split_mask.into_mask();
+    let read_range = split_range;
 
-            let intersect_start = row_range.start.max(split_range.start);
-            let intersect_end = row_range.end.min(split_range.end);
-            intersect_start..intersect_end
-        }
-    };
+    // let read_range = match &ctx.row_range {
+    //     None => split_range,
+    //     Some(row_range) => {
+    //         if row_range.start >= split_range.end || row_range.end < split_range.start {
+    //             // No overlap for this task
+    //             return Ok(ok(None).boxed());
+    //         }
+    //
+    //         let intersect_start = row_range.start.max(split_range.start);
+    //         let intersect_end = row_range.end.min(split_range.end);
+    //         intersect_start..intersect_end
+    //     }
+    // };
 
-    let read_mask = split_mask.slice(
-        read_range.start as usize - split_range_start,
-        (read_range.end - read_range.start) as usize,
-    );
+    // let read_mask = split_mask.slice(
+    //     read_range.start as usize - split_range_start,
+    //     (read_range.end - read_range.start) as usize,
+    // );
 
     // Early exit if the read mask is empty.
     if read_mask.all_false() {

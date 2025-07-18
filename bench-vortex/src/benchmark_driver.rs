@@ -219,8 +219,10 @@ fn execute_queries<B: Benchmark>(
         if let Some(expected_counts) = expected_row_counts {
             assert!(query_idx < expected_counts.len());
             assert_eq!(
-                row_count, expected_counts[query_idx],
-                "Row count mismatch for query {query_idx} - duckdb:{format}",
+                row_count,
+                expected_counts[query_idx],
+                "Row count mismatch for query {query_idx} - {}:{format}",
+                engine_ctx.to_engine()
             );
         }
 

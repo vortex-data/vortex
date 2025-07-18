@@ -57,7 +57,7 @@ mod test {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let splits = reader
             .row_masks(
-                &TreeRowMask::all(0..10),
+                &TreeRowMask::all(10),
                 &[FieldMask::Exact(FieldPath::root())],
             )
             .collect::<VortexResult<Vec<Mask>>>()

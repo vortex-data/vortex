@@ -10,9 +10,9 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 /// A trait for mask iterators that can be implemented by different iterator types
-pub trait MaskIterator: Iterator<Item = VortexResult<Mask>> + Send + 'static {}
+pub trait MaskIterator: Iterator<Item = VortexResult<Mask>> + Send {}
 
-impl<T> MaskIterator for T where T: Iterator<Item = VortexResult<Mask>> + Send + 'static {}
+impl<T> MaskIterator for T where T: Iterator<Item = VortexResult<Mask>> + Send {}
 
 /// A boxed mask iterator type that can be used as a trait object
 pub type BoxMaskIterator = Box<dyn MaskIterator>;

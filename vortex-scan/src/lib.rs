@@ -211,14 +211,12 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         let row_count = layout_reader.row_count();
 
-        println!("row row_range: {:?}", self.row_range);
+        // println!("row row_range: {:?}", self.row_range);
 
         // Set up the initial stream of RowMasks.
         let tree_mask = self.selection.tree_row_mask(
-            &self
-                .row_range
-                .clone()
-                .unwrap_or_else(|| 0..row_count.as_exact().unwrap_or(u64::MAX)),
+            row_count.as_exact().unwrap(),
+            self.row_range.clone().clone(),
         );
         let masks = layout_reader.row_masks(&tree_mask, &field_mask);
 

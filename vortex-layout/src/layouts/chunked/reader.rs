@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -116,11 +117,6 @@ impl ChunkedReader {
     }
 }
 
-enum MatchedChunk<T, U> {
-    Matched(T),
-    Unmatched(U),
-}
-
 impl LayoutReader for ChunkedReader {
     fn name(&self) -> &Arc<str> {
         &self.name
@@ -136,8 +132,9 @@ impl LayoutReader for ChunkedReader {
 
     fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> BoxMaskIterator {
         let field_mask = field_mask.to_vec();
+        let selection = selection.clone();
         let children = (0..self.layout.nchildren())
-            .map(|idx| {
+            .map(move |idx| {
                 let start = self.chunk_offsets[idx];
                 let end = if idx + 1 == self.chunk_offsets.len() {
                     self.layout.row_count
@@ -145,27 +142,33 @@ impl LayoutReader for ChunkedReader {
                     self.chunk_offsets[idx + 1]
                 };
                 if selection.non_empty_range(start..end) {
-                    MatchedChunk::Matched((idx, selection.clone().slice(start..end)))
+                    // MatchedChunk::Matched((idx, ))
+                    self.chunk_reader(idx)
+                        .vortex_expect("infallible")
+                        .row_masks(&selection.clone().slice(start..end), &field_mask)
+                        .into_iter()
                 } else {
-                    MatchedChunk::Unmatched(start..end)
-                }
-            })
-            .coalesce(|elem1, elem2| match (&elem1, &elem2) {
-                (MatchedChunk::Unmatched(u1), MatchedChunk::Unmatched(u2)) => {
-                    Ok(MatchedChunk::Unmatched(u1.start..u2.end))
-                }
-                _ => Err((elem1, elem2)),
-            })
-            .map(|child| match child {
-                MatchedChunk::Unmatched(range) => Box::new(std::iter::once(Ok(Mask::AllFalse(
-                    (range.end - range.start) as usize,
-                )))) as BoxMaskIterator,
-                MatchedChunk::Matched((idx, selection)) => {
-                    let child = self.chunk_reader(idx).vortex_expect("infallible");
-                    child.row_masks(&selection, &field_mask)
+                    Box::new(iter::once(Ok(Mask::AllFalse((end - start) as usize))))
                 }
             })
             .collect_vec();
+        // coalesce after getting inner chunks
+        // .coalesce(|elem1, elem2| match (&elem1, &elem2) {
+        //     (MatchedChunk::Unmatched(u1), MatchedChunk::Unmatched(u2)) => {
+        //         Ok(MatchedChunk::Unmatched(u1.start..u2.end))
+        //     }
+        //     _ => Err((elem1, elem2)),
+        // })
+        // .map(|child| match child {
+        //     MatchedChunk::Unmatched(range) => Box::new(std::iter::once(Ok(Mask::AllFalse(
+        //         (range.end - range.start) as usize,
+        //     )))) as BoxMaskIterator,
+        //     MatchedChunk::Matched((idx, selection)) => {
+        //         let child = self.chunk_reader(idx).vortex_expect("infallible");
+        //         child.row_masks(&selection, &field_mask)
+        //     }
+        // })
+        // .collect_vec();
 
         Box::new(children.into_iter().flatten())
     }
