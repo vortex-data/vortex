@@ -85,9 +85,10 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
 
         let task = self.task_queue.pop()?;
 
-        match self.local_pool.run_until(async { task.await }) {
-            Ok(task) => return Some(Ok(task?)),
-            Err(err) => return Some(Err(err)),
-        }
+        Some(
+            self.local_pool
+                .run_until(async { task.await })
+                .transpose()?,
+        )
     }
 }
