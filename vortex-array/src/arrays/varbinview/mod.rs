@@ -4,23 +4,19 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 
-use arrow_array::GenericByteViewArray;
-use arrow_array::builder::{BinaryViewBuilder, GenericByteViewBuilder, StringViewBuilder};
-use arrow_array::types::{BinaryViewType, ByteViewType, StringViewType};
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
-use vortex_dtype::DType;
-use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
+use vortex_dtype::{DType, Nullability};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail, vortex_panic};
 
-use crate::arrow::FromArrowArray;
-use crate::builders::ArrayBuilder;
+use crate::builders::{ArrayBuilder, VarBinViewBuilder};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, NotSupported, VTable, ValidityHelper,
     ValidityVTableFromValidityHelper,
 };
-use crate::{ArrayRef, Canonical, EncodingId, EncodingRef, ToCanonical, vtable};
+use crate::{Canonical, EncodingId, EncodingRef, vtable};
 
 mod accessor;
 mod compute;
@@ -389,102 +385,84 @@ impl VarBinViewArray {
         iter: I,
         dtype: DType,
     ) -> Self {
-        match dtype {
-            DType::Utf8(nullability) => {
-                let string_view_array = generic_byte_view_builder::<StringViewType, _, _>(
-                    iter.into_iter(),
-                    |builder, v| {
-                        match v {
-                            None => builder.append_null(),
-                            Some(inner) => {
-                                // SAFETY: the caller must provide valid utf8 values if Utf8 DType is passed.
-                                let utf8 = unsafe { std::str::from_utf8_unchecked(inner.as_ref()) };
-                                builder.append_value(utf8);
-                            }
-                        }
-                    },
-                );
-                ArrayRef::from_arrow(&string_view_array, nullability.into())
-                    .to_varbinview()
-                    .vortex_expect("StringViewArray to VarBinViewArray downcast")
+        let iter = iter.into_iter();
+        let mut builder = VarBinViewBuilder::with_capacity(dtype, iter.size_hint().0);
+
+        for item in iter {
+            match item {
+                None => builder.append_null(),
+                Some(v) => builder.append_value(v),
             }
-            DType::Binary(nullability) => {
-                let binary_view_array = generic_byte_view_builder::<BinaryViewType, _, _>(
-                    iter.into_iter(),
-                    GenericByteViewBuilder::append_option,
-                );
-                ArrayRef::from_arrow(&binary_view_array, nullability.into())
-                    .to_varbinview()
-                    .vortex_expect("BinaryViewArray to VarBinViewArray downcast")
-            }
-            other => vortex_panic!("VarBinViewArray must be Utf8 or Binary, was {other}"),
         }
+
+        builder.finish_into_varbinview()
     }
 
     pub fn from_iter_str<T: AsRef<str>, I: IntoIterator<Item = T>>(iter: I) -> Self {
         let iter = iter.into_iter();
-        let mut builder = StringViewBuilder::with_capacity(iter.size_hint().0);
-        for s in iter {
-            builder.append_value(s);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::NonNullable),
+            iter.size_hint().0,
+        );
+
+        for item in iter {
+            builder.append_value(item.as_ref());
         }
-        ArrayRef::from_arrow(&builder.finish(), false)
-            .to_varbinview()
-            .vortex_expect("VarBinViewArray from StringViewBuilder")
+
+        builder.finish_into_varbinview()
     }
 
     pub fn from_iter_nullable_str<T: AsRef<str>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut builder = StringViewBuilder::with_capacity(iter.size_hint().0);
-        builder.extend(iter);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::Nullable),
+            iter.size_hint().0,
+        );
 
-        let array = ArrayRef::from_arrow(&builder.finish(), true);
-        array
-            .to_varbinview()
-            .vortex_expect("VarBinViewArray from StringViewBuilder")
+        for item in iter {
+            match item {
+                None => builder.append_null(),
+                Some(v) => builder.append_value(v.as_ref()),
+            }
+        }
+
+        builder.finish_into_varbinview()
     }
 
     pub fn from_iter_bin<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(iter: I) -> Self {
         let iter = iter.into_iter();
-        let mut builder = BinaryViewBuilder::with_capacity(iter.size_hint().0);
-        for b in iter {
-            builder.append_value(b);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Binary(Nullability::NonNullable),
+            iter.size_hint().0,
+        );
+
+        for item in iter {
+            builder.append_value(item.as_ref());
         }
-        ArrayRef::from_arrow(&builder.finish(), false)
-            .to_varbinview()
-            .vortex_expect("VarBinViewArray from StringViewBuilder")
+
+        builder.finish_into_varbinview()
     }
 
     pub fn from_iter_nullable_bin<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut builder = BinaryViewBuilder::with_capacity(iter.size_hint().0);
-        builder.extend(iter);
-        ArrayRef::from_arrow(&builder.finish(), true)
-            .to_varbinview()
-            .vortex_expect("VarBinViewArray from StringViewBuilder")
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Binary(Nullability::Nullable),
+            iter.size_hint().0,
+        );
+
+        for item in iter {
+            match item {
+                None => builder.append_null(),
+                Some(v) => builder.append_value(v.as_ref()),
+            }
+        }
+
+        builder.finish_into_varbinview()
     }
-}
-
-/// Generic helper to create an Arrow ByteViewBuilder of the appropriate type.
-fn generic_byte_view_builder<B, V, F>(
-    values: impl Iterator<Item = Option<V>>,
-    mut append_fn: F,
-) -> GenericByteViewArray<B>
-where
-    B: ByteViewType,
-    V: AsRef<[u8]>,
-    F: FnMut(&mut GenericByteViewBuilder<B>, Option<V>),
-{
-    let mut builder = GenericByteViewBuilder::<B>::new();
-
-    for value in values {
-        append_fn(&mut builder, value);
-    }
-
-    builder.finish()
 }
 
 impl ArrayVTable<VarBinViewVTable> for VarBinViewVTable {
