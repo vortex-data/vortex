@@ -3,8 +3,6 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::Ordering::SeqCst;
-use std::sync::atomic::{AtomicBool, AtomicU64};
 
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::dtype::FieldNames;
@@ -239,36 +237,36 @@ impl TableFunction for VortexTableFunction {
         let projection_expr = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
 
-        // Atomic as the closures can be called from different threads.
-        let is_first_file = Arc::new(AtomicBool::new(false));
-        let cache_id = Arc::new(AtomicU64::new(0));
+        let closures =
+            bind_data
+                .file_paths
+                .clone()
+                .into_iter()
+                .enumerate()
+                .map(move |(idx, path)| {
+                    let first_file = bind_data.first_file.clone();
+                    let filter_expr = filter_expr.clone();
+                    let projection_expr = projection_expr.clone();
+                    let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
 
-        let closures = bind_data.file_paths.clone().into_iter().map(move |path| {
-            let first_file = bind_data.first_file.clone();
-            let filter_expr = filter_expr.clone();
-            let projection_expr = projection_expr.clone();
-            let is_first_file = is_first_file.clone();
-            let cache_id = cache_id.clone();
-            let conversion_cache = Arc::new(ConversionCache::new(cache_id.fetch_add(1, SeqCst)));
+                    move || {
+                        let file = if idx == 0 {
+                            // The first path from `file_paths` is skipped as
+                            // the first file was already opened during bind.
+                            first_file
+                        } else {
+                            VortexOpenOptions::file()
+                                .open_blocking(&path)
+                                .vortex_expect("Failed to open Vortex file")
+                        };
 
-            move || {
-                let file = if !is_first_file.swap(true, SeqCst) {
-                    // The first path from `file_paths` is skipped as
-                    // the first file was already opened during bind.
-                    first_file
-                } else {
-                    VortexOpenOptions::file()
-                        .open_blocking(&path)
-                        .vortex_expect("Failed to open Vortex file")
-                };
-
-                file.scan()
-                    .vortex_expect("Failed to create scan builder")
-                    .with_some_filter(filter_expr)
-                    .with_projection(projection_expr)
-                    .map(move |split| Ok((split, conversion_cache.clone())))
-            }
-        });
+                        file.scan()
+                            .vortex_expect("Failed to create scan builder")
+                            .with_some_filter(filter_expr)
+                            .with_projection(projection_expr)
+                            .map(move |split| Ok((split, conversion_cache.clone())))
+                    }
+                });
 
         Ok(VortexGlobalData {
             multi_scan: MultiScan::new().with_scan_builders(closures),
