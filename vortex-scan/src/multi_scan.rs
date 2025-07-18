@@ -11,7 +11,7 @@ use vortex_error::VortexResult;
 use crate::ScanBuilder;
 
 type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
-type ScanBuilderFactory<T> = Arc<SegQueue<Box<(dyn FnOnce() -> ScanBuilder<T> + Send + Sync)>>>;
+type ScanBuilderFactory<T> = Arc<SegQueue<Box<dyn FnOnce() -> ScanBuilder<T> + Send + Sync>>>;
 
 /// Coordinator to orchestrate multiple scan operations.
 ///
