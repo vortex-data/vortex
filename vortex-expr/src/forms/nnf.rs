@@ -9,7 +9,7 @@ use crate::{
     not,
 };
 
-/// Return an equivalent expression in Negative Normal Form (NNF)[https://en.wikipedia.org/wiki/Negation_normal_form].
+/// Return an equivalent expression in Negative Normal Form ([NNF](https://en.wikipedia.org/wiki/Negation_normal_form)).
 ///
 /// In NNF, [crate::NotExpr] expressions may only contain terminal nodes such as [Literal](crate::LiteralExpr) or
 /// [GetItem](crate::GetItemExpr). They *may not* contain [crate::BinaryExpr], [crate::NotExpr], etc.
@@ -69,12 +69,12 @@ pub fn nnf(expr: ExprRef) -> ExprRef {
         .result()
 }
 
-/// Verifies whether the expression is in Negative Normal Form (NNF)[https://en.wikipedia.org/wiki/Negation_normal_form].
+/// Verifies whether the expression is in Negative Normal Form ([NNF](https://en.wikipedia.org/wiki/Negation_normal_form)).
 ///
 /// Note that NNF isn't canonical, different expressions might be logically equivalent but different.
 pub fn is_nnf(expr: &ExprRef) -> bool {
     let mut visitor = NNFValidationVisitor::default();
-    expr.accept(&mut visitor).expect("never fails");
+    expr.accept(&mut visitor).vortex_expect("never fails");
     visitor.is_nnf
 }
 
@@ -175,10 +175,10 @@ impl<'a> NodeVisitor<'a> for NNFValidationVisitor {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use crate::{and, col, gt_eq, lit, lt, or};
-
-    use rstest::rstest;
 
     #[rstest]
     #[case(
@@ -193,9 +193,12 @@ mod tests {
         or(lt(col("a"), lit(3)), not(col("b")))
     )]
     fn basic_nnf_test(#[case] input: ExprRef, #[case] expected: ExprRef) {
-        let output = nnf(input);
+        let output = nnf(input.clone());
 
-        assert_eq!(&output, &expected);
+        assert_eq!(
+            &output, &expected,
+            "\nOriginal expr: {input}]\nRewritten expr: {output}\nexpected expr:{expected}"
+        );
         assert!(is_nnf(&output));
     }
 }
