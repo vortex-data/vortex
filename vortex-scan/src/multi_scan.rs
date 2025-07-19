@@ -113,6 +113,10 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
             } else {
                 'outer_loop: while self.scan_builders_constructed.load(Relaxed)
                     < self.scan_builder_count
+                    || !self
+                        .stealers
+                        .iter()
+                        .any(|stealer| !stealer.value().is_empty())
                 {
                     // Round robin to ensure work is not always stolen from the same worker.
                     let steal_id = self.next_stealer_id.fetch_add(1, SeqCst);
