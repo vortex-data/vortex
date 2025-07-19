@@ -10,7 +10,6 @@ use crossbeam_queue::SegQueue;
 use dashmap::DashMap;
 use futures::executor::LocalPool;
 use futures::future::BoxFuture;
-use parking_lot::RwLock;
 use vortex_error::VortexResult;
 
 use crate::ScanBuilder;
