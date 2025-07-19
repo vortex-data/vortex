@@ -6922,7 +6922,6 @@ version = "0.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
- "async-trait",
  "crossbeam-deque",
  "crossbeam-queue",
  "futures",
