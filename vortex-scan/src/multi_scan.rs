@@ -32,27 +32,24 @@ pub struct MultiScan<T> {
 }
 
 impl<T> MultiScan<T> {
-    pub fn new(scan_builder_count: usize) -> Self {
-        Self {
-            scan_builder_count,
-            scan_builders_constructed: Arc::new(AtomicUsize::new(0)),
-            scan_builder_factory: Arc::new(SegQueue::new()),
-            stealers: Arc::new(RwLock::new(Vec::new())),
-            next_stealer_id: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-
-    /// Add lazily constructed scan builders paired with their corresponding states.
-    pub fn with_scan_builders<I, F>(self, closures: I) -> Self
+    /// Created with lazily constructed scan builders closures.
+    pub fn new<I, F>(closures: I) -> Self
     where
         F: FnOnce() -> ScanBuilder<T> + 'static + Send + Sync,
         I: IntoIterator<Item = F>,
     {
+        let scan_builder_factory: ScanBuilderFactory<T> = Arc::new(SegQueue::new());
         for closure in closures.into_iter() {
-            self.scan_builder_factory.push(Box::new(closure));
+            scan_builder_factory.push(Box::new(closure));
         }
 
-        self
+        Self {
+            scan_builder_count: scan_builder_factory.len(),
+            scan_builders_constructed: Arc::new(AtomicUsize::new(0)),
+            scan_builder_factory,
+            stealers: Arc::new(RwLock::new(Vec::new())),
+            next_stealer_id: Arc::new(AtomicUsize::new(0)),
+        }
     }
 
     /// Creates a new iterator to participate in the scan.
