@@ -103,6 +103,9 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
                     Err(err) => return Some(Err(err)),
                 }
             } else {
+                let stealers = self.stealers.read();
+                let steal_id = self.next_stealer_id.fetch_add(1, SeqCst);
+
                 'outer_loop: while self.scan_builders_constructed.load(Relaxed)
                     < self.scan_builder_count
                     || self
@@ -112,12 +115,9 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
                         .any(|stealer| !stealer.is_empty())
                 {
                     // Round robin to ensure work is not always stolen from the same worker.
-                    let stealers = self.stealers.read();
-                    let steal_id = self.next_stealer_id.fetch_add(1, SeqCst);
                     for idx in 0..stealers.len() {
                         let idx = (steal_id + idx) % stealers.len();
-                        let stealer = &stealers[idx];
-                        if let Steal::Success(_) = stealer.steal_batch(&self.worker) {
+                        if let Steal::Success(_) = stealers[idx].steal_batch(&self.worker) {
                             break 'outer_loop;
                         }
                     }
