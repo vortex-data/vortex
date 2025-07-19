@@ -96,11 +96,11 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
                 }
             } else {
                 let stealer_count = self.stealers.read().len();
+                let stealer_id = self.next_stealer_id.fetch_add(1, SeqCst) % stealer_count;
 
-                for _ in 0..stealer_count {
+                for idx in 0..stealer_count {
                     // Round robin to ensure work is not always stolen from the same worker.
-                    let stealer_id = self.next_stealer_id.fetch_add(1, SeqCst) % stealer_count;
-                    let stealer = &self.stealers.read()[stealer_id];
+                    let stealer = &self.stealers.read()[(stealer_id + idx) % stealer_count];
 
                     // Attempt to steal ~half of the work and push it into `worker`.
                     if let Steal::Success(_) = stealer.steal_batch(&self.worker) {
