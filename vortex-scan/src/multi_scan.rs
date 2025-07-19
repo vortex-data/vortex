@@ -7,9 +7,9 @@ use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 
 use crossbeam_deque::{Steal, Stealer, Worker};
 use crossbeam_queue::SegQueue;
-use dashmap::DashMap;
 use futures::executor::LocalPool;
 use futures::future::BoxFuture;
+use parking_lot::RwLock;
 use vortex_error::VortexResult;
 
 use crate::ScanBuilder;
@@ -27,8 +27,7 @@ pub struct MultiScan<T> {
     scan_builders_constructed: Arc<AtomicUsize>,
 
     scan_builder_factory: ScanBuilderFactory<T>,
-    stealers: Arc<DashMap<usize, Stealer<ArrayFuture<T>>>>,
-    next_construction_id: Arc<AtomicUsize>,
+    stealers: Arc<RwLock<Vec<Stealer<ArrayFuture<T>>>>>,
     next_stealer_id: Arc<AtomicUsize>,
 }
 
@@ -38,8 +37,7 @@ impl<T> MultiScan<T> {
             scan_builder_count,
             scan_builders_constructed: Arc::new(AtomicUsize::new(0)),
             scan_builder_factory: Arc::new(SegQueue::new()),
-            stealers: Arc::new(DashMap::new()),
-            next_construction_id: Arc::new(AtomicUsize::new(0)),
+            stealers: Arc::new(RwLock::new(Vec::new())),
             next_stealer_id: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -62,10 +60,7 @@ impl<T> MultiScan<T> {
     /// The scan progresses when calling `next` on the iterator.
     pub fn new_scan_iterator(&self) -> MultiScanIterator<T> {
         let worker = Worker::new_fifo();
-        self.stealers.insert(
-            self.next_construction_id.fetch_add(1, SeqCst),
-            worker.stealer(),
-        );
+        self.stealers.write().push(worker.stealer());
 
         MultiScanIterator {
             scan_builder_count: self.scan_builder_count,
@@ -86,7 +81,7 @@ pub struct MultiScanIterator<T> {
 
     local_pool: LocalPool,
     worker: Worker<ArrayFuture<T>>,
-    stealers: Arc<DashMap<usize, Stealer<ArrayFuture<T>>>>,
+    stealers: Arc<RwLock<Vec<Stealer<ArrayFuture<T>>>>>,
     next_stealer_id: Arc<AtomicUsize>,
 
     /// Thread-safe queue of closures that lazily produce [`ScanBuilder`] instances.
@@ -115,17 +110,18 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
                     < self.scan_builder_count
                     || self
                         .stealers
+                        .read()
                         .iter()
-                        .any(|stealer| !stealer.value().is_empty())
+                        .any(|stealer| !stealer.is_empty())
                 {
                     // Round robin to ensure work is not always stolen from the same worker.
+                    let stealers = self.stealers.read();
                     let steal_id = self.next_stealer_id.fetch_add(1, SeqCst);
-                    for idx in 0..self.stealers.len() {
-                        let idx = (steal_id + idx) % self.stealers.len();
-                        if let Some(stealer) = self.stealers.get(&idx) {
-                            if let Steal::Success(_) = stealer.steal_batch(&self.worker) {
-                                break 'outer_loop;
-                            }
+                    for idx in 0..stealers.len() {
+                        let idx = (steal_id + idx) % stealers.len();
+                        let stealer = &stealers[idx];
+                        if let Steal::Success(_) = stealer.steal_batch(&self.worker) {
+                            break 'outer_loop;
                         }
                     }
                 }

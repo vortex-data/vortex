@@ -30,6 +30,7 @@ crossbeam-queue = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true, features = ["thread-pool"] }
 itertools = { workspace = true }
+parking_lot = { workspace = true }
 roaring = { workspace = true, optional = true }
 tokio = { workspace = true }
 
