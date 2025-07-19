@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering::SeqCst;
+use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 
 use crossbeam_deque::{Steal, Stealer, Worker};
 use crossbeam_queue::SegQueue;
@@ -23,6 +23,9 @@ type ScanBuilderFactory<T> = Arc<SegQueue<Box<dyn FnOnce() -> ScanBuilder<T> + S
 /// them in parallel. In particular, this enables scanning multiple files.
 #[derive(Default)]
 pub struct MultiScan<T> {
+    scan_builder_count: usize,
+    scan_builders_constructed: Arc<AtomicUsize>,
+
     scan_builder_factory: ScanBuilderFactory<T>,
     stealers: Arc<DashMap<usize, Stealer<ArrayFuture<T>>>>,
     next_construction_id: Arc<AtomicUsize>,
@@ -30,8 +33,10 @@ pub struct MultiScan<T> {
 }
 
 impl<T> MultiScan<T> {
-    pub fn new() -> Self {
+    pub fn new(scan_builder_count: usize) -> Self {
         Self {
+            scan_builder_count,
+            scan_builders_constructed: Arc::new(AtomicUsize::new(0)),
             scan_builder_factory: Arc::new(SegQueue::new()),
             stealers: Arc::new(DashMap::new()),
             next_construction_id: Arc::new(AtomicUsize::new(0)),
@@ -63,6 +68,8 @@ impl<T> MultiScan<T> {
         );
 
         MultiScanIterator {
+            scan_builder_count: self.scan_builder_count,
+            scan_builders_constructed: self.scan_builders_constructed.clone(),
             scan_builder_factory: self.scan_builder_factory.clone(),
             local_pool: LocalPool::new(),
             stealers: self.stealers.clone(),
@@ -74,6 +81,9 @@ impl<T> MultiScan<T> {
 
 /// Scan iterator to participate in a `MultiScan`.
 pub struct MultiScanIterator<T> {
+    scan_builder_count: usize,
+    scan_builders_constructed: Arc<AtomicUsize>,
+
     local_pool: LocalPool,
     worker: Worker<ArrayFuture<T>>,
     stealers: Arc<DashMap<usize, Stealer<ArrayFuture<T>>>>,
@@ -96,14 +106,17 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
                         for task in tasks {
                             self.worker.push(Box::pin(task));
                         }
+                        self.scan_builders_constructed.fetch_add(1, Relaxed);
                     }
                     Err(err) => return Some(Err(err)),
                 }
             } else {
-                'outer_loop: while self
-                    .stealers
-                    .iter()
-                    .any(|stealer| !stealer.value().is_empty())
+                'outer_loop: while self.scan_builders_constructed.load(Relaxed)
+                    < self.scan_builder_count
+                    || self
+                        .stealers
+                        .iter()
+                        .any(|stealer| !stealer.value().is_empty())
                 {
                     // Round robin to ensure work is not always stolen from the same worker.
                     let steal_id = self.next_stealer_id.fetch_add(1, SeqCst);
