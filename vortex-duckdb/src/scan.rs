@@ -269,7 +269,7 @@ impl TableFunction for VortexTableFunction {
                 });
 
         Ok(VortexGlobalData {
-            multi_scan: MultiScan::new().with_scan_builders(closures),
+            multi_scan: MultiScan::new(bind_data.file_paths.len()).with_scan_builders(closures),
         })
     }
 
