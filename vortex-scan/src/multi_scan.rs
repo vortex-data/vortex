@@ -7,9 +7,9 @@ use std::sync::atomic::Ordering::SeqCst;
 
 use crossbeam_deque::{Stealer, Worker};
 use crossbeam_queue::SegQueue;
-use dashmap::DashMap;
 use futures::executor::LocalPool;
 use futures::future::BoxFuture;
+use parking_lot::RwLock;
 use vortex_error::VortexResult;
 
 use crate::ScanBuilder;
@@ -24,8 +24,7 @@ type ScanBuilderFactory<T> = Arc<SegQueue<Box<dyn FnOnce() -> ScanBuilder<T> + S
 #[derive(Default)]
 pub struct MultiScan<T> {
     scan_builder_factory: ScanBuilderFactory<T>,
-    stealers: Arc<DashMap<usize, Stealer<ArrayFuture<T>>>>,
-    next_construction_id: Arc<AtomicUsize>,
+    stealers: Arc<RwLock<Vec<Stealer<ArrayFuture<T>>>>>,
     next_stealer_id: Arc<AtomicUsize>,
 }
 
@@ -33,8 +32,7 @@ impl<T> MultiScan<T> {
     pub fn new() -> Self {
         Self {
             scan_builder_factory: Arc::new(SegQueue::new()),
-            stealers: Arc::new(DashMap::new()),
-            next_construction_id: Arc::new(AtomicUsize::new(0)),
+            stealers: Arc::new(RwLock::new(Vec::new())),
             next_stealer_id: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -57,10 +55,7 @@ impl<T> MultiScan<T> {
     /// The scan progresses when calling `next` on the iterator.
     pub fn new_scan_iterator(&self) -> MultiScanIterator<T> {
         let worker = Worker::new_fifo();
-        self.stealers.insert(
-            self.next_construction_id.fetch_add(1, SeqCst),
-            worker.stealer(),
-        );
+        self.stealers.write().push(worker.stealer());
 
         MultiScanIterator {
             scan_builder_factory: self.scan_builder_factory.clone(),
@@ -76,7 +71,7 @@ impl<T> MultiScan<T> {
 pub struct MultiScanIterator<T> {
     local_pool: LocalPool,
     worker: Worker<ArrayFuture<T>>,
-    stealers: Arc<DashMap<usize, Stealer<ArrayFuture<T>>>>,
+    stealers: Arc<RwLock<Vec<Stealer<ArrayFuture<T>>>>>,
     next_stealer_id: Arc<AtomicUsize>,
 
     /// Thread-safe queue of closures that lazily produce [`ScanBuilder`] instances.
@@ -100,15 +95,16 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
                     Err(err) => return Some(Err(err)),
                 }
             } else {
-                for _ in 0..self.stealers.len() {
+                let stealer_count = self.stealers.read().len();
+
+                for _ in 0..stealer_count {
                     // Round robin to ensure work is not always stolen from the same worker.
-                    let steal_id = self.next_stealer_id.fetch_add(1, SeqCst) % self.stealers.len();
-                    if let Some(stealer) = self.stealers.get(&steal_id) {
-                        if !stealer.is_empty() {
-                            // Steal ~half of the work and push it into `worker`.
-                            _ = stealer.steal_batch(&self.worker);
-                            break;
-                        }
+                    let stealer_id = self.next_stealer_id.fetch_add(1, SeqCst) % stealer_count;
+                    let stealer = &self.stealers.read()[stealer_id];
+                    if !stealer.is_empty() {
+                        // Steal ~half of the work and push it into `worker`.
+                        _ = stealer.steal_batch(&self.worker);
+                        break;
                     }
                 }
             }
