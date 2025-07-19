@@ -2,10 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering::SeqCst;
 
+use crossbeam_deque::{Steal, Stealer, Worker};
 use crossbeam_queue::SegQueue;
 use futures::executor::LocalPool;
 use futures::future::BoxFuture;
+use parking_lot::RwLock;
 use vortex_error::VortexResult;
 
 use crate::ScanBuilder;
@@ -20,12 +24,16 @@ type ScanBuilderFactory<T> = Arc<SegQueue<Box<dyn FnOnce() -> ScanBuilder<T> + S
 #[derive(Default)]
 pub struct MultiScan<T> {
     scan_builder_factory: ScanBuilderFactory<T>,
+    stealers: Arc<RwLock<Vec<Stealer<ArrayFuture<T>>>>>,
+    next_stealer_id: Arc<AtomicUsize>,
 }
 
 impl<T> MultiScan<T> {
     pub fn new() -> Self {
         Self {
             scan_builder_factory: Arc::new(SegQueue::new()),
+            stealers: Arc::new(RwLock::new(Vec::new())),
+            next_stealer_id: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -46,10 +54,15 @@ impl<T> MultiScan<T> {
     ///
     /// The scan progresses when calling `next` on the iterator.
     pub fn new_scan_iterator(&self) -> MultiScanIterator<T> {
+        let worker = Worker::new_fifo();
+        self.stealers.write().push(worker.stealer());
+
         MultiScanIterator {
             scan_builder_factory: self.scan_builder_factory.clone(),
             local_pool: LocalPool::new(),
-            task_queue: SegQueue::new(),
+            stealers: self.stealers.clone(),
+            next_stealer_id: self.next_stealer_id.clone(),
+            worker,
         }
     }
 }
@@ -57,11 +70,13 @@ impl<T> MultiScan<T> {
 /// Scan iterator to participate in a `MultiScan`.
 pub struct MultiScanIterator<T> {
     local_pool: LocalPool,
+    worker: Worker<ArrayFuture<T>>,
+    stealers: Arc<RwLock<Vec<Stealer<ArrayFuture<T>>>>>,
+    next_stealer_id: Arc<AtomicUsize>,
 
     /// Thread-safe queue of closures that lazily produce [`ScanBuilder`] instances.
     /// This queue is shared across all iterators being created with `new_scan_iterator`.
     scan_builder_factory: ScanBuilderFactory<T>,
-    task_queue: SegQueue<ArrayFuture<T>>,
 }
 
 impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
@@ -69,21 +84,33 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
 
     fn next(&mut self) -> Option<VortexResult<T>> {
         // Queue up tasks if the thread local queue is empty.
-        if self.task_queue.is_empty() {
+        if self.worker.is_empty() {
             if let Some(scan_builder_fn) = self.scan_builder_factory.pop() {
                 match scan_builder_fn().build() {
                     Ok(tasks) => {
                         for task in tasks {
-                            self.task_queue.push(Box::pin(task));
+                            self.worker.push(Box::pin(task));
                         }
                     }
                     Err(err) => return Some(Err(err)),
                 }
+            } else {
+                let stealer_count = self.stealers.read().len();
+
+                for _ in 0..stealer_count {
+                    // Round robin to ensure work is not always stolen from the same worker.
+                    let stealer_id = self.next_stealer_id.fetch_add(1, SeqCst) % stealer_count;
+                    let stealer = &self.stealers.read()[stealer_id];
+
+                    // Attempt to steal ~half of the work and push it into `worker`.
+                    if let Steal::Success(_) = stealer.steal_batch(&self.worker) {
+                        break;
+                    }
+                }
             }
-            // TODO(Alex): worksteal tasks from other threads
         }
 
-        let task = self.task_queue.pop()?;
+        let task = self.worker.pop()?;
 
         self.local_pool.run_until(task).transpose()
     }

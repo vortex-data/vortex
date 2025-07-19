@@ -6922,9 +6922,11 @@ version = "0.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
+ "crossbeam-deque",
  "crossbeam-queue",
  "futures",
  "itertools 0.14.0",
+ "parking_lot",
  "roaring",
  "tokio",
  "vortex-array",
