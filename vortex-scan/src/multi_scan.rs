@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 
-use crossbeam_deque::{Stealer, Worker};
+use crossbeam_deque::{Steal, Stealer, Worker};
 use crossbeam_queue::SegQueue;
 use futures::executor::LocalPool;
 use futures::future::BoxFuture;
@@ -101,9 +101,9 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
                     // Round robin to ensure work is not always stolen from the same worker.
                     let stealer_id = self.next_stealer_id.fetch_add(1, SeqCst) % stealer_count;
                     let stealer = &self.stealers.read()[stealer_id];
-                    if !stealer.is_empty() {
-                        // Steal ~half of the work and push it into `worker`.
-                        _ = stealer.steal_batch(&self.worker);
+
+                    // Attempt to steal ~half of the work and push it into `worker`.
+                    if let Steal::Success(_) = stealer.steal_batch(&self.worker) {
                         break;
                     }
                 }
