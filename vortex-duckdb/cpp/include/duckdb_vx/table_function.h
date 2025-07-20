@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include "duckdb.h"
 #include "error.h"
 #include "table_filter.h"
 #include "duckdb_vx/data.h"
@@ -95,6 +96,8 @@ typedef struct {
     void (*cardinality)(void *bind_data, duckdb_vx_node_statistics *node_stats_out);
 
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
+
+    bool (*get_row_id_columns)(void *bind_data, idx_t *col_idx_out);
 
     void *pushdown_expression;
     // void *to_string;

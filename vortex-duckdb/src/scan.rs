@@ -148,6 +148,9 @@ fn extract_table_filter_expr(
     Ok(Some(filter_expr))
 }
 
+/// Create a well-known row ID column index that DuckDB will pass to us in expression push-down.
+static ROW_ID_COL_IDX: u64 = u64::MAX - 1;
+
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
     type GlobalState = VortexGlobalData;
@@ -156,6 +159,7 @@ impl TableFunction for VortexTableFunction {
     const PROJECTION_PUSHDOWN: bool = true;
     const FILTER_PUSHDOWN: bool = true;
     const FILTER_PRUNE: bool = true;
+    const LATE_MATERIALIZATION: bool = true;
 
     /// Input parameter types of the `vortex_scan` table function.
     ///
@@ -339,5 +343,10 @@ impl TableFunction for VortexTableFunction {
         _local_init_data
             .batch_id
             .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
+    }
+
+    fn row_id_columns(_bind_data: &Self::BindData) -> Option<u64> {
+        println!("ROW ID COLUMNS: Returning a single row ID column index.");
+        Some(ROW_ID_COL_IDX)
     }
 }

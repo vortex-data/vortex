@@ -11,9 +11,7 @@ mod cardinality;
 mod init;
 mod partition;
 mod pushdown_complex_filter;
-
-pub use bind::*;
-pub use init::*;
+mod row_id_columns;
 
 use crate::duckdb::LogicalType;
 use crate::duckdb::connection::Connection;
@@ -22,7 +20,10 @@ use crate::duckdb::expr::Expression;
 use crate::duckdb::table_function::cardinality::cardinality_callback;
 use crate::duckdb::table_function::partition::get_partition_data_callback;
 use crate::duckdb::table_function::pushdown_complex_filter::pushdown_complex_filter_callback;
+use crate::duckdb::table_function::row_id_columns::get_row_id_columns_callback;
 use crate::{cpp, duckdb_try};
+pub use bind::*;
+pub use init::*;
 
 /// A trait that defines the supported operations for a table function in DuckDB.
 ///
@@ -45,6 +46,9 @@ pub trait TableFunction: Sized + Debug {
     /// e.g. "SELECT i FROM tbl WHERE j = 42;"
     ///   - j does not need to leave the table function at all.
     const FILTER_PRUNE: bool = false;
+
+    /// Whether the table supports late materialization.
+    const LATE_MATERIALIZATION: bool = false;
 
     /// Returns the parameters of the table function.
     fn parameters() -> Vec<LogicalType> {
@@ -110,6 +114,15 @@ pub trait TableFunction: Sized + Debug {
         _local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64>;
 
+    /// Return the columns that uniquely identify a row ID in the table function.
+    /// Used for late-materialization and other optimizations.
+    ///
+    /// NOTE: for now this function only supports returning a single column index.
+    fn row_id_columns(_bind_data: &Self::BindData) -> Option<u64> {
+        // By default, we don't have any row ID columns.
+        None
+    }
+
     // TODO(ngates): there are many more callbacks that can be configured.
 }
 
@@ -152,6 +165,7 @@ impl Connection {
             statistics: ptr::null_mut::<c_void>(),
             cardinality: Some(cardinality_callback::<T>),
             pushdown_complex_filter: Some(pushdown_complex_filter_callback::<T>),
+            get_row_id_columns: Some(get_row_id_columns_callback::<T>),
             pushdown_expression: ptr::null_mut::<c_void>(),
             table_scan_progress: ptr::null_mut::<c_void>(),
             get_partition_data: Some(get_partition_data_callback::<T>),

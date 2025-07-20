@@ -196,6 +196,18 @@ unique_ptr<NodeStatistics> c_cardinality(ClientContext &context, const FunctionD
     return stats;
 }
 
+vector<column_t> c_get_row_id_columns(ClientContext &context, optional_ptr<FunctionData> bind_data) {
+    auto &bind = bind_data->Cast<CTableBindData>();
+
+    column_t col_idx_out = 0;
+    if (bind.info->vtab.get_row_id_columns(bind_data->Cast<CTableBindData>().ffi_data->DataPtr(),
+                                           &col_idx_out)) {
+        return vector<column_t>(col_idx_out);
+    }
+
+    return vector<column_t>();
+}
+
 extern "C" size_t duckdb_vx_tfunc_bind_input_get_parameter_count(duckdb_vx_tfunc_bind_input ffi_input) {
     if (!ffi_input) {
         return 0;
@@ -275,6 +287,7 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
     tf.late_materialization = vtab->late_materialization;
     tf.cardinality = c_cardinality;
     tf.get_partition_data = c_get_partition_data;
+    tf.get_row_id_columns = c_get_row_id_columns;
 
     // Set up the parameters
     for (size_t i = 0; i < vtab->parameter_count; i++) {
