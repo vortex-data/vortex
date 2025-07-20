@@ -26,7 +26,6 @@ pub struct MultiScan<T> {
     state: Arc<State<T>>,
 }
 
-#[allow(dead_code)]
 struct State<T> {
     /// A queue of factories that lazily produce [`ScanBuilder`] instances.
     scan_builders: SegQueue<ScanBuilderFactory<T>>,
@@ -37,9 +36,6 @@ struct State<T> {
     /// into a worker queue.
     num_scans_constructed: AtomicUsize,
 
-    /// The next ID to issue for a worker/stealer.
-    /// FIXME(ngates): remove if we use vec and not dashmap.
-    next_id: AtomicUsize,
     /// The vector of stealers, one for each worker.
     stealers: RwLock<Vec<Stealer<ArrayFuture<T>>>>,
 }
@@ -89,7 +85,6 @@ impl<T> MultiScan<T> {
                 scan_builders,
                 num_scans_constructed: AtomicUsize::new(0),
                 num_scans,
-                next_id: AtomicUsize::new(0),
                 stealers: RwLock::new(Vec::new()),
             }),
         }
