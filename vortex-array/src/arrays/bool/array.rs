@@ -13,6 +13,10 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{ArrayVTable, CanonicalVTable, ValidityHelper};
 
+/// An array of boolean values stored in a compact bit-packed format.
+///
+/// This array type stores boolean values efficiently using Arrow's BooleanBuffer,
+/// which packs 8 boolean values into each byte.
 #[derive(Clone, Debug)]
 pub struct BoolArray {
     dtype: DType,
@@ -154,6 +158,7 @@ impl CanonicalVTable<BoolVTable> for BoolVTable {
     }
 }
 
+/// Extension trait for [`BooleanBuffer`] providing additional functionality.
 pub trait BooleanBufferExt {
     /// Slice any full bytes from the buffer, leaving the offset < 8.
     fn shrink_offset(self) -> Self;

@@ -15,14 +15,17 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options
 use crate::stats::{Precision, Stat};
 use crate::vtable::VTable;
 
+/// Checks if an array is sorted in non-decreasing order.
 pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
     is_sorted_opts(array, false)
 }
 
+/// Checks if an array is sorted in strictly increasing order.
 pub fn is_strict_sorted(array: &dyn Array) -> VortexResult<bool> {
     is_sorted_opts(array, true)
 }
 
+/// Checks if an array is sorted with configurable strictness.
 pub fn is_sorted_opts(array: &dyn Array, strict: bool) -> VortexResult<bool> {
     Ok(IS_SORTED_FN
         .invoke(&InvocationArgs {
@@ -144,6 +147,7 @@ impl Options for IsSortedOptions {
     }
 }
 
+/// The is_sorted [`ComputeFn`].
 pub static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("is_sorted".into(), ArcRef::new_ref(&IsSorted));
     for kernel in inventory::iter::<IsSortedKernelRef> {
@@ -152,13 +156,16 @@ pub static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+/// Reference to an is_sorted kernel.
 pub struct IsSortedKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(IsSortedKernelRef);
 
 #[derive(Debug)]
+/// Adapter to convert an `IsSortedKernel` into a `Kernel`.
 pub struct IsSortedKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + IsSortedKernel> IsSortedKernelAdapter<V> {
+    /// Lifts this kernel adapter into an `IsSortedKernelRef`.
     pub const fn lift(&'static self) -> IsSortedKernelRef {
         IsSortedKernelRef(ArcRef::new_ref(self))
     }
@@ -181,6 +188,7 @@ impl<V: VTable + IsSortedKernel> Kernel for IsSortedKernelAdapter<V> {
     }
 }
 
+/// Trait for implementing is_sorted operations on specific array encodings.
 pub trait IsSortedKernel: VTable {
     /// # Preconditions
     /// - The array's length is > 1.
@@ -189,6 +197,7 @@ pub trait IsSortedKernel: VTable {
     ///   as the first item in the array.
     fn is_sorted(&self, array: &Self::Array) -> VortexResult<bool>;
 
+    /// Checks if an array is sorted in strictly increasing order.
     fn is_strict_sorted(&self, array: &Self::Array) -> VortexResult<bool>;
 }
 
@@ -198,6 +207,7 @@ pub trait IsSortedIteratorExt: Iterator
 where
     <Self as Iterator>::Item: PartialOrd,
 {
+    /// Checks if an iterator yields elements in strictly increasing order.
     fn is_strict_sorted(self) -> bool
     where
         Self: Sized,

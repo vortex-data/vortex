@@ -22,6 +22,7 @@ mod serde;
 
 vtable!(Constant);
 
+/// An array where all elements have the same constant value.
 #[derive(Clone, Debug)]
 pub struct ConstantArray {
     scalar: Scalar,
@@ -29,6 +30,7 @@ pub struct ConstantArray {
     stats_set: ArrayStats,
 }
 
+/// Encoding for constant arrays.
 #[derive(Clone, Debug)]
 pub struct ConstantEncoding;
 
@@ -56,6 +58,7 @@ impl VTable for ConstantVTable {
 }
 
 impl ConstantArray {
+    /// Creates a new constant array with the given scalar value and length.
     pub fn new<S>(scalar: S, len: usize) -> Self
     where
         S: Into<Scalar>,

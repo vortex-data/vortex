@@ -145,6 +145,7 @@ pub struct ArrayNodeFlatBuffer<'a> {
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
+    /// Creates a new ArrayNodeFlatBuffer for the given array and context.
     pub fn try_new(ctx: &'a ArrayContext, array: &'a dyn Array) -> VortexResult<Self> {
         // Depth-first traversal of the array to ensure it supports serialization.
         for child in array.depth_first_traversal() {

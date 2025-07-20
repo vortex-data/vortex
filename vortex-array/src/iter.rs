@@ -17,6 +17,7 @@ use crate::{Array, ArrayRef, IntoArray};
 ///
 /// It's up to implementations to guarantee all arrays have the same [`DType`].
 pub trait ArrayIterator: Iterator<Item = VortexResult<ArrayRef>> {
+    /// Returns the data type of arrays yielded by this iterator.
     fn dtype(&self) -> &DType;
 }
 
@@ -26,12 +27,14 @@ impl ArrayIterator for Box<dyn ArrayIterator + Send> {
     }
 }
 
+/// Adapter to convert an iterator into an `ArrayIterator`.
 pub struct ArrayIteratorAdapter<I> {
     dtype: DType,
     inner: I,
 }
 
 impl<I> ArrayIteratorAdapter<I> {
+    /// Creates a new array iterator adapter.
     pub fn new(dtype: DType, inner: I) -> Self {
         Self { dtype, inner }
     }
@@ -57,7 +60,9 @@ where
     }
 }
 
+/// Extension trait providing additional methods for `ArrayIterator`.
 pub trait ArrayIteratorExt: ArrayIterator {
+    /// Converts the iterator into an array stream.
     fn into_array_stream(self) -> impl ArrayStream
     where
         Self: Sized,
@@ -68,6 +73,7 @@ pub trait ArrayIteratorExt: ArrayIterator {
     /// Collect the iterator into a single `Array`.
     ///
     /// If the iterator yields multiple chunks, they will be returned as a [`ChunkedArray`].
+    /// Collects the iterator into a single array, chunking if necessary.
     fn read_all(self) -> VortexResult<ArrayRef>
     where
         Self: Sized,

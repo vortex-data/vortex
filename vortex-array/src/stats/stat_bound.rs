@@ -10,8 +10,10 @@ use crate::stats::{Precision, Stat};
 /// `StatType` define the bound of a given statistic. (e.g. `Max` is an upper bound),
 /// this is used to extract the bound from a `Precision` value, (e.g. `p::bound<Max>()`).
 pub trait StatType<T> {
+    /// The bound type for this statistic.
     type Bound: StatBound<T>;
 
+    /// The statistic constant.
     const STAT: Stat;
 }
 

@@ -16,6 +16,7 @@ use crate::vtable::ValidityHelper;
 
 impl DecimalArray {
     #[allow(clippy::cognitive_complexity)]
+    /// Apply patches to this decimal array.
     pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
         let offset = patches.offset();
         let patch_indices = patches.indices().to_primitive()?;

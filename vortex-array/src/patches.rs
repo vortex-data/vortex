@@ -26,6 +26,7 @@ use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use crate::vtable::ValidityHelper;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+/// Metadata for serializing/deserializing patches.
 #[derive(Copy, Clone, Serialize, Deserialize, prost::Message)]
 pub struct PatchesMetadata {
     #[prost(uint64, tag = "1")]
@@ -37,6 +38,7 @@ pub struct PatchesMetadata {
 }
 
 impl PatchesMetadata {
+    /// Creates new patches metadata.
     pub fn new(len: usize, offset: usize, indices_ptype: PType) -> Self {
         Self {
             len: len as u64,
@@ -45,21 +47,25 @@ impl PatchesMetadata {
         }
     }
 
+    /// Returns the number of patches.
     #[inline]
     pub fn len(&self) -> usize {
         usize::try_from(self.len).vortex_expect("len is a valid usize")
     }
 
+    /// Returns true if there are no patches.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
+    /// Returns the offset of the patches.
     #[inline]
     pub fn offset(&self) -> usize {
         usize::try_from(self.offset).vortex_expect("offset is a valid usize")
     }
 
+    /// Returns the data type of the patch indices.
     #[inline]
     pub fn indices_dtype(&self) -> DType {
         assert!(
@@ -80,6 +86,19 @@ pub struct Patches {
 }
 
 impl Patches {
+    /// Creates a new Patches instance with validation.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `array_len` - The length of the array being patched
+    /// * `offset` - The offset applied to patch indices
+    /// * `indices` - Array of patch indices (must be unsigned integers)
+    /// * `values` - Array of patch values
+    /// 
+    /// # Panics
+    /// 
+    /// Panics if indices and values have different lengths, indices are not unsigned integers,
+    /// or if any indices are out of bounds.
     pub fn new(array_len: usize, offset: usize, indices: ArrayRef, values: ArrayRef) -> Self {
         assert_eq!(
             indices.len(),
@@ -131,50 +150,62 @@ impl Patches {
         }
     }
 
+    /// Returns the length of the array being patched.
     pub fn array_len(&self) -> usize {
         self.array_len
     }
 
+    /// Returns the number of patches.
     pub fn num_patches(&self) -> usize {
         self.indices.len()
     }
 
+    /// Returns the data type of the patch values.
     pub fn dtype(&self) -> &DType {
         self.values.dtype()
     }
 
+    /// Returns a reference to the patch indices.
     pub fn indices(&self) -> &ArrayRef {
         &self.indices
     }
 
+    /// Consumes this Patches and returns the indices array.
     pub fn into_indices(self) -> ArrayRef {
         self.indices
     }
 
+    /// Returns a mutable reference to the patch indices.
     pub fn indices_mut(&mut self) -> &mut ArrayRef {
         &mut self.indices
     }
 
+    /// Returns a reference to the patch values.
     pub fn values(&self) -> &ArrayRef {
         &self.values
     }
 
+    /// Consumes this Patches and returns the values array.
     pub fn into_values(self) -> ArrayRef {
         self.values
     }
 
+    /// Returns a mutable reference to the patch values.
     pub fn values_mut(&mut self) -> &mut ArrayRef {
         &mut self.values
     }
 
+    /// Returns the offset applied to patch indices.
     pub fn offset(&self) -> usize {
         self.offset
     }
 
+    /// Returns the primitive type of the patch indices.
     pub fn indices_ptype(&self) -> PType {
         PType::try_from(self.indices.dtype()).vortex_expect("primitive indices")
     }
 
+    /// Converts this Patches to metadata for serialization.
     pub fn to_metadata(&self, len: usize, dtype: &DType) -> VortexResult<PatchesMetadata> {
         if self.indices.len() > len {
             vortex_bail!(
@@ -198,6 +229,7 @@ impl Patches {
         })
     }
 
+    /// Casts the patch values to a different data type.
     pub fn cast_values(self, values_dtype: &DType) -> VortexResult<Self> {
         Ok(Self::new_unchecked(
             self.array_len,
@@ -348,6 +380,9 @@ impl Patches {
         }
     }
 
+    /// Take patches using binary search approach for dense patches.
+    /// 
+    /// This is more efficient when patches are dense relative to take indices.
     pub fn take_search(
         &self,
         take_indices: PrimitiveArray,
@@ -379,6 +414,9 @@ impl Patches {
         )))
     }
 
+    /// Take patches using a hash map approach for sparse patches.
+    /// 
+    /// This is more efficient when patches are sparse relative to take indices.
     pub fn take_map(
         &self,
         take_indices: PrimitiveArray,
@@ -412,6 +450,9 @@ impl Patches {
         )))
     }
 
+    /// Maps the patch values using the provided function.
+    /// 
+    /// The function must preserve the length of the values array.
     pub fn map_values<F>(self, f: F) -> VortexResult<Self>
     where
         F: FnOnce(ArrayRef) -> VortexResult<ArrayRef>,
@@ -428,6 +469,9 @@ impl Patches {
     }
 }
 
+/// Take patches using a search approach, suitable when patches are dense.
+/// 
+/// Returns a tuple of (new_indices, values_indices) if any patches match.
 fn take_search<I: NativePType + NumCast + PartialOrd, T: NativePType + NumCast>(
     indices: &[I],
     take_indices: PrimitiveArray,

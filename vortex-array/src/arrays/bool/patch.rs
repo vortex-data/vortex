@@ -11,6 +11,7 @@ use crate::patches::Patches;
 use crate::vtable::ValidityHelper;
 
 impl BoolArray {
+    /// Apply patches to this boolean array.
     pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
         let len = self.len();
         let offset = patches.offset();

@@ -57,10 +57,21 @@ pub fn between(
         .unwrap_array()
 }
 
+/// A reference to a between kernel implementation.
+///
+/// This type is used in the inventory collection system to register between kernels.
 pub struct BetweenKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(BetweenKernelRef);
 
+/// Trait for implementing between operations on specific array types.
+///
+/// This trait allows array encodings to provide optimized implementations
+/// of the between operation.
 pub trait BetweenKernel: VTable {
+    /// Compute whether each element of `arr` is between `lower` and `upper`.
+    ///
+    /// Returns `None` if this kernel cannot handle the given array type.
+    /// Returns `Some(result)` with the boolean array result if successful.
     fn between(
         &self,
         arr: &Self::Array,
@@ -70,10 +81,12 @@ pub trait BetweenKernel: VTable {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
+/// Adapter to convert a VTable implementing BetweenKernel into a Kernel.
 #[derive(Debug)]
 pub struct BetweenKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + BetweenKernel> BetweenKernelAdapter<V> {
+    /// Convert this adapter into a BetweenKernelRef for registration.
     pub const fn lift(&'static self) -> BetweenKernelRef {
         BetweenKernelRef(ArcRef::new_ref(self))
     }
@@ -92,6 +105,10 @@ impl<V: VTable + BetweenKernel> Kernel for BetweenKernelAdapter<V> {
     }
 }
 
+/// The global between compute function.
+///
+/// This function is initialized with all registered between kernels
+/// and provides the main entry point for between operations.
 pub static BETWEEN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("between".into(), ArcRef::new_ref(&Between));
     for kernel in inventory::iter::<BetweenKernelRef> {
@@ -251,9 +268,15 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for BetweenArgs<'a> {
     }
 }
 
+/// Options for configuring between operations.
+///
+/// Controls whether the lower and upper bounds are strict (exclusive)
+/// or non-strict (inclusive).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BetweenOptions {
+    /// Whether the lower bound comparison is strict (exclusive) or non-strict (inclusive).
     pub lower_strict: StrictComparison,
+    /// Whether the upper bound comparison is strict (exclusive) or non-strict (inclusive).
     pub upper_strict: StrictComparison,
 }
 
@@ -263,13 +286,20 @@ impl Options for BetweenOptions {
     }
 }
 
+/// Defines whether a comparison should be strict (exclusive) or non-strict (inclusive).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum StrictComparison {
+    /// Strict comparison (exclusive): `<` or `>`.
     Strict,
+    /// Non-strict comparison (inclusive): `<=` or `>=`.
     NonStrict,
 }
 
 impl StrictComparison {
+    /// Convert this comparison type to the corresponding lower bound operator.
+    ///
+    /// - `Strict` becomes `Lt` (less than)
+    /// - `NonStrict` becomes `Lte` (less than or equal)
     pub const fn to_operator(&self) -> Operator {
         match self {
             StrictComparison::Strict => Operator::Lt,

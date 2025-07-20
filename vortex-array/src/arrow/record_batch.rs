@@ -23,11 +23,13 @@ impl TryFrom<&dyn Array> for RecordBatch {
 }
 
 impl StructArray {
+    /// Converts this StructArray into an Arrow RecordBatch.
     pub fn into_record_batch(self) -> VortexResult<RecordBatch> {
         let array_ref = to_arrow_preferred(self.as_ref())?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 
+    /// Converts this StructArray into an Arrow RecordBatch with the specified schema.
     pub fn into_record_batch_with_schema(self, schema: &Schema) -> VortexResult<RecordBatch> {
         let data_type = DataType::Struct(schema.fields.clone());
         let array_ref = to_arrow(self.as_ref(), &data_type)?;

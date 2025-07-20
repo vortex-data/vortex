@@ -10,6 +10,7 @@ use crate::serde::ArrayChildren;
 use crate::{Array, ArrayRef, EncodingRef};
 
 #[derive(Clone, Debug)]
+/// Container for array data including metadata, buffers, and children.
 pub struct ArrayData {
     encoding: EncodingRef,
     len: usize,

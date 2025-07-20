@@ -23,6 +23,7 @@ pub fn cast(array: &dyn Array, dtype: &DType) -> VortexResult<ArrayRef> {
         .unwrap_array()
 }
 
+/// The global Cast compute function.
 pub static CAST_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("cast".into(), ArcRef::new_ref(&Cast));
     for kernel in inventory::iter::<CastKernelRef> {
@@ -31,6 +32,7 @@ pub static CAST_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+/// The Cast compute function.
 struct Cast;
 
 impl ComputeFnVTable for Cast {
@@ -117,17 +119,22 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for CastArgs<'a> {
     }
 }
 
+/// Reference to a Cast kernel for registration.
 pub struct CastKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(CastKernelRef);
 
+/// Trait for implementing cast operations on arrays.
 pub trait CastKernel: VTable {
+    /// Casts an array to a different data type.
     fn cast(&self, array: &Self::Array, dtype: &DType) -> VortexResult<Option<ArrayRef>>;
 }
 
+/// Adapter for implementing Cast kernels.
 #[derive(Debug)]
 pub struct CastKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + CastKernel> CastKernelAdapter<V> {
+    /// Lifts this adapter into a kernel reference for registration.
     pub const fn lift(&'static self) -> CastKernelRef {
         CastKernelRef(ArcRef::new_ref(self))
     }

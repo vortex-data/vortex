@@ -14,6 +14,22 @@ use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
+/// Take values from an array at the given indices.
+///
+/// Returns a new array containing the values from `array` at the positions
+/// specified by `indices`. The result has the same length as `indices`.
+///
+/// # Arguments
+///
+/// * `array` - The array to take values from
+/// * `indices` - Integer array specifying which indices to take
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The indices array is not an integer type
+/// - Any index is out of bounds for the array
+/// - The operation fails during execution
 pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     if indices.is_empty() {
         return Ok(Canonical::empty(
@@ -32,6 +48,10 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
         .unwrap_array()
 }
 
+/// The global take compute function.
+///
+/// This function is initialized with all registered take kernels
+/// and provides the main entry point for take operations.
 pub static TAKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("take".into(), ArcRef::new_ref(&Take));
     for kernel in inventory::iter::<TakeKernelRef> {
@@ -40,6 +60,7 @@ pub static TAKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+/// Implementation of the take compute function.
 pub struct Take;
 
 impl ComputeFnVTable for Take {
@@ -187,6 +208,10 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for TakeArgs<'a> {
     }
 }
 
+/// Trait for implementing take operations on specific array types.
+///
+/// This trait allows array encodings to provide optimized implementations
+/// of the take operation.
 pub trait TakeKernel: VTable {
     /// Create a new array by taking the values from the `array` at the
     /// given `indices`.
@@ -197,14 +222,18 @@ pub trait TakeKernel: VTable {
     fn take(&self, array: &Self::Array, indices: &dyn Array) -> VortexResult<ArrayRef>;
 }
 
-/// A kernel that implements the filter function.
+/// A reference to a take kernel implementation.
+///
+/// This type is used in the inventory collection system to register take kernels.
 pub struct TakeKernelRef(pub ArcRef<dyn Kernel>);
 inventory::collect!(TakeKernelRef);
 
+/// Adapter to convert a VTable implementing TakeKernel into a Kernel.
 #[derive(Debug)]
 pub struct TakeKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + TakeKernel> TakeKernelAdapter<V> {
+    /// Convert this adapter into a TakeKernelRef for registration.
     pub const fn lift(&'static self) -> TakeKernelRef {
         TakeKernelRef(ArcRef::new_ref(self))
     }
@@ -220,6 +249,10 @@ impl<V: VTable + TakeKernel> Kernel for TakeKernelAdapter<V> {
     }
 }
 
+/// The global take_from compute function.
+///
+/// This function provides specialized kernels for take operations
+/// that are optimized based on the indices array type.
 pub static TAKE_FROM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("take_from".into(), ArcRef::new_ref(&TakeFrom));
     for kernel in inventory::iter::<TakeFromKernelRef> {
@@ -228,6 +261,10 @@ pub static TAKE_FROM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+/// Implementation of the take_from compute function.
+///
+/// This function is used internally to accelerate take operations
+/// by providing indices-specialized kernels.
 pub struct TakeFrom;
 
 impl ComputeFnVTable for TakeFrom {
@@ -254,20 +291,33 @@ impl ComputeFnVTable for TakeFrom {
     }
 }
 
+/// Trait for implementing take_from operations on specific indices types.
+///
+/// This trait allows indices array encodings to provide optimized implementations
+/// of the take operation when they are the indices.
 pub trait TakeFromKernel: VTable {
-    /// Create a new array by taking the values from the `array` at the
-    /// given `indices`.
+    /// Create a new array by taking values from `array` using these indices.
+    ///
+    /// This is called when the indices array matches this kernel's type,
+    /// allowing for optimized implementations.
+    ///
+    /// Returns `None` if this kernel cannot handle the operation.
     fn take_from(&self, indices: &Self::Array, array: &dyn Array)
     -> VortexResult<Option<ArrayRef>>;
 }
 
+/// A reference to a take_from kernel implementation.
+///
+/// This type is used in the inventory collection system to register take_from kernels.
 pub struct TakeFromKernelRef(pub ArcRef<dyn Kernel>);
 inventory::collect!(TakeFromKernelRef);
 
+/// Adapter to convert a VTable implementing TakeFromKernel into a Kernel.
 #[derive(Debug)]
 pub struct TakeFromKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + TakeFromKernel> TakeFromKernelAdapter<V> {
+    /// Convert this adapter into a TakeFromKernelRef for registration.
     pub const fn lift(&'static self) -> TakeFromKernelRef {
         TakeFromKernelRef(ArcRef::new_ref(self))
     }

@@ -8,6 +8,7 @@ use crate::builders::ArrayBuilder;
 use crate::vtable::VTable;
 
 // TODO(ngates): rename to `DecodeVTable`.
+/// VTable for converting arrays to canonical form.
 pub trait CanonicalVTable<V: VTable> {
     /// Returns the canonical representation of the array.
     ///

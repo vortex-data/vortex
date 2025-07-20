@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+/// Compute functions for boolean arrays.
 pub mod compute;
 mod ops;
 mod patch;
@@ -41,5 +42,6 @@ impl VTable for BoolVTable {
     }
 }
 
+/// Encoding for boolean arrays.
 #[derive(Clone, Debug)]
 pub struct BoolEncoding;

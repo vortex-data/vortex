@@ -8,6 +8,7 @@ use vortex_error::{VortexResult, vortex_bail};
 
 /// Trait for serializing Vortex metadata to a vector of unaligned bytes.
 pub trait SerializeMetadata {
+    /// Serializes metadata to bytes.
     fn serialize(self) -> Vec<u8>;
 }
 

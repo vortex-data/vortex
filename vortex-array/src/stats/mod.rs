@@ -17,6 +17,7 @@ use vortex_dtype::{DType, PType};
 
 mod array;
 mod bound;
+/// Serialization support for statistics using FlatBuffers.
 pub mod flatbuffers;
 mod precision;
 mod stat_bound;
@@ -53,6 +54,7 @@ pub const PRUNING_STATS: &[Stat] = &[
     IntoPrimitive,
     TryFromPrimitive,
 )]
+/// Enumeration of all supported array statistics.
 #[repr(u8)]
 pub enum Stat {
     /// Whether all values are the same (nulls are not equal to other non-null values,
@@ -78,14 +80,23 @@ pub enum Stat {
 
 /// These structs allow the extraction of the bound from the `Precision` value.
 /// They tie together the Stat and the StatBound, which allows the bound to be extracted.
+/// Zero-sized type representing the Max statistic.
 pub struct Max;
+/// Zero-sized type representing the Min statistic.
 pub struct Min;
+/// Zero-sized type representing the Sum statistic.
 pub struct Sum;
+/// Zero-sized type representing the IsConstant statistic.
 pub struct IsConstant;
+/// Zero-sized type representing the IsSorted statistic.
 pub struct IsSorted;
+/// Zero-sized type representing the IsStrictSorted statistic.
 pub struct IsStrictSorted;
+/// Zero-sized type representing the NullCount statistic.
 pub struct NullCount;
+/// Zero-sized type representing the UncompressedSizeInBytes statistic.
 pub struct UncompressedSizeInBytes;
+/// Zero-sized type representing the NaNCount statistic.
 pub struct NaNCount;
 
 impl StatType<bool> for IsConstant {
@@ -213,6 +224,7 @@ impl Stat {
         })
     }
 
+    /// Returns the string name of this statistic.
     pub fn name(&self) -> &str {
         match self {
             Self::IsConstant => "is_constant",
@@ -227,11 +239,13 @@ impl Stat {
         }
     }
 
+    /// Returns an iterator over all possible statistics.
     pub fn all() -> impl Iterator<Item = Stat> {
         all::<Self>()
     }
 }
 
+/// Converts a slice of statistics to a bitset representation as bytes.
 pub fn as_stat_bitset_bytes(stats: &[Stat]) -> Vec<u8> {
     let max_stat = u8::from(last::<Stat>().vortex_expect("last stat")) as usize + 1;
     // TODO(ngates): use vortex-buffer::BitBuffer
@@ -250,6 +264,7 @@ pub fn as_stat_bitset_bytes(stats: &[Stat]) -> Vec<u8> {
         .unwrap_or_else(|b| b.to_vec())
 }
 
+/// Converts a bitset representation back to a vector of statistics.
 pub fn stats_from_bitset_bytes(bytes: &[u8]) -> Vec<Stat> {
     BitIterator::new(bytes, 0, bytes.len() * 8)
         .enumerate()

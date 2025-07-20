@@ -47,7 +47,7 @@ impl VTable for ListVTable {
     }
 }
 
-/// The canonical array for List type data. This is modeled similarly to a ListArray.
+/// The canonical array for List type data. This is modeled similarly to a VarBinArray.
 #[derive(Clone, Debug)]
 pub struct ListArray {
     dtype: DType,
@@ -57,9 +57,11 @@ pub struct ListArray {
     stats_set: ArrayStats,
 }
 
+/// Encoding for list arrays.
 #[derive(Clone, Debug)]
 pub struct ListEncoding;
 
+/// Trait for types that can be used as list offsets.
 pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
 
 impl<T> OffsetPType for T where T: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
@@ -73,6 +75,7 @@ impl<T> OffsetPType for T where T: NativePType + PrimInt + AsPrimitive<usize> + 
 // - The size of the validity is the size-1 of the offset array
 
 impl ListArray {
+    /// Creates a new list array from elements, offsets, and validity.
     pub fn try_new(
         elements: ArrayRef,
         offsets: ArrayRef,
@@ -102,6 +105,7 @@ impl ListArray {
 
     // TODO: merge logic with varbin
     // TODO(ngates): should return a result if it requires canonicalizing offsets
+    /// Returns the offset at the given index.
     pub fn offset_at(&self, index: usize) -> usize {
         self.offsets()
             .as_opt::<PrimitiveVTable>()
@@ -119,6 +123,7 @@ impl ListArray {
     }
 
     // TODO: fetches the elements at index
+    /// Returns the elements at the given list index.
     pub fn elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
@@ -126,11 +131,13 @@ impl ListArray {
     }
 
     // TODO: fetches the offsets of the array ignoring validity
+    /// Returns the offsets array.
     pub fn offsets(&self) -> &ArrayRef {
         &self.offsets
     }
 
     // TODO: fetches the elements of the array ignoring validity
+    /// Returns the elements array.
     pub fn elements(&self) -> &ArrayRef {
         &self.elements
     }
@@ -185,6 +192,7 @@ impl ValidityHelper for ListArray {
 }
 
 #[cfg(feature = "test-harness")]
+#[allow(missing_docs)]
 impl ListArray {
     /// This is a convenience method to create a list array from an iterator of iterators.
     /// This method is slow however since each element is first converted to a scalar and then

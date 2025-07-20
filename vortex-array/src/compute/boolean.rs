@@ -62,10 +62,13 @@ pub fn boolean(lhs: &dyn Array, rhs: &dyn Array, op: BooleanOperator) -> VortexR
         .unwrap_array()
 }
 
+/// Reference to a Boolean kernel for registration.
 pub struct BooleanKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(BooleanKernelRef);
 
+/// Trait for implementing boolean operations on arrays.
 pub trait BooleanKernel: VTable {
+    /// Performs a boolean operation between two arrays.
     fn boolean(
         &self,
         array: &Self::Array,
@@ -74,10 +77,12 @@ pub trait BooleanKernel: VTable {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
+/// Adapter for implementing Boolean kernels.
 #[derive(Debug)]
 pub struct BooleanKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + BooleanKernel> BooleanKernelAdapter<V> {
+    /// Lifts this adapter into a kernel reference for registration.
     pub const fn lift(&'static self) -> BooleanKernelRef {
         BooleanKernelRef(ArcRef::new_ref(self))
     }
@@ -93,6 +98,7 @@ impl<V: VTable + BooleanKernel> Kernel for BooleanKernelAdapter<V> {
     }
 }
 
+/// The global Boolean compute function.
 pub static BOOLEAN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("boolean".into(), ArcRef::new_ref(&Boolean));
     for kernel in inventory::iter::<BooleanKernelRef> {
@@ -101,6 +107,7 @@ pub static BOOLEAN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+/// The Boolean compute function.
 struct Boolean;
 
 impl ComputeFnVTable for Boolean {

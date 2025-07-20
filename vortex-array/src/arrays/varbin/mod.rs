@@ -21,6 +21,7 @@ use crate::vtable::{
 use crate::{Array, ArrayRef, EncodingId, EncodingRef, vtable};
 
 mod accessor;
+/// Builder utilities for variable-length binary arrays.
 pub mod builder;
 mod canonical;
 mod compute;
@@ -50,6 +51,7 @@ impl VTable for VarBinVTable {
     }
 }
 
+/// An array of variable-length binary data.
 #[derive(Clone, Debug)]
 pub struct VarBinArray {
     dtype: DType,
@@ -59,10 +61,12 @@ pub struct VarBinArray {
     stats_set: ArrayStats,
 }
 
+/// Encoding for variable-length binary arrays.
 #[derive(Clone, Debug)]
 pub struct VarBinEncoding;
 
 impl VarBinArray {
+    /// Creates a new variable-length binary array.
     pub fn try_new(
         offsets: ArrayRef,
         bytes: ByteBuffer,
@@ -89,6 +93,7 @@ impl VarBinArray {
     }
 
     #[inline]
+    /// Returns the offsets array.
     pub fn offsets(&self) -> &ArrayRef {
         &self.offsets
     }
@@ -114,6 +119,7 @@ impl VarBinArray {
         self.bytes().slice(first_offset..last_offset)
     }
 
+    /// Creates a VarBinArray from a vector of byte slices.
     pub fn from_vec<T: AsRef<[u8]>>(vec: Vec<T>, dtype: DType) -> Self {
         let size: usize = vec.iter().map(|v| v.as_ref().len()).sum();
         if size < u32::MAX as usize {
@@ -136,6 +142,7 @@ impl VarBinArray {
     }
 
     #[allow(clippy::same_name_method)]
+    /// Creates a VarBinArray from an iterator of optional byte slices.
     pub fn from_iter<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
         dtype: DType,
@@ -148,6 +155,7 @@ impl VarBinArray {
         builder.finish(dtype)
     }
 
+    /// Creates a VarBinArray from an iterator of non-null byte slices.
     pub fn from_iter_nonnull<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(
         iter: I,
         dtype: DType,
@@ -263,6 +271,7 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinArray {
     }
 }
 
+/// Creates a scalar value from a byte buffer for variable-length binary data.
 pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
     if matches!(dtype, DType::Utf8(_)) {
         Scalar::try_utf8(value, dtype.nullability())

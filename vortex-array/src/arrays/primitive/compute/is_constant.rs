@@ -13,6 +13,7 @@ cfg_if::cfg_if! {
     if #[cfg(target_feature = "avx2")] {
         pub const IS_CONST_LANE_WIDTH: usize = 32;
     } else {
+        /// Lane width for SIMD operations when checking for constant values.
         pub const IS_CONST_LANE_WIDTH: usize = 16;
     }
 }

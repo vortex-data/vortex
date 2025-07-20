@@ -47,7 +47,10 @@ pub enum DisplayOptions {
     ///     format!("{}", array.display_values()),
     /// );
     /// ```
-    CommaSeparatedScalars { omit_comma_after_space: bool },
+    CommaSeparatedScalars { 
+        /// Whether to omit comma after space in output formatting.
+        omit_comma_after_space: bool 
+    },
     /// The tree of encodings and all metadata but no values.
     ///
     /// ```

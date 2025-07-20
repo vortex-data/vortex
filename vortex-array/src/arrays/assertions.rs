@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+/// Assert that two arrays are equal by comparing both their data types
+/// and their contents (element-wise)
+///
+/// # Arguments
+///
+/// * `expected` - The expected array.
+/// * `actual` - The actual array.
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($expected:expr, $actual:expr) => {

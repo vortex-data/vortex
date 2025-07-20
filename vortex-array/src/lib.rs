@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![cfg_attr(vortex_nightly, feature(portable_simd))]
+#![deny(missing_docs)]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
 //! At the heart of Vortex are [arrays](ArrayRef) and [encodings](EncodingRef).
@@ -18,30 +19,48 @@ pub use context::*;
 pub use encoding::*;
 pub use metadata::*;
 
+/// Array data accessor implementations.
 pub mod accessor;
+/// Type aliases commonly used throughout the crate.
 pub mod aliases;
 mod array;
+/// Concrete array implementations and encodings.
 pub mod arrays;
+/// Apache Arrow integration and interop.
 pub mod arrow;
+/// Array builder utilities for constructing arrays.
 pub mod builders;
 mod canonical;
+/// Array compression algorithms and utilities.
 pub mod compress;
+/// Compute kernels and array operations.
 pub mod compute;
 mod context;
+/// Data type definitions and utilities.
 pub mod data;
 mod encoding;
+/// Array iteration utilities.
 pub mod iter;
 mod metadata;
 mod partial_ord;
+/// Array patching and modification utilities.
 pub mod patches;
+/// Binary search operations on sorted arrays.
 pub mod search_sorted;
+/// Serialization and deserialization utilities.
 pub mod serde;
+/// Statistical operations and metadata.
 pub mod stats;
+/// Streaming array operations.
 pub mod stream;
+/// Test utilities and harness for array implementations.
 #[cfg(feature = "test-harness")]
 pub mod test_harness;
+/// Array validity tracking and null handling.
 pub mod validity;
+/// Array variant utilities and type dispatching.
 pub mod variants;
+/// Virtual table implementations for array encodings.
 pub mod vtable;
 
 pub mod flatbuffers {

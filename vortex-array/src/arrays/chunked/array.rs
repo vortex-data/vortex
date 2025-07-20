@@ -22,6 +22,11 @@ use crate::stream::{ArrayStream, ArrayStreamAdapter};
 use crate::vtable::{ArrayVTable, ValidityVTable};
 use crate::{Array, ArrayRef, IntoArray};
 
+/// An array that contains multiple chunks of data.
+///
+/// ChunkedArray is a first-class citizen in Vortex, allowing efficient
+/// operations over multiple contiguous chunks of data without requiring
+/// them to be concatenated into a single array.
 #[derive(Clone, Debug)]
 pub struct ChunkedArray {
     dtype: DType,
@@ -32,6 +37,16 @@ pub struct ChunkedArray {
 }
 
 impl ChunkedArray {
+    /// Create a new chunked array from a vector of chunks.
+    ///
+    /// # Arguments
+    ///
+    /// * `chunks` - Vector of arrays that will form the chunks
+    /// * `dtype` - The expected data type for all chunks
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any chunk has a different dtype than expected.
     pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
         for chunk in &chunks {
             if chunk.dtype() != &dtype {
@@ -42,6 +57,11 @@ impl ChunkedArray {
         Ok(Self::new_unchecked(chunks, dtype))
     }
 
+    /// Create a new chunked array from chunks without type checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure all chunks have the same dtype.
     pub fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
         let nchunks = chunks.len();
 
@@ -65,6 +85,11 @@ impl ChunkedArray {
 
     // TODO(ngates): remove result
     #[inline]
+    /// Get a reference to the chunk at the given index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the index is out of bounds.
     pub fn chunk(&self, idx: usize) -> VortexResult<&ArrayRef> {
         if idx >= self.nchunks() {
             vortex_bail!("chunk index {} > num chunks ({})", idx, self.nchunks());
@@ -72,10 +97,16 @@ impl ChunkedArray {
         Ok(&self.chunks[idx])
     }
 
+    /// Get the number of chunks in this array.
     pub fn nchunks(&self) -> usize {
         self.chunks.len()
     }
 
+    /// Get the cumulative offsets of chunk boundaries.
+    ///
+    /// The buffer has length `nchunks() + 1` where element `i` contains
+    /// the starting offset of chunk `i`, and the last element contains
+    /// the total length of the array.
     #[inline]
     pub fn chunk_offsets(&self) -> &Buffer<u64> {
         &self.chunk_offsets
@@ -99,18 +130,22 @@ impl ChunkedArray {
         (index_chunk, index_in_chunk)
     }
 
+    /// Get a slice of all chunks in this array.
     pub fn chunks(&self) -> &[ArrayRef] {
         &self.chunks
     }
 
+    /// Get an iterator over non-empty chunks in this array.
     pub fn non_empty_chunks(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
         self.chunks().iter().filter(|c| !c.is_empty())
     }
 
+    /// Get an iterator that yields each chunk as an array.
     pub fn array_iterator(&self) -> impl ArrayIterator + '_ {
         ArrayIteratorAdapter::new(self.dtype().clone(), self.chunks().iter().cloned().map(Ok))
     }
 
+    /// Get an async stream that yields each chunk as an array.
     pub fn array_stream(&self) -> impl ArrayStream + '_ {
         ArrayStreamAdapter::new(
             self.dtype().clone(),
@@ -118,6 +153,19 @@ impl ChunkedArray {
         )
     }
 
+    /// Rechunk the array to meet target size constraints.
+    ///
+    /// This operation combines or splits chunks to ensure they don't exceed
+    /// the specified byte or row size limits.
+    ///
+    /// # Arguments
+    ///
+    /// * `target_bytesize` - Maximum byte size for each chunk
+    /// * `target_rowsize` - Maximum number of rows for each chunk
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if chunks cannot be canonicalized during rechunking.
     pub fn rechunk(&self, target_bytesize: u64, target_rowsize: usize) -> VortexResult<Self> {
         let mut new_chunks = Vec::new();
         let mut chunks_to_combine = Vec::new();

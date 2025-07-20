@@ -42,13 +42,20 @@ use crate::{Array, Encoding, EncodingId, EncodingRef, IntoArray};
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
+    /// The concrete array type for this encoding.
     type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Array> + IntoArray;
+    /// The concrete encoding type for this encoding.
     type Encoding: 'static + Send + Sync + Clone + Deref<Target = dyn Encoding>;
 
+    /// VTable for basic array operations like length, dtype, and stats.
     type ArrayVTable: ArrayVTable<Self>;
+    /// VTable for converting to canonical array format.
     type CanonicalVTable: CanonicalVTable<Self>;
+    /// VTable for basic array operations like slicing and scalar access.
     type OperationsVTable: OperationsVTable<Self>;
+    /// VTable for validity (null/non-null) operations.
     type ValidityVTable: ValidityVTable<Self>;
+    /// VTable for visiting array structure and children.
     type VisitorVTable: VisitorVTable<Self>;
 
     /// Optionally enable implementing dynamic compute dispatch for this encoding.
@@ -70,12 +77,19 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 }
 
 /// Placeholder type used to indicate when a particular vtable is not supported by the encoding.
+///
+/// This can be used as the type for optional vtables that an encoding doesn't implement.
 pub struct NotSupported;
 
 #[macro_export]
+/// Macro to generate VTable boilerplate for an encoding.
+///
+/// This macro generates the VTable struct, array deref implementations,
+/// and other required boilerplate for a Vortex encoding.
 macro_rules! vtable {
     ($V:ident) => {
         $crate::aliases::paste::paste! {
+            #[doc = concat!("VTable implementation for ", stringify!($V), " encoding.")]
             #[derive(Debug)]
             pub struct [<$V VTable>];
 

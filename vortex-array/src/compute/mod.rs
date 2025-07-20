@@ -194,13 +194,17 @@ pub trait ComputeFnVTable: 'static + Send + Sync {
 /// Arguments to a compute function invocation.
 #[derive(Clone)]
 pub struct InvocationArgs<'a> {
+    /// The input arguments to the compute function.
     pub inputs: &'a [Input<'a>],
+    /// The options for the compute function.
     pub options: &'a dyn Options,
 }
 
 /// For unary compute functions, it's useful to just have this short-cut.
 pub struct UnaryArgs<'a, O: Options> {
+    /// The input array.
     pub array: &'a dyn Array,
+    /// The options for the compute function.
     pub options: &'a O,
 }
 
@@ -224,8 +228,11 @@ impl<'a, O: Options> TryFrom<&InvocationArgs<'a>> for UnaryArgs<'a, O> {
 
 /// For binary compute functions, it's useful to just have this short-cut.
 pub struct BinaryArgs<'a, O: Options> {
+    /// The left-hand side array.
     pub lhs: &'a dyn Array,
+    /// The right-hand side array.
     pub rhs: &'a dyn Array,
+    /// The options for the compute function.
     pub options: &'a O,
 }
 
@@ -252,10 +259,15 @@ impl<'a, O: Options> TryFrom<&InvocationArgs<'a>> for BinaryArgs<'a, O> {
 
 /// Input to a compute function.
 pub enum Input<'a> {
+    /// A scalar value input.
     Scalar(&'a Scalar),
+    /// An array input.
     Array(&'a dyn Array),
+    /// A mask input.
     Mask(&'a Mask),
+    /// An array builder input.
     Builder(&'a mut dyn ArrayBuilder),
+    /// A data type input.
     DType(&'a DType),
 }
 
@@ -298,6 +310,7 @@ impl<'a> From<&'a DType> for Input<'a> {
 }
 
 impl<'a> Input<'a> {
+    /// Returns the scalar value if this input is a scalar.
     pub fn scalar(&self) -> Option<&'a Scalar> {
         match self {
             Input::Scalar(scalar) => Some(*scalar),
@@ -305,6 +318,7 @@ impl<'a> Input<'a> {
         }
     }
 
+    /// Returns the array if this input is an array.
     pub fn array(&self) -> Option<&'a dyn Array> {
         match self {
             Input::Array(array) => Some(*array),
@@ -312,6 +326,7 @@ impl<'a> Input<'a> {
         }
     }
 
+    /// Returns the mask if this input is a mask.
     pub fn mask(&self) -> Option<&'a Mask> {
         match self {
             Input::Mask(mask) => Some(*mask),
@@ -319,6 +334,7 @@ impl<'a> Input<'a> {
         }
     }
 
+    /// Returns the array builder if this input is a builder.
     pub fn builder(&'a mut self) -> Option<&'a mut dyn ArrayBuilder> {
         match self {
             Input::Builder(builder) => Some(*builder),
@@ -326,6 +342,7 @@ impl<'a> Input<'a> {
         }
     }
 
+    /// Returns the data type if this input is a data type.
     pub fn dtype(&self) -> Option<&'a DType> {
         match self {
             Input::DType(dtype) => Some(*dtype),
@@ -337,12 +354,15 @@ impl<'a> Input<'a> {
 /// Output from a compute function.
 #[derive(Debug)]
 pub enum Output {
+    /// A scalar output value.
     Scalar(Scalar),
+    /// An array output value.
     Array(ArrayRef),
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl Output {
+    /// Returns the data type of the output.
     pub fn dtype(&self) -> &DType {
         match self {
             Output::Scalar(scalar) => scalar.dtype(),
@@ -350,6 +370,7 @@ impl Output {
         }
     }
 
+    /// Returns the length of the output (scalars have length 1).
     pub fn len(&self) -> usize {
         match self {
             Output::Scalar(_) => 1,
@@ -357,6 +378,7 @@ impl Output {
         }
     }
 
+    /// Unwraps the output as a scalar, returning an error if it's an array.
     pub fn unwrap_scalar(self) -> VortexResult<Scalar> {
         match self {
             Output::Array(_) => vortex_bail!("Expected array output, got Array"),
@@ -364,6 +386,7 @@ impl Output {
         }
     }
 
+    /// Unwraps the output as an array, returning an error if it's a scalar.
     pub fn unwrap_array(self) -> VortexResult<ArrayRef> {
         match self {
             Output::Array(array) => Ok(array),
@@ -386,6 +409,7 @@ impl From<Scalar> for Output {
 
 /// Options for a compute function invocation.
 pub trait Options: 'static {
+    /// Returns this options object as Any for downcasting.
     fn as_any(&self) -> &dyn Any;
 }
 

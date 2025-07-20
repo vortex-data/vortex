@@ -11,6 +11,7 @@ use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
 use crate::{Array, ArrayRef, IntoArray};
 
+/// Builder for null arrays.
 pub struct NullBuilder {
     length: usize,
 }
@@ -22,6 +23,7 @@ impl Default for NullBuilder {
 }
 
 impl NullBuilder {
+    /// Creates a new NullBuilder.
     pub fn new() -> Self {
         Self { length: 0 }
     }

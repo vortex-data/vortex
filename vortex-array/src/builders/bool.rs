@@ -13,6 +13,7 @@ use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
+/// Builder for boolean arrays.
 pub struct BoolBuilder {
     inner: BooleanBufferBuilder,
     nulls: LazyNullBufferBuilder,
@@ -21,10 +22,12 @@ pub struct BoolBuilder {
 }
 
 impl BoolBuilder {
+    /// Creates a new BoolBuilder with default capacity.
     pub fn new(nullability: Nullability) -> Self {
         Self::with_capacity(nullability, 1024) // Same as Arrow builders
     }
 
+    /// Creates a new BoolBuilder with the specified capacity.
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
             inner: BooleanBufferBuilder::new(capacity),
@@ -34,15 +37,18 @@ impl BoolBuilder {
         }
     }
 
+    /// Appends a single boolean value.
     pub fn append_value(&mut self, value: bool) {
         self.append_values(value, 1)
     }
 
+    /// Appends the same boolean value n times.
     pub fn append_values(&mut self, value: bool, n: usize) {
         self.inner.append_n(n, value);
         self.nulls.append_n_non_nulls(n)
     }
 
+    /// Appends an optional boolean value.
     pub fn append_option(&mut self, value: Option<bool>) {
         match value {
             Some(value) => self.append_value(value),

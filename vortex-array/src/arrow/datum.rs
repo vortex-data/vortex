@@ -32,6 +32,7 @@ impl Datum {
         }
     }
 
+    /// Create a new [`Datum`] from an [`Array`] with a specific target data type.
     pub fn with_target_datatype(
         array: &dyn Array,
         target_datatype: &DataType,

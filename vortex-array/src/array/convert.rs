@@ -5,6 +5,7 @@ use crate::ArrayRef;
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
 pub trait IntoArray {
+    /// Converts this type into a Vortex array reference.
     fn into_array(self) -> ArrayRef;
 }
 

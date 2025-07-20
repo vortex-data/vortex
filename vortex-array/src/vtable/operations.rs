@@ -7,6 +7,7 @@ use vortex_scalar::Scalar;
 use crate::ArrayRef;
 use crate::vtable::VTable;
 
+/// VTable for array operations like slice and scalar_at.
 pub trait OperationsVTable<V: VTable> {
     /// Perform a constant-time slice of the array.
     ///

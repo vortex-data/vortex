@@ -59,15 +59,21 @@ use vortex_scalar::{
 use crate::arrays::smallest_storage_type;
 use crate::{Array, ArrayRef};
 
+/// Trait for building arrays of a specific data type.
 pub trait ArrayBuilder: Send {
+    /// Returns a reference to this builder as Any.
     fn as_any(&self) -> &dyn Any;
 
+    /// Returns a mutable reference to this builder as Any.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
+    /// Returns the data type of arrays produced by this builder.
     fn dtype(&self) -> &DType;
 
+    /// Returns the current length of the builder.
     fn len(&self) -> usize;
 
+    /// Returns true if the builder is empty.
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -172,6 +178,7 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
     }
 }
 
+/// Extension trait providing additional functionality for array builders.
 pub trait ArrayBuilderExt: ArrayBuilder {
     /// A generic function to append a scalar value to the builder.
     fn append_scalar_value(&mut self, value: ScalarValue) -> VortexResult<()> {

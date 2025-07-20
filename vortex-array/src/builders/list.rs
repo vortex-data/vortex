@@ -16,6 +16,7 @@ use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_w
 use crate::compute::{cast, numeric};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+/// Builder for list arrays.
 pub struct ListBuilder<O: NativePType> {
     value_builder: Box<dyn ArrayBuilder>,
     index_builder: PrimitiveBuilder<O>,
@@ -26,6 +27,7 @@ pub struct ListBuilder<O: NativePType> {
 
 impl<O: OffsetPType> ListBuilder<O> {
     // TODO(joe): add value + index capacity ctor.
+    /// Creates a new ListBuilder with the specified capacity.
     pub fn with_capacity(
         value_dtype: Arc<DType>,
         nullability: Nullability,
@@ -47,6 +49,7 @@ impl<O: OffsetPType> ListBuilder<O> {
         }
     }
 
+    /// Appends a list value to the builder.
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
         match value.elements() {
             None => {

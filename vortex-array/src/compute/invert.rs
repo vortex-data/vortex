@@ -88,18 +88,22 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for InvertArgs<'a> {
     }
 }
 
+/// Reference to an invert kernel.
 pub struct InvertKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(InvertKernelRef);
 
+/// Trait for implementing invert operations on specific array encodings.
 pub trait InvertKernel: VTable {
     /// Logically invert a boolean array. Converts true -> false, false -> true, null -> null.
     fn invert(&self, array: &Self::Array) -> VortexResult<ArrayRef>;
 }
 
 #[derive(Debug)]
+/// Adapter to convert an `InvertKernel` into a `Kernel`.
 pub struct InvertKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + InvertKernel> InvertKernelAdapter<V> {
+    /// Lifts this kernel adapter into an `InvertKernelRef`.
     pub const fn lift(&'static self) -> InvertKernelRef {
         InvertKernelRef(ArcRef::new_ref(self))
     }
@@ -115,6 +119,7 @@ impl<V: VTable + InvertKernel> Kernel for InvertKernelAdapter<V> {
     }
 }
 
+/// The invert [`ComputeFn`].
 pub static INVERT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("invert".into(), ArcRef::new_ref(&Invert));
     for kernel in inventory::iter::<InvertKernelRef> {

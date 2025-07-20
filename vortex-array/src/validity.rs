@@ -34,6 +34,15 @@ impl Validity {
     /// The [`DType`] of the underlying validity array (if it exists).
     pub const DTYPE: DType = DType::Bool(Nullability::NonNullable);
 
+    /// Return the number of null (invalid) values in the validity array.
+    ///
+    /// # Arguments
+    ///
+    /// * `length` - The expected length of the array this validity applies to
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the validity array length doesn't match the provided length.
     pub fn null_count(&self, length: usize) -> VortexResult<usize> {
         match self {
             Self::NonNullable | Self::AllValid => Ok(0),
@@ -72,6 +81,10 @@ impl Validity {
         }
     }
 
+    /// Returns the nullability of this validity.
+    ///
+    /// `NonNullable` validity returns `Nullability::NonNullable`,
+    /// all other variants return `Nullability::Nullable`.
     pub fn nullability(&self) -> Nullability {
         match self {
             Self::NonNullable => Nullability::NonNullable,
@@ -79,7 +92,10 @@ impl Validity {
         }
     }
 
-    /// The union nullability and validity.
+    /// Combine this validity with a nullability to produce a new validity.
+    ///
+    /// If the nullability is `NonNullable`, returns this validity unchanged.
+    /// If the nullability is `Nullable`, converts this validity to a nullable variant.
     pub fn union_nullability(self, nullability: Nullability) -> Self {
         match nullability {
             Nullability::NonNullable => self,
@@ -87,6 +103,11 @@ impl Validity {
         }
     }
 
+    /// Check if all values are valid (non-null).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the validity array cannot be converted to boolean.
     pub fn all_valid(&self) -> VortexResult<bool> {
         Ok(match self {
             Validity::NonNullable | Validity::AllValid => true,
@@ -98,6 +119,11 @@ impl Validity {
         })
     }
 
+    /// Check if all values are invalid (null).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the validity array cannot be converted to boolean.
     pub fn all_invalid(&self) -> VortexResult<bool> {
         Ok(match self {
             Validity::NonNullable | Validity::AllValid => false,
@@ -125,11 +151,20 @@ impl Validity {
         })
     }
 
+    /// Returns whether the `index` item is null (invalid).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the index is out of bounds or the validity array cannot be accessed.
     #[inline]
     pub fn is_null(&self, index: usize) -> VortexResult<bool> {
         Ok(!self.is_valid(index)?)
     }
 
+    /// Create a sliced view of this validity.
+    ///
+    /// For array-based validity, slices the underlying array.
+    /// For other variants, returns a clone since they apply to any length.
     pub fn slice(&self, start: usize, stop: usize) -> VortexResult<Self> {
         match self {
             Self::Array(a) => Ok(Self::Array(a.slice(start, stop)?)),
@@ -137,6 +172,10 @@ impl Validity {
         }
     }
 
+    /// Take values from this validity using the provided indices.
+    ///
+    /// The result validity corresponds to the validity of values at the given indices.
+    /// Null indices in the index array will invalidate the corresponding positions.
     pub fn take(&self, indices: &dyn Array) -> VortexResult<Self> {
         match self {
             Self::NonNullable => match indices.validity_mask()?.boolean_buffer() {
@@ -179,7 +218,9 @@ impl Validity {
         }
     }
 
-    /// Set to false any entries for which the mask is true.
+    /// Mask out (invalidate) entries where the mask is true.
+    ///
+    /// Sets validity to false for any entries where the mask is true.
     ///
     /// The result is always nullable. The result has the same length as self.
     pub fn mask(&self, mask: &Mask) -> VortexResult<Self> {
@@ -200,6 +241,9 @@ impl Validity {
         }
     }
 
+    /// Convert this validity to a boolean mask.
+    ///
+    /// The mask indicates which values are valid (true) or invalid (false).
     pub fn to_mask(&self, length: usize) -> VortexResult<Mask> {
         Ok(match self {
             Self::NonNullable | Self::AllValid => Mask::AllTrue(length),
@@ -217,7 +261,9 @@ impl Validity {
         })
     }
 
-    /// Logically & two Validity values of the same length
+    /// Compute the logical AND of two validity arrays.
+    ///
+    /// The result is valid only where both input validities are valid.
     pub fn and(self, rhs: Validity) -> VortexResult<Validity> {
         let validity = match (self, rhs) {
             // Should be pretty clear
@@ -248,6 +294,18 @@ impl Validity {
         Ok(validity)
     }
 
+    /// Apply patches to this validity at the specified indices.
+    ///
+    /// # Arguments
+    ///
+    /// * `len` - The total length of the array
+    /// * `indices_offset` - Offset to apply to patch indices
+    /// * `indices` - Array of indices where patches should be applied
+    /// * `patches` - Validity values to patch in
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if nullability constraints are violated.
     pub fn patch(
         self,
         len: usize,
@@ -309,7 +367,10 @@ impl Validity {
         }
     }
 
-    /// Convert into a non-nullable variant
+    /// Convert into a non-nullable variant if possible.
+    ///
+    /// Returns `None` if the validity contains any invalid values
+    /// that would violate non-nullable constraints.
     pub fn into_non_nullable(self) -> Option<Validity> {
         match self {
             Self::NonNullable => Some(Self::NonNullable),
@@ -338,7 +399,7 @@ impl Validity {
         }
     }
 
-    /// Create Validity by copying the given array's validity.
+    /// Create a new validity by copying from another array's validity mask.
     pub fn copy_from_array(array: &dyn Array) -> VortexResult<Self> {
         Ok(Validity::from_mask(
             array.validity_mask()?,
@@ -346,7 +407,9 @@ impl Validity {
         ))
     }
 
-    /// Create Validity from boolean array with given nullability of the array.
+    /// Create validity from a boolean array with the specified nullability.
+    ///
+    /// The nullability refers to the parent array's nullability, not the validity array itself.
     ///
     /// Note: You want to pass the nullability of parent array and not the nullability of the validity array itself
     ///     as that is always nonnullable
@@ -360,7 +423,9 @@ impl Validity {
         }
     }
 
-    /// Returns the length of the validity array, if it exists.
+    /// Returns the length of the validity array if it's an array variant.
+    ///
+    /// Returns `None` for non-array variants since they don't have a specific length.
     pub fn maybe_len(&self) -> Option<usize> {
         match self {
             Self::NonNullable | Self::AllValid | Self::AllInvalid => None,
@@ -368,6 +433,9 @@ impl Validity {
         }
     }
 
+    /// Calculate the uncompressed size in bytes of this validity.
+    ///
+    /// Returns the size needed to store the validity as a bitmap.
     pub fn uncompressed_size(&self) -> usize {
         if let Validity::Array(a) = self {
             a.len().div_ceil(8)
@@ -376,6 +444,9 @@ impl Validity {
         }
     }
 
+    /// Check if this validity is stored as an array.
+    ///
+    /// Returns `true` only for the `Array` variant.
     pub fn is_array(&self) -> bool {
         matches!(self, Validity::Array(_))
     }
@@ -441,6 +512,11 @@ impl From<Nullability> for Validity {
 }
 
 impl Validity {
+    /// Create validity from a mask and nullability.
+    ///
+    /// # Panics
+    ///
+    /// Panics if non-nullable nullability is used with a mask that contains false values.
     pub fn from_mask(mask: Mask, nullability: Nullability) -> Self {
         assert!(
             nullability == Nullability::Nullable || matches!(mask, Mask::AllTrue(_)),

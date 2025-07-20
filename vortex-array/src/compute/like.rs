@@ -31,10 +31,13 @@ pub fn like(
         .unwrap_array()
 }
 
+/// Reference to a like kernel.
 pub struct LikeKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(LikeKernelRef);
 
+/// Trait for implementing like operations on specific array encodings.
 pub trait LikeKernel: VTable {
+    /// Performs SQL LIKE operation on the array.
     fn like(
         &self,
         array: &Self::Array,
@@ -44,9 +47,11 @@ pub trait LikeKernel: VTable {
 }
 
 #[derive(Debug)]
+/// Adapter to convert a `LikeKernel` into a `Kernel`.
 pub struct LikeKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + LikeKernel> LikeKernelAdapter<V> {
+    /// Lifts this kernel adapter into a `LikeKernelRef`.
     pub const fn lift(&'static self) -> LikeKernelRef {
         LikeKernelRef(ArcRef::new_ref(self))
     }
@@ -62,6 +67,7 @@ impl<V: VTable + LikeKernel> Kernel for LikeKernelAdapter<V> {
     }
 }
 
+/// The like [`ComputeFn`].
 pub static LIKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("like".into(), ArcRef::new_ref(&Like));
     for kernel in inventory::iter::<LikeKernelRef> {
@@ -131,7 +137,9 @@ impl ComputeFnVTable for Like {
 /// Options for SQL LIKE function
 #[derive(Default, Debug, Clone, Copy)]
 pub struct LikeOptions {
+    /// Whether the LIKE operation is negated (NOT LIKE).
     pub negated: bool,
+    /// Whether the LIKE operation is case insensitive.
     pub case_insensitive: bool,
 }
 

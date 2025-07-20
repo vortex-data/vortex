@@ -6,6 +6,7 @@ use vortex_buffer::ByteBuffer;
 use crate::vtable::VTable;
 use crate::{Array, ArrayBufferVisitor, ArrayChildVisitor};
 
+/// VTable for visiting array buffers and children during serialization.
 pub trait VisitorVTable<V: VTable> {
     /// Visit the buffers of the array.
     fn visit_buffers(array: &V::Array, visitor: &mut dyn ArrayBufferVisitor);

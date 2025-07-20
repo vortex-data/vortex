@@ -78,12 +78,15 @@ impl dyn Array + '_ {
     }
 }
 
+/// Wrapper for arrays with Null data type providing null-specific operations.
 #[allow(dead_code)]
 pub struct NullTyped<'a>(&'a dyn Array);
 
+/// Wrapper for arrays with Bool data type providing boolean-specific operations.
 pub struct BoolTyped<'a>(&'a dyn Array);
 
 impl BoolTyped<'_> {
+    /// Counts the number of true values in the boolean array.
     pub fn true_count(&self) -> VortexResult<usize> {
         let true_count = sum(self.0)?;
         Ok(true_count
@@ -94,9 +97,11 @@ impl BoolTyped<'_> {
     }
 }
 
+/// Wrapper for arrays with Primitive data type providing primitive-specific operations.
 pub struct PrimitiveTyped<'a>(&'a dyn Array);
 
 impl PrimitiveTyped<'_> {
+    /// Returns the primitive type of the array elements.
     pub fn ptype(&self) -> PType {
         let DType::Primitive(ptype, _) = self.0.dtype() else {
             vortex_panic!("Expected Primitive DType")
@@ -145,18 +150,23 @@ impl IndexOrd<PValue> for PrimitiveTyped<'_> {
     }
 }
 
+/// Wrapper for arrays with Utf8 data type providing string-specific operations.
 #[allow(dead_code)]
 pub struct Utf8Typed<'a>(&'a dyn Array);
 
+/// Wrapper for arrays with Binary data type providing binary-specific operations.
 #[allow(dead_code)]
 pub struct BinaryTyped<'a>(&'a dyn Array);
 
+/// Wrapper for arrays with Decimal data type providing decimal-specific operations.
 #[allow(dead_code)]
 pub struct DecimalTyped<'a>(&'a dyn Array);
 
+/// Wrapper for arrays with Struct data type providing struct-specific operations.
 pub struct StructTyped<'a>(&'a dyn Array);
 
 impl StructTyped<'_> {
+    /// Returns the field names of the struct.
     pub fn names(&self) -> &FieldNames {
         let DType::Struct(st, _) = self.0.dtype() else {
             unreachable!()
@@ -164,6 +174,7 @@ impl StructTyped<'_> {
         st.names()
     }
 
+    /// Returns the data types of all fields in the struct.
     pub fn dtypes(&self) -> Vec<DType> {
         let DType::Struct(st, _) = self.0.dtype() else {
             unreachable!()
@@ -171,14 +182,17 @@ impl StructTyped<'_> {
         st.fields().collect()
     }
 
+    /// Returns the number of fields in the struct.
     pub fn nfields(&self) -> usize {
         self.names().len()
     }
 }
 
+/// Wrapper for arrays with List data type providing list-specific operations.
 #[allow(dead_code)]
 pub struct ListTyped<'a>(&'a dyn Array);
 
+/// Wrapper for arrays with Extension data type providing extension-specific operations.
 pub struct ExtensionTyped<'a>(&'a dyn Array);
 
 impl ExtensionTyped<'_> {

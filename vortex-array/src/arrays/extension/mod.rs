@@ -44,9 +44,11 @@ impl VTable for ExtensionVTable {
     }
 }
 
+/// Encoding for extension arrays.
 #[derive(Clone, Debug)]
 pub struct ExtensionEncoding;
 
+/// An array that wraps another array with an extension data type.
 #[derive(Clone, Debug)]
 pub struct ExtensionArray {
     dtype: DType,
@@ -55,6 +57,7 @@ pub struct ExtensionArray {
 }
 
 impl ExtensionArray {
+    /// Creates a new extension array with the given extension type and storage array.
     pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayRef) -> Self {
         assert_eq!(
             ext_dtype.storage_dtype(),
@@ -68,6 +71,7 @@ impl ExtensionArray {
         }
     }
 
+    /// Returns the extension data type of this array.
     pub fn ext_dtype(&self) -> &Arc<ExtDType> {
         let DType::Extension(ext) = &self.dtype else {
             unreachable!("ExtensionArray: dtype must be an ExtDType")
@@ -75,12 +79,14 @@ impl ExtensionArray {
         ext
     }
 
+    /// Returns the underlying storage array.
     pub fn storage(&self) -> &ArrayRef {
         &self.storage
     }
 
     #[allow(dead_code)]
     #[inline]
+    /// Returns the extension ID.
     pub fn id(&self) -> &ExtID {
         self.ext_dtype().id()
     }

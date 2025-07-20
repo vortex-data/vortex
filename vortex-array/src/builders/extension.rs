@@ -13,16 +13,19 @@ use crate::arrays::ExtensionArray;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
+/// Builder for extension arrays.
 pub struct ExtensionBuilder {
     storage: Box<dyn ArrayBuilder>,
     dtype: DType,
 }
 
 impl ExtensionBuilder {
+    /// Creates a new ExtensionBuilder with default capacity.
     pub fn new(ext_dtype: Arc<ExtDType>) -> Self {
         Self::with_capacity(ext_dtype, 1024)
     }
 
+    /// Creates a new ExtensionBuilder with the specified capacity.
     pub fn with_capacity(ext_dtype: Arc<ExtDType>, capacity: usize) -> Self {
         Self {
             storage: builder_with_capacity(ext_dtype.storage_dtype(), capacity),
@@ -30,10 +33,12 @@ impl ExtensionBuilder {
         }
     }
 
+    /// Appends an extension value to the builder.
     pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
         self.storage.append_scalar(&value.storage())
     }
 
+    /// Appends an optional extension value to the builder.
     pub fn append_option(&mut self, value: Option<ExtScalar>) -> VortexResult<()> {
         match value {
             Some(value) => self.append_value(value),

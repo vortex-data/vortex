@@ -14,8 +14,10 @@ use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+/// Builder for variable-length binary view arrays.
 pub struct VarBinViewBuilder {
     views_builder: BufferMut<BinaryView>,
+    /// Null buffer builder for tracking validity.
     pub null_buffer_builder: LazyNullBufferBuilder,
     completed: Vec<ByteBuffer>,
     in_progress: ByteBufferMut,
@@ -27,6 +29,7 @@ impl VarBinViewBuilder {
     // TODO(joe): add a block growth strategy, from arrow
     const BLOCK_SIZE: u32 = 8 * 8 * 1024;
 
+    /// Creates a new VarBinViewBuilder with the specified capacity.
     pub fn with_capacity(dtype: DType, capacity: usize) -> Self {
         assert!(
             matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
@@ -69,12 +72,14 @@ impl VarBinViewBuilder {
     }
 
     #[inline]
+    /// Appends a binary value to the builder.
     pub fn append_value<S: AsRef<[u8]>>(&mut self, value: S) {
         self.append_value_view(value.as_ref());
         self.null_buffer_builder.append_non_null();
     }
 
     #[inline]
+    /// Appends an optional binary value to the builder.
     pub fn append_option<S: AsRef<[u8]>>(&mut self, value: Option<S>) {
         match value {
             Some(value) => self.append_value(value),
@@ -96,6 +101,7 @@ impl VarBinViewBuilder {
         self.completed.push(block);
     }
 
+    /// Returns the number of completed blocks.
     pub fn completed_block_count(&self) -> usize {
         self.completed.len()
     }
@@ -105,6 +111,7 @@ impl VarBinViewBuilder {
     // buffers adjusted.
     // The views must all point to sections of the buffers and the validity length must match
     // the view length.
+    /// Pushes buffers and pre-adjusted views into the builder.
     pub fn push_buffer_and_adjusted_views(
         &mut self,
         buffer: &[ByteBuffer],
@@ -120,6 +127,7 @@ impl VarBinViewBuilder {
         debug_assert_eq!(self.null_buffer_builder.len(), self.views_builder.len())
     }
 
+    /// Finishes building and returns a VarBinViewArray.
     pub fn finish_into_varbinview(&mut self) -> VarBinViewArray {
         self.flush_in_progress();
         let buffers = std::mem::take(&mut self.completed);

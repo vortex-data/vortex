@@ -24,10 +24,12 @@ pub struct PrimitiveBuilder<T> {
 }
 
 impl<T: NativePType> PrimitiveBuilder<T> {
+    /// Creates a new PrimitiveBuilder with default capacity.
     pub fn new(nullability: Nullability) -> Self {
         Self::with_capacity(nullability, 1024) // Same as Arrow builders
     }
 
+    /// Creates a new PrimitiveBuilder with the specified capacity.
     pub fn with_capacity(nullability: Nullability, capacity: usize) -> Self {
         Self {
             values: BufferMut::with_capacity(capacity),
@@ -41,11 +43,13 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.nulls.append_validity_mask(mask);
     }
 
+    /// Appends a primitive value to the builder.
     pub fn append_value(&mut self, value: T) {
         self.values.push(value);
         self.nulls.append(true);
     }
 
+    /// Appends an optional primitive value to the builder.
     pub fn append_option(&mut self, value: Option<T>) {
         match value {
             Some(value) => {
@@ -56,6 +60,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         }
     }
 
+    /// Returns a slice of the current values.
     pub fn values(&self) -> &[T] {
         self.values.as_ref()
     }
@@ -102,6 +107,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         }
     }
 
+    /// Finishes building and returns a PrimitiveArray.
     pub fn finish_into_primitive(&mut self) -> PrimitiveArray {
         let nulls = self.nulls.finish();
 
@@ -131,6 +137,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         PrimitiveArray::new(std::mem::take(&mut self.values).freeze(), validity)
     }
 
+    /// Extends the builder with values from an iterator and applies a validity mask.
     pub fn extend_with_iterator(&mut self, iter: impl IntoIterator<Item = T>, mask: Mask) {
         self.values.extend(iter);
         self.extend_with_validity_mask(mask)
@@ -198,6 +205,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 }
 
+/// Handle for working with uninitialized ranges in a primitive builder.
 pub struct UninitRange<'a, T> {
     offset: usize,
     len: usize,

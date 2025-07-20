@@ -26,6 +26,7 @@ mod serde;
 
 pub use compact::*;
 
+/// An inlined binary view for values up to 12 bytes, which are stored directly in the view.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C, align(8))]
 pub struct Inlined {
@@ -43,12 +44,14 @@ impl Inlined {
         inlined
     }
 
+    /// Returns the inlined value as a byte slice.
     #[inline]
     pub fn value(&self) -> &[u8] {
         &self.data[0..(self.size as usize)]
     }
 }
 
+/// A reference to binary data stored in an external buffer for values larger than 12 bytes.
 #[derive(Clone, Copy, Debug)]
 #[repr(C, align(8))]
 pub struct Ref {
@@ -59,6 +62,7 @@ pub struct Ref {
 }
 
 impl Ref {
+    /// Creates a new reference to binary data in an external buffer.
     pub fn new(size: u32, prefix: [u8; 4], buffer_index: u32, offset: u32) -> Self {
         Self {
             size,
@@ -68,27 +72,32 @@ impl Ref {
         }
     }
 
+    /// Returns the index of the buffer containing the referenced data.
     #[inline]
     pub fn buffer_index(&self) -> u32 {
         self.buffer_index
     }
 
+    /// Returns the offset within the buffer where the data starts.
     #[inline]
     pub fn offset(&self) -> u32 {
         self.offset
     }
 
+    /// Returns the 4-byte prefix of the data for comparison purposes.
     #[inline]
     pub fn prefix(&self) -> &[u8; 4] {
         &self.prefix
     }
 
+    /// Converts the offset and size to a range for slicing the buffer.
     #[inline]
     pub fn to_range(&self) -> Range<usize> {
         self.offset as usize..(self.offset + self.size) as usize
     }
 }
 
+/// A binary view that can either store data inline (≤12 bytes) or reference external buffers.
 #[derive(Clone, Copy)]
 #[repr(C, align(16))]
 pub union BinaryView {
@@ -109,6 +118,7 @@ assert_eq_size!(Ref, [u8; 16]);
 assert_eq_align!(BinaryView, u128);
 
 impl BinaryView {
+    /// Maximum size in bytes for values that can be stored inline.
     pub const MAX_INLINED_SIZE: usize = 12;
 
     /// Create a view from a value, block and offset
@@ -189,30 +199,36 @@ impl BinaryView {
         Self::make_view(value, 0, 0)
     }
 
+    /// Returns the length of the binary data in bytes.
     #[inline]
     pub fn len(&self) -> u32 {
         unsafe { self.inlined.size }
     }
 
+    /// Returns true if the binary data is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() > 0
     }
 
+    /// Returns true if the data is stored inline rather than in an external buffer.
     #[inline]
     #[allow(clippy::cast_possible_truncation)]
     pub fn is_inlined(&self) -> bool {
         self.len() <= (Self::MAX_INLINED_SIZE as u32)
     }
 
+    /// Returns a reference to the inlined data. Only safe to call if `is_inlined()` returns true.
     pub fn as_inlined(&self) -> &Inlined {
         unsafe { &self.inlined }
     }
 
+    /// Returns a reference to the buffer reference. Only safe to call if `is_inlined()` returns false.
     pub fn as_view(&self) -> &Ref {
         unsafe { &self._ref }
     }
 
+    /// Returns the binary view as a u128 value for hashing and comparison.
     pub fn as_u128(&self) -> u128 {
         // SAFETY: binary view always safe to read as u128 LE bytes
         unsafe { u128::from_le_bytes(self.le_bytes) }
@@ -283,6 +299,10 @@ impl VTable for VarBinViewVTable {
     }
 }
 
+/// A variable-size binary view array supporting both UTF-8 strings and arbitrary binary data.
+///
+/// This array type uses Apache Arrow's binary view format which can efficiently store both
+/// small values (≤12 bytes) inline and larger values in separate data buffers.
 #[derive(Clone, Debug)]
 pub struct VarBinViewArray {
     dtype: DType,
@@ -292,10 +312,19 @@ pub struct VarBinViewArray {
     stats_set: ArrayStats,
 }
 
+/// The encoding for variable binary view arrays.
 #[derive(Clone, Debug)]
 pub struct VarBinViewEncoding;
 
 impl VarBinViewArray {
+    /// Creates a new VarBinViewArray from the provided components.
+    ///
+    /// # Arguments
+    ///
+    /// * `views` - Buffer of binary views, must be aligned to 128 bits
+    /// * `buffers` - Vector of data buffers for values >12 bytes
+    /// * `dtype` - Must be Binary or Utf8 type
+    /// * `validity` - Validity information for nullable arrays
     pub fn try_new(
         views: Buffer<BinaryView>,
         buffers: Vec<ByteBuffer>,
@@ -382,7 +411,12 @@ impl VarBinViewArray {
         &self.buffers
     }
 
-    /// Accumulate an iterable set of values into our type here.
+    /// Creates a VarBinViewArray from an iterator of optional byte values.
+    ///
+    /// # Arguments
+    ///
+    /// * `iter` - Iterator yielding optional byte arrays
+    /// * `dtype` - Must be Binary or Utf8 type
     #[allow(clippy::same_name_method)]
     pub fn from_iter<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
@@ -401,6 +435,7 @@ impl VarBinViewArray {
         builder.finish_into_varbinview()
     }
 
+    /// Creates a VarBinViewArray from an iterator of string values.
     pub fn from_iter_str<T: AsRef<str>, I: IntoIterator<Item = T>>(iter: I) -> Self {
         let iter = iter.into_iter();
         let mut builder = VarBinViewBuilder::with_capacity(
@@ -415,6 +450,7 @@ impl VarBinViewArray {
         builder.finish_into_varbinview()
     }
 
+    /// Creates a VarBinViewArray from an iterator of optional string values.
     pub fn from_iter_nullable_str<T: AsRef<str>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
     ) -> Self {
@@ -434,6 +470,7 @@ impl VarBinViewArray {
         builder.finish_into_varbinview()
     }
 
+    /// Creates a VarBinViewArray from an iterator of binary values.
     pub fn from_iter_bin<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(iter: I) -> Self {
         let iter = iter.into_iter();
         let mut builder = VarBinViewBuilder::with_capacity(
@@ -448,6 +485,7 @@ impl VarBinViewArray {
         builder.finish_into_varbinview()
     }
 
+    /// Creates a VarBinViewArray from an iterator of optional binary values.
     pub fn from_iter_nullable_bin<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
     ) -> Self {

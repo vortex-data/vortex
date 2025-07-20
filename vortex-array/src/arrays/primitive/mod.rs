@@ -55,6 +55,10 @@ impl VTable for PrimitiveVTable {
     }
 }
 
+/// An array that stores primitive values (integers, floats, booleans) in a contiguous buffer.
+///
+/// This is the most basic array type in Vortex, similar to Arrow's PrimitiveArray.
+/// It stores values in a typed buffer with optional validity information.
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
     dtype: DType,
@@ -63,10 +67,21 @@ pub struct PrimitiveArray {
     stats_set: ArrayStats,
 }
 
+/// Encoding for primitive arrays.
 #[derive(Clone, Debug)]
 pub struct PrimitiveEncoding;
 
 impl PrimitiveArray {
+    /// Create a new primitive array from a typed buffer and validity.
+    ///
+    /// # Arguments
+    ///
+    /// * `buffer` - The typed buffer containing the primitive values
+    /// * `validity` - Validity information for the array
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer length doesn't match the validity length.
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
         if let Some(len) = validity.maybe_len() {
@@ -86,10 +101,14 @@ impl PrimitiveArray {
         }
     }
 
+    /// Create an empty primitive array with the specified nullability.
     pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
         Self::new(Buffer::<T>::empty(), nullability.into())
     }
 
+    /// Create a primitive array from a byte buffer, primitive type, and validity.
+    ///
+    /// This is useful when you have untyped bytes that need to be interpreted as a specific primitive type.
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
         match_each_native_ptype!(ptype, |T| {
             Self::new::<T>(Buffer::from_byte_buffer(buffer), validity)
@@ -98,6 +117,9 @@ impl PrimitiveArray {
 
     /// Create a PrimitiveArray from an iterator of `T`.
     /// NOTE: we cannot impl FromIterator trait since it conflicts with `FromIterator<T>`.
+    /// Create a primitive array from an iterator of optional values.
+    ///
+    /// None values will be marked as null in the validity buffer.
     pub fn from_option_iter<T: NativePType, I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
         let iter = iter.into_iter();
         let mut values = BufferMut::with_capacity(iter.size_hint().0);
@@ -145,18 +167,26 @@ impl PrimitiveArray {
         Ok(Self::from_byte_buffer(buffer, ptype, validity))
     }
 
+    /// Get the primitive type of this array.
     pub fn ptype(&self) -> PType {
         self.dtype().as_ptype()
     }
 
+    /// Get a reference to the underlying byte buffer.
     pub fn byte_buffer(&self) -> &ByteBuffer {
         &self.buffer
     }
 
+    /// Convert this array into its underlying byte buffer.
     pub fn into_byte_buffer(self) -> ByteBuffer {
         self.buffer
     }
 
+    /// Get a typed buffer view of the underlying data.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `T` doesn't match the array's primitive type.
     pub fn buffer<T: NativePType>(&self) -> Buffer<T> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
@@ -168,6 +198,11 @@ impl PrimitiveArray {
         Buffer::from_byte_buffer(self.byte_buffer().clone())
     }
 
+    /// Convert this array into a typed buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `T` doesn't match the array's primitive type.
     pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
@@ -262,6 +297,16 @@ impl PrimitiveArray {
     /// Return a slice of the array's buffer.
     ///
     /// NOTE: these values may be nonsense if the validity buffer indicates that the value is null.
+    /// Return a slice of the array's buffer.
+    ///
+    /// # Safety Note
+    ///
+    /// The returned values may be meaningless if the validity buffer indicates
+    /// that the value is null. Always check validity before using these values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `T` doesn't match the array's primitive type.
     pub fn as_slice<T: NativePType>(&self) -> &[T] {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
@@ -277,6 +322,13 @@ impl PrimitiveArray {
         }
     }
 
+    /// Reinterpret the array's data as a different primitive type.
+    ///
+    /// This performs a zero-copy cast to a different primitive type of the same byte width.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the byte width of the target type doesn't match the current type.
     pub fn reinterpret_cast(&self, ptype: PType) -> Self {
         if self.ptype() == ptype {
             return self.clone();

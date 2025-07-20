@@ -14,6 +14,7 @@ use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, builder_with_capacity};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+/// Builder for struct arrays.
 pub struct StructBuilder {
     builders: Vec<Box<dyn ArrayBuilder>>,
     validity: LazyNullBufferBuilder,
@@ -23,6 +24,7 @@ pub struct StructBuilder {
 }
 
 impl StructBuilder {
+    /// Creates a new StructBuilder with the specified capacity.
     pub fn with_capacity(
         struct_dtype: StructFields,
         nullability: Nullability,
@@ -42,6 +44,7 @@ impl StructBuilder {
         }
     }
 
+    /// Appends a struct value to the builder.
     pub fn append_value(&mut self, struct_scalar: StructScalar) -> VortexResult<()> {
         if struct_scalar.dtype() != &DType::Struct(self.struct_dtype.clone(), self.nullability) {
             vortex_bail!(

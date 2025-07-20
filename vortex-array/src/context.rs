@@ -19,9 +19,11 @@ use crate::arrays::{
 /// A collection of array encodings.
 // TODO(ngates): it feels weird that this has interior mutability. I think maybe it shouldn't.
 pub type ArrayContext = VTableContext<EncodingRef>;
+/// Registry for array encodings.
 pub type ArrayRegistry = VTableRegistry<EncodingRef>;
 
 impl ArrayRegistry {
+    /// Creates a registry with only canonical encodings.
     pub fn canonical_only() -> Self {
         let mut this = Self::empty();
 
@@ -54,10 +56,12 @@ impl ArrayRegistry {
 pub struct VTableContext<T>(Arc<RwLock<Vec<T>>>);
 
 impl<T: Clone + Eq> VTableContext<T> {
+    /// Creates an empty VTable context.
     pub fn empty() -> Self {
         Self(Arc::new(RwLock::new(Vec::new())))
     }
 
+    /// Adds an encoding to the context if it doesn't already exist.
     pub fn with(self, encoding: T) -> Self {
         {
             let mut write = self.0.write();
@@ -68,10 +72,12 @@ impl<T: Clone + Eq> VTableContext<T> {
         self
     }
 
+    /// Adds multiple encodings to the context.
     pub fn with_many<E: IntoIterator<Item = T>>(self, items: E) -> Self {
         items.into_iter().fold(self, |ctx, e| ctx.with(e))
     }
 
+    /// Returns a clone of all encodings in the context.
     pub fn encodings(&self) -> Vec<T> {
         self.0.read().clone()
     }
@@ -106,6 +112,7 @@ pub struct VTableRegistry<T>(HashMap<String, T>);
 // TODO(ngates): define a trait for `T` that requires an `id` method returning a `Arc<str>` and
 //  auto-implement `Display` and `Eq` for it.
 impl<T: Clone + Display + Eq> VTableRegistry<T> {
+    /// Creates an empty VTable registry.
     pub fn empty() -> Self {
         Self(Default::default())
     }

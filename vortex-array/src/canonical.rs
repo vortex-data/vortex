@@ -65,14 +65,22 @@ use crate::{Array, ArrayRef, IntoArray};
 /// from memory.
 #[derive(Debug, Clone)]
 pub enum Canonical {
+    /// Null array containing only null values.
     Null(NullArray),
+    /// Boolean array with true/false values.
     Bool(BoolArray),
+    /// Array of primitive numeric types.
     Primitive(PrimitiveArray),
+    /// Array of decimal values with fixed precision and scale.
     Decimal(DecimalArray),
+    /// Array with multiple named columns of different types.
     Struct(StructArray),
+    /// Array of variable-length lists.
     // TODO(joe): maybe this should be a ListView, however this will be annoying in spiral
     List(ListArray),
+    /// Variable-length binary view array for strings and binary data.
     VarBinView(VarBinViewArray),
+    /// Array with custom extension type.
     Extension(ExtensionArray),
 }
 
@@ -104,6 +112,11 @@ impl Canonical {
 
 // Unwrap canonical type back down to specialized type.
 impl Canonical {
+    /// Unwraps this canonical array as a NullArray.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if this is not a null array.
     pub fn into_null(self) -> VortexResult<NullArray> {
         match self {
             Canonical::Null(a) => Ok(a),
@@ -111,6 +124,11 @@ impl Canonical {
         }
     }
 
+    /// Unwraps this canonical array as a BoolArray.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if this is not a boolean array.
     pub fn into_bool(self) -> VortexResult<BoolArray> {
         match self {
             Canonical::Bool(a) => Ok(a),
@@ -118,6 +136,11 @@ impl Canonical {
         }
     }
 
+    /// Unwraps this canonical array as a PrimitiveArray.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if this is not a primitive array.
     pub fn into_primitive(self) -> VortexResult<PrimitiveArray> {
         match self {
             Canonical::Primitive(a) => Ok(a),
@@ -125,6 +148,11 @@ impl Canonical {
         }
     }
 
+    /// Unwraps this canonical array as a DecimalArray.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if this is not a decimal array.
     pub fn into_decimal(self) -> VortexResult<DecimalArray> {
         match self {
             Canonical::Decimal(a) => Ok(a),
@@ -132,6 +160,11 @@ impl Canonical {
         }
     }
 
+    /// Unwraps this canonical array as a StructArray.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if this is not a struct array.
     pub fn into_struct(self) -> VortexResult<StructArray> {
         match self {
             Canonical::Struct(a) => Ok(a),
@@ -139,6 +172,11 @@ impl Canonical {
         }
     }
 
+    /// Unwraps this canonical array as a ListArray.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if this is not a list array.
     pub fn into_list(self) -> VortexResult<ListArray> {
         match self {
             Canonical::List(a) => Ok(a),
@@ -146,6 +184,11 @@ impl Canonical {
         }
     }
 
+    /// Unwraps this canonical array as a VarBinViewArray.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if this is not a variable binary view array.
     pub fn into_varbinview(self) -> VortexResult<VarBinViewArray> {
         match self {
             Canonical::VarBinView(a) => Ok(a),
@@ -153,6 +196,11 @@ impl Canonical {
         }
     }
 
+    /// Unwraps this canonical array as an ExtensionArray.
+    /// 
+    /// # Errors
+    /// 
+    /// Returns an error if this is not an extension array.
     pub fn into_extension(self) -> VortexResult<ExtensionArray> {
         match self {
             Canonical::Extension(a) => Ok(a),

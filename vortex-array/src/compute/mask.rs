@@ -54,18 +54,22 @@ pub fn mask(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
         .unwrap_array()
 }
 
+/// Reference to a mask kernel.
 pub struct MaskKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(MaskKernelRef);
 
+/// Trait for implementing mask operations on specific array encodings.
 pub trait MaskKernel: VTable {
     /// Replace masked values with null in array.
     fn mask(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef>;
 }
 
 #[derive(Debug)]
+/// Adapter to convert a `MaskKernel` into a `Kernel`.
 pub struct MaskKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + MaskKernel> MaskKernelAdapter<V> {
+    /// Lifts this kernel adapter into a `MaskKernelRef`.
     pub const fn lift(&'static self) -> MaskKernelRef {
         MaskKernelRef(ArcRef::new_ref(self))
     }
@@ -81,6 +85,7 @@ impl<V: VTable + MaskKernel> Kernel for MaskKernelAdapter<V> {
     }
 }
 
+/// The mask [`ComputeFn`].
 pub static MASK_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("mask".into(), ArcRef::new_ref(&MaskFn));
     for kernel in inventory::iter::<MaskKernelRef> {

@@ -41,6 +41,7 @@ pub fn to_arrow(array: &dyn Array, arrow_type: &DataType) -> VortexResult<ArrowA
     )
 }
 
+/// Convert a Vortex array to an Arrow array with the given options.
 pub fn to_arrow_opts(array: &dyn Array, options: &ToArrowOptions) -> VortexResult<ArrowArrayRef> {
     let arrow = TO_ARROW_FN
         .invoke(&InvocationArgs {
@@ -66,6 +67,7 @@ pub fn to_arrow_opts(array: &dyn Array, options: &ToArrowOptions) -> VortexResul
     Ok(arrow)
 }
 
+/// Options for converting to Arrow arrays.
 pub struct ToArrowOptions {
     /// The Arrow data type to convert to, if specified.
     pub arrow_type: Option<DataType>,
@@ -77,6 +79,7 @@ impl Options for ToArrowOptions {
     }
 }
 
+/// The ToArrow compute function.
 struct ToArrow;
 
 impl ComputeFnVTable for ToArrow {
@@ -134,6 +137,7 @@ impl ComputeFnVTable for ToArrow {
     }
 }
 
+/// The global ToArrow compute function.
 pub static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("to_arrow".into(), ArcRef::new_ref(&ToArrow));
 
@@ -147,6 +151,7 @@ pub static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+/// Arguments for the ToArrow compute function.
 pub struct ToArrowArgs<'a> {
     array: &'a dyn Array,
     arrow_type: Option<&'a DataType>,
@@ -175,10 +180,13 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for ToArrowArgs<'a> {
     }
 }
 
+/// Reference to a ToArrow kernel for registration.
 pub struct ToArrowKernelRef(pub ArcRef<dyn Kernel>);
 inventory::collect!(ToArrowKernelRef);
 
+/// Trait for converting Vortex arrays to Arrow arrays.
 pub trait ToArrowKernel: VTable {
+    /// Converts an array to Arrow format.
     fn to_arrow(
         &self,
         arr: &Self::Array,
@@ -186,10 +194,12 @@ pub trait ToArrowKernel: VTable {
     ) -> VortexResult<Option<ArrowArrayRef>>;
 }
 
+/// Adapter for implementing ToArrow kernels.
 #[derive(Debug)]
 pub struct ToArrowKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + ToArrowKernel> ToArrowKernelAdapter<V> {
+    /// Lifts this adapter into a kernel reference for registration.
     pub const fn lift(&'static self) -> ToArrowKernelRef {
         ToArrowKernelRef(ArcRef::new_ref(self))
     }

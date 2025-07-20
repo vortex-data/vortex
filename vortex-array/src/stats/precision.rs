@@ -18,7 +18,9 @@ use crate::stats::precision::Precision::{Exact, Inexact};
 /// value.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Precision<T> {
+    /// An exact statistical value.
     Exact(T),
+    /// An inexact statistical value representing a bound.
     Inexact(T),
 }
 
@@ -49,6 +51,7 @@ impl<T> Precision<T>
 where
     T: Copy,
 {
+    /// Converts this precision to inexact, preserving the value.
     pub fn to_inexact(&self) -> Self {
         match self {
             Exact(v) => Exact(*v),
@@ -163,12 +166,14 @@ impl<T: PartialEq> PartialEq<T> for Precision<T> {
 }
 
 impl Precision<ScalarValue> {
+    /// Converts a precision of scalar value into a precision of scalar.
     pub fn into_scalar(self, dtype: DType) -> Precision<Scalar> {
         self.map(|v| Scalar::new(dtype, v))
     }
 }
 
 impl Precision<&ScalarValue> {
+    /// Converts a precision of scalar value reference into a precision of scalar.
     pub fn into_scalar(self, dtype: DType) -> Precision<Scalar> {
         self.map(|v| Scalar::new(dtype, v.clone()))
     }

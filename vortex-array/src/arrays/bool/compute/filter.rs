@@ -59,6 +59,7 @@ pub fn filter_indices(
     })
 }
 
+/// Filter a boolean buffer using slice ranges.
 pub fn filter_slices(
     buffer: &BooleanBuffer,
     indices_len: usize,

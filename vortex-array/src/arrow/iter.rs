@@ -22,6 +22,7 @@ pub struct ArrowArrayStreamAdapter {
 }
 
 impl ArrowArrayStreamAdapter {
+    /// Creates a new ArrowArrayStreamAdapter.
     pub fn new(stream: ffi_stream::ArrowArrayStreamReader, dtype: DType) -> Self {
         Self { stream, dtype }
     }
@@ -54,6 +55,7 @@ pub struct VortexRecordBatchReader<I> {
 }
 
 impl<I: ArrayIterator> VortexRecordBatchReader<I> {
+    /// Creates a new VortexRecordBatchReader from an ArrayIterator.
     pub fn try_new(iter: I) -> VortexResult<Self> {
         let arrow_schema = Arc::new(iter.dtype().to_arrow_schema()?);
         let arrow_dtype = DataType::Struct(arrow_schema.fields().clone());

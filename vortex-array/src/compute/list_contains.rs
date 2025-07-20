@@ -64,6 +64,7 @@ pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<Array
         .unwrap_array()
 }
 
+/// Implementation for list contains computation.
 pub struct ListContains;
 
 impl ComputeFnVTable for ListContains {
@@ -137,7 +138,9 @@ impl ComputeFnVTable for ListContains {
     }
 }
 
+/// Trait for implementing list_contains operations on specific array encodings.
 pub trait ListContainsKernel: VTable {
+    /// Checks if lists contain the specified element.
     fn list_contains(
         &self,
         list: &dyn Array,
@@ -145,13 +148,16 @@ pub trait ListContainsKernel: VTable {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
+/// Reference to a list_contains kernel.
 pub struct ListContainsKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(ListContainsKernelRef);
 
 #[derive(Debug)]
+/// Adapter to convert a `ListContainsKernel` into a `Kernel`.
 pub struct ListContainsKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + ListContainsKernel> ListContainsKernelAdapter<V> {
+    /// Lifts this kernel adapter into a `ListContainsKernelRef`.
     pub const fn lift(&'static self) -> ListContainsKernelRef {
         ListContainsKernelRef(ArcRef::new_ref(self))
     }
@@ -173,6 +179,7 @@ impl<V: VTable + ListContainsKernel> Kernel for ListContainsKernelAdapter<V> {
     }
 }
 
+/// The list_contains [`ComputeFn`].
 pub static LIST_CONTAINS_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("list_contains".into(), ArcRef::new_ref(&ListContains));
     for kernel in inventory::iter::<ListContainsKernelRef> {

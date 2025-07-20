@@ -72,6 +72,7 @@ impl ComputeFnVTable for Sum {
     }
 }
 
+/// The sum [`ComputeFn`].
 pub static SUM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("sum".into(), ArcRef::new_ref(&Sum));
     for kernel in inventory::iter::<SumKernelRef> {
@@ -80,9 +81,11 @@ pub static SUM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+/// Reference to a sum kernel.
 pub struct SumKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(SumKernelRef);
 
+/// Trait for implementing sum operations on specific array encodings.
 pub trait SumKernel: VTable {
     /// # Preconditions
     ///
@@ -92,9 +95,11 @@ pub trait SumKernel: VTable {
 }
 
 #[derive(Debug)]
+/// Adapter to convert a `SumKernel` into a `Kernel`.
 pub struct SumKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + SumKernel> SumKernelAdapter<V> {
+    /// Lifts this kernel adapter into a `SumKernelRef`.
     pub const fn lift(&'static self) -> SumKernelRef {
         SumKernelRef(ArcRef::new_ref(self))
     }

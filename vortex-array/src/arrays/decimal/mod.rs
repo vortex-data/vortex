@@ -45,6 +45,7 @@ impl VTable for DecimalVTable {
     }
 }
 
+/// Encoding for decimal arrays.
 #[derive(Clone, Debug)]
 pub struct DecimalEncoding;
 
@@ -113,6 +114,7 @@ impl DecimalArray {
         self.values.clone()
     }
 
+    /// Returns a typed buffer for the decimal values.
     pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
         if self.values_type != T::VALUES_TYPE {
             vortex_panic!(
@@ -132,18 +134,22 @@ impl DecimalArray {
         }
     }
 
+    /// Returns the value type used to store the decimal values.
     pub fn values_type(&self) -> DecimalValueType {
         self.values_type
     }
 
+    /// Returns the precision of the decimal values.
     pub fn precision(&self) -> u8 {
         self.decimal_dtype().precision()
     }
 
+    /// Returns the scale of the decimal values.
     pub fn scale(&self) -> i8 {
         self.decimal_dtype().scale()
     }
 
+    /// Creates a DecimalArray from an iterator of optional decimal values.
     pub fn from_option_iter<T: NativeDecimalType, I: IntoIterator<Item = Option<T>>>(
         iter: I,
         decimal_dtype: DecimalDType,

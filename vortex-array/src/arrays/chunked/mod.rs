@@ -36,5 +36,6 @@ impl VTable for ChunkedVTable {
     }
 }
 
+/// Encoding for chunked arrays.
 #[derive(Clone, Debug)]
 pub struct ChunkedEncoding;

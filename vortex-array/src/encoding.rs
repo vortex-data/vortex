@@ -19,6 +19,7 @@ use crate::{Array, ArrayRef, Canonical, DeserializeMetadata};
 /// EncodingId is a globally unique name of the array's encoding.
 pub type EncodingId = ArcRef<str>;
 
+/// Reference to an array encoding.
 pub type EncodingRef = ArcRef<dyn Encoding>;
 
 /// Marker trait for array encodings with their associated Array type.
@@ -26,8 +27,10 @@ pub trait Encoding: 'static + private::Sealed + Send + Sync + Debug {
     /// Downcast the encoding to [`Any`].
     fn as_any(&self) -> &dyn Any;
 
+    /// Converts this encoding to an `EncodingRef`.
     fn to_encoding(&self) -> EncodingRef;
 
+    /// Converts this encoding into an `EncodingRef` by consuming self.
     fn into_encoding(self) -> EncodingRef
     where
         Self: Sized;
@@ -167,6 +170,7 @@ impl PartialEq for dyn Encoding + '_ {
 impl Eq for dyn Encoding + '_ {}
 
 impl dyn Encoding + '_ {
+    /// Downcasts the encoding to a specific VTable encoding type.
     pub fn as_<V: VTable>(&self) -> &V::Encoding {
         self.as_any()
             .downcast_ref::<EncodingAdapter<V>>()

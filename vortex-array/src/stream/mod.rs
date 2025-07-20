@@ -18,6 +18,7 @@ mod ext;
 ///
 /// Can be thought of as equivalent to Arrow's RecordBatchReader.
 pub trait ArrayStream: Stream<Item = VortexResult<ArrayRef>> {
+    /// Returns the data type of arrays yielded by this stream.
     fn dtype(&self) -> &DType;
 }
 

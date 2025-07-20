@@ -30,13 +30,20 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
         .unwrap_array()
 }
 
+/// Comparison operators for comparing arrays.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub enum Operator {
+    /// Equal to (==)
     Eq,
+    /// Not equal to (!=)
     NotEq,
+    /// Greater than (>)
     Gt,
+    /// Greater than or equal to (>=)
     Gte,
+    /// Less than (<)
     Lt,
+    /// Less than or equal to (<=)
     Lte,
 }
 
@@ -55,6 +62,7 @@ impl Display for Operator {
 }
 
 impl Operator {
+    /// Returns the logical inverse of this operator (e.g., == becomes !=).
     pub fn inverse(self) -> Self {
         match self {
             Operator::Eq => Operator::NotEq,
@@ -79,10 +87,15 @@ impl Operator {
     }
 }
 
+/// A reference to a comparison kernel.
 pub struct CompareKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(CompareKernelRef);
 
+/// Trait for implementing comparison operations on specific array types.
 pub trait CompareKernel: VTable {
+    /// Compare two arrays using the specified operator.
+    /// 
+    /// Returns None if this kernel cannot handle the comparison.
     fn compare(
         &self,
         lhs: &Self::Array,
@@ -91,10 +104,12 @@ pub trait CompareKernel: VTable {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
+/// Adapter to convert a VTable with CompareKernel into a Kernel.
 #[derive(Debug)]
 pub struct CompareKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + CompareKernel> CompareKernelAdapter<V> {
+    /// Creates a reference to this adapter as a comparison kernel.
     pub const fn lift(&'static self) -> CompareKernelRef {
         CompareKernelRef(ArcRef::new_ref(self))
     }
@@ -110,6 +125,7 @@ impl<V: VTable + CompareKernel> Kernel for CompareKernelAdapter<V> {
     }
 }
 
+/// The global comparison compute function that dispatches to registered kernels.
 pub static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("compare".into(), ArcRef::new_ref(&Compare));
     for kernel in inventory::iter::<CompareKernelRef> {
@@ -118,6 +134,7 @@ pub static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+/// Implementation of the comparison compute function vtable.
 struct Compare;
 
 impl ComputeFnVTable for Compare {
@@ -230,9 +247,13 @@ impl ComputeFnVTable for Compare {
     }
 }
 
+/// Arguments for comparison operations.
 struct CompareArgs<'a> {
+    /// Left-hand side array for comparison.
     lhs: &'a dyn Array,
+    /// Right-hand side array for comparison.
     rhs: &'a dyn Array,
+    /// Comparison operator to apply.
     operator: Operator,
 }
 
@@ -304,6 +325,10 @@ fn arrow_compare(
     from_arrow_array_with_len(&array, left.len(), nullable)
 }
 
+/// Compares two scalar values using the specified operator.
+/// 
+/// Returns a boolean scalar with the result of the comparison.
+/// If either scalar is null, the result is null.
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
     if lhs.is_null() | rhs.is_null() {
         Scalar::null(DType::Bool(Nullability::Nullable))

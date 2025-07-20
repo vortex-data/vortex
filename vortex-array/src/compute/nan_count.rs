@@ -65,9 +65,11 @@ impl ComputeFnVTable for NaNCount {
 
 /// Computes the min and max of an array, returning the (min, max) values
 pub trait NaNCountKernel: VTable {
+    /// Computes the number of NaN values in the array.
     fn nan_count(&self, array: &Self::Array) -> VortexResult<usize>;
 }
 
+/// The nan_count [`ComputeFn`].
 pub static NAN_COUNT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("nan_count".into(), ArcRef::new_ref(&NaNCount));
     for kernel in inventory::iter::<NaNCountKernelRef> {
@@ -76,13 +78,16 @@ pub static NAN_COUNT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
+/// Reference to a NaN count kernel.
 pub struct NaNCountKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(NaNCountKernelRef);
 
 #[derive(Debug)]
+/// Adapter to convert a `NaNCountKernel` into a `Kernel`.
 pub struct NaNCountKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + NaNCountKernel> NaNCountKernelAdapter<V> {
+    /// Lifts this kernel adapter into a `NaNCountKernelRef`.
     pub const fn lift(&'static self) -> NaNCountKernelRef {
         NaNCountKernelRef(ArcRef::new_ref(self))
     }

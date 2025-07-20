@@ -143,6 +143,7 @@ pub struct DecimalBuilder {
 const DEFAULT_BUILDER_CAPACITY: usize = 1024;
 
 impl DecimalBuilder {
+    /// Creates a new DecimalBuilder with default capacity.
     pub fn new<T: NativeDecimalType>(precision: u8, scale: i8, nullability: Nullability) -> Self {
         Self::with_capacity::<T>(
             DEFAULT_BUILDER_CAPACITY,
@@ -151,6 +152,7 @@ impl DecimalBuilder {
         )
     }
 
+    /// Creates a new DecimalBuilder with the specified capacity.
     pub fn with_capacity<T: NativeDecimalType>(
         capacity: usize,
         decimal: DecimalDType,
@@ -179,11 +181,13 @@ impl DecimalBuilder {
 }
 
 impl DecimalBuilder {
+    /// Appends a decimal value to the builder.
     pub fn append_value<V: NativeDecimalType>(&mut self, value: V) {
         self.values.push(value);
         self.nulls.append(true);
     }
 
+    /// Appends an optional decimal value to the builder.
     pub fn append_option<V: NativeDecimalType>(&mut self, value: Option<V>) {
         match value {
             Some(value) => {
@@ -201,6 +205,7 @@ impl DecimalBuilder {
 }
 
 impl DecimalBuilder {
+    /// Finishes building and returns a DecimalArray.
     pub fn finish_into_decimal(&mut self) -> DecimalArray {
         let nulls = self.nulls.finish();
 

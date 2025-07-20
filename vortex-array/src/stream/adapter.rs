@@ -21,6 +21,7 @@ pub struct ArrayStreamAdapter<S> {
 }
 
 impl<S> ArrayStreamAdapter<S> {
+    /// Creates a new array stream adapter.
     pub fn new(dtype: DType, inner: S) -> Self {
         Self { dtype, inner }
     }

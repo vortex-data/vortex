@@ -29,12 +29,16 @@ pub fn min_max(array: &dyn Array) -> VortexResult<Option<MinMaxResult>> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Result of a min_max computation containing both minimum and maximum values.
 pub struct MinMaxResult {
+    /// The minimum value found in the array.
     pub min: Scalar,
+    /// The maximum value found in the array.
     pub max: Scalar,
 }
 
 impl MinMaxResult {
+    /// Creates a MinMaxResult from a struct scalar containing min and max fields.
     pub fn from_scalar(scalar: Scalar) -> VortexResult<Option<Self>> {
         if scalar.is_null() {
             Ok(None)
@@ -52,6 +56,7 @@ impl MinMaxResult {
     }
 }
 
+/// Implementation for min_max computation.
 pub struct MinMax;
 
 impl ComputeFnVTable for MinMax {
@@ -156,16 +161,20 @@ fn min_max_impl(
 
 /// The minimum and maximum non-null values of an array, or None if there are no non-null values.
 pub trait MinMaxKernel: VTable {
+    /// Computes the minimum and maximum values in the array.
     fn min_max(&self, array: &Self::Array) -> VortexResult<Option<MinMaxResult>>;
 }
 
+/// Reference to a min_max kernel.
 pub struct MinMaxKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(MinMaxKernelRef);
 
 #[derive(Debug)]
+/// Adapter to convert a `MinMaxKernel` into a `Kernel`.
 pub struct MinMaxKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + MinMaxKernel> MinMaxKernelAdapter<V> {
+    /// Lifts this kernel adapter into a `MinMaxKernelRef`.
     pub const fn lift(&'static self) -> MinMaxKernelRef {
         MinMaxKernelRef(ArcRef::new_ref(self))
     }
@@ -191,6 +200,7 @@ impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
     }
 }
 
+/// The min_max [`ComputeFn`].
 pub static MIN_MAX_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("min_max".into(), ArcRef::new_ref(&MinMax));
     for kernel in inventory::iter::<MinMaxKernelRef> {

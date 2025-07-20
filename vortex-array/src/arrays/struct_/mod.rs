@@ -43,6 +43,10 @@ impl VTable for StructVTable {
     }
 }
 
+/// An array that represents structured data with named fields.
+///
+/// Similar to a row in a database table, each element in a StructArray contains
+/// values for multiple named fields. All fields have the same length.
 #[derive(Clone, Debug)]
 pub struct StructArray {
     len: usize,
@@ -52,14 +56,23 @@ pub struct StructArray {
     stats_set: ArrayStats,
 }
 
+/// Encoding for struct arrays.
 #[derive(Clone, Debug)]
 pub struct StructEncoding;
 
 impl StructArray {
+    /// Get a slice of all field arrays in this struct.
+    ///
+    /// The fields are returned in the same order as the field names.
     pub fn fields(&self) -> &[ArrayRef] {
         &self.fields
     }
 
+    /// Get a field array by name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no field with the given name exists.
     pub fn field_by_name(&self, name: impl AsRef<str>) -> VortexResult<&ArrayRef> {
         let name = name.as_ref();
         self.field_by_name_opt(name).ok_or_else(|| {
@@ -70,6 +83,7 @@ impl StructArray {
         })
     }
 
+    /// Get a field array by name, returning None if not found.
     pub fn field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
         let name = name.as_ref();
         self.names()
@@ -78,10 +92,12 @@ impl StructArray {
             .map(|idx| &self.fields[idx])
     }
 
+    /// Get the names of all fields in this struct.
     pub fn names(&self) -> &FieldNames {
         self.struct_fields().names()
     }
 
+    /// Get the struct fields metadata including names and types.
     pub fn struct_fields(&self) -> &StructFields {
         let Some(struct_dtype) = &self.dtype.as_struct() else {
             unreachable!(
@@ -102,6 +118,21 @@ impl StructArray {
         .vortex_expect("StructArray::new_with_len should not fail")
     }
 
+    /// Create a new struct array with the given field names, field arrays, length, and validity.
+    ///
+    /// # Arguments
+    ///
+    /// * `names` - Names of the fields
+    /// * `fields` - Arrays containing the field data
+    /// * `length` - Expected length of each field array
+    /// * `validity` - Validity information for the struct array
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The number of names doesn't match the number of fields
+    /// - Any field array has a different length than expected
+    /// - The validity length doesn't match the array length
     pub fn try_new(
         names: FieldNames,
         fields: Vec<ArrayRef>,
@@ -145,6 +176,20 @@ impl StructArray {
         })
     }
 
+    /// Create a new struct array with field arrays and pre-constructed struct fields metadata.
+    ///
+    /// # Arguments
+    ///
+    /// * `fields` - Arrays containing the field data
+    /// * `dtype` - Pre-constructed struct fields metadata
+    /// * `length` - Expected length of each field array
+    /// * `validity` - Validity information for the struct array
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Any field array has a different length than expected
+    /// - Field array types don't match the struct fields metadata
     pub fn try_new_with_dtype(
         fields: Vec<ArrayRef>,
         dtype: StructFields,
@@ -177,10 +222,23 @@ impl StructArray {
         })
     }
 
+    /// Create a struct array from field name and array pairs.
+    ///
+    /// This is a convenience method that creates a non-nullable struct array.
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
         Self::try_from_iter(items.iter().map(|(a, b)| (a, b.to_array())))
     }
 
+    /// Create a struct array from an iterator of field name and array pairs with validity.
+    ///
+    /// # Arguments
+    ///
+    /// * `iter` - Iterator of (name, array) pairs
+    /// * `validity` - Validity information for the struct array
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the iterator is empty (length cannot be determined).
     pub fn try_from_iter_with_validity<
         N: AsRef<str>,
         A: IntoArray,
@@ -201,6 +259,11 @@ impl StructArray {
         Self::try_new(FieldNames::from_iter(names), fields, len, validity)
     }
 
+    /// Create a non-nullable struct array from an iterator of field name and array pairs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the iterator is empty (length cannot be determined).
     pub fn try_from_iter<N: AsRef<str>, A: IntoArray, T: IntoIterator<Item = (N, A)>>(
         iter: T,
     ) -> VortexResult<Self> {
@@ -238,8 +301,10 @@ impl StructArray {
         )
     }
 
-    /// Removes and returns a column from the struct array by name.
-    /// If the column does not exist, returns `None`.
+    /// Remove and return a field from the struct array by name.
+    ///
+    /// This modifies the struct array in place, removing the specified field.
+    /// If the field does not exist, returns `None`.
     pub fn remove_column(&mut self, name: impl Into<FieldName>) -> Option<ArrayRef> {
         let name = name.into();
 

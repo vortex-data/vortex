@@ -50,6 +50,7 @@ pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexRe
     Ok(result)
 }
 
+/// The is_constant [`ComputeFn`].
 pub static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("is_constant".into(), ArcRef::new_ref(&IsConstant));
     for kernel in inventory::iter::<IsConstantKernelRef> {
@@ -185,9 +186,11 @@ fn is_constant_impl(
     Ok(None)
 }
 
+/// Reference to an is_constant kernel.
 pub struct IsConstantKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(IsConstantKernelRef);
 
+/// Trait for implementing is_constant operations on specific array encodings.
 pub trait IsConstantKernel: VTable {
     /// # Preconditions
     ///
@@ -200,9 +203,11 @@ pub trait IsConstantKernel: VTable {
 }
 
 #[derive(Debug)]
+/// Adapter to convert an `IsConstantKernel` into a `Kernel`.
 pub struct IsConstantKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + IsConstantKernel> IsConstantKernelAdapter<V> {
+    /// Lifts this kernel adapter into an `IsConstantKernelRef`.
     pub const fn lift(&'static self) -> IsConstantKernelRef {
         IsConstantKernelRef(ArcRef::new_ref(self))
     }
@@ -281,6 +286,7 @@ impl Options for IsConstantOpts {
 }
 
 impl IsConstantOpts {
+    /// Returns whether the cost setting is negligible.
     pub fn is_negligible_cost(&self) -> bool {
         self.cost == Cost::Negligible
     }

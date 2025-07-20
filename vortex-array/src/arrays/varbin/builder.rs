@@ -12,6 +12,10 @@ use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::VarBinArray;
 use crate::validity::Validity;
 
+/// Builder for variable-length binary arrays.
+///
+/// This builder allows efficient construction of VarBinArray by accumulating
+/// values and building the offsets and data buffers incrementally.
 pub struct VarBinBuilder<O: NativePType> {
     offsets: BufferMut<O>,
     data: BufferMut<u8>,
@@ -25,10 +29,15 @@ impl<O: NativePType + PrimInt> Default for VarBinBuilder<O> {
 }
 
 impl<O: NativePType + PrimInt> VarBinBuilder<O> {
+    /// Create a new builder with default capacity.
     pub fn new() -> Self {
         Self::with_capacity(0)
     }
 
+    /// Create a new builder with the specified capacity.
+    ///
+    /// This pre-allocates space for `len` elements, which can improve performance
+    /// when the final size is known.
     pub fn with_capacity(len: usize) -> Self {
         let mut offsets = BufferMut::with_capacity(len + 1);
         offsets.push(O::zero());
@@ -40,6 +49,10 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
     }
 
     #[inline]
+    /// Append a value to the builder.
+    ///
+    /// The value can be `None` to append a null value, or `Some(bytes)` to append
+    /// the given byte slice.
     pub fn append(&mut self, value: Option<&[u8]>) {
         match value {
             Some(v) => self.append_value(v),
@@ -48,6 +61,9 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
     }
 
     #[inline]
+    /// Append a non-null value to the builder.
+    ///
+    /// The value will be converted to bytes and appended to the data buffer.
     pub fn append_value(&mut self, value: impl AsRef<[u8]>) {
         let slice = value.as_ref();
         self.offsets
@@ -64,18 +80,26 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
     }
 
     #[inline]
+    /// Append a null value to the builder.
     pub fn append_null(&mut self) {
         self.offsets.push(self.offsets[self.offsets.len() - 1]);
         self.validity.append_null();
     }
 
     #[inline]
+    /// Append multiple null values to the builder.
+    ///
+    /// This is more efficient than calling `append_null()` multiple times.
     pub fn append_n_nulls(&mut self, n: usize) {
         self.offsets.push_n(self.offsets[self.offsets.len() - 1], n);
         self.validity.append_n_nulls(n);
     }
 
     #[inline]
+    /// Append multiple values from a single buffer with pre-computed offsets.
+    ///
+    /// This is an efficient way to append multiple values when you already have
+    /// the concatenated data and end offsets.
     pub fn append_values(&mut self, values: &[u8], end_offsets: impl Iterator<Item = O>, num: usize)
     where
         O: 'static,
@@ -87,6 +111,9 @@ impl<O: NativePType + PrimInt> VarBinBuilder<O> {
         self.validity.append_n_non_nulls(num);
     }
 
+    /// Finish building and return the constructed VarBinArray.
+    ///
+    /// This consumes the builder and returns the final array with the specified data type.
     pub fn finish(mut self, dtype: DType) -> VarBinArray {
         let offsets = PrimitiveArray::new(self.offsets.freeze(), Validity::NonNullable);
         let nulls = self.validity.finish();

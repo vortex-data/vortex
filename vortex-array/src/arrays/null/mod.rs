@@ -44,16 +44,19 @@ impl VTable for NullVTable {
     }
 }
 
+/// An array where all elements are null.
 #[derive(Clone, Debug)]
 pub struct NullArray {
     len: usize,
     stats_set: ArrayStats,
 }
 
+/// Encoding for null arrays.
 #[derive(Clone, Debug)]
 pub struct NullEncoding;
 
 impl NullArray {
+    /// Creates a new null array with the given length.
     pub fn new(len: usize) -> Self {
         Self {
             len,

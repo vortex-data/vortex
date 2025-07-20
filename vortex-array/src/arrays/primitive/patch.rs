@@ -13,6 +13,7 @@ use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
     #[allow(clippy::cognitive_complexity)]
+    /// Apply patches to this primitive array.
     pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
         let patch_indices = patches.indices().to_primitive()?;
         let patch_values = patches.values().to_primitive()?;

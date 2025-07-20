@@ -14,6 +14,7 @@ use super::{IsSorted, IsStrictSorted, NaNCount, NullCount, StatType, Uncompresse
 use crate::stats::{IsConstant, Max, Min, Precision, Stat, StatBound, StatsProviderExt, Sum};
 
 #[derive(Default, Debug, Clone)]
+/// A collection of statistical information about an array.
 pub struct StatsSet {
     values: Vec<(Stat, Precision<ScalarValue>)>,
 }
@@ -47,6 +48,7 @@ impl StatsSet {
         StatsSet::new_unchecked(vec![(Stat::NullCount, Precision::exact(0))])
     }
 
+    /// Creates a stats set for a constant array with the given scalar value and length.
     pub fn constant(scalar: Scalar, length: usize) -> Self {
         let (dtype, sv) = scalar.into_parts();
         let mut stats = Self::default();
@@ -79,6 +81,7 @@ impl StatsSet {
         stats
     }
 
+    /// Creates a stats set for a boolean array with the given counts.
     pub fn bools_with_sum_and_null_count(true_count: usize, null_count: usize, len: usize) -> Self {
         StatsSet::new_unchecked(vec![
             (Stat::Sum, Precision::exact(true_count)),
@@ -92,6 +95,7 @@ impl StatsSet {
         ])
     }
 
+    /// Creates a stats set containing only the specified statistic.
     pub fn of(stat: Stat, value: Precision<ScalarValue>) -> Self {
         Self::new_unchecked(vec![(stat, value)])
     }
@@ -122,10 +126,12 @@ impl StatsSet {
         self.values.retain(|(s, _)| *s != stat);
     }
 
+    /// Retains only the specified statistics in the set.
     pub fn retain_only(&mut self, stats: &[Stat]) {
         self.values.retain(|(s, _)| stats.contains(s));
     }
 
+    /// Keeps only the specified statistics, converting them to inexact precision.
     pub fn keep_inexact_stats(self, inexact_keep: &[Stat]) -> Self {
         self.values
             .into_iter()

@@ -10,9 +10,12 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 
+/// Specifies which side of equal values to return in binary search.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SearchSortedSide {
+    /// Return the leftmost (lowest index) position of equal values.
     Left,
+    /// Return the rightmost (highest index) position of equal values.
     Right,
 }
 
@@ -38,7 +41,9 @@ pub enum SearchResult {
 }
 
 impl SearchResult {
-    /// Convert search result to an index only if the value have been found
+    /// Convert search result to an index only if the value was found.
+    ///
+    /// Returns `Some(index)` if the value was found, `None` otherwise.
     pub fn to_found(self) -> Option<usize> {
         match self {
             Self::Found(i) => Some(i),
@@ -46,7 +51,9 @@ impl SearchResult {
         }
     }
 
-    /// Extract index out of search result regardless of whether the value have been found or not
+    /// Extract index from search result regardless of whether the value was found.
+    ///
+    /// Returns the index where the value was found or where it would be inserted.
     pub fn to_index(self) -> usize {
         match self {
             Self::Found(i) => i,
@@ -91,40 +98,54 @@ impl Display for SearchResult {
     }
 }
 
+/// Trait for types that can be compared by index.
+///
+/// This trait allows efficient comparison of elements at specific indices
+/// without materializing the entire collection.
 pub trait IndexOrd<V> {
-    /// PartialOrd of the value at index `idx` with `elem`.
-    /// For example, if self\[idx\] > elem, return Some(Greater).
+    /// Compare the value at index `idx` with `elem`.
+    ///
+    /// Returns `Some(ordering)` if the comparison is possible, `None` if the
+    /// values are incomparable (e.g., one is NaN).
+    ///
+    /// For example, if self\[idx\] > elem, returns `Some(Greater)`.
     fn index_cmp(&self, idx: usize, elem: &V) -> Option<Ordering>;
 
+    /// Check if the value at index `idx` is less than `elem`.
     fn index_lt(&self, idx: usize, elem: &V) -> bool {
         matches!(self.index_cmp(idx, elem), Some(Less))
     }
 
+    /// Check if the value at index `idx` is less than or equal to `elem`.
     fn index_le(&self, idx: usize, elem: &V) -> bool {
         matches!(self.index_cmp(idx, elem), Some(Less | Equal))
     }
 
+    /// Check if the value at index `idx` is greater than `elem`.
     fn index_gt(&self, idx: usize, elem: &V) -> bool {
         matches!(self.index_cmp(idx, elem), Some(Greater))
     }
 
+    /// Check if the value at index `idx` is greater than or equal to `elem`.
     fn index_ge(&self, idx: usize, elem: &V) -> bool {
         matches!(self.index_cmp(idx, elem), Some(Greater | Equal))
     }
 
-    /// Get the length of the underlying ordered collection
+    /// Get the length of the underlying ordered collection.
     fn index_len(&self) -> usize;
 }
 
-/// Searches for value assuming the array is sorted.
+/// Trait for performing binary search on sorted data.
 ///
-/// Returned indices satisfy following condition if the search for value was to be inserted into the array at found positions
+/// This trait provides methods for searching sorted collections efficiently.
+/// The returned indices satisfy the following conditions:
 ///
 /// |side |result satisfies|
 /// |-----|----------------|
 /// |left |array\[i-1\] < value <= array\[i\]|
 /// |right|array\[i-1\] <= value < array\[i\]|
 pub trait SearchSorted<T> {
+    /// Search for multiple values in the sorted collection.
     fn search_sorted_many<I: IntoIterator<Item = T>>(
         &self,
         values: I,
@@ -138,6 +159,7 @@ pub trait SearchSorted<T> {
             .map(move |value| self.search_sorted(&value, side))
     }
 
+    /// Search for a single value in the sorted collection.
     fn search_sorted(&self, value: &T, side: SearchSortedSide) -> SearchResult
     where
         Self: IndexOrd<T>,

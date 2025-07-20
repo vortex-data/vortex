@@ -12,6 +12,7 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output,
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
 
+/// Fills null values in an array with a specified value.
 pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     FILL_NULL_FN
         .invoke(&InvocationArgs {
@@ -21,17 +22,22 @@ pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRe
         .unwrap_array()
 }
 
+/// Trait for implementing fill null operations on arrays.
 pub trait FillNullKernel: VTable {
+    /// Fills null values in an array with a specified value.
     fn fill_null(&self, array: &Self::Array, fill_value: &Scalar) -> VortexResult<ArrayRef>;
 }
 
+/// Reference to a FillNull kernel for registration.
 pub struct FillNullKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(FillNullKernelRef);
 
+/// Adapter for implementing FillNull kernels.
 #[derive(Debug)]
 pub struct FillNullKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + FillNullKernel> FillNullKernelAdapter<V> {
+    /// Lifts this adapter into a kernel reference for registration.
     pub const fn lift(&'static self) -> FillNullKernelRef {
         FillNullKernelRef(ArcRef::new_ref(self))
     }
@@ -49,6 +55,7 @@ impl<V: VTable + FillNullKernel> Kernel for FillNullKernelAdapter<V> {
     }
 }
 
+/// The global FillNull compute function.
 pub static FILL_NULL_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("fill_null".into(), ArcRef::new_ref(&FillNull));
     for kernel in inventory::iter::<FillNullKernelRef> {

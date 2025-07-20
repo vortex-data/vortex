@@ -17,6 +17,7 @@ use crate::{DeserializeMetadata, EmptyMetadata, SerializeMetadata};
 ///  * Serialization to disk or over IPC.
 ///  * Import/export over FFI.
 pub trait SerdeVTable<V: VTable> {
+    /// The metadata type for this array encoding.
     type Metadata: Debug + SerializeMetadata + DeserializeMetadata;
 
     /// Exports the metadata for the array.

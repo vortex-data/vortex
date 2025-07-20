@@ -163,6 +163,7 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for FilterArgs<'a> {
 pub struct FilterKernelRef(pub ArcRef<dyn Kernel>);
 inventory::collect!(FilterKernelRef);
 
+/// Trait for implementing filter operations on specific array encodings.
 pub trait FilterKernel: VTable {
     /// Filter an array by the provided predicate.
     ///
@@ -176,6 +177,7 @@ pub trait FilterKernel: VTable {
 pub struct FilterKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + FilterKernel> FilterKernelAdapter<V> {
+    /// Lifts this kernel adapter into a `FilterKernelRef`.
     pub const fn lift(&'static self) -> FilterKernelRef {
         FilterKernelRef(ArcRef::new_ref(self))
     }
@@ -232,6 +234,7 @@ impl TryFrom<&dyn Array> for Mask {
     }
 }
 
+/// Fallback filter implementation using Arrow's filter kernel.
 pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     let values = match &mask {
         Mask::Values(values) => values,

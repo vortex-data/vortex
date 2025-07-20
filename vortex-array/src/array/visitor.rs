@@ -13,6 +13,10 @@ use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef};
 
+/// Trait for visiting the structure and children of an array.
+///
+/// This trait provides methods to traverse and inspect the internal structure
+/// of arrays, including their children, buffers, and metadata.
 pub trait ArrayVisitor {
     /// Returns the children of the array.
     fn children(&self) -> Vec<ArrayRef>;
@@ -74,6 +78,10 @@ impl ArrayVisitor for Arc<dyn Array> {
     }
 }
 
+/// Extension trait for arrays that provides additional visitor functionality.
+///
+/// This trait adds recursive traversal methods to arrays, allowing for
+/// comprehensive inspection of array hierarchies.
 pub trait ArrayVisitorExt: Array {
     /// Count the number of buffers encoded by self and all child arrays.
     fn nbuffers_recursive(&self) -> usize {
@@ -111,10 +119,21 @@ pub trait ArrayVisitorExt: Array {
 
 impl<A: Array + ?Sized> ArrayVisitorExt for A {}
 
+/// Trait for visiting buffers within an array.
+///
+/// This trait allows implementors to inspect and process the raw buffers
+/// that make up an array's data.
 pub trait ArrayBufferVisitor {
+    /// Visit a buffer within an array.
+    ///
+    /// This method is called for each buffer encountered during traversal.
     fn visit_buffer(&mut self, buffer: &ByteBuffer);
 }
 
+/// Trait for visiting child arrays within an array.
+///
+/// This trait allows implementors to inspect and process the child arrays
+/// that make up a composite array's structure.
 pub trait ArrayChildVisitor {
     /// Visit a child of this array.
     fn visit_child(&mut self, _name: &str, _array: &dyn Array);

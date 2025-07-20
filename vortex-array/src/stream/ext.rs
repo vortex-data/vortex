@@ -10,6 +10,7 @@ use crate::ArrayRef;
 use crate::arrays::ChunkedArray;
 use crate::stream::{ArrayStream, SendableArrayStream};
 
+/// Extension trait providing additional methods for `ArrayStream`.
 pub trait ArrayStreamExt: ArrayStream {
     /// Box the [`ArrayStream`] so that it can be sent between threads.
     fn boxed(self) -> SendableArrayStream

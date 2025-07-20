@@ -21,6 +21,7 @@ impl<T> LowerBound<T> {
 }
 
 impl<T> LowerBound<T> {
+    /// Returns whether this lower bound represents an exact value.
     pub fn is_exact(&self) -> bool {
         self.0.is_exact()
     }

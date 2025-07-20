@@ -34,6 +34,7 @@ pub struct StatsSetRef<'a> {
 }
 
 impl ArrayStats {
+    /// Creates a reference to this stats set associated with the given array.
     pub fn to_ref<'a>(&self, array: &'a dyn Array) -> StatsSetRef<'a> {
         StatsSetRef {
             dyn_array_ref: array,
@@ -41,14 +42,17 @@ impl ArrayStats {
         }
     }
 
+    /// Sets a statistic to the given value.
     pub fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
         self.inner.write().set(stat, value);
     }
 
+    /// Clears the given statistic.
     pub fn clear(&self, stat: Stat) {
         self.inner.write().clear(stat);
     }
 
+    /// Retains only the specified statistics, clearing all others.
     pub fn retain(&self, stats: &[Stat]) {
         self.inner.write().retain_only(stats);
     }
@@ -81,6 +85,7 @@ impl StatsProvider for ArrayStats {
 }
 
 impl StatsSetRef<'_> {
+    /// Sets multiple statistics from an iterator.
     pub fn set_iter(&self, iter: StatsSetIntoIter) {
         let mut guard = self.parent_stats.inner.write();
 
@@ -89,20 +94,26 @@ impl StatsSetRef<'_> {
         }
     }
 
+    /// Inherits statistics from a parent stats set.
     pub fn inherit(&self, parent_stats: StatsSetRef<'_>) {
         // TODO(ngates): depending on statistic, this should choose the more precise one
         self.set_iter(parent_stats.into_iter());
     }
 
+    /// Returns a cloned copy of the underlying stats set.
     // TODO(adamg): potentially problematic name
     pub fn to_owned(&self) -> StatsSet {
         self.parent_stats.inner.read().clone()
     }
 
+    /// Returns an iterator over all statistics in this set.
     pub fn into_iter(&self) -> StatsSetIntoIter {
         self.to_owned().into_iter()
     }
 
+    /// Computes the given statistic for the associated array.
+    /// 
+    /// Returns the cached value if available and exact, otherwise computes it.
     pub fn compute_stat(&self, stat: Stat) -> VortexResult<Option<ScalarValue>> {
         // If it's already computed and exact, we can return it.
         if let Some(Precision::Exact(stat)) = self.get(stat) {
@@ -157,6 +168,7 @@ impl StatsSetRef<'_> {
         })
     }
 
+    /// Computes all the specified statistics and returns them as a new StatsSet.
     pub fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
         for &stat in stats {
@@ -169,6 +181,7 @@ impl StatsSetRef<'_> {
 }
 
 impl StatsSetRef<'_> {
+    /// Gets a statistic converted to the specified type.
     pub fn get_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
@@ -176,6 +189,7 @@ impl StatsSetRef<'_> {
         StatsProviderExt::get_as::<U>(self, stat)
     }
 
+    /// Gets a statistic as a bound value for the specified stat type.
     pub fn get_as_bound<S, U>(&self) -> Option<S::Bound>
     where
         S: StatType<U>,
@@ -184,6 +198,7 @@ impl StatsSetRef<'_> {
         StatsProviderExt::get_as_bound::<S, U>(self)
     }
 
+    /// Computes a statistic and converts it to the specified type.
     pub fn compute_as<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
         stat: Stat,
@@ -204,46 +219,56 @@ impl StatsSetRef<'_> {
             })
     }
 
+    /// Sets a statistic to the given value.
     pub fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
         self.parent_stats.set(stat, value);
     }
 
+    /// Clears the given statistic.
     pub fn clear(&self, stat: Stat) {
         self.parent_stats.clear(stat);
     }
 
+    /// Retains only the specified statistics, clearing all others.
     pub fn retain(&self, stats: &[Stat]) {
         self.parent_stats.retain(stats);
     }
 
+    /// Computes the minimum value as the specified type.
     pub fn compute_min<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
     ) -> Option<U> {
         self.compute_as(Stat::Min)
     }
 
+    /// Computes the maximum value as the specified type.
     pub fn compute_max<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
         &self,
     ) -> Option<U> {
         self.compute_as(Stat::Max)
     }
 
+    /// Computes whether the array is sorted.
     pub fn compute_is_sorted(&self) -> Option<bool> {
         self.compute_as(Stat::IsSorted)
     }
 
+    /// Computes whether the array is strictly sorted (no duplicates).
     pub fn compute_is_strict_sorted(&self) -> Option<bool> {
         self.compute_as(Stat::IsStrictSorted)
     }
 
+    /// Computes whether the array contains only constant values.
     pub fn compute_is_constant(&self) -> Option<bool> {
         self.compute_as(Stat::IsConstant)
     }
 
+    /// Computes the number of null values in the array.
     pub fn compute_null_count(&self) -> Option<usize> {
         self.compute_as(Stat::NullCount)
     }
 
+    /// Computes the uncompressed size of the array in bytes.
     pub fn compute_uncompressed_size_in_bytes(&self) -> Option<usize> {
         self.compute_as(Stat::UncompressedSizeInBytes)
     }

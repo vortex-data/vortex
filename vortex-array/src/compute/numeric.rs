@@ -85,10 +85,13 @@ pub fn numeric(lhs: &dyn Array, rhs: &dyn Array, op: NumericOperator) -> VortexR
         .unwrap_array()
 }
 
+/// Reference to a numeric kernel.
 pub struct NumericKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(NumericKernelRef);
 
+/// Trait for implementing numeric operations on specific array encodings.
 pub trait NumericKernel: VTable {
+    /// Performs a numeric operation between arrays.
     fn numeric(
         &self,
         array: &Self::Array,
@@ -98,9 +101,11 @@ pub trait NumericKernel: VTable {
 }
 
 #[derive(Debug)]
+/// Adapter to convert a `NumericKernel` into a `Kernel`.
 pub struct NumericKernelAdapter<V: VTable>(pub V);
 
 impl<V: VTable + NumericKernel> NumericKernelAdapter<V> {
+    /// Lifts this kernel adapter into a `NumericKernelRef`.
     pub const fn lift(&'static self) -> NumericKernelRef {
         NumericKernelRef(ArcRef::new_ref(self))
     }
@@ -116,6 +121,7 @@ impl<V: VTable + NumericKernel> Kernel for NumericKernelAdapter<V> {
     }
 }
 
+/// The numeric [`ComputeFn`].
 pub static NUMERIC_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("numeric".into(), ArcRef::new_ref(&Numeric));
     for kernel in inventory::iter::<NumericKernelRef> {
