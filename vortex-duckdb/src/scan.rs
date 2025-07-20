@@ -14,7 +14,8 @@ use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
-    BindInput, BindResult, DataChunk, Expression, LogicalType, TableFunction, TableInitInput,
+    BindInput, BindResult, Cardinality, DataChunk, Expression, LogicalType, TableFunction,
+    TableInitInput,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 
@@ -292,5 +293,15 @@ impl TableFunction for VortexTableFunction {
         };
         bind_data.filter_exprs.push(expr);
         Ok(true)
+    }
+
+    fn cardinality(bind_data: &Self::BindData) -> Cardinality {
+        if bind_data.file_paths.len() == 1 {
+            Cardinality::Maximum(bind_data.first_file.row_count())
+        } else {
+            // This is the same behavior as DuckDB's Parquet extension, although we could
+            // test multiplying the row count by the number of files.
+            Cardinality::Estimate(bind_data.first_file.row_count())
+        }
     }
 }
