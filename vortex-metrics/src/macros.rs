@@ -12,7 +12,7 @@ macro_rules! instrument {
             let task = $expr;
             #[cfg(feature = "tracing")]
             {
-                use tracing_futures::Instrument;
+                use tracing::Instrument;
                 task.instrument(tracing::info_span!(
                     $span_name,
                     $($key = $value,)*
