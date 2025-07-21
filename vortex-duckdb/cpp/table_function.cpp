@@ -196,6 +196,11 @@ unique_ptr<NodeStatistics> c_cardinality(ClientContext &context, const FunctionD
     return stats;
 }
 
+virtual_column_map_t c_get_virtual_columns(ClientContext &context, optional_ptr<FunctionData> bind_data) {
+    // Returns a map of <column_idx, TableColumn{name, type}>.
+    // Row ID columns must reference
+}
+
 vector<column_t> c_get_row_id_columns(ClientContext &context, optional_ptr<FunctionData> bind_data) {
     auto &bind = bind_data->Cast<CTableBindData>();
 
@@ -287,6 +292,7 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
     tf.late_materialization = vtab->late_materialization;
     tf.cardinality = c_cardinality;
     tf.get_partition_data = c_get_partition_data;
+    tf.get_virtual_columns = c_get_virtual_columns;
     tf.get_row_id_columns = c_get_row_id_columns;
 
     // Set up the parameters
