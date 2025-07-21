@@ -68,7 +68,7 @@ impl BindInput {
 
     /// Returns the number of parameters bound to this function.
     pub fn parameter_count(&self) -> usize {
-        unsafe { cpp::duckdb_vx_tfunc_bind_input_get_parameter_count(self.as_ptr()) as usize }
+        unsafe { cpp::duckdb_vx_tfunc_bind_input_get_parameter_count(self.as_ptr()) }
     }
 }
 

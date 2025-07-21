@@ -7,7 +7,7 @@ use std::sync::Arc;
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, and_collect, lit, root, select};
+use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
 use vortex::{ArrayRef, ToCanonical};
@@ -125,7 +125,7 @@ fn extract_table_filter_expr(
                         .column_names
                         .get(column_ids[idx.as_usize()].as_usize())
                         .vortex_expect("exists");
-                    try_from_table_filter(&ex, name)
+                    try_from_table_filter(&ex, &col(name.as_str()))
                 })
                 .reduce(|l, r| l?.zip(r?).map(|(l, r)| Ok(and(l, r))).transpose())
         })
@@ -237,6 +237,14 @@ impl TableFunction for VortexTableFunction {
         let bind_data = init_input.bind_data();
         let projection_expr = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
+
+        log::info!(
+            "Global init Vortex scan SELECT {} WHERE {}",
+            &projection_expr,
+            filter_expr
+                .as_ref()
+                .map_or("true".to_string(), |f| f.to_string())
+        );
 
         let closures =
             bind_data

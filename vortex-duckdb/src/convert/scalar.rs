@@ -212,6 +212,14 @@ impl TryFrom<Value> for Scalar {
     type Error = VortexError;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
+        Scalar::try_from(&value)
+    }
+}
+
+impl TryFrom<&Value> for Scalar {
+    type Error = VortexError;
+
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
         if unsafe { cpp::duckdb_is_null_value(value.as_ptr()) } {
             let dtype = DType::from_logical_type(value.logical_type(), Nullable);
             return Ok(Scalar::null(dtype?));

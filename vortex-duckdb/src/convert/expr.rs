@@ -8,52 +8,15 @@ use vortex::compute::{BetweenOptions, StrictComparison};
 use vortex::dtype::Nullability;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{
-    BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, NotExpr, Operator, and_collect,
-    get_item_scope, list_contains, lit, or_collect,
+    BetweenExpr, BinaryExpr, ExprRef, LikeExpr, LiteralExpr, NotExpr, Operator, and_collect, col,
+    list_contains, lit, or_collect,
 };
 use vortex::scalar::Scalar;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-use crate::duckdb::{Expression, ExpressionClass, TableFilter, TableFilterClass};
+use crate::duckdb::{Expression, ExpressionClass};
 
 const DUCKDB_FUNCTION_NAME_CONTAINS: &str = "contains";
-
-pub fn try_from_table_filter(value: &TableFilter, col: &str) -> VortexResult<Option<ExprRef>> {
-    let Some(class) = value.as_class() else {
-        return Ok(None);
-    };
-    Ok(Some(match class {
-        TableFilterClass::ConstantComparison(const_) => {
-            let scalar: Scalar = const_.value.try_into()?;
-            let col = get_item_scope(col);
-            BinaryExpr::new_expr(col, const_.operator.try_into()?, lit(scalar))
-        }
-        TableFilterClass::ConjunctionAnd(conj_and) => {
-            let Some(children) = conj_and
-                .children()
-                .map(|child| try_from_table_filter(&child, col))
-                .try_collect::<_, Option<Vec<_>>, _>()?
-            else {
-                return Ok(None);
-            };
-
-            and_collect(children).unwrap_or_else(|| lit(true))
-        }
-        // This is a disjunction.
-        TableFilterClass::ConjunctionOr(disjuction_or) => {
-            let Some(children) = disjuction_or
-                .children()
-                .map(|child| try_from_table_filter(&child, col))
-                .try_collect::<_, Option<Vec<_>>, _>()?
-            else {
-                return Ok(None);
-            };
-
-            or_collect(children).unwrap_or_else(|| lit(false))
-        }
-        _ => todo!("cannot convert table filter {:?}", value),
-    }))
-}
 
 fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
     match value.as_class().vortex_expect("unknown class") {
@@ -69,7 +32,7 @@ pub fn try_from_bound_expression(value: &Expression) -> VortexResult<Option<Expr
         vortex_bail!("no expression class id {:?}", value.as_class_id())
     };
     Ok(Some(match value {
-        ExpressionClass::BoundColumnRef(col) => get_item_scope(col.name.to_str()?),
+        ExpressionClass::BoundColumnRef(col_ref) => col(col_ref.name.to_str()?),
         ExpressionClass::BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
         ExpressionClass::BoundComparison(compare) => {
             let operator: Operator = compare.op.try_into()?;

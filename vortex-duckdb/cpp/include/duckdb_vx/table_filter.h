@@ -27,8 +27,6 @@ typedef struct duckdb_vx_table_filter_set_ *duckdb_vx_table_filter_set;
 
 typedef struct duckdb_vx_table_filter_ *duckdb_vx_table_filter;
 
-typedef struct duckdb_vx_dynamic_filter_data_ *duckdb_vx_dynamic_filter_data;
-
 /// Returns the column index associated with idx, if `table_filter_out` is null then the idx is out of bounds.
 idx_t duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set filter_set, size_t idx,
                                      duckdb_vx_table_filter *table_filter_out);
@@ -58,7 +56,44 @@ void duckdb_vx_table_filter_get_conjunction_or(duckdb_vx_table_filter ffi_filter
 void duckdb_vx_table_filter_get_conjunction_and(duckdb_vx_table_filter ffi_filter,
                                                 duckdb_vx_table_filter_conjunction *out);
 
-duckdb_vx_dynamic_filter_data duckdb_vx_table_filter_get_dynamic(duckdb_vx_table_filter ffi_filter);
+typedef struct duckdb_vx_dynamic_filter_data_ *duckdb_vx_dynamic_filter_data;
+void duckdb_vx_dynamic_filter_data_drop(duckdb_vx_dynamic_filter_data ffi_data);
+duckdb_value duckdb_vx_dynamic_filter_data_get_value(duckdb_vx_dynamic_filter_data ffi_data);
+
+typedef struct {
+    duckdb_vx_dynamic_filter_data data;
+    duckdb_vx_expr_type comparison_type;
+} duckdb_vx_table_filter_dynamic;
+
+void duckdb_vx_table_filter_get_dynamic(duckdb_vx_table_filter ffi_filter,
+                                        duckdb_vx_table_filter_dynamic *out);
+
+duckdb_vx_table_filter duckdb_vx_table_filter_get_optional(duckdb_vx_table_filter ffi_filter);
+
+duckdb_vx_expr duckdb_vx_table_filter_get_expression(duckdb_vx_table_filter ffi_filter);
+
+typedef struct {
+    duckdb_vx_table_filter child_filter;
+    char *child_name;
+    size_t child_name_len;
+} duckdb_vx_table_filter_struct_extract;
+
+void duckdb_vx_table_filter_get_struct_extract(duckdb_vx_table_filter ffi_filter,
+                                               duckdb_vx_table_filter_struct_extract *out);
+
+// Wrapper around a vector<Value>. The C API only knows about duckdb_value, which is itself a ptr to a Value,
+// so we cannot simply unwrap a vector<Value> on the Rust side (we would need a vector<*Value>).
+typedef struct duckdb_vx_values_vec_ *duckdb_vx_values_vec;
+
+duckdb_value duckdb_vx_values_vec_get(duckdb_vx_values_vec ffi_vec, size_t idx);
+
+typedef struct {
+    duckdb_vx_values_vec values;
+    size_t values_count;
+} duckdb_vx_table_filter_in_filter;
+
+void duckdb_vx_table_filter_get_in_filter(duckdb_vx_table_filter ffi_filter,
+                                          duckdb_vx_table_filter_in_filter *out);
 
 #ifdef __cplusplus /* End C ABI */
 }

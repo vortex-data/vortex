@@ -7,7 +7,7 @@ use arbitrary::{Result as AResult, Unstructured};
 use vortex_dtype::{DType, FieldName};
 use vortex_scalar::arbitrary::random_scalar;
 
-use crate::{BinaryExpr, ExprRef, Operator, and_collect, get_item_scope, lit, pack};
+use crate::{BinaryExpr, ExprRef, Operator, and_collect, col, lit, pack};
 
 pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<ExprRef>> {
     let Some(struct_dtype) = dtype.as_struct() else {
@@ -19,7 +19,7 @@ pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Optio
     let cols = (0..column_count)
         .map(|_| {
             let get_item = u.choose_iter(struct_dtype.names().iter())?;
-            Ok((get_item.clone(), get_item_scope(get_item.clone())))
+            Ok((get_item.clone(), col(get_item.clone())))
         })
         .collect::<AResult<Vec<_>>>()?;
 
@@ -51,10 +51,14 @@ pub fn filter_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Ex
     Ok(and_collect(filters))
 }
 
-fn random_comparison(u: &mut Unstructured<'_>, col: &FieldName, dtype: &DType) -> AResult<ExprRef> {
+fn random_comparison(
+    u: &mut Unstructured<'_>,
+    name: &FieldName,
+    dtype: &DType,
+) -> AResult<ExprRef> {
     let scalar = random_scalar(u, dtype)?;
     Ok(BinaryExpr::new_expr(
-        get_item_scope(col.clone()),
+        col(name.clone()),
         arbitrary_comparison_operator(u)?,
         lit(scalar),
     ))

@@ -3,6 +3,7 @@
 
 use std::ffi::CStr;
 use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
 use std::ptr;
 
 use bitvec::macros::internal::funty::Fundamental;
@@ -10,7 +11,7 @@ use cpp::duckdb_vx_table_filter;
 use vortex::error::VortexExpect;
 
 use crate::cpp::idx_t;
-use crate::duckdb::Value;
+use crate::duckdb::{Expression, Value};
 use crate::{cpp, wrapper};
 
 wrapper!(TableFilterSet, cpp::duckdb_vx_table_filter_set, |_| {});
@@ -64,76 +65,114 @@ impl Debug for TableFilterSet {
 wrapper!(TableFilter, duckdb_vx_table_filter, |_| {});
 
 impl TableFilter {
-    pub fn as_class(&self) -> Option<TableFilterClass<'_>> {
-        Some(
-            match unsafe { cpp::duckdb_vx_table_filter_get_type(self.as_ptr()) } {
-                cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_CONSTANT_COMPARISON => {
-                    let mut out = cpp::duckdb_vx_table_filter_constant {
-                        value: ptr::null_mut(),
-                        comparison_type: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
-                    };
-                    unsafe { cpp::duckdb_vx_table_filter_get_constant(self.as_ptr(), &raw mut out) };
+    pub fn as_class(&self) -> TableFilterClass<'_> {
+        match unsafe { cpp::duckdb_vx_table_filter_get_type(self.as_ptr()) } {
+            cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_CONSTANT_COMPARISON => {
+                let mut out = cpp::duckdb_vx_table_filter_constant {
+                    value: ptr::null_mut(),
+                    comparison_type: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
+                };
+                unsafe { cpp::duckdb_vx_table_filter_get_constant(self.as_ptr(), &raw mut out) };
 
-                    TableFilterClass::ConstantComparison(ConstantComparison {
-                        value: unsafe { Value::borrow(out.value) },
-                        operator: out.comparison_type,
-                    })
-                },
-                cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_IS_NULL => {
-                    TableFilterClass::IsNull
-                },
-                cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_IS_NOT_NULL => {
-                    TableFilterClass::IsNotNull
-                },
-                cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_CONJUNCTION_OR => {
-                    let mut out = cpp::duckdb_vx_table_filter_conjunction {
-                        children: ptr::null_mut(),
-                        children_count: 0,
-                    };
-                    unsafe { cpp::duckdb_vx_table_filter_get_conjunction_or(self.as_ptr(), &raw mut out) };
+                TableFilterClass::ConstantComparison(ConstantComparison {
+                    value: unsafe { Value::borrow(out.value) },
+                    operator: out.comparison_type,
+                })
+            }
+            cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_IS_NULL => {
+                TableFilterClass::IsNull
+            }
+            cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_IS_NOT_NULL => {
+                TableFilterClass::IsNotNull
+            }
+            cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_CONJUNCTION_OR => {
+                let mut out = cpp::duckdb_vx_table_filter_conjunction {
+                    children: ptr::null_mut(),
+                    children_count: 0,
+                };
+                unsafe {
+                    cpp::duckdb_vx_table_filter_get_conjunction_or(self.as_ptr(), &raw mut out)
+                };
 
-                    TableFilterClass::ConjunctionOr(Conjunction {
-                        children: unsafe {
-                            std::slice::from_raw_parts(out.children, out.children_count)
-                        },
-                    })
-                },
-                cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_CONJUNCTION_AND => {
-                    let mut out = cpp::duckdb_vx_table_filter_conjunction {
-                        children: ptr::null_mut(),
-                        children_count: 0,
-                    };
-                    unsafe {
-                        cpp::duckdb_vx_table_filter_get_conjunction_and(self.as_ptr(), &raw mut out)
-                    };
+                TableFilterClass::ConjunctionOr(Conjunction {
+                    children: unsafe {
+                        std::slice::from_raw_parts(out.children, out.children_count)
+                    },
+                })
+            }
+            cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_CONJUNCTION_AND => {
+                let mut out = cpp::duckdb_vx_table_filter_conjunction {
+                    children: ptr::null_mut(),
+                    children_count: 0,
+                };
+                unsafe {
+                    cpp::duckdb_vx_table_filter_get_conjunction_and(self.as_ptr(), &raw mut out)
+                };
 
-                    TableFilterClass::ConjunctionAnd(Conjunction {
-                        children: unsafe {
-                            std::slice::from_raw_parts(out.children, out.children_count)
-                        },
-                    })
-                },
-                cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_STRUCT_EXTRACT => {
-                    return None;
-                },
-                cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_OPTIONAL_FILTER => {
-                    return None;
-                },
-                cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_IN_FILTER => {
-                    return None;
-                },
-                cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_DYNAMIC_FILTER => {
-                    let filter_data = unsafe {
-                        cpp::duckdb_vx_table_filter_get_dynamic(self.as_ptr())
-                    };
-                    TableFilterClass::Dynamic(unsafe { DynamicFilterData::borrow(filter_data) })
+                TableFilterClass::ConjunctionAnd(Conjunction {
+                    children: unsafe {
+                        std::slice::from_raw_parts(out.children, out.children_count)
+                    },
+                })
+            }
+            cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_STRUCT_EXTRACT => {
+                let mut out = cpp::duckdb_vx_table_filter_struct_extract {
+                    child_filter: ptr::null_mut(),
+                    child_name: ptr::null_mut(),
+                    child_name_len: 0,
+                };
+                unsafe {
+                    cpp::duckdb_vx_table_filter_get_struct_extract(self.as_ptr(), &raw mut out)
+                };
 
-                },
-                cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_EXPRESSION_FILTER => {
-                    return None;
-                },
-            },
-        )
+                let name = unsafe {
+                    str::from_utf8_unchecked(std::slice::from_raw_parts(
+                        out.child_name as *const u8,
+                        out.child_name_len,
+                    ))
+                };
+                let child_filter = unsafe { TableFilter::borrow(out.child_filter) };
+
+                TableFilterClass::StructExtract(name, child_filter)
+            }
+            cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_OPTIONAL_FILTER => {
+                let child_filter = unsafe {
+                    TableFilter::borrow(cpp::duckdb_vx_table_filter_get_optional(self.as_ptr()))
+                };
+                TableFilterClass::Optional(child_filter)
+            }
+            cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_IN_FILTER => {
+                let mut out = cpp::duckdb_vx_table_filter_in_filter {
+                    values: ptr::null_mut(),
+                    values_count: 0,
+                };
+                unsafe { cpp::duckdb_vx_table_filter_get_in_filter(self.as_ptr(), &raw mut out) };
+
+                TableFilterClass::InFilter(Values {
+                    values: out.values,
+                    values_count: out.values_count,
+                    _phantom: Default::default(),
+                })
+            }
+            cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_DYNAMIC_FILTER => {
+                let mut out = cpp::duckdb_vx_table_filter_dynamic {
+                    data: ptr::null_mut(),
+                    comparison_type: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
+                };
+                unsafe { cpp::duckdb_vx_table_filter_get_dynamic(self.as_ptr(), &raw mut out) };
+
+                TableFilterClass::Dynamic(DynamicFilter {
+                    data: unsafe { DynamicFilterData::own(out.data) },
+                    operator: out.comparison_type,
+                })
+            }
+            cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_EXPRESSION_FILTER => {
+                let expr = unsafe {
+                    Expression::borrow(cpp::duckdb_vx_table_filter_get_expression(self.as_ptr()))
+                };
+                TableFilterClass::Expression(expr)
+            }
+        }
     }
 }
 
@@ -153,7 +192,11 @@ pub enum TableFilterClass<'a> {
     IsNotNull,
     ConjunctionOr(Conjunction<'a>),
     ConjunctionAnd(Conjunction<'a>),
-    Dynamic(DynamicFilterData),
+    StructExtract(&'a str, TableFilter),
+    Optional(TableFilter),
+    InFilter(Values<'a>),
+    Dynamic(DynamicFilter),
+    Expression(Expression),
 }
 
 pub struct ConstantComparison {
@@ -173,9 +216,64 @@ impl Conjunction<'_> {
     }
 }
 
+pub struct Values<'a> {
+    // We cannot use a Rust slice since the values are not individually heap-allocated.
+    values: cpp::duckdb_vx_values_vec,
+    values_count: usize,
+    _phantom: PhantomData<&'a ()>,
+}
+
+struct ValuesIterator<'a> {
+    values: cpp::duckdb_vx_values_vec,
+    values_count: usize,
+    index: usize,
+    _phantom: PhantomData<&'a ()>,
+}
+
+impl Iterator for ValuesIterator<'_> {
+    type Item = Value;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        (self.index < self.values_count).then(|| {
+            let value = unsafe {
+                Value::borrow(cpp::duckdb_vx_values_vec_get(self.values, self.index as _))
+            };
+            self.index += 1;
+            value
+        })
+    }
+}
+
+impl Values<'_> {
+    pub fn iter(&self) -> impl Iterator<Item = Value> {
+        ValuesIterator {
+            values: self.values,
+            values_count: self.values_count,
+            index: 0,
+            _phantom: Default::default(),
+        }
+    }
+}
+
+pub struct DynamicFilter {
+    pub data: DynamicFilterData,
+    pub operator: cpp::DUCKDB_VX_EXPR_TYPE,
+}
+
 wrapper!(
     /// A handle to mutable dynamic filter data.
     DynamicFilterData,
     cpp::duckdb_vx_dynamic_filter_data,
-    |_| {}
+    |ptr: &mut cpp::duckdb_vx_dynamic_filter_data| unsafe { cpp::duckdb_vx_dynamic_filter_data_drop(*ptr) }
 );
+
+impl DynamicFilterData {
+    /// Fetches the latest value from the dynamic filter data, if it has been initialized.
+    pub fn latest(&self) -> Option<Value> {
+        let ptr = unsafe { cpp::duckdb_vx_dynamic_filter_data_get_value(self.as_ptr()) };
+        if ptr.is_null() {
+            return None;
+        }
+        Some(unsafe { Value::borrow(ptr) })
+    }
+}
