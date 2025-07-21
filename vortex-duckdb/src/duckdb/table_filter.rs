@@ -6,12 +6,13 @@ use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::ptr;
 
-use crate::cpp::idx_t;
-use crate::duckdb::{Expression, Value};
-use crate::{cpp, wrapper};
 use bitvec::macros::internal::funty::Fundamental;
 use cpp::duckdb_vx_table_filter;
 use vortex::error::VortexExpect;
+
+use crate::cpp::idx_t;
+use crate::duckdb::{Expression, Value};
+use crate::{cpp, wrapper};
 
 wrapper!(TableFilterSet, cpp::duckdb_vx_table_filter_set, |_| {});
 

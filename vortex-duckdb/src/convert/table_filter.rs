@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::duckdb::{TableFilter, TableFilterClass};
-use itertools::Itertools;
 use std::sync::Arc;
+
+use itertools::Itertools;
 use vortex::dtype::Nullability;
 use vortex::error::{VortexResult, vortex_bail};
 use vortex::expr::{
     BinaryExpr, ExprRef, and_collect, get_item, is_null, list_contains, lit, not, or_collect,
 };
 use vortex::scalar::Scalar;
+
+use crate::duckdb::{TableFilter, TableFilterClass};
 
 pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult<Option<ExprRef>> {
     Ok(Some(match value.as_class() {
