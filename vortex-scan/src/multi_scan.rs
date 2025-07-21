@@ -6,13 +6,14 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
 
-use crate::ScanBuilder;
 use crossbeam_deque::{Steal, Stealer, Worker};
 use crossbeam_queue::SegQueue;
 use futures::executor::LocalPool;
 use futures::future::BoxFuture;
 use parking_lot::RwLock;
 use vortex_error::VortexResult;
+
+use crate::ScanBuilder;
 
 type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
 type ScanBuilderFactory<T> = Box<dyn FnOnce() -> ScanBuilder<T> + Send + Sync>;
@@ -77,7 +78,7 @@ impl<T: 'static + Send + Sync> State<T> {
                 .collect::<Steal<()>>()
         })
         .find(|steal| !steal.is_retry())
-        .unwrap_or_else(|| Steal::Empty)
+        .unwrap_or(Steal::Empty)
     }
 }
 
@@ -134,21 +135,19 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
     type Item = VortexResult<T>;
 
     fn next(&mut self) -> Option<VortexResult<T>> {
-        if self.worker.is_empty() {
-            if !self.state.load_next_scan(&self.worker) {
-                // If there are no more scans to load, then there is at least one worker
-                // constructing a scan and about to push some tasks.
-                // We sit in a loop trying to steal some of those tasks, or else bail out when
-                // all scans have been constructed, and we didn't manage to steal anything. To avoid
-                // spinning too hot, we yield the thread each time we fail to steal work.
-                while self.state.num_scans_constructed.load(Relaxed) < self.state.num_scans
-                    || !self.state.steal_work(&self.worker).is_empty()
-                {
-                    if self.state.steal_work(&self.worker).is_success() {
-                        break;
-                    } else {
-                        std::thread::yield_now();
-                    }
+        if self.worker.is_empty() && !self.state.load_next_scan(&self.worker) {
+            // If there are no more scans to load, then there is at least one worker
+            // constructing a scan and about to push some tasks.
+            // We sit in a loop trying to steal some of those tasks, or else bail out when
+            // all scans have been constructed, and we didn't manage to steal anything. To avoid
+            // spinning too hot, we yield the thread each time we fail to steal work.
+            while self.state.num_scans_constructed.load(Relaxed) < self.state.num_scans
+                || !self.state.steal_work(&self.worker).is_empty()
+            {
+                if self.state.steal_work(&self.worker).is_success() {
+                    break;
+                } else {
+                    std::thread::yield_now();
                 }
             }
         }
