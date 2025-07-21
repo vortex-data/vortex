@@ -175,9 +175,9 @@ impl FileSource for VortexSource {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
                 if let Some(predicate) = &self.predicate {
-                    write!(f, ", predicate={}", predicate.as_ref())?;
+                    write!(f, ", predicate={predicate}")?;
                     if let Some((pruning_predicate, _)) = pruning_expr(predicate) {
-                        writeln!(f, ", pruning_predicate={}", pruning_predicate,)?;
+                        writeln!(f, ", pruning_predicate={pruning_predicate}")?;
                     }
                 };
                 Ok(())
