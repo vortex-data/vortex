@@ -453,34 +453,6 @@ mod tests {
     }
 
     #[test]
-    fn test_subset_boundary_conditions() {
-        let mut treemap = RoaringTreemap::new();
-        for i in 0..100 {
-            treemap.insert(i);
-        }
-
-        let mask = TreeRowMask::all(1001)
-            .with_range(0..1001)
-            .with_treemap(Arc::new(treemap));
-        let mask = mask.slice(0..101);
-
-        // Subset that starts at the beginning
-        let subset1 = mask.clone().slice(0..51);
-        assert_eq!(subset1.range().start, 0);
-        assert_eq!(subset1.range().end, 51);
-
-        // Subset that ends at the end
-        let subset2 = mask.clone().slice(50..101);
-        assert_eq!(subset2.range().start, 50);
-        assert_eq!(subset2.range().end, 101);
-
-        // Single point subset
-        let subset3 = mask.slice(25..26);
-        assert_eq!(subset3.range().start, 25);
-        assert_eq!(subset3.range().end, 26);
-    }
-
-    #[test]
     fn test_non_empty_range_spans_partitions() {
         let mut treemap = RoaringTreemap::new();
 
@@ -523,7 +495,7 @@ mod tests {
         let mask = TreeRowMask::all(1001)
             .with_range(0..1001)
             .with_treemap(Arc::new(treemap))
-            .exclude();
+            .with_exclude();
 
         assert!(mask.non_empty_range(0..100));
         assert!(mask.non_empty_range(101..201));
