@@ -69,23 +69,34 @@ impl TreeRowMask {
     pub fn mask(&self) -> BoxMaskIterator {
         match &self.value_constraints {
             ValueConstraint::Range(range) => {
-                let start = range.start;
-                let end = range.end;
-                let idx = (0..self.length)
-                    .filter(|&i| i + self.offset >= start && i + self.offset < end)
-                    .map(|i| i as usize)
-                    .collect_vec();
-
                 if self.exclude {
+                    let start = range.start;
+                    let end = range.end;
+                    let idx = (0..self.length)
+                        .filter(|&i| i + self.offset >= start && i + self.offset < end)
+                        .map(|i| i as usize)
+                        .collect_vec();
                     Box::new(iter::once(Ok(Mask::from_excluded_indices(
                         self.length as usize,
                         idx,
                     ))))
                 } else {
-                    Box::new(iter::once(Ok(Mask::from_indices(
-                        self.length as usize,
-                        idx,
-                    ))))
+                    let slice_end = self.offset + self.length;
+                    let r1 = self.offset..min(range.start, slice_end);
+                    let r2 = max(range.start, self.offset)..min(range.end, slice_end);
+                    let r3 = range.end..max(range.end, slice_end);
+                    let mut masks = Vec::with_capacity(3);
+                    if r1.start < r1.end {
+                        masks.push(Ok(Mask::AllFalse((r1.end - r1.start) as usize)))
+                    };
+                    if r2.start < r2.end {
+                        masks.push(Ok(Mask::AllTrue((r2.end - r2.start) as usize)))
+                    }
+                    if r3.start < r3.end {
+                        masks.push(Ok(Mask::AllFalse((r3.end - r3.start) as usize)))
+                    }
+
+                    Box::new(masks.into_iter())
                 }
             }
             ValueConstraint::TreeMap(SlicedTreemap {
@@ -167,18 +178,14 @@ impl TreeRowMask {
                             last_end = group_end + 1;
                         }
 
-                        // println!("masks1 {masks:?}");
-                        // Add final gap if there is one
                         if last_end < r2.end as usize {
                             masks.push(Ok(Mask::AllFalse((end - start) as usize - last_end)));
                         }
-                        // println!("masks {masks:?}");
-                        // masks.push(Ok(Mask::from_indices((r2.end - r2.start) as usize, iter)))
                     }
                 }
 
                 if r3.start < r3.end {
-                    masks.push(Ok(Mask::AllFalse((r1.end - r1.start) as usize)));
+                    masks.push(Ok(Mask::AllFalse((r3.end - r3.start) as usize)));
                 }
                 Box::new(masks.into_iter())
             }
@@ -202,7 +209,7 @@ impl TreeRowMask {
             }) => {
                 let start = max(abs_start, *tree_offset);
                 let end = min(abs_end, tree_offset + tree_length);
-                non_empty_treemap_range(&treemap, start, end)
+                non_empty_treemap_range(treemap, start, end)
             }
         }
     }
@@ -440,6 +447,27 @@ mod tests {
     }
 
     #[test]
+    fn test_range_masks() {
+        let mask = TreeRowMask::all(41).with_range(10..20);
+        assert_eq!(
+            mask.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::from_indices(41, (10..20).collect_vec())
+        );
+
+        let mask = TreeRowMask::all(10).with_range(0..9);
+        assert_eq!(
+            mask.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::from_indices(10, (0..9).collect_vec())
+        );
+
+        let mask = TreeRowMask::all(10).with_range(2..10);
+        assert_eq!(
+            mask.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::from_indices(10, (2..10).collect_vec())
+        );
+    }
+
+    #[test]
     fn test_subset_basic() {
         let mask = TreeRowMask::all(201).with_range(100..201);
         let subset = mask.clone().slice(10..51);
@@ -447,7 +475,7 @@ mod tests {
             subset.mask().collect::<VortexResult<Mask>>().unwrap(),
             Mask::AllFalse(41)
         ); // 100 + 10
-        let subset = mask.clone().slice(100..151);
+        let subset = mask.slice(100..151);
         assert_eq!(
             subset.mask().collect::<VortexResult<Mask>>().unwrap(),
             Mask::AllTrue(51)
@@ -494,8 +522,7 @@ mod tests {
 
         assert_eq!(
             Mask::from_indices(10, vec![]),
-            mask.clone()
-                .slice(20..30)
+            mask.slice(20..30)
                 .mask()
                 .collect::<VortexResult<Mask>>()
                 .unwrap(),

@@ -146,7 +146,6 @@ impl LayoutReader for ChunkedReader {
                     self.chunk_reader(idx)
                         .vortex_expect("infallible")
                         .row_masks(&selection.clone().slice(start..end), &field_mask)
-                        .into_iter()
                 } else {
                     Box::new(iter::once(Ok(Mask::AllFalse((end - start) as usize))))
                 }

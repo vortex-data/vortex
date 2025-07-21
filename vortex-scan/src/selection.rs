@@ -29,9 +29,6 @@ pub enum Selection {
 impl Selection {
     pub fn tree_row_mask(&self, length: u64, range: Option<Range<u64>>) -> TreeRowMask {
         let row_mask = TreeRowMask::all(length);
-        if let Some(range) = range {
-            return row_mask.with_range(range);
-        }
 
         let sliced_include = |row_mask: TreeRowMask, treemap: Arc<RoaringTreemap>| -> TreeRowMask {
             row_mask.with_treemap(SlicedTreemap {
@@ -42,7 +39,13 @@ impl Selection {
         };
 
         match &self {
-            Selection::All => row_mask,
+            Selection::All => {
+                if let Some(range) = range {
+                    row_mask.with_range(range)
+                } else {
+                    row_mask
+                }
+            }
             Selection::IncludeByIndex(indices) => {
                 let mut treemap = RoaringTreemap::new();
                 for idx in indices.iter() {
@@ -68,6 +71,7 @@ impl Selection {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use super::Selection;
@@ -76,53 +80,79 @@ mod tests {
     fn test_row_mask_all() {
         let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 1..8;
-        let mask = selection.tree_row_mask(7, None).slice(range);
+        let mask = selection.tree_row_mask(7, Some(range.clone())).slice(range);
 
-        assert_eq!(mask.mask(), Mask::from_indices(7, vec![0, 2, 4, 6]));
+        println!(
+            "{:?}",
+            mask.mask()
+                .collect::<VortexResult<Mask>>()
+                .unwrap()
+                .to_vec()
+        );
+
+        assert_eq!(
+            mask.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::from_indices(7, vec![0, 2, 4, 6])
+        );
     }
 
     #[test]
     fn test_row_mask_slice() {
         let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 3..6;
-        let mask = selection.tree_row_mask(3, None).slice(range);
+        let mask = selection.tree_row_mask(3, Some(range.clone())).slice(range);
 
-        assert_eq!(mask.mask(), Mask::from_indices(3, vec![0, 2]));
+        assert_eq!(
+            mask.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::from_indices(3, vec![0, 2])
+        );
     }
 
     #[test]
     fn test_row_mask_exclusive() {
         let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 3..5;
-        let mask = selection.tree_row_mask(2, Some(range));
+        let mask = selection.tree_row_mask(2, Some(range.clone())).slice(range);
 
-        assert_eq!(mask.mask(), Mask::from_indices(2, vec![0]));
+        assert_eq!(
+            mask.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::from_indices(2, vec![0])
+        );
     }
 
     #[test]
     fn test_row_mask_all_false() {
         let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 8..10;
-        let mask = selection.tree_row_mask(2, Some(range));
+        let mask = selection.tree_row_mask(2, Some(range.clone())).slice(range);
 
-        assert_eq!(mask.mask(), Mask::AllFalse(2));
+        assert_eq!(
+            mask.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::AllFalse(2)
+        );
     }
 
     #[test]
     fn test_row_mask_all_true() {
         let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 4, 5, 6]));
         let range = 3..7;
-        let mask = selection.tree_row_mask(4, Some(range));
+        let mask = selection.tree_row_mask(4, Some(range.clone())).slice(range);
 
-        assert_eq!(mask.mask(), Mask::AllTrue(4));
+        assert_eq!(
+            mask.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::AllTrue(4)
+        );
     }
 
     #[test]
     fn test_row_mask_zero() {
         let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![0]));
         let range = 0..5;
-        let mask = selection.tree_row_mask(5, Some(range));
+        let mask = selection.tree_row_mask(5, Some(range.clone())).slice(range);
 
-        assert_eq!(mask.mask(), Mask::from_indices(5, vec![0]));
+        assert_eq!(
+            mask.mask().collect::<VortexResult<Mask>>().unwrap(),
+            Mask::from_indices(5, vec![0])
+        );
     }
 }
