@@ -65,7 +65,7 @@ impl<T: 'static + Send + Sync> State<T> {
     }
 
     /// Attempts to steal work from other workers, returns `true` if work was stolen.
-    fn steal_work(&self, worker: &Worker<ArrayFuture<T>>) -> bool {
+    fn steal_work(&self, worker: &Worker<ArrayFuture<T>>) -> Steal<()> {
         // Repeatedly attempt to steal work from other workers until there are no retries.
         iter::repeat_with(|| {
             // This collect tries all stealers, exits early on the first successful steal,
@@ -77,8 +77,7 @@ impl<T: 'static + Send + Sync> State<T> {
                 .collect::<Steal<()>>()
         })
         .find(|steal| !steal.is_retry())
-        .and_then(|steal| steal.success())
-        .is_some()
+        .unwrap_or_else(|| Steal::Empty)
     }
 }
 
@@ -142,8 +141,10 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
                 // We sit in a loop trying to steal some of those tasks, or else bail out when
                 // all scans have been constructed, and we didn't manage to steal anything. To avoid
                 // spinning too hot, we yield the thread each time we fail to steal work.
-                while self.state.num_scans_constructed.load(Relaxed) < self.state.num_scans {
-                    if self.state.steal_work(&self.worker) {
+                while self.state.num_scans_constructed.load(Relaxed) < self.state.num_scans
+                    || !self.state.steal_work(&self.worker).is_empty()
+                {
+                    if self.state.steal_work(&self.worker).is_success() {
                         break;
                     } else {
                         std::thread::yield_now();
