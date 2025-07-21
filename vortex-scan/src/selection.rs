@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use roaring::RoaringTreemap;
 use vortex_buffer::Buffer;
-use vortex_layout::tree_row_mask::{SlicedTreemap, TreeRowMask};
+use vortex_layout::tree_row_mask::TreeRowMask;
 
 /// A selection identifies a set of rows to include in the scan (in addition to applying any
 /// filter predicates).
@@ -30,39 +30,31 @@ impl Selection {
     pub fn tree_row_mask(&self, length: u64, range: Option<Range<u64>>) -> TreeRowMask {
         let row_mask = TreeRowMask::all(length);
 
-        let sliced_include = |row_mask: TreeRowMask, treemap: Arc<RoaringTreemap>| -> TreeRowMask {
-            row_mask.with_treemap(SlicedTreemap {
-                treemap,
-                offset: range.as_ref().map(|r| r.start).unwrap_or(0),
-                length: range.as_ref().map(|r| r.end - r.start).unwrap_or(length),
-            })
+        let row_mask = if let Some(range) = range {
+            row_mask.with_range(range)
+        } else {
+            row_mask
         };
 
         match &self {
-            Selection::All => {
-                if let Some(range) = range {
-                    row_mask.with_range(range)
-                } else {
-                    row_mask
-                }
-            }
+            Selection::All => row_mask,
             Selection::IncludeByIndex(indices) => {
                 let mut treemap = RoaringTreemap::new();
                 for idx in indices.iter() {
                     treemap.insert(*idx);
                 }
-                sliced_include(row_mask, Arc::new(treemap))
+                row_mask.with_treemap(Arc::new(treemap))
             }
             Selection::ExcludeByIndex(indices) => {
                 let mut treemap = RoaringTreemap::new();
                 for idx in indices.iter() {
                     treemap.insert(*idx);
                 }
-                sliced_include(row_mask, Arc::new(treemap)).with_exclude()
+                row_mask.with_treemap(Arc::new(treemap)).with_exclude()
             }
-            Selection::IncludeRoaring(treemap) => sliced_include(row_mask, treemap.clone()),
+            Selection::IncludeRoaring(treemap) => row_mask.with_treemap(treemap.clone()),
             Selection::ExcludeRoaring(treemap) => {
-                sliced_include(row_mask, treemap.clone()).with_exclude()
+                row_mask.with_treemap(treemap.clone()).with_exclude()
             }
         }
     }
