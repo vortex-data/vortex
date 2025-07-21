@@ -272,6 +272,7 @@ impl dyn Array + '_ {
     pub fn nbytes(&self) -> u64 {
         let mut nbytes = 0;
         for array in self.depth_first_traversal() {
+            nbytes += size_of_val(array.as_ref()) as u64;
             for buffer in array.buffers() {
                 nbytes += buffer.len() as u64;
             }
