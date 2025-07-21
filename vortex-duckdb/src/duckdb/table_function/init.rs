@@ -12,7 +12,7 @@ use crate::duckdb::data::Data;
 use crate::duckdb::{TableFilterSet, TableFunction};
 
 /// Native callback for the global initialization of a table function.
-pub(crate) unsafe extern "C" fn init_global_callback<T: TableFunction>(
+pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
     init_input: *const cpp::duckdb_vx_tfunc_init_input,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
@@ -33,7 +33,7 @@ pub(crate) unsafe extern "C" fn init_global_callback<T: TableFunction>(
 
 /// Native callback for the local initialization of a table function.
 #[allow(deref_nullptr)]
-pub(crate) unsafe extern "C" fn init_local_callback<T: TableFunction>(
+pub(crate) unsafe extern "C-unwind" fn init_local_callback<T: TableFunction>(
     init_input: *const cpp::duckdb_vx_tfunc_init_input,
     global_init_data: *mut c_void,
     error_out: *mut cpp::duckdb_vx_error,

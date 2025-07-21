@@ -3,6 +3,7 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
+use bindgen::Abi;
 use std::path::PathBuf;
 use std::{env, fs};
 
@@ -147,6 +148,7 @@ fn main() {
     // Generate the _imported_ bindings from our C++ code.
     bindgen::Builder::default()
         .header("cpp/include/duckdb_vx.h")
+        .override_abi(Abi::CUnwind, ".*")
         // Add the #[must_use] attribute to FFI functions that return results.
         .must_use_type("duckdb_state")
         .rustified_enum("duckdb_state")
