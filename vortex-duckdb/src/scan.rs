@@ -4,21 +4,21 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use bitvec::macros::internal::funty::Fundamental;
-use vortex::dtype::{DType, FieldNames, PType};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select, merge, pack, cast};
-use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::scan::{MultiScan, MultiScanIterator};
-use vortex::{ArrayRef, ToCanonical};
-use vortex::dtype::Nullability::NonNullable;
-use vortex::layout::layouts::row_idx::row_idx;
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
     BindInput, BindResult, Cardinality, DataChunk, Expression, LogicalType, RowIdColsResult,
     TableFunction, TableInitInput, VirtualColsResult,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
+use bitvec::macros::internal::funty::Fundamental;
+use vortex::dtype::Nullability::NonNullable;
+use vortex::dtype::{DType, FieldNames, PType};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::expr::{ExprRef, and, and_collect, cast, col, lit, merge, pack, root, select};
+use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::layout::layouts::row_idx::row_idx;
+use vortex::scan::{MultiScan, MultiScanIterator};
+use vortex::{ArrayRef, ToCanonical};
 
 pub struct VortexBindData {
     first_file: VortexFile,
@@ -194,8 +194,6 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn bind(input: &BindInput, result: &mut BindResult) -> VortexResult<Self::BindData> {
-        println!("Binding Vortex table function",);
-
         let file_glob_string = input
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
@@ -345,10 +343,8 @@ impl TableFunction for VortexTableFunction {
         expr: &Expression,
     ) -> VortexResult<bool> {
         let Some(expr) = try_from_bound_expression(expr)? else {
-            println!("Pushing down complex filter NOT SUPPORTED: {expr}");
             return Ok(false);
         };
-        println!("Pushing down complex filter SUPPORTED: {expr}");
         bind_data.filter_exprs.push(expr);
         Ok(true)
     }
