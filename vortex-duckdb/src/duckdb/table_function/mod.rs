@@ -174,7 +174,7 @@ impl Connection {
             filter_pushdown: T::FILTER_PUSHDOWN,
             filter_prune: T::FILTER_PRUNE,
             sampling_pushdown: false,
-            late_materialization: false,
+            late_materialization: T::LATE_MATERIALIZATION,
         };
 
         duckdb_try!(

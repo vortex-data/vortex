@@ -7,11 +7,11 @@ use std::sync::Arc;
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
+use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select, merge};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
 use vortex::{ArrayRef, ToCanonical};
-
+use vortex::dtype::Nullability::NonNullable;
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
     BindInput, BindResult, Cardinality, DataChunk, Expression, LogicalType, RowIdColsResult,
@@ -96,49 +96,64 @@ fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> ExprRe
     let projection_ids = init.projection_ids().unwrap_or(&[]);
     let column_ids = init.column_ids();
 
-    let projected_ids = projection_ids.iter().map(|p| column_ids[p.as_usize()]);
-    select(
-        projected_ids
-            .map(|idx| {
+    let mut merge_exprs = vec![];
+
+    for idx in projection_ids.iter().map(|p| column_ids[p.as_usize()]) {
+        if idx == FILE_ID_COL_IDX {
+            merge_exprs.push(pack([("file_id", lit(42u64))], NonNullable));
+        } else if idx == ROW_ID_COL_IDX {
+            merge_exprs.push(pack([("row_id", row_idx())], NonNullable));
+        } else {
+            let name = Arc::<str>::from(
                 init.bind_data()
                     .column_names
                     .get(idx.as_usize())
-                    .vortex_expect("prune idx in column names")
-            })
-            .map(|s| Arc::from(s.clone()))
-            .collect::<FieldNames>(),
-        root(),
-    )
+                    .cloned()
+                    .expect(&format!("Unknown column index: {}", idx)),
+            );
+            merge_exprs.push(pack([(name.clone().as_ref(), col(name))], NonNullable));
+        }
+    }
+
+    merge(merge_exprs, NonNullable)
 }
 
 /// Creates a table filter expression from the table filter set.
 fn extract_table_filter_expr(
     init: &TableInitInput<VortexTableFunction>,
-    column_ids: &[u64],
 ) -> VortexResult<Option<ExprRef>> {
+    let column_ids = init.column_ids();
+
     let table_filter_expr = init
         .table_filter_set()
         .and_then(|filter| {
             filter
                 .into_iter()
-                .map(|(idx, ex)| {
-                    let name = init
-                        .bind_data()
-                        .column_names
-                        .get(column_ids[idx.as_usize()].as_usize())
-                        .vortex_expect("exists");
-                    try_from_table_filter(
-                        &ex,
-                        &col(name.as_str()),
-                        init.bind_data().first_file.dtype(),
-                    )
+                .map(|(p_idx, ex)| {
+                    // Remap the projection index to the column ID.
+                    let idx = column_ids[p_idx.as_usize()];
+
+                    let expr = if idx == ROW_ID_COL_IDX {
+                        row_idx()
+                    } else if idx == FILE_ID_COL_IDX {
+                        lit(42u64)
+                    } else {
+                        let name = init
+                            .bind_data()
+                            .column_names
+                            .get(idx.as_usize())
+                            .ok_or_else(|| vortex_err!("Unknown column index: {}", idx))?;
+                        col(name.as_str())
+                    };
+
+                    try_from_table_filter(&ex, &expr)
                 })
                 .reduce(|l, r| l?.zip(r?).map(|(l, r)| Ok(and(l, r))).transpose())
         })
         .transpose()?
         .flatten();
 
-    let complex_filter_expr = and_collect(init.bind_data().filter_exprs.clone());
+    let complex_filter_expr = and_collect(init.bind_data().filter_exprs.iter().cloned());
     let filter_expr = complex_filter_expr
         .into_iter()
         .chain(table_filter_expr)
@@ -149,7 +164,8 @@ fn extract_table_filter_expr(
 }
 
 /// Create a well-known row ID column index that DuckDB will pass to us in expression push-down.
-static ROW_ID_COL_IDX: u64 = u64::MAX - 1;
+static FILE_ID_COL_IDX: u64 = u64::MAX - 1;
+static ROW_ID_COL_IDX: u64 = u64::MAX - 2;
 
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
@@ -255,7 +271,7 @@ impl TableFunction for VortexTableFunction {
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
         let bind_data = init_input.bind_data();
         let projection_expr = extract_projection_expr(init_input);
-        let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
+        let filter_expr = extract_table_filter_expr(init_input)?;
 
         log::trace!(
             "Global init Vortex scan SELECT {} WHERE {}",
@@ -348,12 +364,12 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn row_id_columns(_bind_data: &Self::BindData, result: &mut RowIdColsResult) {
-        println!("ROW ID COLUMNS: Returning a single row ID column index.");
+        result.push(FILE_ID_COL_IDX);
         result.push(ROW_ID_COL_IDX);
     }
 
     fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColsResult) {
-        println!("Registering virtual columns");
-        result.register(ROW_ID_COL_IDX, "row_idx", &LogicalType::uint64());
+        result.register(FILE_ID_COL_IDX, "file_id", &LogicalType::uint64());
+        result.register(ROW_ID_COL_IDX, "row_id", &LogicalType::uint64());
     }
 }

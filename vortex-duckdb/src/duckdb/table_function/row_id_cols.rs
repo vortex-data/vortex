@@ -11,7 +11,6 @@ pub(crate) unsafe extern "C" fn get_row_id_columns_callback<T: TableFunction>(
     bind_data: *mut c_void,
     result: cpp::duckdb_vx_tfunc_row_id_cols_result,
 ) {
-    println!("ROW ID CALLBACK");
     let bind_data =
         unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
     let mut result = unsafe { RowIdColsResult::borrow(result) };

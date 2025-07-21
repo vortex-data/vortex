@@ -101,12 +101,13 @@ pub fn checked_pruning_expr(
 
 #[cfg(test)]
 mod tests {
+    use crate::pruning::checked_pruning_expr;
     use rstest::{fixture, rstest};
     use vortex_array::stats::Stat;
     use vortex_dtype::{FieldName, FieldPath, FieldPathSet};
 
+    use crate::pruning::field_path_stat_field_name;
     use crate::pruning::pruning_expr::HashMap;
-    use crate::pruning::{checked_pruning_expr, field_path_stat_field_name};
     use crate::{HashSet, and, col, eq, get_item, gt, gt_eq, lit, lt, lt_eq, not_eq, or, root};
 
     // Implement some checked pruning expressions.
@@ -354,6 +355,7 @@ mod tests {
         let expected_expr = and(gt_eq(col("a_min"), lit(10)), lt_eq(col("a_max"), lit(50)));
         assert_eq!(&predicate.to_string(), &expected_expr.to_string());
     }
+
     #[rstest]
     pub fn pruning_and_or_operators(available_stats: FieldPathSet) {
         // Test case: a > 10 AND a < 50
