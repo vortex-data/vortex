@@ -48,6 +48,14 @@ typedef struct {
     // void *sample_options;
 } duckdb_vx_tfunc_init_input;
 
+// Result data returned from the cardinality callback.
+typedef struct {
+    idx_t estimated_cardinality;
+    bool has_estimated_cardinality;
+    idx_t max_cardinality;
+    bool has_max_cardinality;
+} duckdb_vx_node_statistics;
+
 // A transparent DuckDB table function vtable, which can be used to configure a table function.
 // See duckdb/include/function/tfunc.hpp for details on each field.
 typedef struct {
@@ -65,6 +73,7 @@ typedef struct {
 
     duckdb_vx_data (*bind)(duckdb_vx_tfunc_bind_input input, duckdb_vx_tfunc_bind_result result,
                            duckdb_vx_error *error_out);
+
     duckdb_vx_data (*bind_data_clone)(const void *bind_data, duckdb_vx_error *error_out);
 
     // void *bind_replace;
@@ -81,8 +90,9 @@ typedef struct {
     // void *in_out_function;
     // void *in_out_function_final;
     void *statistics;
+
     // void *dependency;
-    void *cardinality;
+    void (*cardinality)(void *bind_data, duckdb_vx_node_statistics *node_stats_out);
 
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
 

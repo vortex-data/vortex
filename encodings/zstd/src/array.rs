@@ -15,7 +15,7 @@ use vortex_array::vtable::{
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
@@ -107,8 +107,10 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usi
     let buffer_and_value_byte_indices = match mask.boolean_buffer() {
         AllOr::None => (Buffer::empty(), Vec::new()),
         _ => {
-            let mut buffer =
-                BufferMut::with_capacity(vbv.nbytes() + mask.true_count() * size_of::<ViewLen>());
+            let mut buffer = BufferMut::with_capacity(
+                usize::try_from(vbv.nbytes()).vortex_expect("must fit into buffer")
+                    + mask.true_count() * size_of::<ViewLen>(),
+            );
             let mut value_byte_indices = Vec::new();
             vbv.with_iterator(|iterator| {
                 // by flattening, we should omit nulls

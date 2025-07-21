@@ -51,6 +51,9 @@ rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 static_assertions = { workspace = true }
+tabled = { workspace = true, optional = true, default-features = false, features = [
+    "std",
+] }
 vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-dtype = { workspace = true, features = ["arrow", "serde"] }
 vortex-error = { workspace = true, features = ["prost"] }
@@ -66,6 +69,7 @@ arbitrary = [
     "vortex-scalar/arbitrary",
 ]
 canonical_counter = []
+table-display = ["dep:tabled"]
 test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 
 [dev-dependencies]

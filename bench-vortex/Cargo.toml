@@ -64,7 +64,6 @@ tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }
 tracing = { workspace = true }
 tracing-chrome = { workspace = true }
-tracing-futures = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
     "env-filter",
     "tracing-log",

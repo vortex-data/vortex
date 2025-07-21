@@ -16,7 +16,7 @@ set(CMAKE_CXX_STANDARD 17)
 # Default to debug if build config is not explicitly set.
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
-endif()
+endif ()
 
 # Enable compiler warnings. Unused parameter warnings are disabled as we
 # include DuckDB headers with implementations that have unused parameters.
@@ -24,7 +24,7 @@ endif()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wno-unused-parameter -Wno-c++20-designator")
 
 # Include directories
-include_directories(include ../duckdb/src/include)
+include_directories(include ../duckdb/duckdb-1.3.2/src/include)
 
 # Add library with source files
 add_library(vortex

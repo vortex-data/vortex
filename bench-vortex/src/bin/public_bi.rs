@@ -16,8 +16,7 @@ use bench_vortex::{BenchmarkDataset, Format, Target, default_env_filter, df};
 use clap::{Parser, value_parser};
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use tracing::info_span;
-use tracing_futures::Instrument;
+use tracing::{Instrument, info_span};
 use vortex::error::{VortexExpect, vortex_panic};
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
@@ -143,6 +142,7 @@ fn main() -> anyhow::Result<()> {
                                 .1,
                         )
                     })
+                    .in_current_span()
                     .await
                     .vortex_expect("Failed to spawn query");
 

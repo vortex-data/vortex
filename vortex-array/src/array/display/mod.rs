@@ -62,6 +62,32 @@ pub enum DisplayOptions {
     /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay)), expected);
     /// ```
     TreeDisplay,
+    /// Display values in a formatted table with columns.
+    ///
+    /// For struct arrays, displays a column for each field in the struct.
+    /// For regular arrays, displays a single column with values.
+    ///
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::arrays::StructArray;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let s = StructArray::from_fields(&[
+    ///     ("x", buffer![1, 2].into_array()),
+    ///     ("y", buffer![3, 4].into_array()),
+    /// ]).unwrap().into_array();
+    /// let expected = "
+    /// ┌──────┬──────┐
+    /// │  x   │  y   │
+    /// ├──────┼──────┤
+    /// │ 1i32 │ 3i32 │
+    /// ├──────┼──────┤
+    /// │ 2i32 │ 4i32 │
+    /// └──────┴──────┘".trim();
+    /// assert_eq!(format!("{}", s.display_as(DisplayOptions::TableDisplay)), expected);
+    /// ```
+    #[cfg(feature = "table-display")]
+    TableDisplay,
 }
 
 impl Default for DisplayOptions {
@@ -163,6 +189,38 @@ impl dyn Array + '_ {
         DisplayArrayAs(self, DisplayOptions::TreeDisplay)
     }
 
+    /// Display the array as a formatted table.
+    ///
+    /// For struct arrays, displays a column for each field in the struct.
+    /// For regular arrays, displays a single column with values.
+    ///
+    /// # Examples
+    /// ```
+    /// # #[cfg(feature = "table-display")]
+    /// # {
+    /// # use vortex_array::arrays::StructArray;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let s = StructArray::from_fields(&[
+    ///     ("x", buffer![1, 2].into_array()),
+    ///     ("y", buffer![3, 4].into_array()),
+    /// ]).unwrap().into_array();
+    /// let expected = "
+    /// ┌──────┬──────┐
+    /// │  x   │  y   │
+    /// ├──────┼──────┤
+    /// │ 1i32 │ 3i32 │
+    /// ├──────┼──────┤
+    /// │ 2i32 │ 4i32 │
+    /// └──────┴──────┘".trim();
+    /// assert_eq!(format!("{}", s.display_table()), expected);
+    /// # }
+    /// ```
+    #[cfg(feature = "table-display")]
+    pub fn display_table(&self) -> impl Display {
+        DisplayArrayAs(self, DisplayOptions::TableDisplay)
+    }
+
     fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
         match options {
             DisplayOptions::MetadataOnly => {
@@ -189,6 +247,69 @@ impl dyn Array + '_ {
                 write!(f, "]")
             }
             DisplayOptions::TreeDisplay => write!(f, "{}", TreeDisplayWrapper(self.to_array())),
+            #[cfg(feature = "table-display")]
+            DisplayOptions::TableDisplay => {
+                use crate::canonical::ToCanonical;
+                let mut builder = tabled::builder::Builder::default();
+
+                let table = match self.dtype() {
+                    vortex_dtype::DType::Struct(sf, _) => {
+                        let struct_ = self.to_struct().vortex_expect("struct array");
+                        builder.push_record(sf.names().iter().map(|name| name.to_string()));
+
+                        for row_idx in 0..self.len() {
+                            if !self.is_valid(row_idx).vortex_expect("index in bounds") {
+                                let null_row = vec!["null".to_string(); sf.names().len()];
+                                builder.push_record(null_row);
+                            } else {
+                                let mut row = Vec::new();
+                                for field_array in struct_.fields() {
+                                    let value = field_array
+                                        .scalar_at(row_idx)
+                                        .vortex_expect("index in bounds");
+                                    row.push(value.to_string());
+                                }
+                                builder.push_record(row);
+                            }
+                        }
+
+                        let mut table = builder.build();
+                        table.with(tabled::settings::Style::modern());
+
+                        // Center headers
+                        for col_idx in 0..sf.names().len() {
+                            table.modify((0, col_idx), tabled::settings::Alignment::center());
+                        }
+
+                        for row_idx in 0..self.len() {
+                            if !self.is_valid(row_idx).vortex_expect("index is in bounds") {
+                                table.modify(
+                                    (1 + row_idx, 0),
+                                    tabled::settings::Span::column(sf.names().len() as isize),
+                                );
+                                table.modify(
+                                    (1 + row_idx, 0),
+                                    tabled::settings::Alignment::center(),
+                                );
+                            }
+                        }
+                        table
+                    }
+                    _ => {
+                        // For non-struct arrays, display a single column table without header
+                        for row_idx in 0..self.len() {
+                            let value = self.scalar_at(row_idx).vortex_expect("index is in bounds");
+                            builder.push_record([value.to_string()]);
+                        }
+
+                        let mut table = builder.build();
+                        table.with(tabled::settings::Style::modern());
+
+                        table
+                    }
+                };
+                write!(f, "{table}")
+            }
         }
     }
 }
@@ -253,6 +374,68 @@ mod test {
         assert_eq!(
             x.display_values().to_string(),
             "[[], [1i32], null, [2i32], [3i32, 4i32]]"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "table-display")]
+    fn test_table_display_primitive() {
+        use crate::display::DisplayOptions;
+
+        let array = buffer![1, 2, 3, 4].into_array();
+        let table_display = array.display_as(DisplayOptions::TableDisplay);
+        assert_eq!(
+            table_display.to_string(),
+            r"
+┌──────┐
+│ 1i32 │
+├──────┤
+│ 2i32 │
+├──────┤
+│ 3i32 │
+├──────┤
+│ 4i32 │
+└──────┘"
+                .trim()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "table-display")]
+    fn test_table_display() {
+        use crate::display::DisplayOptions;
+
+        let array = crate::arrays::PrimitiveArray::from_option_iter(vec![
+            Some(-1),
+            Some(-2),
+            Some(-3),
+            None,
+        ])
+        .into_array();
+
+        let struct_ = StructArray::try_from_iter_with_validity(
+            [("x", buffer![1, 2, 3, 4].into_array()), ("y", array)],
+            Validity::Array(BoolArray::from_iter([true, false, true, true]).into_array()),
+        )
+        .unwrap()
+        .into_array();
+
+        let table_display = struct_.display_as(DisplayOptions::TableDisplay);
+        assert_eq!(
+            table_display.to_string(),
+            r"
+┌──────┬───────┐
+│  x   │   y   │
+├──────┼───────┤
+│ 1i32 │ -1i32 │
+├──────┼───────┤
+│     null     │
+├──────┼───────┤
+│ 3i32 │ -3i32 │
+├──────┼───────┤
+│ 4i32 │ null  │
+└──────┴───────┘"
+                .trim()
         );
     }
 }

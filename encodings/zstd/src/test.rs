@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+#![allow(clippy::cast_possible_truncation)]
 
 use vortex_array::ToCanonical;
 use vortex_array::arrays::{BoolArray, PrimitiveArray, VarBinViewArray};
@@ -24,7 +25,7 @@ fn test_zstd_compress_decompress() {
 
     let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
     // this data should be compressible
-    assert!(compressed.frames.len() < array.nbytes());
+    assert!(compressed.frames.len() < array.nbytes() as usize);
     assert!(compressed.dictionary.is_none());
 
     // check full decompression works

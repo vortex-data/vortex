@@ -7,6 +7,7 @@ members = [
     "vortex-array",
     "vortex-btrblocks",
     "vortex-buffer",
+    "vortex-cxx",
     "vortex-datafusion",
     "vortex-dtype",
     "vortex-duckdb",
@@ -81,6 +82,7 @@ cfg-if = "1"
 chrono = "0.4.41"
 clap = "4.5"
 compio = { version = "0.15", features = ["io-uring"], default-features = false }
+crossbeam-deque = "0.8.6"
 crossbeam-queue = "0.3.12"
 crossterm = "0.28"
 dashmap = "6.1.0"
@@ -163,6 +165,7 @@ strum = "0.27"
 sysinfo = "0.36.0"
 tabled = { version = "0.20.0", default-features = false }
 taffy = "0.8.0"
+take_mut = "0.2.2"
 tar = "0.4"
 target-lexicon = "0.13"
 tempfile = "3"
@@ -174,7 +177,6 @@ tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "d849ff4
 tpchgen-arrow = { git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "d849ff430cd52250f6891ed4d5e3adad77bb2698" }
 tracing = { version = "0.1.41" }
 tracing-chrome = "0.7.2"
-tracing-futures = "0.2.5"
 tracing-subscriber = "0.3.19"
 url = "2.5.4"
 uuid = { version = "1.17", features = ["js"] }
@@ -220,6 +222,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 # END crates published by this project
 
 # No version contraints for unpublished crates.
+vortex-cxx = { path = "./vortex-cxx", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-ffi = { path = "./vortex-ffi", default-features = false }
 
