@@ -23,7 +23,7 @@ use reqwest::IntoUrl;
 use reqwest::blocking::Response;
 use serde::Serialize;
 use tokio::fs::{OpenOptions, create_dir_all};
-use tracing::{info, warn};
+use tracing::{Instrument, info, warn};
 use url::Url;
 use vortex::error::VortexExpect;
 use vortex::file::VortexWriteOptions;
@@ -187,29 +187,32 @@ pub async fn convert_parquet_to_vortex(
             let parquet_file_path = parquet_path.join(format!("{filename}.parquet"));
             let output_path = vortex_dir.join(format!("{filename}.{}", format.ext()));
 
-            tokio::spawn(async move {
-                idempotent_async(&output_path, move |vtx_file| async move {
-                    info!(
-                        "Processing file '{filename}' with {:?} strategy",
-                        compaction
-                    );
-                    let array_stream = parquet_to_vortex(parquet_file_path)?;
-                    let f = OpenOptions::new()
-                        .write(true)
-                        .truncate(true)
-                        .create(true)
-                        .open(&vtx_file)
-                        .await?;
+            tokio::spawn(
+                async move {
+                    idempotent_async(&output_path, move |vtx_file| async move {
+                        info!(
+                            "Processing file '{filename}' with {:?} strategy",
+                            compaction
+                        );
+                        let array_stream = parquet_to_vortex(parquet_file_path)?;
+                        let f = OpenOptions::new()
+                            .write(true)
+                            .truncate(true)
+                            .create(true)
+                            .open(&vtx_file)
+                            .await?;
 
-                    let write_options = compaction.apply_options(VortexWriteOptions::default());
+                        let write_options = compaction.apply_options(VortexWriteOptions::default());
 
-                    write_options.write(f, array_stream).await?;
+                        write_options.write(f, array_stream).await?;
 
-                    anyhow::Ok(())
-                })
-                .await
-                .expect("Failed to write Vortex file")
-            })
+                        anyhow::Ok(())
+                    })
+                    .await
+                    .expect("Failed to write Vortex file")
+                }
+                .in_current_span(),
+            )
         })
         .buffer_unordered(16)
         .try_collect::<Vec<_>>()
