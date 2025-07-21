@@ -162,7 +162,7 @@ impl Connection {
 }
 
 /// The native function callback for a table function.
-unsafe extern "C" fn function<T: TableFunction>(
+unsafe extern "C-unwind" fn function<T: TableFunction>(
     bind_data: *const c_void,
     global_init_data: *mut c_void,
     local_init_data: *mut c_void,

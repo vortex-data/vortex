@@ -157,7 +157,7 @@ pub(crate) fn try_or<T: Default>(
 }
 
 /// Creates a function that drops a `Box<T>` when called.
-extern "C" fn drop_boxed<T>(ptr: *mut c_void) {
+extern "C-unwind" fn drop_boxed<T>(ptr: *mut c_void) {
     // Safety: We assume that the pointer is valid and points to a Box<T>.
     // The caller is responsible for ensuring that the pointer is valid.
     if !ptr.is_null() {

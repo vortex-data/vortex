@@ -6,6 +6,8 @@
 use std::path::PathBuf;
 use std::{env, fs};
 
+use bindgen::Abi;
+
 const DUCKDB_VERSION: &str = "1.3.2";
 const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
 
@@ -147,6 +149,7 @@ fn main() {
     // Generate the _imported_ bindings from our C++ code.
     bindgen::Builder::default()
         .header("cpp/include/duckdb_vx.h")
+        .override_abi(Abi::CUnwind, ".*")
         // Add the #[must_use] attribute to FFI functions that return results.
         .must_use_type("duckdb_state")
         .rustified_enum("duckdb_state")
