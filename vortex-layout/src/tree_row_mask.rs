@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::{max, min};
-use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -69,23 +68,22 @@ impl TreeRowMask {
     pub fn mask(&self) -> BoxMaskIterator {
         match &self.value_constraints {
             ValueConstraint::Range(range) => {
+                let slice_end = self.offset + self.length;
+                let r1 = self.offset..min(range.start, slice_end);
+                let r2 = max(range.start, self.offset)..min(range.end, slice_end);
+                let r3 = max(self.offset, range.end)..max(range.end, slice_end);
+                let mut masks = Vec::with_capacity(3);
                 if self.exclude {
-                    let start = range.start;
-                    let end = range.end;
-                    let idx = (0..self.length)
-                        .filter(|&i| i + self.offset >= start && i + self.offset < end)
-                        .map(|i| i as usize)
-                        .collect_vec();
-                    Box::new(iter::once(Ok(Mask::from_excluded_indices(
-                        self.length as usize,
-                        idx,
-                    ))))
+                    if r1.start < r1.end {
+                        masks.push(Ok(Mask::AllTrue((r1.end - r1.start) as usize)))
+                    };
+                    if r2.start < r2.end {
+                        masks.push(Ok(Mask::AllFalse((r2.end - r2.start) as usize)))
+                    }
+                    if r3.start < r3.end {
+                        masks.push(Ok(Mask::AllTrue((r3.end - r3.start) as usize)))
+                    }
                 } else {
-                    let slice_end = self.offset + self.length;
-                    let r1 = self.offset..min(range.start, slice_end);
-                    let r2 = max(range.start, self.offset)..min(range.end, slice_end);
-                    let r3 = range.end..max(range.end, slice_end);
-                    let mut masks = Vec::with_capacity(3);
                     if r1.start < r1.end {
                         masks.push(Ok(Mask::AllFalse((r1.end - r1.start) as usize)))
                     };
@@ -95,9 +93,8 @@ impl TreeRowMask {
                     if r3.start < r3.end {
                         masks.push(Ok(Mask::AllFalse((r3.end - r3.start) as usize)))
                     }
-
-                    Box::new(masks.into_iter())
                 }
+                Box::new(masks.into_iter())
             }
             ValueConstraint::TreeMap(SlicedTreemap {
                 treemap,
@@ -109,7 +106,8 @@ impl TreeRowMask {
                 let r1 = range.start..min(*tree_offset, range.end);
                 let r2 =
                     max(*tree_offset, range.start)..min(*tree_offset + *tree_length, range.end);
-                let r3 = *tree_offset + *tree_length..max(*tree_offset + *tree_length, range.end);
+                let r3 = max(*tree_offset + *tree_length, self.offset)
+                    ..max(*tree_offset + *tree_length, range.end);
 
                 let mut masks = vec![];
                 if r1.start < r1.end {
@@ -521,7 +519,7 @@ mod tests {
         );
 
         assert_eq!(
-            Mask::from_indices(10, vec![]),
+            Mask::AllFalse(10),
             mask.slice(20..30)
                 .mask()
                 .collect::<VortexResult<Mask>>()

@@ -86,7 +86,7 @@ impl IntersectionMaskIterator {
                         return Err(e);
                     }
                     None => {
-                        // Iterator is exhausted - for intersection, if ANY iterator is exhausted, 
+                        // Iterator is exhausted - for intersection, if ANY iterator is exhausted,
                         // the intersection is complete
                         any_exhausted = true;
                     }
