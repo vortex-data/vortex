@@ -7,7 +7,7 @@ use roaring::RoaringTreemap;
 use std::cmp::{max, min};
 use std::ops::Range;
 use std::sync::Arc;
-use vortex_error::VortexError;
+use vortex_error::{VortexError, VortexExpect};
 use vortex_mask::Mask;
 
 #[derive(Clone)]
@@ -116,6 +116,7 @@ impl TreeRowMask {
         }
 
         let Some(treemap) = &self.inner.treemap else {
+            // There is overlap and no treemap so if excluded all false other all true
             return !self.inner.exclude;
         };
 
@@ -127,73 +128,79 @@ impl TreeRowMask {
     }
 }
 
+// Creates a mask from a range of values in a treemap
 fn treemap_mask(
-    r2: &Range<u64>,
+    range: &Range<u64>,
     masks: &mut Vec<Result<Mask, VortexError>>,
     treemap: &Arc<RoaringTreemap>,
     offset: u64,
     exclude: bool,
 ) {
-    let start = r2.start;
-    let end = r2.end;
+    let start = range.start;
+    let end = range.end;
 
-    let start_partition = (start >> 32) as u32;
-    let end_partition = (end >> 32) as u32;
-    let iter = treemap
-        .bitmaps()
-        .skip_while(|(key, _)| *key < start_partition)
-        .take_while(|(key, _)| *key <= end_partition)
-        .flat_map(|(partition_key, bitmap)| {
-            let (low_start, low_end) = clamp_range_to_partition(partition_key, start, end);
+    let selected_values = treemap_range(treemap, start, end).flat_map(|(partition_key, bitmap)| {
+        bitmap.map(move |i| ((((partition_key as u64) << 32) + (i as u64)) - offset) as usize)
+    });
 
-            // Check all not values match the range
-            bitmap
-                .range(low_start..low_end)
-                .map(move |i| ((((partition_key as u64) << 32) + (i as u64)) - offset) as usize)
-        });
+    let outer = |len| -> Mask {
+        if exclude {
+            Mask::AllTrue(len)
+        } else {
+            Mask::AllFalse(len)
+        }
+    };
 
-    if exclude {
-        masks.push(Ok(Mask::from_excluded_indices(
-            (r2.end - r2.start) as usize,
-            iter,
-        )))
-    } else {
-        let iter = iter.fold(Vec::new(), |mut groups: Vec<Vec<_>>, value| {
-            match groups.last_mut() {
-                Some(last_group) if last_group.iter().all(|&x| (value - x) < 2048) => {
-                    last_group.push(value);
-                }
-                _ => {
-                    groups.push(vec![value]);
-                }
+    // This tries to split the select values into groups of 2048 values with constant masks
+    // interspersed to avoid creating too many long bitmap masks while also not creating too
+    // many total masks.
+    let groups = selected_values
+        .into_iter()
+        .scan(None, |group_start: &mut Option<_>, value| {
+            if group_start.map_or(true, |start| value - start >= 2048) {
+                *group_start = Some(value);
             }
-            groups
-        });
+            Some((group_start.unwrap(), value))
+        })
+        .chunk_by(|(start, _)| *start);
 
-        let mut last_end = 0;
+    let groups = groups.into_iter().map(|(start, group)| {
+        let indices: Vec<_> = group.map(|(_, v)| v - start).collect();
+        (
+            start,
+            *indices.last().vortex_expect("indices non-empty") + start,
+            indices,
+        )
+    });
 
-        for group in iter {
-            let group_start = *group.first().unwrap();
-            let group_end = *group.last().unwrap();
+    let mut last_end = 0;
 
-            // Add gap before this group if there is one
-            if last_end < group_start {
-                masks.push(Ok(Mask::AllFalse(group_start - last_end)));
-            }
+    // For each group of values push a previous mask if there is one,
+    // then indices.
+    for group in groups {
+        let group_start = group.0;
+        let group_end = group.1;
+        let group = group.2;
 
-            // Add the group itself
-            let len = group_end - group_start + 1;
-            masks.push(Ok(Mask::from_indices(
-                len,
-                group.iter().map(|i| *i - group_start).collect_vec(),
-            )));
-
-            last_end = group_end + 1;
+        // Add gap before this group if there is one
+        if last_end < group_start {
+            masks.push(Ok(outer(group_start - last_end)));
         }
 
-        if last_end < r2.end as usize {
-            masks.push(Ok(Mask::AllFalse((end - start) as usize - last_end)));
+        // Add the group itself
+        let len = group_end - group_start + 1;
+        if exclude {
+            masks.push(Ok(Mask::from_excluded_indices(len, group)));
+        } else {
+            masks.push(Ok(Mask::from_indices(len, group)));
         }
+
+        last_end = group_end + 1;
+    }
+
+    // Add a final mask if there is one.
+    if last_end < range.end as usize {
+        masks.push(Ok(outer((end - start) as usize - last_end)));
     }
 }
 
@@ -216,36 +223,32 @@ fn clamp_range_to_partition(partition_key: u32, start: u64, end: u64) -> (u32, u
     }
 }
 
-fn all_empty_treemap_range(treemap: &RoaringTreemap, start: u64, end: u64) -> bool {
+fn treemap_range(
+    treemap: &RoaringTreemap,
+    start: u64,
+    end: u64,
+) -> impl Iterator<Item = (u32, impl Iterator<Item = u32>)> {
     let start_partition = (start >> 32) as u32;
     let end_partition = (end >> 32) as u32;
 
     treemap
         .bitmaps()
-        .skip_while(|(key, _)| *key < start_partition)
-        .take_while(|(key, _)| *key <= end_partition)
-        .all(|(partition_key, bitmap)| {
+        .skip_while(move |(key, _)| *key < start_partition)
+        .take_while(move |(key, _)| *key <= end_partition)
+        .map(move |(partition_key, bitmap)| {
             let (low_start, low_end) = clamp_range_to_partition(partition_key, start, end);
 
             // Check all not values match the range
-            bitmap.range(low_start..low_end).next().is_none()
+            (partition_key, bitmap.range(low_start..low_end))
         })
 }
 
-fn non_empty_treemap_range(treemap: &RoaringTreemap, start: u64, end: u64) -> bool {
-    // Find the upper 32 bits, the keys of the treemap.
-    let start_partition = (start >> 32) as u32;
-    let end_partition = (end >> 32) as u32;
+fn all_empty_treemap_range(treemap: &RoaringTreemap, start: u64, end: u64) -> bool {
+    treemap_range(treemap, start, end).all(|(_, mut map)| map.next().is_none())
+}
 
-    treemap
-        .bitmaps()
-        .skip_while(|(key, _)| *key < start_partition)
-        .take_while(|(key, _)| *key <= end_partition)
-        .any(|(partition_key, bitmap)| {
-            let (low_start, low_end) = clamp_range_to_partition(partition_key, start, end);
-            // Check if this bitmap contains any values in the range
-            bitmap.range(low_start..low_end).next().is_some()
-        })
+fn non_empty_treemap_range(treemap: &RoaringTreemap, start: u64, end: u64) -> bool {
+    treemap_range(treemap, start, end).any(|(_, mut map)| map.next().is_some())
 }
 
 #[cfg(test)]
