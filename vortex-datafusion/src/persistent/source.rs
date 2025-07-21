@@ -15,11 +15,11 @@ use datafusion::physical_plan::filter_pushdown::{
 };
 use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
 use datafusion::physical_plan::{DisplayFormatType, PhysicalExpr};
-use object_store::path::Path;
 use object_store::ObjectStore;
+use object_store::path::Path;
 use vortex::error::VortexExpect as _;
 use vortex::expr::pruning::pruning_expr;
-use vortex::expr::{and, root, ExprRef, VortexExpr};
+use vortex::expr::{ExprRef, VortexExpr, and, root};
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
