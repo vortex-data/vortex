@@ -5,6 +5,9 @@
 #include "duckdb_vx.h"
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/dynamic_filter.hpp"
+#include "duckdb/planner/filter/optional_filter.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
+#include "duckdb/planner/filter/struct_filter.hpp"
 
 using namespace duckdb;
 
@@ -77,4 +80,32 @@ duckdb_vx_table_filter_get_dynamic(duckdb_vx_table_filter ffi_filter) {
     }
     auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<DynamicFilter>();
     return reinterpret_cast<duckdb_vx_dynamic_filter_data>(filter.filter_data.get());
+}
+
+extern "C" duckdb_vx_table_filter duckdb_vx_table_filter_get_optional(duckdb_vx_table_filter ffi_filter) {
+    if (!ffi_filter) {
+        return nullptr;
+    }
+    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<OptionalFilter>();
+    return reinterpret_cast<duckdb_vx_table_filter>(filter.child_filter.get());
+}
+
+extern "C" duckdb_vx_expr duckdb_vx_table_filter_get_expression(duckdb_vx_table_filter ffi_filter) {
+    if (!ffi_filter) {
+        return nullptr;
+    }
+    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<ExpressionFilter>();
+    return reinterpret_cast<duckdb_vx_expr>(filter.expr.get());
+}
+
+extern "C" void duckdb_vx_table_filter_get_struct_extract(duckdb_vx_table_filter ffi_filter,
+                                                          duckdb_vx_table_filter_struct_extract *out) {
+    if (!ffi_filter || !out) {
+        return;
+    }
+    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<StructFilter>();
+
+    out->child_filter = reinterpret_cast<duckdb_vx_table_filter>(filter.child_filter.get());
+    out->child_name_len = filter.child_name.size();
+    out->child_name = static_cast<char *>(filter.child_name.data());
 }

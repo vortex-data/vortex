@@ -258,7 +258,7 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, StructFields};
-    use vortex_expr::{eq, get_item, get_item_scope, gt, lit, or, pack, root};
+    use vortex_expr::{col, eq, get_item, gt, lit, or, pack, root};
     use vortex_mask::Mask;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -317,11 +317,8 @@ mod tests {
     ) {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let filt = or(
-            eq(get_item_scope("a"), lit(7)),
-            or(
-                eq(get_item_scope("b"), lit(5)),
-                eq(get_item_scope("a"), lit(3)),
-            ),
+            eq(col("a"), lit(7)),
+            or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
         );
         let result = block_on(
             reader

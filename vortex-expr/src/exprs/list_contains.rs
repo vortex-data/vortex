@@ -163,7 +163,7 @@ mod tests {
 
     use crate::list_contains::list_contains;
     use crate::pruning::checked_pruning_expr;
-    use crate::{Arc, HashSet, Scope, and, get_item, get_item_scope, gt, lit, lt, or, root};
+    use crate::{Arc, HashSet, Scope, and, col, get_item, gt, lit, lt, or, root};
 
     fn test_array() -> ArrayRef {
         ListArray::try_new(
@@ -299,7 +299,7 @@ mod tests {
                 vec![1.into(), 2.into(), 3.into()],
                 Nullability::NonNullable,
             )),
-            get_item_scope("a"),
+            col("a"),
         );
 
         let (expr, st) = checked_pruning_expr(
@@ -315,19 +315,10 @@ mod tests {
             &expr,
             &and(
                 and(
-                    or(
-                        lt(get_item_scope("a_max"), lit(1i32)),
-                        gt(get_item_scope("a_min"), lit(1i32)),
-                    ),
-                    or(
-                        lt(get_item_scope("a_max"), lit(2i32)),
-                        gt(get_item_scope("a_min"), lit(2i32)),
-                    )
+                    or(lt(col("a_max"), lit(1i32)), gt(col("a_min"), lit(1i32)),),
+                    or(lt(col("a_max"), lit(2i32)), gt(col("a_min"), lit(2i32)),)
                 ),
-                or(
-                    lt(get_item_scope("a_max"), lit(3i32)),
-                    gt(get_item_scope("a_min"), lit(3i32)),
-                )
+                or(lt(col("a_max"), lit(3i32)), gt(col("a_min"), lit(3i32)),)
             )
         );
 

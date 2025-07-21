@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include "duckdb.h"
 #include "error.h"
 #include "table_filter.h"
 #include "duckdb_vx/data.h"
@@ -34,6 +35,17 @@ duckdb_value duckdb_vx_tfunc_bind_input_get_named_parameter(duckdb_vx_tfunc_bind
 // Add a result column to the bind info.
 void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_result ffi_result, const char *name_str,
                                             size_t name_len, duckdb_logical_type ffi_type);
+
+// Opaque type for the result of get_virtual_columns
+typedef struct duckdb_vx_tfunc_virtual_cols_result_ *duckdb_vx_tfunc_virtual_cols_result;
+// Push a column into the get_virtual_columns result.
+void duckdb_vx_tfunc_virtual_cols_push(duckdb_vx_tfunc_virtual_cols_result ffi_result, idx_t column_idx,
+                                       const char *name_str, size_t name_len, duckdb_logical_type ffi_type);
+
+// Opaque type for the result of get_row_id_columns
+typedef struct duckdb_vx_tfunc_row_id_cols_result_ *duckdb_vx_tfunc_row_id_cols_result;
+// Push a column into the get_row_id_columns result.
+void duckdb_vx_tfunc_row_id_cols_push(duckdb_vx_tfunc_row_id_cols_result ffi_result, idx_t column_idx);
 
 // Input data passed into the init_global and init_local callbacks.
 typedef struct {
@@ -96,6 +108,9 @@ typedef struct {
 
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
 
+    void (*get_virtual_columns)(void *bind_data, duckdb_vx_tfunc_virtual_cols_result result_out);
+    void (*get_row_id_columns)(void *bind_data, duckdb_vx_tfunc_row_id_cols_result result_out);
+
     void *pushdown_expression;
     // void *to_string;
     // void *dynamic_to_string;
@@ -107,8 +122,6 @@ typedef struct {
     // void *supports_pushdown_type;
     // void *get_partition_info;
     // void *get_partition_stats;
-    // void *get_virtual_columns;
-    // void *get_row_id_columns;
 
     bool projection_pushdown;
     bool filter_pushdown;

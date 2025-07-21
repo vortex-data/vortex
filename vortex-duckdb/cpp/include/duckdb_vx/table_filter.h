@@ -60,6 +60,19 @@ void duckdb_vx_table_filter_get_conjunction_and(duckdb_vx_table_filter ffi_filte
 
 duckdb_vx_dynamic_filter_data duckdb_vx_table_filter_get_dynamic(duckdb_vx_table_filter ffi_filter);
 
+duckdb_vx_table_filter duckdb_vx_table_filter_get_optional(duckdb_vx_table_filter ffi_filter);
+
+duckdb_vx_expr duckdb_vx_table_filter_get_expression(duckdb_vx_table_filter ffi_filter);
+
+typedef struct {
+    duckdb_vx_table_filter child_filter;
+    char *child_name;
+    size_t child_name_len;
+} duckdb_vx_table_filter_struct_extract;
+
+void duckdb_vx_table_filter_get_struct_extract(duckdb_vx_table_filter ffi_filter,
+                                               duckdb_vx_table_filter_struct_extract *out);
+
 #ifdef __cplusplus /* End C ABI */
 }
 #endif
