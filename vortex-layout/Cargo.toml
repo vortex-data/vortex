@@ -61,8 +61,7 @@ vortex-layout = { path = ".", features = ["tokio"] }
 
 [features]
 roaring = ["dep:roaring"]
-tokio = ["dep:tokio", "vortex-error/tokio"]
-tracing = ["dep:tracing"]
+tokio = ["dep:tokio", "vortex-error/tokio", "tracing"]
 zstd = ["dep:vortex-zstd"]
 
 [lints]

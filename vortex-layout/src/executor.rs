@@ -62,8 +62,9 @@ impl TaskExecutor for tokio::runtime::Handle {
         f: BoxFuture<'static, VortexResult<()>>,
     ) -> BoxFuture<'static, VortexResult<()>> {
         use futures::TryFutureExt;
+        use tracing::Instrument;
 
-        tokio::runtime::Handle::spawn(self, f)
+        tokio::runtime::Handle::spawn(self, f.in_current_span())
             .map_err(vortex_error::VortexError::from)
             .map(|result| result.unnest())
             .boxed()
