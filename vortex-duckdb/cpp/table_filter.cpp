@@ -148,5 +148,16 @@ extern "C" void duckdb_vx_table_filter_get_in_filter(duckdb_vx_table_filter ffi_
     auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<InFilter>();
 
     out->values_count = filter.values.size();
-    out->values = reinterpret_cast<duckdb_value *>(filter.values.data());
+    out->values = reinterpret_cast<duckdb_vx_values_vec>(&filter.values);
+}
+
+extern "C" duckdb_value duckdb_vx_values_vec_get(duckdb_vx_values_vec ffi_vec, size_t idx) {
+    if (!ffi_vec) {
+        return nullptr;
+    }
+    auto vec = reinterpret_cast<vector<Value> *>(ffi_vec);
+    if (idx >= vec->size()) {
+        return nullptr;
+    }
+    return reinterpret_cast<duckdb_value>(&(*vec)[idx]);
 }

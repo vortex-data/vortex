@@ -3,6 +3,7 @@
 
 use std::ffi::CStr;
 use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
 use std::ptr;
 
 use crate::cpp::idx_t;
@@ -11,7 +12,6 @@ use crate::{cpp, wrapper};
 use bitvec::macros::internal::funty::Fundamental;
 use cpp::duckdb_vx_table_filter;
 use vortex::error::VortexExpect;
-use vortex::expr::Operator;
 
 wrapper!(TableFilterSet, cpp::duckdb_vx_table_filter_set, |_| {});
 
@@ -146,8 +146,12 @@ impl TableFilter {
                     values_count: 0,
                 };
                 unsafe { cpp::duckdb_vx_table_filter_get_in_filter(self.as_ptr(), &raw mut out) };
-                let values = unsafe { std::slice::from_raw_parts(out.values, out.values_count) };
-                TableFilterClass::InFilter(Values { values })
+
+                TableFilterClass::InFilter(Values {
+                    values: out.values,
+                    values_count: out.values_count,
+                    _phantom: Default::default(),
+                })
             }
             cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_DYNAMIC_FILTER => {
                 let mut out = cpp::duckdb_vx_table_filter_dynamic {
@@ -212,14 +216,41 @@ impl Conjunction<'_> {
 }
 
 pub struct Values<'a> {
-    values: &'a [cpp::duckdb_value],
+    // We cannot use a Rust slice since the values are not individually heap-allocated.
+    values: cpp::duckdb_vx_values_vec,
+    values_count: usize,
+    _phantom: PhantomData<&'a ()>,
+}
+
+struct ValuesIterator<'a> {
+    values: cpp::duckdb_vx_values_vec,
+    values_count: usize,
+    index: usize,
+    _phantom: PhantomData<&'a ()>,
+}
+
+impl Iterator for ValuesIterator<'_> {
+    type Item = Value;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        (self.index < self.values_count).then(|| {
+            let value = unsafe {
+                Value::borrow(cpp::duckdb_vx_values_vec_get(self.values, self.index as _))
+            };
+            self.index += 1;
+            value
+        })
+    }
 }
 
 impl Values<'_> {
-    pub fn iter(&self) -> impl Iterator<Item = Value> + '_ {
-        self.values
-            .iter()
-            .map(|&value| unsafe { Value::borrow(value) })
+    pub fn iter(&self) -> impl Iterator<Item = Value> {
+        ValuesIterator {
+            values: self.values,
+            values_count: self.values_count,
+            index: 0,
+            _phantom: Default::default(),
+        }
     }
 }
 
@@ -232,15 +263,16 @@ wrapper!(
     /// A handle to mutable dynamic filter data.
     DynamicFilterData,
     cpp::duckdb_vx_dynamic_filter_data,
-    |_| {}
+    |ptr: &mut cpp::duckdb_vx_dynamic_filter_data| unsafe { cpp::duckdb_vx_dynamic_filter_data_drop(*ptr) }
 );
 
 impl DynamicFilterData {
-    pub fn op(&self) -> Operator {
-        todo!()
-    }
-
-    pub fn get_value() -> Value {
-        todo!()
+    /// Fetches the latest value from the dynamic filter data, if it has been initialized.
+    pub fn latest(&self) -> Option<Value> {
+        let ptr = unsafe { cpp::duckdb_vx_dynamic_filter_data_get_value(self.as_ptr()) };
+        if ptr.is_null() {
+            return None;
+        }
+        Some(unsafe { Value::borrow(ptr) })
     }
 }

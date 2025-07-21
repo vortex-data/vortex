@@ -81,8 +81,14 @@ typedef struct {
 void duckdb_vx_table_filter_get_struct_extract(duckdb_vx_table_filter ffi_filter,
                                                duckdb_vx_table_filter_struct_extract *out);
 
+// Wrapper around a vector<Value>. The C API only knows about duckdb_value, which is itself a ptr to a Value,
+// so we cannot simply unwrap a vector<Value> on the Rust side (we would need a vector<*Value>).
+typedef struct duckdb_vx_values_vec_ *duckdb_vx_values_vec;
+
+duckdb_value duckdb_vx_values_vec_get(duckdb_vx_values_vec ffi_vec, size_t idx);
+
 typedef struct {
-    duckdb_value *values;
+    duckdb_vx_values_vec values;
     size_t values_count;
 } duckdb_vx_table_filter_in_filter;
 
