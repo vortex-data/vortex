@@ -48,12 +48,10 @@ impl<T: 'static + Send + Sync> State<T> {
         if let Some(scan_builder_fn) = self.scan_builders.pop() {
             match scan_builder_fn().build() {
                 Ok(tasks) => {
-                    // SLEEP
                     for task in tasks {
                         worker.push(Box::pin(task));
                     }
                     self.num_scans_constructed.fetch_add(1, SeqCst);
-                    // SLEEP 2
                 }
                 Err(err) => {
                     // If the scan builder fails, we can return an error.
