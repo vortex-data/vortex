@@ -14,8 +14,8 @@ use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
-    BindInput, BindResult, Cardinality, DataChunk, Expression, LogicalType, TableFunction,
-    TableInitInput,
+    BindInput, BindResult, Cardinality, DataChunk, Expression, LogicalType, RowIdColsResult,
+    TableFunction, TableInitInput, VirtualColsResult,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
 
@@ -169,6 +169,8 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn bind(input: &BindInput, result: &mut BindResult) -> VortexResult<Self::BindData> {
+        println!("Binding Vortex table function",);
+
         let file_glob_string = input
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
@@ -345,8 +347,13 @@ impl TableFunction for VortexTableFunction {
             .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
     }
 
-    fn row_id_columns(_bind_data: &Self::BindData) -> Option<u64> {
+    fn row_id_columns(_bind_data: &Self::BindData, result: &mut RowIdColsResult) {
         println!("ROW ID COLUMNS: Returning a single row ID column index.");
-        Some(ROW_ID_COL_IDX)
+        result.push(ROW_ID_COL_IDX);
+    }
+
+    fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColsResult) {
+        println!("Registering virtual columns");
+        result.register(ROW_ID_COL_IDX, "row_idx", &LogicalType::uint64());
     }
 }

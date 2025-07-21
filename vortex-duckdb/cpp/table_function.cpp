@@ -197,20 +197,46 @@ unique_ptr<NodeStatistics> c_cardinality(ClientContext &context, const FunctionD
 }
 
 virtual_column_map_t c_get_virtual_columns(ClientContext &context, optional_ptr<FunctionData> bind_data) {
-    // Returns a map of <column_idx, TableColumn{name, type}>.
-    // Row ID columns must reference
+    auto &bind = bind_data->Cast<CTableBindData>();
+
+    auto result = virtual_column_map_t();
+    bind.info->vtab.get_virtual_columns(bind_data->Cast<CTableBindData>().ffi_data->DataPtr(),
+                                        reinterpret_cast<duckdb_vx_tfunc_virtual_cols_result>(&result));
+    return result;
+}
+
+extern "C" void duckdb_vx_tfunc_virtual_cols_push(duckdb_vx_tfunc_virtual_cols_result ffi_result,
+                                                  idx_t column_idx, const char *name_str, size_t name_len,
+                                                  duckdb_logical_type ffi_type) {
+    if (!ffi_result || !name_str || !ffi_type) {
+        return;
+    }
+
+    auto result = reinterpret_cast<virtual_column_map_t *>(ffi_result);
+    const auto logical_type = reinterpret_cast<LogicalType *>(ffi_type);
+    const auto name = string(name_str, name_len);
+
+    auto table_col = TableColumn(std::move(name), *logical_type);
+    result->emplace(column_idx, std::move(table_col));
 }
 
 vector<column_t> c_get_row_id_columns(ClientContext &context, optional_ptr<FunctionData> bind_data) {
     auto &bind = bind_data->Cast<CTableBindData>();
 
-    column_t col_idx_out = 0;
-    if (bind.info->vtab.get_row_id_columns(bind_data->Cast<CTableBindData>().ffi_data->DataPtr(),
-                                           &col_idx_out)) {
-        return vector<column_t>(col_idx_out);
+    auto result = vector<column_t>();
+    bind.info->vtab.get_row_id_columns(bind_data->Cast<CTableBindData>().ffi_data->DataPtr(),
+                                       reinterpret_cast<duckdb_vx_tfunc_row_id_cols_result>(&result));
+    return result;
+}
+
+extern "C" void duckdb_vx_tfunc_row_id_cols_push(duckdb_vx_tfunc_row_id_cols_result ffi_result,
+                                                 idx_t column_idx) {
+    if (!ffi_result) {
+        return;
     }
 
-    return vector<column_t>();
+    auto result = reinterpret_cast<vector<column_t> *>(ffi_result);
+    result->push_back(static_cast<column_t>(column_idx));
 }
 
 extern "C" size_t duckdb_vx_tfunc_bind_input_get_parameter_count(duckdb_vx_tfunc_bind_input ffi_input) {

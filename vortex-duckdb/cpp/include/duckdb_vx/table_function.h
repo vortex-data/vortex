@@ -36,11 +36,16 @@ duckdb_value duckdb_vx_tfunc_bind_input_get_named_parameter(duckdb_vx_tfunc_bind
 void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_result ffi_result, const char *name_str,
                                             size_t name_len, duckdb_logical_type ffi_type);
 
-typedef struct duckdb_vx_tfunc_virtual_cols_result_ *duckdb_vx_tfunc_virtual_col_result;
-
+// Opaque type for the result of get_virtual_columns
+typedef struct duckdb_vx_tfunc_virtual_cols_result_ *duckdb_vx_tfunc_virtual_cols_result;
 // Push a column into the get_virtual_columns result.
-void duckdb_vx_tfunc_virtual_cols_push(duckdb_vx_tfunc_virtual_col_result ffi_result, idx_t column_idx,
+void duckdb_vx_tfunc_virtual_cols_push(duckdb_vx_tfunc_virtual_cols_result ffi_result, idx_t column_idx,
                                        const char *name_str, size_t name_len, duckdb_logical_type ffi_type);
+
+// Opaque type for the result of get_row_id_columns
+typedef struct duckdb_vx_tfunc_row_id_cols_result_ *duckdb_vx_tfunc_row_id_cols_result;
+// Push a column into the get_row_id_columns result.
+void duckdb_vx_tfunc_row_id_cols_push(duckdb_vx_tfunc_row_id_cols_result ffi_result, idx_t column_idx);
 
 // Input data passed into the init_global and init_local callbacks.
 typedef struct {
@@ -103,8 +108,8 @@ typedef struct {
 
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
 
-    // void *get_virtual_columns;
-    bool (*get_row_id_columns)(void *bind_data, idx_t *col_idx_out);
+    void (*get_virtual_columns)(void *bind_data, duckdb_vx_tfunc_virtual_cols_result result_out);
+    void (*get_row_id_columns)(void *bind_data, duckdb_vx_tfunc_row_id_cols_result result_out);
 
     void *pushdown_expression;
     // void *to_string;

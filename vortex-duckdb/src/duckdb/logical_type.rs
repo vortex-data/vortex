@@ -34,6 +34,10 @@ impl LogicalType {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR)
     }
 
+    pub fn uint64() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT)
+    }
+
     pub fn as_decimal(&self) -> (u8, u8) {
         unsafe {
             (
