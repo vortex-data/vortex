@@ -94,6 +94,7 @@ pub fn try_from_table_filter(
                 op,
                 move || {
                     let value = data.latest()?;
+                    println!("DYNAMIC VALUE {value:?}");
                     let scalar = Scalar::try_from(value)
                         .vortex_expect("failed to convert dynamic filter value to scalar");
                     Some(scalar.into_value())
