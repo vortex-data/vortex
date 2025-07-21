@@ -7,7 +7,7 @@ use std::sync::Arc;
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, and_collect, lit, root, select};
+use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
 use vortex::{ArrayRef, ToCanonical};
@@ -114,6 +114,8 @@ fn extract_table_filter_expr(
     init: &TableInitInput<VortexTableFunction>,
     column_ids: &[u64],
 ) -> VortexResult<Option<ExprRef>> {
+    let scope_dtype = init.bind_data().first_file.dtype();
+
     let table_filter_expr = init
         .table_filter_set()
         .and_then(|filter| {
@@ -125,7 +127,7 @@ fn extract_table_filter_expr(
                         .column_names
                         .get(column_ids[idx.as_usize()].as_usize())
                         .vortex_expect("exists");
-                    try_from_table_filter(&ex, name)
+                    try_from_table_filter(&ex, &col(name.as_str()), scope_dtype)
                 })
                 .reduce(|l, r| l?.zip(r?).map(|(l, r)| Ok(and(l, r))).transpose())
         })

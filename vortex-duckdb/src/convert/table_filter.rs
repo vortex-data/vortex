@@ -53,12 +53,11 @@ pub fn try_from_table_filter(
             // Optional expressions are optional not yet supported.
             return try_from_table_filter(&child, col, scope_dtype).or_else(|_err| {
                 // Failed to convert the optional expression, but it's optional, so who cares?
-                println!("Failed to convert optional table filter: {:?}", child);
                 Ok(None)
             });
         }
         TableFilterClass::InFilter(values) => {
-            let scalars: Vec<_> = values.iter().map(|v| Scalar::try_from(v)).try_collect()?;
+            let scalars: Vec<_> = values.iter().map(Scalar::try_from).try_collect()?;
             let dtype = col.return_dtype(scope_dtype)?;
             let list_scalar = Scalar::list(Arc::new(dtype), scalars, Nullability::Nullable);
             list_contains(lit(list_scalar), col.clone())
