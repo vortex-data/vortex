@@ -263,7 +263,7 @@ jobs:
       - cpu=16
       - image=ubuntu24-full-x64
       - extras=s3-cache
-      - tag=rust-lint
+      - tag=rust-lint-no-default
     steps:
       - uses: runs-on/action@v2
         with:
@@ -295,6 +295,7 @@ jobs:
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-coverage
+      - tag=suite-${{ matrix.suite }}
     env:
       RUSTFLAGS: "-Cinstrument-coverage -A warnings"
       CARGO_INCREMENTAL: 0 # Disable incremental compilation to get accurate coverage
@@ -359,7 +360,7 @@ jobs:
       - cpu=8
       - image=ubuntu24-full-x64
       - extras=s3-cache
-      - tag=rust-test
+      - tag=rust-test-sanitizer
     env:
       RUSTFLAGS: "-A warnings -Zsanitizer=address"
     steps:
@@ -397,6 +398,7 @@ jobs:
       - family=c6id.8xlarge
       - extras=s3-cache
       - image=ubuntu24-full-x64
+      - tag=bench-codspeed
 
     steps:
       - uses: runs-on/action@v2
@@ -470,6 +472,7 @@ jobs:
       - cpu=8
       - image=ubuntu24-full-x64
       - extras=s3-cache
+      - tag=cxx-build
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
