@@ -5,13 +5,13 @@ use std::ffi::CStr;
 use std::fmt::{Debug, Formatter};
 use std::ptr;
 
-use bitvec::macros::internal::funty::Fundamental;
-use cpp::duckdb_vx_table_filter;
-use vortex::error::VortexExpect;
-
 use crate::cpp::idx_t;
 use crate::duckdb::{Expression, Value};
 use crate::{cpp, wrapper};
+use bitvec::macros::internal::funty::Fundamental;
+use cpp::duckdb_vx_table_filter;
+use vortex::error::VortexExpect;
+use vortex::expr::Operator;
 
 wrapper!(TableFilterSet, cpp::duckdb_vx_table_filter_set, |_| {});
 
@@ -150,8 +150,16 @@ impl TableFilter {
                 TableFilterClass::InFilter(Values { values })
             }
             cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_DYNAMIC_FILTER => {
-                let filter_data = unsafe { cpp::duckdb_vx_table_filter_get_dynamic(self.as_ptr()) };
-                TableFilterClass::Dynamic(unsafe { DynamicFilterData::borrow(filter_data) })
+                let mut out = cpp::duckdb_vx_table_filter_dynamic {
+                    data: ptr::null_mut(),
+                    comparison_type: cpp::DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_INVALID,
+                };
+                unsafe { cpp::duckdb_vx_table_filter_get_dynamic(self.as_ptr(), &raw mut out) };
+
+                TableFilterClass::Dynamic(DynamicFilter {
+                    data: unsafe { DynamicFilterData::own(out.data) },
+                    operator: out.comparison_type,
+                })
             }
             cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_EXPRESSION_FILTER => {
                 let expr = unsafe {
@@ -182,7 +190,7 @@ pub enum TableFilterClass<'a> {
     StructExtract(&'a str, TableFilter),
     Optional(TableFilter),
     InFilter(Values<'a>),
-    Dynamic(DynamicFilterData),
+    Dynamic(DynamicFilter),
     Expression(Expression),
 }
 
@@ -215,9 +223,24 @@ impl Values<'_> {
     }
 }
 
+pub struct DynamicFilter {
+    pub data: DynamicFilterData,
+    pub operator: cpp::DUCKDB_VX_EXPR_TYPE,
+}
+
 wrapper!(
     /// A handle to mutable dynamic filter data.
     DynamicFilterData,
     cpp::duckdb_vx_dynamic_filter_data,
     |_| {}
 );
+
+impl DynamicFilterData {
+    pub fn op(&self) -> Operator {
+        todo!()
+    }
+
+    pub fn get_value() -> Value {
+        todo!()
+    }
+}

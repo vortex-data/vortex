@@ -62,9 +62,9 @@ pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult
             let list_scalar = Scalar::list(Arc::new(dtype), scalars, Nullability::Nullable);
             list_contains(lit(list_scalar), col.clone())
         }
-        TableFilterClass::Dynamic(_) => {
+        TableFilterClass::Dynamic(_dynamic) => {
             // Dynamic expressions are optional and not yet supported.
-            return Ok(None);
+            vortex_bail!("dynamic table filter is not supported");
         }
         TableFilterClass::Expression(expr) => {
             // TODO(ngates): figure out which column ID DuckDB is using for the expression.
