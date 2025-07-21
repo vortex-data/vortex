@@ -94,11 +94,12 @@ extern "C" void duckdb_vx_table_filter_get_dynamic(duckdb_vx_table_filter ffi_fi
     out->comparison_type = static_cast<duckdb_vx_expr_type>(filter.filter_data->filter->comparison_type);
 }
 
-extern "C" void duckdb_vx_dynamic_filter_data_drop(duckdb_vx_dynamic_filter_data ffi_data) {
-    if (!ffi_data) {
+extern "C" void duckdb_vx_dynamic_filter_data_drop(duckdb_vx_dynamic_filter_data *ffi_data) {
+    if (!ffi_data || !*ffi_data) {
         return;
     }
-    delete reinterpret_cast<DynamicFilterDataWrapper *>(ffi_data);
+    delete reinterpret_cast<DynamicFilterDataWrapper *>(*ffi_data);
+    *ffi_data = nullptr;
 }
 
 extern "C" duckdb_value duckdb_vx_dynamic_filter_data_get_value(duckdb_vx_dynamic_filter_data ffi_data) {
@@ -106,7 +107,7 @@ extern "C" duckdb_value duckdb_vx_dynamic_filter_data_get_value(duckdb_vx_dynami
         return nullptr;
     }
     auto data_wrapper = reinterpret_cast<DynamicFilterDataWrapper *>(ffi_data);
-    if (!data_wrapper->data || !data_wrapper->data->filter) {
+    if (!data_wrapper->data || !data_wrapper->data->filter || !data_wrapper->data->initialized) {
         return nullptr;
     }
     return reinterpret_cast<duckdb_value>(&data_wrapper->data->filter->constant);

@@ -3,17 +3,23 @@
 
 use std::sync::Arc;
 
+use crate::cpp::DUCKDB_VX_EXPR_TYPE;
+use crate::duckdb::{TableFilter, TableFilterClass};
 use itertools::Itertools;
-use vortex::dtype::Nullability;
-use vortex::error::{VortexResult, vortex_bail};
+use vortex::compute::Operator;
+use vortex::dtype::{DType, Nullability};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 use vortex::expr::{
-    BinaryExpr, ExprRef, and_collect, get_item, is_null, list_contains, lit, not, or_collect,
+    BinaryExpr, ExprRef, IntoExpr, and_collect, get_item, is_null, list_contains, lit, not,
+    or_collect,
 };
 use vortex::scalar::Scalar;
 
-use crate::duckdb::{TableFilter, TableFilterClass};
-
-pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult<Option<ExprRef>> {
+pub fn try_from_table_filter(
+    value: &TableFilter,
+    col: &ExprRef,
+    scope_dtype: &DType,
+) -> VortexResult<Option<ExprRef>> {
     Ok(Some(match value.as_class() {
         TableFilterClass::ConstantComparison(const_) => {
             let scalar: Scalar = (&const_.value).try_into()?;
@@ -22,7 +28,7 @@ pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult
         TableFilterClass::ConjunctionAnd(conj_and) => {
             let Some(children) = conj_and
                 .children()
-                .map(|child| try_from_table_filter(&child, col))
+                .map(|child| try_from_table_filter(&child, col, scope_dtype))
                 .try_collect::<_, Option<Vec<_>>, _>()?
             else {
                 return Ok(None);
@@ -34,7 +40,7 @@ pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult
         TableFilterClass::ConjunctionOr(disjuction_or) => {
             let Some(children) = disjuction_or
                 .children()
-                .map(|child| try_from_table_filter(&child, col))
+                .map(|child| try_from_table_filter(&child, col, scope_dtype))
                 .try_collect::<_, Option<Vec<_>>, _>()?
             else {
                 return Ok(None);
@@ -45,16 +51,18 @@ pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult
         TableFilterClass::IsNull => is_null(col.clone()),
         TableFilterClass::IsNotNull => not(is_null(col.clone())),
         TableFilterClass::StructExtract(name, child_filter) => {
-            return try_from_table_filter(&child_filter, &get_item(name, col.clone()));
+            return try_from_table_filter(&child_filter, &get_item(name, col.clone()), scope_dtype);
         }
         TableFilterClass::Optional(child) => {
             // Optional expressions are optional not yet supported.
-            return try_from_table_filter(&child, col).or_else(|_err| {
+            return try_from_table_filter(&child, col, scope_dtype).or_else(|_err| {
                 // Failed to convert the optional expression, but it's optional, so who cares?
                 Ok(None)
             });
         }
         TableFilterClass::InFilter(values) => {
+            // TODO(ngates): I'm pretty sure we actually need this as ScalarValue with the
+            //  scope dtype
             let scalars: Vec<_> = values.iter().map(Scalar::try_from).try_collect()?;
             assert!(
                 !scalars.is_empty(),
@@ -64,9 +72,36 @@ pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult
             let list_scalar = Scalar::list(Arc::new(dtype), scalars, Nullability::Nullable);
             list_contains(lit(list_scalar), col.clone())
         }
-        TableFilterClass::Dynamic(_dynamic) => {
-            // Dynamic expressions are optional and not yet supported.
-            vortex_bail!("dynamic table filter is not supported");
+        TableFilterClass::Dynamic(dynamic) => {
+            let op = match dynamic.operator {
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => Operator::Eq,
+                DUCKDB_VX_EXPR_TYPE::CDUCKDB_VX_EXPR_TYPE_OMPARE_NOTEQUAL => Operator::NotEq,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN => Operator::Lt,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHAN => Operator::Gt,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHANOREQUALTO => Operator::Lte,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHANOREQUALTO => {
+                    Operator::Gte
+                }
+                _ => vortex_bail!(
+                    "unsupported dynamic filter operator: {:?}",
+                    dynamic.operator
+                ),
+            };
+            let data = dynamic.data;
+
+            vortex::expr::dynamic::DynamicComparisonExpr::new(
+                col.clone(),
+                op,
+                move || {
+                    let value = data.latest()?;
+                    let scalar = Scalar::try_from(value)
+                        .vortex_expect("failed to convert dynamic filter value to scalar");
+                    Some(scalar.into_value())
+                },
+                col.return_dtype(scope_dtype)?,
+                true, // If there is no value, we say that all rows pass the dynamic filter.
+            )
+            .into_expr()
         }
         TableFilterClass::Expression(expr) => {
             // TODO(ngates): figure out which column ID DuckDB is using for the expression.

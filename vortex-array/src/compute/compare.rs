@@ -30,7 +30,7 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
         .unwrap_array()
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
 pub enum Operator {
     Eq,
     NotEq,

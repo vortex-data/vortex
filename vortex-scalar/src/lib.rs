@@ -65,6 +65,9 @@ pub struct Scalar {
 
 impl Scalar {
     /// Creates a new scalar with the given data type and value.
+    ///
+    /// FIXME(ngates): this is unchecked... we don't know that the scalar value is compatible
+    ///  with the data type.
     pub fn new(dtype: DType, value: ScalarValue) -> Self {
         Self { dtype, value }
     }
