@@ -3,9 +3,10 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
-use bindgen::Abi;
 use std::path::PathBuf;
 use std::{env, fs};
+
+use bindgen::Abi;
 
 const DUCKDB_VERSION: &str = "1.3.2";
 const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
