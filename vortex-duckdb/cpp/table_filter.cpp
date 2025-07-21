@@ -90,7 +90,7 @@ extern "C" void duckdb_vx_table_filter_get_dynamic(duckdb_vx_table_filter ffi_fi
     auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<DynamicFilter>();
 
     auto data_wrapper = new DynamicFilterDataWrapper(filter.filter_data);
-    out->data = reinterpret_cast<duckdb_vx_dynamic_filter_data>(&data_wrapper);
+    out->data = reinterpret_cast<duckdb_vx_dynamic_filter_data>(data_wrapper);
     out->comparison_type = static_cast<duckdb_vx_expr_type>(filter.filter_data->filter->comparison_type);
 }
 
