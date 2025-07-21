@@ -198,7 +198,7 @@ impl PyNativeArray {
 
     /// Returns the number of bytes used by this array.
     #[getter]
-    fn nbytes(&self) -> usize {
+    fn nbytes(&self) -> u64 {
         self.0.nbytes()
     }
 

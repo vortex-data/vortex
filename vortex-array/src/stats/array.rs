@@ -139,7 +139,7 @@ impl StatsSetRef<'_> {
             Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref)?.into()),
             Stat::UncompressedSizeInBytes => {
                 let nbytes: ScalarValue =
-                    (self.dyn_array_ref.to_canonical()?.as_ref().nbytes() as u64).into();
+                    self.dyn_array_ref.to_canonical()?.as_ref().nbytes().into();
                 self.set(stat, Precision::exact(nbytes.clone()));
                 Some(nbytes)
             }

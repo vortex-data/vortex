@@ -35,12 +35,6 @@ impl OperationsVTable<SparseVTable> for SparseVTable {
             .get_patched(index)?
             .unwrap_or_else(|| array.fill_scalar().clone()))
     }
-
-    /// Optimize the patches inside of the SparseArray, applying the offset to the indices
-    /// and rebuilding the offset.
-    fn optimize(array: &SparseArray) -> VortexResult<SparseArray> {
-        SparseArray::try_new_from_patches(array.patches().optimize()?, array.fill_scalar().clone())
-    }
 }
 
 #[cfg(test)]

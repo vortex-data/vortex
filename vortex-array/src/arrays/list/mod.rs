@@ -170,15 +170,6 @@ impl OperationsVTable<ListVTable> for ListVTable {
             array.dtype().nullability(),
         ))
     }
-
-    /// Implements the optimization operation by pushing it down into the children.
-    fn optimize(array: &ListArray) -> VortexResult<ListArray> {
-        ListArray::try_new(
-            array.elements().optimize()?,
-            array.offsets().optimize()?,
-            array.validity().optimize()?,
-        )
-    }
 }
 
 impl CanonicalVTable<ListVTable> for ListVTable {

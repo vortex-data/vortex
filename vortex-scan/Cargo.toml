@@ -25,9 +25,8 @@ vortex-metrics = { workspace = true }
 
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
-async-trait = { workspace = true }
+crossbeam-deque = { workspace = true }
 crossbeam-queue = { workspace = true }
-dashmap = { workspace = true }
 futures = { workspace = true, features = ["thread-pool"] }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
@@ -37,3 +36,6 @@ tokio = { workspace = true }
 [features]
 default = ["tokio"]
 tokio = ["vortex-layout/tokio"]
+
+[lints]
+workspace = true

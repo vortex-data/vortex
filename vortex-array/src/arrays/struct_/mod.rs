@@ -315,20 +315,6 @@ impl OperationsVTable<StructVTable> for StructVTable {
                 .try_collect()?,
         ))
     }
-
-    /// Optimize a StructArray recursively by optimizing all of its fields.
-    fn optimize(array: &StructArray) -> VortexResult<StructArray> {
-        StructArray::try_new(
-            array.names().clone(),
-            array
-                .fields
-                .iter()
-                .map(|field| field.optimize())
-                .collect::<VortexResult<Vec<ArrayRef>>>()?,
-            array.len,
-            array.validity.optimize()?,
-        )
-    }
 }
 
 #[cfg(test)]

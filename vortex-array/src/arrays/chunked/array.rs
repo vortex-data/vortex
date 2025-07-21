@@ -118,7 +118,7 @@ impl ChunkedArray {
         )
     }
 
-    pub fn rechunk(&self, target_bytesize: usize, target_rowsize: usize) -> VortexResult<Self> {
+    pub fn rechunk(&self, target_bytesize: u64, target_rowsize: usize) -> VortexResult<Self> {
         let mut new_chunks = Vec::new();
         let mut chunks_to_combine = Vec::new();
         let mut new_chunk_n_bytes = 0;
