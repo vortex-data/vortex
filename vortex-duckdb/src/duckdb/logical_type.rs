@@ -38,6 +38,10 @@ impl LogicalType {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT)
     }
 
+    pub fn int64() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT)
+    }
+
     pub fn as_decimal(&self) -> (u8, u8) {
         unsafe {
             (

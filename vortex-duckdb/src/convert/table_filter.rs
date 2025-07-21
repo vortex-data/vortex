@@ -2,28 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-
+use crate::duckdb::{TableFilter, TableFilterClass};
 use itertools::Itertools;
 use vortex::compute::Operator;
 use vortex::dtype::{DType, Nullability};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail};
-use vortex::expr::{
-    BinaryExpr, ExprRef, IntoExpr, and_collect, get_item, is_null, list_contains, lit, not,
-    or_collect,
-};
+use vortex::error::{VortexResult, vortex_bail, VortexExpect};
+use vortex::expr::{BinaryExpr, ExprRef, and_collect, lit, or_collect, list_contains, IntoExpr, is_null, not, get_item};
 use vortex::scalar::Scalar;
-
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-use crate::duckdb::{TableFilter, TableFilterClass};
 
-pub fn try_from_table_filter(
-    value: &TableFilter,
-    col: &ExprRef,
-    scope_dtype: &DType,
-) -> VortexResult<Option<ExprRef>> {
-    Ok(Some(match value.as_class() {
+pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef, scope_dtype: &DType) -> VortexResult<Option<ExprRef>> {
+    println!("Converting table filter: {:#?}", value);
+    let Some(class) = value.as_class() else {
+        return Ok(None);
+    };
+    Ok(Some(match class {
         TableFilterClass::ConstantComparison(const_) => {
-            let scalar: Scalar = (&const_.value).try_into()?;
+            let scalar: Scalar = const_.value.try_into()?;
             BinaryExpr::new_expr(col.clone(), const_.operator.try_into()?, lit(scalar))
         }
         TableFilterClass::ConjunctionAnd(conj_and) => {

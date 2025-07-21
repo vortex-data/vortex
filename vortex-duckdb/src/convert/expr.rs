@@ -14,45 +14,9 @@ use vortex::expr::{
 use vortex::scalar::Scalar;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-use crate::duckdb::{Expression, ExpressionClass, TableFilter, TableFilterClass};
+use crate::duckdb::{Expression, ExpressionClass};
 
 const DUCKDB_FUNCTION_NAME_CONTAINS: &str = "contains";
-
-pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult<Option<ExprRef>> {
-    let Some(class) = value.as_class() else {
-        return Ok(None);
-    };
-    Ok(Some(match class {
-        TableFilterClass::ConstantComparison(const_) => {
-            let scalar: Scalar = const_.value.try_into()?;
-            BinaryExpr::new_expr(col.clone(), const_.operator.try_into()?, lit(scalar))
-        }
-        TableFilterClass::ConjunctionAnd(conj_and) => {
-            let Some(children) = conj_and
-                .children()
-                .map(|child| try_from_table_filter(&child, col))
-                .try_collect::<_, Option<Vec<_>>, _>()?
-            else {
-                return Ok(None);
-            };
-
-            and_collect(children).unwrap_or_else(|| lit(true))
-        }
-        // This is a disjunction.
-        TableFilterClass::ConjunctionOr(disjuction_or) => {
-            let Some(children) = disjuction_or
-                .children()
-                .map(|child| try_from_table_filter(&child, col))
-                .try_collect::<_, Option<Vec<_>>, _>()?
-            else {
-                return Ok(None);
-            };
-
-            or_collect(children).unwrap_or_else(|| lit(false))
-        }
-        _ => todo!("cannot convert table filter {:?}", value),
-    }))
-}
 
 fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
     match value.as_class().vortex_expect("unknown class") {

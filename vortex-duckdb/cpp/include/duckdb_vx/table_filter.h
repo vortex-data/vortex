@@ -95,6 +95,8 @@ typedef struct {
 void duckdb_vx_table_filter_get_in_filter(duckdb_vx_table_filter ffi_filter,
                                           duckdb_vx_table_filter_in_filter *out);
 
+duckdb_vx_table_filter duckdb_vx_table_filter_get_optional(duckdb_vx_table_filter ffi_filter);
+
 #ifdef __cplusplus /* End C ABI */
 }
 #endif

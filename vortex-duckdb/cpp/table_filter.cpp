@@ -5,10 +5,10 @@
 #include "duckdb_vx.h"
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/dynamic_filter.hpp"
-#include "duckdb/planner/filter/optional_filter.hpp"
 #include "duckdb/planner/filter/expression_filter.hpp"
-#include "duckdb/planner/filter/struct_filter.hpp"
 #include "duckdb/planner/filter/in_filter.hpp"
+#include "duckdb/planner/filter/optional_filter.hpp"
+#include "duckdb/planner/filter/struct_filter.hpp"
 
 using namespace duckdb;
 
@@ -161,4 +161,12 @@ extern "C" duckdb_value duckdb_vx_values_vec_get(duckdb_vx_values_vec ffi_vec, s
         return nullptr;
     }
     return reinterpret_cast<duckdb_value>(&(*vec)[idx]);
+}
+
+extern "C" duckdb_vx_table_filter duckdb_vx_table_filter_get_optional(duckdb_vx_table_filter ffi_filter) {
+    if (!ffi_filter) {
+        return nullptr;
+    }
+    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<OptionalFilter>();
+    return reinterpret_cast<duckdb_vx_table_filter>(filter.child_filter.get());
 }

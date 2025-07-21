@@ -5,13 +5,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bitvec::macros::internal::funty::Fundamental;
-use vortex::dtype::FieldNames;
+use vortex::dtype::{DType, FieldNames, PType};
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select, merge};
+use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select, merge, pack, cast};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::{MultiScan, MultiScanIterator};
 use vortex::{ArrayRef, ToCanonical};
 use vortex::dtype::Nullability::NonNullable;
+use vortex::layout::layouts::row_idx::row_idx;
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
     BindInput, BindResult, Cardinality, DataChunk, Expression, LogicalType, RowIdColsResult,
@@ -100,9 +101,15 @@ fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> ExprRe
 
     for idx in projection_ids.iter().map(|p| column_ids[p.as_usize()]) {
         if idx == FILE_ID_COL_IDX {
-            merge_exprs.push(pack([("file_id", lit(42u64))], NonNullable));
+            merge_exprs.push(pack([(FILE_ID_COL_NAME, lit(42u64))], NonNullable));
         } else if idx == ROW_ID_COL_IDX {
-            merge_exprs.push(pack([("row_id", row_idx())], NonNullable));
+            merge_exprs.push(pack(
+                [(
+                    ROW_ID_COL_NAME,
+                    cast(row_idx(), DType::Primitive(PType::I64, NonNullable)),
+                )],
+                NonNullable,
+            ));
         } else {
             let name = Arc::<str>::from(
                 init.bind_data()
@@ -134,7 +141,7 @@ fn extract_table_filter_expr(
                     let idx = column_ids[p_idx.as_usize()];
 
                     let expr = if idx == ROW_ID_COL_IDX {
-                        row_idx()
+                        cast(row_idx(), DType::Primitive(PType::I64, NonNullable))
                     } else if idx == FILE_ID_COL_IDX {
                         lit(42u64)
                     } else {
@@ -165,7 +172,9 @@ fn extract_table_filter_expr(
 
 /// Create a well-known row ID column index that DuckDB will pass to us in expression push-down.
 static FILE_ID_COL_IDX: u64 = u64::MAX - 1;
+static FILE_ID_COL_NAME: &str = "#file_id";
 static ROW_ID_COL_IDX: u64 = u64::MAX - 2;
+static ROW_ID_COL_NAME: &str = "#row_id";
 
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
@@ -238,10 +247,9 @@ impl TableFunction for VortexTableFunction {
                     return Ok(());
                 };
 
-                let (array_result, conversion_cache) = result?;
-
+                let (array, conversion_cache) = result?;
                 local_state.exporter = Some(ArrayExporter::try_new(
-                    &array_result.to_struct()?,
+                    &array.to_struct()?,
                     &conversion_cache,
                 )?);
                 local_state.batch_id = Some(conversion_cache.instance_id());
@@ -337,8 +345,10 @@ impl TableFunction for VortexTableFunction {
         expr: &Expression,
     ) -> VortexResult<bool> {
         let Some(expr) = try_from_bound_expression(expr)? else {
+            println!("Pushing down complex filter NOT SUPPORTED: {expr}");
             return Ok(false);
         };
+        println!("Pushing down complex filter SUPPORTED: {expr}");
         bind_data.filter_exprs.push(expr);
         Ok(true)
     }
@@ -369,7 +379,9 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColsResult) {
-        result.register(FILE_ID_COL_IDX, "file_id", &LogicalType::uint64());
-        result.register(ROW_ID_COL_IDX, "row_id", &LogicalType::uint64());
+        // For whatever dumb reason, DuckDB cannot deal with unsigned sequences, and internally
+        // tries to use that for row indices stuff.
+        result.register(FILE_ID_COL_IDX, FILE_ID_COL_NAME, &LogicalType::int64());
+        result.register(ROW_ID_COL_IDX, ROW_ID_COL_NAME, &LogicalType::int64());
     }
 }
