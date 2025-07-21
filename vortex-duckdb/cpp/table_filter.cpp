@@ -162,11 +162,3 @@ extern "C" duckdb_value duckdb_vx_values_vec_get(duckdb_vx_values_vec ffi_vec, s
     }
     return reinterpret_cast<duckdb_value>(&(*vec)[idx]);
 }
-
-extern "C" duckdb_vx_table_filter duckdb_vx_table_filter_get_optional(duckdb_vx_table_filter ffi_filter) {
-    if (!ffi_filter) {
-        return nullptr;
-    }
-    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<OptionalFilter>();
-    return reinterpret_cast<duckdb_vx_table_filter>(filter.child_filter.get());
-}
