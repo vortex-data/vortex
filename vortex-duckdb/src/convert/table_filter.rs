@@ -4,18 +4,14 @@
 use crate::duckdb::{TableFilter, TableFilterClass};
 use itertools::Itertools;
 use std::sync::Arc;
-use vortex::dtype::{DType, Nullability};
+use vortex::dtype::Nullability;
 use vortex::error::{VortexResult, vortex_bail};
 use vortex::expr::{
     BinaryExpr, ExprRef, and_collect, get_item, is_null, list_contains, lit, not, or_collect,
 };
 use vortex::scalar::Scalar;
 
-pub fn try_from_table_filter(
-    value: &TableFilter,
-    col: &ExprRef,
-    scope_dtype: &DType,
-) -> VortexResult<Option<ExprRef>> {
+pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult<Option<ExprRef>> {
     Ok(Some(match value.as_class() {
         TableFilterClass::ConstantComparison(const_) => {
             let scalar: Scalar = (&const_.value).try_into()?;
@@ -24,7 +20,7 @@ pub fn try_from_table_filter(
         TableFilterClass::ConjunctionAnd(conj_and) => {
             let Some(children) = conj_and
                 .children()
-                .map(|child| try_from_table_filter(&child, col, scope_dtype))
+                .map(|child| try_from_table_filter(&child, col))
                 .try_collect::<_, Option<Vec<_>>, _>()?
             else {
                 return Ok(None);
@@ -36,7 +32,7 @@ pub fn try_from_table_filter(
         TableFilterClass::ConjunctionOr(disjuction_or) => {
             let Some(children) = disjuction_or
                 .children()
-                .map(|child| try_from_table_filter(&child, col, scope_dtype))
+                .map(|child| try_from_table_filter(&child, col))
                 .try_collect::<_, Option<Vec<_>>, _>()?
             else {
                 return Ok(None);
@@ -47,18 +43,22 @@ pub fn try_from_table_filter(
         TableFilterClass::IsNull => is_null(col.clone()),
         TableFilterClass::IsNotNull => not(is_null(col.clone())),
         TableFilterClass::StructExtract(name, child_filter) => {
-            return try_from_table_filter(&child_filter, &get_item(name, col.clone()), scope_dtype);
+            return try_from_table_filter(&child_filter, &get_item(name, col.clone()));
         }
         TableFilterClass::Optional(child) => {
             // Optional expressions are optional not yet supported.
-            return try_from_table_filter(&child, col, scope_dtype).or_else(|_err| {
+            return try_from_table_filter(&child, col).or_else(|_err| {
                 // Failed to convert the optional expression, but it's optional, so who cares?
                 Ok(None)
             });
         }
         TableFilterClass::InFilter(values) => {
             let scalars: Vec<_> = values.iter().map(Scalar::try_from).try_collect()?;
-            let dtype = col.return_dtype(scope_dtype)?;
+            assert!(
+                !scalars.is_empty(),
+                "IN filter must have at least one value"
+            );
+            let dtype = scalars[0].dtype().clone();
             let list_scalar = Scalar::list(Arc::new(dtype), scalars, Nullability::Nullable);
             list_contains(lit(list_scalar), col.clone())
         }
