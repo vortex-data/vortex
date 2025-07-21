@@ -108,9 +108,6 @@ typedef struct {
 
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
 
-    void (*get_virtual_columns)(void *bind_data, duckdb_vx_tfunc_virtual_cols_result result_out);
-    void (*get_row_id_columns)(void *bind_data, duckdb_vx_tfunc_row_id_cols_result result_out);
-
     void *pushdown_expression;
     // void *to_string;
     // void *dynamic_to_string;
@@ -122,6 +119,8 @@ typedef struct {
     // void *supports_pushdown_type;
     // void *get_partition_info;
     // void *get_partition_stats;
+    // void *get_virtual_columns;
+    // void *get_row_id_columns;
 
     bool projection_pushdown;
     bool filter_pushdown;

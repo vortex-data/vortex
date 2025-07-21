@@ -73,6 +73,14 @@ typedef struct {
 void duckdb_vx_table_filter_get_struct_extract(duckdb_vx_table_filter ffi_filter,
                                                duckdb_vx_table_filter_struct_extract *out);
 
+typedef struct {
+    duckdb_value *values;
+    size_t values_count;
+} duckdb_vx_table_filter_in_filter;
+
+void duckdb_vx_table_filter_get_in_filter(duckdb_vx_table_filter ffi_filter,
+                                          duckdb_vx_table_filter_in_filter *out);
+
 #ifdef __cplusplus /* End C ABI */
 }
 #endif

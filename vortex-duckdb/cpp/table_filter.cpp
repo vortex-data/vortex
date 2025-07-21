@@ -8,6 +8,7 @@
 #include "duckdb/planner/filter/optional_filter.hpp"
 #include "duckdb/planner/filter/expression_filter.hpp"
 #include "duckdb/planner/filter/struct_filter.hpp"
+#include "duckdb/planner/filter/in_filter.hpp"
 
 using namespace duckdb;
 
@@ -108,4 +109,15 @@ extern "C" void duckdb_vx_table_filter_get_struct_extract(duckdb_vx_table_filter
     out->child_filter = reinterpret_cast<duckdb_vx_table_filter>(filter.child_filter.get());
     out->child_name_len = filter.child_name.size();
     out->child_name = static_cast<char *>(filter.child_name.data());
+}
+
+extern "C" void duckdb_vx_table_filter_get_in_filter(duckdb_vx_table_filter ffi_filter,
+                                                     duckdb_vx_table_filter_in_filter *out) {
+    if (!ffi_filter || !out) {
+        return;
+    }
+    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<InFilter>();
+
+    out->values_count = filter.values.size();
+    out->values = reinterpret_cast<duckdb_value *>(filter.values.data());
 }

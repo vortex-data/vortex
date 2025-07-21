@@ -141,7 +141,13 @@ impl TableFilter {
                 TableFilterClass::Optional(child_filter)
             }
             cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_IN_FILTER => {
-                TableFilterClass::InFilter
+                let mut out = cpp::duckdb_vx_table_filter_in_filter {
+                    values: ptr::null_mut(),
+                    values_count: 0,
+                };
+                unsafe { cpp::duckdb_vx_table_filter_get_in_filter(self.as_ptr(), &raw mut out) };
+                let values = unsafe { std::slice::from_raw_parts(out.values, out.values_count) };
+                TableFilterClass::InFilter(Values { values })
             }
             cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_DYNAMIC_FILTER => {
                 let filter_data = unsafe { cpp::duckdb_vx_table_filter_get_dynamic(self.as_ptr()) };
@@ -175,7 +181,7 @@ pub enum TableFilterClass<'a> {
     ConjunctionAnd(Conjunction<'a>),
     StructExtract(&'a str, TableFilter),
     Optional(TableFilter),
-    InFilter,
+    InFilter(Values<'a>),
     Dynamic(DynamicFilterData),
     Expression(Expression),
 }
@@ -194,6 +200,18 @@ impl Conjunction<'_> {
         self.children
             .iter()
             .map(|&child| unsafe { TableFilter::borrow(child) })
+    }
+}
+
+pub struct Values<'a> {
+    values: &'a [cpp::duckdb_value],
+}
+
+impl Values<'_> {
+    pub fn iter(&self) -> impl Iterator<Item = Value> + '_ {
+        self.values
+            .iter()
+            .map(|&value| unsafe { Value::borrow(value) })
     }
 }
 
