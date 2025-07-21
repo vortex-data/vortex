@@ -86,6 +86,7 @@ fn random_access(
         let struct_ = array
             .to_struct()
             .vortex_expect("could not convert to struct");
+        assert_eq!(struct_.len(), 6, "expected 6 rows");
         let pu_location_id = struct_
             .field_by_name("PULocationID")
             .vortex_expect("could not get PULocationID");
