@@ -216,7 +216,9 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         // Set up the initial stream of RowMasks.
         let tree_mask = self.selection.tree_row_mask(
-            row_count.as_exact().unwrap(),
+            row_count
+                .as_exact()
+                .ok_or_else(|| vortex_err!("row count must be exact in scan"))?,
             self.row_range.clone(),
         );
         let masks = layout_reader.row_masks(&tree_mask, &field_mask);
