@@ -115,7 +115,7 @@ fn random_access(
             &runtime,
             iterations,
             || indices.clone(),
-            |indices| async { take_vortex_tokio(&taxi_vortex, indices, Some(validate)).await },
+            |indices| async { take_vortex_tokio(&taxi_vortex, indices, validate).await },
         ),
     });
     progress.inc(1);
