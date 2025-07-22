@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter::once;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -131,9 +132,11 @@ impl LayoutReader for ChunkedReader {
 
     fn row_masks(&self, selection: &RowSelectionRef, field_mask: &[FieldMask]) -> BoxMaskIterator {
         let field_mask = field_mask.to_vec();
-        let selection = selection.clone();
+        let selection2 = selection.clone();
+        let selection3 = selection.clone();
         let children = (0..self.layout.nchildren())
-            .map(|idx| {
+            .map(move |idx| {
+                let selection = selection3.clone();
                 let start = self.chunk_offsets[idx];
                 let end = if idx + 1 == self.chunk_offsets.len() {
                     self.layout.row_count
@@ -150,18 +153,20 @@ impl LayoutReader for ChunkedReader {
                 (None, None) => Ok((None, elem1.1.start..elem2.1.end)),
                 _ => Err((elem1, elem2)),
             })
-            .flat_map(|(idx, range)| {
+            .flat_map(move |(idx, range)| {
+                let selection = selection2.clone();
+                let field_mask = field_mask.to_vec();
                 if let Some(idx) = idx {
-                    self.chunk_reader(idx)
-                        .vortex_expect("infallible")
-                        .row_masks(&selection.slice(&range), &field_mask)
+                    match self.chunk_reader(idx) {
+                        Ok(reader) => reader.row_masks(&selection.slice(&range), &field_mask),
+                        Err(e) => Box::new(once(Err(e))),
+                    }
                 } else {
                     Box::new(all_constant_mask_iterator(range.end - range.start, false))
                 }
-            })
-            .collect_vec();
+            });
 
-        Box::new(children.into_iter())
+        Box::new(children)
     }
 
     fn pruning_evaluation(

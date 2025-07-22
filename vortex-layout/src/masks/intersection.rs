@@ -9,15 +9,15 @@ use vortex_mask::Mask;
 use super::BoxMaskIterator;
 
 /// An iterator that merges multiple mask iterators while performing an intersection.
-pub struct IntersectionMaskIterator {
-    iterators: Vec<BoxMaskIterator>,
+pub struct IntersectionMaskIterator<'a> {
+    iterators: Vec<BoxMaskIterator<'a>>,
     // For each iterator, we keep track of the current mask and the offset within it.
     current: Vec<Option<(Mask, usize)>>,
     finished: bool,
 }
 
-impl IntersectionMaskIterator {
-    pub fn new(iterators: Vec<BoxMaskIterator>) -> Self {
+impl<'a> IntersectionMaskIterator<'a> {
+    pub fn new(iterators: Vec<BoxMaskIterator<'a>>) -> Self {
         assert!(!iterators.is_empty(), "must have at least one iterator");
         let iter_count = iterators.len();
         Self {
@@ -97,7 +97,7 @@ impl IntersectionMaskIterator {
     }
 }
 
-impl Iterator for IntersectionMaskIterator {
+impl Iterator for IntersectionMaskIterator<'_> {
     type Item = VortexResult<Mask>;
 
     fn next(&mut self) -> Option<Self::Item> {

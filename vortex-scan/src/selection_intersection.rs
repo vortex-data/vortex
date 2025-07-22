@@ -11,15 +11,15 @@ use crate::row_mask::RowMask;
 
 /// Given an iterator of masks a range and a selection, returns row masks that intersect the range
 /// and satisfy the selection
-pub struct SelectionIntersectionMaskIterator {
-    iterators: BoxMaskIterator,
+pub struct SelectionIntersectionMaskIterator<'a> {
+    iterators: BoxMaskIterator<'a>,
     offset: u64,
     selection: Selection,
     range: Range<u64>,
 }
 
-impl SelectionIntersectionMaskIterator {
-    pub fn new(iterators: BoxMaskIterator, selection: Selection) -> Self {
+impl<'a> SelectionIntersectionMaskIterator<'a> {
+    pub fn new(iterators: BoxMaskIterator<'a>, selection: Selection) -> Self {
         Self {
             iterators,
             selection,
@@ -33,7 +33,7 @@ impl SelectionIntersectionMaskIterator {
     }
 }
 
-impl Iterator for SelectionIntersectionMaskIterator {
+impl Iterator for SelectionIntersectionMaskIterator<'_> {
     type Item = VortexResult<RowMask>;
 
     fn next(&mut self) -> Option<Self::Item> {

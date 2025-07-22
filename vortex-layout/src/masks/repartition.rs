@@ -7,8 +7,8 @@ use vortex_mask::Mask;
 use super::BoxMaskIterator;
 
 /// An iterator that repartitions masks from a source iterator to a target row count.
-pub struct RepartitionMaskIterator {
-    source: BoxMaskIterator,
+pub struct RepartitionMaskIterator<'a> {
+    source: BoxMaskIterator<'a>,
     target_row_count: usize,
 
     // Buffer to accumulate masks until we have enough for a complete chunk
@@ -22,8 +22,8 @@ pub struct RepartitionMaskIterator {
     finished: bool,
 }
 
-impl RepartitionMaskIterator {
-    pub fn new(source: BoxMaskIterator, target_row_count: usize) -> Self {
+impl<'a> RepartitionMaskIterator<'a> {
+    pub fn new(source: BoxMaskIterator<'a>, target_row_count: usize) -> Self {
         assert!(target_row_count > 0, "Target row count must be positive");
 
         Self {
@@ -101,7 +101,7 @@ impl RepartitionMaskIterator {
     }
 }
 
-impl Iterator for RepartitionMaskIterator {
+impl Iterator for RepartitionMaskIterator<'_> {
     type Item = VortexResult<Mask>;
 
     fn next(&mut self) -> Option<Self::Item> {

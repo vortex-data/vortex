@@ -10,17 +10,17 @@ use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 /// A trait for mask iterators that can be implemented by different iterator types
-pub trait MaskIterator: Iterator<Item = VortexResult<Mask>> + Send {}
+pub trait MaskIterator: Iterator<Item = VortexResult<Mask>> {}
 
-impl<T> MaskIterator for T where T: Iterator<Item = VortexResult<Mask>> + Send {}
+impl<T> MaskIterator for T where T: Iterator<Item = VortexResult<Mask>> {}
 
 /// A boxed mask iterator type that can be used as a trait object
-pub type BoxMaskIterator = Box<dyn MaskIterator>;
+pub type BoxMaskIterator<'a> = Box<dyn MaskIterator + 'a>;
 
 pub trait MaskIteratorExt: MaskIterator {
-    fn repartition(self, target_size: usize) -> RepartitionMaskIterator
+    fn repartition<'a>(self, target_size: usize) -> RepartitionMaskIterator<'a>
     where
-        Self: Sized + Send + 'static,
+        Self: Sized + 'a,
     {
         RepartitionMaskIterator::new(Box::new(self), target_size)
     }

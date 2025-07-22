@@ -360,7 +360,9 @@ mod tests {
 
     fn first_row_mask(range: Range<u64>, selection: Selection) -> RowMask {
         let mut iter = SelectionIntersectionMaskIterator::new(
-            Box::new(once(Ok(AllTrue(range.end as usize)))),
+            Box::new(once(Ok(AllTrue(
+                usize::try_from(range.end).vortex_expect("use a smaller range"),
+            )))),
             selection,
         );
         iter.with_range(range);

@@ -27,14 +27,14 @@ use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEva
 use crate::masks::BoxMaskIterator;
 use crate::row_selection::RowSelectionRef;
 use crate::{
-    ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, NoOpPruningEvaluation,
-    PruningEvaluation,
+    ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpMaskEvaluation,
+    NoOpPruningEvaluation, PruningEvaluation,
 };
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,
     row_offset: u64,
-    child: Arc<dyn LayoutReader>,
+    child: LayoutReaderRef,
 
     partition_cache: DashMap<ExactExpr, Partitioning>,
 }
