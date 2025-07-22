@@ -69,7 +69,7 @@ pub fn get_session_context(disable_datafusion_cache: bool) -> SessionContext {
     let factory = VortexFormatFactory::default();
 
     let mut session_state_builder = SessionStateBuilder::new()
-        .with_config(SessionConfig::default())  
+        .with_config(SessionConfig::default().with_repartition_file_min_size(1024 * 1024))
         .with_runtime_env(rt)
         .with_default_features();
 
