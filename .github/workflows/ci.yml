@@ -6,9 +6,9 @@ concurrency:
 
 on:
   push:
-    branches: ["develop"]
-  pull_request: {}
-  workflow_dispatch: {}
+    branches: [ "develop" ]
+  pull_request: { }
+  workflow_dispatch: { }
 
 permissions:
   actions: read
@@ -386,6 +386,10 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'corretto'
+          java-version: '17'
       - uses: ./.github/actions/setup-rust
       - run: ./gradlew test --parallel
         working-directory: ./java

@@ -3,7 +3,6 @@
 
 //! A collection of transformations that can be applied to a [`crate::ExprRef`].
 pub mod annotations;
-pub mod field_mask;
 pub mod immediate_access;
 pub(crate) mod match_between;
 pub mod partition;

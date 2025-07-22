@@ -3,31 +3,24 @@
 
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
-use crate::traversal::{MutNodeVisitor, Node, TransformResult};
+use crate::traversal::{Node, Transformed};
 use crate::{DType, ExprRef, MergeVTable, get_item, pack};
 
 /// Replaces [crate::MergeExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_merge(e: ExprRef, ctx: &DType) -> VortexResult<ExprRef> {
-    let mut transform = RemoveMergeTransform { ctx };
-    e.transform(&mut transform).map(|e| e.into_inner())
+    e.transform_up(|node| merge_transform(node, ctx))
+        .map(|t| t.into_inner())
 }
 
-struct RemoveMergeTransform<'a> {
-    ctx: &'a DType,
-}
-
-impl MutNodeVisitor for RemoveMergeTransform<'_> {
-    type NodeTy = ExprRef;
-
-    fn visit_up(&mut self, node: ExprRef) -> VortexResult<TransformResult<Self::NodeTy>> {
-        if let Some(merge) = node.as_opt::<MergeVTable>() {
-            // Try to guess the capacity.
+fn merge_transform(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprRef>> {
+    match node.as_opt::<MergeVTable>() {
+        None => Ok(Transformed::no(node)),
+        Some(merge) => {
             let mut names = Vec::with_capacity(merge.children().len() * 2);
             let mut children = Vec::with_capacity(merge.children().len() * 2);
-
             let mut all_nullable = true;
             for child in merge.children() {
-                let child_dtype = child.return_dtype(self.ctx)?;
+                let child_dtype = child.return_dtype(ctx)?;
                 if !child_dtype.is_struct() {
                     return Err(vortex_err!(
                         "Merge child must return a non-nullable struct dtype, got {}",
@@ -47,7 +40,6 @@ impl MutNodeVisitor for RemoveMergeTransform<'_> {
                     }
                 }
             }
-
             let expr = pack(
                 names
                     .into_iter()
@@ -55,10 +47,7 @@ impl MutNodeVisitor for RemoveMergeTransform<'_> {
                     .map(|(name, child)| (name.clone(), get_item(name, child))),
                 merge.nullability(),
             );
-
-            Ok(TransformResult::yes(expr))
-        } else {
-            Ok(TransformResult::no(node))
+            Ok(Transformed::yes(expr))
         }
     }
 }
