@@ -204,10 +204,9 @@ fn canonical_list_array(
             let offsets = if vs.is_empty() {
                 Buffer::zeroed(len + 1)
             } else {
-                (0..=len * vs.len())
-                    .step_by(vs.len())
-                    .map(|i| i as u64)
-                    .collect::<Buffer<_>>()
+                Buffer::from_trusted_len_iter(
+                    (0..=len * vs.len()).step_by(vs.len()).map(|i| i as u64),
+                )
             };
 
             ListArray::try_new(

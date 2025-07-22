@@ -12,6 +12,7 @@ use bytes::{Buf, Bytes};
 use vortex_error::{VortexExpect, vortex_panic};
 
 use crate::debug::TruncatedDebug;
+use crate::trusted_len::TrustedLen;
 use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
@@ -148,6 +149,16 @@ impl<T> Buffer<T> {
             alignment,
             _marker: Default::default(),
         }
+    }
+
+    /// Create a buffer with values from the TrustedLen iterator.
+    /// Should be preferred over `from_iter` when the iterator is known to be `TrustedLen`.
+    pub fn from_trusted_len_iter<I: TrustedLen<Item = T>>(iter: I) -> Self {
+        let (_, high) = iter.size_hint();
+        let mut buffer =
+            BufferMut::with_capacity(high.vortex_expect("TrustedLen iterator has no upper bound"));
+        buffer.extend_trusted(iter);
+        buffer.freeze()
     }
 
     /// Returns the length of the buffer in elements of type T.
@@ -520,7 +531,7 @@ impl<T: Copy> Iterator for BufferIterator<T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         (self.index < self.buffer.len()).then(move || {
-            let value = self.buffer.as_slice()[self.index];
+            let value = self.buffer[self.index];
             self.index += 1;
             value
         })
