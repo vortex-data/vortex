@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::Selection;
-use crate::row_mask::RowMask;
 use std::ops::{BitAnd, Range};
+
 use vortex_error::{VortexExpect, VortexResult};
 use vortex_layout::masks::BoxMaskIterator;
+
+use crate::Selection;
+use crate::row_mask::RowMask;
 
 /// Given an iterator of masks a range and a selection, returns row masks that intersect the range
 /// and satisfy the selection

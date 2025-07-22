@@ -17,7 +17,6 @@ pub enum SplitBy {
 mod test {
     use std::sync::Arc;
 
-    use crate::{RangeSelection, Selection, SlicedSelection};
     use futures::executor::block_on;
     use futures::stream;
     use itertools::Itertools;
@@ -31,6 +30,8 @@ mod test {
     use vortex_layout::sequence::SequenceId;
     use vortex_layout::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
     use vortex_mask::Mask;
+
+    use crate::{RangeSelection, Selection, SlicedSelection};
 
     #[test]
     fn test_layout_splits_flat() {

@@ -37,10 +37,11 @@ pub mod selection_intersection;
 mod split_by;
 mod tasks;
 
-use crate::selection_intersection::SelectionIntersectionMaskIterator;
 pub use multi_scan::{MultiScan, MultiScanIterator};
 use tasks::{TaskContext, split_exec};
 use vortex_layout::masks::{BoxMaskIterator, MaskIteratorExt};
+
+use crate::selection_intersection::SelectionIntersectionMaskIterator;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {

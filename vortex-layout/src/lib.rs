@@ -6,13 +6,12 @@ pub use registry::*;
 mod executor;
 pub use executor::*;
 pub mod layouts;
-pub use row_selection::RowSelection;
-
 pub use children::*;
 pub use encoding::*;
 pub use flatbuffers::*;
 pub use layout::*;
 pub use reader::*;
+pub use row_selection::RowSelection;
 pub use strategy::*;
 pub use vtable::*;
 pub use writer::*;

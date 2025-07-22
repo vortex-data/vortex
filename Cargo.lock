@@ -6777,7 +6777,6 @@ dependencies = [
  "pco",
  "pin-project-lite",
  "prost 0.14.1",
- "roaring",
  "rstest",
  "sketches-ddsketch",
  "tokio",

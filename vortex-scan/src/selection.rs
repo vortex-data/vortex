@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use roaring::RoaringTreemap;
 use std::cmp::min;
 use std::ops::{Not, Range};
 use std::sync::Arc;
+
+#[cfg(feature = "roaring")]
+use roaring::RoaringTreemap;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_layout::RowSelection;
@@ -23,8 +25,10 @@ pub enum Selection {
     /// A selection of rows to exclude by index.
     ExcludeByIndex(Buffer<u64>),
     /// A selection of rows to include using a [`roaring::RoaringTreemap`].
+    #[cfg(feature = "roaring")]
     IncludeRoaring(Arc<RoaringTreemap>),
     /// A selection of rows to exclude using a [`roaring::RoaringTreemap`].
+    #[cfg(feature = "roaring")]
     ExcludeRoaring(Arc<RoaringTreemap>),
 }
 
@@ -34,7 +38,9 @@ impl Selection {
             Selection::All => false,
             Selection::IncludeByIndex(indices) => is_disjoint(indices, range),
             Selection::ExcludeByIndex(indices) => is_disjoint_with_exclusions(indices, range),
+            #[cfg(feature = "roaring")]
             Selection::IncludeRoaring(treemap) => non_empty_treemap_range(treemap, range),
+            #[cfg(feature = "roaring")]
             Selection::ExcludeRoaring(treemap) => all_empty_treemap_range(treemap, range),
         }
     }
@@ -43,30 +49,24 @@ impl Selection {
         let range = offset..offset + (length as u64);
         match self {
             Selection::All => Mask::new_true(length),
-            Selection::IncludeByIndex(include) => {
-                
-
-                indices_range(&range, include)
-                    .map(|idx_range| {
-                        Mask::from_indices(
-                            length,
-                            include
-                                .slice(idx_range)
-                                .iter()
-                                .map(|idx| *idx - range.start)
-                                .map(|idx| {
-                                    usize::try_from(idx)
-                                        .vortex_expect("Index does not fit into a usize")
-                                })
-                                .collect(),
-                        )
-                    })
-                    .unwrap_or_else(|| Mask::new_false(length))
-            }
+            Selection::IncludeByIndex(include) => indices_range(&range, include)
+                .map(|idx_range| {
+                    Mask::from_indices(
+                        length,
+                        include
+                            .slice(idx_range)
+                            .iter()
+                            .map(|idx| *idx - range.start)
+                            .map(|idx| {
+                                usize::try_from(idx)
+                                    .vortex_expect("Index does not fit into a usize")
+                            })
+                            .collect(),
+                    )
+                })
+                .unwrap_or_else(|| Mask::new_false(length)),
             Selection::ExcludeByIndex(exclude) => {
-                let mask = Selection::IncludeByIndex(exclude.clone())
-                    .mask(offset, length)
-                    ;
+                let mask = Selection::IncludeByIndex(exclude.clone()).mask(offset, length);
                 mask.not()
             }
             Selection::IncludeRoaring(roaring) => {
@@ -82,7 +82,6 @@ impl Selection {
 
                 // Otherwise, intersect with the selected range and shift to relativize.
                 let roaring = roaring.as_ref().bitand(range_treemap);
-                
 
                 Mask::from_indices(
                     length,
@@ -108,7 +107,6 @@ impl Selection {
 
                 // Otherwise, intersect with the selected range and shift to relativize.
                 let roaring = roaring.as_ref().bitand(range_treemap);
-                
 
                 Mask::from_excluded_indices(
                     length,
@@ -231,6 +229,7 @@ fn indices_range(range: &Range<u64>, row_indices: &[u64]) -> Option<Range<usize>
     (start_idx != end_idx).then_some(start_idx..end_idx)
 }
 
+#[cfg(feature = "roaring")]
 fn clamp_range_to_partition(partition_key: u32, range: &Range<u64>) -> Range<u32> {
     let start_partition = (range.start >> 32) as u32;
     let end_partition = (range.end >> 32) as u32;
@@ -250,6 +249,7 @@ fn clamp_range_to_partition(partition_key: u32, range: &Range<u64>) -> Range<u32
     }
 }
 
+#[cfg(feature = "roaring")]
 fn treemap_range(
     treemap: &RoaringTreemap,
     range: &Range<u64>,
@@ -269,10 +269,11 @@ fn treemap_range(
         })
 }
 
+#[cfg(feature = "roaring")]
 fn all_empty_treemap_range(treemap: &RoaringTreemap, range: &Range<u64>) -> bool {
     treemap_range(treemap, range).all(|(_, mut map)| map.next().is_none())
 }
-
+#[cfg(feature = "roaring")]
 fn non_empty_treemap_range(treemap: &RoaringTreemap, range: &Range<u64>) -> bool {
     treemap_range(treemap, range).any(|(_, mut map)| map.next().is_some())
 }
