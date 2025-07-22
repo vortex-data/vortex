@@ -387,6 +387,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
+      - run: ./gradlew -q javaToolchains
+        working-directory: ./java
       - run: ./gradlew test --parallel --info
         working-directory: ./java
 
