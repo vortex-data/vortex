@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 ///
 /// The range itself can be [`u64`], but the length of the range must fit into a [`usize`], this
 /// allows us to use a `usize` filter mask within a much larger file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowMask {
     row_offset: u64,
     mask: Mask,

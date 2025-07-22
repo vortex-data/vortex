@@ -30,11 +30,15 @@ impl<T> MaskIteratorExt for T where T: MaskIterator {}
 
 pub struct AllFalseMaskIterator {
     remaining: u64,
+    value: bool,
 }
 
 impl AllFalseMaskIterator {
-    fn new(value: u64) -> Self {
-        AllFalseMaskIterator { remaining: value }
+    fn new(count: u64, value: bool) -> Self {
+        AllFalseMaskIterator {
+            remaining: count,
+            value,
+        }
     }
 }
 
@@ -56,11 +60,15 @@ impl Iterator for AllFalseMaskIterator {
             final_chunk
         };
 
-        Some(Ok(Mask::AllFalse(chunk)))
+        if self.value {
+            Some(Ok(Mask::AllTrue(chunk)))
+        } else {
+            Some(Ok(Mask::AllFalse(chunk)))
+        }
     }
 }
 
 // Helper function to create the iterator
-pub fn all_false_iterator(value: u64) -> AllFalseMaskIterator {
-    AllFalseMaskIterator::new(value)
+pub fn all_constant_mask_iterator(count: u64, value: bool) -> AllFalseMaskIterator {
+    AllFalseMaskIterator::new(count, value)
 }

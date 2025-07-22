@@ -69,6 +69,7 @@ impl Selection {
                 let mask = Selection::IncludeByIndex(exclude.clone()).mask(offset, length);
                 mask.not()
             }
+            #[cfg(feature = "roaring")]
             Selection::IncludeRoaring(roaring) => {
                 use std::ops::BitAnd;
 
@@ -94,6 +95,7 @@ impl Selection {
                         .collect(),
                 )
             }
+            #[cfg(feature = "roaring")]
             Selection::ExcludeRoaring(roaring) => {
                 use std::ops::BitAnd;
 
@@ -157,7 +159,7 @@ impl RowSelection for SlicedSelection {
 
     fn slice(&self, range: &Range<u64>) -> Arc<dyn RowSelection + 'static> {
         let mut other = SlicedSelection::new(self.inner.clone());
-        other.offset += range.start;
+        other.offset += self.offset + range.start;
         other.length = min(range.end - range.start, self.length);
         Arc::new(other) as Arc<_>
     }
@@ -278,357 +280,148 @@ fn non_empty_treemap_range(treemap: &RoaringTreemap, range: &Range<u64>) -> bool
     treemap_range(treemap, range).any(|(_, mut map)| map.next().is_some())
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use itertools::Itertools;
-//     use vortex_error::VortexResult;
-//     use vortex_mask::Mask;
-//
-//     use super::*;
-//
-//     #[test]
-//     fn test_contains_range() {
-//         let mask = SlicedSelection::all(101).with_range(2..101);
-//         assert!(mask.non_empty_range(0..101));
-//         assert!(!mask.non_empty_range(101..103));
-//         assert!(!mask.non_empty_range(0..2));
-//     }
-//
-//     #[test]
-//     fn test_range_masks() {
-//         let mask = SlicedSelection::all(41).with_range(10..20);
-//         assert_eq!(
-//             mask.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::from_indices(41, (10..20).collect_vec())
-//         );
-//
-//         let mask = SlicedSelection::all(10).with_range(0..9);
-//         assert_eq!(
-//             mask.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::from_indices(10, (0..9).collect_vec())
-//         );
-//
-//         let mask = SlicedSelection::all(10).with_range(2..10);
-//         assert_eq!(
-//             mask.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::from_indices(10, (2..10).collect_vec())
-//         );
-//     }
-//
-//     #[test]
-//     fn test_subset_basic() {
-//         let mask = SlicedSelection::all(201).with_range(100..201);
-//         let subset = mask.clone()._slice(10..51);
-//         assert_eq!(
-//             subset.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::AllFalse(41)
-//         ); // 100 + 10
-//         let subset = mask._slice(100..151);
-//         assert_eq!(
-//             subset.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::AllTrue(51)
-//         ); // 100 + 10
-//     }
-//
-//     #[test]
-//     fn test_subset_chain() {
-//         let mask = SlicedSelection::all(1001);
-//         let subset1 = mask._slice(100..501); // Range becomes [100, 501)
-//         let subset2 = subset1._slice(50..151); // Range becomes [150, 251)
-//
-//         assert_eq!(
-//             subset2.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::AllTrue(101)
-//         );
-//     }
-//
-//     #[test]
-//     fn test_range_and() {
-//         let mask = SlicedSelection::all(30).with_range(5..15);
-//
-//         assert!(mask.non_empty_range(0..10));
-//         assert!(mask.non_empty_range(10..20));
-//         assert!(!mask.non_empty_range(20..30));
-//
-//         assert_eq!(
-//             Mask::from_indices(10, (5..10).collect_vec()),
-//             mask.clone()
-//                 ._slice(0..10)
-//                 .mask()
-//                 .collect::<VortexResult<Mask>>()
-//                 .unwrap(),
-//         );
-//
-//         assert_eq!(
-//             Mask::from_indices(10, (0..5).collect_vec()),
-//             mask.clone()
-//                 ._slice(10..20)
-//                 .mask()
-//                 .collect::<VortexResult<Mask>>()
-//                 .unwrap(),
-//         );
-//
-//         assert_eq!(
-//             Mask::AllFalse(10),
-//             mask._slice(20..30)
-//                 .mask()
-//                 .collect::<VortexResult<Mask>>()
-//                 .unwrap(),
-//         );
-//     }
-//
-//     #[test]
-//     fn test_subset_with_treemap() {
-//         let mut treemap = RoaringTreemap::new();
-//         // Add some values in the range
-//         treemap.insert(105);
-//         treemap.insert(120);
-//         treemap.insert(180);
-//
-//         let mask = SlicedSelection::all(1001)
-//             .with_range(0..180)
-//             .with_treemap(Arc::new(treemap));
-//
-//         let subset = mask._slice(100..201);
-//         let subset = subset._slice(10..21);
-//
-//         assert_eq!(
-//             subset.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::from_indices(11, vec![10])
-//         );
-//     }
-//
-//     #[test]
-//     fn test_subset_refines_range() {
-//         let mut treemap = RoaringTreemap::new();
-//         // Original range covers 0-1000
-//         for i in (0..1000).step_by(10) {
-//             treemap.insert(i);
-//         }
-//
-//         let original_mask = SlicedSelection::all(2001)
-//             .with_range(0..1001)
-//             .with_treemap(Arc::new(treemap));
-//
-//         let subset_mask = original_mask._slice(0..1001);
-//
-//         // Create subset that covers positions 100-200 in the original range
-//         let subset_mask = subset_mask._slice(100..201);
-//
-//         // Test that non_empty_range works correctly on the subset
-//         assert!(subset_mask.non_empty_range(10..21)); // Should find value at 110
-//         assert!(subset_mask.non_empty_range(50..61)); // Should find value at 150
-//         assert!(!subset_mask.non_empty_range(150..161)); // Outside subset range
-//     }
-//
-//     #[test]
-//     fn test_subset_with_large_numbers() {
-//         let mut treemap = RoaringTreemap::new();
-//         // Use large numbers that span multiple partitions
-//         let base = 0x123456780000000u64;
-//         treemap.insert(base + 1000);
-//         treemap.insert(base + 2000);
-//         treemap.insert(base + 3000);
-//
-//         let mask = SlicedSelection::all(base + 5000).with_treemap(Arc::new(treemap));
-//         let slice = mask._slice(base..base + 20001);
-//         let slice = slice._slice(500..10501);
-//         let slice = slice._slice(0..2001);
-//
-//         assert_eq!(
-//             slice.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::from_indices(2001, vec![500, 1500])
-//         );
-//
-//         // match: base + 500 + 1500..base + 500 + 1600 == base + 1900..base + 2100
-//         assert!(slice.non_empty_range(1500..2001));
-//         // Should not find values outside the subset range
-//         assert!(!slice.non_empty_range(1900..2000));
-//         assert!(!slice.non_empty_range(2001..2500));
-//     }
-//
-//     #[test]
-//     fn test_non_empty_range_edge_cases() {
-//         let mut treemap = RoaringTreemap::new();
-//         treemap.insert(50);
-//         treemap.insert(150);
-//
-//         let mask = SlicedSelection::all(1001)
-//             .with_range(0..1001)
-//             .with_treemap(Arc::new(treemap));
-//         let mask = mask._slice(0..201);
-//
-//         // Test exact boundaries
-//         assert!(mask.non_empty_range(50..51)); // Exact match
-//         assert!(mask.non_empty_range(49..52)); // Contains 50
-//         assert!(!mask.non_empty_range(51..150)); // Gap between values
-//
-//         // Test range completely outside mask bounds
-//         assert!(!mask.non_empty_range(300..401));
-//         assert!(!mask.non_empty_range(0..1)); // Before mask start (but mask starts at 0)
-//     }
-//
-//     #[test]
-//     fn test_all_mask_behavior() {
-//         let mask = SlicedSelection::all(501).with_range(100..501);
-//
-//         // All mask should always return true for non_empty_range
-//         assert!(mask.non_empty_range(150..201));
-//         assert!(mask.non_empty_range(100..501));
-//         assert!(mask.non_empty_range(50..601)); // Even overlapping ranges
-//
-//         // But not for completely non-overlapping ranges
-//         assert!(!mask.non_empty_range(501..503));
-//         assert!(!mask.non_empty_range(600..701));
-//     }
-//
-//     #[test]
-//     fn test_non_empty_range_spans_partitions() {
-//         let mut treemap = RoaringTreemap::new();
-//
-//         // Insert values in two different partitions
-//         // Partition 0 (upper 32 bits = 0)
-//         treemap.insert(0xFFFFFFFF); // Last value in partition 0
-//
-//         // Partition 1 (upper 32 bits = 1)
-//         treemap.insert(0x100000000); // First value in partition 1
-//         treemap.insert(0x100000001); // Second value in partition 1
-//
-//         // Partition 2 (upper 32 bits = 2)
-//         treemap.insert(0x200000000); // First value in partition 2
-//
-//         let mask = SlicedSelection::all(0x400000001).with_treemap(Arc::new(treemap));
-//         let mask = mask._slice(0..0x300000001);
-//
-//         // Test range that spans from partition 0 to partition 1
-//         assert!(mask.non_empty_range(0xFFFFFFF0..0x100000011));
-//
-//         // Test range that spans from partition 1 to partition 2
-//         assert!(mask.non_empty_range(0x100000000..0x200000001));
-//
-//         // Test range in middle of partition 1 with no values
-//         assert!(!mask.non_empty_range(0x100000010..0x1FFFFFFFE));
-//
-//         // Test range that spans all three partitions
-//         assert!(mask.non_empty_range(0..0x300000001));
-//
-//         // Test empty range between values in different partitions
-//         assert!(!mask.non_empty_range(0x100000002..0x200000000));
-//     }
-//
-//     #[test]
-//     fn test_exclude_mask() {
-//         let mut treemap = RoaringTreemap::new();
-//         treemap.insert(100);
-//         treemap.insert(500);
-//
-//         let mask = SlicedSelection::all(1001)
-//             .with_range(0..1001)
-//             .with_treemap(Arc::new(treemap))
-//             .with_exclude();
-//
-//         assert!(mask.non_empty_range(0..100));
-//         assert!(mask.non_empty_range(101..201));
-//         assert!(mask.non_empty_range(101..499));
-//         assert!(mask.non_empty_range(501..(u32::MAX as u64)));
-//         assert!(!mask.non_empty_range(100..101));
-//         assert!(!mask.non_empty_range(500..501));
-//         assert!(!mask.non_empty_range(0..10000));
-//     }
-//
-//     use vortex_buffer::Buffer;
-//
-//     use super::Selection;
-//
-//     #[test]
-//     fn test_row_mask_all() {
-//         let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
-//         let range = 1..8;
-//         let mask = selection
-//             .tree_row_mask(7, Some(range.clone()))
-//             ._slice(range);
-//
-//         println!(
-//             "{:?}",
-//             mask.mask()
-//                 .collect::<VortexResult<Mask>>()
-//                 .unwrap()
-//                 .to_vec()
-//         );
-//
-//         assert_eq!(
-//             mask.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::from_indices(7, vec![0, 2, 4, 6])
-//         );
-//     }
-//
-//     #[test]
-//     fn test_row_mask_slice() {
-//         let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
-//         let range = 3..6;
-//         let mask = selection
-//             .tree_row_mask(3, Some(range.clone()))
-//             ._slice(range);
-//
-//         assert_eq!(
-//             mask.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::from_indices(3, vec![0, 2])
-//         );
-//     }
-//
-//     #[test]
-//     fn test_row_mask_exclusive() {
-//         let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
-//         let range = 3..5;
-//         let mask = selection
-//             .tree_row_mask(2, Some(range.clone()))
-//             ._slice(range);
-//
-//         assert_eq!(
-//             mask.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::from_indices(2, vec![0])
-//         );
-//     }
-//
-//     #[test]
-//     fn test_row_mask_all_false() {
-//         let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
-//         let range = 8..10;
-//         let mask = selection
-//             .tree_row_mask(2, Some(range.clone()))
-//             ._slice(range);
-//
-//         assert_eq!(
-//             mask.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::AllFalse(2)
-//         );
-//     }
-//
-//     #[test]
-//     fn test_row_mask_all_true() {
-//         let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 4, 5, 6]));
-//         let range = 3..7;
-//         let mask = selection
-//             .tree_row_mask(4, Some(range.clone()))
-//             ._slice(range);
-//
-//         assert_eq!(
-//             mask.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::AllTrue(4)
-//         );
-//     }
-//
-//     #[test]
-//     fn test_row_mask_zero() {
-//         let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![0]));
-//         let range = 0..5;
-//         let mask = selection
-//             .tree_row_mask(5, Some(range.clone()))
-//             ._slice(range);
-//
-//         assert_eq!(
-//             mask.mask().collect::<VortexResult<Mask>>().unwrap(),
-//             Mask::from_indices(5, vec![0])
-//         );
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::row_mask::RowMask;
+    use crate::selection_intersection::SelectionIntersectionMaskIterator;
+    use std::iter::once;
+    use vortex_mask::Mask::{AllFalse, AllTrue};
+
+    #[test]
+    fn test_contains_range() {
+        let sel = SlicedSelection::new(RangeSelection::new(Some(2..101), Selection::All));
+        assert!(!sel.is_disjoint(&(0..101)));
+        assert!(sel.is_disjoint(&(101..103)));
+        assert!(sel.is_disjoint(&(0..2)));
+    }
+
+    #[test]
+    fn test_subset_basic() {
+        let sel = SlicedSelection::new(RangeSelection::new(Some(100..201), Selection::All));
+
+        let subset = sel.slice(&(50..250));
+        assert!(subset.is_disjoint(&(0..50)));
+        assert!(!subset.is_disjoint(&(50..51)));
+        assert!(!subset.is_disjoint(&(49..150)));
+        assert!(!subset.is_disjoint(&(150..151)));
+        assert!(subset.is_disjoint(&(151..152)));
+    }
+
+    #[test]
+    fn test_subset_chain() {
+        let sel = SlicedSelection::new(RangeSelection::new(Some(100..201), Selection::All));
+
+        let subset = sel.slice(&(50..250));
+        let subset = subset.slice(&(10..200));
+        assert!(subset.is_disjoint(&(0..40)));
+        assert!(!subset.is_disjoint(&(40..41)));
+        assert!(!subset.is_disjoint(&(49..150)));
+        assert!(subset.is_disjoint(&(142..151)));
+    }
+
+    #[cfg(feature = "roaring")]
+    #[test]
+    fn test_non_empty_range_spans_partitions() {
+        let mut treemap = RoaringTreemap::new();
+
+        // Insert values in two different partitions
+        // Partition 0 (upper 32 bits = 0)
+        treemap.insert(0xFFFFFFFF); // Last value in partition 0
+
+        // Partition 1 (upper 32 bits = 1)
+        treemap.insert(0x100000000); // First value in partition 1
+        treemap.insert(0x100000001); // Second value in partition 1
+
+        // Partition 2 (upper 32 bits = 2)
+        treemap.insert(0x200000000); // First value in partition 2
+
+        let mask = SlicedSelection::new(RangeSelection::new(
+            Some(0..0x400000001),
+            Selection::IncludeRoaring(Arc::new(treemap)),
+        ));
+        let mask = mask.slice(&(0..0x300000001));
+
+        // Test range that spans from partition 0 to partition 1
+        assert!(!mask.is_disjoint(&(0xFFFFFFF0..0x100000011)));
+
+        // Test range that spans from partition 1 to partition 2
+        assert!(!mask.is_disjoint(&(0x100000000..0x200000001)));
+
+        // Test range in middle of partition 1 with no values
+        assert!(mask.is_disjoint(&(0x100000010..0x1FFFFFFFE)));
+
+        // Test range that spans all three partitions
+        assert!(!mask.is_disjoint(&(0..0x300000001)));
+
+        // Test empty range between values in different partitions
+        assert!(mask.is_disjoint(&(0x100000002..0x200000000)));
+    }
+
+    fn first_row_mask(range: Range<u64>, selection: Selection) -> RowMask {
+        let mut iter = SelectionIntersectionMaskIterator::new(
+            Box::new(once(Ok(AllTrue(range.end as usize)))),
+            selection,
+        );
+        iter.with_range(range);
+        let result = iter.next();
+        assert!(result.is_some());
+        assert!(iter.next().is_none());
+        result.unwrap().unwrap()
+    }
+
+    #[test]
+    fn test_row_mask_all() {
+        let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
+        let range = 1..8;
+        let result = first_row_mask(range, selection);
+
+        assert_eq!(
+            result,
+            RowMask::new(1, Mask::from_indices(7, vec![0, 2, 4, 6]))
+        );
+    }
+
+    #[test]
+    fn test_row_mask_slice() {
+        let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
+        let range = 3..6;
+        let result = first_row_mask(range, selection);
+
+        assert_eq!(result, RowMask::new(3, Mask::from_indices(3, vec![0, 2])));
+    }
+
+    #[test]
+    fn test_row_mask_exclusive() {
+        let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
+        let range = 3..5;
+        let result = first_row_mask(range, selection);
+
+        assert_eq!(result, RowMask::new(3, Mask::from_indices(2, vec![0])));
+    }
+
+    #[test]
+    fn test_row_mask_all_false() {
+        let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
+        let range = 8..10;
+        let result = first_row_mask(range, selection);
+
+        assert_eq!(result, RowMask::new(8, AllFalse(2)));
+    }
+
+    #[test]
+    fn test_row_mask_all_true() {
+        let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 4, 5, 6]));
+        let range = 3..7;
+        let result = first_row_mask(range, selection);
+        assert_eq!(result, RowMask::new(3, AllTrue(4)));
+    }
+
+    #[test]
+    fn test_row_mask_zero() {
+        let selection = Selection::IncludeByIndex(Buffer::from_iter(vec![0]));
+        let range = 0..5;
+        let result = first_row_mask(range, selection);
+        assert_eq!(result, RowMask::new(0, Mask::from_indices(5, vec![0])));
+    }
+}

@@ -18,7 +18,7 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::chunked::ChunkedLayout;
-use crate::masks::{BoxMaskIterator, all_false_iterator};
+use crate::masks::{BoxMaskIterator, all_constant_mask_iterator};
 use crate::reader::LayoutReader;
 use crate::row_selection::RowSelectionRef;
 use crate::segments::SegmentSource;
@@ -156,7 +156,7 @@ impl LayoutReader for ChunkedReader {
                         .vortex_expect("infallible")
                         .row_masks(&selection.slice(&range), &field_mask)
                 } else {
-                    Box::new(all_false_iterator(range.end - range.start))
+                    Box::new(all_constant_mask_iterator(range.end - range.start, false))
                 }
             })
             .collect_vec();

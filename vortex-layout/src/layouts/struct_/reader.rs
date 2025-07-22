@@ -4,7 +4,6 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use arrow_buffer::ArrowNativeType;
 use dashmap::DashMap;
 use itertools::Itertools;
 use vortex_array::stats::Precision;
@@ -15,12 +14,11 @@ use vortex_expr::transform::partition::{PartitionedExpr, partition};
 use vortex_expr::transform::replace::{replace, replace_root_fields};
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExactExpr, ExprRef, col, root};
-use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::layouts::struct_::StructLayout;
-use crate::masks::{BoxMaskIterator, IntersectionMaskIterator};
+use crate::masks::{BoxMaskIterator, IntersectionMaskIterator, all_constant_mask_iterator};
 use crate::row_selection::RowSelectionRef;
 use crate::segments::SegmentSource;
 use crate::{
@@ -182,8 +180,7 @@ impl LayoutReader for StructReader {
         // the smallest mask from each field.
         // If the field_mask is empty, we return an iterator of all true masks.
         if field_mask.is_empty() {
-            let row_count = self.layout.row_count().as_usize();
-            return Box::new(std::iter::once(Ok(Mask::AllTrue(row_count))));
+            return Box::new(all_constant_mask_iterator(self.layout.row_count(), true));
         }
 
         let mut field_iterators = Vec::with_capacity(field_mask.len());
