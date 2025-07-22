@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
+#![allow(dead_code)]
+#![allow(unused_imports)]
 use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
@@ -235,17 +236,17 @@ impl LayoutReader for ZonedReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        if let Some(predicate) = self.pruning_predicate(expr.clone()) {
-            if let Some(dynamic_hash) = DynamicExprUpdates::new(expr) {
-                return Ok(Box::new(ZoneMapFilterEvaluation {
-                    zone_range: self.zone_range(row_range),
-                    predicate,
-                    zone_map: self.stats_table(),
-                    dynamic_hash,
-                    child: self.data_child.filter_evaluation(row_range, expr)?,
-                }));
-            }
-        }
+        // if let Some(predicate) = self.pruning_predicate(expr.clone()) {
+        //     if let Some(dynamic_hash) = DynamicExprUpdates::new(expr) {
+        //         return Ok(Box::new(ZoneMapFilterEvaluation {
+        //             zone_range: self.zone_range(row_range),
+        //             predicate,
+        //             zone_map: self.stats_table(),
+        //             dynamic_hash,
+        //             child: self.data_child.filter_evaluation(row_range, expr)?,
+        //         }));
+        //     }
+        // }
 
         self.data_child.filter_evaluation(row_range, expr)
     }
