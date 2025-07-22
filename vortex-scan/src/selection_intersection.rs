@@ -57,15 +57,13 @@ impl Iterator for SelectionIntersectionMaskIterator {
             // If mask is partially outside range, slice it
             let (sliced_mask, slice_offset) =
                 if overlap_start > mask_start || overlap_end < mask_end {
-                    let local_start = (overlap_start - mask_start) as usize;
-                    (
-                        mask.slice(
-                            local_start,
-                            usize::try_from(overlap_end - overlap_start)
-                                .vortex_expect("must will fit into usize"),
-                        ),
-                        overlap_start,
-                    )
+                    // Both local_start and length will fit into usize, since they are smaller than
+                    // a `mask.len()`
+                    let local_start = usize::try_from(overlap_start - mask_start)
+                        .vortex_expect("must will fit into usize");
+                    let length = usize::try_from(overlap_end - overlap_start)
+                        .vortex_expect("must will fit into usize");
+                    (mask.slice(local_start, length), overlap_start)
                 } else {
                     (mask, mask_start)
                 };

@@ -36,8 +36,7 @@ pub trait LayoutReader: 'static + Send + Sync {
     /// FIXME(ngates): remove this.
     fn row_count(&self) -> Precision<u64>;
 
-    /// Given a [`SlicedSelection`] which can answer range included queryies, returns an iterator of
-    /// [`Mask`]s from the layout reader that cover the full range of rows.
+    /// Given a [`RowSelectionRef`] which can answer range included queries.
     /// These masks are likely to be partitioned in a way that is reasonable efficient for
     /// partitioning evaluation of the [`LayoutReader`] - but there's no guarantee.
     fn row_masks(&self, selection: &RowSelectionRef, field_mask: &[FieldMask]) -> BoxMaskIterator;
