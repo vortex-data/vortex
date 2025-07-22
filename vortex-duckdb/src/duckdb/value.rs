@@ -4,6 +4,11 @@
 use std::ffi::CStr;
 use std::fmt::{Debug, Formatter};
 
+use arrow_buffer::ArrowNativeType;
+use vortex::buffer::{BufferString, ByteBuffer};
+use vortex::error::{VortexExpect, vortex_err, vortex_panic};
+
+use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;
 use crate::{cpp, wrapper};
 
@@ -74,43 +79,11 @@ impl Value {
         unsafe { Self::own(cpp::duckdb_create_date(cpp::duckdb_date { days })) }
     }
 
-    pub fn as_string(&self) -> String {
-        unsafe {
-            let ptr = cpp::duckdb_get_varchar(self.as_ptr());
-            let cstr = CStr::from_ptr(ptr);
-            let result = cstr.to_string_lossy().into_owned();
-            cpp::duckdb_free(ptr.cast());
-            result
-        }
-    }
-
-    pub fn as_u8(&self) -> u8 {
-        unsafe { cpp::duckdb_get_uint8(self.ptr) }
-    }
-
-    pub fn as_i32(&self) -> i32 {
-        unsafe { cpp::duckdb_get_int32(self.ptr) }
-    }
-
-    pub fn as_i64(&self) -> i64 {
-        unsafe { cpp::duckdb_get_int64(self.ptr) }
-    }
-
-    pub fn as_i128(&self) -> i128 {
-        let huge = unsafe { cpp::duckdb_get_hugeint(self.ptr) };
-        i128_from_parts(huge.upper, huge.lower)
-    }
-
-    pub fn as_date(&self) -> i32 {
-        unsafe { cpp::duckdb_get_date(self.ptr).days }
-    }
-
-    pub fn as_time(&self) -> i64 {
-        unsafe { cpp::duckdb_get_time(self.ptr).micros }
-    }
-
-    pub fn as_decimal(&self) -> cpp::duckdb_decimal {
-        unsafe { cpp::duckdb_get_decimal(self.ptr) }
+    pub fn as_string(&self) -> BufferString {
+        let Val::Varchar(string) = self.extract() else {
+            vortex_panic!("Value is not a string");
+        };
+        string
     }
 }
 
@@ -223,9 +196,132 @@ impl From<&[u8]> for Value {
     }
 }
 
+/// An enum for extracting the underlying typed value from a `Value`.
+pub enum Val {
+    Null,
+    TinyInt(i8),
+    SmallInt(i16),
+    Integer(i32),
+    BigInt(i64),
+    HugeInt(i128),
+    UTinyInt(u8),
+    USmallInt(u16),
+    UInteger(u32),
+    UBigInt(u64),
+    Float(f32),
+    Double(f64),
+    Boolean(bool),
+    Varchar(BufferString),
+    Blob(ByteBuffer),
+    Date(i32),
+    Time(i64),
+    TimestampNs(i64),
+    Timestamp(i64),
+    TimestampMs(i64),
+    TimestampS(i64),
+    Decimal(u8, i8, i128),
+}
+
+impl Value {
+    /// Extracts the value from the DuckDB `Value` into a `ValueRef`.
+    pub fn extract(&self) -> Val {
+        if unsafe { cpp::duckdb_is_null_value(self.as_ptr()) } {
+            return Val::Null;
+        }
+        match self.logical_type().as_type_id() {
+            DUCKDB_TYPE::DUCKDB_TYPE_INVALID => vortex_panic!("Invalid type for DuckDB value"),
+            DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL => Val::Null,
+            DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
+                Val::Boolean(unsafe { cpp::duckdb_get_bool(self.as_ptr()) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TINYINT => {
+                Val::TinyInt(unsafe { cpp::duckdb_get_int8(self.as_ptr()) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT => {
+                Val::SmallInt(unsafe { cpp::duckdb_get_int16(self.as_ptr()) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_INTEGER => {
+                Val::Integer(unsafe { cpp::duckdb_get_int32(self.as_ptr()) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_BIGINT => {
+                Val::BigInt(unsafe { cpp::duckdb_get_int64(self.as_ptr()) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT => {
+                Val::UTinyInt(unsafe { cpp::duckdb_get_uint8(self.as_ptr()) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT => {
+                Val::USmallInt(unsafe { cpp::duckdb_get_uint16(self.as_ptr()) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER => {
+                Val::UInteger(unsafe { cpp::duckdb_get_uint32(self.as_ptr()) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT => {
+                Val::UBigInt(unsafe { cpp::duckdb_get_uint64(self.as_ptr()) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_FLOAT => {
+                Val::Float(unsafe { cpp::duckdb_get_float(self.as_ptr()) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE => {
+                Val::Double(unsafe { cpp::duckdb_get_double(self.as_ptr()) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => {
+                let ptr = unsafe { cpp::duckdb_get_varchar(self.as_ptr()) };
+                let cstr = unsafe { CStr::from_ptr(ptr) };
+                let string = BufferString::from(
+                    cstr.to_str()
+                        .map_err(|e| vortex_err!("Invalid UTF-8 string from DuckDB: {e}"))
+                        .vortex_expect("Invalid UTF-8 string from DuckDB"),
+                );
+                unsafe { cpp::duckdb_free(ptr.cast()) };
+                Val::Varchar(string)
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_BLOB => {
+                // TODO(ngates): for blobs and strings, we could write our own C functions to
+                //  get the values by reference, avoiding a double copy since these C functions
+                //  also copy on the CPP side.
+                let blob = unsafe { cpp::duckdb_get_blob(self.as_ptr()) };
+                let slice = unsafe {
+                    std::slice::from_raw_parts(blob.data.cast::<u8>(), blob.size.as_usize())
+                };
+                let bytes = ByteBuffer::copy_from(slice);
+                unsafe { cpp::duckdb_free(blob.data) };
+                Val::Blob(bytes)
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_DATE => {
+                Val::Date(unsafe { cpp::duckdb_get_date(self.as_ptr()).days })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIME => {
+                Val::Time(unsafe { cpp::duckdb_get_time(self.as_ptr()).micros })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => {
+                Val::TimestampNs(unsafe { cpp::duckdb_get_timestamp_ns(self.as_ptr()).nanos })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => {
+                Val::Timestamp(unsafe { cpp::duckdb_get_timestamp(self.as_ptr()).micros })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => {
+                Val::TimestampMs(unsafe { cpp::duckdb_get_timestamp_ms(self.as_ptr()).millis })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => {
+                Val::TimestampS(unsafe { cpp::duckdb_get_timestamp_s(self.as_ptr()).seconds })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
+                let decimal = unsafe { cpp::duckdb_get_decimal(self.as_ptr()) };
+                let value = i128_from_parts(decimal.value.upper, decimal.value.lower);
+                Val::Decimal(
+                    decimal.width,
+                    i8::try_from(decimal.scale).vortex_expect("invalid scale"),
+                    value,
+                )
+            }
+            // ...other types remain unimplemented...
+            _ => vortex_panic!("Unsupported DuckDB value type {:?}", self),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-
     use crate::duckdb::i128_from_parts;
 
     #[test]
