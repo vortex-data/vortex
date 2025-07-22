@@ -327,9 +327,9 @@ impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeContainer<'a, T> for [C; 2] {
         &'a self,
         mut f: F,
     ) -> VortexResult<TraversalOrder> {
-        let [l, r] = self;
-        match l.apply_elements(&mut f)? {
-            TraversalOrder::Skip | TraversalOrder::Continue => r.apply_elements(&mut f),
+        let [lhs, rhs] = self;
+        match lhs.apply_elements(&mut f)? {
+            TraversalOrder::Skip | TraversalOrder::Continue => rhs.apply_elements(&mut f),
             TraversalOrder::Stop => Ok(TraversalOrder::Stop),
         }
     }
@@ -338,15 +338,15 @@ impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeContainer<'a, T> for [C; 2] {
         self,
         mut f: F,
     ) -> VortexResult<Transformed<[C; 2]>> {
-        let [l, r] = self;
-        let transformed = l.map_elements(&mut f)?;
+        let [lhs, rhs] = self;
+        let transformed = lhs.map_elements(&mut f)?;
         match transformed.order {
             TraversalOrder::Skip | TraversalOrder::Continue => {
-                let mut t = r.map_elements(&mut f)?;
+                let mut t = rhs.map_elements(&mut f)?;
                 t.changed |= transformed.changed;
-                Ok(t.map(|new_r| [transformed.value, new_r]))
+                Ok(t.map(|new_lhs| [new_lhs, transformed.value]))
             }
-            TraversalOrder::Stop => return Ok(transformed.map(|new_l| [new_l, r])),
+            TraversalOrder::Stop => Ok(transformed.map(|new_lhs| [new_lhs, rhs])),
         }
     }
 }
