@@ -8,11 +8,11 @@ use crate::{DType, ExprRef, SelectVTable, get_item, pack};
 
 /// Replaces [crate::SelectExpr] with combination of [crate::GetItem] and [crate::Pack] expressions.
 pub(crate) fn remove_select(e: ExprRef, ctx: &DType) -> VortexResult<ExprRef> {
-    e.transform_up(|node| remote_select_transformer(node, ctx))
+    e.transform_up(|node| remove_select_transformer(node, ctx))
         .map(|e| e.into_inner())
 }
 
-fn remote_select_transformer(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprRef>> {
+fn remove_select_transformer(node: ExprRef, ctx: &DType) -> VortexResult<Transformed<ExprRef>> {
     match node.as_opt::<SelectVTable>() {
         None => Ok(Transformed::no(node)),
         Some(select) => {
