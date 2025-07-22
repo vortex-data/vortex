@@ -1,7 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 use crate::Selection;
 use crate::row_mask::RowMask;
 use std::ops::{BitAnd, Range};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_layout::masks::BoxMaskIterator;
 
 /// Given an iterator of masks a range and a selection, returns row masks that intersect the range
@@ -45,10 +48,9 @@ impl Iterator for SelectionIntersectionMaskIterator {
 
             // Check if mask is completely outside range
             if mask_end <= self.range.start || mask_start >= self.range.end {
-                continue; // Skip this mask entirely
+                continue;
             }
 
-            // Calculate overlap
             let overlap_start = mask_start.max(self.range.start);
             let overlap_end = mask_end.min(self.range.end);
 
@@ -56,9 +58,12 @@ impl Iterator for SelectionIntersectionMaskIterator {
             let (sliced_mask, slice_offset) =
                 if overlap_start > mask_start || overlap_end < mask_end {
                     let local_start = (overlap_start - mask_start) as usize;
-                    let local_end = (overlap_end - mask_start) as usize;
                     (
-                        mask.slice(local_start, local_end - local_start),
+                        mask.slice(
+                            local_start,
+                            usize::try_from(overlap_end - overlap_start)
+                                .vortex_expect("must will fit into usize"),
+                        ),
                         overlap_start,
                     )
                 } else {

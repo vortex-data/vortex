@@ -224,7 +224,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         };
 
         let mut masks = SelectionIntersectionMaskIterator::new(masks, self.selection);
-        let masks = if let Some(range) = &self.row_range {
+        if let Some(range) = &self.row_range {
             masks.with_range(range.clone())
         };
 
@@ -238,7 +238,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         let mut limit = self.limit;
         masks
-            .into_iter()
             .map(move |row_mask| split_exec(ctx.clone(), row_mask?, limit.as_mut()))
             .collect::<VortexResult<Vec<_>>>()
     }

@@ -44,7 +44,9 @@ impl Selection {
         match self {
             Selection::All => Mask::new_true(length),
             Selection::IncludeByIndex(include) => {
-                let mask = indices_range(&range, include)
+                
+
+                indices_range(&range, include)
                     .map(|idx_range| {
                         Mask::from_indices(
                             length,
@@ -59,14 +61,12 @@ impl Selection {
                                 .collect(),
                         )
                     })
-                    .unwrap_or_else(|| Mask::new_false(length));
-
-                mask
+                    .unwrap_or_else(|| Mask::new_false(length))
             }
             Selection::ExcludeByIndex(exclude) => {
                 let mask = Selection::IncludeByIndex(exclude.clone())
                     .mask(offset, length)
-                    .clone();
+                    ;
                 mask.not()
             }
             Selection::IncludeRoaring(roaring) => {
@@ -82,7 +82,9 @@ impl Selection {
 
                 // Otherwise, intersect with the selected range and shift to relativize.
                 let roaring = roaring.as_ref().bitand(range_treemap);
-                let mask = Mask::from_indices(
+                
+
+                Mask::from_indices(
                     length,
                     roaring
                         .iter()
@@ -91,9 +93,7 @@ impl Selection {
                             usize::try_from(idx).vortex_expect("Index does not fit into a usize")
                         })
                         .collect(),
-                );
-
-                mask
+                )
             }
             Selection::ExcludeRoaring(roaring) => {
                 use std::ops::BitAnd;
@@ -108,14 +108,14 @@ impl Selection {
 
                 // Otherwise, intersect with the selected range and shift to relativize.
                 let roaring = roaring.as_ref().bitand(range_treemap);
-                let mask = Mask::from_excluded_indices(
+                
+
+                Mask::from_excluded_indices(
                     length,
                     roaring.iter().map(|idx| idx - range.start).map(|idx| {
                         usize::try_from(idx).vortex_expect("Index does not fit into a usize")
                     }),
-                );
-
-                mask
+                )
             }
         }
     }

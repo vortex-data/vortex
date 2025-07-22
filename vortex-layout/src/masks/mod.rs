@@ -6,7 +6,7 @@ mod repartition;
 
 pub use intersection::*;
 pub use repartition::*;
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult};
 use vortex_mask::Mask;
 
 /// A trait for mask iterators that can be implemented by different iterator types
@@ -50,7 +50,8 @@ impl Iterator for AllFalseMaskIterator {
             self.remaining -= usize::MAX as u64;
             usize::MAX
         } else {
-            let final_chunk = self.remaining as usize;
+            let final_chunk =
+                usize::try_from(self.remaining).vortex_expect("index does not fit into a usize");
             self.remaining = 0;
             final_chunk
         };
