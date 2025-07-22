@@ -2,17 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::{Debug, Display};
-use std::hash::Hash;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
-
+use std::sync::atomic::AtomicUsize;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{Operator, compare};
 use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_proto::expr as pb;
 use vortex_scalar::{Scalar, ScalarValue};
 
+use crate::traversal::{Node, NodeVisitor, TraversalOrder};
 use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, Scope, VTable, vtable};
 
 vtable!(DynamicComparison);
@@ -20,52 +21,57 @@ vtable!(DynamicComparison);
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT
 /// operation and is able to progressively tighten the bounds of the filter.
-///
-/// Hash and PartialEq are implemented based on the ptr of the value function, such that the
-/// internal value doesn't impact the hash of an expression tree.
-#[derive(Clone)]
+#[derive(Clone, Debug, Hash)]
 pub struct DynamicComparisonExpr {
     lhs: ExprRef,
     operator: Operator,
-    rhs_value: Arc<dyn Fn() -> Option<ScalarValue> + Send + Sync>,
-    rhs_dtype: DType,
+    rhs: Arc<Rhs>,
     // Default value for the dynamic comparison.
     default: bool,
 }
 
-impl Hash for DynamicComparisonExpr {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.lhs.hash(state);
-        self.operator.hash(state);
-        Arc::as_ptr(&self.rhs_value).hash(state);
-        self.rhs_dtype.hash(state);
-        self.default.hash(state);
-    }
-}
-
 impl PartialEq for DynamicComparisonExpr {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.rhs_value, &other.rhs_value)
-            && self.default == other.default
+        self.lhs.eq(&other.lhs)
             && self.operator == other.operator
-            && self.lhs.eq(&other.lhs)
-            && self.rhs_dtype == other.rhs_dtype
+            && self.rhs == other.rhs
+            && self.default == other.default
+    }
+}
+impl Eq for DynamicComparisonExpr {}
+
+/// Hash and PartialEq are implemented based on the ptr of the value function, such that the
+/// internal value doesn't impact the hash of an expression tree.
+struct Rhs {
+    // The right-hand side value is a function that returns an `Option<ScalarValue>`.
+    value: Arc<dyn Fn() -> Option<ScalarValue> + Send + Sync>,
+    // The data type of the right-hand side value.
+    dtype: DType,
+    // Tracks how many times the value has changed. Note that this may over-estimate the changes
+    // in order to avoid lock contention.
+    version: AtomicUsize,
+    // The previous value of the right-hand side, used to detect changes.
+    previous_value: Option<Scalar>,
+}
+
+impl Hash for Rhs {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.value).hash(state);
     }
 }
 
-impl Eq for DynamicComparisonExpr {}
+impl PartialEq for Rhs {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.value, &other.value)
+    }
+}
+impl Eq for Rhs {}
 
-impl Debug for DynamicComparisonExpr {
+impl Debug for Rhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DynamicComparisonExpr")
-            .field("lhs", &self.lhs)
-            .field("operator", &self.operator)
-            .field(
-                "rhs_value",
-                &"<dyn Fn() -> Option<ScalarValue> + Send + Sync>",
-            )
-            .field("rhs_dtype", &self.rhs_dtype)
-            .field("default", &self.default)
+        f.debug_struct("Rhs")
+            .field("value", &"<dyn Fn() -> Option<ScalarValue> + Send + Sync>")
+            .field("dtype", &self.dtype)
             .finish()
     }
 }
@@ -97,8 +103,7 @@ impl VTable for DynamicComparisonVTable {
         Ok(DynamicComparisonExpr {
             lhs: children[0].clone(),
             operator: expr.operator,
-            rhs_value: expr.rhs_value.clone(),
-            rhs_dtype: expr.rhs_dtype.clone(),
+            rhs: expr.rhs.clone(),
             default: expr.default,
         })
     }
@@ -122,7 +127,7 @@ impl VTable for DynamicComparisonVTable {
         let lhs = expr.return_dtype(scope.dtype())?;
         Ok(ConstantArray::new(
             Scalar::new(
-                DType::Bool(lhs.nullability() | expr.rhs_dtype.nullability()),
+                DType::Bool(lhs.nullability() | expr.rhs.dtype.nullability()),
                 expr.default.into(),
             ),
             scope.len(),
@@ -132,15 +137,15 @@ impl VTable for DynamicComparisonVTable {
 
     fn return_dtype(expr: &Self::Expr, scope: &DType) -> VortexResult<DType> {
         let lhs = expr.lhs.return_dtype(scope)?;
-        if !expr.rhs_dtype.eq_ignore_nullability(&lhs) {
+        if !expr.rhs.dtype.eq_ignore_nullability(&lhs) {
             vortex_bail!(
                 "Incompatible dtypes for dynamic comparison: expected {} (ignore nullability) but got {}",
-                &expr.rhs_dtype,
+                &expr.rhs.dtype,
                 lhs
             );
         }
         Ok(DType::Bool(
-            lhs.nullability() | expr.rhs_dtype.nullability(),
+            lhs.nullability() | expr.rhs.dtype.nullability(),
         ))
     }
 }
@@ -156,14 +161,16 @@ impl DynamicComparisonExpr {
         DynamicComparisonExpr {
             lhs: rhs,
             operator,
-            rhs_value: Arc::new(rhs_value),
-            rhs_dtype,
+            rhs: Arc::new(Rhs {
+                value: Arc::new(rhs_value),
+                dtype: rhs_dtype,
+            }),
             default,
         }
     }
 
     pub fn scalar(&self) -> Option<Scalar> {
-        (self.rhs_value)().map(|v| Scalar::new(self.rhs_dtype.clone(), v))
+        (self.rhs.value)().map(|v| Scalar::new(self.rhs.dtype.clone(), v))
     }
 }
 
@@ -172,9 +179,49 @@ impl Display for DynamicComparisonExpr {
         write!(
             f,
             "dynamic({}) {} {}",
-            &self.lhs, self.operator, &self.rhs_dtype,
+            &self.lhs, self.operator, &self.rhs.dtype,
         )
     }
 }
 
 impl AnalysisExpr for DynamicComparisonExpr {}
+
+/// A utility for checking whether any dynamic expressions have been updated.
+pub struct DynamicExprHash(Box<[DynamicComparisonExpr]>);
+
+impl DynamicExprHash {
+    pub fn new(expr: &ExprRef) -> Self {
+        #[derive(Default)]
+        struct Visitor(Vec<DynamicComparisonExpr>);
+
+        impl NodeVisitor<'_> for Visitor {
+            type NodeTy = ExprRef;
+
+            fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<TraversalOrder> {
+                if let Some(dynamic) = node.as_opt::<DynamicComparisonVTable>() {
+                    self.0.push(dynamic.clone());
+                }
+                Ok(TraversalOrder::Continue)
+            }
+        }
+
+        let mut visitor = Visitor::default();
+        expr.accept(&mut visitor).vortex_expect("Infallible");
+
+        DynamicExprHash(visitor.0.into_boxed_slice())
+    }
+
+    pub fn checksum(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+impl Hash for DynamicExprHash {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for expr in &self.0 {
+            expr.scalar().hash(state);
+        }
+    }
+}

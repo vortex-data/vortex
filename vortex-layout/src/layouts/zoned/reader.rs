@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::BTreeSet;
-use std::ops::{BitAnd, Range};
-use std::sync::{Arc, OnceLock};
-
 use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
+use std::collections::BTreeSet;
+use std::ops::{BitAnd, Range};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use vortex_array::ToCanonical;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
+use vortex_expr::dynamic::DynamicExprHash;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
@@ -233,7 +234,13 @@ impl LayoutReader for ZonedReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        self.data_child.filter_evaluation(row_range, expr)
+        let dyn_hash = DynamicExprHash::new(expr);
+        let checksum = dyn_hash.checksum();
+        Ok(Box::new(ZoneMapFilterEvaluation {
+            dynamic_hash: dyn_hash,
+            prev_hash: AtomicU64::new(checksum),
+            child: self.data_child.filter_evaluation(row_range, expr)?,
+        }))
     }
 
     fn projection_evaluation(
@@ -301,6 +308,25 @@ impl PruningEvaluation for ZoneMapPruningEvaluation {
         );
 
         Ok(stats_mask)
+    }
+}
+
+pub struct ZoneMapFilterEvaluation {
+    // TODO(ngates): embed a nice way to detect changes that's thread safe
+    dynamic_hash: DynamicExprHash,
+    prev_hash: AtomicU64,
+    child: Box<dyn MaskEvaluation>,
+}
+
+#[async_trait]
+impl MaskEvaluation for ZoneMapFilterEvaluation {
+    async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
+        let latest_hash = self.dynamic_hash.checksum();
+        if latest_hash != self.prev_hash.load(Ordering::Relaxed) {
+            println!("DYN EXPR UPDATE: time to recompute the zone map");
+            self.prev_hash.store(latest_hash, Ordering::Relaxed);
+        }
+        self.child.invoke(mask).await
     }
 }
 
