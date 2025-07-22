@@ -27,8 +27,7 @@ FetchContent_MakeAvailable(Corrosion)
 # Import Rust crate using Corrosion
 if(VORTEX_ENABLE_TESTING)
     set(CORROSION_FEATURES gen_test_data)
-    # cxx does not support generate ffi behind a feature flag: https://github.com/dtolnay/cxx/issues/1325
-    # so we need to only generate the ffi for gen_test_data.rs when building tests
+    # Workaround to conditionally generate bindings of the test function *and* compile the test function: https://github.com/dtolnay/cxx/issues/1325
     set(RUST_SOURCE_FILE lib.rs gen_test_data.rs)
 else()
     set(RUST_SOURCE_FILE lib.rs)

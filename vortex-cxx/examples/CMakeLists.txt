@@ -5,8 +5,6 @@ cmake_minimum_required(VERSION 3.22)
 
 project(vortex-examples)
 
-set(VORTEX_ENABLE_TESTING OFF)
-
 include(FetchContent)
 FetchContent_Declare(
     vortex
@@ -18,7 +16,6 @@ FetchContent_MakeAvailable(vortex)
 add_executable(hello-vortex hello-vortex.cpp)
 target_link_libraries(hello-vortex PRIVATE vortex)
 
-# Custom target to convert parquet file using vortex-tui
 add_custom_target(convert-parquet
     COMMAND cargo run -p vortex-tui convert example.parquet
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}

@@ -21,7 +21,7 @@ int main(int argc, char *argv[]) {
     ArrowArrayMove(&array, array_obj.get());
     nanoarrow::UniqueSchema schema_obj;
     ArrowSchemaMove(&schema, schema_obj.get());
-    std::cout << "Array length: " << array_obj->length << std::endl;
-    std::cout << "Number of columns : " << schema_obj->n_children << std::endl;
+    std::cout << "Number of rows: " << array_obj->length << std::endl;
+    std::cout << "Number of columns in schema: " << schema_obj->n_children << std::endl;
     return 0;
 }
