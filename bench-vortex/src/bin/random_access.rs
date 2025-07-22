@@ -86,30 +86,13 @@ fn random_access(
         let struct_ = array
             .to_struct()
             .vortex_expect("could not convert to struct");
-        // println!(
-        //     "struct_: {}",
-        //     struct_.display_as(DisplayOptions::CommaSeparatedScalars {
-        //         omit_comma_after_space: false
-        //     })
-        // );
+        assert_eq!(struct_.len(), 6, "expected 6 rows");
         let pu_location_id = struct_
             .field_by_name("PULocationID")
             .vortex_expect("could not get PULocationID");
         let do_location_id = struct_
             .field_by_name("DOLocationID")
             .vortex_expect("could not get DOLocationID");
-        // println!(
-        //     "PULocationID: {}",
-        //     pu_location_id.display_as(DisplayOptions::CommaSeparatedScalars {
-        //         omit_comma_after_space: false
-        //     })
-        // );
-        // println!(
-        //     "DOLocationID: {}",
-        //     do_location_id.display_as(DisplayOptions::CommaSeparatedScalars {
-        //         omit_comma_after_space: false
-        //     })
-        // );
         for (idx, loc) in [90i32, 249, 230, 79, 239, 236].iter().enumerate() {
             assert_eq!(
                 pu_location_id.scalar_at(idx).vortex_expect("scalar_at"),
@@ -132,7 +115,7 @@ fn random_access(
             &runtime,
             iterations,
             || indices.clone(),
-            |indices| async { take_vortex_tokio(&taxi_vortex, indices, Some(validate)).await },
+            |indices| async { take_vortex_tokio(&taxi_vortex, indices, validate).await },
         ),
     });
     progress.inc(1);

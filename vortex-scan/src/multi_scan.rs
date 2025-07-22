@@ -64,6 +64,22 @@ impl<T: 'static + Send + Sync> State<T> {
             false
         }
     }
+
+    /// Attempts to steal work from other workers, returns `true` if work was stolen.
+    fn steal_work(&self, worker: &Worker<ArrayFuture<T>>) -> Steal<()> {
+        // Repeatedly attempt to steal work from other workers until there are no retries.
+        iter::repeat_with(|| {
+            // This collect tries all stealers, exits early on the first successful steal,
+            // or else tracks whether any steal requires a retry.
+            self.stealers
+                .read()
+                .iter()
+                .map(|stealer| stealer.steal_batch(worker))
+                .collect::<Steal<()>>()
+        })
+        .find(|steal| !steal.is_retry())
+        .unwrap_or(Steal::Empty)
+    }
 }
 
 impl<T> MultiScan<T> {
@@ -119,52 +135,24 @@ impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
     type Item = VortexResult<T>;
 
     fn next(&mut self) -> Option<VortexResult<T>> {
-        loop {
-            // Try to consume tasks from our own worker queue.
-            if let Some(task) = self.worker.pop() {
-                return self.local_pool.run_until(task).transpose();
-            }
-
-            // Otherwise, try to load the next scan into our worker queue. We prefer to do this
-            // before stealing from other workers so that each scan can be processed by a single
-            // worker where possible for better locality.
-            if self.state.load_next_scan(&self.worker) {
-                // If we loaded a scan, continue to the next iteration and look for tasks again.
-                continue;
-            }
-
-            // If we didn't load a scan, try to steal tasks from other workers.
-            let did_steal = iter::repeat_with(|| {
-                // This collect tries all stealers, exits early on the first successful steal,
-                // or else tracks whether any steal requires a retry.
-                self.state
-                    .stealers
-                    .read()
-                    .iter()
-                    .map(|stealer| stealer.steal_batch(&self.worker))
-                    .collect::<Steal<()>>()
-            })
-            .find(|steal| !steal.is_retry())
-            .and_then(|steal| steal.success())
-            .is_some();
-
-            if did_steal {
-                // If we successfully stole some tasks, continue to the next iteration
-                continue;
-            } else {
-                // Otherwise, if we have constructed all scans, _and_ there are no tasks
-                // left to steal, then we can terminate.
-                if self.state.num_scans_constructed.load(Relaxed) >= self.state.num_scans {
-                    return None;
+        if self.worker.is_empty() && !self.state.load_next_scan(&self.worker) {
+            // If there are no more scans to load, then there is at least one worker
+            // constructing a scan and about to push some tasks.
+            // We sit in a loop trying to steal some of those tasks, or else bail out when
+            // all scans have been constructed, and we didn't manage to steal anything. To avoid
+            // spinning too hot, we yield the thread each time we fail to steal work.
+            while self.state.num_scans_constructed.load(Relaxed) < self.state.num_scans
+                || !self.state.steal_work(&self.worker).is_empty()
+            {
+                if self.state.steal_work(&self.worker).is_success() {
+                    break;
                 } else {
-                    // If there's more work to do, but no more tasks immediately available to
-                    // steal, then we yield the thread to avoid a super hot loop. This only happens
-                    // for the time it takes to invoke the final scan builder. If this becomes a
-                    // problem, then we can use a mutex/condvar pair to notify workers when new
-                    // tasks are available.
                     std::thread::yield_now();
                 }
             }
         }
+
+        let task = self.worker.pop()?;
+        self.local_pool.run_until(task).transpose()
     }
 }

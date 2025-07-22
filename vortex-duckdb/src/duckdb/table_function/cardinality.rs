@@ -9,7 +9,7 @@ use crate::cpp;
 use crate::duckdb::{Cardinality, TableFunction};
 
 /// Native callback for the cardinality estimate of a table function.
-pub(crate) unsafe extern "C" fn cardinality_callback<T: TableFunction>(
+pub(crate) unsafe extern "C-unwind" fn cardinality_callback<T: TableFunction>(
     bind_data: *mut c_void,
     node_stats_out: *mut cpp::duckdb_vx_node_statistics,
 ) {

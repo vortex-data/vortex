@@ -108,10 +108,7 @@ mod tests {
 
     use crate::pruning::field_path_stat_field_name;
     use crate::pruning::pruning_expr::{HashMap, pruning_expr};
-    use crate::{
-        HashSet, and, col, eq, get_item, get_item_scope, gt, gt_eq, lit, lt, lt_eq, not_eq, or,
-        root,
-    };
+    use crate::{HashSet, and, col, eq, get_item, gt, gt_eq, lit, lt, lt_eq, not_eq, or, root};
 
     #[test]
     pub fn pruning_equals() {
@@ -129,7 +126,7 @@ mod tests {
             ),
             gt(
                 literal_eq,
-                get_item_scope(field_path_stat_field_name(
+                col(field_path_stat_field_name(
                     &FieldPath::from_name(name),
                     Stat::Max,
                 )),
@@ -142,10 +139,7 @@ mod tests {
     pub fn pruning_equals_column() {
         let column = FieldName::from("a");
         let other_col = FieldName::from("b");
-        let eq_expr = eq(
-            get_item_scope(column.clone()),
-            get_item_scope(other_col.clone()),
-        );
+        let eq_expr = eq(col(column.clone()), col(other_col.clone()));
 
         let (converted, refs) = pruning_expr(&eq_expr).unwrap();
         assert_eq!(
@@ -163,21 +157,21 @@ mod tests {
         );
         let expected_expr = or(
             gt(
-                get_item_scope(field_path_stat_field_name(
+                col(field_path_stat_field_name(
                     &FieldPath::from_name(column.clone()),
                     Stat::Min,
                 )),
-                get_item_scope(field_path_stat_field_name(
+                col(field_path_stat_field_name(
                     &FieldPath::from_name(other_col.clone()),
                     Stat::Max,
                 )),
             ),
             gt(
-                get_item_scope(field_path_stat_field_name(
+                col(field_path_stat_field_name(
                     &FieldPath::from_name(other_col),
                     Stat::Min,
                 )),
-                get_item_scope(field_path_stat_field_name(
+                col(field_path_stat_field_name(
                     &FieldPath::from_name(column),
                     Stat::Max,
                 )),
@@ -190,10 +184,7 @@ mod tests {
     pub fn pruning_not_equals_column() {
         let column = FieldName::from("a");
         let other_col = FieldName::from("b");
-        let not_eq_expr = not_eq(
-            get_item_scope(column.clone()),
-            get_item_scope(other_col.clone()),
-        );
+        let not_eq_expr = not_eq(col(column.clone()), col(other_col.clone()));
 
         let (converted, refs) = pruning_expr(&not_eq_expr).unwrap();
         assert_eq!(
@@ -211,21 +202,21 @@ mod tests {
         );
         let expected_expr = and(
             eq(
-                get_item_scope(field_path_stat_field_name(
+                col(field_path_stat_field_name(
                     &FieldPath::from_name(column.clone()),
                     Stat::Min,
                 )),
-                get_item_scope(field_path_stat_field_name(
+                col(field_path_stat_field_name(
                     &FieldPath::from_name(other_col.clone()),
                     Stat::Max,
                 )),
             ),
             eq(
-                get_item_scope(field_path_stat_field_name(
+                col(field_path_stat_field_name(
                     &FieldPath::from_name(column),
                     Stat::Max,
                 )),
-                get_item_scope(field_path_stat_field_name(
+                col(field_path_stat_field_name(
                     &FieldPath::from_name(other_col),
                     Stat::Min,
                 )),
@@ -239,8 +230,8 @@ mod tests {
     pub fn pruning_gt_column() {
         let column = FieldName::from("a");
         let other_col = FieldName::from("b");
-        let other_expr = get_item_scope(other_col.clone());
-        let not_eq_expr = gt(get_item_scope(column.clone()), other_expr.clone());
+        let other_expr = col(other_col.clone());
+        let not_eq_expr = gt(col(column.clone()), other_expr.clone());
 
         let (converted, refs) = pruning_expr(&not_eq_expr).unwrap();
         assert_eq!(
@@ -257,11 +248,11 @@ mod tests {
             ])
         );
         let expected_expr = lt_eq(
-            get_item_scope(field_path_stat_field_name(
+            col(field_path_stat_field_name(
                 &FieldPath::from_name(column),
                 Stat::Max,
             )),
-            get_item_scope(field_path_stat_field_name(
+            col(field_path_stat_field_name(
                 &FieldPath::from_name(other_col),
                 Stat::Min,
             )),
@@ -273,7 +264,7 @@ mod tests {
     pub fn pruning_gt_value() {
         let column = FieldName::from("a");
         let other_col = lit(42);
-        let not_eq_expr = gt(get_item_scope(column.clone()), other_col.clone());
+        let not_eq_expr = gt(col(column.clone()), other_col.clone());
 
         let (converted, refs) = pruning_expr(&not_eq_expr).unwrap();
         assert_eq!(
@@ -284,7 +275,7 @@ mod tests {
             ),])
         );
         let expected_expr = lt_eq(
-            get_item_scope(field_path_stat_field_name(
+            col(field_path_stat_field_name(
                 &FieldPath::from_name(column),
                 Stat::Max,
             )),
@@ -297,8 +288,8 @@ mod tests {
     pub fn pruning_lt_column() {
         let column = FieldName::from("a");
         let other_col = FieldName::from("b");
-        let other_expr = get_item_scope(other_col.clone());
-        let not_eq_expr = lt(get_item_scope(column.clone()), other_expr.clone());
+        let other_expr = col(other_col.clone());
+        let not_eq_expr = lt(col(column.clone()), other_expr.clone());
 
         let (converted, refs) = pruning_expr(&not_eq_expr).unwrap();
         assert_eq!(
@@ -315,11 +306,11 @@ mod tests {
             ])
         );
         let expected_expr = gt_eq(
-            get_item_scope(field_path_stat_field_name(
+            col(field_path_stat_field_name(
                 &FieldPath::from_name(column),
                 Stat::Min,
             )),
-            get_item_scope(field_path_stat_field_name(
+            col(field_path_stat_field_name(
                 &FieldPath::from_name(other_col),
                 Stat::Max,
             )),
@@ -331,7 +322,7 @@ mod tests {
     pub fn pruning_lt_value() {
         let column = FieldName::from("a");
         let other_col = lit(42);
-        let not_eq_expr = lt(get_item_scope(column.clone()), other_col.clone());
+        let not_eq_expr = lt(col(column.clone()), other_col.clone());
 
         let (converted, refs) = pruning_expr(&not_eq_expr).unwrap();
         assert_eq!(
@@ -342,7 +333,7 @@ mod tests {
             )])
         );
         let expected_expr = gt_eq(
-            get_item_scope(field_path_stat_field_name(
+            col(field_path_stat_field_name(
                 &FieldPath::from_name(column),
                 Stat::Min,
             )),
@@ -358,8 +349,8 @@ mod tests {
         let (predicate, _) = pruning_expr(&expr).unwrap();
 
         let expected_expr = and(
-            gt_eq(get_item_scope(FieldName::from("min")), lit(10)),
-            lt_eq(get_item_scope(FieldName::from("max")), lit(50)),
+            gt_eq(col(FieldName::from("min")), lit(10)),
+            lt_eq(col(FieldName::from("max")), lit(50)),
         );
         assert_eq!(&predicate, &expected_expr)
     }
@@ -367,18 +358,15 @@ mod tests {
     pub fn pruning_and_or_operators() {
         // Test case: a > 10 AND a < 50
         let column = FieldName::from("a");
-        let and_expr = and(
-            gt(get_item_scope(column.clone()), lit(10)),
-            lt(get_item_scope(column), lit(50)),
-        );
+        let and_expr = and(gt(col(column.clone()), lit(10)), lt(col(column), lit(50)));
         let (predicate, _) = pruning_expr(&and_expr).unwrap();
 
         // Expected: a_max <= 10 OR a_min >= 50
         assert_eq!(
             &predicate,
             &or(
-                lt_eq(get_item_scope(FieldName::from("a_max")), lit(10)),
-                gt_eq(get_item_scope(FieldName::from("a_min")), lit(50))
+                lt_eq(col(FieldName::from("a_max")), lit(10)),
+                gt_eq(col(FieldName::from("a_min")), lit(50))
             ),
         );
     }
