@@ -13,15 +13,24 @@ use crate::{ExprRef, StatsCatalog, get_item, root};
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
 
-// A catalog that return a stat column whenever it is required
+// A catalog that return a stat column whenever it is required, tracking all accessed
+// stats and returning them later.
 #[derive(Default)]
-struct AnyStatsCatalog {
+struct TrackingStatsCatalog {
     usage: HashMap<(FieldPath, Stat), ExprRef>,
+}
+
+impl TrackingStatsCatalog {
+    /// Consume the catalog, yielding a map of field statistics that were required
+    /// for each expression.
+    fn into_usages(self) -> HashMap<(FieldPath, Stat), ExprRef> {
+        self.usage
+    }
 }
 
 // A catalog that return a stat column if it exists in the given scope.
 struct ScopeStatsCatalog<'a> {
-    any_catalog: AnyStatsCatalog,
+    any_catalog: TrackingStatsCatalog,
     field_paths: &'a FieldPathSet,
 }
 
@@ -37,7 +46,7 @@ impl StatsCatalog for ScopeStatsCatalog<'_> {
     }
 }
 
-impl StatsCatalog for AnyStatsCatalog {
+impl StatsCatalog for TrackingStatsCatalog {
     fn stats_ref(&mut self, field_path: &FieldPath, stat: Stat) -> Option<ExprRef> {
         let mut expr = root();
         let name = field_path_stat_field_name(field_path, stat);
@@ -64,14 +73,14 @@ pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldNa
 /// Create a stat based falsification expr assuming all stats for all column in the expression
 /// exist
 pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
-    let mut catalog = AnyStatsCatalog {
+    let mut catalog = TrackingStatsCatalog {
         ..Default::default()
     };
     let expr = expr.stat_falsification(&mut catalog)?;
 
     // TODO(joe): filter access by used exprs
     let mut relation: Relation<FieldPath, Stat> = Relation::new();
-    for ((field_path, stat), _) in catalog.usage.into_iter() {
+    for ((field_path, stat), _) in catalog.into_usages() {
         relation.insert(field_path, stat)
     }
 
@@ -117,20 +126,32 @@ mod tests {
         let literal_eq = lit(42);
         let eq_expr = eq(get_item("a", root()), literal_eq.clone());
         let (converted, _refs) = pruning_expr(&eq_expr).unwrap();
-        let expected_expr = or(
-            gt(
-                get_item(
-                    field_path_stat_field_name(&FieldPath::from_name(name.clone()), Stat::Min),
-                    root(),
+        let expected_expr = and(
+            and(
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(name.clone()),
+                        Stat::NaNCount,
+                    )),
+                    lit(0u64),
                 ),
-                literal_eq.clone(),
+                eq(lit(0u64), lit(0u64)),
             ),
-            gt(
-                literal_eq,
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(name),
-                    Stat::Max,
-                )),
+            or(
+                gt(
+                    get_item(
+                        field_path_stat_field_name(&FieldPath::from_name(name.clone()), Stat::Min),
+                        root(),
+                    ),
+                    literal_eq.clone(),
+                ),
+                gt(
+                    literal_eq,
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(name),
+                        Stat::Max,
+                    )),
+                ),
             ),
         );
         assert_eq!(&converted, &expected_expr);
@@ -148,37 +169,55 @@ mod tests {
             &HashMap::from_iter([
                 (
                     FieldPath::from_name(column.clone()),
-                    HashSet::from_iter([Stat::Min, Stat::Max])
+                    HashSet::from_iter([Stat::Min, Stat::Max, Stat::NaNCount])
                 ),
                 (
                     FieldPath::from_name(other_col.clone()),
-                    HashSet::from_iter([Stat::Max, Stat::Min])
+                    HashSet::from_iter([Stat::Max, Stat::Min, Stat::NaNCount])
                 )
             ])
         );
-        let expected_expr = or(
-            gt(
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(column.clone()),
-                    Stat::Min,
-                )),
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(other_col.clone()),
-                    Stat::Max,
-                )),
+        let expected_expr = and(
+            and(
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(column.clone()),
+                        Stat::NaNCount,
+                    )),
+                    lit(0u64),
+                ),
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(other_col.clone()),
+                        Stat::NaNCount,
+                    )),
+                    lit(0u64),
+                ),
             ),
-            gt(
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(other_col),
-                    Stat::Min,
-                )),
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(column),
-                    Stat::Max,
-                )),
+            or(
+                gt(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(column.clone()),
+                        Stat::Min,
+                    )),
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(other_col.clone()),
+                        Stat::Max,
+                    )),
+                ),
+                gt(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(other_col),
+                        Stat::Min,
+                    )),
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(column),
+                        Stat::Max,
+                    )),
+                ),
             ),
         );
-        assert_eq!(&converted, &expected_expr);
+        assert_eq!(converted.to_string(), expected_expr.to_string());
     }
 
     #[test]
@@ -193,38 +232,56 @@ mod tests {
             &HashMap::from_iter([
                 (
                     FieldPath::from_name(column.clone()),
-                    HashSet::from_iter([Stat::Min, Stat::Max])
+                    HashSet::from_iter([Stat::Min, Stat::Max, Stat::NaNCount])
                 ),
                 (
                     FieldPath::from_name(other_col.clone()),
-                    HashSet::from_iter([Stat::Max, Stat::Min])
+                    HashSet::from_iter([Stat::Max, Stat::Min, Stat::NaNCount])
                 )
             ])
         );
         let expected_expr = and(
-            eq(
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(column.clone()),
-                    Stat::Min,
-                )),
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(other_col.clone()),
-                    Stat::Max,
-                )),
+            and(
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(column.clone()),
+                        Stat::NaNCount,
+                    )),
+                    lit(0u64),
+                ),
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(other_col.clone()),
+                        Stat::NaNCount,
+                    )),
+                    lit(0u64),
+                ),
             ),
-            eq(
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(column),
-                    Stat::Max,
-                )),
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(other_col),
-                    Stat::Min,
-                )),
+            and(
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(column.clone()),
+                        Stat::Min,
+                    )),
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(other_col.clone()),
+                        Stat::Max,
+                    )),
+                ),
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(column),
+                        Stat::Max,
+                    )),
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(other_col),
+                        Stat::Min,
+                    )),
+                ),
             ),
         );
 
-        assert_eq!(&converted, &expected_expr);
+        assert_eq!(&converted.to_string(), &expected_expr.to_string());
     }
 
     #[test]
@@ -240,23 +297,41 @@ mod tests {
             &HashMap::from_iter([
                 (
                     FieldPath::from_name(column.clone()),
-                    HashSet::from_iter([Stat::Max])
+                    HashSet::from_iter([Stat::Max, Stat::NaNCount])
                 ),
                 (
                     FieldPath::from_name(other_col.clone()),
-                    HashSet::from_iter([Stat::Min])
+                    HashSet::from_iter([Stat::Min, Stat::NaNCount])
                 )
             ])
         );
-        let expected_expr = lt_eq(
-            col(field_path_stat_field_name(
-                &FieldPath::from_name(column),
-                Stat::Max,
-            )),
-            col(field_path_stat_field_name(
-                &FieldPath::from_name(other_col),
-                Stat::Min,
-            )),
+        let expected_expr = and(
+            and(
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(column.clone()),
+                        Stat::NaNCount,
+                    )),
+                    lit(0u64),
+                ),
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(other_col.clone()),
+                        Stat::NaNCount,
+                    )),
+                    lit(0u64),
+                ),
+            ),
+            lt_eq(
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(column),
+                    Stat::Max,
+                )),
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(other_col),
+                    Stat::Min,
+                )),
+            ),
         );
         assert_eq!(&converted, &expected_expr);
     }
@@ -272,15 +347,27 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([(
                 FieldPath::from_name(column.clone()),
-                HashSet::from_iter([Stat::Max])
+                HashSet::from_iter([Stat::Max, Stat::NaNCount])
             ),])
         );
-        let expected_expr = lt_eq(
-            col(field_path_stat_field_name(
-                &FieldPath::from_name(column),
-                Stat::Max,
-            )),
-            other_col.clone(),
+        let expected_expr = and(
+            and(
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(column.clone()),
+                        Stat::NaNCount,
+                    )),
+                    lit(0u64),
+                ),
+                eq(lit(0u64), lit(0u64)),
+            ),
+            lt_eq(
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(column),
+                    Stat::Max,
+                )),
+                other_col.clone(),
+            ),
         );
         assert_eq!(&converted, &(expected_expr));
     }
@@ -298,23 +385,41 @@ mod tests {
             &HashMap::from_iter([
                 (
                     FieldPath::from_name(column.clone()),
-                    HashSet::from_iter([Stat::Min])
+                    HashSet::from_iter([Stat::Min, Stat::NaNCount])
                 ),
                 (
                     FieldPath::from_name(other_col.clone()),
-                    HashSet::from_iter([Stat::Max])
+                    HashSet::from_iter([Stat::Max, Stat::NaNCount])
                 )
             ])
         );
-        let expected_expr = gt_eq(
-            col(field_path_stat_field_name(
-                &FieldPath::from_name(column),
-                Stat::Min,
-            )),
-            col(field_path_stat_field_name(
-                &FieldPath::from_name(other_col),
-                Stat::Max,
-            )),
+        let expected_expr = and(
+            and(
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(column.clone()),
+                        Stat::NaNCount,
+                    )),
+                    lit(0u64),
+                ),
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(other_col.clone()),
+                        Stat::NaNCount,
+                    )),
+                    lit(0u64),
+                ),
+            ),
+            gt_eq(
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(column),
+                    Stat::Min,
+                )),
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(other_col),
+                    Stat::Max,
+                )),
+            ),
         );
         assert_eq!(&converted, &expected_expr);
     }
@@ -330,15 +435,27 @@ mod tests {
             refs.map(),
             &HashMap::from_iter([(
                 FieldPath::from_name(column.clone()),
-                HashSet::from_iter([Stat::Min])
+                HashSet::from_iter([Stat::Min, Stat::NaNCount])
             )])
         );
-        let expected_expr = gt_eq(
-            col(field_path_stat_field_name(
-                &FieldPath::from_name(column),
-                Stat::Min,
-            )),
-            other_col.clone(),
+        let expected_expr = and(
+            and(
+                eq(
+                    col(field_path_stat_field_name(
+                        &FieldPath::from_name(column.clone()),
+                        Stat::NaNCount,
+                    )),
+                    lit(0u64),
+                ),
+                eq(lit(0u64), lit(0u64)),
+            ),
+            gt_eq(
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(column),
+                    Stat::Min,
+                )),
+                other_col.clone(),
+            ),
         );
         assert_eq!(&converted, &expected_expr);
     }
@@ -350,10 +467,22 @@ mod tests {
         let (predicate, _) = pruning_expr(&expr).unwrap();
 
         let expected_expr = and(
-            gt_eq(col(FieldName::from("min")), lit(10)),
-            lt_eq(col(FieldName::from("max")), lit(50)),
+            and(
+                and(
+                    eq(col(FieldName::from("nan_count")), lit(0u64)),
+                    eq(lit(0u64), lit(0u64)),
+                ),
+                gt_eq(col(FieldName::from("min")), lit(10)),
+            ),
+            and(
+                and(
+                    eq(col(FieldName::from("nan_count")), lit(0u64)),
+                    eq(lit(0u64), lit(0u64)),
+                ),
+                lt_eq(col(FieldName::from("max")), lit(50)),
+            ),
         );
-        assert_eq!(&predicate, &expected_expr)
+        assert_eq!(&predicate.to_string(), &expected_expr.to_string());
     }
     #[test]
     pub fn pruning_and_or_operators() {
@@ -366,10 +495,24 @@ mod tests {
         assert_eq!(
             &predicate,
             &or(
-                lt_eq(col(FieldName::from("a_max")), lit(10)),
-                gt_eq(col(FieldName::from("a_min")), lit(50))
+                and(
+                    and(
+                        eq(col(FieldName::from("a_nan_count")), lit(0u64)),
+                        eq(lit(0u64), lit(0u64)),
+                    ),
+                    lt_eq(col(FieldName::from("a_max")), lit(10))
+                ),
+                and(
+                    and(
+                        eq(col(FieldName::from("a_nan_count")), lit(0u64)),
+                        eq(lit(0u64), lit(0u64)),
+                    ),
+                    gt_eq(col(FieldName::from("a_min")), lit(50))
+                )
             ),
         );
+
+        // (((($.a_nan_count = 0u64) and (0u64 = 0u64)) and ($.a_max <= 10i32)) or ((($.a_nan_count = 0u64) and (0u64 = 0u64)) and ($.a_min >= 50i32)))
     }
 
     #[test]
