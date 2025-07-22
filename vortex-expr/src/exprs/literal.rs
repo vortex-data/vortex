@@ -5,7 +5,7 @@ use std::fmt::Display;
 
 use vortex_array::arrays::ConstantArray;
 use vortex_array::{ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
-use vortex_dtype::DType;
+use vortex_dtype::{DType, Nullability, match_each_float_ptype};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
@@ -112,6 +112,27 @@ impl AnalysisExpr for LiteralExpr {
     fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         Some(lit(self.value.clone()))
     }
+
+    fn nan_count(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        // If the inner value is NaN, we return lit(1), else we return lit(0).
+        match self.value.as_primitive_opt() {
+            None => Some(lit(Scalar::primitive(0u64, Nullability::NonNullable))),
+            Some(v) => {
+                match_each_float_ptype!(v.ptype(), |T| {
+                    match v.typed_value::<T>() {
+                        None => Some(lit(Scalar::primitive(0u64, Nullability::NonNullable))),
+                        Some(value) => {
+                            if value.is_nan() {
+                                Some(lit(Scalar::primitive(1u64, Nullability::Nullable)))
+                            } else {
+                                Some(lit(Scalar::primitive(0u64, Nullability::NonNullable)))
+                            }
+                        }
+                    }
+                })
+            }
+        }
+    }
 }
 
 /// Create a new `Literal` expression from a type that coerces to `Scalar`.
@@ -136,7 +157,6 @@ pub fn lit(value: impl Into<Scalar>) -> ExprRef {
 
 #[cfg(test)]
 mod tests {
-
     use vortex_dtype::{DType, Nullability, PType, StructFields};
     use vortex_scalar::Scalar;
 

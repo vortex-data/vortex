@@ -12,7 +12,7 @@ use vortex_proto::expr as pb;
 
 use crate::{
     AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Operator, Scope, StatsCatalog,
-    VTable, vtable,
+    VTable, lit, vtable,
 };
 
 vtable!(Binary);
@@ -140,6 +140,13 @@ impl AnalysisExpr for BinaryExpr {
     fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         match self.operator {
             Operator::Eq => {
+                // The LHS and RHS cannot contain NaNs. If there are any NaNs, then
+                // the min/max stats are not sufficient for filtering.
+                let nan_count_check = and(
+                    eq(self.lhs.nan_count(catalog)?, lit(0u64)),
+                    eq(self.rhs.nan_count(catalog)?, lit(0u64)),
+                );
+
                 let min_lhs = self.lhs.min(catalog);
                 let max_lhs = self.lhs.max(catalog);
 
@@ -148,7 +155,11 @@ impl AnalysisExpr for BinaryExpr {
 
                 let left = min_lhs.zip(max_rhs).map(|(a, b)| gt(a, b));
                 let right = min_rhs.zip(max_lhs).map(|(a, b)| gt(a, b));
-                left.into_iter().chain(right).reduce(or)
+
+                left.into_iter()
+                    .chain(right)
+                    .reduce(or)
+                    .map(|min_max_check| and(nan_count_check, min_max_check))
             }
             Operator::NotEq => {
                 let min_lhs = self.lhs.min(catalog)?;

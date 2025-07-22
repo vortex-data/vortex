@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::iter::once;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
@@ -240,7 +241,7 @@ impl StructArray {
 
     /// Removes and returns a column from the struct array by name.
     /// If the column does not exist, returns `None`.
-    pub fn remove_column(&mut self, name: impl Into<FieldName>) -> Option<ArrayRef> {
+    pub fn drop(&mut self, name: impl Into<FieldName>) -> Option<ArrayRef> {
         let name = name.into();
 
         let Some(struct_dtype) = self.dtype.as_struct() else {
@@ -260,6 +261,29 @@ impl StructArray {
         self.dtype = DType::Struct(new_dtype, self.dtype.nullability());
 
         Some(field)
+    }
+
+    /// Create a new StructArray by appending a new column onto the existing array.
+    pub fn with_column(
+        &mut self,
+        name: impl Into<FieldName>,
+        array: ArrayRef,
+    ) -> VortexResult<Self> {
+        let name = name.into();
+        let Some(struct_dtype) = self.dtype.as_struct() else {
+            unreachable!(
+                "struct arrays must have be a DType::Struct, this is likely an internal bug."
+            )
+        };
+
+        let names = struct_dtype.names().iter().cloned().chain(once(name));
+        let types = struct_dtype.fields().chain(once(array.dtype().clone()));
+        let new_fields = StructFields::new(names.collect(), types.collect());
+
+        let mut children = self.fields.clone();
+        children.push(array);
+
+        Self::try_new_with_dtype(children, new_fields, self.len, self.validity.clone())
     }
 }
 
@@ -386,7 +410,7 @@ mod test {
         )
         .unwrap();
 
-        let removed = struct_a.remove_column("xs").unwrap();
+        let removed = struct_a.drop("xs").unwrap();
         assert_eq!(
             removed.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
@@ -410,7 +434,7 @@ mod test {
             [4u64, 5, 6, 7, 8]
         );
 
-        let empty = struct_a.remove_column("non_existent");
+        let empty = struct_a.drop("non_existent");
         assert!(
             empty.is_none(),
             "Expected None when removing non-existent column"

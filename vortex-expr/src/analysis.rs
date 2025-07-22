@@ -6,8 +6,9 @@ use vortex_dtype::FieldPath;
 
 use crate::ExprRef;
 
+/// A catalog of available stats that are associated with field paths.
 pub trait StatsCatalog {
-    /// Given a field path and statist, return an expression that when evaluated over the catalog
+    /// Given a field path and statistic, return an expression that when evaluated over the catalog
     /// will return that stat for the referenced field.
     ///
     /// This is likely to be a column expression, or a literal.
@@ -58,6 +59,13 @@ pub trait AnalysisExpr {
     ///
     /// See [AnalysisExpr::max] for important details.
     fn min(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        None
+    }
+
+    /// An expression for the NaN count for a column, if available.
+    ///
+    /// This method returns `None` if the NaNCount stat is unknown.
+    fn nan_count(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         None
     }
 
