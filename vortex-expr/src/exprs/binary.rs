@@ -138,15 +138,18 @@ impl Display for BinaryExpr {
 
 impl AnalysisExpr for BinaryExpr {
     fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        // Create a predicate that checks the NaNCount of the left and right hand
+        // side of the expression. Only the halves which define a NaNCount are applicable.
         fn make_nan_predicate(
             lhs: &ExprRef,
             rhs: &ExprRef,
             catalog: &mut dyn StatsCatalog,
         ) -> Option<ExprRef> {
-            Some(and(
-                eq(lhs.nan_count(catalog)?, lit(0u64)),
-                eq(rhs.nan_count(catalog)?, lit(0u64)),
-            ))
+            lhs.nan_count(catalog)
+                .into_iter()
+                .chain(rhs.nan_count(catalog))
+                .map(|nans| eq(nans, lit(0u64)))
+                .reduce(and)
         }
 
         match self.operator {
@@ -160,17 +163,13 @@ impl AnalysisExpr for BinaryExpr {
                 let left = min_lhs.zip(max_rhs).map(|(a, b)| gt(a, b));
                 let right = min_rhs.zip(max_lhs).map(|(a, b)| gt(a, b));
 
-                left.into_iter()
-                    .chain(right)
-                    .reduce(or)
-                    .and_then(|min_max_check| {
-                        // The LHS and RHS cannot contain NaNs. If there are any NaNs, then
-                        // the min/max stats are not sufficient for filtering.
-                        Some(and(
-                            make_nan_predicate(self.lhs(), self.rhs(), catalog)?,
-                            min_max_check,
-                        ))
-                    })
+                let min_max_check = left.into_iter().chain(right).reduce(or);
+
+                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
+                make_nan_predicate(self.lhs(), self.rhs(), catalog)
+                    .into_iter()
+                    .chain(min_max_check)
+                    .reduce(and)
             }
             Operator::NotEq => {
                 let min_lhs = self.lhs.min(catalog)?;
@@ -179,44 +178,54 @@ impl AnalysisExpr for BinaryExpr {
                 let min_rhs = self.rhs.min(catalog)?;
                 let max_rhs = self.rhs.max(catalog)?;
 
-                Some(and(
-                    // The LHS and RHS cannot contain NaNs. If there are any NaNs, then
-                    // the min/max stats are not sufficient for filtering.
-                    make_nan_predicate(self.lhs(), self.rhs(), catalog)?,
-                    and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs)),
-                ))
+                let min_max_check = and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs));
+
+                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
+                if let Some(nan_check) = make_nan_predicate(self.lhs(), self.rhs(), catalog) {
+                    Some(and(nan_check, min_max_check))
+                } else {
+                    Some(min_max_check)
+                }
             }
             Operator::Gt => {
-                Some(and(
-                    // The LHS and RHS cannot contain NaNs. If there are any NaNs, then
-                    // the min/max stats are not sufficient for filtering.
-                    make_nan_predicate(self.lhs(), self.rhs(), catalog)?,
-                    lt_eq(self.lhs.max(catalog)?, self.rhs.min(catalog)?),
-                ))
+                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
+                let min_max_check = lt_eq(self.lhs.max(catalog)?, self.rhs.min(catalog)?);
+
+                if let Some(nan_check) = make_nan_predicate(self.lhs(), self.rhs(), catalog) {
+                    Some(and(nan_check, min_max_check))
+                } else {
+                    Some(min_max_check)
+                }
             }
             Operator::Gte => {
-                Some(and(
-                    // The LHS and RHS cannot contain NaNs. If there are any NaNs, then
-                    // the min/max stats are not sufficient for filtering.
-                    make_nan_predicate(self.lhs(), self.rhs(), catalog)?,
-                    lt(self.lhs.max(catalog)?, self.rhs.min(catalog)?),
-                ))
+                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
+                let min_max_check = lt_eq(self.lhs.max(catalog)?, self.rhs.min(catalog)?);
+
+                if let Some(nan_check) = make_nan_predicate(self.lhs(), self.rhs(), catalog) {
+                    Some(and(nan_check, min_max_check))
+                } else {
+                    Some(min_max_check)
+                }
             }
             Operator::Lt => {
-                Some(and(
-                    // The LHS and RHS cannot contain NaNs. If there are any NaNs, then
-                    // the min/max stats are not sufficient for filtering.
-                    make_nan_predicate(self.lhs(), self.rhs(), catalog)?,
-                    gt_eq(self.lhs.min(catalog)?, self.rhs.max(catalog)?),
-                ))
+                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
+                let min_max_check = gt_eq(self.lhs.min(catalog)?, self.rhs.max(catalog)?);
+
+                if let Some(nan_check) = make_nan_predicate(self.lhs(), self.rhs(), catalog) {
+                    Some(and(nan_check, min_max_check))
+                } else {
+                    Some(min_max_check)
+                }
             }
             Operator::Lte => {
-                Some(and(
-                    // The LHS and RHS cannot contain NaNs. If there are any NaNs, then
-                    // the min/max stats are not sufficient for filtering.
-                    make_nan_predicate(self.lhs(), self.rhs(), catalog)?,
-                    gt(self.lhs.min(catalog)?, self.rhs.max(catalog)?),
-                ))
+                // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
+                let min_max_check = gt(self.lhs.min(catalog)?, self.rhs.max(catalog)?);
+
+                if let Some(nan_check) = make_nan_predicate(self.lhs(), self.rhs(), catalog) {
+                    Some(and(nan_check, min_max_check))
+                } else {
+                    Some(min_max_check)
+                }
             }
             Operator::And => self
                 .lhs

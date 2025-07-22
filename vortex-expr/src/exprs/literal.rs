@@ -114,28 +114,25 @@ impl AnalysisExpr for LiteralExpr {
     }
 
     fn nan_count(&self, _catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
-        // If the inner value is NaN, we return lit(1), else we return lit(0).
-        match self.value.as_primitive_opt() {
-            None => Some(lit(0u64)),
-            Some(v) => {
-                if !v.ptype().is_float() {
-                    return Some(lit(0u64));
-                }
-
-                match_each_float_ptype!(v.ptype(), |T| {
-                    match v.typed_value::<T>() {
-                        None => Some(lit(0u64)),
-                        Some(value) => {
-                            if value.is_nan() {
-                                Some(lit(1u64))
-                            } else {
-                                Some(lit(0u64))
-                            }
-                        }
-                    }
-                })
-            }
+        // The NaNCount for a non-float literal is not defined.
+        // For floating point types, the NaNCount is 1 for lit(NaN), and 0 otherwise.
+        let value = self.value.as_primitive_opt()?;
+        if !value.ptype().is_float() {
+            return None;
         }
+
+        match_each_float_ptype!(value.ptype(), |T| {
+            match value.typed_value::<T>() {
+                None => Some(lit(0u64)),
+                Some(value) => {
+                    if value.is_nan() {
+                        Some(lit(1u64))
+                    } else {
+                        Some(lit(0u64))
+                    }
+                }
+            }
+        })
     }
 }
 

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::iter::once;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
@@ -13,17 +12,14 @@ use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use parking_lot::RwLock;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::stats::{Precision, Stat};
-use vortex_array::{IntoArray, ToCanonical};
-use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet, Nullability};
+use vortex_array::ToCanonical;
+use vortex_array::stats::Precision;
+use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
@@ -87,13 +83,12 @@ impl ZonedReader {
         self.pruning_predicates
             .entry(expr.clone())
             .or_insert_with(move || {
-                // NOTE: we manually insert NaNCount as a present_stat. Even if It wasn't written,
-                // we add it with a default value in the async `zone_map()` fetch.
-                let mut stats: HashSet<Stat> = self.layout.present_stats.iter().copied().collect();
-                stats.insert(Stat::NaNCount);
-
-                let field_path_set =
-                    FieldPathSet::from_iter(stats.iter().map(|s| FieldPath::from_name(s.name())));
+                let field_path_set = FieldPathSet::from_iter(
+                    self.layout
+                        .present_stats
+                        .iter()
+                        .map(|s| FieldPath::from_name(s.name())),
+                );
                 checked_pruning_expr(&expr, &field_path_set).map(|(expr, _)| expr)
             })
             .value()
@@ -125,32 +120,10 @@ impl ZonedReader {
                     .vortex_expect("Failed to zone map projection");
 
                 async move {
-                    let mut present_stats = present_stats;
-
-                    let mut zones_array = zones_eval
+                    let zones_array = zones_eval
                         .invoke(Mask::new_true(nzones))
                         .await?
                         .to_struct()?;
-
-                    // NOTE: Special handling for NaNCount.
-                    // NaNCount is only written for float columns, but it is used at pruning time,
-                    // and stats falsification is type-agnostic, so we insert default values if
-                    // the stat is not present in the layout.
-                    if !present_stats.contains(&Stat::NaNCount) {
-                        present_stats = present_stats
-                            .iter()
-                            .copied()
-                            .chain(once(Stat::NaNCount))
-                            .collect();
-                        zones_array = zones_array.with_column(
-                            Stat::NaNCount.name(),
-                            ConstantArray::new(
-                                Scalar::primitive(0u64, Nullability::NonNullable),
-                                nzones,
-                            )
-                            .into_array(),
-                        )?;
-                    }
 
                     // SAFETY: This is only fine to call because we perform validation above
                     Ok(ZoneMap::new_unchecked(zones_array, present_stats))

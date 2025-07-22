@@ -31,14 +31,14 @@ impl TrackingStatsCatalog {
 // A catalog that return a stat column if it exists in the given scope.
 struct ScopeStatsCatalog<'a> {
     any_catalog: TrackingStatsCatalog,
-    field_paths: &'a FieldPathSet,
+    available_stats: &'a FieldPathSet,
 }
 
 impl StatsCatalog for ScopeStatsCatalog<'_> {
     fn stats_ref(&mut self, field_path: &FieldPath, stat: Stat) -> Option<ExprRef> {
         let stat_path = field_path.clone().push(stat.name());
 
-        if self.field_paths.contains(&stat_path) {
+        if self.available_stats.contains(&stat_path) {
             self.any_catalog.stats_ref(field_path, stat)
         } else {
             None
@@ -70,41 +70,29 @@ pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldNa
         .into()
 }
 
-/// Create a stat based falsification expr assuming all stats for all column in the expression
-/// exist
-pub fn pruning_expr(expr: &ExprRef) -> Option<(ExprRef, RequiredStats)> {
-    let mut catalog = TrackingStatsCatalog {
-        ..Default::default()
-    };
-    let expr = expr.stat_falsification(&mut catalog)?;
-
-    // TODO(joe): filter access by used exprs
-    let mut relation: Relation<FieldPath, Stat> = Relation::new();
-    for ((field_path, stat), _) in catalog.into_usages() {
-        relation.insert(field_path, stat)
-    }
-
-    Some((expr, relation))
-}
-
-/// Build a pruning expr mask an existing bundle of stats
-/// Creates a stat based falsification expr using the stats in the `scope_field_paths`.
-/// These are of the form
-/// [["col_0", ..., "col_n", "stat_name"], ...] for each stat.
+/// Build a pruning expr mask, using an existing set of stats.
+/// The available stats are provided as a set of [`FieldPath`].
+///
+/// A pruning expression is one that returns `true` for all positions where the original expression
+/// cannot hold, and false if it cannot be determined from stats alone whether the positions can
+/// be pruned.
+///
+/// If the falsification logic attempts to access an unknown stat,
+/// this function will return `None`.
 pub fn checked_pruning_expr(
     expr: &ExprRef,
-    field_paths: &FieldPathSet,
+    available_stats: &FieldPathSet,
 ) -> Option<(ExprRef, RequiredStats)> {
     let mut catalog = ScopeStatsCatalog {
         any_catalog: Default::default(),
-        field_paths,
+        available_stats,
     };
 
     let expr = expr.stat_falsification(&mut catalog)?;
 
     // TODO(joe): filter access by used exprs
     let mut relation: Relation<FieldPath, Stat> = Relation::new();
-    for ((field_path, stat), _) in catalog.any_catalog.usage.into_iter() {
+    for ((field_path, stat), _) in catalog.any_catalog.into_usages() {
         relation.insert(field_path, stat)
     }
 
@@ -113,410 +101,278 @@ pub fn checked_pruning_expr(
 
 #[cfg(test)]
 mod tests {
+    use rstest::{fixture, rstest};
     use vortex_array::stats::Stat;
-    use vortex_dtype::{FieldName, FieldPath};
+    use vortex_dtype::{FieldName, FieldPath, FieldPathSet};
 
-    use crate::pruning::field_path_stat_field_name;
-    use crate::pruning::pruning_expr::{HashMap, pruning_expr};
+    use crate::pruning::pruning_expr::HashMap;
+    use crate::pruning::{checked_pruning_expr, field_path_stat_field_name};
     use crate::{HashSet, and, col, eq, get_item, gt, gt_eq, lit, lt, lt_eq, not_eq, or, root};
 
-    #[test]
-    pub fn pruning_equals() {
+    // Implement some checked pruning expressions.
+    #[fixture]
+    fn available_stats() -> FieldPathSet {
+        let field_a = FieldPath::from_name("a");
+        let field_b = FieldPath::from_name("b");
+
+        FieldPathSet::from_iter([
+            field_a.clone().push(Stat::Min.name()),
+            field_a.clone().push(Stat::Max.name()),
+            field_b.clone().push(Stat::Min.name()),
+            field_b.clone().push(Stat::Max.name()),
+        ])
+    }
+
+    #[rstest]
+    pub fn pruning_equals(available_stats: FieldPathSet) {
         let name = FieldName::from("a");
         let literal_eq = lit(42);
         let eq_expr = eq(get_item("a", root()), literal_eq.clone());
-        let (converted, _refs) = pruning_expr(&eq_expr).unwrap();
-        let expected_expr = and(
-            and(
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(name.clone()),
-                        Stat::NaNCount,
-                    )),
-                    lit(0u64),
+        let (converted, _refs) = checked_pruning_expr(&eq_expr, &available_stats).unwrap();
+        let expected_expr = or(
+            gt(
+                get_item(
+                    field_path_stat_field_name(&FieldPath::from_name(name.clone()), Stat::Min),
+                    root(),
                 ),
-                eq(lit(0u64), lit(0u64)),
+                literal_eq.clone(),
             ),
-            or(
-                gt(
-                    get_item(
-                        field_path_stat_field_name(&FieldPath::from_name(name.clone()), Stat::Min),
-                        root(),
-                    ),
-                    literal_eq.clone(),
-                ),
-                gt(
-                    literal_eq,
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(name),
-                        Stat::Max,
-                    )),
-                ),
+            gt(
+                literal_eq,
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(name),
+                    Stat::Max,
+                )),
             ),
         );
         assert_eq!(&converted, &expected_expr);
     }
 
-    #[test]
-    pub fn pruning_equals_column() {
+    #[rstest]
+    pub fn pruning_equals_column(available_stats: FieldPathSet) {
         let column = FieldName::from("a");
         let other_col = FieldName::from("b");
         let eq_expr = eq(col(column.clone()), col(other_col.clone()));
 
-        let (converted, refs) = pruning_expr(&eq_expr).unwrap();
+        let (converted, refs) = checked_pruning_expr(&eq_expr, &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([
                 (
                     FieldPath::from_name(column.clone()),
-                    HashSet::from_iter([Stat::Min, Stat::Max, Stat::NaNCount])
+                    HashSet::from_iter([Stat::Min, Stat::Max])
                 ),
                 (
                     FieldPath::from_name(other_col.clone()),
-                    HashSet::from_iter([Stat::Max, Stat::Min, Stat::NaNCount])
+                    HashSet::from_iter([Stat::Max, Stat::Min])
                 )
             ])
         );
-        let expected_expr = and(
-            and(
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(column.clone()),
-                        Stat::NaNCount,
-                    )),
-                    lit(0u64),
-                ),
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(other_col.clone()),
-                        Stat::NaNCount,
-                    )),
-                    lit(0u64),
-                ),
+        let expected_expr = or(
+            gt(
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(column.clone()),
+                    Stat::Min,
+                )),
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(other_col.clone()),
+                    Stat::Max,
+                )),
             ),
-            or(
-                gt(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(column.clone()),
-                        Stat::Min,
-                    )),
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(other_col.clone()),
-                        Stat::Max,
-                    )),
-                ),
-                gt(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(other_col),
-                        Stat::Min,
-                    )),
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(column),
-                        Stat::Max,
-                    )),
-                ),
+            gt(
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(other_col),
+                    Stat::Min,
+                )),
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(column),
+                    Stat::Max,
+                )),
             ),
         );
-        assert_eq!(converted.to_string(), expected_expr.to_string());
+        assert_eq!(&converted, &expected_expr);
     }
 
-    #[test]
-    pub fn pruning_not_equals_column() {
+    #[rstest]
+    pub fn pruning_not_equals_column(available_stats: FieldPathSet) {
         let column = FieldName::from("a");
         let other_col = FieldName::from("b");
         let not_eq_expr = not_eq(col(column.clone()), col(other_col.clone()));
 
-        let (converted, refs) = pruning_expr(&not_eq_expr).unwrap();
+        let (converted, refs) = checked_pruning_expr(&not_eq_expr, &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([
                 (
                     FieldPath::from_name(column.clone()),
-                    HashSet::from_iter([Stat::Min, Stat::Max, Stat::NaNCount])
+                    HashSet::from_iter([Stat::Min, Stat::Max])
                 ),
                 (
                     FieldPath::from_name(other_col.clone()),
-                    HashSet::from_iter([Stat::Max, Stat::Min, Stat::NaNCount])
+                    HashSet::from_iter([Stat::Max, Stat::Min])
                 )
             ])
         );
         let expected_expr = and(
-            and(
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(column.clone()),
-                        Stat::NaNCount,
-                    )),
-                    lit(0u64),
-                ),
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(other_col.clone()),
-                        Stat::NaNCount,
-                    )),
-                    lit(0u64),
-                ),
+            eq(
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(column.clone()),
+                    Stat::Min,
+                )),
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(other_col.clone()),
+                    Stat::Max,
+                )),
             ),
-            and(
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(column.clone()),
-                        Stat::Min,
-                    )),
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(other_col.clone()),
-                        Stat::Max,
-                    )),
-                ),
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(column),
-                        Stat::Max,
-                    )),
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(other_col),
-                        Stat::Min,
-                    )),
-                ),
+            eq(
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(column),
+                    Stat::Max,
+                )),
+                col(field_path_stat_field_name(
+                    &FieldPath::from_name(other_col),
+                    Stat::Min,
+                )),
             ),
         );
 
-        assert_eq!(&converted.to_string(), &expected_expr.to_string());
+        assert_eq!(&converted, &expected_expr);
     }
 
-    #[test]
-    pub fn pruning_gt_column() {
+    #[rstest]
+    pub fn pruning_gt_column(available_stats: FieldPathSet) {
         let column = FieldName::from("a");
         let other_col = FieldName::from("b");
         let other_expr = col(other_col.clone());
         let not_eq_expr = gt(col(column.clone()), other_expr.clone());
 
-        let (converted, refs) = pruning_expr(&not_eq_expr).unwrap();
+        let (converted, refs) = checked_pruning_expr(&not_eq_expr, &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([
                 (
                     FieldPath::from_name(column.clone()),
-                    HashSet::from_iter([Stat::Max, Stat::NaNCount])
+                    HashSet::from_iter([Stat::Max])
                 ),
                 (
                     FieldPath::from_name(other_col.clone()),
-                    HashSet::from_iter([Stat::Min, Stat::NaNCount])
+                    HashSet::from_iter([Stat::Min])
                 )
             ])
         );
-        let expected_expr = and(
-            and(
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(column.clone()),
-                        Stat::NaNCount,
-                    )),
-                    lit(0u64),
-                ),
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(other_col.clone()),
-                        Stat::NaNCount,
-                    )),
-                    lit(0u64),
-                ),
-            ),
-            lt_eq(
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(column),
-                    Stat::Max,
-                )),
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(other_col),
-                    Stat::Min,
-                )),
-            ),
+        let expected_expr = lt_eq(
+            col(field_path_stat_field_name(
+                &FieldPath::from_name(column),
+                Stat::Max,
+            )),
+            col(field_path_stat_field_name(
+                &FieldPath::from_name(other_col),
+                Stat::Min,
+            )),
         );
         assert_eq!(&converted, &expected_expr);
     }
 
-    #[test]
-    pub fn pruning_gt_value() {
+    #[rstest]
+    pub fn pruning_gt_value(available_stats: FieldPathSet) {
         let column = FieldName::from("a");
         let other_col = lit(42);
         let not_eq_expr = gt(col(column.clone()), other_col.clone());
 
-        let (converted, refs) = pruning_expr(&not_eq_expr).unwrap();
+        let (converted, refs) = checked_pruning_expr(&not_eq_expr, &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([(
                 FieldPath::from_name(column.clone()),
-                HashSet::from_iter([Stat::Max, Stat::NaNCount])
+                HashSet::from_iter([Stat::Max])
             ),])
         );
-        let expected_expr = and(
-            and(
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(column.clone()),
-                        Stat::NaNCount,
-                    )),
-                    lit(0u64),
-                ),
-                eq(lit(0u64), lit(0u64)),
-            ),
-            lt_eq(
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(column),
-                    Stat::Max,
-                )),
-                other_col.clone(),
-            ),
+        let expected_expr = lt_eq(
+            col(field_path_stat_field_name(
+                &FieldPath::from_name(column),
+                Stat::Max,
+            )),
+            other_col.clone(),
         );
         assert_eq!(&converted, &(expected_expr));
     }
 
-    #[test]
-    pub fn pruning_lt_column() {
+    #[rstest::rstest]
+    pub fn pruning_lt_column(available_stats: FieldPathSet) {
         let column = FieldName::from("a");
         let other_col = FieldName::from("b");
         let other_expr = col(other_col.clone());
         let not_eq_expr = lt(col(column.clone()), other_expr.clone());
 
-        let (converted, refs) = pruning_expr(&not_eq_expr).unwrap();
+        let (converted, refs) = checked_pruning_expr(&not_eq_expr, &available_stats).unwrap();
         assert_eq!(
             refs.map(),
             &HashMap::from_iter([
                 (
                     FieldPath::from_name(column.clone()),
-                    HashSet::from_iter([Stat::Min, Stat::NaNCount])
+                    HashSet::from_iter([Stat::Min])
                 ),
                 (
                     FieldPath::from_name(other_col.clone()),
-                    HashSet::from_iter([Stat::Max, Stat::NaNCount])
+                    HashSet::from_iter([Stat::Max])
                 )
             ])
         );
-        let expected_expr = and(
-            and(
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(column.clone()),
-                        Stat::NaNCount,
-                    )),
-                    lit(0u64),
-                ),
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(other_col.clone()),
-                        Stat::NaNCount,
-                    )),
-                    lit(0u64),
-                ),
-            ),
-            gt_eq(
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(column),
-                    Stat::Min,
-                )),
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(other_col),
-                    Stat::Max,
-                )),
-            ),
+        let expected_expr = gt_eq(
+            col(field_path_stat_field_name(
+                &FieldPath::from_name(column),
+                Stat::Min,
+            )),
+            col(field_path_stat_field_name(
+                &FieldPath::from_name(other_col),
+                Stat::Max,
+            )),
         );
         assert_eq!(&converted, &expected_expr);
     }
 
-    #[test]
-    pub fn pruning_lt_value() {
-        let column = FieldName::from("a");
-        let other_col = lit(42);
-        let not_eq_expr = lt(col(column.clone()), other_col.clone());
+    #[rstest]
+    pub fn pruning_lt_value(available_stats: FieldPathSet) {
+        // expression   => a < 42
+        // pruning expr => a.min >= 42
+        let expr = lt(col("a"), lit(42));
 
-        let (converted, refs) = pruning_expr(&not_eq_expr).unwrap();
+        let (converted, refs) = checked_pruning_expr(&expr, &available_stats).unwrap();
         assert_eq!(
             refs.map(),
-            &HashMap::from_iter([(
-                FieldPath::from_name(column.clone()),
-                HashSet::from_iter([Stat::Min, Stat::NaNCount])
-            )])
+            &HashMap::from_iter([(FieldPath::from_name("a"), HashSet::from_iter([Stat::Min]))])
         );
-        let expected_expr = and(
-            and(
-                eq(
-                    col(field_path_stat_field_name(
-                        &FieldPath::from_name(column.clone()),
-                        Stat::NaNCount,
-                    )),
-                    lit(0u64),
-                ),
-                eq(lit(0u64), lit(0u64)),
-            ),
-            gt_eq(
-                col(field_path_stat_field_name(
-                    &FieldPath::from_name(column),
-                    Stat::Min,
-                )),
-                other_col.clone(),
-            ),
-        );
-        assert_eq!(&converted, &expected_expr);
+        assert_eq!(&converted, &gt_eq(col("a_min"), lit(42)));
     }
 
-    #[test]
-    fn pruning_identity() {
-        let expr = or(lt(root().clone(), lit(10)), gt(root().clone(), lit(50)));
+    #[rstest]
+    fn pruning_identity(available_stats: FieldPathSet) {
+        let expr = or(lt(col("a").clone(), lit(10)), gt(col("a").clone(), lit(50)));
 
-        let (predicate, _) = pruning_expr(&expr).unwrap();
+        let (predicate, _) = checked_pruning_expr(&expr, &available_stats).unwrap();
 
-        let expected_expr = and(
-            and(
-                and(
-                    eq(col(FieldName::from("nan_count")), lit(0u64)),
-                    eq(lit(0u64), lit(0u64)),
-                ),
-                gt_eq(col(FieldName::from("min")), lit(10)),
-            ),
-            and(
-                and(
-                    eq(col(FieldName::from("nan_count")), lit(0u64)),
-                    eq(lit(0u64), lit(0u64)),
-                ),
-                lt_eq(col(FieldName::from("max")), lit(50)),
-            ),
-        );
+        let expected_expr = and(gt_eq(col("a_min"), lit(10)), lt_eq(col("a_max"), lit(50)));
         assert_eq!(&predicate.to_string(), &expected_expr.to_string());
     }
-    #[test]
-    pub fn pruning_and_or_operators() {
+    #[rstest]
+    pub fn pruning_and_or_operators(available_stats: FieldPathSet) {
         // Test case: a > 10 AND a < 50
         let column = FieldName::from("a");
         let and_expr = and(gt(col(column.clone()), lit(10)), lt(col(column), lit(50)));
-        let (predicate, _) = pruning_expr(&and_expr).unwrap();
+        let (predicate, _) = checked_pruning_expr(&and_expr, &available_stats).unwrap();
 
         // Expected: a_max <= 10 OR a_min >= 50
         assert_eq!(
             &predicate,
             &or(
-                and(
-                    and(
-                        eq(col(FieldName::from("a_nan_count")), lit(0u64)),
-                        eq(lit(0u64), lit(0u64)),
-                    ),
-                    lt_eq(col(FieldName::from("a_max")), lit(10))
-                ),
-                and(
-                    and(
-                        eq(col(FieldName::from("a_nan_count")), lit(0u64)),
-                        eq(lit(0u64), lit(0u64)),
-                    ),
-                    gt_eq(col(FieldName::from("a_min")), lit(50))
-                )
+                lt_eq(col(FieldName::from("a_max")), lit(10)),
+                gt_eq(col(FieldName::from("a_min")), lit(50)),
             ),
         );
-
-        // (((($.a_nan_count = 0u64) and (0u64 = 0u64)) and ($.a_max <= 10i32)) or ((($.a_nan_count = 0u64) and (0u64 = 0u64)) and ($.a_min >= 50i32)))
     }
 
-    #[test]
-    fn test_gt_eq_with_booleans() {
+    #[rstest]
+    fn test_gt_eq_with_booleans(available_stats: FieldPathSet) {
         // Consider this unusual, but valid (in Arrow, BooleanArray implements ArrayOrd), filter expression:
         // x > (y > z)
         // The x column is a Boolean-valued column. The y and z columns are numeric. True > False.
@@ -542,7 +398,69 @@ mod tests {
         // True > False
         // True
         let expr = gt_eq(col("x"), gt(col("y"), col("z")));
-        assert!(pruning_expr(&expr).is_none());
+        assert!(checked_pruning_expr(&expr, &available_stats).is_none());
         // TODO(DK): a sufficiently complex pruner would produce: `x_max <= (y_max > z_min)`
+    }
+
+    #[fixture]
+    fn available_stats_with_nans() -> FieldPathSet {
+        let float_col = FieldPath::from_name("float_col");
+        let int_col = FieldPath::from_name("int_col");
+
+        FieldPathSet::from_iter([
+            // Float columns will have a NaNCount.
+            float_col.clone().push(Stat::Min.name()),
+            float_col.clone().push(Stat::Max.name()),
+            float_col.push(Stat::NaNCount.name()),
+            // int columns will not have a NanCount serialized into the layout
+            int_col.clone().push(Stat::Min.name()),
+            int_col.push(Stat::Max.name()),
+        ])
+    }
+
+    #[rstest]
+    fn pruning_checks_nans(available_stats_with_nans: FieldPathSet) {
+        let expr = gt_eq(col("float_col"), lit(f32::NAN));
+        let (converted, _) = checked_pruning_expr(&expr, &available_stats_with_nans).unwrap();
+        assert_eq!(
+            &converted,
+            &and(
+                and(
+                    eq(col("float_col_nan_count"), lit(0u64)),
+                    // NaNCount of NaN is 1
+                    eq(lit(1u64), lit(0u64)),
+                ),
+                // This is the standard conversion of the >= operator. Comparing NAN to a max
+                // stat is nonsensical, as min/max stats ignore NaNs, but this should be short-circuited
+                // by the previous check for nan_count anyway.
+                lt_eq(col("float_col_max"), lit(f32::NAN)),
+            )
+        );
+
+        // One half of the expression requires NAN count check, the other half does not.
+        let expr = and(
+            gt(col("float_col"), lit(10f32)),
+            lt(col("int_col"), lit(10)),
+        );
+
+        let (converted, _) = checked_pruning_expr(&expr, &available_stats_with_nans).unwrap();
+
+        assert_eq!(
+            &converted,
+            &or(
+                // NaNCount check is enforced for the float column
+                and(
+                    and(
+                        eq(col("float_col_nan_count"), lit(0u64)),
+                        // NanCount of a non-NaN float literal is 0
+                        eq(lit(0u64), lit(0u64)),
+                    ),
+                    // We want the opposite: we can prune IF either one is false.
+                    lt_eq(col("float_col_max"), lit(10f32)),
+                ),
+                // NanCount check is skipped for the int column
+                gt_eq(col("int_col_min"), lit(10)),
+            )
+        )
     }
 }
