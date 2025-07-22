@@ -7,6 +7,7 @@
 #include "vortex.hpp"
 #include "vortex/thread_pool.hpp"
 #include "vortex_cxx_bridge/lib.h"
+#include "vortex_cxx_bridge/gen_test_data.h"
 
 #include <nanoarrow/nanoarrow.hpp>
 #include <nanoarrow/nanoarrow.h>
