@@ -387,7 +387,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-rust
-      - run: ./gradlew test --parallel
+      - run: ./gradlew test --parallel --info
         working-directory: ./java
 
   bench-codspeed:
