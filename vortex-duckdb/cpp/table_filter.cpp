@@ -94,7 +94,7 @@ extern "C" void duckdb_vx_table_filter_get_dynamic(duckdb_vx_table_filter ffi_fi
     out->comparison_type = static_cast<duckdb_vx_expr_type>(filter.filter_data->filter->comparison_type);
 }
 
-extern "C" void duckdb_vx_dynamic_filter_data_drop(duckdb_vx_dynamic_filter_data *ffi_data) {
+extern "C" void duckdb_vx_dynamic_filter_data_free(duckdb_vx_dynamic_filter_data *ffi_data) {
     if (!ffi_data || !*ffi_data) {
         return;
     }

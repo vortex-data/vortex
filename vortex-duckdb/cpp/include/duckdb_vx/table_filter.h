@@ -57,7 +57,7 @@ void duckdb_vx_table_filter_get_conjunction_and(duckdb_vx_table_filter ffi_filte
                                                 duckdb_vx_table_filter_conjunction *out);
 
 typedef struct duckdb_vx_dynamic_filter_data_ *duckdb_vx_dynamic_filter_data;
-void duckdb_vx_dynamic_filter_data_drop(duckdb_vx_dynamic_filter_data *ffi_data);
+void duckdb_vx_dynamic_filter_data_free(duckdb_vx_dynamic_filter_data *ffi_data);
 duckdb_value duckdb_vx_dynamic_filter_data_get_value(duckdb_vx_dynamic_filter_data ffi_data);
 
 typedef struct {

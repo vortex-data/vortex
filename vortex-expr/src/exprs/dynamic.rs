@@ -24,8 +24,7 @@ vtable!(DynamicComparison);
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT
 /// operation and is able to progressively tighten the bounds of the filter.
-#[allow(clippy::derived_hash_with_manual_eq)]
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug)]
 pub struct DynamicComparisonExpr {
     lhs: ExprRef,
     operator: Operator,
@@ -36,13 +35,24 @@ pub struct DynamicComparisonExpr {
 
 impl PartialEq for DynamicComparisonExpr {
     fn eq(&self, other: &Self) -> bool {
-        self.lhs.eq(&other.lhs)
+        self.default == other.default
             && self.operator == other.operator
-            && self.rhs == other.rhs
-            && self.default == other.default
+            && self.lhs.eq(&other.lhs)
+            && Arc::ptr_eq(&self.rhs.value, &other.rhs.value)
+            && self.rhs.dtype == other.rhs.dtype
     }
 }
 impl Eq for DynamicComparisonExpr {}
+
+impl Hash for DynamicComparisonExpr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.default.hash(state);
+        self.operator.hash(state);
+        self.lhs.hash(state);
+        Arc::as_ptr(&self.rhs.value).hash(state);
+        self.rhs.dtype.hash(state);
+    }
+}
 
 /// Hash and PartialEq are implemented based on the ptr of the value function, such that the
 /// internal value doesn't impact the hash of an expression tree.
@@ -52,19 +62,6 @@ struct Rhs {
     // The data type of the right-hand side value.
     dtype: DType,
 }
-
-impl Hash for Rhs {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        Arc::as_ptr(&self.value).hash(state);
-    }
-}
-
-impl PartialEq for Rhs {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.value, &other.value)
-    }
-}
-impl Eq for Rhs {}
 
 impl Debug for Rhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -274,7 +271,7 @@ impl DynamicExprUpdates {
 
         let mut updated = false;
         for (i, expr) in self.exprs.iter().enumerate() {
-            let current = (expr.rhs.value)().map(|v| Scalar::new(expr.rhs.dtype.clone(), v));
+            let current = expr.scalar();
             if current != guard.1[i] {
                 // At least one expression has been updated.
                 // We don't bail out early in order to avoid false positives for future calls
