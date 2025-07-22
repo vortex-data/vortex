@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{DecimalBytePartsArray, DecimalBytePartsVTable};
 use vortex_array::compute::{
     IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts, is_constant_opts,
 };
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
+
+use crate::{DecimalBytePartsArray, DecimalBytePartsVTable};
 
 impl IsConstantKernel for DecimalBytePartsVTable {
     fn is_constant(
