@@ -162,18 +162,76 @@ impl AnalysisExpr for BinaryExpr {
                     .map(|min_max_check| and(nan_count_check, min_max_check))
             }
             Operator::NotEq => {
+                // The LHS and RHS cannot contain NaNs. If there are any NaNs, then
+                // the min/max stats are not sufficient for filtering.
+                let nan_count_check = and(
+                    eq(self.lhs.nan_count(catalog)?, lit(0u64)),
+                    eq(self.rhs.nan_count(catalog)?, lit(0u64)),
+                );
+
                 let min_lhs = self.lhs.min(catalog)?;
                 let max_lhs = self.lhs.max(catalog)?;
 
                 let min_rhs = self.rhs.min(catalog)?;
                 let max_rhs = self.rhs.max(catalog)?;
 
-                Some(and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs)))
+                Some(and(
+                    nan_count_check,
+                    and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs)),
+                ))
             }
-            Operator::Gt => Some(lt_eq(self.lhs.max(catalog)?, self.rhs.min(catalog)?)),
-            Operator::Gte => Some(lt(self.lhs.max(catalog)?, self.rhs.min(catalog)?)),
-            Operator::Lt => Some(gt_eq(self.lhs.min(catalog)?, self.rhs.max(catalog)?)),
-            Operator::Lte => Some(gt(self.lhs.min(catalog)?, self.rhs.max(catalog)?)),
+            Operator::Gt => {
+                // The LHS and RHS cannot contain NaNs. If there are any NaNs, then
+                // the min/max stats are not sufficient for filtering.
+                let nan_count_check = and(
+                    eq(self.lhs.nan_count(catalog)?, lit(0u64)),
+                    eq(self.rhs.nan_count(catalog)?, lit(0u64)),
+                );
+
+                Some(and(
+                    nan_count_check,
+                    lt_eq(self.lhs.max(catalog)?, self.rhs.min(catalog)?),
+                ))
+            }
+            Operator::Gte => {
+                // The LHS and RHS cannot contain NaNs. If there are any NaNs, then
+                // the min/max stats are not sufficient for filtering.
+                let nan_count_check = and(
+                    eq(self.lhs.nan_count(catalog)?, lit(0u64)),
+                    eq(self.rhs.nan_count(catalog)?, lit(0u64)),
+                );
+
+                Some(and(
+                    nan_count_check,
+                    lt(self.lhs.max(catalog)?, self.rhs.min(catalog)?),
+                ))
+            }
+            Operator::Lt => {
+                // The LHS and RHS cannot contain NaNs. If there are any NaNs, then
+                // the min/max stats are not sufficient for filtering.
+                let nan_count_check = and(
+                    eq(self.lhs.nan_count(catalog)?, lit(0u64)),
+                    eq(self.rhs.nan_count(catalog)?, lit(0u64)),
+                );
+
+                Some(and(
+                    nan_count_check,
+                    gt_eq(self.lhs.min(catalog)?, self.rhs.max(catalog)?),
+                ))
+            }
+            Operator::Lte => {
+                // The LHS and RHS cannot contain NaNs. If there are any NaNs, then
+                // the min/max stats are not sufficient for filtering.
+                let nan_count_check = and(
+                    eq(self.lhs.nan_count(catalog)?, lit(0u64)),
+                    eq(self.rhs.nan_count(catalog)?, lit(0u64)),
+                );
+
+                Some(and(
+                    nan_count_check,
+                    gt(self.lhs.min(catalog)?, self.rhs.max(catalog)?),
+                ))
+            }
             Operator::And => self
                 .lhs
                 .stat_falsification(catalog)
