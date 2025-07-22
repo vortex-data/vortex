@@ -9,6 +9,7 @@ mod references;
 mod visitor;
 
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use itertools::Itertools;
 pub use references::ReferenceCollector;
@@ -57,8 +58,11 @@ impl TraversalOrder {
 
 #[derive(Debug, Clone)]
 pub struct Transformed<T> {
+    /// Value that was being rewritten.
     pub value: T,
+    /// Controls the flow of rewriting, see [`TraversalOrder`] for more details.
     pub order: TraversalOrder,
+    /// Was the value changed during rewriting.
     pub changed: bool,
 }
 
@@ -81,6 +85,15 @@ impl<T> Transformed<T> {
 
     pub fn into_inner(self) -> T {
         self.value
+    }
+
+    /// Apply a function to `value`, changing it without changing the `changed` field.
+    pub fn map<O, F: FnOnce(T) -> O>(self, f: F) -> Transformed<O> {
+        Transformed {
+            value: f(self.value),
+            order: self.order,
+            changed: self.changed,
+        }
     }
 }
 
@@ -270,6 +283,71 @@ impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeRefContainer<'a, T> for Vec<&'a C> 
         }
 
         Ok(order)
+    }
+}
+
+impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeContainer<'a, T> for Box<C> {
+    fn apply_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
+        &'a self,
+        f: F,
+    ) -> VortexResult<TraversalOrder> {
+        self.as_ref().apply_elements(f)
+    }
+
+    fn map_elements<F: FnMut(T) -> VortexResult<Transformed<T>>>(
+        self,
+        f: F,
+    ) -> VortexResult<Transformed<Box<C>>> {
+        Ok((*self).map_elements(f)?.map(Box::new))
+    }
+}
+
+impl<'a, T, C> NodeContainer<'a, T> for Arc<C>
+where
+    T: 'a,
+    C: NodeContainer<'a, T> + Clone,
+{
+    fn apply_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
+        &'a self,
+        f: F,
+    ) -> VortexResult<TraversalOrder> {
+        self.as_ref().apply_elements(f)
+    }
+
+    fn map_elements<F: FnMut(T) -> VortexResult<Transformed<T>>>(
+        self,
+        f: F,
+    ) -> VortexResult<Transformed<Arc<C>>> {
+        Ok(Arc::unwrap_or_clone(self).map_elements(f)?.map(Arc::new))
+    }
+}
+
+impl<'a, T: 'a, C: NodeContainer<'a, T>> NodeContainer<'a, T> for [C; 2] {
+    fn apply_elements<F: FnMut(&'a T) -> VortexResult<TraversalOrder>>(
+        &'a self,
+        mut f: F,
+    ) -> VortexResult<TraversalOrder> {
+        let [l, r] = self;
+        match l.apply_elements(&mut f)? {
+            TraversalOrder::Skip | TraversalOrder::Continue => r.apply_elements(&mut f),
+            TraversalOrder::Stop => Ok(TraversalOrder::Stop),
+        }
+    }
+
+    fn map_elements<F: FnMut(T) -> VortexResult<Transformed<T>>>(
+        self,
+        mut f: F,
+    ) -> VortexResult<Transformed<[C; 2]>> {
+        let [l, r] = self;
+        let transformed = l.map_elements(&mut f)?;
+        match transformed.order {
+            TraversalOrder::Skip | TraversalOrder::Continue => {
+                let mut t = r.map_elements(&mut f)?;
+                t.changed |= transformed.changed;
+                Ok(t.map(|new_r| [transformed.value, new_r]))
+            }
+            TraversalOrder::Stop => return Ok(transformed.map(|new_l| [new_l, r])),
+        }
     }
 }
 
