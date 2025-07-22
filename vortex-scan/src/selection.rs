@@ -32,7 +32,6 @@ impl Selection {
     pub fn is_disjoint(&self, range: &Range<u64>) -> bool {
         match &self {
             Selection::All => false,
-            // TODO: fixme
             Selection::IncludeByIndex(indices) => is_disjoint(indices, range),
             Selection::ExcludeByIndex(indices) => is_disjoint_with_exclusions(indices, range),
             Selection::IncludeRoaring(treemap) => non_empty_treemap_range(treemap, range),
