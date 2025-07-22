@@ -23,6 +23,7 @@ use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
@@ -86,12 +87,13 @@ impl ZonedReader {
         self.pruning_predicates
             .entry(expr.clone())
             .or_insert_with(move || {
-                let field_path_set = FieldPathSet::from_iter(
-                    self.layout
-                        .present_stats
-                        .iter()
-                        .map(|s| FieldPath::from_name(s.name())),
-                );
+                // NOTE: we manually insert NaNCount as a present_stat. Even if It wasn't written,
+                // we add it with a default value in the async `zone_map()` fetch.
+                let mut stats: HashSet<Stat> = self.layout.present_stats.iter().copied().collect();
+                stats.insert(Stat::NaNCount);
+
+                let field_path_set =
+                    FieldPathSet::from_iter(stats.iter().map(|s| FieldPath::from_name(s.name())));
                 checked_pruning_expr(&expr, &field_path_set).map(|(expr, _)| expr)
             })
             .value()
