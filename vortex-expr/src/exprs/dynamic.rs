@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arc_swap::ArcSwapOption;
-use parking_lot::Mutex;
 use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use arc_swap::ArcSwapOption;
+use parking_lot::Mutex;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{Operator, compare};
 use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
@@ -25,6 +26,7 @@ vtable!(DynamicComparison);
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT
 /// operation and is able to progressively tighten the bounds of the filter.
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Debug, Hash)]
 pub struct DynamicComparisonExpr {
     lhs: ExprRef,

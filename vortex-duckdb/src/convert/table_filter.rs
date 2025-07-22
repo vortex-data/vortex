@@ -3,8 +3,6 @@
 
 use std::sync::Arc;
 
-use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-use crate::duckdb::{TableFilter, TableFilterClass};
 use itertools::Itertools;
 use vortex::compute::Operator;
 use vortex::dtype::{DType, Nullability};
@@ -14,6 +12,9 @@ use vortex::expr::{
     or_collect,
 };
 use vortex::scalar::Scalar;
+
+use crate::cpp::DUCKDB_VX_EXPR_TYPE;
+use crate::duckdb::{TableFilter, TableFilterClass};
 
 pub fn try_from_table_filter(
     value: &TableFilter,

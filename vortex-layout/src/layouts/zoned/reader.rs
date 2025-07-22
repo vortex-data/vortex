@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeSet;
+use std::ops::{BitAnd, Range};
+use std::sync::{Arc, OnceLock};
+
 use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::future::{BoxFuture, Shared};
 use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
-use std::collections::BTreeSet;
-use std::ops::{BitAnd, Range};
-use std::sync::{Arc, OnceLock};
 use vortex_array::ToCanonical;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
@@ -290,7 +291,7 @@ impl PruningEvaluation for ZoneMapPruningEvaluation {
 
         let mut builder = BooleanBufferBuilder::new(mask.len());
         for (zone_idx, &zone_length) in self.zone_range.clone().zip_eq(&self.zone_lengths) {
-            builder.append_n(zone_length, !pruning_mask.value(usize::try_from(zone_idx)?));
+            builder.append_n(zone_length, !pruning_mask.value(zone_idx));
         }
 
         let stats_mask = Mask::from(builder.finish());
