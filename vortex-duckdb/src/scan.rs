@@ -125,7 +125,11 @@ fn extract_table_filter_expr(
                         .column_names
                         .get(column_ids[idx.as_usize()].as_usize())
                         .vortex_expect("exists");
-                    try_from_table_filter(&ex, &col(name.as_str()))
+                    try_from_table_filter(
+                        &ex,
+                        &col(name.as_str()),
+                        init.bind_data().first_file.dtype(),
+                    )
                 })
                 .reduce(|l, r| l?.zip(r?).map(|(l, r)| Ok(and(l, r))).transpose())
         })
@@ -174,6 +178,7 @@ impl TableFunction for VortexTableFunction {
 
         // The first file is skipped in `create_file_paths_queue`.
         let first_file = VortexOpenOptions::file()
+            // FIXME(ngates): out of bounds if no files matched the glob.
             .open_blocking(&file_paths[0])
             .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
