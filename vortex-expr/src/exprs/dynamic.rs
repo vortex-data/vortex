@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arc_swap::ArcSwapOption;
+use parking_lot::Mutex;
 use std::fmt::{Debug, Display};
-use std::hash::{DefaultHasher, Hash, Hasher};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicU64, Ordering};
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{Operator, compare};
 use vortex_array::{Array, ArrayRef, DeserializeMetadata, IntoArray, ProstMetadata};
@@ -14,7 +16,9 @@ use vortex_proto::expr as pb;
 use vortex_scalar::{Scalar, ScalarValue};
 
 use crate::traversal::{Node, NodeVisitor, TraversalOrder};
-use crate::{AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, Scope, VTable, vtable};
+use crate::{
+    AnalysisExpr, ExprEncodingRef, ExprId, ExprRef, IntoExpr, Scope, StatsCatalog, VTable, vtable,
+};
 
 vtable!(DynamicComparison);
 
@@ -49,9 +53,9 @@ struct Rhs {
     dtype: DType,
     // Tracks how many times the value has changed. Note that this may over-estimate the changes
     // in order to avoid lock contention.
-    version: AtomicUsize,
+    version: AtomicU64,
     // The previous value of the right-hand side, used to detect changes.
-    previous_value: Option<Scalar>,
+    previous_value: ArcSwapOption<Scalar>,
 }
 
 impl Hash for Rhs {
@@ -164,13 +168,29 @@ impl DynamicComparisonExpr {
             rhs: Arc::new(Rhs {
                 value: Arc::new(rhs_value),
                 dtype: rhs_dtype,
+                version: Default::default(),
+                previous_value: Default::default(),
             }),
             default,
         }
     }
 
     pub fn scalar(&self) -> Option<Scalar> {
-        (self.rhs.value)().map(|v| Scalar::new(self.rhs.dtype.clone(), v))
+        if let Some(next) = (self.rhs.value)().map(|v| Scalar::new(self.rhs.dtype.clone(), v)) {
+            if self
+                .rhs
+                .previous_value
+                .load()
+                .as_deref()
+                .is_none_or(|prev| prev != &next)
+            {
+                self.rhs.version.fetch_add(1, Ordering::Relaxed);
+                self.rhs.previous_value.store(Some(Arc::new(next.clone())));
+            }
+            Some(next)
+        } else {
+            None
+        }
     }
 }
 
@@ -184,13 +204,58 @@ impl Display for DynamicComparisonExpr {
     }
 }
 
-impl AnalysisExpr for DynamicComparisonExpr {}
+impl AnalysisExpr for DynamicComparisonExpr {
+    fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        match self.operator {
+            Operator::Gt => Some(
+                DynamicComparisonExpr {
+                    lhs: self.lhs.max(catalog)?,
+                    operator: Operator::Lte,
+                    rhs: self.rhs.clone(),
+                    default: !self.default,
+                }
+                .into_expr(),
+            ),
+            Operator::Gte => Some(
+                DynamicComparisonExpr {
+                    lhs: self.lhs.max(catalog)?,
+                    operator: Operator::Lt,
+                    rhs: self.rhs.clone(),
+                    default: !self.default,
+                }
+                .into_expr(),
+            ),
+            Operator::Lt => Some(
+                DynamicComparisonExpr {
+                    lhs: self.lhs.min(catalog)?,
+                    operator: Operator::Gte,
+                    rhs: self.rhs.clone(),
+                    default: !self.default,
+                }
+                .into_expr(),
+            ),
+            Operator::Lte => Some(
+                DynamicComparisonExpr {
+                    lhs: self.lhs.min(catalog)?,
+                    operator: Operator::Gt,
+                    rhs: self.rhs.clone(),
+                    default: !self.default,
+                }
+                .into_expr(),
+            ),
+            _ => None,
+        }
+    }
+}
 
 /// A utility for checking whether any dynamic expressions have been updated.
-pub struct DynamicExprHash(Box<[DynamicComparisonExpr]>);
+pub struct DynamicExprUpdates {
+    exprs: Box<[DynamicComparisonExpr]>,
+    prev_versions: Mutex<Vec<u64>>,
+}
 
-impl DynamicExprHash {
-    pub fn new(expr: &ExprRef) -> Self {
+impl DynamicExprUpdates {
+    pub fn new(expr: &ExprRef) -> Option<Self> {
         #[derive(Default)]
         struct Visitor(Vec<DynamicComparisonExpr>);
 
@@ -208,20 +273,35 @@ impl DynamicExprHash {
         let mut visitor = Visitor::default();
         expr.accept(&mut visitor).vortex_expect("Infallible");
 
-        DynamicExprHash(visitor.0.into_boxed_slice())
-    }
-
-    pub fn checksum(&self) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        hasher.finish()
-    }
-}
-
-impl Hash for DynamicExprHash {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        for expr in &self.0 {
-            expr.scalar().hash(state);
+        if visitor.0.is_empty() {
+            return None;
         }
+
+        let exprs = visitor.0.into_boxed_slice();
+        let prev_versions = exprs
+            .iter()
+            .map(|expr| expr.rhs.version.load(Ordering::Relaxed))
+            .collect();
+
+        Some(Self {
+            exprs,
+            prev_versions: Mutex::new(prev_versions),
+        })
+    }
+
+    pub fn is_updated(&self) -> bool {
+        let mut prev_versions = self.prev_versions.lock();
+        let mut updated = false;
+        for (i, expr) in self.exprs.iter().enumerate() {
+            let current_version = expr.rhs.version.load(Ordering::Relaxed);
+            if current_version > prev_versions[i] {
+                prev_versions[i] = current_version;
+                // At least one expression has been updated.
+                // We don't bail out early in order to avoid false positives for future calls
+                // to `is_updated`.
+                updated = true;
+            }
+        }
+        updated
     }
 }

@@ -9,13 +9,12 @@ use futures::{FutureExt, TryFutureExt};
 use itertools::Itertools;
 use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use vortex_array::ToCanonical;
 use vortex_array::stats::Precision;
 use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
-use vortex_expr::dynamic::DynamicExprHash;
+use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
 use vortex_expr::{ExprRef, Scope, root};
 use vortex_mask::Mask;
@@ -152,15 +151,16 @@ impl ZonedReader {
     }
 
     /// Get the range of zone IDs containing a row range.
-    pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<u64> {
+    pub(crate) fn zone_range(&self, row_range: &Range<u64>) -> Range<usize> {
         let zone_start = row_range.start / self.layout.zone_len as u64;
         let zone_end = row_range.end.div_ceil(self.layout.zone_len as u64);
-        zone_start..zone_end
+        usize::try_from(zone_start).vortex_expect("zone larger than usize")
+            ..usize::try_from(zone_end).vortex_expect("zone larger than usize")
     }
 
     /// Get the row index for the first row in a zone with the given `zone_index`.
-    pub(crate) fn first_row_offset(&self, zone_idx: u64) -> u64 {
-        (zone_idx * self.layout.zone_len as u64).min(self.layout.row_count())
+    pub(crate) fn first_row_offset(&self, zone_idx: usize) -> u64 {
+        (zone_idx as u64 * self.layout.zone_len as u64).min(self.layout.row_count())
     }
 }
 
@@ -234,13 +234,19 @@ impl LayoutReader for ZonedReader {
         row_range: &Range<u64>,
         expr: &ExprRef,
     ) -> VortexResult<Box<dyn MaskEvaluation>> {
-        let dyn_hash = DynamicExprHash::new(expr);
-        let checksum = dyn_hash.checksum();
-        Ok(Box::new(ZoneMapFilterEvaluation {
-            dynamic_hash: dyn_hash,
-            prev_hash: AtomicU64::new(checksum),
-            child: self.data_child.filter_evaluation(row_range, expr)?,
-        }))
+        if let Some(predicate) = self.pruning_predicate(expr.clone()) {
+            if let Some(dynamic_hash) = DynamicExprUpdates::new(expr) {
+                return Ok(Box::new(ZoneMapFilterEvaluation {
+                    zone_range: self.zone_range(row_range),
+                    predicate,
+                    zone_map: self.stats_table(),
+                    dynamic_hash,
+                    child: self.data_child.filter_evaluation(row_range, expr)?,
+                }));
+            }
+        }
+
+        self.data_child.filter_evaluation(row_range, expr)
     }
 
     fn projection_evaluation(
@@ -262,7 +268,7 @@ struct ZoneMapPruningEvaluation {
     /// A false value indicates the corresponding zone may have a matching value.
     pruning_mask_future: SharedPruningResult,
     /// The set of zone IDs that are available to the evaluation.
-    zone_range: Range<u64>,
+    zone_range: Range<usize>,
     /// The lengths of each zone in the zone_range.
     zone_lengths: Vec<usize>,
     /// The evaluation of the data child.
@@ -312,20 +318,40 @@ impl PruningEvaluation for ZoneMapPruningEvaluation {
 }
 
 pub struct ZoneMapFilterEvaluation {
-    // TODO(ngates): embed a nice way to detect changes that's thread safe
-    dynamic_hash: DynamicExprHash,
-    prev_hash: AtomicU64,
+    // The range in the zone mask that corresponds to the row range.
+    zone_range: Range<usize>,
+    predicate: ExprRef,
+    zone_map: SharedZoneMap,
+    dynamic_hash: DynamicExprUpdates,
     child: Box<dyn MaskEvaluation>,
 }
 
 #[async_trait]
 impl MaskEvaluation for ZoneMapFilterEvaluation {
     async fn invoke(&self, mask: Mask) -> VortexResult<Mask> {
-        let latest_hash = self.dynamic_hash.checksum();
-        if latest_hash != self.prev_hash.load(Ordering::Relaxed) {
-            println!("DYN EXPR UPDATE: time to recompute the zone map");
-            self.prev_hash.store(latest_hash, Ordering::Relaxed);
+        if self.dynamic_hash.is_updated() {
+            let zone_map = self.zone_map.clone().await?;
+            let pruning_mask = Mask::try_from(
+                self.predicate
+                    .evaluate(&Scope::new(zone_map.array().to_array()))?
+                    .as_ref(),
+            )
+            .map_err(Arc::new)
+            .map(Some)?;
+
+            if let Some(pruning_mask) = pruning_mask {
+                let can_prune = pruning_mask
+                    .slice(self.zone_range.start, self.zone_range.len())
+                    .all_true();
+
+                // Based on an updated dynamic expression, we now know we can prune this
+                // entire evaluation 🙌
+                if can_prune {
+                    return Ok(Mask::new_false(mask.len()));
+                }
+            }
         }
+
         self.child.invoke(mask).await
     }
 }

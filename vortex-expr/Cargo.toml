@@ -23,6 +23,7 @@ arc-swap = { workspace = true }
 dyn-eq = { workspace = true }
 dyn-hash = { workspace = true }
 itertools = { workspace = true }
+parking_lot = { workspace = true }
 paste = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
