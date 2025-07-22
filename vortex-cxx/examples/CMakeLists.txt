@@ -17,7 +17,7 @@ add_executable(hello-vortex hello-vortex.cpp)
 target_link_libraries(hello-vortex PRIVATE vortex)
 
 add_custom_target(convert-parquet
-    COMMAND cargo run -p vortex-tui convert example.parquet
+    COMMAND cargo run -p vortex-tui convert ${CMAKE_CURRENT_SOURCE_DIR}/goldenfiles/example.parquet
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Converting example.parquet using vortex-tui"
     VERBATIM

@@ -7,5 +7,5 @@ mkdir -p build
 cd build
 cmake ..
 make -j$(nproc)
-./hello-vortex ../example.vortex
+./hello-vortex ../goldenfiles/example.vortex
 ```
