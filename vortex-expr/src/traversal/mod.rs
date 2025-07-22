@@ -8,6 +8,8 @@
 mod references;
 mod visitor;
 
+use std::marker::PhantomData;
+
 use itertools::Itertools;
 pub use references::ReferenceCollector;
 pub use visitor::{pre_order_visit_down, pre_order_visit_up};
@@ -19,7 +21,8 @@ use crate::ExprRef;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TraversalOrder {
     /// In a top-down traversal, skip visiting the children of the current node.
-    /// In the bottom-up phase of the traversal, skip the next
+    /// In the bottom-up phase of the traversal, skip the next step. Either skipping the children of the node,
+    /// moving to its next sibling, or skipping its parent once the children are traversed.
     Skip,
     /// Stop visiting any more nodes in the traversal.
     Stop,
@@ -170,54 +173,59 @@ pub trait Node: Sized + Clone {
     /// A pre-order transformation
     fn transform_down<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
         self,
-        mut f: F,
+        f: F,
     ) -> VortexResult<Transformed<Self>> {
-        fn transform_node<N: Node, F: FnMut(N) -> VortexResult<Transformed<N>>>(
-            node: N,
-            f: &mut F,
-        ) -> VortexResult<Transformed<N>> {
-            let mut transformed = f(node)?;
+        let mut rewriter = FnRewriter {
+            f_down: Some(f),
+            f_up: None,
+            _data: PhantomData,
+        };
 
-            match transformed.order {
-                TraversalOrder::Continue => transformed
-                    .value
-                    .map_children(|c| transform_node(c, f))
-                    .map(|mut t| {
-                        t.changed |= transformed.changed;
-                        t
-                    }),
-                TraversalOrder::Skip => {
-                    transformed.order = TraversalOrder::Continue;
-                    Ok(transformed)
-                }
-                TraversalOrder::Stop => Ok(transformed),
-            }
-        }
-
-        transform_node(self, &mut f)
+        self.rewrite(&mut rewriter)
     }
 
     /// A post-order transform
     fn transform_up<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(
         self,
-        mut f: F,
+        f: F,
     ) -> VortexResult<Transformed<Self>> {
-        fn transform_node<N: Node, F: FnMut(N) -> VortexResult<Transformed<N>>>(
-            node: N,
-            f: &mut F,
-        ) -> VortexResult<Transformed<N>> {
-            let transformed = node.map_children(|c| transform_node(c, f))?;
-            match transformed.order {
-                TraversalOrder::Continue => f(transformed.value).map(|mut t| {
-                    t.changed |= transformed.changed;
-                    t
-                }),
-                TraversalOrder::Skip => Ok(transformed),
-                TraversalOrder::Stop => Ok(transformed),
-            }
-        }
+        let mut rewriter = FnRewriter {
+            f_down: None,
+            f_up: Some(f),
+            _data: PhantomData,
+        };
 
-        transform_node(self, &mut f)
+        self.rewrite(&mut rewriter)
+    }
+}
+
+struct FnRewriter<F, T> {
+    f_down: Option<F>,
+    f_up: Option<F>,
+    _data: PhantomData<T>,
+}
+
+impl<F, T> NodeRewriter for FnRewriter<F, T>
+where
+    T: Node,
+    F: FnMut(T) -> VortexResult<Transformed<T>>,
+{
+    type NodeTy = T;
+
+    fn visit_down(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
+        if let Some(f) = self.f_down.as_mut() {
+            f(node)
+        } else {
+            Ok(Transformed::no(node))
+        }
+    }
+
+    fn visit_up(&mut self, node: Self::NodeTy) -> VortexResult<Transformed<Self::NodeTy>> {
+        if let Some(f) = self.f_up.as_mut() {
+            f(node)
+        } else {
+            Ok(Transformed::no(node))
+        }
     }
 }
 
