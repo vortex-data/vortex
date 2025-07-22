@@ -178,6 +178,7 @@ impl TableFunction for VortexTableFunction {
 
         // The first file is skipped in `create_file_paths_queue`.
         let first_file = VortexOpenOptions::file()
+            // FIXME(ngates): out of bounds if no files matched the glob.
             .open_blocking(&file_paths[0])
             .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 

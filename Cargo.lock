@@ -6544,6 +6544,7 @@ dependencies = [
  "dyn-eq",
  "dyn-hash",
  "itertools 0.14.0",
+ "log",
  "parking_lot",
  "paste",
  "prost 0.14.1",

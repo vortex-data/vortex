@@ -186,6 +186,7 @@ impl DynamicComparisonExpr {
                 .as_deref()
                 .is_none_or(|prev| prev != &next)
             {
+                log::debug!("Updating dynamic expression to {next}");
                 self.rhs.version.fetch_add(1, Ordering::Relaxed);
                 self.rhs.previous_value.store(Some(Arc::new(next.clone())));
             }
@@ -200,7 +201,7 @@ impl Display for DynamicComparisonExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "dynamic({}) {} {}",
+            "{} {} dynamic({})",
             &self.lhs, self.operator, &self.rhs.dtype,
         )
     }
@@ -253,7 +254,10 @@ impl AnalysisExpr for DynamicComparisonExpr {
 /// A utility for checking whether any dynamic expressions have been updated.
 pub struct DynamicExprUpdates {
     exprs: Box<[DynamicComparisonExpr]>,
+    // Track the latest observed versions of each dynamic expression.
     prev_versions: Mutex<Vec<u64>>,
+    // Create our own aggregated version of the dynamic expressions.
+    version: AtomicU64,
 }
 
 impl DynamicExprUpdates {
@@ -288,10 +292,11 @@ impl DynamicExprUpdates {
         Some(Self {
             exprs,
             prev_versions: Mutex::new(prev_versions),
+            version: Default::default(),
         })
     }
 
-    pub fn is_updated(&self) -> bool {
+    pub fn version(&self) -> u64 {
         let mut prev_versions = self.prev_versions.lock();
         let mut updated = false;
         for (i, expr) in self.exprs.iter().enumerate() {
@@ -304,6 +309,11 @@ impl DynamicExprUpdates {
                 updated = true;
             }
         }
-        updated
+
+        if updated {
+            self.version.fetch_add(1, Ordering::Relaxed) + 1
+        } else {
+            self.version.load(Ordering::Relaxed)
+        }
     }
 }
