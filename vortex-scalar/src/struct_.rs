@@ -8,7 +8,9 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
+use vortex_error::{
+    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+};
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
@@ -234,7 +236,7 @@ impl Scalar {
         let DType::Struct(struct_fields, _) = &dtype else {
             vortex_panic!("Expected struct dtype, found {}", dtype);
         };
-        
+
         let field_dtypes = struct_fields.fields();
         if children.len() != field_dtypes.len() {
             vortex_panic!(
@@ -243,7 +245,7 @@ impl Scalar {
                 children.len()
             );
         }
-        
+
         for (idx, (child, expected_dtype)) in children.iter().zip(field_dtypes).enumerate() {
             if child.dtype() != &expected_dtype {
                 vortex_panic!(
@@ -254,7 +256,7 @@ impl Scalar {
                 );
             }
         }
-        
+
         Self {
             dtype,
             value: ScalarValue(InnerScalarValue::List(
@@ -338,7 +340,7 @@ mod tests {
     fn test_struct_scalar_wrong_dtype() {
         let dtype = DType::Primitive(I32, Nullability::NonNullable);
         let scalar = Scalar::primitive::<i32>(1, Nullability::NonNullable);
-        
+
         Scalar::struct_(dtype, vec![scalar]);
     }
 
@@ -347,7 +349,7 @@ mod tests {
     fn test_struct_scalar_wrong_child_count() {
         let (_, _, dtype) = setup_types();
         let f0_val = Scalar::primitive::<i32>(1, Nullability::NonNullable);
-        
+
         Scalar::struct_(dtype, vec![f0_val]);
     }
 
@@ -357,7 +359,7 @@ mod tests {
         let (_, _, dtype) = setup_types();
         let f0_val = Scalar::utf8("wrong", Nullability::NonNullable);
         let f1_val = Scalar::utf8("hello", Nullability::NonNullable);
-        
+
         Scalar::struct_(dtype, vec![f0_val, f1_val]);
     }
 }
