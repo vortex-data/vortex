@@ -241,7 +241,7 @@ impl StructArray {
 
     /// Removes and returns a column from the struct array by name.
     /// If the column does not exist, returns `None`.
-    pub fn drop(&mut self, name: impl Into<FieldName>) -> Option<ArrayRef> {
+    pub fn remove_column(&mut self, name: impl Into<FieldName>) -> Option<ArrayRef> {
         let name = name.into();
 
         let Some(struct_dtype) = self.dtype.as_struct() else {
@@ -410,7 +410,7 @@ mod test {
         )
         .unwrap();
 
-        let removed = struct_a.drop("xs").unwrap();
+        let removed = struct_a.remove_column("xs").unwrap();
         assert_eq!(
             removed.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
@@ -434,7 +434,7 @@ mod test {
             [4u64, 5, 6, 7, 8]
         );
 
-        let empty = struct_a.drop("non_existent");
+        let empty = struct_a.remove_column("non_existent");
         assert!(
             empty.is_none(),
             "Expected None when removing non-existent column"
