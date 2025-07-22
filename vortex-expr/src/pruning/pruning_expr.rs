@@ -27,7 +27,7 @@ struct ScopeStatsCatalog<'a> {
 
 impl StatsCatalog for ScopeStatsCatalog<'_> {
     fn stats_ref(&mut self, field_path: &FieldPath, stat: Stat) -> Option<ExprRef> {
-        let stat_path = field_path.clone().push(Field::Name(stat.name().into()));
+        let stat_path = field_path.clone().push(stat.name());
 
         if self.field_paths.contains(&stat_path) {
             self.any_catalog.stats_ref(field_path, stat)
@@ -47,6 +47,7 @@ impl StatsCatalog for AnyStatsCatalog {
     }
 }
 
+#[doc(hidden)]
 pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldName {
     field_path
         .parts()

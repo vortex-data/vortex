@@ -234,6 +234,10 @@ impl<V: VTable> AnalysisExpr for ExprAdapter<V> {
         <V::Expr as AnalysisExpr>::min(&self.0, catalog)
     }
 
+    fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        <V::Expr as AnalysisExpr>::nan_count(&self.0, catalog)
+    }
+
     fn field_path(&self) -> Option<FieldPath> {
         <V::Expr as AnalysisExpr>::field_path(&self.0)
     }

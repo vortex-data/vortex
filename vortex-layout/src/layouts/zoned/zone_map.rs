@@ -39,11 +39,11 @@ impl ZoneMap {
         if &Self::dtype_for_stats_table(&column_dtype, &stats) != array.dtype() {
             vortex_bail!("Array dtype does not match expected zone map dtype");
         }
-        Ok(Self::unchecked_new(array, stats))
+        Ok(Self::new_unchecked(array, stats))
     }
 
     /// Create StatsTable without validating return array against expected stats
-    pub fn unchecked_new(array: StructArray, stats: Arc<[Stat]>) -> Self {
+    pub fn new_unchecked(array: StructArray, stats: Arc<[Stat]>) -> Self {
         Self { array, stats }
     }
 

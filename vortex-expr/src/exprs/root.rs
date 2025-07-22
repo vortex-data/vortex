@@ -83,6 +83,10 @@ impl AnalysisExpr for RootExpr {
         catalog.stats_ref(&self.field_path()?, Stat::Min)
     }
 
+    fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        catalog.stats_ref(&self.field_path()?, Stat::NaNCount)
+    }
+
     fn field_path(&self) -> Option<FieldPath> {
         Some(FieldPath::root())
     }
