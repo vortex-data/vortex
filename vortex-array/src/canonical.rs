@@ -142,7 +142,7 @@ impl Canonical {
     pub fn into_list(self) -> VortexResult<ListArray> {
         match self {
             Canonical::List(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap StructArray from {:?}", &self),
+            _ => vortex_bail!("Cannot unwrap ListArray from {:?}", &self),
         }
     }
 
