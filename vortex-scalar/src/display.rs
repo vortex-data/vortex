@@ -126,7 +126,10 @@ mod tests {
         );
 
         assert_eq!(
-            format!("{}", Scalar::struct_(dtype(), vec![Scalar::from(32_u32)])),
+            format!(
+                "{}",
+                Scalar::struct_(dtype(), vec![Scalar::from(Some(32_u32))])
+            ),
             "{foo: 32u32}"
         );
     }
@@ -161,7 +164,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::struct_(dtype.clone(), vec![Scalar::from(true), Scalar::null(f2)])
+                Scalar::struct_(
+                    dtype.clone(),
+                    vec![Scalar::from(Some(true)), Scalar::null(f2)]
+                )
             ),
             "{foo: true, bar: null}"
         );
@@ -169,7 +175,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::struct_(dtype, vec![Scalar::from(true), Scalar::from(32_u32)])
+                Scalar::struct_(
+                    dtype,
+                    vec![Scalar::from(Some(true)), Scalar::from(Some(32_u32))]
+                )
             ),
             "{foo: true, bar: 32u32}"
         );
