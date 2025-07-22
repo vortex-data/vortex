@@ -21,7 +21,7 @@ const DUCKDB_FUNCTION_NAME_CONTAINS: &str = "contains";
 fn like_pattern_str(value: &Expression) -> VortexResult<Option<String>> {
     match value.as_class().vortex_expect("unknown class") {
         ExpressionClass::BoundConstant(constant) => {
-            Ok(Some(format!("%{}%", constant.value.as_string())))
+            Ok(Some(format!("%{}%", constant.value.as_string().as_str())))
         }
         _ => Ok(None),
     }
