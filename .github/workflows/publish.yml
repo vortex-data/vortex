@@ -145,8 +145,8 @@ jobs:
           submodules: "recursive"
       - uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '21'
+          distribution: 'corretto'
+          java-version: '17'
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target.target }}
@@ -174,8 +174,8 @@ jobs:
           submodules: "recursive"
       - uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '21'
+          distribution: 'corretto'
+          java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
       - uses: actions/download-artifact@v4
         with:
