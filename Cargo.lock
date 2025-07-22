@@ -6539,12 +6539,10 @@ name = "vortex-expr"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "arc-swap",
  "arcref",
  "dyn-eq",
  "dyn-hash",
  "itertools 0.14.0",
- "log",
  "parking_lot",
  "paste",
  "prost 0.14.1",

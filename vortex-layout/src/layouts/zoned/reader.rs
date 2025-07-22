@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#![allow(dead_code)]
 
 use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
@@ -39,7 +38,7 @@ pub struct ZonedReader {
     /// Zone map layout reader.
     zones_child: Arc<dyn LayoutReader>,
 
-    /// A cache of expr -> optional pruning result (applying the pruning expr to the stats table)
+    /// A cache of expr -> optional pruning result
     pruning_result: DashMap<ExprRef, Option<SharedPruningResult>>,
 
     /// Shared zone map
@@ -103,9 +102,9 @@ impl ZonedReader {
             .clone()
     }
 
-    /// Get or initialize the stats table.
+    /// Get or initialize the zone map.
     ///
-    /// Only the first successful caller will initialize the stats table, all other callers will
+    /// Only the first successful caller will initialize the zone map, all other callers will
     /// resolve to the same result.
     fn zone_map(&self) -> SharedZoneMap {
         self.zone_map
@@ -116,7 +115,7 @@ impl ZonedReader {
                 let zones_eval = self
                     .zones_child
                     .projection_evaluation(&(0..nzones as u64), &root())
-                    .vortex_expect("Failed construct stats table evaluation");
+                    .vortex_expect("Failed to zone map projection");
 
                 async move {
                     let zones_array = zones_eval

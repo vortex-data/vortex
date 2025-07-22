@@ -4,9 +4,7 @@
 use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
-use arc_swap::ArcSwapOption;
 use parking_lot::Mutex;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::{Operator, compare};
@@ -53,11 +51,6 @@ struct Rhs {
     value: Arc<dyn Fn() -> Option<ScalarValue> + Send + Sync>,
     // The data type of the right-hand side value.
     dtype: DType,
-    // Tracks how many times the value has changed. Note that this may over-estimate the changes
-    // in order to avoid lock contention.
-    version: AtomicU64,
-    // The previous value of the right-hand side, used to detect changes.
-    previous_value: ArcSwapOption<Scalar>,
 }
 
 impl Hash for Rhs {
@@ -170,30 +163,13 @@ impl DynamicComparisonExpr {
             rhs: Arc::new(Rhs {
                 value: Arc::new(rhs_value),
                 dtype: rhs_dtype,
-                version: Default::default(),
-                previous_value: Default::default(),
             }),
             default,
         }
     }
 
     pub fn scalar(&self) -> Option<Scalar> {
-        if let Some(next) = (self.rhs.value)().map(|v| Scalar::new(self.rhs.dtype.clone(), v)) {
-            if self
-                .rhs
-                .previous_value
-                .load()
-                .as_deref()
-                .is_none_or(|prev| prev != &next)
-            {
-                log::debug!("Updating dynamic expression to {next}");
-                self.rhs.version.fetch_add(1, Ordering::Relaxed);
-                self.rhs.previous_value.store(Some(Arc::new(next.clone())));
-            }
-            Some(next)
-        } else {
-            None
-        }
+        (self.rhs.value)().map(|v| Scalar::new(self.rhs.dtype.clone(), v))
     }
 }
 
@@ -254,10 +230,8 @@ impl AnalysisExpr for DynamicComparisonExpr {
 /// A utility for checking whether any dynamic expressions have been updated.
 pub struct DynamicExprUpdates {
     exprs: Box<[DynamicComparisonExpr]>,
-    // Track the latest observed versions of each dynamic expression.
-    prev_versions: Mutex<Vec<u64>>,
-    // Create our own aggregated version of the dynamic expressions.
-    version: AtomicU64,
+    // Track the latest observed versions of each dynamic expression, along with a version counter.
+    prev_versions: Mutex<(u64, Vec<Option<Scalar>>)>,
 }
 
 impl DynamicExprUpdates {
@@ -286,34 +260,34 @@ impl DynamicExprUpdates {
         let exprs = visitor.0.into_boxed_slice();
         let prev_versions = exprs
             .iter()
-            .map(|expr| expr.rhs.version.load(Ordering::Relaxed))
+            .map(|expr| (expr.rhs.value)().map(|v| Scalar::new(expr.rhs.dtype.clone(), v)))
             .collect();
 
         Some(Self {
             exprs,
-            prev_versions: Mutex::new(prev_versions),
-            version: Default::default(),
+            prev_versions: Mutex::new((0, prev_versions)),
         })
     }
 
     pub fn version(&self) -> u64 {
-        let mut prev_versions = self.prev_versions.lock();
+        let mut guard = self.prev_versions.lock();
+
         let mut updated = false;
         for (i, expr) in self.exprs.iter().enumerate() {
-            let current_version = expr.rhs.version.load(Ordering::Relaxed);
-            if current_version > prev_versions[i] {
-                prev_versions[i] = current_version;
+            let current = (expr.rhs.value)().map(|v| Scalar::new(expr.rhs.dtype.clone(), v));
+            if current != guard.1[i] {
                 // At least one expression has been updated.
                 // We don't bail out early in order to avoid false positives for future calls
                 // to `is_updated`.
                 updated = true;
+                guard.1[i] = current;
             }
         }
 
         if updated {
-            self.version.fetch_add(1, Ordering::Relaxed) + 1
-        } else {
-            self.version.load(Ordering::Relaxed)
+            guard.0 += 1;
         }
+
+        guard.0
     }
 }
