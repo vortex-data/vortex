@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use iter::once;
+use std::iter;
 use std::ops::{BitAnd, Range};
 use std::sync::{Arc, OnceLock};
 
@@ -18,8 +20,8 @@ use vortex_mask::Mask;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
 use crate::masks::BoxMaskIterator;
+use crate::row_selection::RowSelectionRef;
 use crate::segments::SegmentSource;
-use crate::tree_row_mask::TreeRowMask;
 use crate::{
     ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpPruningEvaluation, PruningEvaluation,
 };
@@ -107,8 +109,12 @@ impl LayoutReader for FlatReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, selection: &TreeRowMask, _field_mask: &[FieldMask]) -> BoxMaskIterator {
-        selection.mask()
+    fn row_masks(
+        &self,
+        _selection: &RowSelectionRef,
+        _field_mask: &[FieldMask],
+    ) -> BoxMaskIterator {
+        Box::new(once(Ok(Mask::AllTrue(self.len))))
     }
 
     fn pruning_evaluation(

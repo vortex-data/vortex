@@ -21,8 +21,8 @@ use vortex_mask::Mask;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::masks::BoxMaskIterator;
+use crate::row_selection::RowSelectionRef;
 use crate::segments::SegmentSource;
-use crate::tree_row_mask::TreeRowMask;
 use crate::{ArrayEvaluation, LayoutReader, MaskEvaluation, PruningEvaluation};
 
 pub(crate) type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
@@ -177,7 +177,7 @@ impl LayoutReader for ZonedReader {
         self.data_child.row_count()
     }
 
-    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> BoxMaskIterator {
+    fn row_masks(&self, selection: &RowSelectionRef, field_mask: &[FieldMask]) -> BoxMaskIterator {
         self.data_child.row_masks(selection, field_mask)
     }
 

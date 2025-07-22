@@ -6,6 +6,7 @@ pub use registry::*;
 mod executor;
 pub use executor::*;
 pub mod layouts;
+pub use row_selection::RowSelection;
 
 pub use children::*;
 pub use encoding::*;
@@ -22,9 +23,9 @@ mod flatbuffers;
 mod layout;
 pub mod masks;
 mod reader;
+pub mod row_selection;
 pub mod segments;
 pub mod sequence;
 mod strategy;
-pub mod tree_row_mask;
 pub mod vtable;
 mod writer;

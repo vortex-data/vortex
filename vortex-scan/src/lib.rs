@@ -26,22 +26,21 @@ use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, root};
 use vortex_layout::layouts::filter::FilterLayoutReader;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
-use vortex_layout::{LayoutReader, LayoutReaderRef};
+use vortex_layout::{LayoutReader, LayoutReaderRef, RowSelection};
 pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
 
 mod multi_scan;
 pub mod row_mask;
 mod selection;
+pub mod selection_intersection;
 mod split_by;
 mod tasks;
 
+use crate::selection_intersection::SelectionIntersectionMaskIterator;
 pub use multi_scan::{MultiScan, MultiScanIterator};
 use tasks::{TaskContext, split_exec};
-use vortex_layout::masks::MaskIteratorExt;
-pub use vortex_layout::tree_row_mask::TreeRowMask;
-
-use crate::row_mask::RowMask;
+use vortex_layout::masks::{BoxMaskIterator, MaskIteratorExt};
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
@@ -212,21 +211,21 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
 
-        let row_count = layout_reader.row_count();
+        let range_selection = RangeSelection::new(self.row_range.clone(), self.selection.clone());
+        let tree_mask = SlicedSelection::new(range_selection);
 
-        // Set up the initial stream of RowMasks.
-        let tree_mask = self.selection.tree_row_mask(
-            row_count
-                .as_exact()
-                .ok_or_else(|| vortex_err!("row count must be exact in scan"))?,
-            self.row_range.clone(),
-        );
-        let masks = layout_reader.row_masks(&tree_mask, &field_mask);
+        let masks =
+            layout_reader.row_masks(&(Arc::new(tree_mask) as Arc<dyn RowSelection>), &field_mask);
 
         // If we split by a fixed row count, we repartition the masks into splits.
         let masks = match self.split_by {
-            SplitBy::Layout => masks,
+            SplitBy::Layout => Box::new(masks) as BoxMaskIterator,
             SplitBy::RowCount(n) => Box::new(masks.repartition(n)),
+        };
+
+        let mut masks = SelectionIntersectionMaskIterator::new(masks, self.selection);
+        let masks = if let Some(range) = &self.row_range {
+            masks.with_range(range.clone())
         };
 
         let ctx = Arc::new(TaskContext {
@@ -240,17 +239,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         let mut limit = self.limit;
         masks
             .into_iter()
-            .scan(0, |offset, mask| {
-                let mask = match mask {
-                    Ok(mask) => mask,
-                    Err(e) => {
-                        return Some(Err(e));
-                    }
-                };
-                let current_offset = *offset;
-                *offset += mask.len();
-                Some(Ok(RowMask::new(current_offset as u64, mask)))
-            })
             .map(move |row_mask| split_exec(ctx.clone(), row_mask?, limit.as_mut()))
             .collect::<VortexResult<Vec<_>>>()
     }

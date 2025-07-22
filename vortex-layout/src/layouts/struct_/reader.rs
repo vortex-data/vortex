@@ -21,8 +21,8 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::layouts::struct_::StructLayout;
 use crate::masks::{BoxMaskIterator, IntersectionMaskIterator};
+use crate::row_selection::RowSelectionRef;
 use crate::segments::SegmentSource;
-use crate::tree_row_mask::TreeRowMask;
 use crate::{
     ArrayEvaluation, LayoutReader, LayoutReaderRef, LazyReaderChildren, MaskEvaluation,
     NoOpPruningEvaluation, PruningEvaluation,
@@ -177,7 +177,7 @@ impl LayoutReader for StructReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> BoxMaskIterator {
+    fn row_masks(&self, selection: &RowSelectionRef, field_mask: &[FieldMask]) -> BoxMaskIterator {
         // Here we construct a stream of masks for each field in the field_mask, and then take
         // the smallest mask from each field.
         // If the field_mask is empty, we return an iterator of all true masks.

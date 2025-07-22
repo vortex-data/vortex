@@ -27,3 +27,39 @@ pub trait MaskIteratorExt: MaskIterator {
 }
 
 impl<T> MaskIteratorExt for T where T: MaskIterator {}
+
+pub struct AllFalseMaskIterator {
+    remaining: u64,
+}
+
+impl AllFalseMaskIterator {
+    fn new(value: u64) -> Self {
+        AllFalseMaskIterator { remaining: value }
+    }
+}
+
+impl Iterator for AllFalseMaskIterator {
+    type Item = VortexResult<Mask>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+
+        let chunk = if self.remaining > usize::MAX as u64 {
+            self.remaining -= usize::MAX as u64;
+            usize::MAX
+        } else {
+            let final_chunk = self.remaining as usize;
+            self.remaining = 0;
+            final_chunk
+        };
+
+        Some(Ok(Mask::AllFalse(chunk)))
+    }
+}
+
+// Helper function to create the iterator
+pub fn all_false_iterator(value: u64) -> AllFalseMaskIterator {
+    AllFalseMaskIterator::new(value)
+}

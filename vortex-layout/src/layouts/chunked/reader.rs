@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -19,10 +18,10 @@ use vortex_expr::ExprRef;
 use vortex_mask::Mask;
 
 use crate::layouts::chunked::ChunkedLayout;
-use crate::masks::BoxMaskIterator;
+use crate::masks::{BoxMaskIterator, all_false_iterator};
 use crate::reader::LayoutReader;
+use crate::row_selection::RowSelectionRef;
 use crate::segments::SegmentSource;
-use crate::tree_row_mask::TreeRowMask;
 use crate::{
     ArrayEvaluation, LayoutReaderRef, LazyReaderChildren, MaskEvaluation, PruningEvaluation,
 };
@@ -130,7 +129,7 @@ impl LayoutReader for ChunkedReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> BoxMaskIterator {
+    fn row_masks(&self, selection: &RowSelectionRef, field_mask: &[FieldMask]) -> BoxMaskIterator {
         let field_mask = field_mask.to_vec();
         let selection = selection.clone();
         let children = (0..self.layout.nchildren())
@@ -142,7 +141,7 @@ impl LayoutReader for ChunkedReader {
                     self.chunk_offsets[idx + 1]
                 };
                 (
-                    selection.non_empty_range(start..end).then(|| idx),
+                    (!selection.is_disjoint(&(start..end))).then_some(idx),
                     start..end,
                 )
             })
@@ -155,11 +154,9 @@ impl LayoutReader for ChunkedReader {
                 if let Some(idx) = idx {
                     self.chunk_reader(idx)
                         .vortex_expect("infallible")
-                        .row_masks(&selection.clone().slice(range), &field_mask)
+                        .row_masks(&selection.slice(&range), &field_mask)
                 } else {
-                    Box::new(iter::once(Ok(Mask::AllFalse(
-                        (range.end - range.start) as usize,
-                    ))))
+                    Box::new(all_false_iterator(range.end - range.start))
                 }
             })
             .collect_vec();

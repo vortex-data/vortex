@@ -17,6 +17,7 @@ pub enum SplitBy {
 mod test {
     use std::sync::Arc;
 
+    use crate::{RangeSelection, Selection, SlicedSelection};
     use futures::executor::block_on;
     use futures::stream;
     use itertools::Itertools;
@@ -28,7 +29,6 @@ mod test {
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::segments::{SegmentSource, SequenceWriter, TestSegments};
     use vortex_layout::sequence::SequenceId;
-    use vortex_layout::tree_row_mask::TreeRowMask;
     use vortex_layout::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
     use vortex_mask::Mask;
 
@@ -57,7 +57,10 @@ mod test {
         let reader = layout.new_reader("".into(), segments).unwrap();
         let splits = reader
             .row_masks(
-                &TreeRowMask::all(10),
+                &(Arc::new(SlicedSelection::new(RangeSelection::new(
+                    Some(0..10),
+                    Selection::All,
+                ))) as Arc<_>),
                 &[FieldMask::Exact(FieldPath::root())],
             )
             .collect::<VortexResult<Vec<Mask>>>()

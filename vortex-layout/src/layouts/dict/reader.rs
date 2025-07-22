@@ -19,8 +19,8 @@ use vortex_mask::Mask;
 use super::DictLayout;
 use crate::layouts::SharedArrayFuture;
 use crate::masks::BoxMaskIterator;
+use crate::row_selection::RowSelectionRef;
 use crate::segments::SegmentSource;
-use crate::tree_row_mask::TreeRowMask;
 use crate::{
     ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, NoOpPruningEvaluation,
     PruningEvaluation,
@@ -115,7 +115,7 @@ impl LayoutReader for DictReader {
         Precision::Exact(self.layout.row_count())
     }
 
-    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> BoxMaskIterator {
+    fn row_masks(&self, selection: &RowSelectionRef, field_mask: &[FieldMask]) -> BoxMaskIterator {
         self.codes.row_masks(selection, field_mask)
     }
 

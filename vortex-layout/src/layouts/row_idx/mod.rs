@@ -25,7 +25,7 @@ use vortex_sequence::SequenceArray;
 
 use crate::layouts::partitioned::{PartitionedArrayEvaluation, PartitionedMaskEvaluation};
 use crate::masks::BoxMaskIterator;
-use crate::tree_row_mask::TreeRowMask;
+use crate::row_selection::RowSelectionRef;
 use crate::{
     ArrayEvaluation, LayoutReader, MaskEvaluation, NoOpMaskEvaluation, NoOpPruningEvaluation,
     PruningEvaluation,
@@ -126,7 +126,7 @@ impl LayoutReader for RowIdxLayoutReader {
         self.child.row_count()
     }
 
-    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> BoxMaskIterator {
+    fn row_masks(&self, selection: &RowSelectionRef, field_mask: &[FieldMask]) -> BoxMaskIterator {
         // It would be nice to know the row idx expression here and adjust the returned splits.
         self.child.row_masks(selection, field_mask)
     }

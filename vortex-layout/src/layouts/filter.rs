@@ -19,7 +19,7 @@ use vortex_expr::forms::cnf::cnf;
 use vortex_mask::Mask;
 
 use crate::masks::BoxMaskIterator;
-use crate::tree_row_mask::TreeRowMask;
+use crate::row_selection::RowSelectionRef;
 use crate::{ArrayEvaluation, LayoutReader, LayoutReaderRef, MaskEvaluation, PruningEvaluation};
 
 /// The selectivity histogram quantile to use for reordering conjuncts. Where 0 == no rows match.
@@ -58,7 +58,7 @@ impl LayoutReader for FilterLayoutReader {
         self.child.row_count()
     }
 
-    fn row_masks(&self, selection: &TreeRowMask, field_mask: &[FieldMask]) -> BoxMaskIterator {
+    fn row_masks(&self, selection: &RowSelectionRef, field_mask: &[FieldMask]) -> BoxMaskIterator {
         self.child.row_masks(selection, field_mask)
     }
 
