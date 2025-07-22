@@ -282,7 +282,10 @@ impl TryFrom<&Value> for Scalar {
                     Arc::new(DType::Primitive(I32, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::S, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I32, Nullable), value.as_i32().into()),
+                Scalar::new(
+                    DType::Primitive(I32, Nullable),
+                    value.as_timestamp_s().into(),
+                ),
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
@@ -290,7 +293,10 @@ impl TryFrom<&Value> for Scalar {
                     Arc::new(DType::Primitive(I32, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I32, Nullable), value.as_i32().into()),
+                Scalar::new(
+                    DType::Primitive(I32, Nullable),
+                    value.as_timestamp_ms().into(),
+                ),
             )),
             // Us
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => Ok(Scalar::extension(
@@ -299,7 +305,7 @@ impl TryFrom<&Value> for Scalar {
                     Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Us, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), value.as_i64().into()),
+                Scalar::new(DType::Primitive(I64, Nullable), value.as_timestamp().into()),
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
@@ -307,7 +313,10 @@ impl TryFrom<&Value> for Scalar {
                     Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Ns, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I64, Nullable), value.as_i64().into()),
+                Scalar::new(
+                    DType::Primitive(I64, Nullable),
+                    value.as_timestamp_ns().into(),
+                ),
             )),
             DUCKDB_TYPE::DUCKDB_TYPE_DATE => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(

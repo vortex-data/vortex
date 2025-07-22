@@ -109,6 +109,22 @@ impl Value {
         unsafe { cpp::duckdb_get_time(self.ptr).micros }
     }
 
+    pub fn as_timestamp(&self) -> i64 {
+        unsafe { cpp::duckdb_get_timestamp(self.ptr).micros }
+    }
+
+    pub fn as_timestamp_s(&self) -> i64 {
+        unsafe { cpp::duckdb_get_timestamp_s(self.ptr).seconds }
+    }
+
+    pub fn as_timestamp_ms(&self) -> i64 {
+        unsafe { cpp::duckdb_get_timestamp_ms(self.ptr).millis }
+    }
+
+    pub fn as_timestamp_ns(&self) -> i64 {
+        unsafe { cpp::duckdb_get_timestamp_ns(self.ptr).nanos }
+    }
+
     pub fn as_decimal(&self) -> cpp::duckdb_decimal {
         unsafe { cpp::duckdb_get_decimal(self.ptr) }
     }

@@ -25,13 +25,20 @@ impl Display for ExtScalar<'_> {
         if is_temporal_ext_type(self.ext_dtype().id()) {
             let metadata =
                 TemporalMetadata::try_from(self.ext_dtype()).map_err(|_| std::fmt::Error)?;
-            write!(
-                f,
-                "{}({} {})",
-                self.ext_dtype().id(),
-                self.storage(),
-                metadata.time_unit()
-            )
+
+            let maybe_timestamp = self
+                .storage()
+                .as_primitive()
+                .as_::<i64>()
+                .and_then(|maybe_timestamp| {
+                    maybe_timestamp.map(|v| metadata.to_jiff(v)).transpose()
+                })
+                .map_err(|_| std::fmt::Error)?;
+
+            match maybe_timestamp {
+                None => write!(f, "null"),
+                Some(v) => write!(f, "{v}"),
+            }
         } else {
             write!(f, "{}({})", self.ext_dtype().id(), self.storage())
         }
