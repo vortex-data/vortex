@@ -5,10 +5,9 @@ use futures::executor::LocalPool;
 use futures::future::BoxFuture;
 use vortex_error::VortexResult;
 
-use crate::ScanBuilder;
 use crate::work_queue::{TaskFactory, WorkStealingIterator, WorkStealingQueue};
 
-type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
+pub type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
 
 /// A multi-scan for executing multiple scans concurrently across workers.
 #[derive(Clone)]
@@ -20,14 +19,14 @@ impl<T: 'static + Send> MultiScan<T> {
     /// Created with lazily constructed scan builders closures.
     pub fn new<I, F>(closures: I) -> Self
     where
-        F: FnOnce() -> ScanBuilder<T> + 'static + Send,
+        F: FnOnce() -> VortexResult<Vec<ArrayFuture<T>>> + 'static + Send + Sync,
         I: IntoIterator<Item = F>,
     {
         Self {
             queue: WorkStealingQueue::new(
-                closures.into_iter().map(|closure| {
-                    Box::new(move || closure().build()) as TaskFactory<ArrayFuture<T>>
-                }),
+                closures
+                    .into_iter()
+                    .map(|closure| Box::new(closure) as TaskFactory<ArrayFuture<T>>),
             ),
         }
     }

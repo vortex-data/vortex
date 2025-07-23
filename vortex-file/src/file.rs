@@ -118,7 +118,6 @@ impl VortexFile {
             required_stats
                 .map()
                 .iter()
-                .filter(|&(path, _)| path.is_root())
                 .map(|(path, stats)| (path.clone(), stats.clone())),
         );
 
