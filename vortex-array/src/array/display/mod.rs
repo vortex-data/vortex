@@ -12,7 +12,7 @@ use vortex_error::VortexExpect as _;
 
 use crate::Array;
 
-/// Describe how to convert an array to a string.
+/// Configure how to convert an array to a string.
 ///
 /// See also:
 /// [Array::display_as](../trait.Array.html#method.display_as)
@@ -47,9 +47,9 @@ pub enum DisplayOptions {
     ///     format!("{}", array.display_values()),
     /// );
     /// ```
-    CommaSeparatedScalars { 
+    CommaSeparatedScalars {
         /// Whether to omit comma after space in output formatting.
-        omit_comma_after_space: bool 
+        omit_comma_after_space: bool,
     },
     /// The tree of encodings and all metadata but no values.
     ///

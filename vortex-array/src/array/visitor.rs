@@ -13,10 +13,10 @@ use crate::patches::Patches;
 use crate::validity::Validity;
 use crate::{Array, ArrayRef};
 
-/// Trait for visiting the structure and children of an array.
+/// Trait for traversing the structure of an array.
 ///
-/// This trait provides methods to traverse and inspect the internal structure
-/// of arrays, including their children, buffers, and metadata.
+/// This trait provides methods to traverse and inspect the internal structure of
+/// arrays, including their children, buffers, and metadata.
 pub trait ArrayVisitor {
     /// Returns the children of the array.
     fn children(&self) -> Vec<ArrayRef>;
