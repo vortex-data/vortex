@@ -319,6 +319,7 @@ impl TryFrom<&DType> for LogicalType {
 mod tests {
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex::dtype::{DType, FieldName, FieldNames, Nullability, PType, StructFields};
 
     use crate::cpp;
@@ -344,39 +345,21 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_integer_types() {
-        // Test signed and unsigned integers.
-        let test_cases = [
-            (PType::I8, cpp::DUCKDB_TYPE::DUCKDB_TYPE_TINYINT),
-            (PType::I16, cpp::DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT),
-            (PType::I32, cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
-            (PType::I64, cpp::DUCKDB_TYPE::DUCKDB_TYPE_BIGINT),
-            (PType::U8, cpp::DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT),
-            (PType::U16, cpp::DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT),
-            (PType::U32, cpp::DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER),
-            (PType::U64, cpp::DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT),
-        ];
-
-        for (ptype, expected_duckdb_type) in test_cases {
-            let dtype = DType::Primitive(ptype, Nullability::NonNullable);
-            let logical_type = LogicalType::try_from(&dtype).unwrap();
-            assert_eq!(logical_type.as_type_id(), expected_duckdb_type);
-        }
-    }
-
-    #[test]
-    fn test_float_types() {
-        let float_test_cases = [
-            (PType::F32, cpp::DUCKDB_TYPE::DUCKDB_TYPE_FLOAT),
-            (PType::F64, cpp::DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE),
-        ];
-
-        for (ptype, expected_duckdb_type) in float_test_cases {
-            let dtype = DType::Primitive(ptype, Nullability::NonNullable);
-            let logical_type = LogicalType::try_from(&dtype).unwrap();
-            assert_eq!(logical_type.as_type_id(), expected_duckdb_type);
-        }
+    #[rstest]
+    #[case(PType::I8, cpp::DUCKDB_TYPE::DUCKDB_TYPE_TINYINT)]
+    #[case(PType::I16, cpp::DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT)]
+    #[case(PType::I32, cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)]
+    #[case(PType::I64, cpp::DUCKDB_TYPE::DUCKDB_TYPE_BIGINT)]
+    #[case(PType::U8, cpp::DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT)]
+    #[case(PType::U16, cpp::DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT)]
+    #[case(PType::U32, cpp::DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER)]
+    #[case(PType::U64, cpp::DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT)]
+    #[case(PType::F32, cpp::DUCKDB_TYPE::DUCKDB_TYPE_FLOAT)]
+    #[case(PType::F64, cpp::DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE)]
+    fn test_primitive_types(#[case] ptype: PType, #[case] expected_duckdb_type: cpp::DUCKDB_TYPE) {
+        let dtype = DType::Primitive(ptype, Nullability::NonNullable);
+        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        assert_eq!(logical_type.as_type_id(), expected_duckdb_type);
     }
 
     #[test]

@@ -38,6 +38,9 @@ tokio-stream = { workspace = true }
 vortex = { workspace = true, features = ["files"] }
 vortex-file = { workspace = true, features = ["tokio"] }
 
+[dev-dependencies]
+rstest = { workspace = true }
+
 [lints]
 workspace = true
 
