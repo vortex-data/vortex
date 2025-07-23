@@ -35,6 +35,9 @@ struct State<T> {
 
     /// The vector of stealers, one for each worker.
     stealers: RwLock<Vec<Stealer<T>>>,
+
+    /// An offset into the stealers vector, used to avoid skewed worker queues when stealing.
+    stealer_offset: AtomicUsize,
 }
 
 impl<T> State<T> {
@@ -64,15 +67,27 @@ impl<T> State<T> {
         }
     }
 
+    /// Reports whether there is any work left to steal.
+    fn stealers_have_work(&self) -> bool {
+        self.stealers
+            .read()
+            .iter()
+            .any(|stealer| !stealer.is_empty())
+    }
+
     /// Attempts to steal work from other workers, returns `true` if work was stolen.
     fn steal_work(&self, worker: &Worker<T>) -> Steal<()> {
         // Repeatedly attempt to steal work from other workers until there are no retries.
         iter::repeat_with(|| {
             // This collect tries all stealers, exits early on the first successful steal,
             // or else tracks whether any steal requires a retry.
-            self.stealers
-                .read()
+            let guard = self.stealers.read();
+            let num_stealers = guard.len();
+            guard
                 .iter()
+                .cycle()
+                .skip(self.stealer_offset.fetch_add(1, Relaxed) % num_stealers)
+                .take(num_stealers)
                 .map(|stealer| stealer.steal_batch(worker))
                 .collect::<Steal<()>>()
         })
@@ -99,6 +114,7 @@ impl<T> WorkQueue<T> {
                 num_factories_constructed: AtomicUsize::new(0),
                 num_factories,
                 stealers: RwLock::new(Vec::new()),
+                stealer_offset: Default::default(),
             }),
         }
     }
@@ -147,13 +163,17 @@ impl<T> Iterator for WorkQueueIterator<T> {
                 // again if the result of an attempt of stealing results with `Retry`, for other cases
                 // `Empty` and `Success` there is no point in trying again
                 while self.state.num_factories_constructed.load(Relaxed) < self.state.num_factories
-                    || self.state.steal_work(&self.worker).is_retry()
+                    || self.state.stealers_have_work()
                 {
                     thread::yield_now();
                 }
             }
         }
 
+        // Attempt to pop a task from the worker queue.
+        // Another worker may have stolen our tasks by this point. If that's the case, then we've
+        // already finished loading the factories, and we're down to the last few tasks. Therefore,
+        // it's ok for us to return `None` and terminate the iterator.
         Some(Ok(self.worker.pop()?))
     }
 }
