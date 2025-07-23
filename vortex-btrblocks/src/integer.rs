@@ -589,6 +589,7 @@ impl Scheme for DictScheme {
         let dict = dictionary_encode(stats)?;
 
         // Cascade the codes child
+        // Don't allow SequenceArray as the codes child as it merely adds extra indirection without actually compressing data.
         let mut new_excludes = vec![DICT_SCHEME, SEQUENCE_SCHEME];
         new_excludes.extend_from_slice(excludes);
 
