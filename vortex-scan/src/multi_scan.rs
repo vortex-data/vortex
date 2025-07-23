@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::work_queue::{TaskFactory, WorkQueue, WorkQueueIterator};
 use futures::executor::LocalPool;
 use futures::future::BoxFuture;
 use vortex_error::VortexResult;
 
-use crate::work_queue::{TaskFactory, WorkQueue, WorkQueueIterator};
-
-pub type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
+type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
 
 /// Coordinator to orchestrate multiple scan operations.
 ///
@@ -19,12 +18,20 @@ pub struct MultiScan<State> {
 
 impl<T: 'static + Send + Sync> MultiScan<T> {
     /// Created with lazily constructed scan builders closures.
-    pub fn new<I>(closures: I) -> Self
+    pub fn new<I, F>(closures: I) -> Self
     where
-        I: IntoIterator<Item = TaskFactory<ArrayFuture<T>>>,
+        F: FnOnce() -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<T>>>>>
+            + 'static
+            + Send
+            + Sync,
+        I: IntoIterator<Item = F>,
     {
         Self {
-            work_queue: WorkQueue::new(closures.into_iter()),
+            work_queue: WorkQueue::new(
+                closures
+                    .into_iter()
+                    .map(|closure| Box::new(closure) as TaskFactory<ArrayFuture<T>>),
+            ),
         }
     }
 

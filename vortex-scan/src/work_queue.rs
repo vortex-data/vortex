@@ -43,23 +43,25 @@ impl<T> State<T> {
     /// Returns `true` if any tasks were pushed into the worker. Note that these tasks may have
     /// been stolen by the time the worker queue is checked.
     fn load_next_factory(&self, worker: &Worker<T>) -> VortexResult<bool> {
-        let mut next_tasks = None;
-        while let Some(factory_fn) = self.task_factories.pop() {
-            let tasks = factory_fn()?;
-            self.num_factories_constructed.fetch_add(1, SeqCst);
-            if !tasks.is_empty() {
-                next_tasks = Some(tasks);
-                break;
-            }
-        }
+        loop {
+            if let Some(factory_fn) = self.task_factories.pop() {
+                let tasks = factory_fn()?;
+                let is_empty = tasks.is_empty();
+                // Tasks must be pushed before `num_factories_constructed` is incremented, these
+                // requires a happens-before relation
+                for task in tasks {
+                    worker.push(task);
+                }
+                self.num_factories_constructed.fetch_add(1, SeqCst);
 
-        if let Some(tasks) = next_tasks.take() {
-            for task in tasks {
-                worker.push(task);
+                // Keep looping until we find a factory that has pushed tasks.
+                if !is_empty {
+                    return Ok(true);
+                }
+            } else {
+                return Ok(false);
             }
-            return Ok(true);
         }
-        Ok(false)
     }
 
     /// Attempts to steal work from other workers, returns `true` if work was stolen.
