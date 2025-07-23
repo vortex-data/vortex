@@ -142,14 +142,14 @@ impl<T> Iterator for WorkQueueIterator<T> {
                 // We sit in a loop trying to steal some of those tasks, or else bail out when
                 // all scans have been constructed, and we didn't manage to steal anything. To avoid
                 // spinning too hot, we yield the thread each time we fail to steal work.
+                //
+                // `steal_work` does have the side effect of stealing work, and we only want to loop
+                // again if the result of an attempt of stealing results with `Retry`, for other cases
+                // `Empty` and `Success` there is no point in trying again
                 while self.state.num_factories_constructed.load(Relaxed) < self.state.num_factories
-                    || !self.state.steal_work(&self.worker).is_empty()
+                    || self.state.steal_work(&self.worker).is_retry()
                 {
-                    if self.state.steal_work(&self.worker).is_success() {
-                        break;
-                    } else {
-                        thread::yield_now();
-                    }
+                    thread::yield_now();
                 }
             }
         }
