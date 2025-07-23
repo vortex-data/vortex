@@ -364,6 +364,9 @@ jobs:
     env:
       RUSTFLAGS: "-A warnings -Zsanitizer=address"
     steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v4
         with:
           submodules: "recursive"
