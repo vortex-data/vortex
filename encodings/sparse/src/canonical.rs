@@ -82,32 +82,13 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
                 canonicalize_varbin(array, dtype.clone(), fill_value)
             }
             DType::List(values_dtype, nullability) => {
-                let patches = array.resolved_patches()?;
-                let indices = patches.indices().to_primitive()?;
-                let values = patches.values().to_list()?;
-                let fill_value = array.fill_scalar().as_list();
-
-                let n_filled = array.len() - patches.num_patches();
-                let total_canonical_values = values.elements().len() + fill_value.len() * n_filled;
-                let values_dtype = values_dtype.clone();
-
-                let validity = array
-                    .validity_mask()
-                    .map(|x| Validity::from_mask(x, *nullability))?;
-
-                match_each_integer_ptype!(indices.ptype(), |I| {
-                    match_smallest_offset_type!(total_canonical_values, |O| {
-                        canonicalize_sparse_lists::<I, O>(
-                            indices.as_slice(),
-                            values,
-                            fill_value,
-                            values_dtype,
-                            array.len(),
-                            total_canonical_values,
-                            validity,
-                        )
-                    })
-                })
+                let resolved_patches = array.resolved_patches()?;
+                canonicalize_sparse_lists(
+                    array,
+                    resolved_patches,
+                    values_dtype.clone(),
+                    *nullability,
+                )
             }
             DType::Extension(_ext_dtype) => todo!(),
         }
@@ -144,7 +125,40 @@ fn list_scalar_to_singleton_list_array(scalar: ListScalar) -> VortexResult<Optio
         .map(|x| Some(x.into_array()))
 }
 
-fn canonicalize_sparse_lists<I: NativePType, O: OffsetPType>(
+#[allow(clippy::cognitive_complexity)]
+fn canonicalize_sparse_lists(
+    array: &SparseArray,
+    resolved_patches: Patches,
+    values_dtype: Arc<DType>,
+    nullability: Nullability,
+) -> VortexResult<Canonical> {
+    let indices = resolved_patches.indices().to_primitive()?;
+    let values = resolved_patches.values().to_list()?;
+    let fill_value = array.fill_scalar().as_list();
+
+    let n_filled = array.len() - resolved_patches.num_patches();
+    let total_canonical_values = values.elements().len() + fill_value.len() * n_filled;
+
+    let validity = array
+        .validity_mask()
+        .map(|x| Validity::from_mask(x, nullability))?;
+
+    match_each_integer_ptype!(indices.ptype(), |I| {
+        match_smallest_offset_type!(total_canonical_values, |O| {
+            canonicalize_sparse_lists_inner::<I, O>(
+                indices.as_slice(),
+                values,
+                fill_value,
+                values_dtype,
+                array.len(),
+                total_canonical_values,
+                validity,
+            )
+        })
+    })
+}
+
+fn canonicalize_sparse_lists_inner<I: NativePType, O: OffsetPType>(
     indices: &[I],
     values: ListArray,
     fill_value: ListScalar,
