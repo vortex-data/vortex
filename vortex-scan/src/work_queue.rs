@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
+use std::{iter, thread};
 
 use crossbeam_deque::{Steal, Stealer, Worker};
 use crossbeam_queue::SegQueue;
@@ -38,21 +38,28 @@ struct State<T> {
 }
 
 impl<T> State<T> {
-    /// Loads a factory and pushes its tasks into the given worker queue.
+    /// Loads the first non-empty factory and pushes its tasks into the given worker queue.
     ///
     /// Returns `true` if any tasks were pushed into the worker. Note that these tasks may have
     /// been stolen by the time the worker queue is checked.
     fn load_next_factory(&self, worker: &Worker<T>) -> VortexResult<bool> {
-        if let Some(factory_fn) = self.task_factories.pop() {
+        let mut next_tasks = None;
+        while let Some(factory_fn) = self.task_factories.pop() {
             let tasks = factory_fn()?;
+            self.num_factories_constructed.fetch_add(1, SeqCst);
+            if !tasks.is_empty() {
+                next_tasks = Some(tasks);
+                break;
+            }
+        }
+
+        if let Some(tasks) = next_tasks.take() {
             for task in tasks {
                 worker.push(task);
             }
-            self.num_factories_constructed.fetch_add(1, SeqCst);
-            Ok(true)
-        } else {
-            Ok(false)
+            return Ok(true);
         }
+        Ok(false)
     }
 
     /// Attempts to steal work from other workers, returns `true` if work was stolen.
@@ -139,7 +146,7 @@ impl<T> Iterator for WorkQueueIterator<T> {
                     if self.state.steal_work(&self.worker).is_success() {
                         break;
                     } else {
-                        std::thread::yield_now();
+                        thread::yield_now();
                     }
                 }
             }

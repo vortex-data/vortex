@@ -5,32 +5,26 @@ use futures::executor::LocalPool;
 use futures::future::BoxFuture;
 use vortex_error::VortexResult;
 
-use crate::ScanBuilder;
 use crate::work_queue::{TaskFactory, WorkQueue, WorkQueueIterator};
 
-type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
+pub type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
 
 /// Coordinator to orchestrate multiple scan operations.
 ///
 /// `MultiScan` allows to queue multiple scan operations in order to execute
 /// them in parallel. In particular, this enables scanning multiple files.
-pub struct MultiScan<T> {
-    work_queue: WorkQueue<ArrayFuture<T>>,
+pub struct MultiScan<State> {
+    work_queue: WorkQueue<ArrayFuture<State>>,
 }
 
 impl<T: 'static + Send + Sync> MultiScan<T> {
     /// Created with lazily constructed scan builders closures.
-    pub fn new<I, F>(closures: I) -> Self
+    pub fn new<I>(closures: I) -> Self
     where
-        F: FnOnce() -> ScanBuilder<T> + 'static + Send + Sync,
-        I: IntoIterator<Item = F>,
+        I: IntoIterator<Item = TaskFactory<ArrayFuture<T>>>,
     {
         Self {
-            work_queue: WorkQueue::new(
-                closures.into_iter().map(|closure| {
-                    Box::new(move || closure().build()) as TaskFactory<ArrayFuture<T>>
-                }),
-            ),
+            work_queue: WorkQueue::new(closures.into_iter()),
         }
     }
 

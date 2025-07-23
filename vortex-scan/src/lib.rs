@@ -38,8 +38,9 @@ mod split_by;
 mod tasks;
 mod work_queue;
 
-pub use multi_scan::{MultiScan, MultiScanIterator};
+pub use multi_scan::{ArrayFuture, MultiScan, MultiScanIterator};
 use tasks::{TaskContext, split_exec};
+pub use work_queue::TaskFactory;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {

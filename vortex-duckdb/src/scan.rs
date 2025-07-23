@@ -9,7 +9,7 @@ use vortex::dtype::FieldNames;
 use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::{ExprRef, and, and_collect, col, lit, root, select};
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::scan::{MultiScan, MultiScanIterator};
+use vortex::scan::{ArrayFuture, MultiScan, MultiScanIterator, TaskFactory};
 use vortex::{ArrayRef, ToCanonical};
 
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
@@ -263,23 +263,27 @@ impl TableFunction for VortexTableFunction {
                     let projection_expr = projection_expr.clone();
                     let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
 
-                    move || {
+                    Box::new(move || {
                         let file = if idx == 0 {
                             // The first path from `file_paths` is skipped as
                             // the first file was already opened during bind.
                             first_file
                         } else {
-                            VortexOpenOptions::file()
-                                .open_blocking(&path)
-                                .vortex_expect("Failed to open Vortex file")
+                            VortexOpenOptions::file().open_blocking(&path)?
                         };
 
-                        file.scan()
-                            .vortex_expect("Failed to create scan builder")
+                        if let Some(filter) = &filter_expr {
+                            if file.can_prune(filter)? {
+                                return Ok(vec![]);
+                            }
+                        };
+
+                        file.scan()?
                             .with_some_filter(filter_expr)
                             .with_projection(projection_expr)
                             .map(move |split| Ok((split, conversion_cache.clone())))
-                    }
+                            .build()
+                    }) as TaskFactory<ArrayFuture<_>>
                 });
 
         Ok(VortexGlobalData {
