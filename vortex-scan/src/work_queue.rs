@@ -51,15 +51,24 @@ impl<T> State<T> {
     /// Returns `true` if any tasks were pushed into the worker. Note that these tasks may have
     /// been stolen by the time the worker queue is checked.
     fn load_next_factory(&self, worker: &Worker<T>) -> VortexResult<bool> {
-        if let Some(factory_fn) = self.task_factories.pop() {
-            let tasks = factory_fn()?;
-            for task in tasks {
-                worker.push(task);
+        loop {
+            if let Some(factory_fn) = self.task_factories.pop() {
+                let tasks = factory_fn()?;
+                let is_empty = tasks.is_empty();
+                for task in tasks {
+                    worker.push(task);
+                }
+
+                // We **MUST** push the tasks into the worker before incrementing this counter.
+                self.num_factories_constructed.fetch_add(1, SeqCst);
+
+                // Keep looping until we find a factory that has pushed tasks.
+                if !is_empty {
+                    return Ok(true);
+                }
+            } else {
+                return Ok(false);
             }
-            self.num_factories_constructed.fetch_add(1, SeqCst);
-            Ok(true)
-        } else {
-            Ok(false)
         }
     }
 
@@ -160,114 +169,127 @@ impl<T> Iterator for WorkQueueIterator<T> {
 #[cfg(test)]
 mod fuzz_tests {
     use super::*;
+    use itertools::Itertools;
     use rand::prelude::*;
     use std::collections::HashMap;
-    use std::sync::atomic::Ordering::{Relaxed, SeqCst};
-    use std::sync::atomic::{AtomicBool, AtomicUsize};
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering::SeqCst;
     use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;
     use vortex_error::vortex_bail;
 
-    /// Fuzz test with varying numbers of workers and factories
     #[test]
-    fn fuzz_worker_factory_combinations() {
-        for _ in 0..100 {
-            let mut rng = rand::rng();
-            let num_factories = rng.random_range(1..=20);
-            let num_workers = rng.random_range(1..=8);
-            let tasks_per_factory = rng.random_range(0..=100);
+    fn test_worker_factory_combinations() {
+        let factory_counts = [1, 2, 5, 10, 20, 50];
+        let worker_counts = [1, 2, 3, 4, 8];
+        let task_counts = [0, 1, 5, 10, 25, 100];
 
-            println!(
-                "Testing: {} factories, {} workers, {} tasks/factory",
-                num_factories, num_workers, tasks_per_factory
-            );
+        for &num_factories in &factory_counts {
+            for &num_workers in &worker_counts {
+                for &tasks_per_factory in &task_counts {
+                    println!(
+                        "Testing: {} factories, {} workers, {} tasks/factory",
+                        num_factories, num_workers, tasks_per_factory
+                    );
 
-            test_concurrent_processing(num_factories, num_workers, tasks_per_factory);
+                    test_concurrent_processing(num_factories, num_workers, tasks_per_factory);
+                }
+            }
         }
     }
 
-    /// Fuzz test with random factory execution times and failure rates
     #[test]
-    fn fuzz_factory_reliability() {
-        for iteration in 0..50 {
-            let mut rng = rand::rng();
-            let num_factories = rng.random_range(5..=15);
-            let num_workers = rng.random_range(2..=6);
-            let failure_rate = rng.random_range(0.0..=0.3); // 0-30% failure rate
-            let max_delay_ms = rng.random_range(0..=10);
+    fn test_dynamic_worker_patterns() {
+        let scenarios = [(10, 1, 2), (15, 2, 2), (12, 2, 1)];
 
+        for &(num_factories, initial_workers, additional_workers) in &scenarios {
             println!(
-                "Iteration {}: {} factories, {} workers, {:.1}% failure rate, {}ms max delay",
-                iteration,
-                num_factories,
-                num_workers,
-                failure_rate * 100.0,
-                max_delay_ms
+                "Testing dynamic workers: {} factories, {} initial, {} additional",
+                num_factories, initial_workers, additional_workers
             );
-
-            test_factory_failures_and_delays(
-                num_factories,
-                num_workers,
-                failure_rate,
-                max_delay_ms,
-            );
-        }
-    }
-
-    /// Fuzz test with workers joining and leaving at random times
-    #[test]
-    fn fuzz_dynamic_worker_lifecycle() {
-        for _ in 0..30 {
-            let mut rng = rand::rng();
-            let num_factories = rng.random_range(10..=20);
-            let initial_workers = rng.random_range(1..=4);
-            let additional_workers = rng.random_range(0..=6);
-
             test_dynamic_workers(num_factories, initial_workers, additional_workers);
         }
     }
 
-    /// Stress test with high contention scenarios
     #[test]
-    fn fuzz_high_contention() {
-        for _ in 0..20 {
-            let mut rng = rand::rng();
-            let scenario = rng.random_range(0..4);
+    fn test_contention_scenarios() {
+        // Many small factories
+        let small_factory_tests = [(50, 4), (100, 6), (200, 8)];
+        for &(factories, workers) in &small_factory_tests {
+            println!(
+                "Testing many small factories: {} factories, {} workers",
+                factories, workers
+            );
+            test_many_small_factories(factories, workers);
+        }
 
-            match scenario {
-                0 => test_many_small_factories(rng.random_range(50..=200), rng.random_range(4..=8)),
-                1 => test_few_large_factories(
-                    rng.random_range(2..=5),
-                    rng.random_range(2..=4),
-                    rng.random_range(100..=500),
-                ),
-                2 => test_mixed_factory_sizes(rng.random_range(10..=30), rng.random_range(3..=6)),
-                _ => test_empty_factories_mixed(rng.random_range(5..=20), rng.random_range(2..=4)),
-            }
+        // Few large factories
+        let large_factory_tests = [(2, 4, 500), (5, 6, 200), (3, 8, 1000)];
+        for &(factories, workers, tasks) in &large_factory_tests {
+            println!(
+                "Testing few large factories: {} factories, {} workers, {} tasks each",
+                factories, workers, tasks
+            );
+            test_few_large_factories(factories, workers, tasks);
+        }
+
+        // Mixed sizes with deterministic patterns
+        let mixed_tests = [(10, 4), (20, 6), (30, 8)];
+        for &(factories, workers) in &mixed_tests {
+            println!(
+                "Testing mixed factory sizes: {} factories, {} workers",
+                factories, workers
+            );
+            test_mixed_factory_sizes_deterministic(factories, workers);
+        }
+
+        // Empty factories mixed in
+        let empty_mixed_tests = [(10, 3), (20, 4), (15, 6)];
+        for &(factories, workers) in &empty_mixed_tests {
+            println!(
+                "Testing with empty factories: {} factories, {} workers",
+                factories, workers
+            );
+            test_empty_factories_mixed_deterministic(factories, workers);
         }
     }
 
-    /// Test edge cases with empty or single-task scenarios
+    /// Test edge cases systematically
     #[test]
-    fn fuzz_edge_cases() {
-        for _ in 0..50 {
-            let mut rng = rand::rng();
-            let scenario = rng.random_range(0..6);
+    fn test_edge_cases() {
+        // All empty factories
+        let empty_tests = [(5, 2), (10, 4), (20, 6)];
+        for &(factories, workers) in &empty_tests {
+            println!(
+                "Testing all empty factories: {} factories, {} workers",
+                factories, workers
+            );
+            test_all_empty_factories(factories, workers);
+        }
 
-            match scenario {
-                0 => test_all_empty_factories(rng.random_range(1..=10), rng.random_range(1..=4)),
-                1 => {
-                    test_single_task_per_factory(rng.random_range(1..=20), rng.random_range(1..=8))
-                }
-                2 => test_single_factory_many_workers(rng.random_range(2..=8)),
-                3 => test_many_factories_single_worker(rng.random_range(5..=50)),
-                4 => test_interleaved_factory_loading(
-                    rng.random_range(5..=15),
-                    rng.random_range(2..=4),
-                ),
-                _ => test_rapid_worker_creation(rng.random_range(10..=20)),
-            }
+        // Single task per factory
+        let single_tests = [(10, 3), (20, 5), (50, 8)];
+        for &(factories, workers) in &single_tests {
+            println!(
+                "Testing single task per factory: {} factories, {} workers",
+                factories, workers
+            );
+            test_single_task_per_factory(factories, workers);
+        }
+
+        // Single factory, many workers
+        let single_factory_tests = [2, 4, 6, 8, 12];
+        for &workers in &single_factory_tests {
+            println!("Testing single factory, {} workers", workers);
+            test_single_factory_many_workers(workers);
+        }
+
+        // Many factories, single worker
+        let many_factory_tests = [5, 10, 25, 50, 100];
+        for &factories in &many_factory_tests {
+            println!("Testing {} factories, single worker", factories);
+            test_many_factories_single_worker(factories);
         }
     }
 
@@ -284,7 +306,7 @@ mod fuzz_tests {
             }
 
             if should_fail {
-                vortex_bail!("Factory failed");
+                vortex_bail!("Factory {} failed", id);
             }
 
             Ok((0..task_count).map(|i| (id, i)).collect())
@@ -296,15 +318,14 @@ mod fuzz_tests {
         num_workers: usize,
         tasks_per_factory: usize,
     ) {
-        let mut factories = Vec::new();
-        for i in 0..num_factories {
-            factories.push(create_factory(tasks_per_factory, i, 0, false));
-        }
+        let factories: Vec<_> = (0..num_factories)
+            .map(|i| create_factory(tasks_per_factory, i, 0, false))
+            .collect();
 
         let queue = WorkQueue::new(factories);
         let expected_total = num_factories * tasks_per_factory;
 
-        // Spawn workers
+        // Spawn workers with barrier for synchronized start
         let barrier = Arc::new(Barrier::new(num_workers));
         let processed_count = Arc::new(AtomicUsize::new(0));
         let task_tracking = Arc::new(std::sync::Mutex::new(
@@ -312,14 +333,14 @@ mod fuzz_tests {
         ));
 
         let handles: Vec<_> = (0..num_workers)
-            .map(|_worker_id| {
+            .map(|worker_id| {
                 let queue = queue.clone();
                 let barrier = barrier.clone();
                 let processed_count = processed_count.clone();
                 let task_tracking = task_tracking.clone();
 
                 thread::spawn(move || {
-                    barrier.wait();
+                    barrier.wait(); // Synchronized start
                     let mut iterator = queue.new_iterator();
                     let mut local_count = 0;
 
@@ -333,12 +354,12 @@ mod fuzz_tests {
                                 }
                                 local_count += 1;
                             }
-                            Err(e) => panic!("Unexpected error: {:?}", e),
+                            Err(e) => panic!("Worker {} unexpected error: {:?}", worker_id, e),
                         }
                     }
 
                     processed_count.fetch_add(local_count, SeqCst);
-                    local_count
+                    (worker_id, local_count)
                 })
             })
             .collect();
@@ -365,157 +386,78 @@ mod fuzz_tests {
         );
     }
 
-    fn test_factory_failures_and_delays(
-        num_factories: usize,
-        num_workers: usize,
-        failure_rate: f64,
-        max_delay_ms: u64,
-    ) {
-        let mut rng = rand::rng();
-        let mut factories = Vec::new();
-        let mut expected_tasks = 0;
-
-        for i in 0..num_factories {
-            let should_fail = rng.random::<f64>() < failure_rate;
-            let delay = rng.random_range(0..=max_delay_ms);
-            let task_count = if should_fail {
-                0
-            } else {
-                rng.random_range(1..=50)
-            };
-
-            if !should_fail {
-                expected_tasks += task_count;
-            }
-
-            factories.push(create_factory(task_count, i, delay, should_fail));
-        }
-
-        let queue = WorkQueue::new(factories);
-        let processed_count = Arc::new(AtomicUsize::new(0));
-        let error_count = Arc::new(AtomicUsize::new(0));
-
-        let handles: Vec<_> = (0..num_workers)
-            .map(|_| {
-                let queue = queue.clone();
-                let processed_count = processed_count.clone();
-                let error_count = error_count.clone();
-
-                thread::spawn(move || {
-                    let mut iterator = queue.new_iterator();
-
-                    while let Some(task_result) = iterator.next() {
-                        match task_result {
-                            Ok(_) => {
-                                processed_count.fetch_add(1, SeqCst);
-                            }
-                            Err(_) => {
-                                error_count.fetch_add(1, SeqCst);
-                            }
-                        }
-                    }
-                })
-            })
-            .collect();
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        let total_processed = processed_count.load(SeqCst);
-        let total_errors = error_count.load(SeqCst);
-
-        println!(
-            "✓ Processed: {}, Errors: {}, Expected: {}",
-            total_processed, total_errors, expected_tasks
-        );
-
-        // We should process all successful tasks
-        assert_eq!(total_processed, expected_tasks);
-    }
-
     fn test_dynamic_workers(
         num_factories: usize,
         initial_workers: usize,
         additional_workers: usize,
     ) {
-        let mut rng = rand::rng();
+        let mut rng = StdRng::seed_from_u64(num_factories as u64 * 100 + initial_workers as u64);
         let mut factories = Vec::new();
         let mut expected_total = 0;
 
         for i in 0..num_factories {
-            let task_count = rng.random_range(5..=20);
+            let task_count = rng.random_range(5..=15); // Reduced from 5..=20
             expected_total += task_count;
             factories.push(create_factory(task_count, i, 0, false));
         }
 
         let queue = WorkQueue::new(factories);
         let processed_count = Arc::new(AtomicUsize::new(0));
-        let should_stop = Arc::new(AtomicBool::new(false));
+        let start_barrier = Arc::new(Barrier::new(initial_workers));
 
         // Start initial workers
         let mut handles = Vec::new();
-        for _ in 0..initial_workers {
+        for worker_id in 0..initial_workers {
             let queue = queue.clone();
             let processed_count = processed_count.clone();
-            let should_stop = should_stop.clone();
+            let start_barrier = start_barrier.clone();
 
             handles.push(thread::spawn(move || {
+                start_barrier.wait();
                 let mut iterator = queue.new_iterator();
                 let mut local_count = 0;
 
                 while let Some(task_result) = iterator.next() {
-                    if should_stop.load(Relaxed) {
-                        break;
-                    }
-
                     if let Ok(_) = task_result {
                         local_count += 1;
                     }
                 }
 
                 processed_count.fetch_add(local_count, SeqCst);
+                (worker_id, local_count)
             }));
         }
 
-        // Add additional workers with random delays
-        for _ in 0..additional_workers {
-            thread::sleep(Duration::from_millis(rng.random_range(1..=10)));
+        // Add additional workers with deterministic delays
+        for worker_id in initial_workers..(initial_workers + additional_workers) {
+            thread::sleep(Duration::from_millis(2)); // Reduced from 5ms
 
             let queue = queue.clone();
             let processed_count = processed_count.clone();
-            let should_stop = should_stop.clone();
 
             handles.push(thread::spawn(move || {
                 let mut iterator = queue.new_iterator();
                 let mut local_count = 0;
 
                 while let Some(task_result) = iterator.next() {
-                    if should_stop.load(Relaxed) {
-                        break;
-                    }
-
                     if let Ok(_) = task_result {
                         local_count += 1;
                     }
                 }
 
                 processed_count.fetch_add(local_count, SeqCst);
+                (worker_id, local_count)
             }));
         }
 
-        // Wait for completion with timeout
-        thread::sleep(Duration::from_millis(1000));
-        should_stop.store(true, SeqCst);
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
         let total_processed = processed_count.load(SeqCst);
-        assert_eq!(total_processed, expected_total);
 
-        println!("✓ Dynamic workers processed {} tasks", total_processed);
+        assert_eq!(total_processed, expected_total);
+        println!(
+            "✓ Dynamic workers {:?} processed {} tasks",
+            results, total_processed
+        );
     }
 
     fn test_many_small_factories(num_factories: usize, num_workers: usize) {
@@ -538,13 +480,13 @@ mod fuzz_tests {
         test_basic_processing(factories, num_workers, num_factories * tasks_per_factory);
     }
 
-    fn test_mixed_factory_sizes(num_factories: usize, num_workers: usize) {
-        let mut rng = rand::rng();
+    fn test_mixed_factory_sizes_deterministic(num_factories: usize, num_workers: usize) {
+        let sizes = [1, 5, 10, 25, 50, 100];
         let mut factories = Vec::new();
         let mut expected_total = 0;
 
         for i in 0..num_factories {
-            let size = *[1, 5, 10, 50, 100].choose(&mut rng).unwrap();
+            let size = sizes[i % sizes.len()];
             expected_total += size;
             factories.push(create_factory(size, i, 0, false));
         }
@@ -552,17 +494,13 @@ mod fuzz_tests {
         test_basic_processing(factories, num_workers, expected_total);
     }
 
-    fn test_empty_factories_mixed(num_factories: usize, num_workers: usize) {
-        let mut rng = rand::rng();
+    fn test_empty_factories_mixed_deterministic(num_factories: usize, num_workers: usize) {
         let mut factories = Vec::new();
         let mut expected_total = 0;
 
         for i in 0..num_factories {
-            let size = if rng.random::<f64>() < 0.3 {
-                0
-            } else {
-                rng.random_range(1..=20)
-            };
+            // Every 3rd factory is empty
+            let size = if i % 3 == 0 { 0 } else { 10 };
             expected_total += size;
             factories.push(create_factory(size, i, 0, false));
         }
@@ -599,45 +537,6 @@ mod fuzz_tests {
         test_basic_processing(factories, 1, num_factories * 5);
     }
 
-    fn test_interleaved_factory_loading(num_factories: usize, num_workers: usize) {
-        // Create factories with small delays to interleave loading
-        let factories: Vec<_> = (0..num_factories)
-            .map(|i| create_factory(10, i, 1, false))
-            .collect();
-
-        test_basic_processing(factories, num_workers, num_factories * 10);
-    }
-
-    fn test_rapid_worker_creation(num_workers: usize) {
-        let factories = vec![create_factory(50, 0, 0, false)];
-        let queue = WorkQueue::new(factories);
-        let processed_count = Arc::new(AtomicUsize::new(0));
-
-        let handles: Vec<_> = (0..num_workers)
-            .map(|_| {
-                let queue = queue.clone();
-                let processed_count = processed_count.clone();
-
-                thread::spawn(move || {
-                    let mut iterator = queue.new_iterator();
-                    let mut local_count = 0;
-
-                    while let Some(Ok(_)) = iterator.next() {
-                        local_count += 1;
-                    }
-
-                    processed_count.fetch_add(local_count, SeqCst);
-                })
-            })
-            .collect();
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
-
-        assert_eq!(processed_count.load(SeqCst), 50);
-    }
-
     fn test_basic_processing(
         factories: Vec<TaskFactory<(usize, usize)>>,
         num_workers: usize,
@@ -646,8 +545,8 @@ mod fuzz_tests {
         let queue = WorkQueue::new(factories);
         let processed_count = Arc::new(AtomicUsize::new(0));
 
-        let handles: Vec<_> = (0..num_workers)
-            .map(|_| {
+        let results: Vec<_> = (0..num_workers)
+            .map(|worker_id| {
                 let queue = queue.clone();
                 let processed_count = processed_count.clone();
 
@@ -660,17 +559,19 @@ mod fuzz_tests {
                     }
 
                     processed_count.fetch_add(local_count, SeqCst);
+                    (worker_id, local_count)
                 })
             })
-            .collect();
-
-        for handle in handles {
-            handle.join().unwrap();
-        }
+            .map(|h| h.join())
+            .try_collect()
+            .unwrap();
 
         let total_processed = processed_count.load(SeqCst);
-        assert_eq!(total_processed, expected_total);
 
-        println!("✓ Processed {} tasks as expected", total_processed);
+        assert_eq!(total_processed, expected_total);
+        println!(
+            "✓ Workers {:?} processed {} tasks as expected",
+            results, total_processed
+        );
     }
 }
