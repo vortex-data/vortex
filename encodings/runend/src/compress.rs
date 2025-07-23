@@ -9,7 +9,9 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::{ArrayRef, IntoArray, ToCanonical};
 use vortex_buffer::{Buffer, BufferMut, buffer};
-use vortex_dtype::{NativePType, Nullability, match_each_integer_ptype, match_each_native_ptype};
+use vortex_dtype::{
+    NativePType, Nullability, match_each_native_ptype, match_each_unsigned_integer_ptype,
+};
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -152,7 +154,7 @@ pub fn runend_decode_primitive(
     length: usize,
 ) -> VortexResult<PrimitiveArray> {
     match_each_native_ptype!(values.ptype(), |P| {
-        match_each_integer_ptype!(ends.ptype(), |E| {
+        match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_typed_primitive(
                 trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
                 values.as_slice::<P>(),
@@ -170,7 +172,7 @@ pub fn runend_decode_bools(
     offset: usize,
     length: usize,
 ) -> VortexResult<BoolArray> {
-    match_each_integer_ptype!(ends.ptype(), |E| {
+    match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
         runend_decode_typed_bool(
             trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
             values.boolean_buffer().clone(),
