@@ -5,19 +5,17 @@ use futures::executor::LocalPool;
 use futures::future::BoxFuture;
 use vortex_error::VortexResult;
 
-use crate::work_queue::{TaskFactory, WorkQueue, WorkQueueIterator};
+use crate::work_queue::{TaskFactory, WorkStealingIterator, WorkStealingQueue};
 
 pub type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
 
-/// Coordinator to orchestrate multiple scan operations.
-///
-/// `MultiScan` allows to queue multiple scan operations in order to execute
-/// them in parallel. In particular, this enables scanning multiple files.
+/// A multi-scan for executing multiple scans concurrently across workers.
+#[derive(Clone)]
 pub struct MultiScan<T> {
-    work_queue: WorkQueue<ArrayFuture<T>>,
+    queue: WorkStealingQueue<ArrayFuture<T>>,
 }
 
-impl<T: 'static + Send + Sync> MultiScan<T> {
+impl<T: 'static + Send> MultiScan<T> {
     /// Created with lazily constructed scan builders closures.
     pub fn new<I, F>(closures: I) -> Self
     where
@@ -25,7 +23,7 @@ impl<T: 'static + Send + Sync> MultiScan<T> {
         I: IntoIterator<Item = F>,
     {
         Self {
-            work_queue: WorkQueue::new(
+            queue: WorkStealingQueue::new(
                 closures
                     .into_iter()
                     .map(|closure| Box::new(closure) as TaskFactory<ArrayFuture<T>>),
@@ -33,21 +31,27 @@ impl<T: 'static + Send + Sync> MultiScan<T> {
         }
     }
 
-    /// Creates a new iterator to participate in the scan.
-    ///
-    /// The scan progresses when calling `next` on the iterator.
-    pub fn new_scan_iterator(&self) -> MultiScanIterator<T> {
+    pub fn new_iterator(self) -> MultiScanIterator<T> {
         MultiScanIterator {
-            inner: self.work_queue.new_iterator(),
-            local_pool: Default::default(),
+            inner: self.queue.new_iterator(),
+            local_pool: LocalPool::new(),
         }
     }
 }
 
 /// Scan iterator to participate in a `MultiScan`.
 pub struct MultiScanIterator<T> {
-    inner: WorkQueueIterator<ArrayFuture<T>>,
+    inner: WorkStealingIterator<ArrayFuture<T>>,
     local_pool: LocalPool,
+}
+
+impl<T> Clone for MultiScanIterator<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            local_pool: Default::default(),
+        }
+    }
 }
 
 impl<T: Send + Sync + 'static> Iterator for MultiScanIterator<T> {
