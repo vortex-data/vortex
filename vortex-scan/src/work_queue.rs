@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! A work-stealing iterator that supports dynamically adding tasks from task factories.
+
 use std::iter;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
@@ -12,16 +14,60 @@ use parking_lot::RwLock;
 use vortex_error::VortexResult;
 
 /// A factory that produces a vector of tasks.
-pub type TaskFactory<T> = Box<dyn FnOnce() -> VortexResult<Vec<T>> + Send + Sync>;
+pub type TaskFactory<T> = Box<dyn FnOnce() -> VortexResult<Vec<T>> + Send>;
 
-/// A work-stealing queue that supports dynamically adding tasks from task factories.
-///
-/// Each task factory has affinity to a particular worker. After all factories have been
-/// constructed, workers will attempt to steal tasks from each other until all tasks are processed.
-pub struct WorkQueue<T> {
+/// A work-stealing queue that allows for dynamic task addition.
+pub struct WorkStealingQueue<T> {
     state: Arc<State<T>>,
 }
 
+impl<T> Clone for WorkStealingQueue<T> {
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+        }
+    }
+}
+
+impl<T> WorkStealingQueue<T> {
+    /// Created with lazily constructed task factories.
+    pub fn new<I>(factories: I) -> Self
+    where
+        I: IntoIterator<Item = TaskFactory<T>>,
+    {
+        let queue: SegQueue<TaskFactory<T>> = SegQueue::new();
+        for factory in factories.into_iter() {
+            queue.push(factory);
+        }
+        let num_factories = queue.len();
+
+        Self {
+            state: Arc::new(State {
+                task_factories: queue,
+                num_factories_constructed: AtomicUsize::new(0),
+                num_factories,
+                stealers: RwLock::new(Vec::new()),
+            }),
+        }
+    }
+
+    pub fn new_iterator(self) -> WorkStealingIterator<T> {
+        self.state.new_iterator()
+    }
+}
+
+/// A work-stealing iterator that supports dynamically adding tasks from task factories.
+///
+/// Each task factory has affinity to a particular worker. After all factories have been
+/// constructed, workers will attempt to steal tasks from each other until all tasks are processed.
+///
+/// Workers are constructed by cloning the iterator.
+pub struct WorkStealingIterator<T> {
+    state: Arc<State<T>>,
+    worker: Worker<T>,
+}
+
+/// Shared state for the work queue.
 struct State<T> {
     /// A queue of factories that lazily produce tasks of type `T`.
     task_factories: SegQueue<TaskFactory<T>>,
@@ -38,6 +84,19 @@ struct State<T> {
 }
 
 impl<T> State<T> {
+    /// Create a new iterator.
+    fn new_iterator(self: Arc<Self>) -> WorkStealingIterator<T> {
+        let worker = Worker::new_fifo();
+
+        // Register the new worker with the shared state.
+        self.stealers.write().push(worker.stealer());
+
+        WorkStealingIterator {
+            state: self,
+            worker,
+        }
+    }
+
     /// Loads a factory and pushes its tasks into the given worker queue.
     ///
     /// Returns `true` if any tasks were pushed into the worker. Note that these tasks may have
@@ -72,51 +131,21 @@ impl<T> State<T> {
     }
 }
 
-impl<T> WorkQueue<T> {
-    /// Created with lazily constructed task factories.
-    pub fn new<I>(factories: I) -> Self
-    where
-        I: IntoIterator<Item = TaskFactory<T>>,
-    {
-        let queue: SegQueue<TaskFactory<T>> = SegQueue::new();
-        for factory in factories.into_iter() {
-            queue.push(factory);
-        }
-        let num_factories = queue.len();
-
-        Self {
-            state: Arc::new(State {
-                task_factories: queue,
-                num_factories_constructed: AtomicUsize::new(0),
-                num_factories,
-                stealers: RwLock::new(Vec::new()),
-            }),
-        }
-    }
-
-    /// Creates a new worker to participate.
-    ///
-    /// The scan progresses when calling `next` on the iterator.
-    pub fn new_iterator(&self) -> WorkQueueIterator<T> {
+impl<T> Clone for WorkStealingIterator<T> {
+    fn clone(&self) -> Self {
         let worker = Worker::new_fifo();
 
-        // Register the worker with the shared state.
+        // Register the new worker with the shared state.
         self.state.stealers.write().push(worker.stealer());
 
-        WorkQueueIterator {
+        Self {
             state: self.state.clone(),
             worker,
         }
     }
 }
 
-/// Iterator yield tasks from the work-stealing queue.
-pub struct WorkQueueIterator<T> {
-    state: Arc<State<T>>,
-    worker: Worker<T>,
-}
-
-impl<T> Iterator for WorkQueueIterator<T> {
+impl<T> Iterator for WorkStealingIterator<T> {
     type Item = VortexResult<T>;
 
     fn next(&mut self) -> Option<VortexResult<T>> {
