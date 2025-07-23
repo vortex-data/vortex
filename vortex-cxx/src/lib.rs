@@ -290,4 +290,4 @@ fn configure_thread_pool(
 // Workaround to conditionally generate bindings of the test function *and* compile the test function: https://github.com/dtolnay/cxx/issues/1325
 // This is done with CMakeLists.txt together.
 #[cfg(feature = "gen_test_data")]
-include!("gen_test_data.rs");
+mod gen_test_data;

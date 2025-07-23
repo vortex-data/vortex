@@ -4,7 +4,9 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 
-#include "vortex.hpp"
+#include "vortex/file.hpp"
+#include "vortex/scan.hpp"
+#include "vortex/write_options.hpp"
 #include "vortex/thread_pool.hpp"
 #include "vortex_cxx_bridge/lib.h"
 #include "vortex_cxx_bridge/gen_test_data.h"
@@ -17,7 +19,7 @@ public:
     static void SetUpTestSuite() {
         vortex::ConfigureThreadPool(1);
         std::string test_data_path = GetTestDataPath("test_data.vortex");
-        vortex::ffi::generate_test_vortex_file(test_data_path.c_str());
+        vortex::ffi::testing::generate_test_vortex_file(test_data_path.c_str());
     }
 
 protected:
