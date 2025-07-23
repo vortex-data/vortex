@@ -32,6 +32,7 @@ itertools = { workspace = true }
 parking_lot = { workspace = true }
 roaring = { workspace = true, optional = true }
 tokio = { workspace = true }
+rand = { workspace = true }
 
 [features]
 default = ["tokio"]
