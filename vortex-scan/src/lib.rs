@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future::Future;
 use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
@@ -9,6 +8,7 @@ use std::sync::Arc;
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use futures::executor::{LocalPool, ThreadPool};
+use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
 use futures::task::{LocalSpawnExt, SpawnExt};
 use futures::{Stream, StreamExt, stream};
@@ -36,6 +36,7 @@ pub mod row_mask;
 mod selection;
 mod split_by;
 mod tasks;
+mod work_queue;
 
 pub use multi_scan::{MultiScan, MultiScanIterator};
 use tasks::{TaskContext, split_exec};
@@ -170,7 +171,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    pub fn build(mut self) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<A>>>>> {
+    pub fn build(mut self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
