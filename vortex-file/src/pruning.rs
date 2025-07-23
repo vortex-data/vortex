@@ -48,7 +48,7 @@ pub fn extract_relevant_file_stats_as_struct_row(
             let Some(stat_value) = stat_set.get(*stat).and_then(|p| p.as_exact()) else {
                 vortex_bail!("missing stat {}, {} from stats set", field, stat)
             };
-            if stat == &Stat::Max || stat == &Stat::Min {
+            if stat == &Stat::Max || stat == &Stat::Min || stat == &Stat::NaNCount {
                 columns.push((
                     field_path_stat_field_name(field_path, *stat),
                     ConstantArray::new(Scalar::new(field_dtype.clone(), stat_value.clone()), 1)
