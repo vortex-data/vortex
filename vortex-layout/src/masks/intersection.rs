@@ -154,7 +154,7 @@ impl Iterator for IntersectionMaskIterator<'_> {
 }
 
 #[cfg(test)]
-impl IntersectionMaskIterator {
+impl IntersectionMaskIterator<'_> {
     /// Convenience method to create from a vector of mask vectors (for testing)
     pub fn from_mask_vecs(mask_vecs: Vec<Vec<Mask>>) -> Self {
         let iterators: Vec<BoxMaskIterator> = mask_vecs

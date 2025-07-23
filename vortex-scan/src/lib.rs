@@ -175,7 +175,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    fn build(self) -> VortexResult<Vec<impl Future<Output = VortexResult<Option<A>>>>> {
+    fn build(self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
@@ -241,7 +241,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
 
         let mut limit = self.limit;
         masks
-            .map(move |row_mask| split_exec(ctx.clone(), row_mask?, limit.as_mut()))
+            .map(move |row_mask| split_exec(ctx.clone(), row_mask?, limit.as_mut()).boxed())
             .collect::<VortexResult<Vec<_>>>()
     }
 
