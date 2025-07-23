@@ -12,7 +12,7 @@ use crate::row_mask::RowMask;
 /// Given an iterator of masks a range and a selection, returns row masks that intersect the range
 /// and satisfy the selection
 pub struct SelectionIntersectionMaskIterator<'a> {
-    iterators: BoxMaskIterator<'a>,
+    iterator: BoxMaskIterator<'a>,
     offset: u64,
     selection: Selection,
     range: Range<u64>,
@@ -21,7 +21,7 @@ pub struct SelectionIntersectionMaskIterator<'a> {
 impl<'a> SelectionIntersectionMaskIterator<'a> {
     pub fn new(iterators: BoxMaskIterator<'a>, selection: Selection) -> Self {
         Self {
-            iterators,
+            iterator: iterators,
             selection,
             offset: 0,
             range: 0..u64::MAX,
@@ -38,7 +38,7 @@ impl Iterator for SelectionIntersectionMaskIterator<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let mask = match self.iterators.next() {
+            let mask = match self.iterator.next() {
                 None => return None,
                 Some(Err(e)) => return Some(Err(e)),
                 Some(Ok(mask)) => mask,

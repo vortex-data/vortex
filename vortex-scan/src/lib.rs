@@ -33,7 +33,7 @@ use vortex_metrics::VortexMetrics;
 mod multi_scan;
 pub mod row_mask;
 mod selection;
-pub mod selection_intersection;
+mod selection_intersection;
 mod split_by;
 mod tasks;
 

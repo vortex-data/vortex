@@ -243,7 +243,7 @@ impl TableFunction for VortexTableFunction {
         let projection_expr = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
 
-        log::info!(
+        log::trace!(
             "Global init Vortex scan SELECT {} WHERE {}",
             &projection_expr,
             filter_expr

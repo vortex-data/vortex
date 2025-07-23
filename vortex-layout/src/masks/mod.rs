@@ -69,6 +69,6 @@ impl Iterator for AllFalseMaskIterator {
 }
 
 // Helper function to create the iterator
-pub fn all_constant_mask_iterator(count: u64, value: bool) -> AllFalseMaskIterator {
-    AllFalseMaskIterator::new(count, value)
+pub fn all_constant_mask_iterator(row_count: u64, value: bool) -> AllFalseMaskIterator {
+    AllFalseMaskIterator::new(row_count, value)
 }
