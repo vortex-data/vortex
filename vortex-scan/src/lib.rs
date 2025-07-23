@@ -8,6 +8,7 @@ use std::sync::Arc;
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use futures::executor::{LocalPool, ThreadPool};
+use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
 use futures::task::{LocalSpawnExt, SpawnExt};
 use futures::{Stream, StreamExt, stream};
@@ -36,6 +37,7 @@ mod selection;
 mod selection_intersection;
 mod split_by;
 mod tasks;
+mod work_queue;
 
 pub use multi_scan::{MultiScan, MultiScanIterator};
 use tasks::{TaskContext, split_exec};

@@ -291,7 +291,7 @@ mod tests {
         ]),
         Nullability::NonNullable),
         vec![
-            Scalar::primitive(23592960, Nullability::NonNullable),
+            Scalar::primitive(23592960u32, Nullability::NonNullable),
             Scalar::primitive(f16::from_f32(2.6584664e36f32), Nullability::NonNullable),
         ],
     ))]
@@ -303,7 +303,7 @@ mod tests {
         ]),
         Nullability::NonNullable),
         vec![
-            Scalar::primitive(415118687234i64, Nullability::NonNullable),
+            Scalar::primitive(415118687234u64, Nullability::NonNullable),
             Scalar::primitive(2.6584664e36f32, Nullability::NonNullable),
             Scalar::primitive(f16::from_f32(2.6584664e36f32), Nullability::NonNullable),
         ],
