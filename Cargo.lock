@@ -6911,6 +6911,7 @@ dependencies = [
  "crossbeam-queue",
  "futures",
  "itertools 0.14.0",
+ "log",
  "parking_lot",
  "rand 0.9.2",
  "roaring",
@@ -6923,6 +6924,7 @@ dependencies = [
  "vortex-layout",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-utils",
 ]
 
 [[package]]

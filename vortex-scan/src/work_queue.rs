@@ -170,14 +170,16 @@ impl<T> Iterator for WorkQueueIterator<T> {
 mod fuzz_tests {
     use super::*;
     use itertools::Itertools;
+    use log::info;
+    use parking_lot::Mutex;
     use rand::prelude::*;
-    use std::collections::HashMap;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering::SeqCst;
     use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;
-    use vortex_error::vortex_bail;
+    use vortex_error::{vortex_bail, vortex_panic};
+    use vortex_utils::aliases::hash_map::HashMap;
 
     #[test]
     fn test_worker_factory_combinations() {
@@ -188,9 +190,8 @@ mod fuzz_tests {
         for &num_factories in &factory_counts {
             for &num_workers in &worker_counts {
                 for &tasks_per_factory in &task_counts {
-                    println!(
-                        "Testing: {} factories, {} workers, {} tasks/factory",
-                        num_factories, num_workers, tasks_per_factory
+                    info!(
+                        "Testing: {num_factories} factories, {num_workers} workers, {tasks_per_factory} tasks/factory"
                     );
 
                     test_concurrent_processing(num_factories, num_workers, tasks_per_factory);
@@ -204,9 +205,8 @@ mod fuzz_tests {
         let scenarios = [(10, 1, 2), (15, 2, 2), (12, 2, 1)];
 
         for &(num_factories, initial_workers, additional_workers) in &scenarios {
-            println!(
-                "Testing dynamic workers: {} factories, {} initial, {} additional",
-                num_factories, initial_workers, additional_workers
+            info!(
+                "Testing dynamic workers: {num_factories} factories, {initial_workers} initial, {additional_workers} additional"
             );
             test_dynamic_workers(num_factories, initial_workers, additional_workers);
         }
@@ -217,19 +217,15 @@ mod fuzz_tests {
         // Many small factories
         let small_factory_tests = [(50, 4), (100, 6), (200, 8)];
         for &(factories, workers) in &small_factory_tests {
-            println!(
-                "Testing many small factories: {} factories, {} workers",
-                factories, workers
-            );
+            info!("Testing many small factories: {factories} factories, {workers} workers");
             test_many_small_factories(factories, workers);
         }
 
         // Few large factories
         let large_factory_tests = [(2, 4, 500), (5, 6, 200), (3, 8, 1000)];
         for &(factories, workers, tasks) in &large_factory_tests {
-            println!(
-                "Testing few large factories: {} factories, {} workers, {} tasks each",
-                factories, workers, tasks
+            info!(
+                "Testing few large factories: {factories} factories, {workers} workers, {tasks} tasks each"
             );
             test_few_large_factories(factories, workers, tasks);
         }
@@ -237,20 +233,14 @@ mod fuzz_tests {
         // Mixed sizes with deterministic patterns
         let mixed_tests = [(10, 4), (20, 6), (30, 8)];
         for &(factories, workers) in &mixed_tests {
-            println!(
-                "Testing mixed factory sizes: {} factories, {} workers",
-                factories, workers
-            );
+            info!("Testing mixed factory sizes: {factories} factories, {workers} workers");
             test_mixed_factory_sizes_deterministic(factories, workers);
         }
 
         // Empty factories mixed in
         let empty_mixed_tests = [(10, 3), (20, 4), (15, 6)];
         for &(factories, workers) in &empty_mixed_tests {
-            println!(
-                "Testing with empty factories: {} factories, {} workers",
-                factories, workers
-            );
+            info!("Testing with empty factories: {factories} factories, {workers} workers");
             test_empty_factories_mixed_deterministic(factories, workers);
         }
     }
@@ -261,34 +251,28 @@ mod fuzz_tests {
         // All empty factories
         let empty_tests = [(5, 2), (10, 4), (20, 6)];
         for &(factories, workers) in &empty_tests {
-            println!(
-                "Testing all empty factories: {} factories, {} workers",
-                factories, workers
-            );
+            info!("Testing all empty factories: {factories} factories, {workers} workers");
             test_all_empty_factories(factories, workers);
         }
 
         // Single task per factory
         let single_tests = [(10, 3), (20, 5), (50, 8)];
         for &(factories, workers) in &single_tests {
-            println!(
-                "Testing single task per factory: {} factories, {} workers",
-                factories, workers
-            );
+            info!("Testing single task per factory: {factories} factories, {workers} workers");
             test_single_task_per_factory(factories, workers);
         }
 
         // Single factory, many workers
         let single_factory_tests = [2, 4, 6, 8, 12];
         for &workers in &single_factory_tests {
-            println!("Testing single factory, {} workers", workers);
+            info!("Testing single factory, {workers} workers");
             test_single_factory_many_workers(workers);
         }
 
         // Many factories, single worker
         let many_factory_tests = [5, 10, 25, 50, 100];
         for &factories in &many_factory_tests {
-            println!("Testing {} factories, single worker", factories);
+            info!("Testing {factories} factories, single worker");
             test_many_factories_single_worker(factories);
         }
     }
@@ -328,9 +312,7 @@ mod fuzz_tests {
         // Spawn workers with barrier for synchronized start
         let barrier = Arc::new(Barrier::new(num_workers));
         let processed_count = Arc::new(AtomicUsize::new(0));
-        let task_tracking = Arc::new(std::sync::Mutex::new(
-            HashMap::<(usize, usize), usize>::new(),
-        ));
+        let task_tracking = Arc::new(Mutex::new(HashMap::<(usize, usize), usize>::new()));
 
         let handles: Vec<_> = (0..num_workers)
             .map(|worker_id| {
@@ -341,20 +323,20 @@ mod fuzz_tests {
 
                 thread::spawn(move || {
                     barrier.wait(); // Synchronized start
-                    let mut iterator = queue.new_iterator();
+                    let iterator = queue.new_iterator();
                     let mut local_count = 0;
 
-                    while let Some(task_result) = iterator.next() {
+                    for task_result in iterator {
                         match task_result {
                             Ok(task) => {
                                 // Track this task to detect duplicates
                                 {
-                                    let mut tracking = task_tracking.lock().unwrap();
+                                    let mut tracking = task_tracking.lock();
                                     *tracking.entry(task).or_insert(0) += 1;
                                 }
                                 local_count += 1;
                             }
-                            Err(e) => panic!("Worker {} unexpected error: {:?}", worker_id, e),
+                            Err(e) => vortex_panic!("Worker {worker_id} unexpected error: {e:?}"),
                         }
                     }
 
@@ -370,20 +352,16 @@ mod fuzz_tests {
         // Verify results
         assert_eq!(
             total_processed, expected_total,
-            "Expected {} tasks, but processed {}",
-            expected_total, total_processed
+            "Expected {expected_total} tasks, but processed {total_processed}"
         );
 
         // Check for duplicate processing
-        let tracking = task_tracking.lock().unwrap();
+        let tracking = task_tracking.lock();
         for (task, count) in tracking.iter() {
-            assert_eq!(*count, 1, "Task {:?} was processed {} times", task, count);
+            assert_eq!(*count, 1, "Task {task:?} was processed {count} times");
         }
 
-        println!(
-            "✓ Workers processed: {:?}, Total: {}",
-            results, total_processed
-        );
+        info!("✓ Workers processed: {results:?}, Total: {total_processed}");
     }
 
     fn test_dynamic_workers(
@@ -414,11 +392,11 @@ mod fuzz_tests {
 
             handles.push(thread::spawn(move || {
                 start_barrier.wait();
-                let mut iterator = queue.new_iterator();
+                let iterator = queue.new_iterator();
                 let mut local_count = 0;
 
-                while let Some(task_result) = iterator.next() {
-                    if let Ok(_) = task_result {
+                for task_result in iterator {
+                    if task_result.is_ok() {
                         local_count += 1;
                     }
                 }
@@ -436,11 +414,11 @@ mod fuzz_tests {
             let processed_count = processed_count.clone();
 
             handles.push(thread::spawn(move || {
-                let mut iterator = queue.new_iterator();
+                let iterator = queue.new_iterator();
                 let mut local_count = 0;
 
-                while let Some(task_result) = iterator.next() {
-                    if let Ok(_) = task_result {
+                for task_result in iterator {
+                    if task_result.is_ok() {
                         local_count += 1;
                     }
                 }
@@ -454,10 +432,7 @@ mod fuzz_tests {
         let total_processed = processed_count.load(SeqCst);
 
         assert_eq!(total_processed, expected_total);
-        println!(
-            "✓ Dynamic workers {:?} processed {} tasks",
-            results, total_processed
-        );
+        info!("✓ Dynamic workers {results:?} processed {total_processed} tasks");
     }
 
     fn test_many_small_factories(num_factories: usize, num_workers: usize) {
@@ -569,9 +544,6 @@ mod fuzz_tests {
         let total_processed = processed_count.load(SeqCst);
 
         assert_eq!(total_processed, expected_total);
-        println!(
-            "✓ Workers {:?} processed {} tasks as expected",
-            results, total_processed
-        );
+        info!("✓ Workers {results:?} processed {total_processed} tasks as expected");
     }
 }
