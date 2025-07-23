@@ -199,7 +199,7 @@ impl AnalysisExpr for BinaryExpr {
             }
             Operator::Gte => {
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
-                let min_max_check = lt_eq(self.lhs.max(catalog)?, self.rhs.min(catalog)?);
+                let min_max_check = lt(self.lhs.max(catalog)?, self.rhs.min(catalog)?);
 
                 if let Some(nan_check) = make_nan_predicate(self.lhs(), self.rhs(), catalog) {
                     Some(and(nan_check, min_max_check))

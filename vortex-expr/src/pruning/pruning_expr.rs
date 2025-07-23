@@ -433,7 +433,7 @@ mod tests {
                 // This is the standard conversion of the >= operator. Comparing NAN to a max
                 // stat is nonsensical, as min/max stats ignore NaNs, but this should be short-circuited
                 // by the previous check for nan_count anyway.
-                lt_eq(col("float_col_max"), lit(f32::NAN)),
+                lt(col("float_col_max"), lit(f32::NAN)),
             )
         );
 
