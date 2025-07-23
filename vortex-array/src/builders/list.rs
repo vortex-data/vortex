@@ -25,21 +25,38 @@ pub struct ListBuilder<O: NativePType> {
 }
 
 impl<O: OffsetPType> ListBuilder<O> {
+    /// Create a ListBuilder with the specified capacity for indices.
+    ///
+    /// # Notes
+    ///
+    /// The number of indices is one more than the number of lists in the array!
+    ///
+    /// See also: [ListBuilder::with_values_and_index_capacity].
     pub fn with_capacity(
         value_dtype: Arc<DType>,
         nullability: Nullability,
-        capacity: usize,
+        index_capacity: usize,
     ) -> Self {
-        Self::with_values_and_index_capacity(value_dtype, nullability, 2 * capacity, capacity) // FIXME(DK): capacity + 1 for index capacity?
+        // I would expect the list to have more than one value per index
+        Self::with_values_and_index_capacity(
+            value_dtype,
+            nullability,
+            2 * index_capacity,
+            index_capacity,
+        )
     }
 
+    /// Create a ListBuilder with the specified capacity for indices and values.
+    ///
+    /// # Notes
+    ///
+    /// The number of indices is one more than the number of lists in the array!
     pub fn with_values_and_index_capacity(
         value_dtype: Arc<DType>,
         nullability: Nullability,
         values_capacity: usize,
         index_capacity: usize,
     ) -> Self {
-        // I would expect the list to have more than one value per index
         let value_builder = builder_with_capacity(value_dtype.as_ref(), values_capacity);
         let mut index_builder = PrimitiveBuilder::with_capacity(NonNullable, index_capacity);
 
