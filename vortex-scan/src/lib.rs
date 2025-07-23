@@ -285,14 +285,6 @@ impl ScanBuilder<ArrayRef> {
         }
     }
 
-    /// Map the scan into a stream of Arrow [`RecordBatch`].
-    pub fn map_to_record_batch(self, schema: SchemaRef) -> ScanBuilder<RecordBatch> {
-        self.map(move |array| {
-            let st = array.to_struct()?;
-            st.into_record_batch_with_schema(schema.as_ref())
-        })
-    }
-
     /// Returns a stream over the scan with each CPU task polled on the current thread as per
     /// the behaviour of [`futures::stream::Buffered`].
     pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
