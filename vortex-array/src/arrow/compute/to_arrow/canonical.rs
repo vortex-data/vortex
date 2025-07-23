@@ -212,10 +212,18 @@ fn to_arrow_primitive<T: ArrowPrimitiveType>(array: PrimitiveArray) -> VortexRes
 fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     let null_buffer = array.validity_mask()?.to_null_buffer();
     let buffer: Buffer<i128> = match array.values_type() {
-        DecimalValueType::I8 => array.buffer::<i8>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I16 => array.buffer::<i16>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I32 => array.buffer::<i32>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I64 => array.buffer::<i64>().into_iter().map(|x| x.as_()).collect(),
+        DecimalValueType::I8 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I16 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i16>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I32 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i32>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I64 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i64>().into_iter().map(|x| x.as_()))
+        }
         DecimalValueType::I128 => array.buffer::<i128>(),
         DecimalValueType::I256 => array
             .buffer::<vortex_scalar::i256>()
@@ -224,7 +232,7 @@ fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
                 x.to_i128()
                     .ok_or_else(|| vortex_err!("i256 to i128 narrowing cannot be done safely"))
             })
-            .try_collect()?,
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
         _ => vortex_bail!("unknown value type {:?}", array.values_type()),
     };
     Ok(Arc::new(
@@ -239,15 +247,24 @@ fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
 fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     let null_buffer = array.validity_mask()?.to_null_buffer();
     let buffer: Buffer<i256> = match array.values_type() {
-        DecimalValueType::I8 => array.buffer::<i8>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I16 => array.buffer::<i16>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I32 => array.buffer::<i32>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I64 => array.buffer::<i64>().into_iter().map(|x| x.as_()).collect(),
-        DecimalValueType::I128 => array
-            .buffer::<i128>()
-            .into_iter()
-            .map(|x| vortex_scalar::i256::from_i128(x).into())
-            .collect(),
+        DecimalValueType::I8 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I16 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i16>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I32 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i32>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I64 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i64>().into_iter().map(|x| x.as_()))
+        }
+        DecimalValueType::I128 => Buffer::from_trusted_len_iter(
+            array
+                .buffer::<i128>()
+                .into_iter()
+                .map(|x| vortex_scalar::i256::from_i128(x).into()),
+        ),
         DecimalValueType::I256 => Buffer::<i256>::from_byte_buffer(array.byte_buffer()),
         _ => vortex_bail!("unknown type {:?}", array.values_type()),
     };

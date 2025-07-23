@@ -40,22 +40,34 @@ where
     }
 }
 
+/// Traverse a [`Node`]-based tree using a closure. It will do it by walking the tree from the bottom going up.
 pub fn pre_order_visit_up<'a, T: 'a + Node>(
+    tree: &'a T,
     f: impl FnMut(&'a T) -> VortexResult<TraversalOrder>,
-) -> impl NodeVisitor<'a, NodeTy = T> {
-    FnVisitor {
+) -> VortexResult<()> {
+    let mut visitor = FnVisitor {
         f_down: None,
         f_up: Some(f),
-        _data: Default::default(),
-    }
+        _data: PhantomData,
+    };
+
+    tree.accept(&mut visitor)?;
+
+    Ok(())
 }
 
+/// Traverse a [`Node`]-based tree using a closure. It will do it by walking the tree from the top going down.
 pub fn pre_order_visit_down<'a, T: 'a + Node>(
+    tree: &'a T,
     f: impl FnMut(&'a T) -> VortexResult<TraversalOrder>,
-) -> impl NodeVisitor<'a, NodeTy = T> {
-    FnVisitor {
+) -> VortexResult<()> {
+    let mut visitor = FnVisitor {
         f_down: Some(f),
         f_up: None,
-        _data: Default::default(),
-    }
+        _data: PhantomData,
+    };
+
+    tree.accept(&mut visitor)?;
+
+    Ok(())
 }

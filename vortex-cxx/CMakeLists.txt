@@ -27,6 +27,10 @@ FetchContent_MakeAvailable(Corrosion)
 # Import Rust crate using Corrosion
 if(VORTEX_ENABLE_TESTING)
     set(CORROSION_FEATURES gen_test_data)
+    # Workaround to conditionally generate bindings of the test function *and* compile the test function: https://github.com/dtolnay/cxx/issues/1325
+    set(RUST_SOURCE_FILE lib.rs gen_test_data.rs)
+else()
+    set(RUST_SOURCE_FILE lib.rs)
 endif()
 corrosion_import_crate(
     MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
@@ -35,7 +39,7 @@ corrosion_import_crate(
 )
 
 # Enable CXX bridge for the Rust crate
-corrosion_add_cxxbridge(vortex_cxx_bridge CRATE vortex_cxx FILES lib.rs)
+corrosion_add_cxxbridge(vortex_cxx_bridge CRATE vortex_cxx FILES ${RUST_SOURCE_FILE})
 
 FetchContent_Declare(nanoarrow
     URL "https://www.apache.org/dyn/closer.lua?action=download&filename=arrow/apache-arrow-nanoarrow-0.7.0/apache-arrow-nanoarrow-0.7.0.tar.gz")

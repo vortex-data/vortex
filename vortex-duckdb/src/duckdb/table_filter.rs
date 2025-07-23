@@ -264,8 +264,12 @@ wrapper!(
     /// A handle to mutable dynamic filter data.
     DynamicFilterData,
     cpp::duckdb_vx_dynamic_filter_data,
-    |ptr: &mut cpp::duckdb_vx_dynamic_filter_data| unsafe { cpp::duckdb_vx_dynamic_filter_data_drop(*ptr) }
+    cpp::duckdb_vx_dynamic_filter_data_free
 );
+
+/// This handle wraps a single shared_ptr on C++ side, so we can assert is Send + Sync
+unsafe impl Send for DynamicFilterData {}
+unsafe impl Sync for DynamicFilterData {}
 
 impl DynamicFilterData {
     /// Fetches the latest value from the dynamic filter data, if it has been initialized.

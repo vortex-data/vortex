@@ -4,6 +4,7 @@
 pub mod between;
 pub mod binary;
 pub mod cast;
+pub mod dynamic;
 pub mod get_item;
 pub mod is_null;
 pub mod like;

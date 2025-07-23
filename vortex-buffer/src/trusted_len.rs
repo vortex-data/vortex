@@ -1,6 +1,8 @@
 //  SPDX-License-Identifier: Apache-2.0
 //  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::ProcessResults;
+
 /// Trait for all types which have a known upper-bound.
 ///
 /// Functions that receive a `TrustedLen` iterator can assume that it's `size_hint` is exact,
@@ -17,6 +19,11 @@ macro_rules! impl_for_range {
     ($($typ:ty),*) => {
         $(
             unsafe impl TrustedLen for std::ops::Range<$typ> {}
+            unsafe impl TrustedLen for std::ops::RangeInclusive<$typ> {}
+            // StepBy
+            // This is only fine for iterators that are TrustedRandomAccess but instead of adding another trait we just declare step by of ranges as supported
+            unsafe impl TrustedLen for std::iter::StepBy<std::ops::Range<$typ>> {}
+            unsafe impl TrustedLen for std::iter::StepBy<std::ops::RangeInclusive<$typ>> {}
         )*
     };
 }
@@ -59,3 +66,10 @@ unsafe impl<T, const N: usize> TrustedLen for std::array::IntoIter<T, N> {}
 
 // Buffer
 unsafe impl<T> TrustedLen for crate::Iter<'_, T> {}
+unsafe impl<T: Copy> TrustedLen for crate::BufferIterator<T> {}
+
+// ProcessResults
+unsafe impl<'a, I, T: 'a, E: 'a> TrustedLen for ProcessResults<'a, I, E> where
+    I: TrustedLen<Item = Result<T, E>>
+{
+}

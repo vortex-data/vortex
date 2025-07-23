@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::fmt::Formatter;
 use std::sync::{Arc, Weak};
 
 use dashmap::DashMap;
@@ -9,14 +10,15 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::{Result as DFResult, Statistics};
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig, FileSource};
-use datafusion::physical_plan::PhysicalExpr;
 use datafusion::physical_plan::filter_pushdown::{
     FilterPushdownPropagation, PredicateSupport, PredicateSupports,
 };
 use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
+use datafusion::physical_plan::{DisplayFormatType, PhysicalExpr};
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::error::VortexExpect as _;
+use vortex::expr::pruning::pruning_expr;
 use vortex::expr::{ExprRef, VortexExpr, and, root};
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
@@ -167,6 +169,26 @@ impl FileSource for VortexSource {
 
     fn file_type(&self) -> &str {
         VORTEX_FILE_EXTENSION
+    }
+
+    fn fmt_extra(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
+        match t {
+            DisplayFormatType::Default | DisplayFormatType::Verbose => {
+                if let Some(predicate) = &self.predicate {
+                    write!(f, ", predicate={predicate}")?;
+                    if let Some((pruning_predicate, _)) = pruning_expr(predicate) {
+                        writeln!(f, ", pruning_predicate={pruning_predicate}")?;
+                    }
+                };
+                Ok(())
+            }
+            DisplayFormatType::TreeRender => {
+                if let Some(predicate) = &self.predicate {
+                    writeln!(f, "predicate={}", predicate.as_ref())?;
+                }
+                Ok(())
+            }
+        }
     }
 
     fn try_pushdown_filters(

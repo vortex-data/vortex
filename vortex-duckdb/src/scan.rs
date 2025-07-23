@@ -53,11 +53,11 @@ impl std::fmt::Debug for VortexBindData {
 }
 
 pub struct VortexGlobalData {
-    multi_scan: MultiScan<(ArrayRef, Arc<ConversionCache>)>,
+    scan: MultiScan<(ArrayRef, Arc<ConversionCache>)>,
 }
 
 pub struct VortexLocalData {
-    multi_scan_iterator: MultiScanIterator<(ArrayRef, Arc<ConversionCache>)>,
+    iterator: MultiScanIterator<(ArrayRef, Arc<ConversionCache>)>,
     exporter: Option<ArrayExporter>,
 }
 
@@ -125,7 +125,11 @@ fn extract_table_filter_expr(
                         .column_names
                         .get(column_ids[idx.as_usize()].as_usize())
                         .vortex_expect("exists");
-                    try_from_table_filter(&ex, &col(name.as_str()))
+                    try_from_table_filter(
+                        &ex,
+                        &col(name.as_str()),
+                        init.bind_data().first_file.dtype(),
+                    )
                 })
                 .reduce(|l, r| l?.zip(r?).map(|(l, r)| Ok(and(l, r))).transpose())
         })
@@ -172,8 +176,13 @@ impl TableFunction for VortexTableFunction {
             .collect::<Result<_, _>>()
             .map_err(|e| vortex_err!("Failed to glob files: {}", e))?;
 
+        if file_paths.is_empty() {
+            vortex_bail!("No files matched the glob");
+        }
+
         // The first file is skipped in `create_file_paths_queue`.
         let first_file = VortexOpenOptions::file()
+            // FIXME(ngates): out of bounds if no files matched the glob.
             .open_blocking(&file_paths[0])
             .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
@@ -201,7 +210,7 @@ impl TableFunction for VortexTableFunction {
     ) -> VortexResult<()> {
         loop {
             if local_state.exporter.is_none() {
-                let Some(result) = local_state.multi_scan_iterator.next() else {
+                let Some(result) = local_state.iterator.next() else {
                     return Ok(());
                 };
 
@@ -238,7 +247,7 @@ impl TableFunction for VortexTableFunction {
         let projection_expr = extract_projection_expr(init_input);
         let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
 
-        log::info!(
+        log::trace!(
             "Global init Vortex scan SELECT {} WHERE {}",
             &projection_expr,
             filter_expr
@@ -264,21 +273,25 @@ impl TableFunction for VortexTableFunction {
                             // the first file was already opened during bind.
                             first_file
                         } else {
-                            VortexOpenOptions::file()
-                                .open_blocking(&path)
-                                .vortex_expect("Failed to open Vortex file")
+                            VortexOpenOptions::file().open_blocking(&path)?
                         };
 
-                        file.scan()
-                            .vortex_expect("Failed to create scan builder")
+                        if let Some(filter) = &filter_expr {
+                            if file.can_prune(filter)? {
+                                return Ok(vec![]);
+                            }
+                        };
+
+                        file.scan()?
                             .with_some_filter(filter_expr)
                             .with_projection(projection_expr)
                             .map(move |split| Ok((split, conversion_cache.clone())))
+                            .build()
                     }
                 });
 
         Ok(VortexGlobalData {
-            multi_scan: MultiScan::new(closures),
+            scan: MultiScan::new(closures),
         })
     }
 
@@ -287,7 +300,7 @@ impl TableFunction for VortexTableFunction {
         global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
         Ok(VortexLocalData {
-            multi_scan_iterator: global.multi_scan.new_scan_iterator(),
+            iterator: global.scan.clone().new_iterator(),
             exporter: None,
         })
     }

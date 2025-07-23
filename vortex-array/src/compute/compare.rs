@@ -31,7 +31,7 @@ pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> Vorte
 }
 
 /// Comparison operators for comparing arrays.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
 pub enum Operator {
     /// Equal to (==)
     Eq,
@@ -94,7 +94,7 @@ inventory::collect!(CompareKernelRef);
 /// Trait for implementing comparison operations on specific array types.
 pub trait CompareKernel: VTable {
     /// Compare two arrays using the specified operator.
-    /// 
+    ///
     /// Returns None if this kernel cannot handle the comparison.
     fn compare(
         &self,
@@ -326,7 +326,7 @@ fn arrow_compare(
 }
 
 /// Compares two scalar values using the specified operator.
-/// 
+///
 /// Returns a boolean scalar with the result of the comparison.
 /// If either scalar is null, the result is null.
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {

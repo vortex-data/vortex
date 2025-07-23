@@ -6,9 +6,9 @@ concurrency:
 
 on:
   push:
-    branches: ["develop"]
-  pull_request: {}
-  workflow_dispatch: {}
+    branches: [ "develop" ]
+  pull_request: { }
+  workflow_dispatch: { }
 
 permissions:
   actions: read
@@ -386,6 +386,10 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'corretto'
+          java-version: '17'
       - uses: ./.github/actions/setup-rust
       - run: ./gradlew test --parallel
         working-directory: ./java
@@ -479,18 +483,19 @@ jobs:
       - name: Build and run C++ unit tests
         working-directory: vortex-cxx/
         run: |
-          mkdir -p build/debug
-          cd build/debug
-          cmake -DVORTEX_ENABLE_TESTING=ON ../..
-          cmake --build .
+          mkdir -p build
+          cd build
+          cmake -DVORTEX_ENABLE_TESTING=ON ..
+          cmake --build . --parallel $(nproc)
           ctest -V
-      - name: Build the static library in release mode
-        working-directory: vortex-cxx/
+      - name: Build and run the example in release mode
+        working-directory: vortex-cxx/examples
         run: |
-          mkdir -p build/release
-          cd build/release
-          cmake -DCMAKE_BUILD_TYPE=Release ../..
-          cmake --build .
+          mkdir -p build
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          cmake --build . --parallel $(nproc)
+          ./hello-vortex ../goldenfiles/example.vortex
 
   wasm-integration:
     name: "wasm-integration"

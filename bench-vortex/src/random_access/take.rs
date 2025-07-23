@@ -22,8 +22,14 @@ use vortex::stream::ArrayStreamExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, IntoArray};
 
-pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
-    take_vortex(path, indices).await
+pub async fn take_vortex_tokio(
+    path: &Path,
+    indices: Buffer<u64>,
+    validate: impl Fn(ArrayRef),
+) -> anyhow::Result<ArrayRef> {
+    let result = take_vortex(path, indices).await?;
+    validate(result.clone());
+    Ok(result)
 }
 
 pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> anyhow::Result<RecordBatch> {

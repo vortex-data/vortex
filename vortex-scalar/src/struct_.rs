@@ -8,7 +8,9 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+};
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
@@ -231,6 +233,30 @@ impl<'a> StructScalar<'a> {
 impl Scalar {
     /// Creates a new struct scalar with the given fields.
     pub fn struct_(dtype: DType, children: Vec<Scalar>) -> Self {
+        let DType::Struct(struct_fields, _) = &dtype else {
+            vortex_panic!("Expected struct dtype, found {}", dtype);
+        };
+
+        let field_dtypes = struct_fields.fields();
+        if children.len() != field_dtypes.len() {
+            vortex_panic!(
+                "Struct has {} fields but {} children were provided",
+                field_dtypes.len(),
+                children.len()
+            );
+        }
+
+        for (idx, (child, expected_dtype)) in children.iter().zip(field_dtypes).enumerate() {
+            if child.dtype() != &expected_dtype {
+                vortex_panic!(
+                    "Field {} expected dtype {} but got {}",
+                    idx,
+                    expected_dtype,
+                    child.dtype()
+                );
+            }
+        }
+
         Self {
             dtype,
             value: ScalarValue(InnerScalarValue::List(
@@ -307,5 +333,33 @@ mod tests {
         let scalar_f1 = scalar_f1.unwrap();
         assert_eq!(scalar_f1, f1_val_null);
         assert_eq!(scalar_f1.dtype(), &f1_dt);
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected struct dtype")]
+    fn test_struct_scalar_wrong_dtype() {
+        let dtype = DType::Primitive(I32, Nullability::NonNullable);
+        let scalar = Scalar::primitive::<i32>(1, Nullability::NonNullable);
+
+        Scalar::struct_(dtype, vec![scalar]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Struct has 2 fields but 1 children were provided")]
+    fn test_struct_scalar_wrong_child_count() {
+        let (_, _, dtype) = setup_types();
+        let f0_val = Scalar::primitive::<i32>(1, Nullability::NonNullable);
+
+        Scalar::struct_(dtype, vec![f0_val]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Field 0 expected dtype i32 but got utf8")]
+    fn test_struct_scalar_wrong_child_dtype() {
+        let (_, _, dtype) = setup_types();
+        let f0_val = Scalar::utf8("wrong", Nullability::NonNullable);
+        let f1_val = Scalar::utf8("hello", Nullability::NonNullable);
+
+        Scalar::struct_(dtype, vec![f0_val, f1_val]);
     }
 }
