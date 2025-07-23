@@ -297,7 +297,7 @@ mod tests {
         assert_eq!(&converted, &(expected_expr));
     }
 
-    #[rstest::rstest]
+    #[rstest]
     pub fn pruning_lt_column(available_stats: FieldPathSet) {
         let column = FieldName::from("a");
         let other_col = FieldName::from("b");
