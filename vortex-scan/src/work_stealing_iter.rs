@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::work_queue::{TaskFactory, WorkStealingQueue};
+use std::sync::Arc;
+
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use futures::{StreamExt, TryStreamExt, stream};
-use std::sync::Arc;
 use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIterator;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+
+use crate::work_queue::{TaskFactory, WorkStealingQueue};
 
 type ArrayTask = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 

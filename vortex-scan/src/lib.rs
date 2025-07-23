@@ -4,7 +4,6 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::work_stealing_iter::WorkStealingArrayIterator;
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use futures::executor::ThreadPool;
@@ -32,6 +31,8 @@ use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
 use vortex_layout::{LayoutReader, LayoutReaderRef};
 pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
+
+use crate::work_stealing_iter::WorkStealingArrayIterator;
 
 mod multi_scan;
 pub mod row_mask;
