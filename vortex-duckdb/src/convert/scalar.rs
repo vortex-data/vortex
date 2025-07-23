@@ -272,18 +272,18 @@ impl TryFrom<&Value> for Scalar {
             Val::TimestampMs(millis) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
-                    Arc::new(DType::Primitive(I32, Nullable)),
+                    Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I32, Nullable), ScalarValue::from(millis)),
+                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(millis)),
             )),
             Val::TimestampS(seconds) => Ok(Scalar::extension(
                 Arc::new(ExtDType::new(
                     TIMESTAMP_ID.clone(),
-                    Arc::new(DType::Primitive(I32, Nullable)),
+                    Arc::new(DType::Primitive(I64, Nullable)),
                     Some(TemporalMetadata::Timestamp(TimeUnit::S, None).into()),
                 )),
-                Scalar::new(DType::Primitive(I32, Nullable), ScalarValue::from(seconds)),
+                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(seconds)),
             )),
             Val::Decimal(precision, scale, value) => Ok(Scalar::decimal(
                 DecimalValue::I128(value),

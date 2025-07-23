@@ -11,7 +11,8 @@ use arrow_array::types::{
 };
 use arrow_array::{
     Array, BooleanArray, Date32Array, Decimal128Array, PrimitiveArray, StringArray,
-    TimestampMicrosecondArray, TimestampNanosecondArray,
+    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
+    TimestampSecondArray,
 };
 use arrow_buffer::buffer::{BooleanBuffer, NullBuffer};
 use bitvec::macros::internal::funty::Fundamental;
@@ -24,7 +25,7 @@ use vortex::scalar::DecimalValueType;
 
 use crate::cpp::{
     DUCKDB_TYPE, duckdb_date, duckdb_string_t, duckdb_string_t_data, duckdb_string_t_length,
-    duckdb_time, duckdb_timestamp,
+    duckdb_time, duckdb_timestamp, duckdb_timestamp_ms, duckdb_timestamp_s,
 };
 use crate::duckdb::{DataChunk, Vector};
 use crate::exporter::precision_to_duckdb_storage_size;
@@ -76,10 +77,46 @@ pub fn flat_vector_to_arrow_array(
                 ),
             ))
         }
-        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP
-        | DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS
-        | DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S
-        | DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => {
+        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => {
+            let data = vector.as_slice_with_len::<duckdb_timestamp>(len);
+            let micros = data.iter().map(|duckdb_timestamp { micros }| *micros);
+            let structs = TimestampMicrosecondArray::from_iter_values_with_nulls(
+                micros,
+                Some(NullBuffer::new(BooleanBuffer::collect_bool(
+                    data.len(),
+                    |row| !vector.slow_row_is_null(row as u64),
+                ))),
+            );
+
+            Ok(Arc::new(structs))
+        }
+        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => {
+            let data = vector.as_slice_with_len::<duckdb_timestamp_s>(len);
+            let seconds = data.iter().map(|duckdb_timestamp_s { seconds }| *seconds);
+            let structs = TimestampSecondArray::from_iter_values_with_nulls(
+                seconds,
+                Some(NullBuffer::new(BooleanBuffer::collect_bool(
+                    data.len(),
+                    |row| !vector.slow_row_is_null(row as u64),
+                ))),
+            );
+
+            Ok(Arc::new(structs))
+        }
+        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => {
+            let data = vector.as_slice_with_len::<duckdb_timestamp_ms>(len);
+            let millis = data.iter().map(|duckdb_timestamp_ms { millis }| *millis);
+            let structs = TimestampMillisecondArray::from_iter_values_with_nulls(
+                millis,
+                Some(NullBuffer::new(BooleanBuffer::collect_bool(
+                    data.len(),
+                    |row| !vector.slow_row_is_null(row as u64),
+                ))),
+            );
+
+            Ok(Arc::new(structs))
+        }
+        DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => {
             let data = vector.as_slice_with_len::<duckdb_timestamp>(len);
             let micros = data.iter().map(|duckdb_timestamp { micros }| *micros);
             let structs = TimestampMicrosecondArray::from_iter_values_with_nulls(
