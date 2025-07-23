@@ -62,7 +62,6 @@ impl CompressorStats for StringStats {
         Self {
             src: input.clone(),
             value_count: value_count.try_into().vortex_expect("value_count"),
-            // null_count: null_count.try_into().vortex_expect("null_count"),
             estimated_distinct_count: estimated_distinct,
         }
     }

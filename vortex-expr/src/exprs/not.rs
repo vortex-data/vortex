@@ -96,7 +96,7 @@ impl NotExpr {
 
 impl Display for NotExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "!{}", self.child)
+        write!(f, "(!{})", self.child)
     }
 }
 
@@ -112,7 +112,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{Scope, col, not, root, test_harness};
+    use crate::{Scope, col, get_item, not, root, test_harness};
 
     #[test]
     fn invert_booleans() {
@@ -129,6 +129,15 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![true, false, true, true, false, false]
         );
+    }
+
+    #[test]
+    fn test_display_order_of_operations() {
+        let a = not(get_item("a", root()));
+        let b = get_item("a", not(root()));
+        assert_ne!(a.to_string(), b.to_string());
+        assert_eq!(a.to_string(), "(!$.a)");
+        assert_eq!(b.to_string(), "(!$).a");
     }
 
     #[test]
