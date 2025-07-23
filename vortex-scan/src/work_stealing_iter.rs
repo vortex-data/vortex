@@ -11,9 +11,9 @@ use vortex_array::iter::ArrayIterator;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::work_queue::{TaskFactory, WorkStealingQueue};
+use crate::work_queue::WorkStealingQueue;
 
-type ArrayTask = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
+pub(crate) type ArrayTask = BoxFuture<'static, VortexResult<Option<ArrayRef>>>;
 
 /// A work-stealing iterator that supports dynamically adding tasks from task factories.
 pub(crate) struct WorkStealingArrayIterator {
@@ -32,8 +32,11 @@ impl WorkStealingArrayIterator {
     /// Higher concurrency results in the I/O for more tasks being kicked off ahead of time, but
     /// it also reduces the ability of workers to steal tasks from each other since concurrent
     /// tasks are allocated to a specific worker.
-    pub(crate) fn new(tasks: Vec<ArrayTask>, dtype: Arc<DType>, concurrency: usize) -> Self {
-        let queue = WorkStealingQueue::new([Box::new(move || Ok(tasks)) as TaskFactory<ArrayTask>]);
+    pub(crate) fn new(
+        queue: WorkStealingQueue<ArrayTask>,
+        dtype: Arc<DType>,
+        concurrency: usize,
+    ) -> Self {
         let stream = Self::new_stream(queue.clone(), concurrency);
         Self {
             queue,

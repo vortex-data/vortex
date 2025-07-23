@@ -32,9 +32,12 @@ use vortex_layout::{LayoutReader, LayoutReaderRef};
 pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
 
-use crate::work_stealing_iter::WorkStealingArrayIterator;
+use crate::work_queue::{TaskFactory, WorkStealingQueue};
+use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
 
 mod multi_scan;
+#[cfg(feature = "rayon")]
+pub mod rayon;
 pub mod row_mask;
 mod selection;
 mod split_by;
@@ -315,9 +318,11 @@ impl ScanBuilder<ArrayRef> {
     pub fn into_array_iter(self) -> VortexResult<impl ArrayIterator + Send + Clone + 'static> {
         let dtype = self.dtype()?;
         let concurrency = self.concurrency;
-        let split_tasks = self.build()?;
+        let tasks = self.build()?;
+        let queue = WorkStealingQueue::new([Box::new(move || Ok(tasks)) as TaskFactory<ArrayTask>]);
+
         Ok(WorkStealingArrayIterator::new(
-            split_tasks,
+            queue,
             Arc::new(dtype),
             concurrency,
         ))
