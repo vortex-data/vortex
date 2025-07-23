@@ -10,22 +10,24 @@ use arrow_array::types::{
     UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
 use arrow_array::{
-    Array, BooleanArray, Date32Array, PrimitiveArray, StringArray, TimestampMicrosecondArray,
-    TimestampNanosecondArray,
+    Array, BooleanArray, Date32Array, Decimal128Array, PrimitiveArray, StringArray,
+    TimestampMicrosecondArray, TimestampNanosecondArray,
 };
 use arrow_buffer::buffer::{BooleanBuffer, NullBuffer};
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::ArrayRef;
 use vortex::arrays::StructArray;
 use vortex::arrow::FromArrowArray;
-use vortex::dtype::FieldNames;
+use vortex::dtype::{DecimalDType, FieldNames};
 use vortex::error::{VortexResult, vortex_err};
+use vortex::scalar::DecimalValueType;
 
 use crate::cpp::{
     DUCKDB_TYPE, duckdb_date, duckdb_string_t, duckdb_string_t_data, duckdb_string_t_length,
     duckdb_time, duckdb_timestamp,
 };
 use crate::duckdb::{DataChunk, Vector};
+use crate::exporter::precision_to_duckdb_storage_size;
 
 pub struct DuckString<'a> {
     ptr: &'a mut duckdb_string_t,
@@ -295,7 +297,44 @@ pub fn flat_vector_to_arrow_array(
 
             Ok(Arc::new(structs))
         }
-        _ => todo!(),
+        DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
+            let logical_type = vector.logical_type();
+            let (precision, scale) = logical_type.as_decimal();
+            let decimal_dtype = DecimalDType::new(precision, scale.try_into()?);
+
+            // https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
+            let decimal_values: Vec<i128> = match precision_to_duckdb_storage_size(&decimal_dtype)?
+            {
+                DecimalValueType::I16 => {
+                    let data = vector.as_slice_with_len::<i16>(len);
+                    data.iter().map(|&v| v as i128).collect()
+                }
+                DecimalValueType::I32 => {
+                    let data = vector.as_slice_with_len::<i32>(len);
+                    data.iter().map(|&v| v as i128).collect()
+                }
+                DecimalValueType::I64 => {
+                    let data = vector.as_slice_with_len::<i64>(len);
+                    data.iter().map(|&v| v as i128).collect()
+                }
+                DecimalValueType::I128 => {
+                    let data = vector.as_slice_with_len::<i128>(len);
+                    data.to_vec()
+                }
+                _ => return Err(format!("Unsupported decimal precision: {precision}").into()),
+            };
+
+            let decimal_array = Decimal128Array::from_iter_values_with_nulls(
+                decimal_values.into_iter(),
+                Some(NullBuffer::new(BooleanBuffer::collect_bool(len, |row| {
+                    !vector.slow_row_is_null(row as u64)
+                }))),
+            )
+            .with_precision_and_scale(precision, scale as i8)?;
+
+            Ok(Arc::new(decimal_array))
+        }
+        _ => todo!("missing impl for {:?}", type_id),
     }
 }
 
