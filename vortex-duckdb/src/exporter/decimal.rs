@@ -38,7 +38,7 @@ pub(crate) fn new_exporter(array: &DecimalArray) -> VortexResult<Box<dyn ColumnE
 
 /// Maps a decimal precision into the small type that can represent it.
 /// see <https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals>
-fn precision_to_duckdb_storage_size(
+pub fn precision_to_duckdb_storage_size(
     decimal_dtype: &DecimalDType,
 ) -> VortexResult<DecimalValueType> {
     Ok(match decimal_dtype.precision() {

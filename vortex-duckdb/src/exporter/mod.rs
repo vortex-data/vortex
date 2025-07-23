@@ -15,6 +15,7 @@ mod varbinview;
 use std::sync::Arc;
 
 pub use cache::ConversionCache;
+pub use decimal::precision_to_duckdb_storage_size;
 use itertools::Itertools;
 use vortex::arrays::{ConstantVTable, StructArray, TemporalArray};
 use vortex::dtype::datetime::is_temporal_ext_type;
