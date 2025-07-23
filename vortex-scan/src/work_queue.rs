@@ -134,10 +134,12 @@ impl<T> Iterator for WorkQueueIterator<T> {
                 // all scans have been constructed, and we didn't manage to steal anything. To avoid
                 // spinning too hot, we yield the thread each time we fail to steal work.
                 while self.state.num_factories_constructed.load(Relaxed) < self.state.num_factories
+                    || !self.state.steal_work(&self.worker).is_empty()
                 {
-                    match self.state.steal_work(&self.worker) {
-                        Steal::Success(_) | Steal::Empty => break,
-                        Steal::Retry => std::thread::yield_now(),
+                    if self.state.steal_work(&self.worker).is_success() {
+                        break;
+                    } else {
+                        std::thread::yield_now();
                     }
                 }
             }
