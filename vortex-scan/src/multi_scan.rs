@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::work_queue::{TaskFactory, WorkQueue, WorkQueueIterator};
 use futures::executor::LocalPool;
 use futures::future::BoxFuture;
 use vortex_error::VortexResult;
+
+use crate::work_queue::{TaskFactory, WorkQueue, WorkQueueIterator};
 
 type ArrayFuture<T> = BoxFuture<'static, VortexResult<Option<T>>>;
 
