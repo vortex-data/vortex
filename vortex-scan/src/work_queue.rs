@@ -168,18 +168,20 @@ impl<T> Iterator for WorkQueueIterator<T> {
 
 #[cfg(test)]
 mod fuzz_tests {
-    use super::*;
-    use itertools::Itertools;
-    use log::info;
-    use parking_lot::Mutex;
-    use rand::prelude::*;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering::SeqCst;
     use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;
+
+    use itertools::Itertools;
+    use log::info;
+    use parking_lot::Mutex;
+    use rand::prelude::*;
     use vortex_error::{vortex_bail, vortex_panic};
     use vortex_utils::aliases::hash_map::HashMap;
+
+    use super::*;
 
     #[test]
     fn test_worker_factory_combinations() {
