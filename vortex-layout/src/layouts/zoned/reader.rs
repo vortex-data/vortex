@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 use std::ops::{BitAnd, Range};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use arrow_buffer::BooleanBufferBuilder;
 use async_trait::async_trait;
@@ -39,16 +39,16 @@ pub struct ZonedReader {
     zones_child: Arc<dyn LayoutReader>,
 
     /// A cache of expr -> optional pruning result
-    pruning_result: DashMap<ExprRef, Option<SharedPruningResult>>,
+    pruning_result: LazyLock<DashMap<ExprRef, Option<SharedPruningResult>>>,
 
     /// Shared zone map
     zone_map: OnceLock<SharedZoneMap>,
 
     /// A cache of expr -> optional pruning predicate.
     /// This also uses the present_stats from the `ZonedLayout`
-    pruning_predicates: Arc<DashMap<ExprRef, Option<ExprRef>>>,
+    pruning_predicates: LazyLock<Arc<DashMap<ExprRef, Option<ExprRef>>>>,
     /// A cache of expr -> dynamic update tracker
-    dynamic_updates: Arc<DashMap<ExprRef, Option<Arc<DynamicExprUpdates>>>>,
+    dynamic_updates: LazyLock<Arc<DashMap<ExprRef, Option<Arc<DynamicExprUpdates>>>>>,
 }
 
 impl ZonedReader {
@@ -69,10 +69,10 @@ impl ZonedReader {
             name,
             data_child,
             zones_child,
-            pruning_result: Default::default(),
+            pruning_result: LazyLock::new(Default::default),
             zone_map: Default::default(),
-            pruning_predicates: Default::default(),
-            dynamic_updates: Default::default(),
+            pruning_predicates: LazyLock::new(Default::default),
+            dynamic_updates: LazyLock::new(Default::default),
         })
     }
 
