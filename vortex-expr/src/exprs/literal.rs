@@ -124,13 +124,8 @@ impl AnalysisExpr for LiteralExpr {
         match_each_float_ptype!(value.ptype(), |T| {
             match value.typed_value::<T>() {
                 None => Some(lit(0u64)),
-                Some(value) => {
-                    if value.is_nan() {
-                        Some(lit(1u64))
-                    } else {
-                        Some(lit(0u64))
-                    }
-                }
+                Some(value) if value.is_nan() => Some(lit(1u64)),
+                _ => Some(lit(0u64)),
             }
         })
     }

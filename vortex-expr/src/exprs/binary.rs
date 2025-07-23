@@ -140,6 +140,18 @@ impl AnalysisExpr for BinaryExpr {
     fn stat_falsification(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         // Create a predicate that checks the NaNCount of the left and right hand
         // side of the expression. Only the halves which define a NaNCount are applicable.
+        //
+        // For example, regular pruning conversion for `A >= B` would be
+        //
+        //      A.max < B.min
+        //
+        // With NaN predicate introduction, we'd conjunct it with a check for NaNCount, resulting
+        // in:
+        //
+        //      (A.nan_count = 0) AND (B.nan_count = 0) AND A.max < B.min
+        //
+        // Non-floating point column and literal expressions should be unaffected as they do not
+        // have a nan_count statistic defined.
         fn make_nan_predicate(
             lhs: &ExprRef,
             rhs: &ExprRef,
