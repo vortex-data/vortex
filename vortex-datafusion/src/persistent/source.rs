@@ -170,21 +170,11 @@ impl FileSource for VortexSource {
         VORTEX_FILE_EXTENSION
     }
 
-    fn fmt_extra(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
-        match t {
-            DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                if let Some(predicate) = &self.predicate {
-                    write!(f, ", predicate={predicate}")?;
-                };
-                Ok(())
-            }
-            DisplayFormatType::TreeRender => {
-                if let Some(predicate) = &self.predicate {
-                    writeln!(f, "predicate={}", predicate.as_ref())?;
-                }
-                Ok(())
-            }
-        }
+    fn fmt_extra(&self, _t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
+        if let Some(ref predicate) = self.predicate {
+            write!(f, ", predicate={predicate}")?;
+        };
+        Ok(())
     }
 
     fn try_pushdown_filters(
