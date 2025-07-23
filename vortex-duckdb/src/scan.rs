@@ -177,8 +177,8 @@ impl TableFunction for VortexTableFunction {
             .map_err(|e| vortex_err!("Failed to glob files: {}", e))?;
 
         if file_paths.is_empty() {
-            return vortex_bail!("No files matched the glob");
-        };
+            vortex_bail!("No files matched the glob");
+        }
 
         // The first file is skipped in `create_file_paths_queue`.
         let first_file = VortexOpenOptions::file()
