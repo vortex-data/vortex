@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use tokio::runtime::Handle;
 use vortex::ArrayRef;
 use vortex::error::VortexError;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions};
@@ -45,8 +44,7 @@ pub async fn fetch_taxi_data() -> ArrayRef {
         .unwrap()
         .scan()
         .unwrap()
-        .with_tokio_executor(Handle::current())
-        .into_array_stream()
+        .into_par_iter()
         .unwrap()
         .read_all()
         .await

@@ -39,10 +39,7 @@ pub async fn read_array_from_reader(
     filter: Option<ExprRef>,
     indices: Option<ArrayRef>,
 ) -> VortexResult<ArrayRef> {
-    let mut scan = vortex_file
-        .scan()?
-        .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
-        .with_projection(projection);
+    let mut scan = vortex_file.scan()?.with_projection(projection);
 
     if let Some(filter) = filter {
         scan = scan.with_filter(filter);
@@ -53,7 +50,7 @@ pub async fn read_array_from_reader(
         scan = scan.with_row_indices(indices);
     }
 
-    scan.into_array_stream()?.read_all().await
+    scan.into_par_iter()?.read_all().await
 }
 
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRef> {
@@ -129,7 +126,6 @@ impl PyVortexDataset {
         let mut scan = self_
             .vxf
             .scan()?
-            .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
             .with_projection(projection_from_python(columns)?)
             .with_some_filter(filter_from_python(row_filter));
 
@@ -138,8 +134,7 @@ impl PyVortexDataset {
             scan = scan.with_row_indices(indices);
         }
 
-        let iter =
-            ArrayStreamToIterator::new(scan.into_array_stream()?.boxed() as SendableArrayStream);
+        let iter = ArrayStreamToIterator::new(scan.into_par_iter()?.boxed() as SendableArrayStream);
         let record_batch_reader: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(iter)?);
 

@@ -30,8 +30,7 @@ pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<Vec<ArrayRef>>
         .open(buf)
         .await?
         .scan()?
-        .with_tokio_executor(Handle::current())
-        .into_array_stream()?
+        .into_par_iter()?
         .try_collect::<Vec<_>>()
         .await?
         .into_iter()

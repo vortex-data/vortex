@@ -8,7 +8,6 @@ use futures::executor::ThreadPool;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
 use futures::task::SpawnExt;
-use futures::{Stream, StreamExt, stream};
 use itertools::Itertools;
 pub use multi_scan::*;
 pub use selection::*;
@@ -17,7 +16,6 @@ use tasks::{TaskContext, split_exec};
 use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::stats::StatsSet;
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
@@ -216,14 +214,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
         Ok(split_tasks)
     }
 
-    pub fn into_stream(self) -> VortexResult<impl Stream<Item = VortexResult<A>> + 'static> {
-        let concurrency = self.concurrency;
-        let split_tasks = self.build()?;
-        Ok(stream::iter(split_tasks)
-            .buffered(concurrency)
-            .filter_map(|r| async move { r.transpose() }))
-    }
-
     /// Returns a blocking iterator over the scan, where tasks perform CPU work on the provided
     /// thread pool.
     pub fn into_thread_pool_iter(
@@ -264,20 +254,6 @@ impl ScanBuilder<ArrayRef> {
             limit: None,
             row_offset: 0,
         }
-    }
-
-    /// Returns a stream over the scan with each CPU task polled on the current thread as per
-    /// the behaviour of [`futures::stream::Buffered`].
-    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        let concurrency = self.concurrency;
-        let dtype = self.dtype()?;
-        let split_tasks = self.build()?;
-        Ok(ArrayStreamAdapter::new(
-            dtype,
-            stream::iter(split_tasks)
-                .buffered(concurrency)
-                .filter_map(|r| async move { r.transpose() }),
-        ))
     }
 
     /// Returns a thread-safe [`ArrayIterator`] that can be cloned and passed

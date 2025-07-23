@@ -432,7 +432,7 @@ impl Dataset for PBIBenchmark {
                 .open(&path)
                 .await?
                 .scan()?
-                .into_array_stream()?
+                .into_par_iter()?
                 .read_all()
                 .await
         }

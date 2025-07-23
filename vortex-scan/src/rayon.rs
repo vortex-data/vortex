@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use itertools::Itertools;
 use rayon::iter::plumbing::UnindexedConsumer;
 use rayon::prelude::*;
@@ -12,8 +10,6 @@ use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult};
 
 use crate::ScanBuilder;
-use crate::work_queue::{TaskFactory, WorkStealingQueue};
-use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
 
 /// A trait for a Rayon parallel Array iterator over arrays with a known [`DType`].
 pub trait ParallelArrayIterator: ParallelIterator<Item = VortexResult<ArrayRef>> {
@@ -77,27 +73,22 @@ pub trait ParallelArrayIteratorExt: ParallelArrayIterator {
     }
 }
 
+impl<I> ParallelArrayIteratorExt for I where I: ParallelArrayIterator {}
+
 impl ScanBuilder<ArrayRef> {
     /// Returns a [`ParallelArrayIterator`] driven by all threads of the installed Rayon thread
     /// pool.
+    ///
+    /// Note that this iterator does not currently perform any per-thread task concurrency.
     pub fn into_par_iter(self) -> VortexResult<impl ParallelArrayIterator + Send + 'static> {
         use ::rayon::prelude::*;
 
         let dtype = self.dtype()?;
-        let arc_dtype = Arc::new(dtype.clone());
-        let concurrency = self.concurrency;
         let tasks = self.build()?;
-        let queue = WorkStealingQueue::new([Box::new(move || Ok(tasks)) as TaskFactory<ArrayTask>]);
 
-        // We create one work-stealing iterator per rayon thread, which allows each thread to drive
-        // work in parallel. The user can decide what to do with the results, e.g. mapping a
-        // parallel iterator to convert from Vortex to Arrow will still run the conversion on
-        // the thread pool.
-        let par_iter = (0..rayon::current_num_threads())
+        let par_iter = tasks
             .into_par_iter()
-            .flat_map_iter(move |_thread_id| {
-                WorkStealingArrayIterator::new(queue.clone(), arc_dtype.clone(), concurrency)
-            });
+            .filter_map(|task| futures::executor::block_on(task).transpose());
 
         Ok(ParallelArrayIteratorAdapter::new(dtype, par_iter))
     }

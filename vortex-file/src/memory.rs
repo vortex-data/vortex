@@ -29,7 +29,7 @@ impl VortexOpenOptions<InMemoryFileType> {
     }
 
     /// Open an in-memory file contained in the provided buffer.
-    pub async fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
+    pub fn open<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         let buffer = buffer.into();
 
         let postscript = self.parse_postscript(&buffer)?;

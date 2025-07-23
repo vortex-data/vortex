@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use futures::TryStreamExt;
+use futures::executor::block_on;
 use futures::future::try_join;
 use vortex_array::ArrayContext;
 use vortex_array::stats::{PRUNING_STATS, Stat};
@@ -84,6 +85,15 @@ impl VortexWriteOptions {
         .shutdown()
         .await?;
         Ok(())
+    }
+
+    /// Perform a blocking single-threaded write of the provided stream of `Array`.
+    pub fn write_blocking<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
+        self,
+        write: W,
+        stream: S,
+    ) -> VortexResult<W> {
+        block_on(self.write(write, stream))
     }
 
     /// Perform an async write of the provided stream of `Array`.
