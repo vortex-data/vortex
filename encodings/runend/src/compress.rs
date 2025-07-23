@@ -323,7 +323,7 @@ mod test {
 
     #[test]
     fn decode() {
-        let ends = PrimitiveArray::from_iter([2, 5, 10]);
+        let ends = PrimitiveArray::from_iter([2u32, 5, 10]);
         let values = PrimitiveArray::from_iter([1i32, 2, 3]);
         let decoded = runend_decode_primitive(ends, values, 0, 10).unwrap();
 
