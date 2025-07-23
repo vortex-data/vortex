@@ -4,8 +4,6 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use arrow_array::RecordBatch;
-use arrow_schema::SchemaRef;
 use futures::executor::ThreadPool;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
@@ -16,10 +14,10 @@ pub use multi_scan::*;
 pub use selection::*;
 pub use split_by::*;
 use tasks::{TaskContext, split_exec};
+use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::{ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexResult, vortex_bail, vortex_err};
@@ -58,8 +56,6 @@ pub struct ScanBuilder<A> {
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-    /// The executor used to spawn each split task.
-    executor: Option<Arc<dyn TaskExecutor>>,
     metrics: VortexMetrics,
     /// Should we try to prune the file (using stats) on open.
     file_stats: Option<Arc<[StatsSet]>>,
@@ -118,21 +114,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    /// Spawn each CPU task onto the given Tokio runtime.
-    ///
-    /// Note that this is an odd use of the Tokio runtime. Typically, it is used predominantly
-    /// for I/O bound tasks.
-    #[cfg(feature = "tokio")]
-    pub fn with_tokio_executor(mut self, handle: tokio::runtime::Handle) -> Self {
-        self.executor = Some(Arc::new(handle));
-        self
-    }
-
-    pub fn with_executor(mut self, executor: Arc<dyn TaskExecutor>) -> Self {
-        self.executor = Some(executor);
-        self
-    }
-
     pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
         self.metrics = metrics;
         self
@@ -163,7 +144,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
             split_by: self.split_by,
             concurrency: self.concurrency,
             map_fn: Arc::new(move |a| map_fn(old_map_fn(a)?)),
-            executor: self.executor,
             metrics: self.metrics,
             file_stats: self.file_stats,
             limit: self.limit,
@@ -220,7 +200,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
                     reader: layout_reader.clone(),
                     projection: projection.clone(),
                     mapper: self.map_fn.clone(),
-                    task_executor: self.executor.clone(),
                 });
 
                 if self.limit.is_some_and(|l| l == 0) {
@@ -277,7 +256,6 @@ impl ScanBuilder<ArrayRef> {
             // without too much impact on work-stealing.
             concurrency: 2,
             map_fn: Arc::new(Ok),
-            executor: None,
             metrics: Default::default(),
             file_stats: None,
             limit: None,

@@ -128,15 +128,22 @@ impl FileOpener for VortexFileOpener {
                 })?;
 
             let stream = stream::iter(scan_tasks)
-                .filter_map(move |task| {
+                .map(move |task| {
                     let projected_arrow_schema = projected_arrow_schema.clone();
                     async move {
-                        task.await.transpose().map(move |chunk| {
-                            let st = chunk?.to_struct()?;
-                            st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
-                        })
+                        task.await
+                            .transpose()
+                            .map(move |chunk| {
+                                let st = chunk?.to_struct()?;
+                                st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
+                            })
+                            .transpose()
                     }
                 })
+                // We buffer the stream so that we can run ahead and perform I/O on future tasks
+                // while still processing CPU work of the current one.
+                .buffered(2)
+                .filter_map(|r| async move { r.transpose() })
                 .map_ok(move |rb| {
                     // We try and slice the stream into respecting datafusion's configured batch size.
                     stream::iter(
