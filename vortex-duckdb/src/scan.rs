@@ -53,11 +53,11 @@ impl std::fmt::Debug for VortexBindData {
 }
 
 pub struct VortexGlobalData {
-    multi_scan: MultiScan<(ArrayRef, Arc<ConversionCache>)>,
+    scan: MultiScan<(ArrayRef, Arc<ConversionCache>)>,
 }
 
 pub struct VortexLocalData {
-    multi_scan_iterator: MultiScanIterator<(ArrayRef, Arc<ConversionCache>)>,
+    iterator: MultiScanIterator<(ArrayRef, Arc<ConversionCache>)>,
     exporter: Option<ArrayExporter>,
 }
 
@@ -206,7 +206,7 @@ impl TableFunction for VortexTableFunction {
     ) -> VortexResult<()> {
         loop {
             if local_state.exporter.is_none() {
-                let Some(result) = local_state.multi_scan_iterator.next() else {
+                let Some(result) = local_state.iterator.next() else {
                     return Ok(());
                 };
 
@@ -283,7 +283,7 @@ impl TableFunction for VortexTableFunction {
                 });
 
         Ok(VortexGlobalData {
-            multi_scan: MultiScan::new(closures),
+            scan: MultiScan::new(closures),
         })
     }
 
@@ -292,7 +292,7 @@ impl TableFunction for VortexTableFunction {
         global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
         Ok(VortexLocalData {
-            multi_scan_iterator: global.multi_scan.new_scan_iterator(),
+            iterator: global.scan.clone().new_iterator(),
             exporter: None,
         })
     }

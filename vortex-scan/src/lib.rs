@@ -1,27 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
+use crate::work_stealing_iter::WorkStealingArrayIterator;
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
-use futures::executor::{LocalPool, ThreadPool};
+use futures::executor::ThreadPool;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
-use futures::task::{LocalSpawnExt, SpawnExt};
+use futures::task::SpawnExt;
 use futures::{Stream, StreamExt, stream};
 use itertools::Itertools;
+pub use multi_scan::*;
 pub use selection::*;
 pub use split_by::*;
-use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
+use tasks::{TaskContext, split_exec};
+use vortex_array::iter::ArrayIterator;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
 use vortex_array::{ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, root};
@@ -37,9 +39,7 @@ mod selection;
 mod split_by;
 mod tasks;
 mod work_queue;
-
-pub use multi_scan::{MultiScan, MultiScanIterator};
-use tasks::{TaskContext, split_exec};
+mod work_stealing_iter;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
@@ -69,7 +69,7 @@ pub struct ScanBuilder<A> {
     row_offset: u64,
 }
 
-impl<A: 'static + Send + Sync> ScanBuilder<A> {
+impl<A: 'static + Send> ScanBuilder<A> {
     pub fn with_filter(mut self, filter: ExprRef) -> Self {
         self.filter = Some(filter);
         self
@@ -272,9 +272,9 @@ impl ScanBuilder<ArrayRef> {
             row_range: None,
             selection: Default::default(),
             split_by: SplitBy::Layout,
-            // How many row splits to make progress on concurrently (not necessarily in parallel,
-            // that is decided by the TaskExecutor).
-            concurrency: 16,
+            // We default to two tasks per worker thread, which allows for some I/O lookahead
+            // without too much impact on work-stealing.
+            concurrency: 2,
             map_fn: Arc::new(Ok),
             executor: None,
             metrics: Default::default(),
@@ -306,35 +306,19 @@ impl ScanBuilder<ArrayRef> {
         ))
     }
 
-    /// Returns a blocking iterator over the scan.
+    /// Returns a thread-safe [`ArrayIterator`] that can be cloned and passed
+    /// to other threads to make progress on the same scan concurrently.
     ///
-    /// All work will be performed on the current thread, with tasks interleaved per the
-    /// configured concurrency. Any configured executor will be ignored.
-    pub fn into_array_iter(mut self) -> VortexResult<impl ArrayIterator + 'static> {
-        // As we're using a `LocalPool` here, we want tasks to actually run fully on the current thread,
-        // so we have to make sure to zero out any currently configured executor.
-        self.executor = None;
-        let concurrency = self.concurrency;
-
-        let mut local_pool = LocalPool::new();
-        let spawner = local_pool.spawner();
-
+    /// Within each thread, the array chunks will be emitted in the original order they are within
+    /// the scan. Between threads, the order is not guaranteed.
+    pub fn into_array_iter(self) -> VortexResult<impl ArrayIterator + Send + Clone + 'static> {
         let dtype = self.dtype()?;
+        let concurrency = self.concurrency;
         let split_tasks = self.build()?;
-        let mut stream = stream::iter(split_tasks)
-            .map(move |task| {
-                spawner
-                    .spawn_local_with_handle(task)
-                    .map_err(|e| vortex_err!("Failed to spawn task: {e}"))
-                    .vortex_expect("Failed to spawn task")
-            })
-            .buffered(concurrency)
-            .filter_map(|a| async move { a.transpose() })
-            .boxed_local();
-
-        Ok(ArrayIteratorAdapter::new(
-            dtype,
-            iter::from_fn(move || local_pool.run_until(stream.next())),
+        Ok(WorkStealingArrayIterator::new(
+            split_tasks,
+            Arc::new(dtype),
+            concurrency,
         ))
     }
 }
