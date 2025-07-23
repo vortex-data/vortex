@@ -18,7 +18,7 @@ use vortex_dtype::{DType, FieldMask, FieldPath, FieldPathSet};
 use vortex_error::{SharedVortexResult, VortexError, VortexExpect, VortexResult};
 use vortex_expr::dynamic::DynamicExprUpdates;
 use vortex_expr::pruning::checked_pruning_expr;
-use vortex_expr::{ExprRef, Scope, root};
+use vortex_expr::{ExprRef, root};
 use vortex_mask::Mask;
 
 use crate::layouts::zoned::ZonedLayout;
@@ -151,11 +151,7 @@ impl ZonedReader {
                     Some(
                         async move {
                             let zone_map = zone_map.await?;
-                            let initial_mask = Mask::try_from(
-                                predicate
-                                    .evaluate(&Scope::new(zone_map.array().to_array()))?
-                                    .as_ref(),
-                            )?;
+                            let initial_mask = zone_map.prune(&predicate)?;
                             Ok(Arc::new(PruningResult {
                                 zone_map,
                                 predicate,
@@ -410,11 +406,7 @@ impl PruningResult {
             "Re-computing pruning mask for version {version} on {}",
             self.predicate
         );
-        let next_mask = Mask::try_from(
-            self.predicate
-                .evaluate(&Scope::new(self.zone_map.array().to_array()))?
-                .as_ref(),
-        )?;
+        let next_mask = self.zone_map.prune(&self.predicate)?;
         *guard = (version, next_mask.clone());
 
         Ok(next_mask)
@@ -498,7 +490,9 @@ mod test {
     ) {
         block_on(async {
             let row_count = layout.row_count();
-            let reader = layout.new_reader("".into(), segments).unwrap();
+            let reader = layout
+                .new_reader("test_stats_pruning_mask".into(), segments)
+                .unwrap();
 
             // Choose a prune-able expression
             let expr = gt(root(), lit(7));
