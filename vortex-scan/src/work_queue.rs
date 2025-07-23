@@ -70,6 +70,14 @@ impl<T> State<T> {
         .find(|steal| !steal.is_retry())
         .unwrap_or(Steal::Empty)
     }
+
+    /// Returns `true` if there is work left to steal.
+    fn is_work_left_to_steal(&self) -> bool {
+        self.stealers
+            .read()
+            .iter()
+            .any(|stealer| !stealer.is_empty())
+    }
 }
 
 impl<T> WorkQueue<T> {
@@ -127,14 +135,16 @@ impl<T> Iterator for WorkQueueIterator<T> {
             };
 
             if !next_factory_loaded {
-                // If there are no more factories to load, then there is at least one worker
-                // constructing a factory and about to push some tasks.
+                // If there are no more factories to load, then there is at
+                // least one worker constructing a factory and about to push
+                // some tasks.
                 //
-                // We sit in a loop trying to steal some of those tasks, or else bail out when
-                // all scans have been constructed, and we didn't manage to steal anything. To avoid
-                // spinning too hot, we yield the thread each time we fail to steal work.
+                // We sit in a loop trying to steal some of those tasks, or else
+                // bail out when all scans have been constructed, and we didn't
+                // manage to steal anything. To avoid spinning too hot, we yield
+                // the thread each time we fail to steal work.
                 while self.state.num_factories_constructed.load(Relaxed) < self.state.num_factories
-                    || !self.state.steal_work(&self.worker).is_empty()
+                    || !self.state.is_work_left_to_steal()
                 {
                     if self.state.steal_work(&self.worker).is_success() {
                         break;
