@@ -973,17 +973,11 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actualdbg = (0..actual.len())
-            .map(|i| actual.scalar_at(i).unwrap())
-            .join(",");
         let actual = actual.into_arrow_preferred().unwrap();
-        let expecteddbg = (0..expected.len())
-            .map(|i| expected.scalar_at(i).unwrap())
-            .join(",");
         let expected = expected.into_arrow_preferred().unwrap();
 
         assert_eq!(actual.data_type(), expected.data_type());
-        assert_eq!(&actual, &expected, "\n{}\n{}", actualdbg, expecteddbg);
+        assert_eq!(&actual, &expected);
     }
 
     #[test]
