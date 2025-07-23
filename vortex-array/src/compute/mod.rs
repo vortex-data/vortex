@@ -91,9 +91,12 @@ impl ComputeFn {
     }
 
     /// Invokes the compute function with the given arguments.
+    #[allow(clippy::use_debug)]
     pub fn invoke(&self, args: &InvocationArgs) -> VortexResult<Output> {
+        println!("ComputeFn.invoke BEGIN");
         // Perform some pre-condition checks against the arguments and the function properties.
         if self.is_elementwise() {
+            println!("ComputeFn.invoke is_elementwise = true");
             // For element-wise functions, all input arrays must be the same length.
             if !args
                 .inputs
@@ -110,9 +113,12 @@ impl ComputeFn {
         }
 
         let expected_dtype = self.vtable.return_dtype(args)?;
+        println!("ComputeFn.invoke expected_dtype = {expected_dtype}");
         let expected_len = self.vtable.return_len(args)?;
+        println!("ComputeFn.invoke expected_len = {expected_len}");
 
         let output = self.vtable.invoke(args, &self.kernels.read())?;
+        println!("ComputeFn.invoke OUTPUT = {output:?}");
 
         if output.dtype() != &expected_dtype {
             vortex_bail!(

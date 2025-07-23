@@ -232,6 +232,7 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
     filter_expression_len: c_uint,
     error_out: *mut *mut vx_error,
 ) -> bool {
+    println!("VX_FILE_CAN_PRUNE: BEGIN");
     try_or_default(error_out, || {
         let file = vx_file::as_ref(file);
         let filter_expr = extract_expression(filter_expression, filter_expression_len)?;
@@ -251,6 +252,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
 ) -> *mut vx_array_iterator {
     try_or_default(error_out, || {
         let file = vx_file::as_ref(file);
+        println!("VX_FILE_SCAN: BEGIN");
 
         let scan_options = unsafe { opts.as_ref() }.map_or_else(
             || Ok(ScanOptions::default()),

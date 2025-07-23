@@ -22,6 +22,7 @@ use crate::{Array, ArrayRef, Canonical, IntoArray};
 /// Compares two arrays and returns a new boolean array with the result of the comparison.
 /// Or, returns None if comparison is not supported for these arrays.
 pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> VortexResult<ArrayRef> {
+    println!("COMPARE entrypoint: left={left}, right={right}, operator={operator}");
     COMPARE_FN
         .invoke(&InvocationArgs {
             inputs: &[left.into(), right.into()],
@@ -110,52 +111,80 @@ impl<V: VTable + CompareKernel> Kernel for CompareKernelAdapter<V> {
     }
 }
 
+#[allow(clippy::use_debug)]
 pub static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("compare".into(), ArcRef::new_ref(&Compare));
+    println!("ITERATING COMPARE KERNELS");
     for kernel in inventory::iter::<CompareKernelRef> {
+        println!(
+            "ITERATING COMPARE KERNELS: DISCOVERED {:?}",
+            kernel.0.as_ref()
+        );
         compute.register_kernel(kernel.0.clone());
     }
+    println!("DONE ITERATING COMPARE KERNELS");
     compute
 });
 
 struct Compare;
 
 impl ComputeFnVTable for Compare {
+    #[allow(clippy::use_debug)]
     fn invoke(
         &self,
         args: &InvocationArgs,
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let CompareArgs { lhs, rhs, operator } = CompareArgs::try_from(args)?;
+        println!("COMPARE VTABLE: BEGIN");
 
         let return_dtype = self.return_dtype(args)?;
+        println!("COMPARE VTABLE: return_dtype = {return_dtype}");
 
         if lhs.is_empty() {
+            println!("COMPARE VTABLE: LHS empty bail early");
+
             return Ok(Canonical::empty(&return_dtype).into_array().into());
         }
 
         let left_constant_null = lhs.as_constant().map(|l| l.is_null()).unwrap_or(false);
+        println!("COMPARE VTABLE: LHS constant_null ? {left_constant_null}");
+
         let right_constant_null = rhs.as_constant().map(|r| r.is_null()).unwrap_or(false);
+        println!("COMPARE VTABLE: RHS constant_null ? {right_constant_null}");
+
         if left_constant_null || right_constant_null {
+            println!("COMPARE VTABLE: bail early for constant null");
+
             return Ok(ConstantArray::new(Scalar::null(return_dtype), lhs.len())
                 .into_array()
                 .into());
         }
 
         let right_is_constant = rhs.is_constant();
+        println!("COMPARE VTABLE: right_is_constant = {right_is_constant}");
 
         // Always try to put constants on the right-hand side so encodings can optimise themselves.
         if lhs.is_constant() && !right_is_constant {
+            println!("COMPARE VTABLE: recursing by flipping constant RHS with non-constant LHS");
+
             return Ok(compare(rhs, lhs, operator.swap())?.into());
         }
 
         // First try lhs op rhs, then invert and try again.
         for kernel in kernels {
+            println!("COMPARE VTABLE: trying kernel: {kernel:?}");
             if let Some(output) = kernel.invoke(args)? {
+                println!("COMPARE VTABLE: KERNEL {kernel:?} SUCCESS! result = {output:?}");
                 return Ok(output);
             }
         }
+
         if let Some(output) = lhs.invoke(&COMPARE_FN, args)? {
+            println!(
+                "COMPARE VTABLE: LHS-encoding {} invoke succeed",
+                lhs.encoding_id()
+            );
             return Ok(output);
         }
 
@@ -165,11 +194,20 @@ impl ComputeFnVTable for Compare {
             options: &operator.swap(),
         };
         for kernel in kernels {
+            println!("COMPARE VTABLE: (inverted args) trying kernel: {kernel:?}");
             if let Some(output) = kernel.invoke(&inverted_args)? {
+                println!(
+                    "COMPARE VTABLE: (inverted args) kernel: {kernel:?} SUCCESS! result = {output:?}"
+                );
                 return Ok(output);
             }
         }
         if let Some(output) = rhs.invoke(&COMPARE_FN, &inverted_args)? {
+            println!(
+                "COMPARE VTABLE: RHS-encoding {} invoke succeed",
+                rhs.encoding_id()
+            );
+
             return Ok(output);
         }
 
@@ -184,12 +222,16 @@ impl ComputeFnVTable for Compare {
             );
         }
 
+        println!("COMPARE VTABLE: falling back to Arrow");
+
         // Fallback to arrow on canonical types
         Ok(arrow_compare(lhs, rhs, operator)?.into())
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
+        println!("COMPARE VTABLE: returning dtype");
         let CompareArgs { lhs, rhs, .. } = CompareArgs::try_from(args)?;
+        println!("COMPARE VTABLE: returning dtype: lhs = {lhs}, rhs = {rhs}");
 
         if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
             vortex_bail!(
