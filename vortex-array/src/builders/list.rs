@@ -163,26 +163,17 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
 
         let index_dtype = self.index_builder.dtype();
 
-        let n_leading_junk_values = offsets.scalar_at(0)?.cast(index_dtype)?;
+        let n_leading_junk_values_scalar = offsets.scalar_at(0)?.cast(index_dtype)?;
+        let n_leading_junk_values = usize::try_from(&n_leading_junk_values_scalar)?;
 
         let casted_offsets = cast(&offsets.slice(1, offsets.len())?, index_dtype)?;
         let offsets_without_leading_junk =
-            sub_scalar(&casted_offsets, n_leading_junk_values.clone())?;
+            sub_scalar(&casted_offsets, n_leading_junk_values_scalar)?;
         let offsets_into_builder =
             add_scalar(&offsets_without_leading_junk, n_already_added_values.into())?;
 
-        let n_leading_junk_values = n_leading_junk_values
-            .as_primitive()
-            .pvalue()
-            .vortex_expect("list offsets must be non-null");
-        let n_leading_junk_values =
-            usize::try_from(n_leading_junk_values).vortex_expect("list offsets fit in usize");
-        let last_offset = offsets
-            .scalar_at(offsets.len() - 1)?
-            .as_primitive()
-            .pvalue()
-            .vortex_expect("list offsets must be non-null");
-        let last_offset = usize::try_from(last_offset).vortex_expect("list offsets fit in usize");
+        let last_offset = offsets.scalar_at(offsets.len() - 1)?;
+        let last_offset = usize::try_from(&last_offset)?;
         let non_junk_values = elements.slice(n_leading_junk_values, last_offset)?;
 
         self.nulls.append_validity_mask(array.validity_mask()?);
