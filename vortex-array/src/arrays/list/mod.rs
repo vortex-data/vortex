@@ -9,8 +9,8 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_panic};
-use vortex_scalar::{PValue, Scalar};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_scalar::Scalar;
 
 use crate::arrays::PrimitiveVTable;
 #[cfg(feature = "test-harness")]
@@ -60,19 +60,9 @@ pub struct ListArray {
 #[derive(Clone, Debug)]
 pub struct ListEncoding;
 
-pub trait OffsetPType:
-    NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> + TryFrom<PValue, Error = VortexError>
-{
-}
+pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
 
-impl<T> OffsetPType for T where
-    T: NativePType
-        + PrimInt
-        + AsPrimitive<usize>
-        + Into<Scalar>
-        + TryFrom<PValue, Error = VortexError>
-{
-}
+impl<T> OffsetPType for T where T: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
 
 // A list is valid if the:
 // - offsets start at a value in elements
