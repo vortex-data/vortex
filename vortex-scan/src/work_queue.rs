@@ -3,10 +3,10 @@
 
 //! A work-stealing iterator that supports dynamically adding tasks from task factories.
 
-use std::iter;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::{Relaxed, SeqCst};
+use std::{iter, thread};
 
 use crossbeam_deque::{Steal, Stealer, Worker};
 use crossbeam_queue::SegQueue;
@@ -47,6 +47,7 @@ impl<T> WorkStealingQueue<T> {
                 num_factories_constructed: AtomicUsize::new(0),
                 num_factories,
                 stealers: RwLock::new(Vec::new()),
+                stealer_offset: Default::default(),
             }),
         }
     }
@@ -54,17 +55,6 @@ impl<T> WorkStealingQueue<T> {
     pub fn new_iterator(self) -> WorkStealingIterator<T> {
         self.state.new_iterator()
     }
-}
-
-/// A work-stealing iterator that supports dynamically adding tasks from task factories.
-///
-/// Each task factory has affinity to a particular worker. After all factories have been
-/// constructed, workers will attempt to steal tasks from each other until all tasks are processed.
-///
-/// Workers are constructed by cloning the iterator.
-pub struct WorkStealingIterator<T> {
-    state: Arc<State<T>>,
-    worker: Worker<T>,
 }
 
 /// Shared state for the work queue.
@@ -81,6 +71,9 @@ struct State<T> {
 
     /// The vector of stealers, one for each worker.
     stealers: RwLock<Vec<Stealer<T>>>,
+
+    /// An offset into the stealers vector, used to avoid skewed worker queues when stealing.
+    stealer_offset: AtomicUsize,
 }
 
 impl<T> State<T> {
@@ -102,16 +95,32 @@ impl<T> State<T> {
     /// Returns `true` if any tasks were pushed into the worker. Note that these tasks may have
     /// been stolen by the time the worker queue is checked.
     fn load_next_factory(&self, worker: &Worker<T>) -> VortexResult<bool> {
-        if let Some(factory_fn) = self.task_factories.pop() {
-            let tasks = factory_fn()?;
-            for task in tasks {
-                worker.push(task);
+        loop {
+            if let Some(factory_fn) = self.task_factories.pop() {
+                let tasks = factory_fn()?;
+                let is_empty = tasks.is_empty();
+                // Tasks **must** be pushed before `num_factories_constructed` is incremented.
+                for task in tasks {
+                    worker.push(task);
+                }
+                self.num_factories_constructed.fetch_add(1, SeqCst);
+
+                // Keep looping until we find a factory that has pushed tasks.
+                if !is_empty {
+                    return Ok(true);
+                }
+            } else {
+                return Ok(false);
             }
-            self.num_factories_constructed.fetch_add(1, SeqCst);
-            Ok(true)
-        } else {
-            Ok(false)
         }
+    }
+
+    /// Reports whether there is any work left to steal.
+    fn stealers_have_work(&self) -> bool {
+        self.stealers
+            .read()
+            .iter()
+            .any(|stealer| !stealer.is_empty())
     }
 
     /// Attempts to steal work from other workers, returns `true` if work was stolen.
@@ -120,9 +129,13 @@ impl<T> State<T> {
         iter::repeat_with(|| {
             // This collect tries all stealers, exits early on the first successful steal,
             // or else tracks whether any steal requires a retry.
-            self.stealers
-                .read()
+            let guard = self.stealers.read();
+            let num_stealers = guard.len();
+            guard
                 .iter()
+                .cycle()
+                .skip(self.stealer_offset.fetch_add(1, Relaxed) % num_stealers)
+                .take(num_stealers)
                 .map(|stealer| stealer.steal_batch(worker))
                 .collect::<Steal<()>>()
         })
@@ -131,17 +144,20 @@ impl<T> State<T> {
     }
 }
 
+/// A work-stealing iterator that supports dynamically adding tasks from task factories.
+///
+/// Each task factory has affinity to a particular worker. After all factories have been
+/// constructed, workers will attempt to steal tasks from each other until all tasks are processed.
+///
+/// Workers are constructed by cloning the iterator.
+pub struct WorkStealingIterator<T> {
+    state: Arc<State<T>>,
+    worker: Worker<T>,
+}
+
 impl<T> Clone for WorkStealingIterator<T> {
     fn clone(&self) -> Self {
-        let worker = Worker::new_fifo();
-
-        // Register the new worker with the shared state.
-        self.state.stealers.write().push(worker.stealer());
-
-        Self {
-            state: self.state.clone(),
-            worker,
-        }
+        self.state.clone().new_iterator()
     }
 }
 
@@ -167,13 +183,21 @@ impl<T> Iterator for WorkStealingIterator<T> {
                 // again if the result of an attempt of stealing results with `Retry`, for other cases
                 // `Empty` and `Success` there is no point in trying again
                 while self.state.num_factories_constructed.load(Relaxed) < self.state.num_factories
-                    || self.state.steal_work(&self.worker).is_retry()
+                    || self.state.stealers_have_work()
                 {
-                    std::thread::yield_now();
+                    if self.state.steal_work(&self.worker).is_success() {
+                        break;
+                    } else {
+                        thread::yield_now();
+                    }
                 }
             }
         }
 
+        // Attempt to pop a task from the worker queue.
+        // Another worker may have stolen our tasks by this point. If that's the case, then we've
+        // already finished loading the factories, and we're down to the last few tasks. Therefore,
+        // it's ok for us to return `None` and terminate the iterator.
         Some(Ok(self.worker.pop()?))
     }
 }

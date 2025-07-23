@@ -269,16 +269,20 @@ impl TableFunction for VortexTableFunction {
                             // the first file was already opened during bind.
                             first_file
                         } else {
-                            VortexOpenOptions::file()
-                                .open_blocking(&path)
-                                .vortex_expect("Failed to open Vortex file")
+                            VortexOpenOptions::file().open_blocking(&path)?
                         };
 
-                        file.scan()
-                            .vortex_expect("Failed to create scan builder")
+                        if let Some(filter) = &filter_expr {
+                            if file.can_prune(filter)? {
+                                return Ok(vec![]);
+                            }
+                        };
+
+                        file.scan()?
                             .with_some_filter(filter_expr)
                             .with_projection(projection_expr)
                             .map(move |split| Ok((split, conversion_cache.clone())))
+                            .build()
                     }
                 });
 
