@@ -117,9 +117,9 @@ mod tests {
 
         FieldPathSet::from_iter([
             field_a.clone().push(Stat::Min.name()),
-            field_a.clone().push(Stat::Max.name()),
+            field_a.push(Stat::Max.name()),
             field_b.clone().push(Stat::Min.name()),
-            field_b.clone().push(Stat::Max.name()),
+            field_b.push(Stat::Max.name()),
         ])
     }
 
