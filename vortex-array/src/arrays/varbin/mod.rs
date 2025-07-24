@@ -167,7 +167,7 @@ impl VarBinArray {
     /// Panics if index is out of bounds
     pub fn offset_at(&self, index: usize) -> usize {
         assert!(
-            index < self.len(),
+            index < self.len() + 1,
             "Index {index} out of bounds 0..{}",
             self.len()
         );
