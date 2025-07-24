@@ -8,7 +8,7 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 
 use crate::arrays::{
     BoolArray, DecimalArray, ExtensionArray, ListArray, NullArray, PrimitiveArray, StructArray,
-    VarBinViewArray, compact_buffers,
+    VarBinViewArray,
 };
 use crate::builders::builder_with_capacity;
 use crate::{Array, ArrayRef, IntoArray};
@@ -96,7 +96,8 @@ impl Canonical {
     /// and copy operations.
     pub fn compact(&self) -> VortexResult<Canonical> {
         match self {
-            Canonical::VarBinView(array) => Ok(Canonical::VarBinView(compact_buffers(array)?)),
+            Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers()?)),
+            Canonical::List(array) => Ok(Canonical::List(array.offset_to_0()?)),
             other => Ok(other.clone()),
         }
     }

@@ -18,9 +18,9 @@ impl IsConstantKernel for ListVTable {
 
         let manual_check_until = std::cmp::min(SMALL_ARRAY_THRESHOLD, array.len());
 
-        let first_list_len = array.offset_at(1) - array.offset_at(0);
+        let first_list_len = array.offset_at(1)? - array.offset_at(0)?;
         for i in 1..manual_check_until {
-            let current_list_len = array.offset_at(i + 1) - array.offset_at(i);
+            let current_list_len = array.offset_at(i + 1)? - array.offset_at(i)?;
             if current_list_len != first_list_len {
                 return Ok(Some(false));
             }
