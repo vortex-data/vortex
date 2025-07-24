@@ -4,13 +4,11 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
-use arrow_array::ArrayRef;
+use arrow_array::RecordBatch;
 use bytes::Bytes;
 use itertools::Itertools;
 use tokio::runtime::Handle;
 use vortex::Array;
-use vortex::arrow::IntoArrowArray;
-use vortex::error::VortexResult;
 use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
 
 #[inline(never)]
@@ -25,14 +23,11 @@ pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyh
 }
 
 #[inline(never)]
-pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<Vec<ArrayRef>> {
-    Ok(VortexOpenOptions::in_memory()
-        .open(buf)?
-        .scan()?
-        .into_multi_threaded_iter()?
-        .try_collect::<_, Vec<_>, _>()?
-        .into_iter()
-        // FIXME(ngates): convert to arrow on thread pool
-        .map(|a| a.into_arrow_preferred())
-        .collect::<VortexResult<Vec<_>>>()?)
+pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<Vec<RecordBatch>> {
+    let scan = VortexOpenOptions::in_memory().open(buf)?.scan()?;
+    let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
+
+    Ok(scan
+        .into_record_batch_reader_multithread(schema)?
+        .try_collect()?)
 }

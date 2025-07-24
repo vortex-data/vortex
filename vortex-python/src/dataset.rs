@@ -13,7 +13,6 @@ use arrow_schema::SchemaRef;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
-use vortex::arrow::VortexRecordBatchReader;
 use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, SelectExpr, root};
@@ -142,12 +141,11 @@ impl PyVortexDataset {
         }
 
         // TODO(ngates): should we use multi-threaded read or not?
-        let iter = scan.into_multi_threaded_iter()?;
+        let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
+        let reader: Box<dyn RecordBatchReader + Send> =
+            Box::new(scan.into_record_batch_reader_multithread(schema)?);
 
-        let record_batch_reader: Box<dyn RecordBatchReader + Send> =
-            Box::new(VortexRecordBatchReader::try_new(iter)?);
-
-        record_batch_reader.into_pyarrow(self_.py())
+        reader.into_pyarrow(self_.py())
     }
 }
 

@@ -35,7 +35,7 @@ impl ScanBuilder<ArrayRef> {
     pub fn into_record_batch_reader_multithread(
         self,
         schema: SchemaRef,
-    ) -> VortexResult<impl RecordBatchReader + 'static> {
+    ) -> VortexResult<impl RecordBatchReader + Send + 'static> {
         let data_type = DataType::Struct(schema.fields().clone());
 
         let iter = self.into_iter_multithread(move |chunk| to_record_batch(chunk, &data_type))?;

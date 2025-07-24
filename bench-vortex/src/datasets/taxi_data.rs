@@ -43,7 +43,7 @@ pub async fn fetch_taxi_data() -> ArrayRef {
         .unwrap()
         .scan()
         .unwrap()
-        .into_multi_threaded_iter()
+        .into_array_iter_multithread()
         .unwrap()
         .read_all()
         .unwrap()

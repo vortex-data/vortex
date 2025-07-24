@@ -41,7 +41,7 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::
         .await?
         .scan()?
         .with_row_indices(indices)
-        .into_multi_threaded_iter()?
+        .into_array_iter_multithread()?
         .read_all()?
         // For equivalence.... we decompress to make sure we're not cheating too much.
         .to_canonical()

@@ -9,7 +9,6 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use vortex::ToCanonical;
-use vortex::arrow::VortexRecordBatchReader;
 use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
@@ -168,7 +167,7 @@ impl PyVortexFile {
         }
 
         Ok(PyArrayIterator::new(Box::new(
-            builder.into_multi_threaded_iter()?,
+            builder.into_array_iter_multithread()?,
         )))
     }
 
@@ -183,7 +182,7 @@ impl PyVortexFile {
     ) -> PyResult<PyObject> {
         let vxf = slf.get().vxf.clone();
 
-        let iter = slf.py().allow_threads(|| {
+        let reader = slf.py().allow_threads(|| {
             let mut builder = vxf
                 .scan()?
                 .with_some_filter(expr.map(|e| e.into_inner()))
@@ -193,12 +192,11 @@ impl PyVortexFile {
                 builder = builder.with_split_by(SplitBy::RowCount(batch_size));
             }
 
-            // FIXME(ngates): use into_par_iter and map to record batch in the thread pool.
-            Ok::<_, VortexError>(builder.into_multi_threaded_iter()?)
+            let schema = Arc::new(builder.dtype()?.to_arrow_schema()?);
+            Ok::<_, VortexError>(builder.into_record_batch_reader_multithread(schema)?)
         })?;
 
-        let rbr: Box<dyn RecordBatchReader + Send> =
-            Box::new(VortexRecordBatchReader::try_new(iter)?);
+        let rbr: Box<dyn RecordBatchReader + Send> = Box::new(reader);
         rbr.into_pyarrow(slf.py())
     }
 
