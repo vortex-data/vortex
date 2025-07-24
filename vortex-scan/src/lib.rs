@@ -30,6 +30,7 @@ use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
 
 mod arrow;
 mod multi_scan;
+#[cfg(feature = "tokio")]
 mod multi_thread;
 pub mod row_mask;
 mod selection;

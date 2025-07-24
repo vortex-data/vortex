@@ -30,6 +30,10 @@ public:
     /// The scan builder is consumed and cannot be used after this call.
     ArrowArrayStream IntoStream();
 
+    /// Consume the scan builder to an Arrow array and schema.
+    /// The scan builder is consumed and cannot be used after this call.
+    std::pair<ArrowArray, ArrowSchema> IntoArray();
+
 private:
     friend class VortexFile;
 

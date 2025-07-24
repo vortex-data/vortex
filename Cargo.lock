@@ -6847,7 +6847,6 @@ dependencies = [
  "arrow-data",
  "arrow-pyarrow",
  "arrow-schema",
- "futures",
  "itertools 0.14.0",
  "log",
  "mimalloc",
