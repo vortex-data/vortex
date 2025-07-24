@@ -123,9 +123,7 @@ impl dyn VortexExpr + '_ {
 
     /// Compute result of expression on given batch producing a new batch
     pub fn evaluate(&self, scope: &Scope) -> VortexResult<ArrayRef> {
-        println!("VortexExpr::Evaluate ENTER for {self}");
         let result = self.unchecked_evaluate(scope)?;
-        println!("VortexExpr::Evaluate COMPLETE for {self}: {result}");
         assert_eq!(
             result.dtype(),
             &self.return_dtype(scope.dtype())?,

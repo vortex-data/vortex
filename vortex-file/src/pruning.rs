@@ -14,15 +14,11 @@ use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
-#[allow(clippy::use_debug)]
 pub fn extract_relevant_file_stats_as_struct_row(
     access: &HashMap<FieldPath, HashSet<Stat>>,
     stats_sets: &Arc<[StatsSet]>,
     struct_dtype: &StructFields,
 ) -> VortexResult<Option<ArrayRef>> {
-    println!(
-        "extract_relevant_file_stats_as_struct_row: access={access:?} stats_sets={stats_sets:?}"
-    );
     if access.is_empty() {
         return StructArray::try_new(FieldNames::default(), vec![], 1, Validity::NonNullable)
             .map(|s| Some(s.to_array()));

@@ -173,20 +173,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_vortex_scan_floats() {
-        println!("TEST_VORTEX_SCAN_FLOATS: BEGIN");
         let values = PrimitiveArray::from_iter([1.5f64, -2.5, 0.0, 42.42]);
         let file = write_single_column_vortex_file("value", values).await;
-        println!(
-            "TEST_VORTEX_SCAN_FLOATS: FILE WRITTEN TO {}",
-            file.path().display()
-        );
         let count: i64 = scan_vortex_file_single_row(
             file,
             "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0",
             0,
         );
         assert_eq!(count, 2);
-        println!("TEST_VORTEX_SCAN_FLOATS: END");
     }
 
     #[tokio::test]
@@ -232,28 +226,25 @@ mod tests {
         assert_eq!(result, vec![2, 3]);
     }
 
-    #[test]
-    fn test_vortex_scan_multiple_files() {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        let (tempdir, _file1, _file2) = runtime.block_on(async {
-            let tempdir = tempfile::tempdir().unwrap();
+    #[tokio::test]
+    async fn test_vortex_scan_multiple_files() {
+        let tempdir = tempfile::tempdir().unwrap();
 
-            let file1 = write_vortex_file_to_dir(
-                tempdir.path(),
-                "numbers",
-                PrimitiveArray::from_iter([1i32, 2, 3]),
-            )
-            .await;
+        write_vortex_file_to_dir(
+            tempdir.path(),
+            "numbers",
+            PrimitiveArray::from_iter([1i32, 2, 3]),
+        )
+        .await
+        .into_temp_path();
 
-            let file2 = write_vortex_file_to_dir(
-                tempdir.path(),
-                "numbers",
-                PrimitiveArray::from_iter([4i32, 5, 6]),
-            )
-            .await;
-
-            (tempdir, file1, file2)
-        });
+        write_vortex_file_to_dir(
+            tempdir.path(),
+            "numbers",
+            PrimitiveArray::from_iter([4i32, 5, 6]),
+        )
+        .await
+        .into_temp_path();
 
         // Create glob pattern to match all .vortex files in the temp directory.
         let glob_pattern = format!("{}/*.vortex", tempdir.path().display());
@@ -271,8 +262,8 @@ mod tests {
         assert_eq!(total_sum, 21);
     }
 
-    #[test]
-    fn test_write_file() {
+    #[tokio::test]
+    async fn test_write_file() {
         let conn = database_connection();
         let tempdir = tempfile::tempdir().unwrap();
         let file_path = format!("{}/test.vortex", tempdir.path().to_string_lossy());

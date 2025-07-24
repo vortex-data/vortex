@@ -90,15 +90,12 @@ impl VortexFile {
     }
 
     /// Returns true if the expression will never match any rows in the file.
-    #[allow(clippy::use_debug)]
     pub fn can_prune(&self, filter: &ExprRef) -> VortexResult<bool> {
-        println!("CAN_PRUNE: {filter} : BEGIN");
         let Some((stats, fields)) = self
             .footer
             .statistics()
             .zip(self.footer.dtype().as_struct())
         else {
-            eprintln!("CAN_PRUNE: {filter} : BAILING EARLY");
             return Ok(false);
         };
 
@@ -113,8 +110,6 @@ impl VortexFile {
             },
         ));
 
-        eprintln!("CAN_PRUNE: {filter} : SET = {set:?}");
-
         let Some((predicate, required_stats)) = checked_pruning_expr(filter, &set) else {
             return Ok(false);
         };
@@ -125,15 +120,12 @@ impl VortexFile {
                 .iter()
                 .map(|(path, stats)| (path.clone(), stats.clone())),
         );
-        eprintln!("CAN_PRUNE: {filter} : REQUIRED_STATS = {required_file_stats:?}");
 
         let Some(file_stats) =
             extract_relevant_file_stats_as_struct_row(&required_file_stats, stats, fields)?
         else {
             return Ok(false);
         };
-
-        eprintln!("CAN_PRUNE: {filter} : file_stats = {file_stats}");
 
         let scope = Scope::new(file_stats);
 

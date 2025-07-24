@@ -3,7 +3,6 @@
 
 use std::fmt::Display;
 use std::hash::Hash;
-use std::ops::Deref;
 
 use vortex_array::compute::{Operator as ArrayOperator, add, and_kleene, compare, or_kleene};
 use vortex_array::{ArrayRef, DeserializeMetadata, ProstMetadata};
@@ -78,17 +77,8 @@ impl VTable for BinaryVTable {
     }
 
     fn evaluate(expr: &Self::Expr, scope: &Scope) -> VortexResult<ArrayRef> {
-        println!("BINARY: eval {expr}, scope={}", scope.deref().as_ref());
         let lhs = expr.lhs.unchecked_evaluate(scope)?;
-        println!(
-            "BINARY: eval {expr}, scope={} LHS={lhs}",
-            scope.deref().as_ref()
-        );
         let rhs = expr.rhs.unchecked_evaluate(scope)?;
-        println!(
-            "BINARY: eval {expr}, scope={} RHS={rhs}",
-            scope.deref().as_ref()
-        );
 
         match expr.operator {
             Operator::Eq => compare(&lhs, &rhs, ArrayOperator::Eq),
