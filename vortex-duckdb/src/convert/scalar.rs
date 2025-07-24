@@ -324,6 +324,7 @@ mod tests {
     #[test]
     fn test_timestamp_roundtrip() {
         use std::sync::Arc;
+
         use vortex::dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
         use vortex::dtype::{DType, ExtDType, Nullability, PType};
         use vortex::scalar::{Scalar, ScalarValue};
