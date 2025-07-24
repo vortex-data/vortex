@@ -23,6 +23,7 @@ crate-type = ["staticlib"]
 [dependencies]
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-schema = { workspace = true }
+arrow-select = { workspace = true }
 cxx = "1.0"
 futures = { workspace = true, features = ["thread-pool"] }
 prost = { workspace = true }

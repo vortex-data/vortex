@@ -3,13 +3,15 @@
 
 use std::sync::{Arc, LazyLock, OnceLock};
 
-use arrow_array::RecordBatchReader;
 use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
+use arrow_array::{Array, RecordBatchReader};
 use arrow_schema::{Schema, SchemaRef};
+use arrow_select::concat::concat_batches;
 use futures::executor::ThreadPool;
 use tokio::runtime::Runtime;
-use vortex::arrow::{FromArrowArray, IntoArrowArray, VortexRecordBatchReader};
+use vortex::ArrayRef;
+use vortex::arrow::{FromArrowArray, VortexRecordBatchReader};
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};
@@ -17,7 +19,6 @@ use vortex::file::scan::ScanBuilder;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions as WriteOptions};
 use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::stream::ArrayStream;
-use vortex::{ArrayRef, IntoArray};
 
 /// The tokio runtime for the write-side.
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
@@ -163,6 +164,25 @@ unsafe fn scan_builder_with_output_schema(
     Ok(())
 }
 
+/// Convert a VortexScanBuilder into a VortexRecordBatchReader
+fn scan_builder_to_reader(
+    builder: Box<VortexScanBuilder>,
+) -> Result<impl RecordBatchReader + 'static, Box<dyn std::error::Error + Send + Sync>> {
+    let dtype = builder.inner.dtype()?;
+    let iter = ArrayIteratorAdapter::new(
+        dtype,
+        builder
+            .inner
+            .into_thread_pool_iter(get_thread_pool().clone())?,
+    );
+    let reader = if let Some(schema) = builder.output_schema {
+        VortexRecordBatchReader::try_new_with_schema(iter, schema)?
+    } else {
+        VortexRecordBatchReader::try_new(iter)?
+    };
+    Ok(reader)
+}
+
 /// Arrow Rust FFI interplay with C++ best practices refer to:
 /// https://github.com/dora-rs/dora/blob/42775e3612b34d3998b1f7feb7e5df7ec3f8a7bd/examples/c%2B%2B-arrow-dataflow/node-rust-api/main.cc#L12-L19
 /// https://github.com/dora-rs/dora/blob/42775e3612b34d3998b1f7feb7e5df7ec3f8a7bd/apis/c%2B%2B/node/src/lib.rs#L211-L212
@@ -176,29 +196,17 @@ unsafe fn scan_builder_into_arrow(
     out_array: *mut u8,
     out_schema: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let dtype = builder.inner.dtype()?;
-    let iter = ArrayIteratorAdapter::new(
-        dtype.clone(),
-        builder
-            .inner
-            .into_thread_pool_iter(get_thread_pool().clone())?,
-    );
-    let reader = if let Some(schema) = builder.output_schema {
-        VortexRecordBatchReader::try_new_with_schema(iter, schema)?
-    } else {
-        VortexRecordBatchReader::try_new(iter)?
-    };
+    let reader = scan_builder_to_reader(builder)?;
 
-    let arrays: Vec<_> = reader
-        .map(|batch| batch.map(|b| ArrayRef::from_arrow(b, false)))
-        .collect::<Result<Vec<_>, _>>()?;
+    let schema = reader.schema();
+    let batches: Result<Vec<_>, _> = reader.into_iter().collect();
+    let batches = batches?;
+    let combined = concat_batches(&schema, &batches)?;
 
-    let array = vortex::arrays::ChunkedArray::try_new(arrays, dtype)?
-        .into_array()
-        .into_arrow_preferred()?;
+    let struct_array: arrow_array::StructArray = combined.into();
 
-    let ffi_array = FFI_ArrowArray::new(&array.to_data());
-    let ffi_schema = FFI_ArrowSchema::try_from(array.data_type())?;
+    let ffi_array = FFI_ArrowArray::new(&struct_array.to_data());
+    let ffi_schema = FFI_ArrowSchema::try_from(struct_array.data_type())?;
     // Two discarded attempts recorded here for future reference:
     // 1. Require unsafe transmute and an intermediate CArrowArrayStream defined in cxx shared types
     // Ok(unsafe { std::mem::transmute::<FFI_ArrowArrayStream, ffi::CArrowArrayStream>(stream) })
@@ -220,18 +228,7 @@ unsafe fn scan_builder_into_stream(
     builder: Box<VortexScanBuilder>,
     out_stream: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let dtype = builder.inner.dtype()?;
-    let iter = ArrayIteratorAdapter::new(
-        dtype,
-        builder
-            .inner
-            .into_thread_pool_iter(get_thread_pool().clone())?,
-    );
-    let reader = if let Some(schema) = builder.output_schema {
-        VortexRecordBatchReader::try_new_with_schema(iter, schema)?
-    } else {
-        VortexRecordBatchReader::try_new(iter)?
-    };
+    let reader = scan_builder_to_reader(builder)?;
     let stream = FFI_ArrowArrayStream::new(Box::new(reader));
     let out_stream = out_stream as *mut FFI_ArrowArrayStream;
     // # Safety
