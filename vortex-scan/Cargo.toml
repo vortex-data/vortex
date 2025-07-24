@@ -31,7 +31,7 @@ futures = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
 roaring = { workspace = true, optional = true }
-tokio = { workspace = true, default-features = false, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [features]
 default = []

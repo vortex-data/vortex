@@ -53,7 +53,7 @@ fn test_read_simple() {
         .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
         .unwrap();
 
-    let mut iter = VortexOpenOptions::in_memory()
+    let iter = VortexOpenOptions::in_memory()
         .open(buf)
         .unwrap()
         .scan()
@@ -63,7 +63,7 @@ fn test_read_simple() {
 
     let mut row_count = 0;
 
-    while let Some(array) = iter.next() {
+    for array in iter {
         let array = array.unwrap();
         row_count += array.len();
     }
@@ -220,7 +220,7 @@ fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            StructFields::new(vec!["strings".into()].into(), vec![strings_dtype.clone()]),
+            StructFields::new(vec!["strings".into()].into(), vec![strings_dtype]),
             Nullability::NonNullable,
         )
     );
@@ -247,7 +247,7 @@ fn test_read_projection() {
     assert_eq!(
         array.dtype(),
         &DType::Struct(
-            StructFields::new(["numbers"].into(), vec![numbers_dtype.clone()]),
+            StructFields::new(["numbers"].into(), vec![numbers_dtype]),
             Nullability::NonNullable,
         )
     );
@@ -279,7 +279,7 @@ fn unequal_batches() {
         .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
         .unwrap();
 
-    let mut iter = VortexOpenOptions::in_memory()
+    let iter = VortexOpenOptions::in_memory()
         .open(buf)
         .unwrap()
         .scan()
@@ -289,7 +289,7 @@ fn unequal_batches() {
 
     let mut item_count = 0;
 
-    while let Some(array) = iter.next() {
+    for array in iter {
         let array = array.unwrap();
         item_count += array.len();
 
@@ -336,7 +336,7 @@ fn write_chunked() {
         .write_blocking(ByteBufferMut::empty(), chunked_st.to_array_stream())
         .unwrap();
 
-    let mut iter = VortexOpenOptions::in_memory()
+    let iter = VortexOpenOptions::in_memory()
         .open(buf)
         .unwrap()
         .scan()
@@ -344,7 +344,7 @@ fn write_chunked() {
         .into_array_iter()
         .unwrap();
     let mut array_len: usize = 0;
-    while let Some(array) = iter.next() {
+    for array in iter {
         array_len += array.unwrap().len();
     }
     assert_eq!(array_len, 48);

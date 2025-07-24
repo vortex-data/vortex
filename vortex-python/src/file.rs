@@ -12,7 +12,6 @@ use vortex::ToCanonical;
 use vortex::compute::cast;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::{DType, PType};
-use vortex::error::VortexError;
 use vortex::expr::{ExprRef, root, select};
 use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
@@ -193,7 +192,7 @@ impl PyVortexFile {
             }
 
             let schema = Arc::new(builder.dtype()?.to_arrow_schema()?);
-            Ok::<_, VortexError>(builder.into_record_batch_reader_multithread(schema)?)
+            builder.into_record_batch_reader_multithread(schema)
         })?;
 
         let rbr: Box<dyn RecordBatchReader + Send> = Box::new(reader);
