@@ -101,8 +101,8 @@ mod tests {
         temp_file_path
     }
 
-    #[tokio::test]
-    async fn test_scan_function_registration() {
+    #[test]
+    fn test_scan_function_registration() {
         let conn = database_connection();
         let result = conn
             .query(
@@ -112,10 +112,13 @@ mod tests {
         assert_eq!(&result.get::<String>(0, 0).unwrap(), "vortex_scan");
     }
 
-    #[tokio::test]
-    async fn test_vortex_scan_strings() {
-        let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
-        let file = write_single_column_vortex_file("strings", strings).await;
+    #[test]
+    fn test_vortex_scan_strings() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let file = runtime.block_on(async {
+            let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
+            write_single_column_vortex_file("strings", strings).await
+        });
 
         let result: String = scan_vortex_file_single_row(
             file,
@@ -126,10 +129,13 @@ mod tests {
         assert_eq!(result, "Hello,Hi,Hey");
     }
 
-    #[tokio::test]
-    async fn test_vortex_scan_strings_contains() {
-        let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
-        let file = write_single_column_vortex_file("strings", strings).await;
+    #[test]
+    fn test_vortex_scan_strings_contains() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let file = runtime.block_on(async {
+            let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
+            write_single_column_vortex_file("strings", strings).await
+        });
         let result: String = scan_vortex_file_single_row(
             file,
             "SELECT string_agg(strings, ',') FROM vortex_scan(?) WHERE strings LIKE '%He%'",
@@ -138,19 +144,25 @@ mod tests {
         assert_eq!(result, "Hello,Hey");
     }
 
-    #[tokio::test]
-    async fn test_vortex_scan_integers() {
-        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
-        let file = write_single_column_vortex_file("number", numbers).await;
+    #[test]
+    fn test_vortex_scan_integers() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let file = runtime.block_on(async {
+            let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
+            write_single_column_vortex_file("number", numbers).await
+        });
         let sum: i64 =
             scan_vortex_file_single_row(file, "SELECT SUM(number) FROM vortex_scan(?)", 0);
         assert_eq!(sum, 138);
     }
 
-    #[tokio::test]
-    async fn test_vortex_scan_integers_in_list() {
-        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
-        let file = write_single_column_vortex_file("number", numbers).await;
+    #[test]
+    fn test_vortex_scan_integers_in_list() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let file = runtime.block_on(async {
+            let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
+            write_single_column_vortex_file("number", numbers).await
+        });
         let sum: i64 = scan_vortex_file_single_row(
             file,
             "SELECT SUM(number) FROM vortex_scan(?) WHERE number in (1, 42, -5)",
@@ -159,10 +171,13 @@ mod tests {
         assert_eq!(sum, 38);
     }
 
-    #[tokio::test]
-    async fn test_vortex_scan_integers_between() {
-        let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
-        let file = write_single_column_vortex_file("number", numbers).await;
+    #[test]
+    fn test_vortex_scan_integers_between() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let file = runtime.block_on(async {
+            let numbers = PrimitiveArray::from_iter([1i32, 42, 100, -5, 0]);
+            write_single_column_vortex_file("number", numbers).await
+        });
         let sum: i64 = scan_vortex_file_single_row(
             file,
             "SELECT SUM(number) FROM vortex_scan(?) WHERE number > 0 and number < 100",
@@ -171,10 +186,13 @@ mod tests {
         assert_eq!(sum, 43);
     }
 
-    #[tokio::test]
-    async fn test_vortex_scan_floats() {
-        let values = PrimitiveArray::from_iter([1.5f64, -2.5, 0.0, 42.42]);
-        let file = write_single_column_vortex_file("value", values).await;
+    #[test]
+    fn test_vortex_scan_floats() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let file = runtime.block_on(async {
+            let values = PrimitiveArray::from_iter([1.5f64, -2.5, 0.0, 42.42]);
+            write_single_column_vortex_file("value", values).await
+        });
         let count: i64 = scan_vortex_file_single_row(
             file,
             "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0",
@@ -183,20 +201,26 @@ mod tests {
         assert_eq!(count, 2);
     }
 
-    #[tokio::test]
-    async fn test_vortex_scan_constant() {
-        let constant = ConstantArray::new(Scalar::from(42i32), 100);
-        let file = write_single_column_vortex_file("constant", constant).await;
+    #[test]
+    fn test_vortex_scan_constant() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let file = runtime.block_on(async {
+            let constant = ConstantArray::new(Scalar::from(42i32), 100);
+            write_single_column_vortex_file("constant", constant).await
+        });
         let value: i32 =
             scan_vortex_file_single_row(file, "SELECT constant FROM vortex_scan(?) LIMIT 1", 0);
         assert_eq!(value, 42);
     }
 
-    #[tokio::test]
-    async fn test_vortex_scan_booleans() {
-        let flags = vec![true, false, true, true, false];
-        let flags_array = BoolArray::new(flags.into(), Validity::NonNullable);
-        let file = write_single_column_vortex_file("flag", flags_array).await;
+    #[test]
+    fn test_vortex_scan_booleans() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let file = runtime.block_on(async {
+            let flags = vec![true, false, true, true, false];
+            let flags_array = BoolArray::new(flags.into(), Validity::NonNullable);
+            write_single_column_vortex_file("flag", flags_array).await
+        });
         let true_count: i64 = scan_vortex_file_single_row(
             file,
             "SELECT COUNT(*) FROM vortex_scan(?) WHERE flag = true",
@@ -205,16 +229,19 @@ mod tests {
         assert_eq!(true_count, 3);
     }
 
-    #[tokio::test]
-    async fn test_vortex_multi_column() {
-        let f1 = BoolArray::new(
-            vec![true, false, true, true, false].into(),
-            Validity::NonNullable,
-        )
-        .to_array();
-        let f2 = (0..5).collect::<PrimitiveArray>().to_array();
-        let f3 = (100..105).collect::<PrimitiveArray>().to_array();
-        let file = write_vortex_file([("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await;
+    #[test]
+    fn test_vortex_multi_column() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let file = runtime.block_on(async {
+            let f1 = BoolArray::new(
+                vec![true, false, true, true, false].into(),
+                Validity::NonNullable,
+            )
+            .to_array();
+            let f2 = (0..5).collect::<PrimitiveArray>().to_array();
+            let f3 = (100..105).collect::<PrimitiveArray>().to_array();
+            write_vortex_file([("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await
+        });
 
         let result: Vec<i32> = scan_vortex_file(
             file,
@@ -226,25 +253,28 @@ mod tests {
         assert_eq!(result, vec![2, 3]);
     }
 
-    #[tokio::test]
-    async fn test_vortex_scan_multiple_files() {
-        let tempdir = tempfile::tempdir().unwrap();
+    #[test]
+    fn test_vortex_scan_multiple_files() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let (tempdir, _file1, _file2) = runtime.block_on(async {
+            let tempdir = tempfile::tempdir().unwrap();
 
-        write_vortex_file_to_dir(
-            tempdir.path(),
-            "numbers",
-            PrimitiveArray::from_iter([1i32, 2, 3]),
-        )
-        .await
-        .into_temp_path();
+            let file1 = write_vortex_file_to_dir(
+                tempdir.path(),
+                "numbers",
+                PrimitiveArray::from_iter([1i32, 2, 3]),
+            )
+            .await;
 
-        write_vortex_file_to_dir(
-            tempdir.path(),
-            "numbers",
-            PrimitiveArray::from_iter([4i32, 5, 6]),
-        )
-        .await
-        .into_temp_path();
+            let file2 = write_vortex_file_to_dir(
+                tempdir.path(),
+                "numbers",
+                PrimitiveArray::from_iter([4i32, 5, 6]),
+            )
+            .await;
+
+            (tempdir, file1, file2)
+        });
 
         // Create glob pattern to match all .vortex files in the temp directory.
         let glob_pattern = format!("{}/*.vortex", tempdir.path().display());
@@ -262,8 +292,8 @@ mod tests {
         assert_eq!(total_sum, 21);
     }
 
-    #[tokio::test]
-    async fn test_write_file() {
+    #[test]
+    fn test_write_file() {
         let conn = database_connection();
         let tempdir = tempfile::tempdir().unwrap();
         let file_path = format!("{}/test.vortex", tempdir.path().to_string_lossy());
