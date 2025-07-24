@@ -97,7 +97,9 @@ impl<T> State<T> {
     fn load_next_factory(&self, worker: &Worker<T>) -> VortexResult<bool> {
         loop {
             if let Some(factory_fn) = self.task_factories.pop() {
-                let tasks = factory_fn()?;
+                let tasks = factory_fn().inspect_err(|_| {
+                    self.num_factories_constructed.fetch_add(1, SeqCst);
+                })?;
                 let is_empty = tasks.is_empty();
                 // Tasks **must** be pushed before `num_factories_constructed` is incremented.
                 for task in tasks {
