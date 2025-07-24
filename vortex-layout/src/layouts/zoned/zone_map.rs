@@ -31,8 +31,8 @@ pub struct ZoneMap {
 }
 
 impl ZoneMap {
-    /// Create StatsTable of given column_dtype from given array. Validates that the array matches expected
-    /// structure for given list of stats
+    /// Create [`ZoneMap`] of given column_dtype from given array. Validates that the array matches expected
+    /// structure for given list of stats.
     pub fn try_new(
         column_dtype: DType,
         array: StructArray,
@@ -45,12 +45,12 @@ impl ZoneMap {
         Ok(Self::new_unchecked(array, stats))
     }
 
-    /// Create StatsTable without validating return array against expected stats
+    /// Creates [`ZoneMap`] without validating return array against expected stats.
     pub fn new_unchecked(array: StructArray, stats: Arc<[Stat]>) -> Self {
         Self { array, stats }
     }
 
-    /// Returns the DType of the statistics table given a set of statistics and column [`DType`].
+    /// Returns the [`DType`] of the statistics table given a set of statistics and column [`DType`].
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
         assert!(present_stats.is_sorted(), "Stats must be sorted");
         DType::Struct(
@@ -77,17 +77,17 @@ impl ZoneMap {
         )
     }
 
-    /// The struct array backing the zone map
+    /// Returns the underlying [`StructArray`] backing the zone map
     pub fn array(&self) -> &StructArray {
         &self.array
     }
 
-    /// The statistics that are included in the table.
+    /// Returns the list of stats included in the zone map.
     pub fn present_stats(&self) -> &Arc<[Stat]> {
         &self.stats
     }
 
-    /// Return an aggregated stats set for the table.
+    /// Returns an aggregated stats set for the table.
     pub fn to_stats_set(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
         for &stat in stats {
@@ -117,7 +117,7 @@ impl ZoneMap {
         Ok(stats_set)
     }
 
-    /// Return the array for a given stat.
+    /// Returns the array for a given stat.
     pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<ArrayRef>> {
         Ok(self.array.field_by_name_opt(stat.name()).cloned())
     }
@@ -139,12 +139,11 @@ impl ZoneMap {
     }
 }
 
+// TODO(ngates): we should make it such that the zone map stores a mirror of the DType
+//  underneath each stats column. For example, `min: i32` for an `i32` array.
+//  Or `min: {a: i32, b: i32}` for a struct array of type `{a: i32, b: i32}`.
+//  See: <https://github.com/vortex-data/vortex/issues/1835>
 /// Accumulates statistics for a column.
-///
-/// TODO(ngates): we should make it such that the zone map stores a mirror of the DType
-///  underneath each stats column. For example, `min: i32` for an `i32` array.
-///  Or `min: {a: i32, b: i32}` for a struct array of type `{a: i32, b: i32}`.
-///  See: <https://github.com/vortex-data/vortex/issues/1835>
 pub struct StatsAccumulator {
     builders: Vec<Box<dyn StatsArrayBuilder>>,
     length: usize,
