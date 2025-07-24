@@ -239,6 +239,7 @@ impl ArrayEvaluation for DictArrayEvaluation {
 
 #[cfg(test)]
 mod tests {
+    use crate::LocalExecutor;
     use std::sync::Arc;
 
     use arcref::ArcRef;
@@ -258,8 +259,7 @@ mod tests {
     use crate::segments::{SequenceWriter, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
-        LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, SequentialStreamAdapter,
-        SequentialStreamExt,
+        LayoutId, LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt,
     };
 
     #[tokio::test]

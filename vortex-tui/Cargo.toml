@@ -25,7 +25,7 @@ parquet = { workspace = true, features = ["arrow", "async"] }
 ratatui = { workspace = true }
 taffy = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-vortex = { workspace = true, features = ["rayon", "parquet"] }
+vortex = { workspace = true, features = ["parquet"] }
 
 [lints]
 workspace = true

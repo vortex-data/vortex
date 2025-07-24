@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use arrow_array::ArrayRef;
 use bytes::Bytes;
-use futures::TryStreamExt;
+use itertools::Itertools;
 use tokio::runtime::Handle;
 use vortex::Array;
 use vortex::arrow::IntoArrowArray;
@@ -27,13 +27,12 @@ pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyh
 #[inline(never)]
 pub async fn vortex_decompress_read(buf: Bytes) -> anyhow::Result<Vec<ArrayRef>> {
     Ok(VortexOpenOptions::in_memory()
-        .open(buf)
-        .await?
+        .open(buf)?
         .scan()?
-        .into_par_iter()?
-        .try_collect::<Vec<_>>()
-        .await?
+        .into_multi_threaded_iter()?
+        .try_collect::<_, Vec<_>, _>()?
         .into_iter()
+        // FIXME(ngates): convert to arrow on thread pool
         .map(|a| a.into_arrow_preferred())
         .collect::<VortexResult<Vec<_>>>()?)
 }

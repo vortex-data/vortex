@@ -3,6 +3,10 @@
 
 use std::sync::Arc;
 
+use crate::arrays::PyArrayRef;
+use crate::expr::PyExpr;
+use crate::object_store_urls::object_store_from_url;
+use crate::{TOKIO_RUNTIME, install_module};
 use arrow_array::RecordBatchReader;
 use arrow_pyarrow::{IntoPyArrow, ToPyArrow};
 use arrow_schema::SchemaRef;
@@ -14,14 +18,8 @@ use vortex::dtype::FieldName;
 use vortex::error::VortexResult;
 use vortex::expr::{ExprRef, SelectExpr, root};
 use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::stream::{ArrayStreamExt, SendableArrayStream};
+use vortex::iter::ArrayIteratorExt;
 use vortex::{ArrayRef, ToCanonical};
-
-use crate::arrays::PyArrayRef;
-use crate::expr::PyExpr;
-use crate::iter::ArrayStreamToIterator;
-use crate::object_store_urls::object_store_from_url;
-use crate::{TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
@@ -33,7 +31,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-pub async fn read_array_from_reader(
+pub fn read_array_from_reader(
     vortex_file: &VortexFile,
     projection: ExprRef,
     filter: Option<ExprRef>,
@@ -50,7 +48,7 @@ pub async fn read_array_from_reader(
         scan = scan.with_row_indices(indices);
     }
 
-    scan.into_par_iter()?.read_all().await
+    scan.into_array_iter_multithread()?.read_all()
 }
 
 fn projection_from_python(columns: Option<Vec<Bound<PyAny>>>) -> PyResult<ExprRef> {
@@ -101,45 +99,6 @@ impl PyVortexDataset {
                 .await?,
         )
     }
-
-    async fn async_to_array(
-        &self,
-        columns: Option<Vec<Bound<'_, PyAny>>>,
-        row_filter: Option<&Bound<'_, PyExpr>>,
-        indices: Option<PyArrayRef>,
-    ) -> PyResult<ArrayRef> {
-        Ok(read_array_from_reader(
-            &self.vxf,
-            projection_from_python(columns)?,
-            filter_from_python(row_filter),
-            indices.map(|i| i.into_inner()),
-        )
-        .await?)
-    }
-
-    async fn async_to_record_batch_reader(
-        self_: PyRef<'_, Self>,
-        columns: Option<Vec<Bound<'_, PyAny>>>,
-        row_filter: Option<&Bound<'_, PyExpr>>,
-        indices: Option<PyArrayRef>,
-    ) -> PyResult<PyObject> {
-        let mut scan = self_
-            .vxf
-            .scan()?
-            .with_projection(projection_from_python(columns)?)
-            .with_some_filter(filter_from_python(row_filter));
-
-        if let Some(indices) = indices.map(|i| i.inner().clone()) {
-            let indices = indices.to_primitive()?.into_buffer();
-            scan = scan.with_row_indices(indices);
-        }
-
-        let iter = ArrayStreamToIterator::new(scan.into_par_iter()?.boxed() as SendableArrayStream);
-        let record_batch_reader: Box<dyn RecordBatchReader + Send> =
-            Box::new(VortexRecordBatchReader::try_new(iter)?);
-
-        record_batch_reader.into_pyarrow(self_.py())
-    }
 }
 
 #[pymethods]
@@ -155,9 +114,13 @@ impl PyVortexDataset {
         row_filter: Option<&Bound<'py, PyExpr>>,
         indices: Option<PyArrayRef>,
     ) -> PyResult<PyArrayRef> {
-        Ok(PyArrayRef::from(TOKIO_RUNTIME.block_on(
-            self.async_to_array(columns, row_filter, indices),
-        )?))
+        let array = read_array_from_reader(
+            &self.vxf,
+            projection_from_python(columns)?,
+            filter_from_python(row_filter),
+            indices.map(|i| i.into_inner()),
+        )?;
+        Ok(PyArrayRef::from(array))
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None))]
@@ -167,9 +130,24 @@ impl PyVortexDataset {
         row_filter: Option<&Bound<'_, PyExpr>>,
         indices: Option<PyArrayRef>,
     ) -> PyResult<PyObject> {
-        TOKIO_RUNTIME.block_on(Self::async_to_record_batch_reader(
-            self_, columns, row_filter, indices,
-        ))
+        let mut scan = self_
+            .vxf
+            .scan()?
+            .with_projection(projection_from_python(columns)?)
+            .with_some_filter(filter_from_python(row_filter));
+
+        if let Some(indices) = indices.map(|i| i.inner().clone()) {
+            let indices = indices.to_primitive()?.into_buffer();
+            scan = scan.with_row_indices(indices);
+        }
+
+        // TODO(ngates): should we use multi-threaded read or not?
+        let iter = scan.into_multi_threaded_iter()?;
+
+        let record_batch_reader: Box<dyn RecordBatchReader + Send> =
+            Box::new(VortexRecordBatchReader::try_new(iter)?);
+
+        record_batch_reader.into_pyarrow(self_.py())
     }
 }
 

@@ -18,14 +18,13 @@ use vortex::expr::{ExprRef, root, select};
 use vortex::file::segments::MokaSegmentCache;
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::scan::SplitBy;
-use vortex::stream::ArrayStreamExt;
 
 use crate::arrays::PyArrayRef;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
 use crate::expr::PyExpr;
 use crate::install_module;
-use crate::iter::{ArrayStreamToIterator, PyArrayIterator};
+use crate::iter::PyArrayIterator;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "file")?;
@@ -168,8 +167,9 @@ impl PyVortexFile {
             builder = builder.with_split_by(SplitBy::RowCount(batch_size));
         }
 
-        let iter = ArrayStreamToIterator::new(ArrayStreamExt::boxed(builder.into_par_iter()?));
-        Ok(PyArrayIterator::new(Box::new(iter)))
+        Ok(PyArrayIterator::new(Box::new(
+            builder.into_multi_threaded_iter()?,
+        )))
     }
 
     /// Scan the Vortex file as a :class:`pyarrow.RecordBatchReader`.
@@ -183,7 +183,7 @@ impl PyVortexFile {
     ) -> PyResult<PyObject> {
         let vxf = slf.get().vxf.clone();
 
-        let stream = slf.py().allow_threads(|| {
+        let iter = slf.py().allow_threads(|| {
             let mut builder = vxf
                 .scan()?
                 .with_some_filter(expr.map(|e| e.into_inner()))
@@ -193,11 +193,10 @@ impl PyVortexFile {
                 builder = builder.with_split_by(SplitBy::RowCount(batch_size));
             }
 
-            // TODO(ngates): use ScanBuilder::map_to_record_batch
-            Ok::<_, VortexError>(ArrayStreamExt::boxed(builder.into_par_iter()?))
+            // FIXME(ngates): use into_par_iter and map to record batch in the thread pool.
+            Ok::<_, VortexError>(builder.into_multi_threaded_iter()?)
         })?;
 
-        let iter = ArrayStreamToIterator::new(stream);
         let rbr: Box<dyn RecordBatchReader + Send> =
             Box::new(VortexRecordBatchReader::try_new(iter)?);
         rbr.into_pyarrow(slf.py())

@@ -41,9 +41,10 @@ pub mod encodings {
 mod test {
     use std::sync::Arc;
 
+    use crate as vortex;
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::stream::ArrayStreamExt;
+    use vortex_array::iter::ArrayIteratorExt;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{ArrayRef, IntoArray, ToCanonical};
@@ -53,8 +54,6 @@ mod test {
     use vortex_file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
     use vortex_layout::LocalExecutor;
     use vortex_layout::layouts::compact::CompactCompressor;
-
-    use crate as vortex;
 
     #[test]
     fn convert() -> VortexResult<()> {
@@ -166,8 +165,7 @@ mod test {
             .await?
             .scan()?
             .into_array_iter()?
-            .read_all()
-            .await?;
+            .read_all()?;
 
         assert_eq!(recovered_array.len(), array.len());
         let recovered_primitive = recovered_array.to_primitive().unwrap();

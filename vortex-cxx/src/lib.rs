@@ -8,7 +8,7 @@ use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
 use futures::executor::ThreadPool;
 use tokio::runtime::Runtime;
-use vortex::arrow::{FromArrowArray, IntoArrowArray, VortexRecordBatchReader};
+use vortex::arrow::{FromArrowArray, IntoArrowArray};
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};

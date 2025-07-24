@@ -31,9 +31,9 @@ use vortex_metrics::VortexMetrics;
 use crate::work_queue::{TaskFactory, WorkStealingQueue};
 use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
 
+mod arrow;
 mod multi_scan;
-#[cfg(feature = "rayon")]
-pub mod rayon;
+mod multi_thread;
 pub mod row_mask;
 mod selection;
 mod split_by;
@@ -51,9 +51,9 @@ pub struct ScanBuilder<A> {
     /// The selection mask to apply to the selected row range.
     // TODO(joe): replace this is usage of row_id selection, see
     selection: Selection,
-    /// How to split the file for concurrent processing.
+    /// How to split the file f§    or concurrent processing.
     split_by: SplitBy,
-    /// The number of splits to make progress on concurrently.
+    /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
@@ -108,7 +108,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    /// The number of row splits to make progress on concurrently, must be greater than 0.
+    /// The number of row splits to make progress on concurrently per-thread, must
+    /// be greater than 0.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         assert!(concurrency > 0);
         self.concurrency = concurrency;
@@ -216,6 +217,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// Returns a blocking iterator over the scan, where tasks perform CPU work on the provided
     /// thread pool.
+    /// FIXME(ngates): remove this.
     pub fn into_thread_pool_iter(
         self,
         pool: ThreadPool,

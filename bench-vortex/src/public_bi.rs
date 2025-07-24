@@ -1,14 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::borrow::Cow;
-use std::fmt::{self, Display};
-use std::fs;
-use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::{Arc, LazyLock};
-
 use anyhow::{anyhow, bail};
 use arrow_schema::{DataType, Field, Schema};
 use async_trait::async_trait;
@@ -25,6 +17,13 @@ use futures::future::{join_all, try_join_all};
 use humansize::{DECIMAL, format_size};
 use log::trace;
 use regex::Regex;
+use std::borrow::Cow;
+use std::fmt::{self, Display};
+use std::fs;
+use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::{Arc, LazyLock};
 use tokio::fs::File;
 use tokio::process::Command as TokioCommand;
 use tokio::runtime::Handle;
@@ -33,7 +32,7 @@ use url::Url;
 use vortex::ArrayRef;
 use vortex::error::{VortexResult, vortex_err};
 use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
-use vortex::stream::ArrayStreamExt;
+use vortex::iter::ArrayIteratorExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_datafusion::VortexFormat;
 
@@ -432,9 +431,8 @@ impl Dataset for PBIBenchmark {
                 .open(&path)
                 .await?
                 .scan()?
-                .into_par_iter()?
+                .into_multi_threaded_iter()?
                 .read_all()
-                .await
         }
         .await
         .expect("must be able to read table")

@@ -421,6 +421,7 @@ impl PruningResult {
 
 #[cfg(test)]
 mod test {
+    use crate::LocalExecutor;
     use std::sync::Arc;
 
     use arcref::ArcRef;
@@ -439,7 +440,7 @@ mod test {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
     use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use crate::{LayoutRef, LayoutStrategy, LocalExecutor};
+    use crate::{LayoutRef, LayoutStrategy};
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
