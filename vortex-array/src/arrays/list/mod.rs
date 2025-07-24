@@ -389,4 +389,112 @@ mod test {
 
         assert!(filtered.is_ok())
     }
+
+    #[test]
+    fn test_offsets_non_integer_type() {
+        let elements = PrimitiveArray::from_iter([1i32, 2, 3]);
+        let offsets = PrimitiveArray::from_iter([0.0f32, 2.0, 3.0]);
+        let validity = Validity::AllValid;
+
+        let result = ListArray::try_new(elements.into_array(), offsets.into_array(), validity);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Expected offsets to be an non-nullable integer type")
+        );
+    }
+
+    #[test]
+    fn test_offsets_nullable_integer_type() {
+        let elements = PrimitiveArray::from_iter([1i32, 2, 3]);
+        let offsets = PrimitiveArray::from_option_iter([Some(0i32), Some(2), Some(3)]);
+        let validity = Validity::AllValid;
+
+        let result = ListArray::try_new(elements.into_array(), offsets.into_array(), validity);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Expected offsets to be an non-nullable integer type")
+        );
+    }
+
+    #[test]
+    fn test_empty_offsets_array() {
+        let elements = PrimitiveArray::from_iter([1i32, 2, 3]);
+        let offsets = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
+        let validity = Validity::AllValid;
+
+        let result = ListArray::try_new(elements.into_array(), offsets.into_array(), validity);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Offsets must have at least one element")
+        );
+    }
+
+    #[test]
+    fn test_validity_length_mismatch() {
+        let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4]);
+        let offsets = PrimitiveArray::from_iter([0, 2, 4]);
+        // Offsets has len 3, so validity should have len 2. We'll create one with len 3 to trigger the error.
+        // Use a mix of true/false so it doesn't become AllValid
+        let validity = Validity::from(BooleanBuffer::from(vec![true, false, true]));
+
+        let result = ListArray::try_new(elements.into_array(), offsets.into_array(), validity);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Validity length must be one less than the offset length")
+        );
+    }
+
+    #[test]
+    fn test_unsorted_offsets() {
+        let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4]);
+        let offsets = PrimitiveArray::from_iter([0, 3, 1, 4]);
+        let validity = Validity::AllValid;
+
+        let result = ListArray::try_new(elements.into_array(), offsets.into_array(), validity);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Offsets must be sorted")
+        );
+    }
+
+    #[test]
+    fn test_min_offset_greater_than_elements_length() {
+        let elements = PrimitiveArray::from_iter([1i32, 2]);
+        let offsets = PrimitiveArray::from_iter([3, 4, 5]);
+        let validity = Validity::AllValid;
+
+        let result = ListArray::try_new(elements.into_array(), offsets.into_array(), validity);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains(
+            "The first offset must be less than or equal to the length of the elements array"
+        ));
+    }
+
+    #[test]
+    fn test_max_offset_greater_than_elements_length() {
+        let elements = PrimitiveArray::from_iter([1i32, 2, 3]);
+        let offsets = PrimitiveArray::from_iter([0, 2, 5]);
+        let validity = Validity::AllValid;
+
+        let result = ListArray::try_new(elements.into_array(), offsets.into_array(), validity);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains(
+            "The max offset must be less than or equal to the length of the elements array"
+        ));
+    }
 }
