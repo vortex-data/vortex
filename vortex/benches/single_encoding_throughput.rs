@@ -1,125 +1,137 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion, Throughput};
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+#![allow(clippy::unwrap_used)]
+
+use divan::Bencher;
 use mimalloc::MiMalloc;
-use rand::distributions::Alphanumeric;
-use rand::seq::SliceRandom as _;
-use rand::{thread_rng, Rng, SeedableRng as _};
-use vortex::aliases::hash_set::HashSet;
-use vortex::array::VarBinViewArray;
-use vortex::buffer::Buffer;
-use vortex::compute::try_cast;
-use vortex::dtype::PType;
-use vortex::encodings::dict::dict_encode;
+use rand::{Rng, SeedableRng};
+use vortex::arrays::{PrimitiveArray, VarBinViewArray};
+use vortex::compressor::BtrBlocksCompressor;
+use vortex::compute::cast;
+use vortex::encodings::dict::builders::dict_encode;
 use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
-use vortex::sampling_compressor::compressors::alp::ALPCompressor;
-use vortex::sampling_compressor::compressors::alp_rd::ALPRDCompressor;
-use vortex::sampling_compressor::compressors::bitpacked::{
-    BITPACK_NO_PATCHES, BITPACK_WITH_PATCHES,
-};
-use vortex::sampling_compressor::compressors::delta::DeltaCompressor;
-use vortex::sampling_compressor::compressors::dict::DictCompressor;
-use vortex::sampling_compressor::compressors::r#for::FoRCompressor;
-use vortex::sampling_compressor::compressors::runend::DEFAULT_RUN_END_COMPRESSOR;
-use vortex::sampling_compressor::compressors::zigzag::ZigZagCompressor;
-use vortex::sampling_compressor::compressors::CompressorRef;
-use vortex::sampling_compressor::SamplingCompressor;
-use vortex::{IntoArray, IntoCanonical};
+use vortex::{Array, IntoArray, ToCanonical};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-fn primitive(c: &mut Criterion) {
-    let mut group = c.benchmark_group("primitive-decompression");
-    let num_values = u16::MAX as u64;
-    group.throughput(Throughput::Bytes(num_values * 4));
+fn main() {
+    divan::main();
+}
 
-    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+const NUM_VALUES: u64 = u16::MAX as u64;
 
-    let uint_array =
-        Buffer::from_iter((0..num_values).map(|_| rng.gen_range(0u32..256))).into_array();
-    let int_array = try_cast(uint_array.clone(), PType::I32.into()).unwrap();
-    let float_array = try_cast(uint_array.clone(), PType::F32.into()).unwrap();
+#[divan::bench_group]
+mod primitive_decompression {
+    use super::*;
+    use vortex::dtype::PType;
 
-    let compressors_names_and_arrays = [
-        (
-            &BITPACK_NO_PATCHES as CompressorRef,
-            "bitpacked_no_patches",
-            &uint_array,
-        ),
-        (&BITPACK_WITH_PATCHES, "bitpacked_with_patches", &uint_array),
-        (&DEFAULT_RUN_END_COMPRESSOR, "runend", &uint_array),
-        (&DeltaCompressor, "delta", &uint_array),
-        (&DictCompressor, "dict", &uint_array),
-        (&FoRCompressor, "frame_of_reference", &int_array),
-        (&ZigZagCompressor, "zigzag", &int_array),
-        (&ALPCompressor, "alp", &float_array),
-        (&ALPRDCompressor, "alp_rd", &float_array),
-    ];
-
-    let ctx = SamplingCompressor::new(HashSet::new());
-    for (compressor, name, array) in compressors_names_and_arrays {
-        group.bench_function(format!("{} compress", name), |b| {
-            b.iter(|| {
-                black_box(
-                    compressor
-                        .compress(array, None, ctx.including(compressor))
-                        .unwrap(),
-                );
-            })
-        });
-
-        let compressed = compressor
-            .compress(array, None, ctx.including(compressor))
+    fn setup_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let uint_array = PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(0u32..256)));
+        let int_array = cast(uint_array.as_ref(), PType::I32.into())
             .unwrap()
-            .into_array();
-        group.bench_function(format!("{} decompress", name), |b| {
-            b.iter_batched(
-                || compressed.clone(),
-                |compressed| {
-                    black_box(compressed.into_canonical().unwrap());
-                },
-                BatchSize::SmallInput,
-            )
-        });
+            .to_primitive()
+            .unwrap();
+        let float_array = cast(uint_array.as_ref(), PType::F32.into())
+            .unwrap()
+            .to_primitive()
+            .unwrap();
+        (uint_array, int_array, float_array)
+    }
+
+    #[divan::bench(name = "dict_compress")]
+    fn bench_dict_compress(bencher: Bencher) {
+        let (uint_array, _, _) = setup_arrays();
+        
+        bencher
+            .counter(NUM_VALUES * 4)
+            .bench_local(|| {
+                dict_encode(uint_array.as_ref()).unwrap()
+            });
+    }
+
+    #[divan::bench(name = "dict_decompress")]
+    fn bench_dict_decompress(bencher: Bencher) {
+        let (uint_array, _, _) = setup_arrays();
+        let compressed = dict_encode(uint_array.as_ref()).unwrap();
+        
+        bencher
+            .counter(NUM_VALUES * 4)
+            .bench_local(move || {
+                compressed.clone().to_canonical().unwrap()
+            });
+    }
+
+    #[divan::bench(name = "btrblocks_compress")]
+    fn bench_btrblocks_compress(bencher: Bencher) {
+        let (uint_array, _, _) = setup_arrays();
+        
+        bencher
+            .counter(NUM_VALUES * 4)
+            .bench_local(|| {
+                BtrBlocksCompressor.compress(uint_array.as_ref()).unwrap()
+            });
+    }
+
+    #[divan::bench(name = "btrblocks_decompress")]
+    fn bench_btrblocks_decompress(bencher: Bencher) {
+        let (uint_array, _, _) = setup_arrays();
+        let compressed = BtrBlocksCompressor.compress(uint_array.as_ref()).unwrap();
+        
+        bencher
+            .counter(NUM_VALUES * 4)
+            .bench_local(move || {
+                compressed.clone().to_canonical().unwrap()
+            });
     }
 }
 
-fn strings(c: &mut Criterion) {
-    let mut group = c.benchmark_group("string-decompression");
-    let num_values = u16::MAX as u64;
-    group.throughput(Throughput::Bytes(num_values * 8));
+#[divan::bench_group]
+mod string_decompression {
+    use super::*;
+    use rand::prelude::IndexedRandom;
 
-    let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
-    let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
-    group.throughput(Throughput::Bytes(
-        varbinview_arr.clone().into_array().nbytes() as u64,
-    ));
-    group.bench_function("dict_decode_varbinview", |b| {
-        b.iter(|| black_box(dict.clone().into_canonical().unwrap()));
-    });
+    fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
+        let mut rng = rand::rng();
+        let uniq_cnt = (len as f64 * uniqueness) as usize;
+        let dict: Vec<String> = (0..uniq_cnt)
+            .map(|_| {
+                (0..8)
+                    .map(|_| (rng.random_range(b'a'..=b'z')) as char)
+                    .collect()
+            })
+            .collect();
+        (0..len)
+            .map(|_| dict.choose(&mut rng).unwrap().clone())
+            .collect()
+    }
 
-    let fsst_compressor = fsst_train_compressor(&varbinview_arr.clone().into_array()).unwrap();
-    let fsst_array = fsst_compress(&varbinview_arr.clone().into_array(), &fsst_compressor).unwrap();
-    group.bench_function("fsst_decompress_varbinview", |b| {
-        b.iter(|| black_box(fsst_array.clone().into_canonical().unwrap()));
-    });
+    #[divan::bench(name = "dict_decode_varbinview")]
+    fn bench_dict_decode_varbinview(bencher: Bencher) {
+        let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
+        let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
+        let nbytes = varbinview_arr.clone().into_array().nbytes() as u64;
+        
+        bencher
+            .counter(nbytes)
+            .bench_local(move || {
+                dict.clone().to_canonical().unwrap()
+            });
+    }
+
+    #[divan::bench(name = "fsst_decompress_varbinview")]
+    fn bench_fsst_decompress_varbinview(bencher: Bencher) {
+        let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
+        let fsst_compressor = fsst_train_compressor(&varbinview_arr.clone().into_array()).unwrap();
+        let fsst_array = fsst_compress(&varbinview_arr.clone().into_array(), &fsst_compressor).unwrap();
+        let nbytes = varbinview_arr.clone().into_array().nbytes() as u64;
+        
+        bencher
+            .counter(nbytes)
+            .bench_local(move || {
+                fsst_array.clone().to_canonical().unwrap()
+            });
+    }
 }
-
-fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
-    let mut rng = thread_rng();
-    let uniq_cnt = (len as f64 * uniqueness) as usize;
-    let dict: Vec<String> = (0..uniq_cnt)
-        .map(|_| {
-            (&mut rng)
-                .sample_iter(&Alphanumeric)
-                .take(8)
-                .map(char::from)
-                .collect()
-        })
-        .collect();
-    (0..len)
-        .map(|_| dict.choose(&mut rng).unwrap().clone())
-        .collect()
-}
-
-criterion_group!(benches, primitive, strings);
-criterion_main!(benches);

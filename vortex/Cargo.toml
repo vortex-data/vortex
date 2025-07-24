@@ -49,9 +49,11 @@ vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 arrow-array = { workspace = true }
-criterion = { workspace = true }
+divan = { workspace = true }
 itertools = { workspace = true }
+mimalloc = { workspace = true }
 parquet = { workspace = true }
+rand = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex = { path = ".", features = ["parquet", "tokio"] }
 
