@@ -1151,7 +1151,6 @@ mod tests {
 
         // Verify metadata - should be ListArray with correct offsets
         let list_vortex_array = vortex_array.as_::<ListVTable>();
-        let _expected_offsets = vec![0i32, 3, 3, 5]; // [0, 3, 3, 5] for the three lists
         let offsets_array = list_vortex_array.offsets().as_::<PrimitiveVTable>();
         assert_eq!(offsets_array.len(), 4); // n+1 offsets for n lists
         assert_eq!(offsets_array.ptype(), PType::I32);
@@ -1167,7 +1166,6 @@ mod tests {
 
         // Verify metadata for non-nullable list
         let list_vortex_array_non_null = vortex_array_non_null.as_::<ListVTable>();
-        let _expected_offsets_non_null = vec![0i32, 3, 5]; // [0, 3, 5] for the two lists
         let offsets_array_non_null = list_vortex_array_non_null
             .offsets()
             .as_::<PrimitiveVTable>();
