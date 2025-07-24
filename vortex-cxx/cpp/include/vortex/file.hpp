@@ -5,11 +5,7 @@
 
 #include <nanoarrow/common/inline_types.h>
 
-#include <cstdint>
 #include <memory>
-#include <string>
-#include <string_view>
-#include <utility>
 
 namespace vortex {
 class ScanBuilder;

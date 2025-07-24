@@ -24,13 +24,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Corrosion)
 
+set(RUST_SOURCE_FILE lib.rs read.rs write.rs)
 # Import Rust crate using Corrosion
 if(VORTEX_ENABLE_TESTING)
     set(CORROSION_FEATURES gen_test_data)
     # Workaround to conditionally generate bindings of the test function *and* compile the test function: https://github.com/dtolnay/cxx/issues/1325
-    set(RUST_SOURCE_FILE lib.rs gen_test_data.rs)
-else()
-    set(RUST_SOURCE_FILE lib.rs)
+    set(RUST_SOURCE_FILE ${RUST_SOURCE_FILE} gen_test_data.rs)
 endif()
 corrosion_import_crate(
     MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
