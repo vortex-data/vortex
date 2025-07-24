@@ -9,11 +9,11 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::error::ArrowError;
 use datafusion::common::{DataFusionError, Result as DFResult};
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
-use futures::{FutureExt as _, StreamExt, TryStreamExt, stream};
+use futures::{FutureExt, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
-use tokio::runtime::Handle;
-use vortex::error::{ResultExt, VortexError, vortex_err};
+// use tokio::runtime::Handle;
+use vortex::error::VortexError;
 use vortex::expr::{ExprRef, VortexExpr};
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
@@ -29,6 +29,7 @@ pub(crate) struct VortexFileOpener {
     pub filter: Option<ExprRef>,
     pub(crate) file_cache: VortexFileCache,
     pub projected_arrow_schema: SchemaRef,
+    #[allow(dead_code)]
     pub batch_size: usize,
     pub limit: Option<usize>,
     metrics: VortexMetrics,
@@ -70,7 +71,7 @@ impl FileOpener for VortexFileOpener {
         let object_store = self.object_store.clone();
         let projected_arrow_schema = self.projected_arrow_schema.clone();
         let metrics = self.metrics.clone();
-        let batch_size = self.batch_size;
+        // let batch_size = self.batch_size;
         let limit = self.limit;
         let layout_reader = self.layout_readers.clone();
 
@@ -119,7 +120,7 @@ impl FileOpener for VortexFileOpener {
                 }
             }
 
-            let num_workers = Handle::current().metrics().num_workers();
+            // let num_workers = Handle::current().metrics().num_workers();
 
             let scan_tasks = scan_builder
                 .with_metrics(metrics)
@@ -131,49 +132,44 @@ impl FileOpener for VortexFileOpener {
                 })?;
 
             let stream = stream::iter(scan_tasks)
-                .map(move |task| {
+                .filter_map(move |task| {
                     let projected_arrow_schema = projected_arrow_schema.clone();
-                    tokio::spawn(async move {
-                        task.await
-                            .transpose()
-                            .map(move |chunk| {
-                                let st = chunk?.to_struct()?;
-                                st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
-                            })
-                            .transpose()
-                    })
+                    async move {
+                        task.await.transpose().map(move |chunk| {
+                            let st = chunk?.to_struct()?;
+                            st.into_record_batch_with_schema(projected_arrow_schema.as_ref())
+                        })
+                    }
                 })
                 // We buffer the stream so that we can run ahead and perform I/O on future tasks
                 // while still processing CPU work of the current one.
-                .buffered(4 * num_workers)
-                .filter_map(|r| async move {
-                    r.map_err(|e| vortex_err!("Failed to join Tokio task {e}"))
-                        .unnest()
-                        .transpose()
-                })
-                .map_ok(move |rb| {
-                    // We try and slice the stream into respecting datafusion's configured batch size.
-                    stream::iter(
-                        (0..rb.num_rows().div_ceil(batch_size * 2))
-                            .flat_map(move |block_idx| {
-                                let offset = block_idx * batch_size * 2;
-
-                                // If we have less than two batches worth of rows left, we keep them together as a single batch.
-                                if rb.num_rows() - offset < 2 * batch_size {
-                                    let length = rb.num_rows() - offset;
-                                    [Some(rb.slice(offset, length)), None].into_iter()
-                                } else {
-                                    let first = rb.slice(offset, batch_size);
-                                    let second = rb.slice(offset + batch_size, batch_size);
-                                    [Some(first), Some(second)].into_iter()
-                                }
-                            })
-                            .flatten()
-                            .map(Ok),
-                    )
-                })
+                // .buffered(4 * num_workers)
+                // .filter_map(|r| async move {
+                //     r.map_err(|e| vortex_err!("Failed to join Tokio task {e}"))
+                //         .transpose()
+                // })
+                // .map(move |rb| {
+                //     // We try and slice the stream into respecting datafusion's configured batch size.
+                //     stream::iter(
+                //         (0..rb.num_rows().div_ceil(batch_size * 2))
+                //             .flat_map(move |block_idx| {
+                //                 let offset = block_idx * batch_size * 2;
+                //                 // If we have less than two batches worth of rows left, we keep them together as a single batch.
+                //                 if rb.num_rows() - offset < 2 * batch_size {
+                //                     let length = rb.num_rows() - offset;
+                //                     [Some(rb.slice(offset, length)), None].into_iter()
+                //                 } else {
+                //                     let first = rb.slice(offset, batch_size);
+                //                     let second = rb.slice(offset + batch_size, batch_size);
+                //                     [Some(first), Some(second)].into_iter()
+                //                 }
+                //             })
+                //             .flatten()
+                //             .map(Ok),
+                //     )
+                // })
                 .map_err(|e: VortexError| ArrowError::ExternalError(Box::new(e)))
-                .try_flatten()
+                // .try_flatten()
                 .boxed();
 
             Ok(stream)

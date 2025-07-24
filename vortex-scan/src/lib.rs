@@ -193,18 +193,17 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let split_tasks = splits
             .into_iter()
             .filter_map(|split_range| {
-                let ctx = Arc::new(TaskContext {
-                    row_range: self.row_range.clone(),
-                    selection: self.selection.clone(),
-                    filter: self.filter.clone(),
-                    reader: layout_reader.clone(),
-                    projection: projection.clone(),
-                    mapper: self.map_fn.clone(),
-                });
-
                 if self.limit.is_some_and(|l| l == 0) {
                     None
                 } else {
+                    let ctx = Arc::new(TaskContext {
+                        row_range: self.row_range.clone(),
+                        selection: self.selection.clone(),
+                        filter: self.filter.clone(),
+                        reader: layout_reader.clone(),
+                        projection: projection.clone(),
+                        mapper: self.map_fn.clone(),
+                    });
                     Some(split_exec(ctx, split_range, self.limit.as_mut()))
                 }
             })
