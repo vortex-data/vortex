@@ -4,10 +4,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::executor::ThreadPool;
 use futures::future::BoxFuture;
-use futures::stream::FuturesOrdered;
-use futures::task::SpawnExt;
 use itertools::Itertools;
 pub use multi_scan::*;
 pub use selection::*;
@@ -18,7 +15,7 @@ use vortex_array::iter::ArrayIterator;
 use vortex_array::stats::StatsSet;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, root};
@@ -214,28 +211,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
         Ok(split_tasks)
     }
-
-    /// Returns a blocking iterator over the scan, where tasks perform CPU work on the provided
-    /// thread pool.
-    /// FIXME(ngates): remove this.
-    pub fn into_thread_pool_iter(
-        self,
-        pool: ThreadPool,
-    ) -> VortexResult<impl Iterator<Item = VortexResult<A>> + Send + 'static> {
-        let futures: FuturesOrdered<_> = self
-            .build()?
-            .into_iter()
-            .map(|task| {
-                let fut = pool.spawn_with_handle(task);
-                async move {
-                    fut.map_err(|e| vortex_err!("Failed to spawn task onto thread pool {e}"))?
-                        .await
-                }
-            })
-            .collect();
-
-        Ok(futures::executor::block_on_stream(futures).filter_map_ok(|v| v))
-    }
 }
 
 impl ScanBuilder<ArrayRef> {
@@ -247,9 +222,9 @@ impl ScanBuilder<ArrayRef> {
             row_range: None,
             selection: Default::default(),
             split_by: SplitBy::Layout,
-            // We default to two tasks per worker thread, which allows for some I/O lookahead
+            // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
-            concurrency: 2,
+            concurrency: 4,
             map_fn: Arc::new(Ok),
             metrics: Default::default(),
             file_stats: None,

@@ -12,6 +12,7 @@ use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener
 use futures::{FutureExt as _, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
 use object_store::path::Path;
+use tokio::runtime::Handle;
 use vortex::error::VortexError;
 use vortex::expr::{ExprRef, VortexExpr};
 use vortex::layout::LayoutReader;
@@ -118,6 +119,8 @@ impl FileOpener for VortexFileOpener {
                 }
             }
 
+            let num_workers = Handle::current().metrics().num_workers();
+
             let scan_tasks = scan_builder
                 .with_metrics(metrics)
                 .with_projection(projection)
@@ -142,7 +145,7 @@ impl FileOpener for VortexFileOpener {
                 })
                 // We buffer the stream so that we can run ahead and perform I/O on future tasks
                 // while still processing CPU work of the current one.
-                .buffered(2)
+                .buffered(4 * num_workers)
                 .filter_map(|r| async move { r.transpose() })
                 .map_ok(move |rb| {
                     // We try and slice the stream into respecting datafusion's configured batch size.

@@ -57,7 +57,9 @@ impl ScanBuilder<ArrayRef> {
         let mut stream = stream::iter(tasks)
             .map(move |task| {
                 let map_fn = map_fn.clone();
-                // Spawn a task onto the executor that will execute the task and send the result back.
+                // We don't _need_ to spawn the work here. But it allows Tokio to make progress on
+                // the tasks in the background, even if the consumer thread is not calling
+                // poll_next.
                 handle.spawn(async move { task.await.transpose().map(|t| map_fn(t)) })
             })
             // TODO(ngates): this is very crude indeed. This buffered call essentially controls how
