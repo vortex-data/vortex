@@ -108,7 +108,7 @@ pub trait TableFunction: Sized + Debug {
         _bind_data: &Self::BindData,
         _global_init_data: &mut Self::GlobalState,
         _local_init_data: &mut Self::LocalState,
-    ) -> u64;
+    ) -> VortexResult<u64>;
 
     // TODO(ngates): there are many more callbacks that can be configured.
 }

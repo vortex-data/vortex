@@ -248,8 +248,13 @@ OperatorPartitionData c_partition_info(ClientContext &context, TableFunctionGetP
     auto &global = input.global_state->Cast<CTableGlobalData>();
     auto &local = input.local_state->Cast<CTableLocalData>();
 
-    return OperatorPartitionData(bind.info->vtab.get_partition_data(
-        bind.ffi_data->DataPtr(), global.ffi_data->DataPtr(), local.ffi_data->DataPtr()));
+    duckdb_vx_error error_out = nullptr;
+    auto index = bind.info->vtab.get_partition_data(bind.ffi_data->DataPtr(), global.ffi_data->DataPtr(),
+                                                    local.ffi_data->DataPtr(), &error_out);
+    if (error_out) {
+        throw InvalidInputException(IntoErrString(error_out));
+    }
+    return OperatorPartitionData(index);
 }
 
 extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,

@@ -335,10 +335,9 @@ impl TableFunction for VortexTableFunction {
         _bind_data: &Self::BindData,
         _global_init_data: &mut Self::GlobalState,
         _local_init_data: &mut Self::LocalState,
-    ) -> u64 {
+    ) -> VortexResult<u64> {
         _local_init_data
             .batch_id
-            .ok_or_else(|| vortex_err!("instance id missing"))
-            .unwrap()
+            .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
     }
 }
