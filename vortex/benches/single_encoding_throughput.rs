@@ -16,6 +16,7 @@ use vortex::encodings::fsst::{fsst_compress, fsst_train_compressor};
 use vortex::encodings::pco::PcoArray;
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::zigzag::zigzag_encode;
+#[cfg(feature = "zstd")]
 use vortex::encodings::zstd::ZstdArray;
 use vortex::validity::Validity;
 use vortex::{IntoArray, ToCanonical};
@@ -242,6 +243,7 @@ mod primitive_decompression {
             .bench_values(|a| a.to_canonical().unwrap());
     }
 
+    #[cfg(feature = "zstd")]
     #[divan::bench(name = "zstd_compress")]
     fn bench_zstd_compress(bencher: Bencher) {
         let (uint_array, ..) = setup_arrays();
@@ -252,6 +254,7 @@ mod primitive_decompression {
             .bench_values(|a| ZstdArray::from_array(a.into_array(), 3, 8192).unwrap());
     }
 
+    #[cfg(feature = "zstd")]
     #[divan::bench(name = "zstd_decompress")]
     fn bench_zstd_decompress(bencher: Bencher) {
         let (uint_array, ..) = setup_arrays();
