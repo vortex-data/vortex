@@ -33,6 +33,7 @@ impl ScanBuilder<ArrayRef> {
 
     /// Creates a new `RecordBatchReader` from the scan builder that internally drives the scan
     /// on multithreaded pool of workers.
+    #[cfg(feature = "tokio")]
     pub fn into_record_batch_reader_multithread(
         self,
         schema: SchemaRef,
