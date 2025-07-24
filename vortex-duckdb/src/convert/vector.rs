@@ -70,7 +70,7 @@ pub fn flat_vector_to_arrow_array(
             Ok(Arc::new(
                 PrimitiveArray::<Int32Type>::from_iter_values_with_nulls(
                     data.iter().copied(),
-                    vector.create_null_buffer(data.len()),
+                    vector.validity_ref(data.len()).to_null_buffer(),
                 ),
             ))
         }
@@ -79,7 +79,7 @@ pub fn flat_vector_to_arrow_array(
             let micros = data.iter().map(|duckdb_timestamp { micros }| *micros);
             let structs = TimestampMicrosecondArray::from_iter_values_with_nulls(
                 micros,
-                vector.create_null_buffer(data.len()),
+                vector.validity_ref(data.len()).to_null_buffer(),
             );
 
             Ok(Arc::new(structs))
@@ -89,7 +89,7 @@ pub fn flat_vector_to_arrow_array(
             let seconds = data.iter().map(|duckdb_timestamp_s { seconds }| *seconds);
             let structs = TimestampSecondArray::from_iter_values_with_nulls(
                 seconds,
-                vector.create_null_buffer(data.len()),
+                vector.validity_ref(data.len()).to_null_buffer(),
             );
 
             Ok(Arc::new(structs))
@@ -99,7 +99,7 @@ pub fn flat_vector_to_arrow_array(
             let millis = data.iter().map(|duckdb_timestamp_ms { millis }| *millis);
             let structs = TimestampMillisecondArray::from_iter_values_with_nulls(
                 millis,
-                vector.create_null_buffer(data.len()),
+                vector.validity_ref(data.len()).to_null_buffer(),
             );
 
             Ok(Arc::new(structs))
@@ -111,7 +111,7 @@ pub fn flat_vector_to_arrow_array(
                 .map(|duckdb_timestamp { micros }| *micros * 1000);
             let structs = TimestampNanosecondArray::from_iter_values_with_nulls(
                 nanos,
-                vector.create_null_buffer(data.len()),
+                vector.validity_ref(data.len()).to_null_buffer(),
             );
 
             Ok(Arc::new(structs))
@@ -121,20 +121,21 @@ pub fn flat_vector_to_arrow_array(
             let micros = data.iter().map(|duckdb_timestamp { micros }| *micros);
             let structs = TimestampMicrosecondArray::from_iter_values_with_nulls(
                 micros,
-                vector.create_null_buffer(data.len()),
+                vector.validity_ref(data.len()).to_null_buffer(),
             );
 
             Ok(Arc::new(structs))
         }
         DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => {
             let data = vector.as_slice_with_len::<duckdb_string_t>(len);
+            let validity = vector.validity_ref(len);
 
             let duck_strings = data.iter().enumerate().map(|(i, s)| {
-                if vector.row_is_null(i as u64) {
-                    None
-                } else {
+                if validity.is_valid(i) {
                     let mut ptr = *s;
                     Some(DuckString::new(&mut ptr).as_str().to_string())
+                } else {
+                    None
                 }
             });
 
@@ -147,7 +148,7 @@ pub fn flat_vector_to_arrow_array(
 
             Ok(Arc::new(BooleanArray::new(
                 BooleanBuffer::from_iter(data.iter().copied()),
-                vector.create_null_buffer(data.len()),
+                vector.validity_ref(data.len()).to_null_buffer(),
             )))
         }
         DUCKDB_TYPE::DUCKDB_TYPE_FLOAT => {
@@ -156,7 +157,7 @@ pub fn flat_vector_to_arrow_array(
             Ok(Arc::new(
                 PrimitiveArray::<Float32Type>::from_iter_values_with_nulls(
                     data.iter().copied(),
-                    vector.create_null_buffer(data.len()),
+                    vector.validity_ref(data.len()).to_null_buffer(),
                 ),
             ))
         }
@@ -166,7 +167,7 @@ pub fn flat_vector_to_arrow_array(
             Ok(Arc::new(
                 PrimitiveArray::<Float64Type>::from_iter_values_with_nulls(
                     data.iter().copied(),
-                    vector.create_null_buffer(data.len()),
+                    vector.validity_ref(data.len()).to_null_buffer(),
                 ),
             ))
         }
@@ -175,7 +176,7 @@ pub fn flat_vector_to_arrow_array(
 
             Ok(Arc::new(Date32Array::from_iter_values_with_nulls(
                 data.iter().map(|duckdb_date { days }| *days),
-                vector.create_null_buffer(data.len()),
+                vector.validity_ref(data.len()).to_null_buffer(),
             )))
         }
         DUCKDB_TYPE::DUCKDB_TYPE_TIME => {
@@ -184,7 +185,7 @@ pub fn flat_vector_to_arrow_array(
             Ok(Arc::new(
                 PrimitiveArray::<Time64MicrosecondType>::from_iter_values_with_nulls(
                     data.iter().map(|duckdb_time { micros }| *micros),
-                    vector.create_null_buffer(data.len()),
+                    vector.validity_ref(data.len()).to_null_buffer(),
                 ),
             ))
         }
@@ -194,7 +195,7 @@ pub fn flat_vector_to_arrow_array(
             Ok(Arc::new(
                 PrimitiveArray::<Int16Type>::from_iter_values_with_nulls(
                     data.iter().copied(),
-                    vector.create_null_buffer(data.len()),
+                    vector.validity_ref(data.len()).to_null_buffer(),
                 ),
             ))
         }
@@ -204,18 +205,19 @@ pub fn flat_vector_to_arrow_array(
             Ok(Arc::new(
                 PrimitiveArray::<UInt16Type>::from_iter_values_with_nulls(
                     data.iter().copied(),
-                    vector.create_null_buffer(data.len()),
+                    vector.validity_ref(data.len()).to_null_buffer(),
                 ),
             ))
         }
         DUCKDB_TYPE::DUCKDB_TYPE_BLOB => {
             let mut data = vector.as_slice_with_len::<duckdb_string_t>(len).to_vec();
+            let validity = vector.validity_ref(len);
 
             let duck_strings = data.iter_mut().enumerate().map(|(i, ptr)| {
-                if vector.row_is_null(i as u64) {
-                    None
-                } else {
+                if validity.is_valid(i) {
                     Some(DuckString::new(ptr))
+                } else {
+                    None
                 }
             });
 
@@ -236,7 +238,7 @@ pub fn flat_vector_to_arrow_array(
             Ok(Arc::new(
                 PrimitiveArray::<Int8Type>::from_iter_values_with_nulls(
                     data.iter().copied(),
-                    vector.create_null_buffer(data.len()),
+                    vector.validity_ref(data.len()).to_null_buffer(),
                 ),
             ))
         }
@@ -245,7 +247,7 @@ pub fn flat_vector_to_arrow_array(
             Ok(Arc::new(
                 PrimitiveArray::<Int64Type>::from_iter_values_with_nulls(
                     data.iter().copied(),
-                    vector.create_null_buffer(data.len()),
+                    vector.validity_ref(data.len()).to_null_buffer(),
                 ),
             ))
         }
@@ -255,7 +257,7 @@ pub fn flat_vector_to_arrow_array(
             Ok(Arc::new(
                 PrimitiveArray::<UInt64Type>::from_iter_values_with_nulls(
                     data.iter().copied(),
-                    vector.create_null_buffer(data.len()),
+                    vector.validity_ref(data.len()).to_null_buffer(),
                 ),
             ))
         }
@@ -265,7 +267,7 @@ pub fn flat_vector_to_arrow_array(
             Ok(Arc::new(
                 PrimitiveArray::<UInt8Type>::from_iter_values_with_nulls(
                     data.iter().copied(),
-                    vector.create_null_buffer(data.len()),
+                    vector.validity_ref(data.len()).to_null_buffer(),
                 ),
             ))
         }
@@ -275,7 +277,7 @@ pub fn flat_vector_to_arrow_array(
             Ok(Arc::new(
                 PrimitiveArray::<UInt32Type>::from_iter_values_with_nulls(
                     data.iter().copied(),
-                    vector.create_null_buffer(data.len()),
+                    vector.validity_ref(data.len()).to_null_buffer(),
                 ),
             ))
         }
@@ -308,7 +310,7 @@ pub fn flat_vector_to_arrow_array(
 
             let decimal_array = Decimal128Array::from_iter_values_with_nulls(
                 decimal_values.into_iter(),
-                vector.create_null_buffer(len),
+                vector.validity_ref(len).to_null_buffer(),
             )
             .with_precision_and_scale(precision, scale as i8)?;
 

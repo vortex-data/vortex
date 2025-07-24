@@ -5,6 +5,7 @@ use std::ffi::{CStr, CString};
 use std::ptr;
 
 use arrow_buffer;
+use arrow_buffer::Buffer;
 use bitvec::macros::internal::funty::Fundamental;
 use bitvec::slice::BitSlice;
 use vortex::error::{VortexResult, VortexUnwrap, vortex_bail, vortex_err};
@@ -103,10 +104,6 @@ impl Vector {
     }
 
     pub fn row_is_null(&self, row: u64) -> bool {
-        // This is the formula, given a validity vector to extract validity bit as row_idx:
-        // use idx_t entry_idx = row_idx / 64; idx_t idx_in_entry = row_idx % 64; bool is_valid = validity_mask[entry_idx] & (1 « idx_in_entry);
-        //
-        // Optimized with direct bit manipulation instead of C function call
         unsafe {
             let validity = cpp::duckdb_vector_get_validity(self.ptr);
 
@@ -158,28 +155,23 @@ impl Vector {
         })
     }
 
-    /// Creates a NullBuffer directly from the DuckDB validity mask for optimal performance.
-    ///
-    /// Returns None if all values are valid (no null buffer needed).
-    pub fn create_null_buffer(&self, len: usize) -> Option<arrow_buffer::NullBuffer> {
+    pub fn validity_ref(&self, len: usize) -> ValidityRef {
         let validity_ptr = unsafe { cpp::duckdb_vector_get_validity(self.as_ptr()) };
 
         if validity_ptr.is_null() {
             // All values are valid - no null buffer needed
-            return None;
+            return ValidityRef {
+                validity: None,
+                len,
+            };
         }
 
-        // Calculate how many bytes we need for the validity mask
         let num_bytes = len.div_ceil(8); // Round up to nearest byte boundary
 
-        // Create a buffer from the DuckDB validity mask.
-        let validity_slice =
-            unsafe { std::slice::from_raw_parts(validity_ptr as *const u8, num_bytes) };
-
-        let buffer = arrow_buffer::Buffer::from(validity_slice);
-
-        let boolean_buffer = arrow_buffer::BooleanBuffer::new(buffer, 0, len);
-        Some(arrow_buffer::NullBuffer::new(boolean_buffer))
+        ValidityRef {
+            validity: Some(unsafe { std::slice::from_raw_parts(validity_ptr, num_bytes) }),
+            len,
+        }
     }
 
     pub fn try_to_string(&self, len: u64) -> VortexResult<String> {
@@ -197,6 +189,40 @@ impl Vector {
     }
 }
 
+pub struct ValidityRef<'a> {
+    validity: Option<&'a [u64]>,
+    len: usize,
+}
+
+impl ValidityRef<'_> {
+    pub fn is_valid(&self, row: usize) -> bool {
+        let Some(validity) = self.validity else {
+            return true;
+        };
+        // Direct bit manipulation for better performance
+        let entry_idx = row / 64;
+        let idx_in_entry = row % 64;
+        let validity_entry = validity[entry_idx];
+        (validity_entry & (1u64 << idx_in_entry)) != 0
+    }
+
+    /// Creates a NullBuffer directly from the DuckDB validity mask for optimal performance.
+    ///
+    /// Returns None if all values are valid (no null buffer needed).
+    pub fn to_null_buffer(&self) -> Option<arrow_buffer::NullBuffer> {
+        let Some(validity) = self.validity else {
+            // All values are valid - no null buffer needed
+            return None;
+        };
+
+        // Create copy of the buffer from the DuckDB validity mask.
+        let buffer = Buffer::from_iter(validity.iter().cloned());
+
+        let boolean_buffer = arrow_buffer::BooleanBuffer::new(buffer, 0, self.len);
+        Some(arrow_buffer::NullBuffer::new(boolean_buffer))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,7 +235,8 @@ mod tests {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
         let vector = Vector::with_capacity(logical_type, len);
 
-        let null_buffer = vector.create_null_buffer(len);
+        let validity = vector.validity_ref(len);
+        let null_buffer = validity.to_null_buffer();
         assert!(null_buffer.is_none(), "Expected None for all-valid vector");
     }
 
@@ -226,7 +253,8 @@ mod tests {
         validity_slice.set(3, false); // null at position 3
         validity_slice.set(7, false); // null at position 7
 
-        let null_buffer = vector.create_null_buffer(len);
+        let validity = vector.validity_ref(len);
+        let null_buffer = validity.to_null_buffer();
         assert!(
             null_buffer.is_some(),
             "Expected Some(NullBuffer) for vector with nulls"
@@ -258,7 +286,8 @@ mod tests {
         let validity_slice = vector.ensure_validity_slice();
         validity_slice.set(0, false); // null at position 0
 
-        let null_buffer = vector.create_null_buffer(len);
+        let validity = vector.validity_ref(len);
+        let null_buffer = validity.to_null_buffer();
         assert!(null_buffer.is_some());
 
         let null_buffer = null_buffer.unwrap();
@@ -276,7 +305,8 @@ mod tests {
         // Ensure validity slice exists but don't set any nulls
         let _validity_slice = vector.ensure_validity_slice();
 
-        let null_buffer = vector.create_null_buffer(len);
+        let validity = vector.validity_ref(len);
+        let null_buffer = validity.to_null_buffer();
         assert!(null_buffer.is_some());
 
         let null_buffer = null_buffer.unwrap();
@@ -291,7 +321,8 @@ mod tests {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
         let vector = Vector::with_capacity(logical_type, len);
 
-        let null_buffer = vector.create_null_buffer(len);
+        let validity = vector.validity_ref(len);
+        let null_buffer = validity.to_null_buffer();
         // Even with zero length, if validity mask doesn't exist, should return None
         assert!(null_buffer.is_none());
     }
@@ -309,7 +340,8 @@ mod tests {
             validity_slice.set(i, false);
         }
 
-        let null_buffer = vector.create_null_buffer(len);
+        let validity = vector.validity_ref(len);
+        let null_buffer = validity.to_null_buffer();
         assert!(null_buffer.is_some());
 
         let null_buffer = null_buffer.unwrap();
@@ -328,9 +360,11 @@ mod tests {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
         let vector = Vector::with_capacity(logical_type, len);
 
+        let validity = vector.validity_ref(len);
+
         // When there's no validity mask, all rows should be valid (not null)
         for i in 0..len {
-            assert!(!vector.row_is_null(i as u64), "Row {i} should not be null");
+            assert!(validity.is_valid(i), "Row {i} should not be null");
         }
     }
 
@@ -347,17 +381,19 @@ mod tests {
         validity_slice.set(3, false); // null at position 3
         validity_slice.set(7, false); // null at position 7
 
+        let validity = vector.validity_ref(len);
+
         // Check each position
-        assert!(!vector.row_is_null(0), "Row 0 should not be null");
-        assert!(vector.row_is_null(1), "Row 1 should be null");
-        assert!(!vector.row_is_null(2), "Row 2 should not be null");
-        assert!(vector.row_is_null(3), "Row 3 should be null");
-        assert!(!vector.row_is_null(4), "Row 4 should not be null");
-        assert!(!vector.row_is_null(5), "Row 5 should not be null");
-        assert!(!vector.row_is_null(6), "Row 6 should not be null");
-        assert!(vector.row_is_null(7), "Row 7 should be null");
-        assert!(!vector.row_is_null(8), "Row 8 should not be null");
-        assert!(!vector.row_is_null(9), "Row 9 should not be null");
+        assert!(validity.is_valid(0), "Row 0 should not be null");
+        assert!(!validity.is_valid(1), "Row 1 should be null");
+        assert!(validity.is_valid(2), "Row 2 should not be null");
+        assert!(!validity.is_valid(3), "Row 3 should be null");
+        assert!(validity.is_valid(4), "Row 4 should not be null");
+        assert!(validity.is_valid(5), "Row 5 should not be null");
+        assert!(validity.is_valid(6), "Row 6 should not be null");
+        assert!(!validity.is_valid(7), "Row 7 should be null");
+        assert!(validity.is_valid(8), "Row 8 should not be null");
+        assert!(validity.is_valid(9), "Row 9 should not be null");
     }
 
     #[test]
@@ -373,9 +409,11 @@ mod tests {
             validity_slice.set(i, false);
         }
 
+        let validity = vector.validity_ref(len);
+
         // Check that all positions are null
         for i in 0..len {
-            assert!(vector.row_is_null(i as u64), "Row {i} should be null");
+            assert!(!validity.is_valid(i), "Row {i} should be null");
         }
     }
 
@@ -389,7 +427,9 @@ mod tests {
         let validity_slice = vector.ensure_validity_slice();
         validity_slice.set(0, false); // null at position 0
 
-        assert!(vector.row_is_null(0), "Single element should be null");
+        let validity = vector.validity_ref(len);
+
+        assert!(!validity.is_valid(0), "Single element should be null");
     }
 
     #[test]
@@ -402,7 +442,9 @@ mod tests {
         // Ensure validity slice exists but element is valid
         let _validity_slice = vector.ensure_validity_slice();
 
-        assert!(!vector.row_is_null(0), "Single element should be valid");
+        let validity = vector.validity_ref(len);
+
+        assert!(validity.is_valid(0), "Single element should be valid");
     }
 
     #[test]
@@ -420,18 +462,20 @@ mod tests {
         validity_slice.set(64, false); // First bit of second u64
         validity_slice.set(127, false); // Last bit of second u64 (if it exists)
 
+        let validity = vector.validity_ref(len);
+
         // Test the null positions
-        assert!(vector.row_is_null(0), "Row 0 should be null");
-        assert!(vector.row_is_null(63), "Row 63 should be null");
-        assert!(vector.row_is_null(64), "Row 64 should be null");
+        assert!(!validity.is_valid(0), "Row 0 should be null");
+        assert!(!validity.is_valid(63), "Row 63 should be null");
+        assert!(!validity.is_valid(64), "Row 64 should be null");
         if len > 127 {
-            assert!(vector.row_is_null(127), "Row 127 should be null");
+            assert!(!validity.is_valid(127), "Row 127 should be null");
         }
 
         // Test some valid positions
-        assert!(!vector.row_is_null(1), "Row 1 should be valid");
-        assert!(!vector.row_is_null(32), "Row 32 should be valid");
-        assert!(!vector.row_is_null(62), "Row 62 should be valid");
-        assert!(!vector.row_is_null(65), "Row 65 should be valid");
+        assert!(validity.is_valid(1), "Row 1 should be valid");
+        assert!(validity.is_valid(32), "Row 32 should be valid");
+        assert!(validity.is_valid(62), "Row 62 should be valid");
+        assert!(validity.is_valid(65), "Row 65 should be valid");
     }
 }
