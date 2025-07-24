@@ -74,6 +74,7 @@ vortex = { workspace = true, features = [
     "object_store",
     "parquet",
     "files",
+    "tokio",
     "zstd",
 ] }
 vortex-datafusion = { workspace = true }
