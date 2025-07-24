@@ -53,11 +53,13 @@ pub fn extract_relevant_file_stats_as_struct_row(
                 vortex_bail!("missing stat {}, {} from stats set", field, stat)
             };
             if stat == &Stat::Max || stat == &Stat::Min || stat == &Stat::NaNCount {
-                columns.push((
-                    field_path_stat_field_name(field_path, *stat),
-                    ConstantArray::new(Scalar::new(field_dtype.clone(), stat_value.clone()), 1)
-                        .to_array(),
-                ))
+                if let Some(stat_dtype) = stat.dtype(&field_dtype) {
+                    columns.push((
+                        field_path_stat_field_name(field_path, *stat),
+                        ConstantArray::new(Scalar::new(stat_dtype, stat_value.clone()), 1)
+                            .to_array(),
+                    ));
+                }
             } else {
                 todo!("unsupported file prune stat {stat}")
             }
