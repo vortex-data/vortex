@@ -61,6 +61,7 @@ mod nan_count;
 mod numeric;
 mod sum;
 mod take;
+mod array_equals;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered
 /// compute kernels.

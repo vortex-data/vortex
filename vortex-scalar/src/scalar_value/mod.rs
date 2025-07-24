@@ -43,6 +43,41 @@ pub(crate) enum InnerScalarValue {
     List(Arc<[ScalarValue]>),
 }
 
+impl PartialEq for ScalarValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (InnerScalarValue::Null, InnerScalarValue::Null) => true,
+            (InnerScalarValue::Bool(l), InnerScalarValue::Bool(r)) => l == r,
+            (InnerScalarValue::Primitive(l), InnerScalarValue::Primitive(r)) => l == r,
+            (InnerScalarValue::Decimal(l), InnerScalarValue::Decimal(r)) => l == r,
+            (InnerScalarValue::Buffer(l), InnerScalarValue::Buffer(r)) => l == r,
+            (InnerScalarValue::BufferString(l), InnerScalarValue::BufferString(r)) => l == r,
+            (InnerScalarValue::List(l), InnerScalarValue::List(r)) => l.as_ref() == r.as_ref(),
+            (_, _) => false,
+        }
+    }
+}
+
+impl Eq for ScalarValue {}
+
+// can we simplify Scalar cmp?
+// impl PartialOrd for ScalarValue {
+//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+//         match (&self.0, &other.0) {
+//             (InnerScalarValue::Null, InnerScalarValue::Null) => Some(Ordering::Equal),
+//             (InnerScalarValue::Bool(l), InnerScalarValue::Bool(r)) => l.partial_cmp(r),
+//             (InnerScalarValue::Primitive(l), InnerScalarValue::Primitive(r)) => l.partial_cmp(r),
+//             (InnerScalarValue::Decimal(l), InnerScalarValue::Decimal(r)) => l.partial_cmp(r),
+//             (InnerScalarValue::Buffer(l), InnerScalarValue::Buffer(r)) => l.partial_cmp(r),
+//             (InnerScalarValue::BufferString(l), InnerScalarValue::BufferString(r)) => {
+//                 l.partial_cmp(r)
+//             }
+//             (InnerScalarValue::List(l), InnerScalarValue::List(r)) => l.as_ref().partial_cmp(r.as_ref()),
+//             (_, _) => None
+//         }
+//     }
+// }
+
 impl ScalarValue {
     /// Serializes the scalar value to Protocol Buffers format.
     pub fn to_protobytes<B: BufMut + Default>(&self) -> B {
