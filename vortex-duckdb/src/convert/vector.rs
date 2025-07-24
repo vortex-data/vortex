@@ -131,12 +131,10 @@ pub fn flat_vector_to_arrow_array(
             let validity = vector.validity_ref(len);
 
             let duck_strings = data.iter().enumerate().map(|(i, s)| {
-                if validity.is_valid(i) {
+                validity.is_valid(i).then(|| {
                     let mut ptr = *s;
-                    Some(DuckString::new(&mut ptr).as_str().to_string())
-                } else {
-                    None
-                }
+                    DuckString::new(&mut ptr).as_str().to_string()
+                })
             });
 
             let values = duck_strings.collect::<Vec<_>>();
@@ -214,11 +212,7 @@ pub fn flat_vector_to_arrow_array(
             let validity = vector.validity_ref(len);
 
             let duck_strings = data.iter_mut().enumerate().map(|(i, ptr)| {
-                if validity.is_valid(i) {
-                    Some(DuckString::new(ptr))
-                } else {
-                    None
-                }
+                validity.is_valid(i).then(|| DuckString::new(ptr))
             });
 
             let mut builder = GenericBinaryBuilder::<i32>::new();
