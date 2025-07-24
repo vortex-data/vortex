@@ -56,6 +56,10 @@ pub struct VortexRecordBatchReader<I> {
 impl<I: ArrayIterator> VortexRecordBatchReader<I> {
     pub fn try_new(iter: I) -> VortexResult<Self> {
         let arrow_schema = Arc::new(iter.dtype().to_arrow_schema()?);
+        Self::try_new_with_schema(iter, arrow_schema)
+    }
+
+    pub fn try_new_with_schema(iter: I, arrow_schema: SchemaRef) -> VortexResult<Self> {
         let arrow_dtype = DataType::Struct(arrow_schema.fields().clone());
         Ok(VortexRecordBatchReader {
             iter,

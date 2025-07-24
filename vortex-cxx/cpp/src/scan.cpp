@@ -37,6 +37,15 @@ ScanBuilder &ScanBuilder::WithLimit(uint64_t limit) {
     return *this;
 }
 
+ScanBuilder &ScanBuilder::WithOutputSchema(ArrowSchema &output_schema) {
+    try {
+        ffi::scan_builder_with_output_schema(*impl_->rust_impl, reinterpret_cast<uint8_t *>(&output_schema));
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
+    return *this;
+}
+
 ArrowArrayStream ScanBuilder::IntoStream() {
     try {
         ArrowArrayStream stream;

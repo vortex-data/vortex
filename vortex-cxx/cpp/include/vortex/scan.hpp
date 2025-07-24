@@ -26,6 +26,9 @@ public:
     /// Set the limit on the number of rows to scan.
     ScanBuilder &WithLimit(uint64_t limit);
 
+    /// Set the output schema on the scan builder.
+    ScanBuilder &WithOutputSchema(ArrowSchema &output_schema);
+
     /// Consume the scan builder to a stream of record batches.
     /// The scan builder is consumed and cannot be used after this call.
     ArrowArrayStream IntoStream();

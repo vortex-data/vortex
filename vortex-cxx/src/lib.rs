@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::{LazyLock, OnceLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow_array::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
+use arrow_schema::{Schema, SchemaRef};
 use futures::executor::ThreadPool;
 use tokio::runtime::Runtime;
 use vortex::arrow::{FromArrowArray, IntoArrowArray, VortexRecordBatchReader};
@@ -82,6 +83,10 @@ mod ffi {
             row_range_end: u64,
         ) -> Result<()>;
         fn scan_builder_with_limit(builder: &mut VortexScanBuilder, limit: usize);
+        unsafe fn scan_builder_with_output_schema(
+            builder: &mut VortexScanBuilder,
+            output_schema: *mut u8,
+        ) -> Result<()>;
         unsafe fn scan_builder_into_arrow(
             builder: Box<VortexScanBuilder>,
             out_array: *mut u8,
@@ -124,11 +129,13 @@ fn file_scan_builder(
 ) -> Result<Box<VortexScanBuilder>, Box<dyn std::error::Error + Send + Sync>> {
     Ok(Box::new(VortexScanBuilder {
         inner: file.inner.scan()?,
+        output_schema: None,
     }))
 }
 
 pub struct VortexScanBuilder {
     inner: ScanBuilder<ArrayRef>,
+    output_schema: Option<SchemaRef>,
 }
 
 fn scan_builder_with_row_range(
@@ -145,6 +152,15 @@ fn scan_builder_with_row_range(
 fn scan_builder_with_limit(builder: &mut VortexScanBuilder, limit: usize) {
     // Overwrite inner without dropping it.
     take_mut::take(&mut builder.inner, |inner| inner.with_limit(limit));
+}
+
+unsafe fn scan_builder_with_output_schema(
+    builder: &mut VortexScanBuilder,
+    output_schema: *mut u8,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let ffi_schema = unsafe { FFI_ArrowSchema::from_raw(output_schema as *mut FFI_ArrowSchema) };
+    builder.output_schema = Some(Arc::new(Schema::try_from(&ffi_schema)?));
+    Ok(())
 }
 
 /// Arrow Rust FFI interplay with C++ best practices refer to:
@@ -207,7 +223,11 @@ unsafe fn scan_builder_into_stream(
             .inner
             .into_thread_pool_iter(get_thread_pool().clone())?,
     );
-    let reader = VortexRecordBatchReader::try_new(iter)?;
+    let reader = if let Some(schema) = builder.output_schema {
+        VortexRecordBatchReader::try_new_with_schema(iter, schema)?
+    } else {
+        VortexRecordBatchReader::try_new(iter)?
+    };
     let stream = FFI_ArrowArrayStream::new(Box::new(reader));
     let out_stream = out_stream as *mut FFI_ArrowArrayStream;
     // # Safety
