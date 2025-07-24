@@ -9,7 +9,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::arrays::PrimitiveVTable;
@@ -101,10 +101,15 @@ impl ListArray {
         })
     }
 
-    pub fn offset_at(&self, index: usize) -> VortexResult<usize> {
-        if index > self.len() + 1 {
-            vortex_bail!(OutOfBounds: index, 0, self.len() + 1)
-        }
+    /// Returns the offset at the given index from the list array.
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn offset_at(&self, index: usize) -> usize {
+        assert!(
+            index < self.len(),
+            "Index {index} out of bounds 0..{}",
+            self.len()
+        );
 
         self.offsets()
             .as_opt::<PrimitiveVTable>()
@@ -118,19 +123,20 @@ impl ListArray {
                     .scalar_at(index)
                     .and_then(|s| usize::try_from(&s))
             })
+            .vortex_unwrap()
     }
 
     /// Returns the elements at the given index from the list array.
     pub fn elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
-        let start = self.offset_at(index)?;
-        let end = self.offset_at(index + 1)?;
+        let start = self.offset_at(index);
+        let end = self.offset_at(index + 1);
         self.elements().slice(start, end)
     }
 
     /// Returns elements of the list array referenced by the offsets array
     pub fn sliced_elements(&self) -> VortexResult<ArrayRef> {
-        let start = self.offset_at(0)?;
-        let end = self.offset_at(self.len())?;
+        let start = self.offset_at(0);
+        let end = self.offset_at(self.len());
         self.elements().slice(start, end)
     }
 
@@ -145,7 +151,7 @@ impl ListArray {
     }
 
     /// Create a copy of this array by adjusting offsets to start at 0 and removing elements not referenced by the offsets
-    pub fn offset_to_0(&self) -> VortexResult<Self> {
+    pub fn reset_offsets(&self) -> VortexResult<Self> {
         let elements = self.sliced_elements()?;
         let offsets = self.offsets();
         let first_offset = offsets.scalar_at(0)?;
@@ -423,7 +429,7 @@ mod test {
             )
             .vortex_unwrap();
         let list = builder.finish().slice(2, 4).vortex_unwrap();
-        let list = list.as_::<ListVTable>().offset_to_0().unwrap();
+        let list = list.as_::<ListVTable>().reset_offsets().unwrap();
         assert_eq!(list.len(), 2);
         assert_eq!(list.offsets().len(), 3);
         assert_eq!(list.elements().len(), 6);
