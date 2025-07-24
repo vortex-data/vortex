@@ -244,7 +244,12 @@ OperatorPartitionData c_partition_info(ClientContext &context, TableFunctionGetP
     if (input.partition_info.RequiresPartitionColumns()) {
         throw InternalException("TableScan::GetPartitionData: partition columns not supported");
     }
-    return OperatorPartitionData(0);
+    auto &bind = input.bind_data->Cast<CTableBindData>();
+    auto &global = input.global_state->Cast<CTableGlobalData>();
+    auto &local = input.local_state->Cast<CTableLocalData>();
+
+    return OperatorPartitionData(bind.info->vtab.get_partition_data(
+        bind.ffi_data->DataPtr(), global.ffi_data->DataPtr(), local.ffi_data->DataPtr()));
 }
 
 extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
