@@ -20,7 +20,7 @@ use url::Url;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::{ExprRef, ExprRegistryExt};
-use vortex::file::scan::SplitBy;
+use vortex::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::proto::expr::Expr;
 use vortex::scan::ScanBuilder;

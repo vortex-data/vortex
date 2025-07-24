@@ -78,6 +78,7 @@ tokio = [
     "vortex-error/tokio",
     "vortex-io/tokio",
     "vortex-layout/tokio",
+    "vortex-scan/tokio",
 ]
 tracing = ["dep:tracing", "vortex-io/tracing", "vortex-layout/tracing"]
 zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]

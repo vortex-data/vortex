@@ -13,9 +13,9 @@ use vortex::arrow::{FromArrowArray, IntoArrowArray};
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};
-use vortex::file::scan::ScanBuilder;
 use vortex::file::{VortexOpenOptions, VortexWriteOptions as WriteOptions};
 use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
+use vortex::scan::ScanBuilder;
 use vortex::stream::ArrayStream;
 
 /// The tokio runtime for the write-side.
