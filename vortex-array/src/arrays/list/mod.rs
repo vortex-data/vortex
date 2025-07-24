@@ -9,12 +9,13 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic};
 use vortex_scalar::Scalar;
 
 use crate::arrays::PrimitiveVTable;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
+use crate::compute::{is_sorted, min_max};
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{
@@ -64,15 +65,14 @@ pub trait OffsetPType: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar>
 
 impl<T> OffsetPType for T where T: NativePType + PrimInt + AsPrimitive<usize> + Into<Scalar> {}
 
-// A list is valid if the:
-// - offsets start at a value in elements
-// - offsets are sorted
-// - the final offset points to an element in the elements list, pointing to zero
-//   if elements are empty.
-// - final_offset >= start_offset
-// - The size of the validity is the size-1 of the offset array
-
 impl ListArray {
+    /// Creates a new ListArray from the provided elements, offsets, and validity.
+    ///
+    /// A ListArray is valid if all of the following are true:
+    /// - Offsets are sorted, non-empty, and non-negative.
+    /// - The first offset is less than or equal to the length of the elements array.
+    /// - The final offset points to an element in the elements list, pointing to zero if the elements list is empty.
+    /// - The size of the validity is the size-1 of the offset array.
     pub fn try_new(
         elements: ArrayRef,
         offsets: ArrayRef,
@@ -87,8 +87,51 @@ impl ListArray {
             );
         }
 
+        // Check that the lengths of the offsets and validity arrays are consistent.
         if offsets.is_empty() {
-            vortex_bail!("Offsets must have at least one element, [0] for an empty list");
+            vortex_bail!("Offsets must have at least one element, [0] for an empty ListArray");
+        }
+        if let Some(validity_len) = validity.maybe_len() {
+            if validity_len != offsets.len().saturating_sub(1) {
+                vortex_bail!(
+                    "Validity length must be one less than the offset length, got {} and {}",
+                    validity_len,
+                    offsets.len()
+                );
+            }
+        }
+
+        // Check that the offsets are sorted, and that the min & max offsets are within bounds.
+        if !is_sorted(&offsets)? {
+            vortex_bail!("Offsets must be sorted");
+        }
+
+        if let Some(min_max_result) = min_max(&offsets)? {
+            let min_offset: usize = min_max_result
+                .min
+                .as_primitive()
+                .as_()?
+                .ok_or_else(|| vortex_err!("Failed to get min offset as usize"))?;
+            if min_offset > elements.len() {
+                vortex_bail!(
+                    "The first offset must be less than or equal to the length of the elements array, got {} and {}",
+                    min_offset,
+                    elements.len()
+                );
+            }
+
+            let max_offset: usize = min_max_result
+                .max
+                .as_primitive()
+                .as_()?
+                .ok_or_else(|| vortex_err!("Failed to get max offset as usize"))?;
+            if max_offset > elements.len() {
+                vortex_bail!(
+                    "The max offset must be less than or equal to the length of the elements array, got {} and {}",
+                    max_offset,
+                    elements.len()
+                );
+            }
         }
 
         Ok(Self {
@@ -103,11 +146,11 @@ impl ListArray {
     // TODO: merge logic with varbin
     // TODO(ngates): should return a result if it requires canonicalizing offsets
     pub fn offset_at(&self, index: usize) -> usize {
-        self.offsets()
+        self.offsets
             .as_opt::<PrimitiveVTable>()
             .map(|p| match_each_native_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
-                self.offsets()
+                self.offsets
                     .scalar_at(index)
                     .unwrap_or_else(|err| {
                         vortex_panic!(err, "Failed to get offset at index: {}", index)
