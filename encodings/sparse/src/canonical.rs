@@ -243,7 +243,6 @@ fn canonicalize_sparse_lists_inner_with_null_fill_value<I: NativePType, O: Offse
         dense_offsets.push(dense_offsets[dense_last_set_index]);
     }
     let array = ListArray::try_new(elements, dense_offsets.into_array(), validity)?;
-    println!("{}", array.display_values());
     Ok(Canonical::List(array))
 }
 
