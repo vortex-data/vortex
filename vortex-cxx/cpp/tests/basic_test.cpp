@@ -99,6 +99,36 @@ protected:
         }
     }
 
+    // Helper function to test scan builder with custom configuration
+    void TestScanBuilderWithValidation(const std::function<void(vortex::ScanBuilder &)> &configureScanBuilder,
+                                       const std::vector<int32_t> &expected_values_a,
+                                       const std::vector<int32_t> &expected_values_b) {
+
+        auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
+        auto scan_builder = file.CreateScanBuilder();
+        configureScanBuilder(scan_builder);
+        auto stream = scan_builder.IntoStream();
+
+        // Create nanoarrow ArrayStream wrapper and get schema
+        auto [array_stream, schema] = CreateArrayStreamWithSchema(stream);
+
+        // Read the array from the stream
+        nanoarrow::UniqueArray array;
+        int get_next_result = array_stream->get_next(array_stream.get(), array.get());
+        ASSERT_EQ(get_next_result, 0);
+
+        // Validate array properties
+        int64_t expected_length = static_cast<int64_t>(expected_values_a.size());
+        ValidateBasicArrayProperties(array, expected_length, 0);
+
+        // Create array view for validation
+        auto array_view = CreateArrayView(array, schema);
+
+        // Validate field values
+        ValidateFieldValues(array_view->children[0], expected_values_a);
+        ValidateFieldValues(array_view->children[1], expected_values_b);
+    }
+
     // Helper function to validate struct array data
     // NOTE: This depends on the test data generated from `generate_test_vortex_file` in `src/lib.rs`
     void ValidateStructArray(const nanoarrow::UniqueArray &struct_array,
@@ -147,32 +177,39 @@ TEST_F(VortexTest, ScanToStream) {
     ValidateStructArray(array, schema);
 }
 
-TEST_F(VortexTest, ScanOptionsWithLimitWithRowRange) {
-    auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
-
-    auto stream = file.CreateScanBuilder().WithLimit(2).WithRowRange(1, 4).IntoStream();
-
-    // Create nanoarrow ArrayStream wrapper and get schema
-    auto [array_stream, schema] = CreateArrayStreamWithSchema(stream);
-
-    // Read the array from the stream
-    nanoarrow::UniqueArray array;
-    int get_next_result = array_stream->get_next(array_stream.get(), array.get());
-    ASSERT_EQ(get_next_result, 0);
-
-    // Should have limited rows (2 instead of 5)
-    ValidateBasicArrayProperties(array, 2, 0);
-
-    // Create array view for validation
-    auto array_view = CreateArrayView(array, schema);
-
-    // Test field "a" - should contain values 20, 30 (rows 1-2 from original data)
+TEST_F(VortexTest, ScanBuilderWithLimitWithRowRange) {
+    // Test field "a" and "b" - should contain values 20, 30 (rows 1-2 from original data)
     std::vector<int32_t> expected_values_a = {20, 30};
-    ValidateFieldValues(array_view->children[0], expected_values_a);
-
-    // Test field "b" - should contain values 20, 30 (rows 1-2 from original data)
     std::vector<int32_t> expected_values_b = {20, 30};
-    ValidateFieldValues(array_view->children[1], expected_values_b);
+
+    TestScanBuilderWithValidation(
+        [](vortex::ScanBuilder &scan_builder) { scan_builder.WithLimit(2).WithRowRange(1, 4); },
+        expected_values_a, expected_values_b);
+}
+
+TEST_F(VortexTest, ScanBuilderWithIncludeByIndex) {
+    std::vector<uint64_t> include_by_index = {1, 3};
+    std::vector<int32_t> expected_values_a = {20, 40};
+    std::vector<int32_t> expected_values_b = {20, 40};
+
+    TestScanBuilderWithValidation(
+        [&include_by_index](vortex::ScanBuilder &scan_builder) {
+            scan_builder.WithIncludeByIndex(include_by_index.data(), include_by_index.size());
+        },
+        expected_values_a, expected_values_b);
+}
+
+TEST_F(VortexTest, ScanBuilderWithRowRangeWithIncludeByIndex) {
+    std::vector<uint64_t> include_by_index = {1, 3, 4};
+    std::vector<int32_t> expected_values_a = {40, 50};
+    std::vector<int32_t> expected_values_b = {40, 50};
+
+    TestScanBuilderWithValidation(
+        [&include_by_index](vortex::ScanBuilder &scan_builder) {
+            scan_builder.WithRowRange(2, 6);
+            scan_builder.WithIncludeByIndex(include_by_index.data(), include_by_index.size());
+        },
+        expected_values_a, expected_values_b);
 }
 
 TEST_F(VortexTest, WriteArrayStream) {

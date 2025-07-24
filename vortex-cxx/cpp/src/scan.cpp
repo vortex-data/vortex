@@ -38,6 +38,16 @@ ScanBuilder &ScanBuilder::WithLimit(uint64_t limit) {
     return *this;
 }
 
+ScanBuilder &ScanBuilder::WithIncludeByIndex(const uint64_t *indices, std::size_t size) {
+    try {
+        ffi::scan_builder_with_include_by_index(*impl_->rust_impl,
+                                                rust::Slice<const uint64_t>(indices, size));
+    } catch (const rust::cxxbridge1::Error &e) {
+        throw VortexException(e.what());
+    }
+    return *this;
+}
+
 ScanBuilder &ScanBuilder::WithOutputSchema(ArrowSchema &output_schema) {
     try {
         ffi::scan_builder_with_output_schema(*impl_->rust_impl, reinterpret_cast<uint8_t *>(&output_schema));

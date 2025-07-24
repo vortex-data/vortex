@@ -19,21 +19,23 @@ public:
     ScanBuilder(const ScanBuilder &) = delete;
     ScanBuilder &operator=(const ScanBuilder &) = delete;
 
-    /// Set the row range [row_range_start, row_range_end) on the scan builder.
+    /// Only include rows in the range [row_range_start, row_range_end).
     ScanBuilder &WithRowRange(uint64_t row_range_start, uint64_t row_range_end);
 
-    /// Set the limit on the number of rows to scan.
+    /// Only include rows with the given indices.
+    ScanBuilder &WithIncludeByIndex(const uint64_t *indices, std::size_t size);
+
+    /// Set the limit on the number of rows to scan out.
     ScanBuilder &WithLimit(uint64_t limit);
 
     /// Set the output schema on the scan builder.
+    /// TODO: should decide to input full schema or schema after adding projection.
     ScanBuilder &WithOutputSchema(ArrowSchema &output_schema);
 
-    /// Consume the scan builder to a stream of record batches.
-    /// The scan builder is consumed and cannot be used after this call.
+    /// Take ownership and consume the scan builder to a stream of record batches.
     ArrowArrayStream IntoStream();
 
-    /// Consume the scan builder to an Arrow array and schema.
-    /// The scan builder is consumed and cannot be used after this call.
+    /// Take ownership and consume the scan builder to an Arrow array and schema.
     std::pair<ArrowArray, ArrowSchema> IntoArray();
 
 private:

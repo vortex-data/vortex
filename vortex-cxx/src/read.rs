@@ -10,6 +10,7 @@ use arrow_schema::{Schema, SchemaRef};
 use arrow_select::concat::concat_batches;
 use vortex::ArrayRef;
 use vortex::arrow::VortexRecordBatchReader;
+use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
 use vortex::file::scan::ScanBuilder;
 use vortex::iter::ArrayIteratorAdapter;
@@ -29,6 +30,10 @@ mod ffi {
             builder: &mut VortexScanBuilder,
             row_range_start: u64,
             row_range_end: u64,
+        ) -> Result<()>;
+        fn scan_builder_with_include_by_index(
+            builder: &mut VortexScanBuilder,
+            include_by_index: &[u64],
         ) -> Result<()>;
         fn scan_builder_with_limit(builder: &mut VortexScanBuilder, limit: usize);
         unsafe fn scan_builder_with_output_schema(
@@ -84,6 +89,15 @@ fn scan_builder_with_row_range(
     take_mut::take(&mut builder.inner, |inner| {
         inner.with_row_range(row_range_start..row_range_end)
     });
+    Ok(())
+}
+
+fn scan_builder_with_include_by_index(
+    builder: &mut VortexScanBuilder,
+    include_by_index: &[u64],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let selection = vortex::scan::Selection::IncludeByIndex(Buffer::copy_from(include_by_index));
+    take_mut::take(&mut builder.inner, |inner| inner.with_selection(selection));
     Ok(())
 }
 
