@@ -320,4 +320,40 @@ mod tests {
             value.try_to_duckdb_scalar().unwrap().try_into().unwrap()
         );
     }
+
+    #[test]
+    fn test_timestamp_roundtrip() {
+        use std::sync::Arc;
+        use vortex::dtype::datetime::{TIMESTAMP_ID, TemporalMetadata, TimeUnit};
+        use vortex::dtype::{DType, ExtDType, Nullability, PType};
+        use vortex::scalar::{Scalar, ScalarValue};
+
+        let test_cases = [
+            (TimeUnit::S, 1703980800i64),           // 2023-12-30 16:00:00 UTC
+            (TimeUnit::Ms, 1703980800123i64),       // 2023-12-30 16:00:00.123 UTC
+            (TimeUnit::Us, 1703980800123456i64),    // 2023-12-30 16:00:00.123456 UTC
+            (TimeUnit::Ns, 1703980800123456789i64), // 2023-12-30 16:00:00.123456789 UTC
+        ];
+
+        for (time_unit, timestamp_value) in test_cases {
+            let ext_dtype = Arc::new(ExtDType::new(
+                TIMESTAMP_ID.clone(),
+                Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
+                Some(TemporalMetadata::Timestamp(time_unit, None).into()),
+            ));
+
+            let original_scalar = Scalar::extension(
+                ext_dtype,
+                Scalar::new(
+                    DType::Primitive(PType::I64, Nullability::NonNullable),
+                    ScalarValue::from(timestamp_value),
+                ),
+            );
+
+            let duckdb_value = original_scalar.try_to_duckdb_scalar().unwrap();
+            let roundtrip_scalar: Scalar = duckdb_value.try_into().unwrap();
+
+            assert_eq!(original_scalar, roundtrip_scalar);
+        }
+    }
 }
