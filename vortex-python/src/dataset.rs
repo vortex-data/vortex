@@ -3,10 +3,6 @@
 
 use std::sync::Arc;
 
-use crate::arrays::PyArrayRef;
-use crate::expr::PyExpr;
-use crate::object_store_urls::object_store_from_url;
-use crate::{TOKIO_RUNTIME, install_module};
 use arrow_array::RecordBatchReader;
 use arrow_pyarrow::{IntoPyArrow, ToPyArrow};
 use arrow_schema::SchemaRef;
@@ -19,6 +15,11 @@ use vortex::expr::{ExprRef, SelectExpr, root};
 use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::iter::ArrayIteratorExt;
 use vortex::{ArrayRef, ToCanonical};
+
+use crate::arrays::PyArrayRef;
+use crate::expr::PyExpr;
+use crate::object_store_urls::object_store_from_url;
+use crate::{TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;

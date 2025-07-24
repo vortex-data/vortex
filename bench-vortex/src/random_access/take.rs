@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter;
+use std::path::Path;
+
 use arrow_array::types::Int64Type;
 use arrow_array::{PrimitiveArray, RecordBatch};
 use arrow_select::concat::concat_batches;
@@ -11,8 +14,6 @@ use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
 use parquet::file::metadata::RowGroupMetaData;
-use std::iter;
-use std::path::Path;
 use stream::StreamExt;
 use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;

@@ -12,7 +12,6 @@ use std::sync::Arc;
 use clap::ValueEnum;
 use itertools::Itertools;
 use serde::Serialize;
-
 pub use utils::file_utils::*;
 pub use utils::logging::*;
 use vortex::error::{VortexUnwrap, vortex_err};

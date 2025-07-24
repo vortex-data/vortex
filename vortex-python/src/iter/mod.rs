@@ -3,10 +3,9 @@
 
 mod python;
 
-use crate::arrays::PyArrayRef;
-use crate::dtype::PyDType;
-use crate::install_module;
-use crate::iter::python::PythonArrayIterator;
+use std::iter;
+use std::sync::Arc;
+
 use arrow_array::cast::AsArray;
 use arrow_array::{RecordBatch, RecordBatchIterator, RecordBatchReader};
 use arrow_pyarrow::IntoPyArrow;
@@ -15,12 +14,15 @@ use parking_lot::Mutex;
 use pyo3::prelude::*;
 use pyo3::types::PyIterator;
 use pyo3::{Bound, PyResult, Python};
-use std::iter;
-use std::sync::Arc;
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::DType;
 use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::{Canonical, IntoArray};
+
+use crate::arrays::PyArrayRef;
+use crate::dtype::PyDType;
+use crate::install_module;
+use crate::iter::python::PythonArrayIterator;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "iter")?;

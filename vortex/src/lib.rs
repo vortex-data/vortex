@@ -41,7 +41,6 @@ pub mod encodings {
 mod test {
     use std::sync::Arc;
 
-    use crate as vortex;
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::iter::ArrayIteratorExt;
@@ -54,6 +53,8 @@ mod test {
     use vortex_file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
     use vortex_layout::LocalExecutor;
     use vortex_layout::layouts::compact::CompactCompressor;
+
+    use crate as vortex;
 
     #[test]
     fn convert() -> VortexResult<()> {

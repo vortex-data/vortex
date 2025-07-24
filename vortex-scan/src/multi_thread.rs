@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::ScanBuilder;
-use futures::executor::block_on;
-use futures::{StreamExt, stream};
 use std::iter;
 use std::sync::{Arc, LazyLock};
+
+use futures::executor::block_on;
+use futures::{StreamExt, stream};
 use tokio::runtime::{Builder, Runtime};
 use vortex_array::ArrayRef;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
-use vortex_error::{VortexExpect, VortexResult};
+use vortex_error::{VortexExpect, VortexResult, vortex_err};
+
+use crate::ScanBuilder;
 
 /// We create an internal Tokio runtime used exclusively for orchestrating work-stealing
 /// of CPU-bound work for multithreaded scans.
@@ -72,7 +74,12 @@ impl ScanBuilder<ArrayRef> {
             //  head-room to run ahead and figure out the I/O demands of subsequent tasks.
             .buffered(num_workers * concurrency);
 
-        Ok(iter::from_fn(move || block_on(stream.next()))
-            .filter_map(|result| result.vortex_expect("Failed to join on a spawned scan task")))
+        Ok(
+            iter::from_fn(move || block_on(stream.next())).filter_map(|result| {
+                result
+                    .map_err(|e| vortex_err!("Failed to join on a spawned scan task {e}"))
+                    .vortex_expect("Failed to join on a spawned scan task")
+            }),
+        )
     }
 }

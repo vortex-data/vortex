@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::ScanBuilder;
 use arrow_array::cast::AsArray;
 use arrow_array::{RecordBatch, RecordBatchIterator, RecordBatchReader};
 use arrow_schema::{ArrowError, DataType, SchemaRef};
@@ -9,14 +8,16 @@ use vortex_array::ArrayRef;
 use vortex_array::arrow::IntoArrowArray;
 use vortex_error::{VortexError, VortexResult};
 
+use crate::ScanBuilder;
+
 impl ScanBuilder<ArrayRef> {
     /// Creates a new thread-safe `RecordBatchReader` from the scan builder.
     ///
     /// This reader can be cloned and passed to multiple threads for concurrent processing.
     ///
     /// The `schema` parameter is used to define the schema of the resulting record batches. In
-    /// general, it is not possible to exactly infer an Arrow schema from a Vortex [`DType`],
-    /// therefore it is required to be provided explicitly.
+    /// general, it is not possible to exactly infer an Arrow schema from a Vortex
+    /// [`vortex_dtype::DType`], therefore it is required to be provided explicitly.
     pub fn into_record_batch_reader(
         self,
         schema: SchemaRef,

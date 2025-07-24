@@ -91,7 +91,6 @@ impl SerdeVTable<SequenceVTable> for SequenceVTable {
 mod tests {
     use std::sync::Arc;
 
-    use crate::SequenceArray;
     use arcref::ArcRef;
     use vortex_array::arrays::{PrimitiveArray, StructArray};
     use vortex_array::iter::ArrayIteratorExt;
@@ -99,6 +98,8 @@ mod tests {
     use vortex_expr::{get_item, root};
     use vortex_file::{VortexOpenOptions, VortexWriteOptions};
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+
+    use crate::SequenceArray;
 
     #[tokio::test]
     async fn round_trip_seq() {
