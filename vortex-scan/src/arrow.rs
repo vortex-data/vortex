@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::cast::AsArray;
-use arrow_array::{RecordBatch, RecordBatchIterator, RecordBatchReader};
+use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, DataType, SchemaRef};
 use vortex_array::ArrayRef;
 use vortex_array::arrow::IntoArrowArray;
@@ -38,6 +38,8 @@ impl ScanBuilder<ArrayRef> {
         self,
         schema: SchemaRef,
     ) -> VortexResult<impl RecordBatchReader + Send + 'static> {
+        use arrow_array::RecordBatchIterator;
+
         let data_type = DataType::Struct(schema.fields().clone());
 
         let iter = self.into_iter_multithread(move |chunk| to_record_batch(chunk, &data_type))?;
