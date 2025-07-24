@@ -211,9 +211,10 @@ pub fn flat_vector_to_arrow_array(
             let mut data = vector.as_slice_with_len::<duckdb_string_t>(len).to_vec();
             let validity = vector.validity_ref(len);
 
-            let duck_strings = data.iter_mut().enumerate().map(|(i, ptr)| {
-                validity.is_valid(i).then(|| DuckString::new(ptr))
-            });
+            let duck_strings = data
+                .iter_mut()
+                .enumerate()
+                .map(|(i, ptr)| validity.is_valid(i).then(|| DuckString::new(ptr)));
 
             let mut builder = GenericBinaryBuilder::<i32>::new();
             for s in duck_strings {
@@ -335,14 +336,14 @@ pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> Vorte
 
 #[cfg(test)]
 mod tests {
-    use crate::cpp::DUCKDB_TYPE;
-    use crate::duckdb::{LogicalType, Vector};
     use arrow_array::{
         BooleanArray, Int32Array, TimestampMicrosecondArray, TimestampMillisecondArray,
         TimestampSecondArray,
     };
 
     use super::*;
+    use crate::cpp::DUCKDB_TYPE;
+    use crate::duckdb::{LogicalType, Vector};
 
     #[test]
     fn test_integer_vector_conversion() {
