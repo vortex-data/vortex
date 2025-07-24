@@ -183,7 +183,11 @@ unsafe fn scan_builder_into_arrow(
             .inner
             .into_thread_pool_iter(get_thread_pool().clone())?,
     );
-    let reader = VortexRecordBatchReader::try_new(iter)?;
+    let reader = if let Some(schema) = builder.output_schema {
+        VortexRecordBatchReader::try_new_with_schema(iter, schema)?
+    } else {
+        VortexRecordBatchReader::try_new(iter)?
+    };
 
     let arrays: Vec<_> = reader
         .map(|batch| batch.map(|b| ArrayRef::from_arrow(b, false)))
