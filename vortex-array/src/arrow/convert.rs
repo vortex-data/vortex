@@ -14,10 +14,7 @@ use arrow_array::types::{
     TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType,
     TimestampSecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
 };
-use arrow_array::{
-    BinaryViewArray, GenericByteViewArray, GenericListArray, RecordBatch, StringViewArray,
-    make_array,
-};
+use arrow_array::{GenericByteViewArray, GenericListArray, RecordBatch, make_array};
 use arrow_buffer::buffer::{NullBuffer, OffsetBuffer};
 use arrow_buffer::{ArrowNativeType, BooleanBuffer, Buffer as ArrowBuffer, ScalarBuffer};
 use arrow_schema::{DataType, TimeUnit as ArrowTimeUnit};
@@ -369,20 +366,8 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::LargeUtf8 => Self::from_arrow(array.as_string::<i64>(), nullable),
             DataType::Binary => Self::from_arrow(array.as_binary::<i32>(), nullable),
             DataType::LargeBinary => Self::from_arrow(array.as_binary::<i64>(), nullable),
-            DataType::BinaryView => Self::from_arrow(
-                array
-                    .as_any()
-                    .downcast_ref::<BinaryViewArray>()
-                    .vortex_expect("Expected Arrow BinaryViewArray for DataType::BinaryView"),
-                nullable,
-            ),
-            DataType::Utf8View => Self::from_arrow(
-                array
-                    .as_any()
-                    .downcast_ref::<StringViewArray>()
-                    .vortex_expect("Expected Arrow StringViewArray for DataType::Utf8View"),
-                nullable,
-            ),
+            DataType::BinaryView => Self::from_arrow(array.as_binary_view(), nullable),
+            DataType::Utf8View => Self::from_arrow(array.as_string_view(), nullable),
             DataType::Struct(_) => Self::from_arrow(array.as_struct(), nullable),
             DataType::List(_) => Self::from_arrow(array.as_list::<i32>(), nullable),
             DataType::LargeList(_) => Self::from_arrow(array.as_list::<i64>(), nullable),
@@ -425,7 +410,7 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 Self::from_arrow(array.as_primitive::<Decimal128Type>(), nullable)
             }
             DataType::Decimal256(..) => {
-                Self::from_arrow(array.as_primitive::<Decimal128Type>(), nullable)
+                Self::from_arrow(array.as_primitive::<Decimal256Type>(), nullable)
             }
             _ => vortex_panic!(
                 "Array encoding not implemented for Arrow data type {}",
