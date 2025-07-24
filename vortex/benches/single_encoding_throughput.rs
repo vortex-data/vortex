@@ -3,7 +3,8 @@
 
 #![allow(clippy::unwrap_used)]
 
-use divan::{Bencher, counter::BytesCount};
+use divan::Bencher;
+use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
 use rand::{Rng, SeedableRng};
 use vortex::arrays::{PrimitiveArray, VarBinViewArray};
@@ -30,8 +31,9 @@ const NUM_VALUES: u64 = 1_000_000;
 
 #[divan::bench_group]
 mod primitive_decompression {
-    use super::*;
     use vortex::dtype::PType;
+
+    use super::*;
 
     fn setup_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) {
         let mut rng = rand::rngs::StdRng::seed_from_u64(0);
@@ -52,7 +54,7 @@ mod primitive_decompression {
     fn bench_bitpacked_compress(bencher: Bencher) {
         use vortex::encodings::fastlanes::bitpack_encode_unchecked;
 
-        let (uint_array, _, _) = setup_arrays();
+        let (uint_array, ..) = setup_arrays();
         let bit_width = 8;
 
         bencher
@@ -65,7 +67,7 @@ mod primitive_decompression {
     fn bench_bitpacked_decompress(bencher: Bencher) {
         use vortex::encodings::fastlanes::bitpack_encode;
 
-        let (uint_array, _, _) = setup_arrays();
+        let (uint_array, ..) = setup_arrays();
         let bit_width = 8;
         let compressed = bitpack_encode(&uint_array, bit_width, None).unwrap();
 
@@ -77,7 +79,7 @@ mod primitive_decompression {
 
     #[divan::bench(name = "runend_compress")]
     fn bench_runend_compress(bencher: Bencher) {
-        let (uint_array, _, _) = setup_arrays();
+        let (uint_array, ..) = setup_arrays();
 
         bencher
             .counter(BytesCount::new(NUM_VALUES * 4))
@@ -87,7 +89,7 @@ mod primitive_decompression {
 
     #[divan::bench(name = "runend_decompress")]
     fn bench_runend_decompress(bencher: Bencher) {
-        let (uint_array, _, _) = setup_arrays();
+        let (uint_array, ..) = setup_arrays();
         let compressed = RunEndArray::encode(uint_array.into_array()).unwrap();
 
         bencher
@@ -98,7 +100,7 @@ mod primitive_decompression {
 
     #[divan::bench(name = "delta_compress")]
     fn bench_delta_compress(bencher: Bencher) {
-        let (uint_array, _, _) = setup_arrays();
+        let (uint_array, ..) = setup_arrays();
 
         bencher
             .counter(BytesCount::new(NUM_VALUES * 4))
@@ -116,7 +118,7 @@ mod primitive_decompression {
 
     #[divan::bench(name = "delta_decompress")]
     fn bench_delta_decompress(bencher: Bencher) {
-        let (uint_array, _, _) = setup_arrays();
+        let (uint_array, ..) = setup_arrays();
         let (bases, deltas) = delta_compress(&uint_array).unwrap();
         let compressed = DeltaArray::try_from_delta_compress_parts(
             bases.into_array(),
@@ -133,7 +135,7 @@ mod primitive_decompression {
 
     #[divan::bench(name = "dict_compress")]
     fn bench_dict_compress(bencher: Bencher) {
-        let (uint_array, _, _) = setup_arrays();
+        let (uint_array, ..) = setup_arrays();
 
         bencher
             .counter(BytesCount::new(NUM_VALUES * 4))
@@ -143,7 +145,7 @@ mod primitive_decompression {
 
     #[divan::bench(name = "dict_decompress")]
     fn bench_dict_decompress(bencher: Bencher) {
-        let (uint_array, _, _) = setup_arrays();
+        let (uint_array, ..) = setup_arrays();
         let compressed = dict_encode(uint_array.as_ref()).unwrap();
 
         bencher
@@ -242,7 +244,7 @@ mod primitive_decompression {
 
     #[divan::bench(name = "zstd_compress")]
     fn bench_zstd_compress(bencher: Bencher) {
-        let (uint_array, _, _) = setup_arrays();
+        let (uint_array, ..) = setup_arrays();
 
         bencher
             .counter(BytesCount::new(NUM_VALUES * 4))
@@ -252,7 +254,7 @@ mod primitive_decompression {
 
     #[divan::bench(name = "zstd_decompress")]
     fn bench_zstd_decompress(bencher: Bencher) {
-        let (uint_array, _, _) = setup_arrays();
+        let (uint_array, ..) = setup_arrays();
         let compressed = ZstdArray::from_array(uint_array.into_array(), 3, 8192).unwrap();
 
         bencher
@@ -264,8 +266,9 @@ mod primitive_decompression {
 
 #[divan::bench_group]
 mod string_decompression {
-    use super::*;
     use rand::prelude::IndexedRandom;
+
+    use super::*;
 
     #[allow(clippy::cast_possible_truncation)]
     fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
