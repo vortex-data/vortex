@@ -129,7 +129,7 @@ jobs:
             --targets ${{ matrix.targets }} \
             --export-spans \
             ${{ matrix.scale_factor }} \
-            --delete_duckdb_database \
+            --delete-duckdb-database \
             -o results.json
 
       - name: Run ${{ matrix.name }} benchmark (remote)
@@ -149,7 +149,7 @@ jobs:
               --export-spans \
               ${{ matrix.scale_factor }} \
               -d gh-json \
-              --delete_duckdb_database \
+              --delete-duckdb-database \
               -o results.json
 
       - name: Install uv
