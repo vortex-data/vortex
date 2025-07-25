@@ -21,19 +21,6 @@ pub trait SegmentCache: Send + Sync {
     async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()>;
 }
 
-pub(crate) struct NoOpSegmentCache;
-
-#[async_trait]
-impl SegmentCache for NoOpSegmentCache {
-    async fn get(&self, _id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
-        Ok(None)
-    }
-
-    async fn put(&self, _id: SegmentId, _buffer: ByteBuffer) -> VortexResult<()> {
-        Ok(())
-    }
-}
-
 /// A [`SegmentCache`] based around an in-memory Moka cache.
 pub struct MokaSegmentCache(Cache<SegmentId, ByteBuffer, FxBuildHasher>);
 
@@ -70,7 +57,7 @@ impl SegmentCache for MokaSegmentCache {
 /// Segment cache containing the initial read segments.
 pub(crate) struct InitialReadSegmentCache {
     pub(crate) initial: DashMap<SegmentId, ByteBuffer>,
-    pub(crate) fallback: Arc<dyn SegmentCache>,
+    pub(crate) fallback: Option<Arc<dyn SegmentCache>>,
 }
 
 #[async_trait]
@@ -79,11 +66,19 @@ impl SegmentCache for InitialReadSegmentCache {
         if let Some(buffer) = self.initial.get(&id) {
             return Ok(Some(buffer.clone()));
         }
-        self.fallback.get(id).await
+        if let Some(fb) = &self.fallback {
+            fb.get(id).await
+        } else {
+            Ok(None)
+        }
     }
 
     async fn put(&self, id: SegmentId, buffer: ByteBuffer) -> VortexResult<()> {
-        self.fallback.put(id, buffer).await
+        if let Some(fb) = &self.fallback {
+            fb.put(id, buffer).await
+        } else {
+            Ok(())
+        }
     }
 }
 

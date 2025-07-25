@@ -12,11 +12,12 @@ use vortex_error::{ResultExt, VortexResult, vortex_err};
 ///
 /// Currently, std I/O internally dispatches blocking I/O tasks onto a Tokio runtime.
 impl VortexIO for std::fs::File {
-    fn into_vortex_read_at(self) -> Arc<dyn ReadAt> {
-        Arc::new(TokioDispatchedIo::new(
-            Arc::new(self),
-            PerformanceHint::local(),
-        ))
+    fn performance_hint(&self) -> PerformanceHint {
+        PerformanceHint::local()
+    }
+
+    fn into_read_at(self) -> VortexResult<Arc<dyn ReadAt>> {
+        Ok(Arc::new(TokioDispatchedIo::new(Arc::new(self))))
     }
 }
 

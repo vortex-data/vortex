@@ -10,18 +10,22 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use crate::SegmentSpec;
+use crate::driver::FileDriver;
+use crate::segments::{SegmentCache, SegmentCacheSourceAdapter};
 use futures::stream::BoxStream;
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, pin_mut};
 use itertools::Itertools;
 use linked_hash_set::LinkedHashSet;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
+use vortex_io::dispatcher::{Dispatch, IoDispatcher};
 use vortex_io::{PerformanceHint, ReadAt};
-use vortex_layout::segments::{SegmentEvent, SegmentId, SegmentRequest};
+use vortex_layout::segments::{
+    SegmentEvent, SegmentEvents, SegmentId, SegmentRequest, SegmentSource,
+};
 use vortex_metrics::{Counter, VortexMetrics};
 use vortex_utils::aliases::hash_map::HashMap;
-
-use crate::SegmentSpec;
 
 macro_rules! trace_log {
     ($($tts:tt)*) => {
@@ -33,7 +37,95 @@ macro_rules! trace_log {
 
 /// An I/O driver that assembles coalesced requests based on a performance hint and a
 /// pre-configured pre-fetching window.
-pub struct CoalescedDriver {
+pub(crate) struct CoalescedDriver {
+    pub(crate) performance_hint: PerformanceHint,
+    /// The dispatcher to use for I/O operations.
+    // TODO(ngates): this is just some extra thread that we use to drive I/O...
+    //  Maybe this concept should be encapsulated in the VortexFile?
+    pub(crate) io_dispatcher: IoDispatcher,
+    /// The number of concurrent I/O requests to allow.
+    pub(crate) io_concurrency: usize,
+    /// The maximum number of bytes to hold in the prefetch buffer.
+    pub(crate) max_prefetch_bytes: i64,
+    pub(crate) max_prefetch_inflight_requests: usize,
+}
+
+impl CoalescedDriver {
+    pub(crate) fn new(performance_hint: PerformanceHint) -> Self {
+        Self {
+            performance_hint,
+            io_dispatcher: IoDispatcher::shared(),
+            io_concurrency: 8,
+            max_prefetch_bytes: 32 << 20, // 32 MB
+            max_prefetch_inflight_requests: 1,
+        }
+    }
+}
+
+impl FileDriver for CoalescedDriver {
+    fn create_segment_source(
+        &self,
+        read: Arc<dyn ReadAt>,
+        segments: Arc<[SegmentSpec]>,
+        segment_cache: Option<Arc<dyn SegmentCache>>,
+        metrics: &VortexMetrics,
+    ) -> VortexResult<Arc<dyn SegmentSource>> {
+        // We use segment events for driving I/O.
+        let (mut segment_source, events) = SegmentEvents::create();
+
+        // Wrap the events source to first resolve segments from the initial read cache.
+        if let Some(segment_cache) = segment_cache {
+            segment_source = Arc::new(SegmentCacheSourceAdapter::new(
+                segment_cache,
+                segment_source,
+            ));
+        }
+
+        let stream = CoalescedDriverStream {
+            segment_map: segments,
+            events,
+
+            requested_counter: metrics.counter("vortex.file.segments.requested"),
+            polled_counter: metrics.counter("vortex.file.segments.polled"),
+            coalesced_counter: metrics.counter("vortex.file.coalesced"),
+            coalesced_bytes_counter: metrics.counter("vortex.file.coalesced.bytes"),
+
+            performance_hint: self.performance_hint.clone(),
+            max_prefetch_bytes: self.max_prefetch_bytes,
+            max_prefetch_inflight_requests: self.max_prefetch_inflight_requests,
+            first_poll: false,
+            state: Default::default(),
+            requested: Default::default(),
+            polled: Default::default(),
+            prefetched_bytes: 0,
+
+            inflight_prefetch_lease: Arc::new(()),
+        };
+
+        // Spawn an I/O driver onto the dispatcher.
+        let io_concurrency = self.io_concurrency;
+        self.io_dispatcher
+            .dispatch(move || {
+                async move {
+                    // Drive the segment event stream.
+                    let stream = stream
+                        .map(|coalesced_req| coalesced_req.launch(&read))
+                        .buffer_unordered(io_concurrency);
+                    pin_mut!(stream);
+
+                    // Drive the stream to completion.
+                    stream.collect::<()>().await
+                }
+            })
+            .vortex_expect("Failed to spawn I/O driver");
+
+        Ok(segment_source)
+    }
+}
+
+/// An I/O driver that assembles coalesced requests based on a performance hint and a
+/// pre-configured pre-fetching window.
+struct CoalescedDriverStream {
     segment_map: Arc<[SegmentSpec]>,
     events: BoxStream<'static, SegmentEvent>,
 
@@ -67,35 +159,7 @@ struct PendingSegment {
     request: Option<SegmentRequest>,
 }
 
-impl CoalescedDriver {
-    pub(crate) fn new(
-        performance_hint: PerformanceHint,
-        segment_map: Arc<[SegmentSpec]>,
-        events: BoxStream<'static, SegmentEvent>,
-        metrics: VortexMetrics,
-    ) -> Self {
-        Self {
-            segment_map,
-            events,
-
-            requested_counter: metrics.counter("vortex.file.segments.requested"),
-            polled_counter: metrics.counter("vortex.file.segments.polled"),
-            coalesced_counter: metrics.counter("vortex.file.coalesced"),
-            coalesced_bytes_counter: metrics.counter("vortex.file.coalesced.bytes"),
-
-            performance_hint,
-            max_prefetch_bytes: 32 << 20, // 32 MB
-            max_prefetch_inflight_requests: 1,
-            first_poll: false,
-            state: Default::default(),
-            requested: Default::default(),
-            polled: Default::default(),
-            prefetched_bytes: 0,
-
-            inflight_prefetch_lease: Arc::new(()),
-        }
-    }
-
+impl CoalescedDriverStream {
     fn segment_spec(&self, id: SegmentId) -> &SegmentSpec {
         &self.segment_map[*id as usize]
     }
@@ -209,11 +273,12 @@ impl CoalescedDriver {
             // We find the range of segment IDs that intersect the coalescing window. We can do
             // this because segments are ordered by byte offset.
             let lowest_segment = self.segment_map.partition_point(|s| {
-                (s.offset + s.length as u64) < coalesced.byte_range.start.saturating_sub(window)
+                (s.offset + s.length as u64)
+                    < coalesced.byte_range.start.saturating_sub(window as u64)
             });
-            let highest_segment = self
-                .segment_map
-                .partition_point(|s| s.offset < coalesced.byte_range.end.saturating_add(window));
+            let highest_segment = self.segment_map.partition_point(|s| {
+                s.offset < coalesced.byte_range.end.saturating_add(window as u64)
+            });
 
             for id in lowest_segment..highest_segment {
                 let segment_id = SegmentId::try_from(id).vortex_expect("ID not a u32");
@@ -248,7 +313,7 @@ impl CoalescedDriver {
 
                 // If the new range exceeds the max read, we skip the segment.
                 if max_read
-                    .map(|max_read| new_range.end - new_range.start > max_read)
+                    .map(|max_read| new_range.end - new_range.start > max_read as u64)
                     .unwrap_or(false)
                 {
                     continue;
@@ -288,7 +353,7 @@ impl CoalescedDriver {
     }
 }
 
-impl Stream for CoalescedDriver {
+impl Stream for CoalescedDriverStream {
     type Item = CoalescedSegmentRequest;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

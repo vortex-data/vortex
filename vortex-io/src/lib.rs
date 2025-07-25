@@ -17,6 +17,8 @@ pub use limit::*;
 pub use object_store::*;
 pub use read::*;
 pub use read_at::*;
+use vortex_error::VortexResult;
+
 #[cfg(feature = "tokio")]
 pub mod tokio;
 pub use write::*;
@@ -39,6 +41,8 @@ pub const ALIGNMENT: usize = 64;
 
 /// A trait for converting supported I/O objects into Vortex I/O objects.
 pub trait VortexIO {
+    fn performance_hint(&self) -> PerformanceHint;
+
     /// Load the current object into a Vortex `ReadAt` I/O object.
-    fn into_vortex_read_at(self) -> Arc<dyn ReadAt>;
+    fn into_read_at(self) -> VortexResult<Arc<dyn ReadAt>>;
 }

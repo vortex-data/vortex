@@ -4,7 +4,7 @@
 use crate::{PerformanceHint, ReadAt, VortexIO};
 use async_trait::async_trait;
 use std::sync::Arc;
-use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexResult, vortex_err};
 
 /// For in-memory bytes, we are able to immediately return a response without dispatching work
@@ -31,14 +31,24 @@ impl ReadAt for ByteBuffer {
     async fn size(&self) -> VortexResult<u64> {
         Ok(self.len() as u64)
     }
-
-    fn performance_hint(&self) -> PerformanceHint {
-        PerformanceHint::local()
-    }
 }
 
 impl VortexIO for ByteBuffer {
-    fn into_vortex_read_at(self) -> Arc<dyn ReadAt> {
-        Arc::new(self)
+    fn performance_hint(&self) -> PerformanceHint {
+        PerformanceHint::in_memory()
+    }
+
+    fn into_read_at(self) -> VortexResult<Arc<dyn ReadAt>> {
+        Ok(Arc::new(self))
+    }
+}
+
+impl VortexIO for ByteBufferMut {
+    fn performance_hint(&self) -> PerformanceHint {
+        PerformanceHint::in_memory()
+    }
+
+    fn into_read_at(self) -> VortexResult<Arc<dyn ReadAt>> {
+        self.freeze().into_read_at()
     }
 }

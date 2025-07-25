@@ -16,7 +16,6 @@ version = { workspace = true }
 [dependencies]
 arcref = { workspace = true }
 async-trait = { workspace = true }
-bytes = { workspace = true }
 dashmap = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }

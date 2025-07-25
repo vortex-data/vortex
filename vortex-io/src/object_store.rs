@@ -21,13 +21,13 @@ use crate::tokio::{TokioDispatchedIo, TokioReadAt};
 use crate::{IoBuf, PerformanceHint, ReadAt, VortexIO, VortexReadAt, VortexWrite};
 
 #[derive(Clone)]
-pub struct ObjectStoreReadAt {
+pub struct ObjectStoreIo {
     object_store: Arc<dyn ObjectStore>,
     location: Path,
     scheme: Option<ObjectStoreScheme>,
 }
 
-impl ObjectStoreReadAt {
+impl ObjectStoreIo {
     pub fn new(
         object_store: Arc<dyn ObjectStore>,
         location: Path,
@@ -41,17 +41,31 @@ impl ObjectStoreReadAt {
     }
 }
 
-impl VortexIO for ObjectStoreReadAt {
-    fn into_vortex_read_at(self) -> Arc<dyn ReadAt> {
-        let hint = match &self.scheme {
-            Some(ObjectStoreScheme::Local | ObjectStoreScheme::Memory) => PerformanceHint::local(),
+impl VortexIO for ObjectStoreIo {
+    fn performance_hint(&self) -> PerformanceHint {
+        match &self.scheme {
+            Some(ObjectStoreScheme::Memory) => PerformanceHint::in_memory(),
+            Some(ObjectStoreScheme::Local) => PerformanceHint::local(),
             _ => PerformanceHint::object_storage(),
-        };
-        Arc::new(TokioDispatchedIo::new(self, hint))
+        }
+    }
+
+    fn into_read_at(self) -> VortexResult<Arc<dyn ReadAt>> {
+        // If the file is local, we much prefer to use std::fs::File since object store re-opens
+        // the file on every read. This check is a little naive... but we hope that ObjectStore
+        // will soon expose the scheme in a way that we can check more thoroughly.
+        // See: https://github.com/apache/arrow-rs-object-store/issues/259
+        let local_path = std::path::Path::new("/").join(self.location.as_ref());
+        if local_path.exists() {
+            // TODO(ngates): we could move the open operating into the dispatcher..
+            std::fs::File::open(local_path)?.into_read_at()
+        } else {
+            Ok(Arc::new(TokioDispatchedIo::new(self)))
+        }
     }
 }
 
-impl TokioReadAt for ObjectStoreReadAt {
+impl TokioReadAt for ObjectStoreIo {
     async fn read_at(
         &self,
         offset: u64,
@@ -100,8 +114,9 @@ impl TokioReadAt for ObjectStoreReadAt {
     }
 }
 
-impl VortexReadAt for ObjectStoreReadAt {
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(size = range.end - range.start)))]
+impl VortexReadAt for ObjectStoreIo {
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(size = range.end - range.start
+    )))]
     async fn read_byte_range(
         &self,
         range: Range<u64>,

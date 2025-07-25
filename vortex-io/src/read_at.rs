@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::PerformanceHint;
 use async_trait::async_trait;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::VortexResult;
@@ -27,9 +26,6 @@ pub trait ReadAt: 'static + Send + Sync + private::Sealed {
     ) -> VortexResult<ByteBuffer>;
 
     async fn size(&self) -> VortexResult<u64>;
-
-    // TODO(ngates): remove this function and expose it only in the coalesced driver.
-    fn performance_hint(&self) -> PerformanceHint;
 }
 
 mod private {

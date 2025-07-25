@@ -37,7 +37,6 @@ pub trait TokioReadAt {
 #[derive(Clone)]
 pub struct TokioDispatchedIo {
     send: flume::Sender<ReadRequest>,
-    performance_hint: PerformanceHint,
 }
 
 /// A read request that is sent to the Tokio runtime for processing.
@@ -50,10 +49,7 @@ struct ReadRequest {
 
 impl TokioDispatchedIo {
     /// Wraps an existing [`TokioReadAt`] implementation to provide a Vortex-compatible `ReadAt`.
-    pub fn new<R: TokioReadAt + Send + 'static>(
-        read: R,
-        performance_hint: PerformanceHint,
-    ) -> Self {
+    pub fn new<R: TokioReadAt + Send + 'static>(read: R) -> Self {
         let (send, recv) = flume::unbounded::<ReadRequest>();
         TOKIO_DISPATCHER
             .dispatch(move || {
@@ -75,10 +71,7 @@ impl TokioDispatchedIo {
                 }
             })
             .vortex_expect("Failed to dispatch Tokio read task, dispatcher fatally dead");
-        Self {
-            send,
-            performance_hint,
-        }
+        Self { send }
     }
 }
 
@@ -110,10 +103,6 @@ impl ReadAt for TokioDispatchedIo {
 
     async fn size(&self) -> VortexResult<u64> {
         todo!("TokioDispatchedIo does not support size yet");
-    }
-
-    fn performance_hint(&self) -> PerformanceHint {
-        self.performance_hint.clone()
     }
 }
 
