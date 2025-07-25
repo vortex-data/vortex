@@ -24,6 +24,8 @@ pub mod tokio;
 pub use write::*;
 
 mod buffer;
+#[cfg(feature = "compio")]
+pub mod compio;
 pub mod dispatcher;
 mod hint;
 mod io_buf;
