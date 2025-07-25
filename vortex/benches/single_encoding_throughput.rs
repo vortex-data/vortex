@@ -241,6 +241,7 @@ mod benchmarks {
                 .bench_values(|a| a.to_canonical().unwrap());
         }
 
+        #[cfg(feature = "zstd")]
         #[divan::bench(name = "zstd_compress")]
         fn bench_zstd_compress(bencher: Bencher) {
             let (uint_array, ..) = setup_arrays();
@@ -251,6 +252,7 @@ mod benchmarks {
                 .bench_values(|a| ZstdArray::from_array(a.into_array(), 3, 8192).unwrap());
         }
 
+        #[cfg(feature = "zstd")]
         #[divan::bench(name = "zstd_decompress")]
         fn bench_zstd_decompress(bencher: Bencher) {
             let (uint_array, ..) = setup_arrays();
