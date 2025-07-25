@@ -1,19 +1,117 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use async_trait::async_trait;
 use std::fs::File;
 use std::io;
 use std::ops::{Deref, Range};
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
-
 use tokio::io::AsyncWriteExt;
+use tokio::sync::oneshot;
 use tokio::task::spawn_blocking;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex_error::VortexExpect;
+use vortex_error::{ResultExt, VortexExpect, VortexResult, vortex_err};
 
-use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
+use crate::dispatcher::Dispatch;
+use crate::dispatcher::tokio::TOKIO_DISPATCHER;
+use crate::{IoBuf, PerformanceHint, ReadAt, VortexReadAt, VortexWrite};
+
+/// A generic (unsealed) trait for implementing read-at operations via dispatched I/O.
+///
+/// Note that this trait does not require a `Send` bound on the returned future since it is
+/// dispatched onto a Tokio [`LocalSet`].
+///
+/// See [`TokioDispatchedIo`] to wrap this implementation into a Vortex [`ReadAt`].
+pub trait TokioReadAt {
+    fn read_at(
+        &self,
+        offset: u64,
+        len: usize,
+        alignment: Alignment,
+    ) -> impl Future<Output = VortexResult<ByteBuffer>>;
+}
+
+/// A wrapper for dispatching I/O operations to a Tokio runtime.
+#[derive(Clone)]
+pub struct TokioDispatchedIo {
+    send: flume::Sender<ReadRequest>,
+    performance_hint: PerformanceHint,
+}
+
+/// A read request that is sent to the Tokio runtime for processing.
+struct ReadRequest {
+    offset: u64,
+    len: usize,
+    alignment: Alignment,
+    response: oneshot::Sender<VortexResult<ByteBuffer>>,
+}
+
+impl TokioDispatchedIo {
+    /// Wraps an existing [`TokioReadAt`] implementation to provide a Vortex-compatible `ReadAt`.
+    pub fn new<R: TokioReadAt + Send + 'static>(
+        read: R,
+        performance_hint: PerformanceHint,
+    ) -> Self {
+        let (send, recv) = flume::unbounded::<ReadRequest>();
+        TOKIO_DISPATCHER
+            .dispatch(move || {
+                async move {
+                    // `recv.recv_async()` returns error only if all senders have been dropped.
+                    while let Ok(request) = recv.recv_async().await {
+                        let ReadRequest {
+                            offset,
+                            len,
+                            alignment,
+                            response,
+                        } = request;
+
+                        let result = read.read_at(offset, len, alignment).await;
+                        if response.send(result).is_err() {
+                            log::trace!("Failed to send Tokio read result back to requester");
+                        }
+                    }
+                }
+            })
+            .vortex_expect("Failed to dispatch Tokio read task, dispatcher fatally dead");
+        Self {
+            send,
+            performance_hint,
+        }
+    }
+}
+
+#[async_trait]
+impl ReadAt for TokioDispatchedIo {
+    async fn read_range(
+        &self,
+        offset: u64,
+        len: usize,
+        alignment: Alignment,
+    ) -> VortexResult<ByteBuffer> {
+        // TODO(ngates): we should find a stack-based oneshot channel to avoid a heap allocation
+        //  on every read request. I think internally the Tokio dispatcher may also be more
+        //  expensive than perhaps it needs to be. That said, this async_trait also heap-allocates
+        //  the future!
+        let (send, recv) = oneshot::channel();
+        self.send
+            .send(ReadRequest {
+                offset,
+                len,
+                alignment,
+                response: send,
+            })
+            .map_err(|e| vortex_err!("Tokio dispatcher send error: {e}"))?;
+        recv.await
+            .map_err(|e| vortex_err!("Tokio dispatcher died: {e}"))
+            .unnest()
+    }
+
+    fn performance_hint(&self) -> PerformanceHint {
+        self.performance_hint.clone()
+    }
+}
 
 /// A cheaply cloneable, readonly file that executes operations
 /// on a tokio blocking threadpool.
@@ -106,7 +204,8 @@ mod tests {
     use tempfile::NamedTempFile;
     use vortex_buffer::Alignment;
 
-    use crate::{TokioFile, VortexReadAt};
+    use crate::VortexReadAt;
+    use crate::tokio::TokioFile;
 
     #[tokio::test]
     async fn test_shared_file() {

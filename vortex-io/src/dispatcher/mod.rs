@@ -4,7 +4,7 @@
 #[cfg(feature = "compio")]
 mod compio;
 #[cfg(not(target_arch = "wasm32"))]
-mod tokio;
+pub mod tokio;
 #[cfg(target_arch = "wasm32")]
 mod wasm;
 

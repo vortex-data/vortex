@@ -10,27 +10,35 @@
 //! This crate provides core traits for positioned and streaming IO, and via feature
 //! flags implements the core traits for several common async runtimes and backing stores.
 
-pub use dispatcher::*;
+use ::std::sync::Arc;
 pub use io_buf::*;
 pub use limit::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
 pub use read::*;
+pub use read_at::*;
 #[cfg(feature = "tokio")]
-pub use tokio::*;
+pub mod tokio;
 pub use write::*;
 
+mod buffer;
 #[cfg(feature = "compio")]
 mod compio;
-mod dispatcher;
+pub mod dispatcher;
 mod io_buf;
 mod limit;
 #[cfg(feature = "object_store")]
 mod object_store;
 mod read;
-#[cfg(feature = "tokio")]
-mod tokio;
+mod read_at;
+mod std;
 mod write;
 
 /// Required alignment for all custom buffer allocations.
 pub const ALIGNMENT: usize = 64;
+
+/// A trait for converting supported I/O objects into Vortex I/O objects.
+pub trait VortexIO {
+    /// Load the current object into a Vortex `ReadAt` I/O object.
+    fn into_vortex_read_at(self) -> Arc<dyn ReadAt>;
+}

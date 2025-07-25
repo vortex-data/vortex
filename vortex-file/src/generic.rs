@@ -8,7 +8,8 @@ use dashmap::DashMap;
 use futures::{StreamExt, pin_mut};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
-use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
+use vortex_io::dispatcher::{Dispatch, IoDispatcher};
+use vortex_io::{InstrumentedReadAt, VortexReadAt};
 use vortex_layout::segments::{SegmentEvents, SegmentId, SegmentSource};
 use vortex_metrics::VortexMetrics;
 
@@ -82,7 +83,8 @@ impl VortexOpenOptions<GenericVortexFile> {
     #[cfg(feature = "tokio")]
     pub async fn open(mut self, read: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
         self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
-        self.open_read_at(vortex_io::TokioFile::open(read)?).await
+        self.open_read_at(vortex_io::tokio::TokioFile::open(read)?)
+            .await
     }
 
     /// Low-level API for opening any [`VortexReadAt`]. Note that the user is responsible for

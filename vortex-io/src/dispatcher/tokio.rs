@@ -3,6 +3,7 @@
 
 use std::future::Future;
 use std::panic::resume_unwind;
+use std::sync::LazyLock;
 use std::thread::JoinHandle;
 
 use futures::channel::oneshot;
@@ -13,6 +14,10 @@ use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use super::{Dispatch, JoinHandle as VortexJoinHandle};
 
+/// A shared Tokio dispatcher using a single worker thread to spawn I/O tasks.
+pub(crate) static TOKIO_DISPATCHER: LazyLock<TokioDispatcher> =
+    LazyLock::new(|| TokioDispatcher::new(1));
+
 trait TokioSpawn {
     fn spawn(self: Box<Self>) -> TokioJoinHandle<()>;
 }
@@ -20,7 +25,7 @@ trait TokioSpawn {
 /// A [dispatcher][Dispatch] of IO operations that runs tasks on one of several
 /// Tokio `current_thread` runtimes.
 #[derive(Debug)]
-pub(super) struct TokioDispatcher {
+pub(crate) struct TokioDispatcher {
     submitter: flume::Sender<Box<dyn TokioSpawn + Send>>,
     threads: Vec<JoinHandle<()>>,
 }
