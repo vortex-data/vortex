@@ -16,8 +16,6 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -53,8 +51,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
 
       - name: Install DuckDB
