@@ -1018,7 +1018,6 @@ dependencies = [
  "compio-fs",
  "compio-io",
  "compio-log",
- "compio-macros",
  "compio-net",
  "compio-process",
  "compio-quic",
@@ -1110,18 +1109,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc4e560213c1996b618da369b7c9109564b41af9033802ae534465c4ee4e132f"
 dependencies = [
  "tracing",
-]
-
-[[package]]
-name = "compio-macros"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f05ed201484967dc70de77a8f7a02b29aaa8e6c81cbea2e75492ee0c8d97766b"
-dependencies = [
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn 2.0.104",
 ]
 
 [[package]]

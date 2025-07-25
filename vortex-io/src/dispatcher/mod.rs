@@ -19,13 +19,13 @@ mod sealed {
     pub trait Sealed {}
 
     #[cfg(feature = "compio")]
-    impl Sealed for crate::dispatcher::compio::CompioDispatcher {}
+    impl Sealed for super::compio::CompioDispatcher {}
 
     #[cfg(feature = "tokio")]
-    impl Sealed for crate::dispatcher::tokio::TokioDispatcher {}
+    impl Sealed for super::tokio::TokioDispatcher {}
 
     #[cfg(target_arch = "wasm32")]
-    impl Sealed for crate::dispatcher::wasm::WasmDispatcher {}
+    impl Sealed for super::wasm::WasmDispatcher {}
 }
 
 /// A trait for types that may be dispatched.

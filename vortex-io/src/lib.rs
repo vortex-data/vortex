@@ -18,11 +18,9 @@ pub use limit::*;
 pub use object_store::*;
 pub use read_at::*;
 use vortex_error::VortexResult;
-
 #[cfg(feature = "tokio")]
 pub mod tokio;
 pub use write::*;
-
 mod buffer;
 #[cfg(feature = "compio")]
 pub mod compio;

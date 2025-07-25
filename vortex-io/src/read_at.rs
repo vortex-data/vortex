@@ -31,10 +31,10 @@ pub trait ReadAt: 'static + Send + Sync + private::Sealed {
 mod private {
     use vortex_buffer::ByteBuffer;
 
-    use crate::tokio::{TokioDispatchedIo, TokioReadAt};
-
     pub trait Sealed {}
 
     impl Sealed for ByteBuffer {}
-    impl<R: TokioReadAt> Sealed for TokioDispatchedIo<R> {}
+
+    #[cfg(feature = "tokio")]
+    impl<R: crate::tokio::TokioReadAt> Sealed for crate::tokio::TokioDispatchedIo<R> {}
 }
