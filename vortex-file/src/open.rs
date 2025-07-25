@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::Path;
+use std::sync::Arc;
+
 use dashmap::DashMap;
 use flatbuffers::root;
 use futures::executor::block_on;
-use std::path::Path;
-use std::sync::Arc;
 use vortex_array::ArrayRegistry;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;

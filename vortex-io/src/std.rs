@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::tokio::{TokioDispatchedIo, TokioReadAt};
-use crate::{PerformanceHint, ReadAt, VortexIO};
 use std::os::unix::prelude::FileExt;
 use std::sync::Arc;
+
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{ResultExt, VortexResult, vortex_err};
+
+use crate::tokio::{TokioDispatchedIo, TokioReadAt};
+use crate::{PerformanceHint, ReadAt, VortexIO};
 
 /// Opens a `std::fs::File` as a Vortex I/O object.
 ///

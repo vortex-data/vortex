@@ -4,15 +4,17 @@
 mod coalesced;
 mod direct;
 
-use crate::SegmentSpec;
-use crate::segments::SegmentCache;
+use std::sync::Arc;
+
 pub use coalesced::*;
 pub use direct::*;
-use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_io::ReadAt;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
+
+use crate::SegmentSpec;
+use crate::segments::SegmentCache;
 
 /// A trait for providing an implementation of a [`SegmentSource`].
 pub trait FileDriver: Send + Sync + 'static {

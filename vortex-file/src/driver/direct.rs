@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::SegmentSpec;
-use crate::driver::FileDriver;
-use crate::segments::SegmentCache;
-use futures::FutureExt;
 use std::sync::Arc;
+
+use futures::FutureExt;
 use vortex_error::{VortexResult, vortex_err};
 use vortex_io::ReadAt;
 use vortex_layout::segments::{SegmentFuture, SegmentId, SegmentSource};
 use vortex_metrics::VortexMetrics;
+
+use crate::SegmentSpec;
+use crate::driver::FileDriver;
+use crate::segments::SegmentCache;
 
 /// A [`FileDriver`] that directly reads segments from the underlying I/O source, with no
 /// coalescing or pre-fetching of segments.

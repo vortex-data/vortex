@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::{PerformanceHint, ReadAt, VortexIO};
-use async_trait::async_trait;
 use std::sync::Arc;
+
+use async_trait::async_trait;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexResult, vortex_err};
+
+use crate::{PerformanceHint, ReadAt, VortexIO};
 
 /// For in-memory bytes, we are able to immediately return a response without dispatching work
 /// to another thread.

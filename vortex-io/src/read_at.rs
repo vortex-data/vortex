@@ -29,8 +29,9 @@ pub trait ReadAt: 'static + Send + Sync + private::Sealed {
 }
 
 mod private {
-    use crate::tokio::TokioDispatchedIo;
     use vortex_buffer::ByteBuffer;
+
+    use crate::tokio::TokioDispatchedIo;
 
     pub trait Sealed {}
 

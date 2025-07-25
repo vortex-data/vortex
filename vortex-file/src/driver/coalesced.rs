@@ -10,15 +10,12 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use crate::SegmentSpec;
-use crate::driver::FileDriver;
-use crate::segments::{SegmentCache, SegmentCacheSourceAdapter};
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt, pin_mut};
 use itertools::Itertools;
 use linked_hash_set::LinkedHashSet;
 use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_io::dispatcher::{Dispatch, IoDispatcher};
 use vortex_io::{PerformanceHint, ReadAt};
 use vortex_layout::segments::{
@@ -26,6 +23,10 @@ use vortex_layout::segments::{
 };
 use vortex_metrics::{Counter, VortexMetrics};
 use vortex_utils::aliases::hash_map::HashMap;
+
+use crate::SegmentSpec;
+use crate::driver::FileDriver;
+use crate::segments::{SegmentCache, SegmentCacheSourceAdapter};
 
 macro_rules! trace_log {
     ($($tts:tt)*) => {
@@ -496,10 +497,7 @@ impl CoalescedSegmentRequest {
         let alignment = self.segment_map[*self.requests[0].id() as usize].alignment;
         let len = usize::try_from(self.byte_range.end - self.byte_range.start)
             .vortex_expect("byte range too large for usize");
-        let buffer = read
-            .read_range(self.byte_range.start, len, alignment)
-            .await
-            .map_err(VortexError::from);
+        let buffer = read.read_range(self.byte_range.start, len, alignment).await;
         self.resolve(buffer)
     }
 }

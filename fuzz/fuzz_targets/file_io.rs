@@ -61,8 +61,8 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .await
             .vortex_unwrap();
 
-        let mut output = VortexOpenOptions::in_memory()
-            .open(full_buff)
+        let mut output = VortexOpenOptions::new(full_buff)
+            .open()
             .vortex_unwrap()
             .scan()
             .vortex_unwrap()
