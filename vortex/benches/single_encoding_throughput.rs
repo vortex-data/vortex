@@ -39,7 +39,10 @@ macro_rules! with_counter {
         #[cfg(not(codspeed))]
         let bencher = $bencher.counter(BytesCount::new($bytes));
         #[cfg(codspeed)]
-        let bencher = $bencher;
+        let bencher = {
+            let _ = $bytes; // Consume the bytes value to avoid unused variable warning
+            $bencher
+        };
         bencher
     }};
 }
