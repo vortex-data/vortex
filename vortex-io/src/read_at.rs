@@ -26,6 +26,8 @@ pub trait ReadAt: 'static + Send + Sync + private::Sealed {
         alignment: Alignment,
     ) -> VortexResult<ByteBuffer>;
 
+    async fn size(&self) -> VortexResult<u64>;
+
     // TODO(ngates): remove this function and expose it only in the coalesced driver.
     fn performance_hint(&self) -> PerformanceHint;
 }

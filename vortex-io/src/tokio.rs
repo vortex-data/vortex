@@ -108,6 +108,10 @@ impl ReadAt for TokioDispatchedIo {
             .unnest()
     }
 
+    async fn size(&self) -> VortexResult<u64> {
+        todo!("TokioDispatchedIo does not support size yet");
+    }
+
     fn performance_hint(&self) -> PerformanceHint {
         self.performance_hint.clone()
     }

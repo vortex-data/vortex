@@ -93,6 +93,7 @@
 //! Anything implementing [`VortexReadAt`](vortex_io::VortexReadAt), for example local files, byte
 //! buffers, and [cloud storage](vortex_io::ObjectStoreReadAt), can be used as the backing store.
 
+mod coalesce;
 mod driver;
 mod file;
 mod footer;

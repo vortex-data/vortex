@@ -9,11 +9,11 @@ use futures::{StreamExt, pin_mut};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_io::dispatcher::{Dispatch, IoDispatcher};
-use vortex_io::{InstrumentedReadAt, VortexReadAt};
+use vortex_io::{ReadAt, VortexIO};
 use vortex_layout::segments::{SegmentEvents, SegmentId, SegmentSource};
 use vortex_metrics::VortexMetrics;
 
-use crate::driver::CoalescedDriver;
+use crate::coalesced::CoalescedDriver;
 use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
@@ -83,17 +83,13 @@ impl VortexOpenOptions<GenericVortexFile> {
     #[cfg(feature = "tokio")]
     pub async fn open(mut self, read: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
         self.options.io_dispatcher = TOKIO_DISPATCHER.clone();
-        self.open_read_at(vortex_io::tokio::TokioFile::open(read)?)
-            .await
+        self.open_read_at(std::fs::File::open(read)?).await
     }
 
     /// Low-level API for opening any [`VortexReadAt`]. Note that the user is responsible for
     /// ensuring the `VortexReadAt` implementation is compatible with the chosen I/O dispatcher.
-    pub async fn open_read_at<R: VortexReadAt + Send + Sync>(
-        self,
-        read: R,
-    ) -> VortexResult<VortexFile> {
-        let read = Arc::new(read);
+    pub async fn open_read_at<R: VortexIO>(self, read: R) -> VortexResult<VortexFile> {
+        let read = read.into_vortex_read_at();
 
         let footer = if let Some(footer) = self.footer {
             footer
@@ -124,10 +120,7 @@ impl VortexOpenOptions<GenericVortexFile> {
         })
     }
 
-    async fn read_footer<R: VortexReadAt + Send + Sync>(
-        &self,
-        read: Arc<R>,
-    ) -> VortexResult<Footer> {
+    async fn read_footer(&self, read: Arc<dyn ReadAt>) -> VortexResult<Footer> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
             None => self.dispatched_size(read.clone()).await?,
@@ -216,10 +209,7 @@ impl VortexOpenOptions<GenericVortexFile> {
     }
 
     /// Dispatch a [`VortexReadAt::size`] request onto the configured I/O dispatcher.
-    async fn dispatched_size<R: VortexReadAt + Send + Sync>(
-        &self,
-        read: Arc<R>,
-    ) -> VortexResult<u64> {
+    async fn dispatched_size(&self, read: Arc<dyn ReadAt>) -> VortexResult<u64> {
         Ok(self
             .options
             .io_dispatcher
@@ -228,16 +218,22 @@ impl VortexOpenOptions<GenericVortexFile> {
     }
 
     /// Dispatch a read onto the configured I/O dispatcher.
-    async fn dispatched_read<R: VortexReadAt + Send + Sync>(
+    async fn dispatched_read(
         &self,
-        read: Arc<R>,
+        read: Arc<dyn ReadAt>,
         range: Range<u64>,
     ) -> VortexResult<ByteBuffer> {
-        Ok(self
-            .options
-            .io_dispatcher
-            .dispatch(move || async move { read.read_byte_range(range, Alignment::none()).await })?
-            .await??)
+        read.read_range(
+            range.start,
+            usize::try_from(range.end - range.start)?,
+            Alignment::none(),
+        )
+        .await
+        // Ok(self
+        //     .options
+        //     .io_dispatcher
+        //     .dispatch(move || async move { read.read_byte_range(range, Alignment::none()).await })?
+        //     .await??)
     }
 
     /// Populate segments in the cache that were covered by the initial read.
@@ -267,15 +263,15 @@ impl VortexOpenOptions<GenericVortexFile> {
     }
 }
 
-struct GenericVortexFileIo<R> {
-    read: Arc<R>,
+struct GenericVortexFileIo {
+    read: Arc<dyn ReadAt>,
     segment_map: Arc<[SegmentSpec]>,
     segment_cache: Arc<dyn SegmentCache>,
     io_dispatcher: IoDispatcher,
     io_concurrency: usize,
 }
 
-impl<R: VortexReadAt + Send + Sync> SegmentSourceFactory for GenericVortexFileIo<R> {
+impl SegmentSourceFactory for GenericVortexFileIo {
     fn segment_source(&self, metrics: VortexMetrics) -> Arc<dyn SegmentSource> {
         // We use segment events for driving I/O.
         let (segment_source, events) = SegmentEvents::create();
@@ -286,10 +282,10 @@ impl<R: VortexReadAt + Send + Sync> SegmentSourceFactory for GenericVortexFileIo
             segment_source,
         ));
 
-        let read = InstrumentedReadAt::new(self.read.clone(), &metrics);
+        //let read = InstrumentedReadAt::new(self.read.clone(), &metrics);
 
         let driver = CoalescedDriver::new(
-            read.performance_hint(),
+            self.read.performance_hint(),
             self.segment_map.clone(),
             events,
             metrics,
@@ -297,6 +293,7 @@ impl<R: VortexReadAt + Send + Sync> SegmentSourceFactory for GenericVortexFileIo
 
         // Spawn an I/O driver onto the dispatcher.
         let io_concurrency = self.io_concurrency;
+        let read = self.read.clone();
         self.io_dispatcher
             .dispatch(move || {
                 async move {

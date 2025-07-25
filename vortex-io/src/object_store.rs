@@ -17,7 +17,8 @@ use object_store::{
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::{IoBuf, PerformanceHint, VortexReadAt, VortexWrite};
+use crate::tokio::{TokioDispatchedIo, TokioReadAt};
+use crate::{IoBuf, PerformanceHint, ReadAt, VortexIO, VortexReadAt, VortexWrite};
 
 #[derive(Clone)]
 pub struct ObjectStoreReadAt {
@@ -37,6 +38,65 @@ impl ObjectStoreReadAt {
             location,
             scheme,
         }
+    }
+}
+
+impl VortexIO for ObjectStoreReadAt {
+    fn into_vortex_read_at(self) -> Arc<dyn ReadAt> {
+        let hint = match &self.scheme {
+            Some(ObjectStoreScheme::Local | ObjectStoreScheme::Memory) => PerformanceHint::local(),
+            _ => PerformanceHint::object_storage(),
+        };
+        Arc::new(TokioDispatchedIo::new(self, hint))
+    }
+}
+
+impl TokioReadAt for ObjectStoreReadAt {
+    async fn read_at(
+        &self,
+        offset: u64,
+        len: usize,
+        alignment: Alignment,
+    ) -> VortexResult<ByteBuffer> {
+        let object_store = self.object_store.clone();
+        let location = self.location.clone();
+
+        // Instead of calling `ObjectStore::get_range`, we expand the implementation and run it
+        // ourselves to avoid a second copy to align the buffer. Instead, we can write directly
+        // into the aligned buffer.
+        let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+
+        let response = object_store
+            .get_opts(
+                &location,
+                GetOptions {
+                    range: Some(GetRange::Bounded(offset..offset + len as u64)),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        let buffer = match response.payload {
+            GetResultPayload::File(file, _) => {
+                unsafe { buffer.set_len(len) };
+                {
+                    tokio::task::spawn_blocking(move || {
+                        file.read_exact_at(&mut buffer, offset)?;
+                        Ok::<_, io::Error>(buffer)
+                    })
+                    .await
+                    .map_err(io::Error::other)??
+                }
+            }
+            GetResultPayload::Stream(mut byte_stream) => {
+                while let Some(bytes) = byte_stream.next().await {
+                    buffer.extend_from_slice(&bytes?);
+                }
+                buffer
+            }
+        };
+
+        Ok(buffer.freeze())
     }
 }
 

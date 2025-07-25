@@ -28,6 +28,10 @@ impl ReadAt for ByteBuffer {
             .aligned(alignment))
     }
 
+    async fn size(&self) -> VortexResult<u64> {
+        Ok(self.len() as u64)
+    }
+
     fn performance_hint(&self) -> PerformanceHint {
         PerformanceHint::local()
     }

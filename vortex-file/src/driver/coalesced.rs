@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! This module provides a [`vortex_layout::segments::SegmentSource`] that performs coalescing and
+//! prefetching of read operations based on the performance hint of the underlying I/O.
+
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::pin::Pin;
@@ -13,7 +16,7 @@ use itertools::Itertools;
 use linked_hash_set::LinkedHashSet;
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_panic};
-use vortex_io::{PerformanceHint, VortexReadAt};
+use vortex_io::{PerformanceHint, ReadAt};
 use vortex_layout::segments::{SegmentEvent, SegmentId, SegmentRequest};
 use vortex_metrics::{Counter, VortexMetrics};
 use vortex_utils::aliases::hash_map::HashMap;
@@ -424,11 +427,12 @@ impl CoalescedSegmentRequest {
     }
 
     /// Launch the request, reading the byte range from the provided reader.
-    pub async fn launch<R: VortexReadAt>(self, read: &R) {
+    pub async fn launch(self, read: &Arc<dyn ReadAt>) {
         let alignment = self.segment_map[*self.requests[0].id() as usize].alignment;
-        let byte_range = self.byte_range.clone();
+        let len = usize::try_from(self.byte_range.end - self.byte_range.start)
+            .vortex_expect("byte range too large for usize");
         let buffer = read
-            .read_byte_range(byte_range, alignment)
+            .read_range(self.byte_range.start, len, alignment)
             .await
             .map_err(VortexError::from);
         self.resolve(buffer)

@@ -31,8 +31,8 @@ impl TokioReadAt for Arc<std::fs::File> {
 
         tokio::task::spawn_blocking(move || {
             let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-            this.read_exact_at(&mut buffer, offset)?;
             unsafe { buffer.set_len(len) };
+            this.read_exact_at(&mut buffer, offset)?;
             Ok(buffer.freeze())
         })
         .await
