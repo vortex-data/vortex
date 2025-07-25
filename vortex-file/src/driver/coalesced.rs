@@ -36,21 +36,13 @@ macro_rules! trace_log {
     };
 }
 
-<<<<<<< HEAD
 /// A shared single-threaded Tokio runtime for processing the driver logic for coalesced I/O.
-=======
-/// A shared runtime used for driving the I/O coalescing logic.
->>>>>>> ngates/io2
 static DRIVER_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Builder::new_multi_thread()
         .thread_name("vortex-coalesced-io")
         .worker_threads(1)
         .build()
-<<<<<<< HEAD
         .vortex_expect("Failed to create Tokio runtime for I/O driver")
-=======
-        .vortex_expect("Failed to create I/O driver runtime")
->>>>>>> ngates/io2
 });
 
 /// An I/O driver that assembles coalesced requests based on a performance hint and a
