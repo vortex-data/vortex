@@ -33,7 +33,7 @@ pub struct DuckDBCtx {
 }
 
 impl DuckDBCtx {
-    pub fn new(dataset: BenchmarkDataset, format: Format) -> Result<Self> {
+    pub fn new(dataset: BenchmarkDataset, format: Format, delete_database: bool) -> Result<Self> {
         let dir = match dataset {
             BenchmarkDataset::ClickBench { flavor, .. } => {
                 format!("clickbench_{}/{}", flavor, format.name()).to_data_path()
@@ -48,7 +48,7 @@ impl DuckDBCtx {
         };
         std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");
-        if db_path.exists() {
+        if delete_database {
             std::fs::remove_file(&db_path)?;
         }
         let db = Database::open(db_path)?;

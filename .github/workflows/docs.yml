@@ -17,8 +17,6 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
