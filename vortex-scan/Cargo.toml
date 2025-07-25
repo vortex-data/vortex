@@ -31,12 +31,11 @@ futures = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
 roaring = { workspace = true, optional = true }
-tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 [features]
 default = []
 roaring = ["dep:roaring", "vortex-layout/roaring"]
-tokio = ["dep:tokio"]
 
 [lints]
 workspace = true

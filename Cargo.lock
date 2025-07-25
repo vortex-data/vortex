@@ -6687,13 +6687,11 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
- "cfg-if",
  "compio",
  "flume",
  "futures",
  "futures-util",
  "getrandom 0.3.3",
- "log",
  "object_store",
  "pin-project",
  "tempfile",
@@ -6702,7 +6700,6 @@ dependencies = [
  "tracing-subscriber",
  "vortex-buffer",
  "vortex-error",
- "vortex-metrics",
  "wasm-bindgen-futures",
 ]
 
