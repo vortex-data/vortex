@@ -101,13 +101,12 @@ pub fn checked_pruning_expr(
 
 #[cfg(test)]
 mod tests {
-    use crate::pruning::checked_pruning_expr;
     use rstest::{fixture, rstest};
     use vortex_array::stats::Stat;
     use vortex_dtype::{FieldName, FieldPath, FieldPathSet};
 
-    use crate::pruning::field_path_stat_field_name;
     use crate::pruning::pruning_expr::HashMap;
+    use crate::pruning::{checked_pruning_expr, field_path_stat_field_name};
     use crate::{HashSet, and, col, eq, get_item, gt, gt_eq, lit, lt, lt_eq, not_eq, or, root};
 
     // Implement some checked pruning expressions.

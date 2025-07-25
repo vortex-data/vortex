@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-use crate::duckdb::{TableFilter, TableFilterClass};
-use itertools::Itertools;
 use std::sync::Arc;
+
+use itertools::Itertools;
 use vortex::compute::Operator;
-use vortex::dtype::Nullability;
+use vortex::dtype::{DType, Nullability};
 use vortex::error::{VortexExpect, VortexResult, vortex_bail};
 use vortex::expr::{
     BinaryExpr, ExprRef, IntoExpr, and_collect, get_item, is_null, list_contains, lit, not,
@@ -14,7 +13,14 @@ use vortex::expr::{
 };
 use vortex::scalar::Scalar;
 
-pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult<Option<ExprRef>> {
+use crate::cpp::DUCKDB_VX_EXPR_TYPE;
+use crate::duckdb::{TableFilter, TableFilterClass};
+
+pub fn try_from_table_filter(
+    value: &TableFilter,
+    col: &ExprRef,
+    dtype: &DType,
+) -> VortexResult<Option<ExprRef>> {
     Ok(Some(match value.as_class() {
         TableFilterClass::ConstantComparison(const_) => {
             let scalar: Scalar = const_.value.try_into()?;
@@ -23,7 +29,7 @@ pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult
         TableFilterClass::ConjunctionAnd(conj_and) => {
             let Some(children) = conj_and
                 .children()
-                .map(|child| try_from_table_filter(&child, col, scope_dtype))
+                .map(|child| try_from_table_filter(&child, col, dtype))
                 .try_collect::<_, Option<Vec<_>>, _>()?
             else {
                 return Ok(None);
@@ -35,7 +41,7 @@ pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult
         TableFilterClass::ConjunctionOr(disjuction_or) => {
             let Some(children) = disjuction_or
                 .children()
-                .map(|child| try_from_table_filter(&child, col, scope_dtype))
+                .map(|child| try_from_table_filter(&child, col, dtype))
                 .try_collect::<_, Option<Vec<_>>, _>()?
             else {
                 return Ok(None);
@@ -46,11 +52,11 @@ pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult
         TableFilterClass::IsNull => is_null(col.clone()),
         TableFilterClass::IsNotNull => not(is_null(col.clone())),
         TableFilterClass::StructExtract(name, child_filter) => {
-            return try_from_table_filter(&child_filter, &get_item(name, col.clone()), scope_dtype);
+            return try_from_table_filter(&child_filter, &get_item(name, col.clone()), dtype);
         }
         TableFilterClass::Optional(child) => {
             // Optional expressions are optional not yet supported.
-            return try_from_table_filter(&child, col, scope_dtype).or_else(|_err| {
+            return try_from_table_filter(&child, col, dtype).or_else(|_err| {
                 // Failed to convert the optional expression, but it's optional, so who cares?
                 Ok(None)
             });
@@ -93,7 +99,7 @@ pub fn try_from_table_filter(value: &TableFilter, col: &ExprRef) -> VortexResult
                         .vortex_expect("failed to convert dynamic filter value to scalar");
                     Some(scalar.into_value())
                 },
-                col.return_dtype(scope_dtype)?,
+                col.return_dtype(dtype)?,
                 true, // If there is no value, we say that all rows pass the dynamic filter.
             )
             .into_expr()

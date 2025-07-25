@@ -4,21 +4,22 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use bitvec::macros::internal::funty::Fundamental;
+use vortex::dtype::Nullability::NonNullable;
+use vortex::dtype::{DType, PType};
+use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex::expr::{ExprRef, and, and_collect, cast, col, lit, merge, pack};
+use vortex::file::{VortexFile, VortexOpenOptions};
+use vortex::layout::layouts::row_idx::row_idx;
+use vortex::scan::{MultiScan, MultiScanIterator};
+use vortex::{ArrayRef, ToCanonical};
+
 use crate::convert::{try_from_bound_expression, try_from_table_filter};
 use crate::duckdb::{
     BindInput, BindResult, Cardinality, DataChunk, Expression, LogicalType, RowIdColsResult,
     TableFunction, TableInitInput, VirtualColsResult,
 };
 use crate::exporter::{ArrayExporter, ConversionCache};
-use bitvec::macros::internal::funty::Fundamental;
-use vortex::dtype::Nullability::NonNullable;
-use vortex::dtype::{DType, FieldNames, PType};
-use vortex::error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
-use vortex::expr::{ExprRef, and, and_collect, cast, col, lit, merge, pack, root, select};
-use vortex::file::{VortexFile, VortexOpenOptions};
-use vortex::layout::layouts::row_idx::row_idx;
-use vortex::scan::{MultiScan, MultiScanIterator};
-use vortex::{ArrayRef, ToCanonical};
 
 pub struct VortexBindData {
     first_file: VortexFile,
@@ -116,7 +117,7 @@ fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> ExprRe
                     .column_names
                     .get(idx.as_usize())
                     .cloned()
-                    .expect(&format!("Unknown column index: {}", idx)),
+                    .vortex_expect(&format!("Unknown column index: {idx}")),
             );
             merge_exprs.push(pack([(name.clone().as_ref(), col(name))], NonNullable));
         }
@@ -149,11 +150,11 @@ fn extract_table_filter_expr(
                             .bind_data()
                             .column_names
                             .get(idx.as_usize())
-                            .ok_or_else(|| vortex_err!("Unknown column index: {}", idx))?;
+                            .ok_or_else(|| vortex_err!("Unknown column index: {idx}"))?;
                         col(name.as_str())
                     };
 
-                    try_from_table_filter(&ex, &expr)
+                    try_from_table_filter(&ex, &expr, init.bind_data().first_file.dtype())
                 })
                 .reduce(|l, r| l?.zip(r?).map(|(l, r)| Ok(and(l, r))).transpose())
         })

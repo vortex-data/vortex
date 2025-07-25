@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::duckdb::{LogicalType, TableFunction};
-use crate::{cpp, wrapper};
 use std::ffi::c_void;
+
 use vortex::error::VortexExpect;
 
+use crate::duckdb::{LogicalType, TableFunction};
+use crate::{cpp, wrapper};
+
 /// Native callback for the get_virtual_columns function.
-pub(crate) unsafe extern "C" fn get_virtual_columns_callback<T: TableFunction>(
+pub(crate) unsafe extern "C-unwind" fn get_virtual_columns_callback<T: TableFunction>(
     bind_data: *mut c_void,
     result: cpp::duckdb_vx_tfunc_virtual_cols_result,
 ) {

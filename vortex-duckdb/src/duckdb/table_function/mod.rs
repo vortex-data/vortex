@@ -14,6 +14,11 @@ mod pushdown_complex_filter;
 mod row_id_cols;
 mod virtual_cols;
 
+pub use bind::*;
+pub use init::*;
+pub use row_id_cols::*;
+pub use virtual_cols::*;
+
 use crate::duckdb::LogicalType;
 use crate::duckdb::connection::Connection;
 use crate::duckdb::data_chunk::DataChunk;
@@ -22,10 +27,6 @@ use crate::duckdb::table_function::cardinality::cardinality_callback;
 use crate::duckdb::table_function::partition::get_partition_data_callback;
 use crate::duckdb::table_function::pushdown_complex_filter::pushdown_complex_filter_callback;
 use crate::{cpp, duckdb_try};
-pub use bind::*;
-pub use init::*;
-pub use row_id_cols::*;
-pub use virtual_cols::*;
 
 /// A trait that defines the supported operations for a table function in DuckDB.
 ///
