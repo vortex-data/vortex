@@ -48,9 +48,6 @@ impl DuckDBCtx {
         };
         std::fs::create_dir_all(&dir)?;
         let db_path = dir.join("duckdb.db");
-        if db_path.exists() {
-            std::fs::remove_file(&db_path)?;
-        }
         let db = Database::open(db_path)?;
         let connection = db.connect()?;
         vortex_duckdb::register_table_functions(&connection)?;

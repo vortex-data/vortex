@@ -63,12 +63,9 @@ jobs:
         if: inputs.mode == 'pr'
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          submodules: "recursive"
 
       - uses: actions/checkout@v4
         if: inputs.mode != 'pr'
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
 
       - name: Install DuckDB
