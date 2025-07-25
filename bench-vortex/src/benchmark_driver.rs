@@ -31,6 +31,7 @@ pub struct DriverConfig {
     pub verbose: bool,
     pub display_format: DisplayFormat,
     pub disable_datafusion_cache: bool,
+    pub reuse_duckdb_database: bool,
     pub queries: Option<Vec<usize>>,
     pub exclude_queries: Option<Vec<usize>>,
     pub output_path: Option<PathBuf>,
@@ -78,6 +79,7 @@ pub fn run_benchmark<B: Benchmark>(benchmark: B, config: DriverConfig) -> Result
             target,
             config.disable_datafusion_cache,
             config.emit_plan,
+            config.reuse_duckdb_database,
         )?;
 
         tokio_runtime.block_on(benchmark.register_tables(&engine_ctx, target.format()))?;
