@@ -37,7 +37,7 @@ impl TokioDispatcher {
                     .spawn(move || {
                         // Create a runtime-per-thread
                         let rt = tokio::runtime::Builder::new_current_thread()
-                            .thread_name("vortex-tokio-io")
+                            .thread_name_fn(move || format!("vortex-tokio-io-{tid}"))
                             .enable_all()
                             .build()
                             .unwrap_or_else(|e| {
