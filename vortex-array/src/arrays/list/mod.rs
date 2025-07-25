@@ -70,16 +70,13 @@ impl ListArray {
     ///
     /// A ListArray is valid if all of the following are true:
     /// - Offsets are sorted, non-empty, and non-negative.
-    /// - The first offset is less than or equal to the length of the elements array.
-    /// - The final offset points to an element in the elements list, pointing to zero if the elements list is empty.
+    /// - The final offset is less than or equal to the length of the elements array. If the elements array is empty, the final offset must be zero.
     /// - The size of the validity is the size-1 of the offset array.
     pub fn try_new(
         elements: ArrayRef,
         offsets: ArrayRef,
         validity: Validity,
     ) -> VortexResult<Self> {
-        let nullability = validity.nullability();
-
         if !offsets.dtype().is_int() || offsets.dtype().is_nullable() {
             vortex_bail!(
                 "Expected offsets to be an non-nullable integer type, got {:?}",
@@ -134,13 +131,18 @@ impl ListArray {
             }
         }
 
-        Ok(Self {
+        Ok(Self::new_unchecked(elements, offsets, validity))
+    }
+
+    pub fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
+        let nullability = validity.nullability();
+        Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), nullability),
             elements,
             offsets,
             validity,
             stats_set: Default::default(),
-        })
+        }
     }
 
     // TODO: merge logic with varbin
