@@ -103,7 +103,7 @@ pub struct VortexFile {
 /// File operations - using blocking operations for simplicity
 /// TODO(xinyu): object store (see vortex-ffi)
 fn open_file(path: &str) -> Result<Box<VortexFile>, Box<dyn std::error::Error + Send + Sync>> {
-    let file = VortexOpenOptions::file().open_blocking(std::path::Path::new(path))?;
+    let file = VortexOpenOptions::open_file(path)?;
     Ok(Box::new(VortexFile { inner: file }))
 }
 

@@ -4,6 +4,7 @@
 use dashmap::DashMap;
 use flatbuffers::root;
 use futures::executor::block_on;
+use std::path::PathBuf;
 use std::sync::Arc;
 use vortex_array::ArrayRegistry;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
@@ -95,6 +96,26 @@ impl VortexOpenOptions {
         }
     }
 
+    pub fn new_file(path: impl Into<PathBuf>) -> Self {
+        Self::new(path.into())
+    }
+
+    pub fn open_file(path: impl Into<PathBuf>) -> VortexResult<VortexFile> {
+        Self::new(path.into()).open()
+    }
+
+    #[cfg(feature = "object_store")]
+    pub fn new_object_store(
+        object_store: Arc<dyn object_store::ObjectStore>,
+        path: impl Into<object_store::path::Path>,
+    ) -> Self {
+        Self::new(vortex_io::ObjectStoreIo::new(
+            object_store,
+            path.into(),
+            None,
+        ))
+    }
+
     /// Configure a Vortex array registry.
     pub fn with_array_registry(mut self, registry: Arc<ArrayRegistry>) -> Self {
         self.registry = registry;
@@ -113,6 +134,12 @@ impl VortexOpenOptions {
     /// Of course, all bets are off if you pass an incorrect value.
     pub fn with_file_size(mut self, file_size: u64) -> Self {
         self.file_size = Some(file_size);
+        self
+    }
+
+    /// Configure a segment cache.
+    pub fn with_segment_cache(mut self, segment_cache: Arc<dyn SegmentCache>) -> Self {
+        self.segment_cache = Some(segment_cache);
         self
     }
 

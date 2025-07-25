@@ -127,9 +127,7 @@ mod test {
         // [write]
 
         // [read]
-        let array = VortexOpenOptions::file()
-            .open("example.vortex")
-            .await?
+        let array = VortexOpenOptions::open_file("example.vortex")?
             .scan()?
             .with_filter(gt(root(), lit(2u64)))
             .into_array_iter()?

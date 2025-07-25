@@ -30,7 +30,7 @@ pub mod dispatcher;
 mod io_buf;
 mod limit;
 #[cfg(feature = "object_store")]
-mod object_store;
+pub mod object_store;
 mod read;
 mod read_at;
 mod std;

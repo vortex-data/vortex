@@ -21,6 +21,18 @@ impl VortexIO for std::fs::File {
     }
 }
 
+impl VortexIO for std::path::PathBuf {
+    fn performance_hint(&self) -> PerformanceHint {
+        PerformanceHint::local()
+    }
+
+    fn into_read_at(self) -> VortexResult<Arc<dyn ReadAt>> {
+        std::fs::File::open(self)
+            .map_err(|e| vortex_err!("Failed to open file {e}"))?
+            .into_read_at()
+    }
+}
+
 impl TokioReadAt for Arc<std::fs::File> {
     async fn read_at(
         &self,
