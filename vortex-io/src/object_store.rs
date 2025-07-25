@@ -65,8 +65,7 @@ impl VortexIO for ObjectStoreIo {
 }
 
 impl TokioReadAt for ObjectStoreIo {
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(size = range.end - range.start
-    )))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(size = len)))]
     async fn read_at(
         &self,
         offset: u64,
