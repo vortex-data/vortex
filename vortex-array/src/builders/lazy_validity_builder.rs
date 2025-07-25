@@ -118,13 +118,14 @@ impl LazyNullBufferBuilder {
             .reserve(n);
     }
 
-    pub fn finish(&mut self) -> Option<NullBuffer> {
+    fn finish(&mut self) -> Option<NullBuffer> {
         self.len = 0;
         Some(NullBuffer::new(self.inner.take()?.finish()))
     }
 
     pub fn finish_with_nullability(&mut self, nullability: Nullability) -> Validity {
         let nulls = self.finish();
+
         match (nullability, nulls) {
             (NonNullable, None) => Validity::NonNullable,
             (Nullable, None) => Validity::AllValid,
