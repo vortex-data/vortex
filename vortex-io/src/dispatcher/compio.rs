@@ -51,7 +51,7 @@ where
 }
 
 #[derive(Debug)]
-pub(super) struct CompioDispatcher {
+pub struct CompioDispatcher {
     submitter: flume::Sender<Box<dyn CompioSpawn + Send>>,
     threads: Vec<JoinHandle<()>>,
 }

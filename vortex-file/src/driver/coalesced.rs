@@ -7,16 +7,16 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::task::{Context, Poll};
 
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt, pin_mut};
 use itertools::Itertools;
 use linked_hash_set::LinkedHashSet;
+use tokio::runtime::{Builder, Runtime};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
-use vortex_io::dispatcher::{Dispatch, IoDispatcher};
 use vortex_io::{PerformanceHint, ReadAt};
 use vortex_layout::segments::{
     SegmentEvent, SegmentEvents, SegmentId, SegmentRequest, SegmentSource,
@@ -36,14 +36,19 @@ macro_rules! trace_log {
     };
 }
 
+/// A shared runtime used for driving the I/O coalescing logic.
+static DRIVER_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+    Builder::new_multi_thread()
+        .thread_name("vortex-coalesced-io")
+        .worker_threads(1)
+        .build()
+        .vortex_expect("Failed to create I/O driver runtime")
+});
+
 /// An I/O driver that assembles coalesced requests based on a performance hint and a
 /// pre-configured pre-fetching window.
 pub(crate) struct CoalescedDriver {
     pub(crate) performance_hint: PerformanceHint,
-    /// The dispatcher to use for I/O operations.
-    // TODO(ngates): this is just some extra thread that we use to drive I/O...
-    //  Maybe this concept should be encapsulated in the VortexFile?
-    pub(crate) io_dispatcher: IoDispatcher,
     /// The number of concurrent I/O requests to allow.
     pub(crate) io_concurrency: usize,
     /// The maximum number of bytes to hold in the prefetch buffer.
@@ -55,7 +60,6 @@ impl CoalescedDriver {
     pub(crate) fn new(performance_hint: PerformanceHint) -> Self {
         Self {
             performance_hint,
-            io_dispatcher: IoDispatcher::shared(),
             io_concurrency: 8,
             max_prefetch_bytes: 32 << 20, // 32 MB
             max_prefetch_inflight_requests: 1,
@@ -105,20 +109,16 @@ impl FileDriver for CoalescedDriver {
 
         // Spawn an I/O driver onto the dispatcher.
         let io_concurrency = self.io_concurrency;
-        self.io_dispatcher
-            .dispatch(move || {
-                async move {
-                    // Drive the segment event stream.
-                    let stream = stream
-                        .map(|coalesced_req| coalesced_req.launch(&read))
-                        .buffer_unordered(io_concurrency);
-                    pin_mut!(stream);
+        DRIVER_RUNTIME.spawn(async move {
+            // Drive the segment event stream.
+            let stream = stream
+                .map(|coalesced_req| coalesced_req.launch(&read))
+                .buffer_unordered(io_concurrency);
+            pin_mut!(stream);
 
-                    // Drive the stream to completion.
-                    stream.collect::<()>().await
-                }
-            })
-            .vortex_expect("Failed to spawn I/O driver");
+            // Drive the stream to completion.
+            stream.collect::<()>().await
+        });
 
         Ok(segment_source)
     }
