@@ -240,6 +240,23 @@ extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_resu
     result->return_types.push_back(*logical_type);
 }
 
+OperatorPartitionData c_get_partition_data(ClientContext &context, TableFunctionGetPartitionInput &input) {
+    if (input.partition_info.RequiresPartitionColumns()) {
+        throw InternalException("TableScan::GetPartitionData: partition columns not supported");
+    }
+    auto &bind = input.bind_data->Cast<CTableBindData>();
+    auto &global = input.global_state->Cast<CTableGlobalData>();
+    auto &local = input.local_state->Cast<CTableLocalData>();
+
+    duckdb_vx_error error_out = nullptr;
+    auto index = bind.info->vtab.get_partition_data(bind.ffi_data->DataPtr(), global.ffi_data->DataPtr(),
+                                                    local.ffi_data->DataPtr(), &error_out);
+    if (error_out) {
+        throw InvalidInputException(IntoErrString(error_out));
+    }
+    return OperatorPartitionData(index);
+}
+
 extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
                                                  const duckdb_vx_tfunc_vtab_t *vtab) {
     if (!ffi_conn || !vtab) {
@@ -257,6 +274,7 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
     tf.sampling_pushdown = vtab->sampling_pushdown;
     tf.late_materialization = vtab->late_materialization;
     tf.cardinality = c_cardinality;
+    tf.get_partition_data = c_get_partition_data;
 
     // Set up the parameters
     for (size_t i = 0; i < vtab->parameter_count; i++) {

@@ -40,14 +40,6 @@ impl Default for ThreadPoolConfig {
     }
 }
 
-/// Get or initialize the thread pool with the default settings
-fn get_thread_pool() -> &'static ThreadPool {
-    THREAD_POOL.get_or_init(|| {
-        create_thread_pool_with_config(&ThreadPoolConfig::default())
-            .vortex_expect("Cannot start thread pool")
-    })
-}
-
 /// Create a thread pool with the given configuration
 fn create_thread_pool_with_config(config: &ThreadPoolConfig) -> Result<ThreadPool, std::io::Error> {
     let mut builder = ThreadPool::builder();

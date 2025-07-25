@@ -125,7 +125,6 @@ use vortex_fastlanes::{BitPackedEncoding, DeltaEncoding, FoREncoding};
 use vortex_fsst::FSSTEncoding;
 use vortex_pco::PcoEncoding;
 use vortex_runend::RunEndEncoding;
-pub use vortex_scan as scan;
 use vortex_sequence::SequenceEncoding;
 use vortex_sparse::SparseEncoding;
 use vortex_zigzag::ZigZagEncoding;

@@ -51,7 +51,7 @@ vortex-metrics = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
-vortex-scan = { workspace = true, features = ["tokio"] }
+vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
@@ -78,6 +78,7 @@ tokio = [
     "vortex-error/tokio",
     "vortex-io/tokio",
     "vortex-layout/tokio",
+    "vortex-scan/tokio",
 ]
 tracing = ["dep:tracing", "vortex-io/tracing", "vortex-layout/tracing"]
 zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]

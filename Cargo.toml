@@ -170,7 +170,7 @@ tar = "0.4"
 target-lexicon = "0.13"
 tempfile = "3"
 thiserror = "2.0.3"
-tokio = "1.45.1"
+tokio = { version = "1.45.1" }
 tokio-stream = "0.1.17"
 # replace these with releases
 tpchgen = { git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "d849ff430cd52250f6891ed4d5e3adad77bb2698" }

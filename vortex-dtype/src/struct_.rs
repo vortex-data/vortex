@@ -161,7 +161,30 @@ impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
     }
 }
 
-/// Contains a list of names and corresponding dtypes
+/// Type information for a struct column.
+///
+/// The `StructFields` holds all field names and field types, and provides
+/// access to them by index or by name.
+///
+/// ## Duplicate field names
+///
+/// In memory, it is not an error for a `StructFields` to contain duplicate
+/// field names. In that case, any name-based access to fields will resolve
+/// to the first such field with a given name.
+///
+/// ```rust
+/// # use vortex_dtype::{DType, Nullability, PType, StructFields};
+///
+/// let fields = StructFields::from_iter([
+///     ("string_col", DType::Utf8(Nullability::NonNullable)),
+///     ("binary_col", DType::Binary(Nullability::NonNullable)),
+///     ("int_col", DType::Primitive(PType::I32, Nullability::Nullable)),
+///     ("int_col", DType::Primitive(PType::I64, Nullability::Nullable)),
+/// ]);
+///
+/// // Accessing a field by name will yield the first
+/// assert_eq!(fields.field("int_col").unwrap(), DType::Primitive(PType::I32, Nullability::Nullable));
+/// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StructFields(Arc<StructFieldsInner>);
@@ -258,6 +281,10 @@ impl StructFields {
     }
 
     /// Get the [`DType`] of a field.
+    ///
+    /// It is possible for there to be more than one field with
+    /// the same name, in which case, this will return the DType
+    /// of the first field encountered with a given name.
     pub fn field(&self, name: impl AsRef<str>) -> Option<DType> {
         let index = self.find(name)?;
         Some(self.0.dtypes[index].value().vortex_unwrap())
@@ -268,13 +295,15 @@ impl StructFields {
         Some(self.0.dtypes.get(index)?.value().vortex_unwrap())
     }
 
-    /// Returns an ordered iterator over the members of Self.
+    /// Returns an ordered iterator over the fields.
     pub fn fields(&self) -> impl ExactSizeIterator<Item = DType> + '_ {
         self.0.dtypes.iter().map(|dt| dt.value().vortex_unwrap())
     }
 
     /// Project a subset of fields from the struct
-    /// Returns an error if any of the referenced fields are not found
+    ///
+    /// If any of the fields are not found, this method will return
+    /// an error.
     pub fn project(&self, projection: &[FieldName]) -> VortexResult<Self> {
         let mut names = Vec::with_capacity(projection.len());
         let mut dtypes = Vec::with_capacity(projection.len());

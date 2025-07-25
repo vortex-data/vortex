@@ -27,10 +27,9 @@ jobs:
 
       - name: Release
         run: |
-          cargo publish -Z package-workspace --no-verify --allow-dirty --workspace \
+          cargo +nightly publish -Z package-workspace --no-verify --allow-dirty --workspace \
           --exclude bench-vortex \
           --exclude vortex-python \
-          --exclude vortex-duckdb \
           --exclude vortex-duckdb \
           --exclude vortex-ffi \
           --exclude vortex-fuzz \

@@ -100,7 +100,8 @@ typedef struct {
     // void *to_string;
     // void *dynamic_to_string;
     void *table_scan_progress;
-    // void *get_partition_data;
+    idx_t (*get_partition_data)(const void *bind_data, void *init_global_data, void *init_local_data,
+                                duckdb_vx_error *error_out);
     // void *get_bind_info;
     // void *type_pushdown;
     // void *get_multi_file_reader;

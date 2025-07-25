@@ -9,13 +9,9 @@ use arrow_array::{Array, RecordBatchReader};
 use arrow_schema::{Schema, SchemaRef};
 use arrow_select::concat::concat_batches;
 use vortex::ArrayRef;
-use vortex::arrow::VortexRecordBatchReader;
 use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
-use vortex::file::scan::ScanBuilder;
-use vortex::iter::ArrayIteratorAdapter;
-
-use crate::get_thread_pool;
+use vortex::scan::ScanBuilder;
 
 #[cxx::bridge(namespace = "vortex::ffi")]
 mod ffi {
@@ -119,18 +115,10 @@ unsafe fn scan_builder_with_output_schema(
 fn scan_builder_to_reader(
     builder: Box<VortexScanBuilder>,
 ) -> Result<impl RecordBatchReader + 'static, Box<dyn std::error::Error + Send + Sync>> {
-    let dtype = builder.inner.dtype()?;
-    let iter = ArrayIteratorAdapter::new(
-        dtype,
-        builder
-            .inner
-            .into_thread_pool_iter(get_thread_pool().clone())?,
-    );
-    let reader = if let Some(schema) = builder.output_schema {
-        VortexRecordBatchReader::try_new_with_schema(iter, schema)?
-    } else {
-        VortexRecordBatchReader::try_new(iter)?
-    };
+    let schema = builder
+        .output_schema
+        .unwrap_or_else(|| Arc::new(builder.inner.dtype().unwrap().to_arrow_schema().unwrap()));
+    let reader = builder.inner.into_record_batch_reader_multithread(schema)?;
     Ok(reader)
 }
 

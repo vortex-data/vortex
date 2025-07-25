@@ -12,6 +12,12 @@ use std::sync::Arc;
 use clap::ValueEnum;
 use itertools::Itertools;
 use serde::Serialize;
+pub use utils::file_utils::*;
+pub use utils::logging::*;
+use vortex::error::{VortexUnwrap, vortex_err};
+use vortex::file::{VortexLayoutStrategy, VortexWriteOptions};
+use vortex::layout::LocalExecutor;
+use vortex::layout::layouts::compact::CompactCompressor;
 
 pub mod bench_run;
 pub mod benchmark_driver;
@@ -174,13 +180,6 @@ impl Display for Engine {
         }
     }
 }
-
-pub use utils::file_utils::*;
-pub use utils::logging::*;
-use vortex::error::{VortexUnwrap, vortex_err};
-use vortex_file::{VortexLayoutStrategy, VortexWriteOptions};
-use vortex_layout::LocalExecutor;
-use vortex_layout::layouts::compact::CompactCompressor;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum CompactionStrategy {

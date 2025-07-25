@@ -97,12 +97,18 @@ impl<T> State<T> {
     fn load_next_factory(&self, worker: &Worker<T>) -> VortexResult<bool> {
         loop {
             if let Some(factory_fn) = self.task_factories.pop() {
-                let tasks = factory_fn()?;
+                let tasks = factory_fn().inspect_err(|_| {
+                    // In case of an error, increment the counter such that all other workers are able to terminate.
+                    // `num_factories_constructed` is part of the loop condition when workers attempt to steal work.
+                    self.num_factories_constructed.fetch_add(1, SeqCst);
+                })?;
                 let is_empty = tasks.is_empty();
-                // Tasks **must** be pushed before `num_factories_constructed` is incremented.
+
+                // Tasks *must* be pushed before `num_factories_constructed` is incremented.
                 for task in tasks {
                     worker.push(task);
                 }
+
                 self.num_factories_constructed.fetch_add(1, SeqCst);
 
                 // Keep looping until we find a factory that has pushed tasks.

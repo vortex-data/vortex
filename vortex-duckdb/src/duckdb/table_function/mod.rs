@@ -9,6 +9,7 @@ use vortex::error::{VortexExpect, VortexResult};
 mod bind;
 mod cardinality;
 mod init;
+mod partition;
 mod pushdown_complex_filter;
 
 pub use bind::*;
@@ -19,6 +20,7 @@ use crate::duckdb::connection::Connection;
 use crate::duckdb::data_chunk::DataChunk;
 use crate::duckdb::expr::Expression;
 use crate::duckdb::table_function::cardinality::cardinality_callback;
+use crate::duckdb::table_function::partition::get_partition_data_callback;
 use crate::duckdb::table_function::pushdown_complex_filter::pushdown_complex_filter_callback;
 use crate::{cpp, duckdb_try};
 
@@ -100,6 +102,14 @@ pub trait TableFunction: Sized + Debug {
         Cardinality::Unknown
     }
 
+    /// Returns the idx of the current partition being processed by a local threa.
+    /// This *must* be globally unique.
+    fn partition_data(
+        _bind_data: &Self::BindData,
+        _global_init_data: &mut Self::GlobalState,
+        _local_init_data: &mut Self::LocalState,
+    ) -> VortexResult<u64>;
+
     // TODO(ngates): there are many more callbacks that can be configured.
 }
 
@@ -144,6 +154,7 @@ impl Connection {
             pushdown_complex_filter: Some(pushdown_complex_filter_callback::<T>),
             pushdown_expression: ptr::null_mut::<c_void>(),
             table_scan_progress: ptr::null_mut::<c_void>(),
+            get_partition_data: Some(get_partition_data_callback::<T>),
             projection_pushdown: T::PROJECTION_PUSHDOWN,
             filter_pushdown: T::FILTER_PUSHDOWN,
             filter_prune: T::FILTER_PRUNE,

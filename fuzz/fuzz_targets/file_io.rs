@@ -7,7 +7,7 @@
 use arrow_buffer::BooleanBuffer;
 use arrow_ord::ord::make_comparator;
 use arrow_ord::sort::SortOptions;
-use futures_util::TryStreamExt;
+use itertools::Itertools;
 use libfuzzer_sys::{Corpus, fuzz_target};
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::IntoArrowArray;
@@ -63,16 +63,14 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
 
         let mut output = VortexOpenOptions::in_memory()
             .open(full_buff)
-            .await
             .vortex_unwrap()
             .scan()
             .vortex_unwrap()
             .with_projection(projection_expr.unwrap_or_else(|| root()))
             .with_some_filter(filter_expr)
-            .into_array_stream()
+            .into_array_iter_multithread()
             .vortex_unwrap()
-            .try_collect::<Vec<_>>()
-            .await
+            .try_collect::<_, Vec<_>, _>()
             .vortex_unwrap();
 
         let output_array = match output.len() {

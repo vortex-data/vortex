@@ -190,12 +190,12 @@ impl FromLogicalType for DType {
             ))),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S => DType::Extension(Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
-                Arc::new(DType::Primitive(I32, nullability)),
+                Arc::new(DType::Primitive(I64, nullability)),
                 Some(TemporalMetadata::Timestamp(TimeUnit::S, None).into()),
             ))),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS => DType::Extension(Arc::new(ExtDType::new(
                 TIMESTAMP_ID.clone(),
-                Arc::new(DType::Primitive(I32, nullability)),
+                Arc::new(DType::Primitive(I64, nullability)),
                 Some(TemporalMetadata::Timestamp(TimeUnit::Ms, None).into()),
             ))),
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => DType::Extension(Arc::new(ExtDType::new(

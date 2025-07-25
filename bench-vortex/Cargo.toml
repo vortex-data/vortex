@@ -74,12 +74,11 @@ vortex = { workspace = true, features = [
     "object_store",
     "parquet",
     "files",
+    "tokio",
     "zstd",
 ] }
 vortex-datafusion = { workspace = true }
 vortex-duckdb = { workspace = true }
-vortex-file = { workspace = true }
-vortex-layout = { workspace = true }
 xshell = { workspace = true }
 
 [features]

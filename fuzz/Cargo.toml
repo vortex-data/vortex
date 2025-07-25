@@ -20,10 +20,9 @@ cargo-fuzz = true
 [dependencies]
 arrow-buffer = { workspace = true }
 arrow-ord = { workspace = true }
-futures-util = { workspace = true }
+itertools = { workspace = true }
 libfuzzer-sys = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
-thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["arbitrary"] }
 vortex-btrblocks = { workspace = true }
@@ -31,7 +30,7 @@ vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["arbitrary"] }
 vortex-error = { workspace = true }
 vortex-expr = { workspace = true, features = ["arbitrary"] }
-vortex-file = { workspace = true }
+vortex-file = { workspace = true, features = ["tokio"] }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
 vortex-utils = { workspace = true }

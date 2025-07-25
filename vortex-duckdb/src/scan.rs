@@ -59,6 +59,8 @@ pub struct VortexGlobalData {
 pub struct VortexLocalData {
     iterator: MultiScanIterator<(ArrayRef, Arc<ConversionCache>)>,
     exporter: Option<ArrayExporter>,
+    // The unique batch id the of the last chunk exported via scan()
+    batch_id: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -220,6 +222,7 @@ impl TableFunction for VortexTableFunction {
                     &array_result.to_struct()?,
                     &conversion_cache,
                 )?);
+                local_state.batch_id = Some(conversion_cache.instance_id());
             }
 
             let exporter = local_state
@@ -232,6 +235,7 @@ impl TableFunction for VortexTableFunction {
             if !has_more_data {
                 // This exporter is fully consumed.
                 local_state.exporter = None;
+                local_state.batch_id = None;
             } else {
                 break;
             }
@@ -302,6 +306,7 @@ impl TableFunction for VortexTableFunction {
         Ok(VortexLocalData {
             iterator: global.scan.clone().new_iterator(),
             exporter: None,
+            batch_id: None,
         })
     }
 
@@ -324,5 +329,15 @@ impl TableFunction for VortexTableFunction {
             // test multiplying the row count by the number of files.
             Cardinality::Estimate(bind_data.first_file.row_count())
         }
+    }
+
+    fn partition_data(
+        _bind_data: &Self::BindData,
+        _global_init_data: &mut Self::GlobalState,
+        _local_init_data: &mut Self::LocalState,
+    ) -> VortexResult<u64> {
+        _local_init_data
+            .batch_id
+            .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
     }
 }

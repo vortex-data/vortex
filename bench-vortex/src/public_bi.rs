@@ -33,7 +33,7 @@ use url::Url;
 use vortex::ArrayRef;
 use vortex::error::{VortexResult, vortex_err};
 use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
-use vortex::stream::ArrayStreamExt;
+use vortex::iter::ArrayIteratorExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_datafusion::VortexFormat;
 
@@ -432,9 +432,8 @@ impl Dataset for PBIBenchmark {
                 .open(&path)
                 .await?
                 .scan()?
-                .into_array_stream()?
+                .into_array_iter_multithread()?
                 .read_all()
-                .await
         }
         .await
         .expect("must be able to read table")

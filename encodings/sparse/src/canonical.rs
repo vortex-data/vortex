@@ -12,15 +12,14 @@ use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::{Array, Canonical, ToCanonical as _};
-use vortex_buffer::{Buffer, buffer, buffer_mut};
+use vortex_buffer::{Buffer, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
     DType, DecimalDType, NativePType, Nullability, StructFields, match_each_integer_ptype,
     match_each_native_ptype,
 };
 use vortex_error::{VortexError, VortexExpect as _, VortexResult, vortex_err};
 use vortex_scalar::{
-    DecimalScalar, NativeDecimalType, Scalar, StructScalar, Utf8Scalar,
-    match_each_decimal_value_type,
+    DecimalScalar, NativeDecimalType, Scalar, StructScalar, match_each_decimal_value_type,
 };
 
 use crate::{SparseArray, SparseVTable};
@@ -66,22 +65,15 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
                     )
                 })
             }
-            DType::Utf8(nullability) => {
-                let patches = array.resolved_patches()?;
-                let indices = patches.indices().to_primitive()?;
-                let values = patches.values().to_varbinview()?;
-                let fill_value = array.fill_scalar().as_utf8();
-                let validity = array
-                    .validity_mask()
-                    .map(|x| Validity::from_mask(x, *nullability))?;
-                let len = array.len();
-
-                match_each_integer_ptype!(indices.ptype(), |I| {
-                    let indices = indices.buffer::<I>();
-                    canonicalize_utf8::<I>(fill_value, indices, values, validity, len)
-                })
+            dtype @ DType::Utf8(..) => {
+                let fill_value = array.fill_scalar().as_utf8().value();
+                let fill_value = fill_value.map(BufferString::into_inner);
+                canonicalize_varbin(array, dtype.clone(), fill_value)
             }
-            DType::Binary(_nullability) => todo!(),
+            dtype @ DType::Binary(..) => {
+                let fill_value = array.fill_scalar().as_binary().value();
+                canonicalize_varbin(array, dtype.clone(), fill_value)
+            }
             DType::List(_dtype, _nullability) => todo!(),
             DType::Extension(_ext_dtype) => todo!(),
         }
@@ -216,18 +208,40 @@ fn canonicalize_sparse_decimal<D: NativeDecimalType>(
     Ok(Canonical::Decimal(array))
 }
 
-fn canonicalize_utf8<I: NativePType>(
-    fill_value: Utf8Scalar,
+fn canonicalize_varbin(
+    array: &SparseArray,
+    dtype: DType,
+    fill_value: Option<ByteBuffer>,
+) -> VortexResult<Canonical> {
+    let patches = array.resolved_patches()?;
+    let indices = patches.indices().to_primitive()?;
+    let values = patches.values().to_varbinview()?;
+    let validity = array
+        .validity_mask()
+        .map(|x| Validity::from_mask(x, dtype.nullability()))?;
+    let len = array.len();
+
+    match_each_integer_ptype!(indices.ptype(), |I| {
+        let indices = indices.buffer::<I>();
+        canonicalize_varbin_inner::<I>(fill_value, indices, values, dtype, validity, len)
+    })
+}
+
+fn canonicalize_varbin_inner<I: NativePType>(
+    fill_value: Option<ByteBuffer>,
     indices: Buffer<I>,
     values: VarBinViewArray,
+    dtype: DType,
     validity: Validity,
     len: usize,
 ) -> VortexResult<Canonical> {
+    assert_eq!(dtype.nullability(), validity.nullability());
+
     let n_patch_buffers = values.buffers().len();
     let mut buffers = values.buffers().to_vec();
 
-    let fill = if let Some(buffer) = &fill_value.value() {
-        buffers.push(buffer.inner().clone());
+    let fill = if let Some(buffer) = &fill_value {
+        buffers.push(buffer.clone());
         BinaryView::make_view(
             buffer.as_ref(),
             u32::try_from(n_patch_buffers).vortex_expect("too many buffers"),
@@ -245,12 +259,7 @@ fn canonicalize_utf8<I: NativePType>(
         views[patch_index_usize] = patch;
     }
 
-    let array = VarBinViewArray::try_new(
-        views.freeze(),
-        buffers,
-        DType::Utf8(validity.nullability()),
-        validity,
-    )?;
+    let array = VarBinViewArray::try_new(views.freeze(), buffers, dtype, validity)?;
 
     Ok(Canonical::VarBinView(array))
 }
@@ -266,7 +275,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{IntoArray, ToCanonical};
-    use vortex_buffer::buffer;
+    use vortex_buffer::{ByteBuffer, buffer};
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::{DType, DecimalDType, FieldNames, PType, StructFields};
     use vortex_mask::Mask;
@@ -569,7 +578,7 @@ mod test {
     }
 
     #[test]
-    fn test_sparse_varbinview_non_null_fill() {
+    fn test_sparse_utf8_varbinview_non_null_fill() {
         let strings = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             Some("goodbye"),
@@ -614,7 +623,7 @@ mod test {
     }
 
     #[test]
-    fn test_sparse_varbinview_null_fill() {
+    fn test_sparse_utf8_varbinview_null_fill() {
         let strings = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             Some("goodbye"),
@@ -659,7 +668,7 @@ mod test {
     }
 
     #[test]
-    fn test_sparse_varbinview_non_nullable() {
+    fn test_sparse_utf8_varbinview_non_nullable() {
         let strings =
             VarBinViewArray::from_iter_str(["hello", "goodbye", "hello", "bonjour", "你好"])
                 .into_array();
@@ -694,7 +703,7 @@ mod test {
     }
 
     #[test]
-    fn test_sparse_varbin_null_fill() {
+    fn test_sparse_utf8_varbin_null_fill() {
         let strings = <VarBinArray as FromIterator<_>>::from_iter([
             Some("hello"),
             Some("goodbye"),
@@ -726,6 +735,96 @@ mod test {
             Some("bonjour"),
             None,
             Some("你好"),
+            None,
+            None,
+        ])
+        .into_array();
+
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected = expected.into_arrow_preferred().unwrap();
+
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    fn test_sparse_binary_varbinview_non_null_fill() {
+        let binaries = VarBinViewArray::from_iter_nullable_bin([
+            Some(b"hello" as &[u8]),
+            Some(b"goodbye"),
+            Some(b"hello"),
+            None,
+            Some(b"\x00"),
+            Some(b"\xE4\xBD\xA0\xE5\xA5\xBD"),
+            None,
+        ])
+        .into_array();
+
+        let array = SparseArray::try_new(
+            buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
+            binaries,
+            12,
+            Scalar::from(Some(ByteBuffer::from(b"123".to_vec()))),
+        )
+        .unwrap();
+
+        let actual = array.to_varbinview().unwrap().into_array();
+        let expected = VarBinViewArray::from_iter_nullable_bin([
+            Some(b"hello" as &[u8]),
+            Some(b"123"),
+            Some(b"123"),
+            Some(b"goodbye"),
+            Some(b"hello"),
+            None,
+            Some(b"123"),
+            Some(b"\x00"),
+            Some(b"123"),
+            Some(b"\xE4\xBD\xA0\xE5\xA5\xBD"),
+            None,
+            Some(b"123"),
+        ])
+        .into_array();
+
+        let actual = actual.into_arrow_preferred().unwrap();
+        let expected = expected.into_arrow_preferred().unwrap();
+
+        assert_eq!(actual.data_type(), expected.data_type());
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    fn test_sparse_binary_varbin_null_fill() {
+        let strings = <VarBinArray as FromIterator<_>>::from_iter([
+            Some(b"hello" as &[u8]),
+            Some(b"goodbye"),
+            Some(b"hello"),
+            None,
+            Some(b"\x00"),
+            Some(b"\xE4\xBD\xA0\xE5\xA5\xBD"),
+            None,
+        ])
+        .into_array();
+
+        let array = SparseArray::try_new(
+            buffer![0u16, 3, 4, 5, 7, 9, 10].into_array(),
+            strings,
+            12,
+            Scalar::null(DType::Binary(Nullable)),
+        )
+        .unwrap();
+
+        let actual = array.to_varbinview().unwrap().into_array();
+        let expected = VarBinViewArray::from_iter_nullable_bin([
+            Some(b"hello" as &[u8]),
+            None,
+            None,
+            Some(b"goodbye"),
+            Some(b"hello"),
+            None,
+            None,
+            Some(b"\x00"),
+            None,
+            Some(b"\xE4\xBD\xA0\xE5\xA5\xBD"),
             None,
             None,
         ])

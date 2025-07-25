@@ -14,6 +14,8 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -23,22 +25,18 @@ vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 
-arrow-array = { workspace = true }
-arrow-schema = { workspace = true }
 crossbeam-deque = { workspace = true }
 crossbeam-queue = { workspace = true }
-futures = { workspace = true, features = ["thread-pool"] }
+futures = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
-rayon = { workspace = true, optional = true }
 roaring = { workspace = true, optional = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 
 [features]
-default = ["tokio"]
-tokio = ["vortex-layout/tokio"]
-rayon = ["dep:rayon"]
+default = []
 roaring = ["dep:roaring", "vortex-layout/roaring"]
+tokio = ["dep:tokio"]
 
 [lints]
 workspace = true

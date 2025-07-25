@@ -567,8 +567,6 @@ dependencies = [
  "vortex",
  "vortex-datafusion",
  "vortex-duckdb",
- "vortex-file",
- "vortex-layout",
  "xshell",
 ]
 
@@ -6682,10 +6680,9 @@ version = "0.1.0"
 dependencies = [
  "arrow-buffer",
  "arrow-ord",
- "futures-util",
+ "itertools 0.14.0",
  "libfuzzer-sys",
  "strum 0.27.2",
- "thiserror 2.0.12",
  "tokio",
  "vortex-array",
  "vortex-btrblocks",
@@ -6852,7 +6849,6 @@ dependencies = [
  "arrow-data",
  "arrow-pyarrow",
  "arrow-schema",
- "futures",
  "itertools 0.14.0",
  "log",
  "mimalloc",
@@ -6914,7 +6910,6 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "parking_lot",
- "rayon",
  "roaring",
  "tokio",
  "vortex-array",
