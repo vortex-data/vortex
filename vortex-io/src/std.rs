@@ -54,4 +54,18 @@ impl TokioReadAt for Arc<std::fs::File> {
         .map_err(|e| vortex_err!("Failed to spawn blocking task: {e}"))
         .unnest()
     }
+
+    async fn size(&self) -> VortexResult<u64> {
+        let this = self.clone();
+
+        tokio::task::spawn_blocking(move || {
+            Ok(this
+                .metadata()
+                .map_err(|e| vortex_err!("Failed to get file metadata: {e}"))?
+                .len())
+        })
+        .await
+        .map_err(|e| vortex_err!("Failed to spawn blocking task: {e}"))
+        .unnest()
+    }
 }

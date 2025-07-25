@@ -3,7 +3,7 @@
 
 use std::fs::File;
 use std::io;
-use std::ops::{Deref, Range};
+use std::ops::Deref;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
@@ -11,13 +11,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::oneshot;
-use tokio::task::spawn_blocking;
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
+use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{ResultExt, VortexExpect, VortexResult, vortex_err};
 
 use crate::dispatcher::Dispatch;
 use crate::dispatcher::tokio::TOKIO_DISPATCHER;
-use crate::{IoBuf, PerformanceHint, ReadAt, VortexReadAt, VortexWrite};
+use crate::{IoBuf, ReadAt, VortexWrite};
 
 /// A generic (unsealed) trait for implementing read-at operations via dispatched I/O.
 ///
@@ -25,19 +24,27 @@ use crate::{IoBuf, PerformanceHint, ReadAt, VortexReadAt, VortexWrite};
 /// dispatched onto a Tokio [`LocalSet`].
 ///
 /// See [`TokioDispatchedIo`] to wrap this implementation into a Vortex [`ReadAt`].
-pub trait TokioReadAt {
+pub trait TokioReadAt: Send + 'static {
     fn read_at(
         &self,
         offset: u64,
         len: usize,
         alignment: Alignment,
     ) -> impl Future<Output = VortexResult<ByteBuffer>>;
+
+    fn size(&self) -> impl Future<Output = VortexResult<u64>>;
 }
 
 /// A wrapper for dispatching I/O operations to a Tokio runtime.
+// TODO(ngates): the current implementation creates an `Arc<dyn TokioReadAt>` for every
 #[derive(Clone)]
 pub struct TokioDispatchedIo {
-    send: flume::Sender<ReadRequest>,
+    send: flume::Sender<Request>,
+}
+
+enum Request {
+    Read(ReadRequest),
+    Size(oneshot::Sender<VortexResult<u64>>),
 }
 
 /// A read request that is sent to the Tokio runtime for processing.
@@ -50,23 +57,35 @@ struct ReadRequest {
 
 impl TokioDispatchedIo {
     /// Wraps an existing [`TokioReadAt`] implementation to provide a Vortex-compatible `ReadAt`.
-    pub fn new<R: TokioReadAt + Send + 'static>(read: R) -> Self {
-        let (send, recv) = flume::unbounded::<ReadRequest>();
+    pub fn new<R: TokioReadAt>(read: R) -> Self {
+        let (send, recv) = flume::unbounded::<Request>();
         TOKIO_DISPATCHER
             .dispatch(move || {
                 async move {
                     // `recv.recv_async()` returns error only if all senders have been dropped.
                     while let Ok(request) = recv.recv_async().await {
-                        let ReadRequest {
-                            offset,
-                            len,
-                            alignment,
-                            response,
-                        } = request;
-
-                        let result = read.read_at(offset, len, alignment).await;
-                        if response.send(result).is_err() {
-                            log::trace!("Failed to send Tokio read result back to requester");
+                        match request {
+                            Request::Read(ReadRequest {
+                                offset,
+                                len,
+                                alignment,
+                                response,
+                            }) => {
+                                let result = read.read_at(offset, len, alignment).await;
+                                if response.send(result).is_err() {
+                                    log::trace!(
+                                        "Failed to send Tokio read result back to requester"
+                                    );
+                                }
+                            }
+                            Request::Size(response) => {
+                                let result = read.size().await;
+                                if response.send(result).is_err() {
+                                    log::trace!(
+                                        "Failed to send Tokio size result back to requester"
+                                    );
+                                }
+                            }
                         }
                     }
                 }
@@ -90,12 +109,12 @@ impl ReadAt for TokioDispatchedIo {
         //  the future!
         let (send, recv) = oneshot::channel();
         self.send
-            .send(ReadRequest {
+            .send(Request::Read(ReadRequest {
                 offset,
                 len,
                 alignment,
                 response: send,
-            })
+            }))
             .map_err(|e| vortex_err!("Tokio dispatcher send error: {e}"))?;
         recv.await
             .map_err(|e| vortex_err!("Tokio dispatcher died: {e}"))
@@ -103,7 +122,13 @@ impl ReadAt for TokioDispatchedIo {
     }
 
     async fn size(&self) -> VortexResult<u64> {
-        todo!("TokioDispatchedIo does not support size yet");
+        let (send, recv) = oneshot::channel();
+        self.send
+            .send(Request::Size(send))
+            .map_err(|e| vortex_err!("Tokio dispatcher send error: {e}"))?;
+        recv.await
+            .map_err(|e| vortex_err!("Tokio dispatcher died: {e}"))
+            .unnest()
     }
 }
 
@@ -141,38 +166,6 @@ impl Deref for TokioFile {
     }
 }
 
-impl VortexReadAt for TokioFile {
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(skip_all, fields(range, alignment))
-    )]
-    async fn read_byte_range(
-        &self,
-        range: Range<u64>,
-        alignment: Alignment,
-    ) -> io::Result<ByteBuffer> {
-        let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
-        let this = self.clone();
-
-        spawn_blocking(move || {
-            let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-            unsafe { buffer.set_len(len) }
-            this.read_exact_at(&mut buffer, range.start)?;
-            Ok(buffer.freeze())
-        })
-        .await?
-    }
-
-    fn performance_hint(&self) -> PerformanceHint {
-        PerformanceHint::local()
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
-    async fn size(&self) -> io::Result<u64> {
-        self.metadata().map(|metadata| metadata.len())
-    }
-}
-
 impl VortexWrite for tokio::fs::File {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
         AsyncWriteExt::write_all(self, buffer.as_slice()).await?;
@@ -196,31 +189,8 @@ mod tests {
     use std::os::unix::fs::FileExt;
 
     use tempfile::NamedTempFile;
-    use vortex_buffer::Alignment;
 
-    use crate::VortexReadAt;
     use crate::tokio::TokioFile;
-
-    #[tokio::test]
-    async fn test_shared_file() {
-        let mut tmpfile = NamedTempFile::new().unwrap();
-        write!(tmpfile, "0123456789").unwrap();
-
-        let shared_file = TokioFile::open(tmpfile.path()).unwrap();
-
-        let first_half = shared_file
-            .read_byte_range(0..5, Alignment::none())
-            .await
-            .unwrap();
-
-        let second_half = shared_file
-            .read_byte_range(5..10, Alignment::none())
-            .await
-            .unwrap();
-
-        assert_eq!(first_half.as_ref(), "01234".as_bytes());
-        assert_eq!(second_half.as_ref(), "56789".as_bytes());
-    }
 
     #[test]
     fn test_drop_semantics() {

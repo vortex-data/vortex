@@ -11,11 +11,11 @@
 //! flags implements the core traits for several common async runtimes and backing stores.
 
 use ::std::sync::Arc;
+pub use hint::*;
 pub use io_buf::*;
 pub use limit::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
-pub use read::*;
 pub use read_at::*;
 use vortex_error::VortexResult;
 
@@ -27,11 +27,11 @@ mod buffer;
 #[cfg(feature = "compio")]
 mod compio;
 pub mod dispatcher;
+mod hint;
 mod io_buf;
 mod limit;
 #[cfg(feature = "object_store")]
 pub mod object_store;
-mod read;
 mod read_at;
 mod std;
 mod write;

@@ -47,32 +47,6 @@ unsafe impl IoBufMut for FixedCapacityByteBufferMut {
     }
 }
 
-impl VortexReadAt for File {
-    async fn read_byte_range(
-        &self,
-        range: Range<u64>,
-        alignment: Alignment,
-    ) -> io::Result<ByteBuffer> {
-        let len = usize::try_from(range.end - range.start).vortex_expect("range too big for usize");
-        let buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-        let BufResult(result, buffer) = self
-            .read_exact_at(
-                FixedCapacityByteBufferMut {
-                    buffer,
-                    capacity: len,
-                },
-                range.start,
-            )
-            .await;
-        result?;
-        Ok(buffer.buffer.freeze())
-    }
-
-    async fn size(&self) -> io::Result<u64> {
-        self.metadata().await.map(|metadata| metadata.len())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Write;
