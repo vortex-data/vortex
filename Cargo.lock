@@ -6692,6 +6692,7 @@ dependencies = [
  "futures",
  "futures-util",
  "getrandom 0.3.3",
+ "log",
  "object_store",
  "pin-project",
  "tempfile",

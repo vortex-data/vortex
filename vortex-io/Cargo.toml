@@ -20,6 +20,7 @@ compio = { workspace = true, features = ["dispatcher"], optional = true }
 flume = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 futures-util = { workspace = true }
+log = { workspace = true }
 # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 getrandom_v03 = { workspace = true }
 object_store = { workspace = true, optional = true }

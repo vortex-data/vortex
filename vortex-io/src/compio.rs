@@ -5,11 +5,12 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
+use compio::BufResult;
 use compio::dispatcher::Dispatcher;
 use compio::io::AsyncReadAt;
 use compio::runtime::{Runtime, RuntimeBuilder};
-use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
-use vortex_error::{ResultExt, VortexExpect, VortexResult};
+use vortex_buffer::{Alignment, BufferMut, ByteBuffer, ByteBufferMut};
+use vortex_error::{ResultExt, VortexExpect, VortexResult, vortex_err};
 
 use crate::ReadAt;
 use crate::dispatcher::Dispatch;
@@ -32,6 +33,7 @@ enum Request {
         offset: u64,
         len: usize,
         alignment: Alignment,
+        response: tokio::sync::oneshot::Sender<VortexResult<ByteBuffer>>,
     },
     Size,
 }
@@ -41,28 +43,39 @@ impl<R: AsyncReadAt> CompioDispatchedIo<R> {
     pub fn new(read: R) -> Self {
         let (send, recv) = flume::unbounded();
 
-        DISPATCHER.dispatch(move || async move {
-            let mut read = read;
-            while let Ok(request) = recv.recv_async().await {
-                match request {
-                    Request::ReadAt {
-                        offset,
-                        len,
-                        alignment,
-                    } => {
-                        let buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-                        let result = read.read_at(offset).await;
-                        if let Err(e) = result {
-                            vortex_bail!("Failed to read at offset {offset}: {e}");
+        let _ = DISPATCHER
+            .dispatch(move || async move {
+                let mut read = read;
+                while let Ok(request) = recv.recv_async().await {
+                    match request {
+                        Request::ReadAt {
+                            offset,
+                            len,
+                            alignment,
+                            response,
+                        } => {
+                            let buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+                            let send_result = match read.read_at(buffer, offset).await {
+                                BufResult(Ok(()), buffer) => response.send(Ok(buffer.freeze())),
+                                BufResult(Err(e), _) => {
+                                    response.send(Err(vortex_err!("Failed to read at offset {e}")))
+                                }
+                            };
+                            if send_result.is_err() {
+                                log::trace!("Reciever dropped for compio result");
+                            }
+                            if let Err(e) = result {
+                                vortex_bail!("Failed to read at offset {offset}: {e}");
+                            }
+                        }
+                        Request::Size => {
+                            let size = read.size().await?;
+                            vortex_bail!("Size of the read object: {size}");
                         }
                     }
-                    Request::Size => {
-                        let size = read.size().await?;
-                        vortex_bail!("Size of the read object: {size}");
-                    }
                 }
-            }
-        });
+            })
+            .vortex_expect("Failed to dispatch Compio read task");
     }
 }
 
