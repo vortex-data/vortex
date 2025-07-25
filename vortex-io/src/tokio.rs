@@ -21,7 +21,7 @@ static DISPATCHER: LazyLock<TokioDispatcher> = LazyLock::new(|| TokioDispatcher:
 /// A generic (unsealed) trait for implementing read-at operations via dispatched I/O.
 ///
 /// Note that this trait does not require a `Send` bound on the returned future since it is
-/// dispatched onto a Tokio [`LocalSet`].
+/// dispatched onto a Tokio local set.
 ///
 /// See [`TokioDispatchedIo`] to wrap this implementation into a Vortex [`ReadAt`].
 pub trait TokioReadAt: Send + Sync + 'static {

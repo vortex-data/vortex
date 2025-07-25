@@ -3,7 +3,6 @@
 
 #[cfg(feature = "compio")]
 pub mod compio;
-#[cfg(feature = "tokio")]
 pub mod tokio;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
@@ -21,7 +20,6 @@ mod sealed {
     #[cfg(feature = "compio")]
     impl Sealed for super::compio::CompioDispatcher {}
 
-    #[cfg(feature = "tokio")]
     impl Sealed for super::tokio::TokioDispatcher {}
 
     #[cfg(target_arch = "wasm32")]
