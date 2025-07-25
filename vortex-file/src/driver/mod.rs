@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod coalesced;
 mod direct;
 
 use crate::SegmentSpec;
+pub use coalesced::*;
+pub use direct::*;
 use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_io::ReadAt;

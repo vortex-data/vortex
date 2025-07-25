@@ -32,7 +32,7 @@ use crate::pruning::extract_relevant_file_stats_as_struct_row;
 pub struct VortexFile {
     /// The footer of the Vortex file, containing metadata and layout information.
     pub(crate) footer: Footer,
-    /// The segment source for reading segments from this file.
+    /// The segment source used to read segments from this file.
     pub(crate) segment_source: Arc<dyn SegmentSource>,
     /// Metrics tied to the file.
     pub(crate) metrics: VortexMetrics,
