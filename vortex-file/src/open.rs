@@ -4,7 +4,7 @@
 use dashmap::DashMap;
 use flatbuffers::root;
 use futures::executor::block_on;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use vortex_array::ArrayRegistry;
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
@@ -96,12 +96,14 @@ impl VortexOpenOptions {
         }
     }
 
-    pub fn new_file(path: impl Into<PathBuf>) -> Self {
-        Self::new(path.into())
+    /// Create a new [`VortexOpenOptions`] with the expected options for the file source.
+    pub fn new_file(path: impl AsRef<Path>) -> Self {
+        Self::new(path.as_ref())
     }
 
-    pub fn open_file(path: impl Into<PathBuf>) -> VortexResult<VortexFile> {
-        Self::new(path.into()).open()
+    /// Open the file with the default options.
+    pub fn open_file(path: impl AsRef<Path>) -> VortexResult<VortexFile> {
+        Self::new(path.as_ref()).open()
     }
 
     #[cfg(feature = "object_store")]

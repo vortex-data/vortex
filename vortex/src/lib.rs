@@ -159,9 +159,7 @@ mod test {
             .await?;
 
         // [compact read]
-        let recovered_array = VortexOpenOptions::file()
-            .open("example_compact.vortex")
-            .await?
+        let recovered_array = VortexOpenOptions::open_file("example_compact.vortex")?
             .scan()?
             .into_array_iter()?
             .read_all()?;

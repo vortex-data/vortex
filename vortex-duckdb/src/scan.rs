@@ -183,9 +183,8 @@ impl TableFunction for VortexTableFunction {
         }
 
         // The first file is skipped in `create_file_paths_queue`.
-        let first_file = VortexOpenOptions::file()
-            // FIXME(ngates): out of bounds if no files matched the glob.
-            .open_blocking(&file_paths[0])
+        // FIXME(ngates): out of bounds if no files matched the glob.
+        let first_file = VortexOpenOptions::open_file(&file_paths[0])
             .map_err(|e| vortex_err!("Failed to open Vortex file: {}", e))?;
 
         let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
@@ -277,7 +276,7 @@ impl TableFunction for VortexTableFunction {
                             // the first file was already opened during bind.
                             first_file
                         } else {
-                            VortexOpenOptions::file().open_blocking(&path)?
+                            VortexOpenOptions::open_file(&path)?
                         };
 
                         if let Some(filter) = &filter_expr {

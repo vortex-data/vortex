@@ -21,7 +21,7 @@ impl VortexIO for std::fs::File {
     }
 }
 
-impl VortexIO for std::path::PathBuf {
+impl VortexIO for &std::path::Path {
     fn performance_hint(&self) -> PerformanceHint {
         PerformanceHint::local()
     }

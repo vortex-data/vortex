@@ -15,7 +15,7 @@ use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
 
 /// A trait for providing an implementation of a [`SegmentSource`].
-pub trait FileDriver {
+pub trait FileDriver: Send + Sync + 'static {
     fn create_segment_source(
         &self,
         read: Arc<dyn ReadAt>,

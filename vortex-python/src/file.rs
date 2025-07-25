@@ -37,10 +37,10 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 pub fn open(path: &str) -> PyResult<PyVortexFile> {
-    let vxf = VortexOpenOptions::file()
+    let vxf = VortexOpenOptions::new_file(path)
         // TODO(ngates): use a globally shared segment cache for all files
         .with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)))
-        .open_blocking(path)?;
+        .open()?;
     Ok(PyVortexFile { vxf })
 }
 

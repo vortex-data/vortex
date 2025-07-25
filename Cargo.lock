@@ -6749,7 +6749,6 @@ dependencies = [
  "prost 0.14.1",
  "simplelog",
  "thiserror 2.0.12",
- "tokio",
  "url",
  "vortex",
 ]

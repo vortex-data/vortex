@@ -73,7 +73,7 @@ pub fn read_url<'py>(
     row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<PyArrayRef>,
 ) -> PyResult<PyArrayRef> {
-    let dataset = TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url))?;
+    let dataset = PyVortexDataset::from_url(url)?;
     dataset.to_array(projection, row_filter, indices)
 }
 

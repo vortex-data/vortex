@@ -156,7 +156,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
-        let mut file = VortexOpenOptions::file();
+        let mut file = VortexOpenOptions::new_object_store(object_store, uri.path());
         let mut cache_hit = false;
         if let Some(footer) = session.get_footer(&FileKey {
             location: uri_str.to_string(),
@@ -165,8 +165,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
             cache_hit = true;
         }
 
-        let vxf = RUNTIME
-            .block_on(async move { file.open_object_store(&object_store, uri.path()).await })?;
+        let vxf = file.open()?;
 
         if !cache_hit {
             session.put_footer(

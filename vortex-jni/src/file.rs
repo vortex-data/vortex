@@ -25,9 +25,9 @@ use vortex::file::{VortexFile, VortexOpenOptions};
 use vortex::proto::expr as pb;
 use vortex::utils::aliases::hash_map::HashMap;
 
+use crate::SESSION;
 use crate::array_iter::NativeArrayIterator;
 use crate::errors::try_or_throw;
-use crate::{SESSION, block_on};
 
 pub struct NativeFile {
     inner: VortexFile,
@@ -90,13 +90,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_open(
         let (store, _scheme) = make_object_store(&url, &properties)?;
         let duration = std::time::Instant::now().duration_since(start);
         log::debug!("make_object_store latency = {duration:?}");
-        let open_file = block_on(
-            "VortexOpenOptions.open()",
-            VortexOpenOptions::file()
-                .with_array_registry(Arc::new(SESSION.arrays().clone()))
-                .with_layout_registry(Arc::new(SESSION.layouts().clone()))
-                .open_object_store(&store, url.path()),
-        )?;
+        let open_file = VortexOpenOptions::new_object_store(store, url.path())
+            .with_array_registry(Arc::new(SESSION.arrays().clone()))
+            .with_layout_registry(Arc::new(SESSION.layouts().clone()))
+            .open()?;
 
         Ok(NativeFile::new(open_file).into_raw())
     })

@@ -26,7 +26,6 @@ parking_lot = { workspace = true }
 prost = { workspace = true }
 simplelog = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
 

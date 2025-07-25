@@ -75,7 +75,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Tree { file } => exec_tree(file)?,
         Commands::Convert(flags) => TOKIO_RUNTIME.block_on(convert::exec_convert(flags))?,
         Commands::Browse { file } => exec_tui(file)?,
-        Commands::Segments { file } => TOKIO_RUNTIME.block_on(segments::segments(file))?,
+        Commands::Segments { file } => segments::segments(file)?,
     };
 
     Ok(())

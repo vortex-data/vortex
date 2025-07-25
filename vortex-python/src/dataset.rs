@@ -18,8 +18,8 @@ use vortex::{ArrayRef, ToCanonical};
 
 use crate::arrays::PyArrayRef;
 use crate::expr::PyExpr;
+use crate::install_module;
 use crate::object_store_urls::object_store_from_url;
-use crate::{TOKIO_RUNTIME, install_module};
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
@@ -91,12 +91,10 @@ impl PyVortexDataset {
         Ok(Self { vxf, schema })
     }
 
-    pub async fn from_url(url: &str) -> VortexResult<Self> {
+    pub fn from_url(url: &str) -> VortexResult<Self> {
         let (_scheme, object_store, path) = object_store_from_url(url)?;
         PyVortexDataset::try_new(
-            VortexOpenOptions::file()
-                .open_object_store(&object_store, path.as_ref())
-                .await?,
+            VortexOpenOptions::new_object_store(object_store, path.as_ref()).open()?,
         )
     }
 }
@@ -152,5 +150,5 @@ impl PyVortexDataset {
 
 #[pyfunction]
 pub fn dataset_from_url(url: &str) -> PyResult<PyVortexDataset> {
-    Ok(TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url))?)
+    Ok(PyVortexDataset::from_url(url)?)
 }

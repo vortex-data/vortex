@@ -21,12 +21,12 @@ use vortex::iter::ArrayIteratorExt; //::rayon::ParallelArrayIteratorExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, IntoArray};
 
-pub async fn take_vortex_tokio(
+pub fn take_vortex_tokio(
     path: &Path,
     indices: Buffer<u64>,
     validate: impl Fn(ArrayRef),
 ) -> anyhow::Result<ArrayRef> {
-    let result = take_vortex(path, indices).await?;
+    let result = take_vortex(path, indices)?;
     validate(result.clone());
     Ok(result)
 }
@@ -36,10 +36,8 @@ pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> anyhow::Result<R
     parquet_take_from_stream(file, indices).await
 }
 
-async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
-    Ok(VortexOpenOptions::file()
-        .open(reader)
-        .await?
+fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
+    Ok(VortexOpenOptions::open_file(reader)?
         .scan()?
         .with_row_indices(indices)
         .into_array_iter_multithread()?

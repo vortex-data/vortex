@@ -427,16 +427,14 @@ impl Dataset for PBIBenchmark {
             .expect("must have at least one table")
             .clone();
 
-        async move {
-            VortexOpenOptions::file()
-                .open(&path)
-                .await?
-                .scan()?
-                .into_array_iter_multithread()?
-                .read_all()
-        }
-        .await
-        .expect("must be able to read table")
+        VortexOpenOptions::open_file(&path)
+            .unwrap()
+            .scan()
+            .unwrap()
+            .into_array_iter_multithread()
+            .unwrap()
+            .read_all()
+            .expect("must be able to read table")
     }
 }
 

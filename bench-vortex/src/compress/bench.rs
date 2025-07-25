@@ -5,6 +5,13 @@ use std::borrow::Cow;
 use std::cell::LazyCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::Format;
+use crate::bench_run::run;
+use crate::compress::chunked_to_vec_record_batch;
+use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
+use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
+use crate::datasets::Dataset;
+use crate::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
 use bytes::Bytes;
 use indicatif::ProgressBar;
 use parquet::basic::{Compression, ZstdLevel};
@@ -13,14 +20,6 @@ use vortex::arrays::{ChunkedArray, ChunkedVTable};
 use vortex::builders::builder_with_capacity;
 use vortex::error::VortexUnwrap;
 use vortex::{Array, IntoArray};
-
-use crate::Format;
-use crate::bench_run::run;
-use crate::compress::chunked_to_vec_record_batch;
-use crate::compress::parquet::{parquet_compress_write, parquet_decompress_read};
-use crate::compress::vortex::{vortex_compress_write, vortex_decompress_read};
-use crate::datasets::Dataset;
-use crate::measurements::{CompressionTimingMeasurement, CustomUnitMeasurement};
 
 #[derive(Default)]
 pub struct CompressMeasurements {
@@ -86,9 +85,7 @@ pub fn benchmark_compress(
     if formats.contains(&Format::OnDiskVortex) {
         let time = run(runtime, iterations, || async {
             compressed_size.store(
-                vortex_compress_write(&uncompressed, &mut Vec::new())
-                    .await
-                    .unwrap(),
+                vortex_compress_write(&uncompressed).await.unwrap().len() as u64,
                 Ordering::SeqCst,
             );
         });
@@ -150,17 +147,15 @@ pub fn benchmark_compress(
 
     if formats.contains(&Format::OnDiskVortex) {
         let buffer = LazyCell::new(|| {
-            let mut buf = Vec::new();
             runtime
-                .block_on(vortex_compress_write(&uncompressed, &mut buf))
-                .unwrap();
-            Bytes::from(buf)
+                .block_on(vortex_compress_write(&uncompressed))
+                .unwrap()
         });
         // Force materialization of the lazy cell so it's not invoked from within the async benchmark function
         LazyCell::force(&buffer);
 
         let time = run(runtime, iterations, || async {
-            vortex_decompress_read(buffer.clone()).await.unwrap()
+            vortex_decompress_read(buffer.clone()).unwrap()
         });
         vortex_decompress_time = Some(time);
         timings.push(CompressionTimingMeasurement {
