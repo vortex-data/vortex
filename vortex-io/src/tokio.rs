@@ -60,7 +60,7 @@ impl<R: TokioReadAt> ReadAt for TokioDispatchedIo<R> {
     ) -> VortexResult<ByteBuffer> {
         let read = self.0.clone();
         DISPATCHER
-            .dispatch(|| async move { read.read_at(offset, len, alignment).await })?
+            .dispatch(move || async move { read.read_at(offset, len, alignment).await })?
             .await
             .unnest()
     }
@@ -68,7 +68,7 @@ impl<R: TokioReadAt> ReadAt for TokioDispatchedIo<R> {
     async fn size(&self) -> VortexResult<u64> {
         let read = self.0.clone();
         DISPATCHER
-            .dispatch(|| async move { read.size().await })?
+            .dispatch(move || async move { read.size().await })?
             .await
             .unnest()
     }

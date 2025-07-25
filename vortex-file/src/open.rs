@@ -12,7 +12,7 @@ use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, ReadFlatBuffer, dtype as fbd};
-use vortex_io::{ReadAt, VortexIO};
+use vortex_io::{PerformanceHint, ReadAt, VortexIO};
 use vortex_layout::segments::SegmentId;
 use vortex_layout::{LayoutRegistry, LayoutRegistryExt};
 use vortex_metrics::VortexMetrics;
@@ -59,26 +59,6 @@ impl VortexOpenOptions {
     /// Create a new [`VortexOpenOptions`] with the expected options for the file source.
     pub fn new<R: VortexIO>(read: R) -> Self {
         let hint = read.performance_hint();
-
-        // Seems like a reasonable default for the initial read size.
-        let initial_read_size = hint.coalescing_window();
-
-        let driver: Box<dyn FileDriver>;
-        let segment_cache: Option<Arc<dyn SegmentCache>>;
-
-        if hint.coalescing_window() > 0 {
-            // Use a coalescing driver if the performance hint indicates that coalescing is beneficial.
-            driver = Box::new(CoalescedDriver::new(hint));
-
-            // Start with an initial in-memory cache of 256MB.
-            // TODO(ngates): would it be better to default to a home directory disk cache?
-            // TODO(ngates): we may actually just not want this at all...
-            segment_cache = Some(Arc::new(MokaSegmentCache::new(256 << 20)))
-        } else {
-            driver = Box::new(DirectDriver);
-            segment_cache = None;
-        };
-
         Self {
             read: Some(read.into_read_at()),
             registry: DEFAULT_REGISTRY.clone(),
@@ -86,15 +66,16 @@ impl VortexOpenOptions {
             //  We should make it mandatory in the new function, and encourage users to do
             //  VortexSession::open() instead? Possibly?
             layout_registry: Arc::new(LayoutRegistry::default()),
-            driver,
-            segment_cache,
-            initial_read_size,
+            driver: Box::new(DirectDriver),
+            segment_cache: None,
+            initial_read_size: hint.coalescing_window(),
             file_size: None,
             dtype: None,
             footer: None,
             metrics: VortexMetrics::default(),
             initial_read_segments: Default::default(),
         }
+        .with_performance_hint(hint)
     }
 
     /// Create a new [`VortexOpenOptions`] with the expected options for the file source.
@@ -117,6 +98,25 @@ impl VortexOpenOptions {
             path.into(),
             None,
         ))
+    }
+
+    /// Configure the scan with the given performance hint.
+    ///
+    /// This will set up coalesced reads if [`PerformanceHint::coalescing_window`] is greater than
+    /// zero, as well as set the initial read size to the coalescing window.
+    pub fn with_performance_hint(mut self, hint: PerformanceHint) -> Self {
+        self.initial_read_size = hint.coalescing_window();
+        if hint.coalescing_window() > 0 {
+            self.driver = Box::new(CoalescedDriver::new(hint));
+            // Start with an initial in-memory cache of 256MB.
+            // TODO(ngates): would it be better to default to a home directory disk cache?
+            // TODO(ngates): we may actually just not want this at all...
+            self.segment_cache = Some(Arc::new(MokaSegmentCache::new(256 << 20)))
+        } else {
+            self.driver = Box::new(DirectDriver);
+            self.segment_cache = None;
+        }
+        self
     }
 
     /// Configure a Vortex array registry.
