@@ -274,7 +274,7 @@ mod tests {
                 canonical_stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
             let original_stat =
                 stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
-            assert_eq!(canonical_stat, original_stat, "stat mismatch {}", stat);
+            assert_eq!(canonical_stat, original_stat, "stat mismatch {stat}");
         }
     }
 
