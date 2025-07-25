@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 use async_trait::async_trait;
 use compio::BufResult;
 use compio::dispatcher::Dispatcher;
-use compio::io::AsyncReadAt;
+use compio::io::{AsyncReadAt, AsyncReadAtExt};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{ResultExt, VortexExpect, VortexResult, vortex_err};
 
@@ -36,15 +36,20 @@ struct Request {
 
 impl CompioDispatchedIo {
     /// Wraps an existing [`AsyncReadAt`] implementation to provide a Vortex-compatible `ReadAt`.
-    pub fn new<R: AsyncReadAt, F>(read_fn: F, size: u64) -> Self
+    pub fn new<R: AsyncReadAt, F, Fut>(read_fn: F, size: u64) -> Self
     where
-        F: FnOnce() -> R + Send + 'static,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = VortexResult<R>>,
     {
         let (send, recv) = flume::unbounded();
 
         let _ = DISPATCHER
             .dispatch(move || async move {
-                let mut read = read_fn();
+                let read = read_fn()
+                    .await
+                    // FIXME(ngates): pass this error back to all callers?
+                    .vortex_expect("Failed to initialize Compio read object");
+
                 while let Ok(Request {
                     offset,
                     len,
@@ -52,9 +57,10 @@ impl CompioDispatchedIo {
                     response,
                 }) = recv.recv_async().await
                 {
-                    let buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-                    let send_result = match read.read_at(buffer, offset).await {
-                        BufResult(Ok(_), buffer) => response.send(Ok(buffer.freeze())),
+                    let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+                    unsafe { buffer.set_len(len) };
+                    let send_result = match read.read_exact_at(buffer, offset).await {
+                        BufResult(Ok(()), buffer) => response.send(Ok(buffer.freeze())),
                         BufResult(Err(e), _) => {
                             response.send(Err(vortex_err!("Failed to read at offset {e}")))
                         }
@@ -72,7 +78,7 @@ impl CompioDispatchedIo {
 }
 
 #[async_trait]
-impl<R: AsyncReadAt + 'static> ReadAt for CompioDispatchedIo<R> {
+impl ReadAt for CompioDispatchedIo {
     async fn read_range(
         &self,
         offset: u64,

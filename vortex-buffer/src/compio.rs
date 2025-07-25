@@ -13,7 +13,7 @@ unsafe impl compio::buf::IoBuf for ByteBufferMut {
     }
 
     fn buf_capacity(&self) -> usize {
-        self.capacity()
+        self.len()
     }
 }
 

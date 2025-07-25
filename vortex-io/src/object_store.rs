@@ -57,7 +57,7 @@ impl VortexIO for ObjectStoreIo {
         let local_path = std::path::Path::new("/").join(self.location.as_ref());
         if local_path.exists() {
             // TODO(ngates): we could move the open operating into the dispatcher..
-            std::fs::File::open(local_path)?.into_read_at()
+            local_path.as_path().into_read_at()
         } else {
             Ok(Arc::new(TokioDispatchedIo::new(self)))
         }

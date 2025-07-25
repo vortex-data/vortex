@@ -79,7 +79,7 @@ impl VortexOpenOptions {
     }
 
     /// Create a new [`VortexOpenOptions`] with the expected options for the file source.
-    pub fn new_file(path: impl AsRef<Path>) -> Self {
+    pub fn new_file(path: impl AsRef<Path> + Send + 'static) -> Self {
         Self::new(path.as_ref())
     }
 

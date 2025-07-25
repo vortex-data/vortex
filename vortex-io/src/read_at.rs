@@ -37,5 +37,5 @@ mod private {
 
     impl<R: crate::tokio::TokioReadAt> Sealed for crate::tokio::TokioDispatchedIo<R> {}
     #[cfg(feature = "compio")]
-    impl<R: compio::io::AsyncReadAt> Sealed for crate::compio::CompioDispatchedIo<R> {}
+    impl Sealed for crate::compio::CompioDispatchedIo {}
 }
