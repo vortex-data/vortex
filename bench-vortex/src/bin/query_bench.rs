@@ -56,7 +56,7 @@ struct CommonArgs {
     disable_datafusion_cache: bool,
 
     #[arg(long, default_value_t = false)]
-    reuse_duckdb_database: bool,
+    delete_duckdb_database: bool,
 
     #[arg(short, long, value_delimiter = ',')]
     queries: Option<Vec<usize>>,
@@ -198,7 +198,7 @@ fn run_clickbench(args: ClickBenchArgs) -> anyhow::Result<()> {
         verbose: args.common.verbose,
         display_format: args.common.display_format,
         disable_datafusion_cache: args.common.disable_datafusion_cache,
-        reuse_duckdb_database: args.common.reuse_duckdb_database,
+        delete_duckdb_database: args.common.delete_duckdb_database,
         queries: args.common.queries,
         exclude_queries: args.common.exclude_queries,
         output_path: args.common.output_path,
@@ -226,7 +226,7 @@ fn run_tpch(args: TpcHArgs) -> anyhow::Result<()> {
         verbose: args.common.verbose,
         display_format: args.common.display_format,
         disable_datafusion_cache: args.common.disable_datafusion_cache,
-        reuse_duckdb_database: args.common.reuse_duckdb_database,
+        delete_duckdb_database: args.common.delete_duckdb_database,
         queries: args.common.queries,
         exclude_queries: args.common.exclude_queries,
         output_path: args.common.output_path,
@@ -255,7 +255,7 @@ fn run_tpcds(args: TpcDSArgs) -> anyhow::Result<()> {
         verbose: args.common.verbose,
         display_format: args.common.display_format,
         disable_datafusion_cache: args.common.disable_datafusion_cache,
-        reuse_duckdb_database: args.common.reuse_duckdb_database,
+        delete_duckdb_database: args.common.delete_duckdb_database,
         queries: args.common.queries,
         exclude_queries: args.common.exclude_queries,
         output_path: args.common.output_path,

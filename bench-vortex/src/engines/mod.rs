@@ -31,12 +31,12 @@ impl EngineCtx {
     pub fn new_with_duckdb(
         dataset: BenchmarkDataset,
         format: Format,
-        reuse_duckdb_database: bool,
+        delete_duckdb_database: bool,
     ) -> anyhow::Result<Self> {
         Ok(EngineCtx::DuckDB(ddb::DuckDBCtx::new(
             dataset,
             format,
-            reuse_duckdb_database,
+            delete_duckdb_database,
         )?))
     }
 
