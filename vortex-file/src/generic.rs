@@ -9,18 +9,14 @@ use futures::{StreamExt, pin_mut};
 use vortex_buffer::{Alignment, ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_io::{Dispatch, InstrumentedReadAt, IoDispatcher, VortexReadAt};
-use vortex_layout::segments::{SegmentEvents, SegmentId, SegmentSource};
-use vortex_metrics::VortexMetrics;
+use vortex_layout::segments::{SegmentEvents, SegmentId};
 
 use crate::driver::CoalescedDriver;
 use crate::segments::{
     InitialReadSegmentCache, MokaSegmentCache, NoOpSegmentCache, SegmentCache, SegmentCacheMetrics,
     SegmentCacheSourceAdapter,
 };
-use crate::{
-    EOF_SIZE, FileType, Footer, MAX_FOOTER_SIZE, SegmentSourceFactory, SegmentSpec, VortexFile,
-    VortexOpenOptions,
-};
+use crate::{EOF_SIZE, FileType, Footer, MAX_FOOTER_SIZE, VortexFile, VortexOpenOptions};
 
 #[cfg(feature = "tokio")]
 static TOKIO_DISPATCHER: std::sync::LazyLock<IoDispatcher> =
@@ -107,17 +103,42 @@ impl VortexOpenOptions<GenericVortexFile> {
             self.metrics.clone(),
         ));
 
-        let segment_source_factory = Arc::new(GenericVortexFileIo {
-            read,
-            segment_map: footer.segment_map().clone(),
-            segment_cache,
-            io_dispatcher: self.options.io_dispatcher,
-            io_concurrency: self.options.io_concurrency,
-        });
+        // We use segment events for driving I/O.
+        let (events_source, events) = SegmentEvents::create();
+
+        // Wrap the events source to first resolve segments from the initial read cache.
+        let segment_source = Arc::new(SegmentCacheSourceAdapter::new(segment_cache, events_source));
+
+        let read = InstrumentedReadAt::new(read.clone(), &self.metrics);
+
+        let driver = CoalescedDriver::new(
+            read.performance_hint(),
+            footer.segment_map().clone(),
+            events,
+            self.metrics.clone(),
+        );
+
+        // Spawn an I/O driver onto the dispatcher.
+        let io_concurrency = self.options.io_concurrency;
+        self.options
+            .io_dispatcher
+            .dispatch(move || {
+                async move {
+                    // Drive the segment event stream.
+                    let stream = driver
+                        .map(|coalesced_req| coalesced_req.launch(&read))
+                        .buffer_unordered(io_concurrency);
+                    pin_mut!(stream);
+
+                    // Drive the stream to completion.
+                    stream.collect::<()>().await
+                }
+            })
+            .vortex_expect("Failed to spawn I/O driver");
 
         Ok(VortexFile {
             footer,
-            segment_source_factory,
+            segment_source,
             metrics: self.metrics,
         })
     }
@@ -262,55 +283,6 @@ impl VortexOpenOptions<GenericVortexFile> {
                 .initial_read_segments
                 .insert(segment_id, buffer);
         }
-    }
-}
-
-struct GenericVortexFileIo<R> {
-    read: Arc<R>,
-    segment_map: Arc<[SegmentSpec]>,
-    segment_cache: Arc<dyn SegmentCache>,
-    io_dispatcher: IoDispatcher,
-    io_concurrency: usize,
-}
-
-impl<R: VortexReadAt + Send + Sync> SegmentSourceFactory for GenericVortexFileIo<R> {
-    fn segment_source(&self, metrics: VortexMetrics) -> Arc<dyn SegmentSource> {
-        // We use segment events for driving I/O.
-        let (segment_source, events) = SegmentEvents::create();
-
-        // Wrap the source to resolve segments from the initial read cache.
-        let segment_source = Arc::new(SegmentCacheSourceAdapter::new(
-            self.segment_cache.clone(),
-            segment_source,
-        ));
-
-        let read = InstrumentedReadAt::new(self.read.clone(), &metrics);
-
-        let driver = CoalescedDriver::new(
-            read.performance_hint(),
-            self.segment_map.clone(),
-            events,
-            metrics,
-        );
-
-        // Spawn an I/O driver onto the dispatcher.
-        let io_concurrency = self.io_concurrency;
-        self.io_dispatcher
-            .dispatch(move || {
-                async move {
-                    // Drive the segment event stream.
-                    let stream = driver
-                        .map(|coalesced_req| coalesced_req.launch(&read))
-                        .buffer_unordered(io_concurrency);
-                    pin_mut!(stream);
-
-                    // Drive the stream to completion.
-                    stream.collect::<()>().await
-                }
-            })
-            .vortex_expect("Failed to spawn I/O driver");
-
-        segment_source
     }
 }
 
