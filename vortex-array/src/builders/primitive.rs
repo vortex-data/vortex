@@ -7,13 +7,12 @@ use std::ops::{Deref, DerefMut};
 
 use vortex_buffer::BufferMut;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_mask::Mask;
 
-use crate::arrays::{BoolArray, PrimitiveArray};
+use crate::arrays::PrimitiveArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Builder for [`PrimitiveArray`].
@@ -103,30 +102,9 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     }
 
     pub fn finish_into_primitive(&mut self) -> PrimitiveArray {
-        let nulls = self.nulls.finish();
-
-        if let Some(null_buf) = nulls.as_ref() {
-            assert_eq!(
-                null_buf.len(),
-                self.values.len(),
-                "null buffer length must equal value buffer length"
-            );
-        }
-
-        let validity = match (nulls, self.dtype().nullability()) {
-            (None, Nullability::NonNullable) => Validity::NonNullable,
-            (Some(_), Nullability::NonNullable) => {
-                vortex_panic!("Non-nullable builder has null values")
-            }
-            (None, Nullability::Nullable) => Validity::AllValid,
-            (Some(nulls), Nullability::Nullable) => {
-                if nulls.null_count() == nulls.len() {
-                    Validity::AllInvalid
-                } else {
-                    Validity::Array(BoolArray::from(nulls.into_inner()).into_array())
-                }
-            }
-        };
+        let validity = self
+            .nulls
+            .finish_with_nullability(self.dtype().nullability());
 
         PrimitiveArray::new(std::mem::take(&mut self.values).freeze(), validity)
     }

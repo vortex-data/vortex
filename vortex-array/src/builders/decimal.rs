@@ -9,10 +9,9 @@ use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
 use vortex_mask::Mask;
 use vortex_scalar::{BigCast, NativeDecimalType, i256, match_each_decimal_value_type};
 
-use crate::arrays::{BoolArray, DecimalArray};
+use crate::arrays::DecimalArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
-use crate::validity::Validity;
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 /// Wrapper around the typed builder.
@@ -202,30 +201,7 @@ impl DecimalBuilder {
 
 impl DecimalBuilder {
     pub fn finish_into_decimal(&mut self) -> DecimalArray {
-        let nulls = self.nulls.finish();
-
-        if let Some(null_buf) = nulls.as_ref() {
-            assert_eq!(
-                null_buf.len(),
-                self.values.len(),
-                "null buffer length must equal value buffer length"
-            );
-        }
-
-        let validity = match (nulls, self.dtype.nullability()) {
-            (None, Nullability::NonNullable) => Validity::NonNullable,
-            (Some(_), Nullability::NonNullable) => {
-                vortex_panic!("Non-nullable builder has null values")
-            }
-            (None, Nullability::Nullable) => Validity::AllValid,
-            (Some(nulls), Nullability::Nullable) => {
-                if nulls.null_count() == nulls.len() {
-                    Validity::AllInvalid
-                } else {
-                    Validity::Array(BoolArray::from(nulls.into_inner()).into_array())
-                }
-            }
-        };
+        let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
         let DType::Decimal(decimal_dtype, _) = self.dtype else {
             vortex_panic!("DecimalBuilder must have Decimal DType");
