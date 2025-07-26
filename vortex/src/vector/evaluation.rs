@@ -9,6 +9,10 @@ use vortex_mask::Mask;
 ///
 /// By passing multiple vector computations through the same evaluation pipeline, we can amortize
 /// the setup costs (such as DType validation, stats short-circuiting, etc.) up-front.
+///
+/// A possible partial implementation of this, would be to pass in `&mut dyn Array`, where the
+/// evaluation could assign a new array if it has a better one, or downcast the given array and
+/// write directly into it.
 pub trait Evaluation {
     /// The `next` function is called to export the next batch of data into the provided `Exporter`.
     ///

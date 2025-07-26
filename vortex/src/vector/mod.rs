@@ -22,6 +22,16 @@
 //!   data is largely processed in the chunks as they appear in the file.
 //! - Outputs need to be passed in to the scan / compute functions in order to support externally
 //!   provided buffers, such as Arrow, Numpy, etc.
+//!
+//!
+//! ## Shortcut?
+//! It may be possible to get a large way there with a few smaller changes:
+//! * Have compute functions return evaluations, that can be incrementally executed by accepting
+//!   an exporter object.
+//! * The exporter object wraps a pre-allocated mutable canonical array that evaluations can
+//!   downcast into the expected canonical type. Alternatively, the exporter can set a custom
+//!   result array if they prefer. The cost of pre-allocating the array is amortized over the
+//!   incremental evaluation since it's likely re-used by the caller.
 
 #![allow(dead_code)]
 #![allow(unused_variables)]
