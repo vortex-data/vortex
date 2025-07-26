@@ -20,7 +20,7 @@ trait TokioSpawn {
 /// A [dispatcher][Dispatch] of IO operations that runs tasks on one of several
 /// Tokio `current_thread` runtimes.
 #[derive(Debug)]
-pub struct TokioDispatcher {
+pub(super) struct TokioDispatcher {
     submitter: flume::Sender<Box<dyn TokioSpawn + Send>>,
     threads: Vec<JoinHandle<()>>,
 }
@@ -30,14 +30,14 @@ impl TokioDispatcher {
         let (submitter, rx) = flume::unbounded();
         let threads: Vec<_> = (0..num_threads)
             .map(|tid| {
-                let worker_thread = std::thread::Builder::new();
+                let worker_thread =
+                    std::thread::Builder::new().name(format!("tokio-dispatch-{tid}"));
                 let rx: flume::Receiver<Box<dyn TokioSpawn + Send>> = rx.clone();
 
                 worker_thread
                     .spawn(move || {
                         // Create a runtime-per-thread
                         let rt = tokio::runtime::Builder::new_current_thread()
-                            .thread_name_fn(move || format!("vortex-tokio-io-{tid}"))
                             .enable_all()
                             .build()
                             .unwrap_or_else(|e| {

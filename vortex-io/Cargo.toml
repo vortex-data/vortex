@@ -16,7 +16,8 @@ version = { workspace = true }
 [dependencies]
 async-trait = { workspace = true }
 bytes = { workspace = true }
-compio = { workspace = true, features = ["bytes", "macros"], optional = true }
+cfg-if = { workspace = true }
+compio = { workspace = true, features = ["dispatcher", "runtime"], optional = true }
 flume = { workspace = true }
 futures = { workspace = true, features = ["std"] }
 futures-util = { workspace = true }

@@ -18,6 +18,9 @@ use crate::ScanBuilder;
 ///
 /// It is intentionally not exposed to the user, not configurable, and does not enable I/O or
 /// timers.
+///
+// TODO(ngates): we may want to create an abstract CPU dispatcher (similar to the dispatcher in
+//  vortex-io) that can be used to spawn CPU-bound tasks on a thread pool, e.g. using WASM threads.
 static CPU_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Builder::new_multi_thread()
         .thread_name("vortex-multithread-scan")
