@@ -5,6 +5,7 @@
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
 pub mod session;
+mod vector;
 
 pub use vortex_array::*;
 #[cfg(feature = "files")]

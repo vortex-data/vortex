@@ -47,6 +47,12 @@ vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-schema = { workspace = true }
+bitvec = { workspace = true }
+fastlanes = { workspace = true }
+
 [dev-dependencies]
 arrow-array = { workspace = true }
 divan = { workspace = true }
