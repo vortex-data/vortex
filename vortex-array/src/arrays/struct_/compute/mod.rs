@@ -100,7 +100,7 @@ mod tests {
 
     use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::conformance::filter::test_filter_conformance;
-    use crate::compute::conformance::mask::test_mask;
+    use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::{cast, filter, is_constant, take};
     use crate::validity::Validity;
     use crate::{Array, IntoArray as _};
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn test_mask_empty_struct() {
-        test_mask(
+        test_mask_conformance(
             StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
                 .unwrap()
                 .as_ref(),
@@ -190,7 +190,7 @@ mod tests {
         let zs =
             BoolArray::from_iter([Some(true), Some(true), None, None, Some(false)]).into_array();
 
-        test_mask(
+        test_mask_conformance(
             StructArray::try_new(
                 ["xs", "ys", "zs"].into(),
                 vec![

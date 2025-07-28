@@ -20,7 +20,7 @@ register_kernel!(FilterKernelAdapter(DecimalBytePartsVTable).lift());
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::FixedSizeBinaryArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_dtype::DecimalDType;
 
@@ -28,19 +28,18 @@ mod test {
 
     #[test]
     fn test_filter_decimal_byte_parts() {
-        // Create test data with 5 16-byte values for Decimal128
-        let bytes: Vec<u8> = (0..5)
-            .flat_map(|i| {
-                let mut bytes = vec![0u8; 16];
-                bytes[0] = i;
-                bytes
-            })
-            .collect();
+        // Create test data with 5 signed integer values
+        let msp = PrimitiveArray::from_iter([100i32, 200, 300, 400, 500]).into_array();
 
-        let msp = FixedSizeBinaryArray::from_iter(bytes.chunks(16).map(|chunk| chunk.to_vec()), 16)
+        let decimal_dtype = DecimalDType::new(8, 2);
+        let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();
+        test_filter_conformance(array.as_ref());
+
+        // Test with nullable values
+        let msp = PrimitiveArray::from_option_iter([Some(10i64), None, Some(30), Some(40), None])
             .into_array();
 
-        let decimal_dtype = DecimalDType::new(38, 5);
+        let decimal_dtype = DecimalDType::new(18, 4);
         let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();
         test_filter_conformance(array.as_ref());
     }

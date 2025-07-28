@@ -106,7 +106,7 @@ mod test {
 
         // Create storage array
         let storage = PrimitiveArray::from_iter([1u64, 2, 3, 4, 5]).into_array();
-        let array = ExtensionArray::new(Arc::new(ext_dtype.clone()), storage);
+        let array = ExtensionArray::new(Arc::new(ext_dtype), storage);
         test_filter_conformance(array.as_ref());
 
         // Test with nullable extension type

@@ -42,7 +42,7 @@ mod test {
     use crate::IntoArray;
     use crate::arrays::{ListArray, PrimitiveArray};
     use crate::compute::conformance::filter::test_filter_conformance;
-    use crate::compute::conformance::mask::test_mask;
+    use crate::compute::conformance::mask::test_mask_conformance;
     use crate::validity::Validity;
 
     #[test]
@@ -53,7 +53,7 @@ mod test {
         let array =
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
-        test_mask(array.as_ref());
+        test_mask_conformance(array.as_ref());
     }
 
     #[test]

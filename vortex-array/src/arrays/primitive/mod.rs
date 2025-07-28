@@ -351,7 +351,7 @@ mod tests {
 
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::conformance::filter::test_filter_conformance;
-    use crate::compute::conformance::mask::test_mask;
+    use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::search_sorted::rstest_reuse::apply;
     use crate::compute::conformance::search_sorted::{search_sorted_conformance, *};
     use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
@@ -373,10 +373,10 @@ mod tests {
 
     #[test]
     fn test_mask_primitive_array() {
-        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref());
-        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
-        test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).as_ref());
-        test_mask(
+        test_mask_conformance(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref());
+        test_mask_conformance(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
+        test_mask_conformance(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).as_ref());
+        test_mask_conformance(
             PrimitiveArray::new(
                 buffer![0, 1, 2, 3, 4],
                 Validity::Array(

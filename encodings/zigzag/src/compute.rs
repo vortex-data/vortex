@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn test_mask_conformance() {
-        use vortex_array::compute::conformance::mask::test_mask;
+        use vortex_array::compute::conformance::mask::test_mask_conformance;
 
         // Test with i32 values
         let zigzag = ZigZagEncoding
@@ -186,7 +186,7 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        test_mask(zigzag.as_ref());
+        test_mask_conformance(zigzag.as_ref());
 
         // Test with i8 values
         let zigzag = ZigZagEncoding
@@ -199,6 +199,6 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        test_mask(zigzag.as_ref());
+        test_mask_conformance(zigzag.as_ref());
     }
 }
