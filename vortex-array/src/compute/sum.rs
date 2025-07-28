@@ -4,14 +4,14 @@
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use vortex_dtype::{DType, PType};
-use vortex_error::{VortexExpect, VortexResult, vortex_err, vortex_panic};
+use vortex_dtype::DType;
+use vortex_error::{vortex_err, vortex_panic, VortexResult};
 use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::stats::{Precision, Stat, StatsProvider};
 use crate::vtable::VTable;
+use crate::Array;
 
 /// Sum an array.
 ///
@@ -129,77 +129,8 @@ pub fn sum_impl(
     }
 
     // If the array is constant, we can compute the sum directly.
-    if let Some(mut constant) = array.as_constant() {
-        if constant.is_null() {
-            // An all-null constant array has a sum of 0.
-            return if sum_dtype.is_float() {
-                Ok(Scalar::new(sum_dtype, 0.0.into()))
-            } else {
-                Ok(Scalar::new(sum_dtype, 0.into()))
-            };
-        }
-
-        // TODO(ngates): I think we should delegate these to kernels, rather than hard-code.
-
-        // If it's an extension array, then unwrap it into the storage scalar.
-        if let Some(extension) = constant.as_extension_opt() {
-            constant = extension.storage();
-        }
-
-        // If it's a boolean array, then the true count is the sum, which is the length.
-        if let Some(bool) = constant.as_bool_opt() {
-            return if bool.value().vortex_expect("already checked for null value") {
-                // Constant true
-                Ok(Scalar::new(sum_dtype, array.len().into()))
-            } else {
-                // Constant false
-                Ok(Scalar::new(sum_dtype, 0.into()))
-            };
-        }
-
-        // If it's a primitive array, then the sum is the constant value times the length.
-        if let Some(primitive) = constant.as_primitive_opt() {
-            match primitive.ptype() {
-                PType::U8 | PType::U16 | PType::U32 | PType::U64 => {
-                    let value = primitive
-                        .pvalue()
-                        .vortex_expect("already checked for null value")
-                        .as_u64()
-                        .vortex_expect("Failed to cast constant value to u64");
-
-                    // Overflow results in a null sum.
-                    let sum = value.checked_mul(array.len() as u64);
-
-                    return Ok(Scalar::new(sum_dtype, sum.into()));
-                }
-                PType::I8 | PType::I16 | PType::I32 | PType::I64 => {
-                    let value = primitive
-                        .pvalue()
-                        .vortex_expect("already checked for null value")
-                        .as_i64()
-                        .vortex_expect("Failed to cast constant value to i64");
-
-                    // Overflow results in a null sum.
-                    let sum = value.checked_mul(array.len() as i64);
-
-                    return Ok(Scalar::new(sum_dtype, sum.into()));
-                }
-                PType::F16 | PType::F32 | PType::F64 => {
-                    let value = primitive
-                        .pvalue()
-                        .vortex_expect("already checked for null value")
-                        .as_f64()
-                        .vortex_expect("Failed to cast constant value to f64");
-
-                    let sum = value * (array.len() as f64);
-
-                    return Ok(Scalar::new(sum_dtype, sum.into()));
-                }
-            }
-        }
-
-        // For the unsupported types, we should have exited earlier.
-        unreachable!("Unsupported sum constant: {}", constant.dtype());
+    if array.all_invalid()? {
+        return Ok(Scalar::null(sum_dtype));
     }
 
     // Try to find a sum kernel
