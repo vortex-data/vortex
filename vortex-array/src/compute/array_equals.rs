@@ -89,7 +89,7 @@ impl ComputeFnVTable for ArrayEquals {
             Stat::IsConstant,
             Stat::IsSorted,
             Stat::IsStrictSorted,
-            Stat::Max,
+            Stat::Max, // todo: can we do that with e.g. float errors?
             Stat::Min,
             Stat::Sum,
             Stat::NullCount,
@@ -120,7 +120,9 @@ impl ComputeFnVTable for ArrayEquals {
             }
         }
 
-        if let Some(output) = array.invoke(&IS_SORTED_FN, &args)? {}
+        if let Some(output) = left.invoke(&IS_SORTED_FN, &args)? {
+            todo!();
+        }
         // swap...
 
         todo!()
@@ -141,13 +143,6 @@ impl ComputeFnVTable for ArrayEquals {
 
 // todo: statistics
 pub trait ArrayEqualsKernel: VTable {
-    fn compare_self(
-        &self,
-        array: &Self::Array,
-        other: &Self::Array,
-        ignore_nullability: bool,
-    ) -> VortexResult<Option<bool>>;
-
     fn compare_array(
         &self,
         array: &Self::Array,
@@ -218,12 +213,7 @@ impl<V: VTable + ArrayEqualsKernel> Kernel for ArrayEqualsKernelAdapter<V> {
             return Ok(None);
         };
 
-        let is_equal = if let Some(right) = right.as_opt::<V>() {
-            V::compare_self(&self.0, left, right, ignore_nullability)?
-        } else {
-            V::compare_array(&self.0, left, right, ignore_nullability)?
-        };
-
-        Ok(Some(Scalar::from(is_equal).into()))
+        let is_equal = V::compare_array(&self.0, left, right, ignore_nullability)?;
+        Ok(is_equal.map(|b| Scalar::from(b).into()))
     }
 }
