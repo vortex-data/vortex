@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_buffer::{Buffer, ByteBuffer};
 use vortex_dtype::DType;
 use vortex_error::{VortexExpect, VortexResult, vortex_bail};
@@ -48,7 +50,7 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
             vortex_bail!("Expected 0 or 1 children, got {}", children.len());
         };
 
-        VarBinViewArray::try_new(views, buffers, dtype.clone(), validity)
+        VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
     }
 }
 

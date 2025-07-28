@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::arrays::{
@@ -259,7 +261,7 @@ fn canonicalize_varbin_inner<I: NativePType>(
         views[patch_index_usize] = patch;
     }
 
-    let array = VarBinViewArray::try_new(views.freeze(), buffers, dtype, validity)?;
+    let array = VarBinViewArray::try_new(views.freeze(), Arc::from(buffers), dtype, validity)?;
 
     Ok(Canonical::VarBinView(array))
 }

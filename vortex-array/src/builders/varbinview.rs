@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::cmp::max;
+use std::sync::Arc;
 
 use vortex_buffer::{Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::{DType, Nullability};
@@ -136,7 +137,7 @@ impl VarBinViewBuilder {
 
         VarBinViewArray::try_new(
             std::mem::take(&mut self.views_builder).freeze(),
-            buffers,
+            Arc::from(buffers),
             std::mem::replace(&mut self.dtype, DType::Null),
             validity,
         )

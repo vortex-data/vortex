@@ -299,7 +299,7 @@ pub struct VarBinViewEncoding;
 impl VarBinViewArray {
     pub fn try_new(
         views: Buffer<BinaryView>,
-        buffers: Vec<ByteBuffer>,
+        buffers: Arc<[ByteBuffer]>,
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -317,7 +317,7 @@ impl VarBinViewArray {
 
         Ok(Self {
             dtype,
-            buffers: Arc::from(buffers),
+            buffers,
             views,
             validity,
             stats_set: Default::default(),
@@ -381,6 +381,12 @@ impl VarBinViewArray {
     #[inline]
     pub fn buffers(&self) -> &[ByteBuffer] {
         &self.buffers
+    }
+
+    /// Share ownership of the underlying raw data buffers, not including the views buffer.
+    #[inline]
+    pub(crate) fn buffers_arc(&self) -> Arc<[ByteBuffer]> {
+        self.buffers.clone()
     }
 
     /// Accumulate an iterable set of values into our type here.

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use arrow_array::array::{
     Array as ArrowArray, ArrowPrimitiveType, BooleanArray as ArrowBooleanArray, GenericByteArray,
     NullArray as ArrowNullArray, OffsetSizeTrait, PrimitiveArray as ArrowPrimitiveArray,
@@ -210,11 +212,13 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
 
         VarBinViewArray::try_new(
             views_buffer,
-            value
-                .data_buffers()
-                .iter()
-                .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
-                .collect::<Vec<_>>(),
+            Arc::from(
+                value
+                    .data_buffers()
+                    .iter()
+                    .map(|b| ByteBuffer::from_arrow_buffer(b.clone(), Alignment::of::<u8>()))
+                    .collect::<Vec<_>>(),
+            ),
             dtype,
             nulls(value.nulls(), nullable),
         )

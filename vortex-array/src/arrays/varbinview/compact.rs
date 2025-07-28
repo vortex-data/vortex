@@ -29,7 +29,7 @@ pub fn compact_buffers(array: &VarBinViewArray) -> VortexResult<VarBinViewArray>
         // The array contains no values, all buffers can be dropped.
         Validity::AllInvalid => Ok(VarBinViewArray::try_new(
             array.views().clone(),
-            vec![],
+            Default::default(),
             array.dtype().clone(),
             array.validity().clone(),
         )?),

@@ -13,7 +13,7 @@ impl MaskKernel for VarBinViewVTable {
     fn mask(&self, array: &VarBinViewArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(VarBinViewArray::try_new(
             array.views().clone(),
-            array.buffers().to_vec(),
+            array.buffers_arc(),
             array.dtype().as_nullable(),
             array.validity().mask(mask)?,
         )?
