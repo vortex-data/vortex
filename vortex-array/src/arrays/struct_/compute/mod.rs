@@ -413,16 +413,11 @@ mod tests {
             DType::Utf8(NonNullable),
         )
         .into_array();
-        
+
         test_take_conformance(
-            StructArray::try_new(
-                ["xs", "ys"].into(),
-                vec![xs, ys],
-                5,
-                Validity::NonNullable,
-            )
-            .unwrap()
-            .as_ref(),
+            StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 5, Validity::NonNullable)
+                .unwrap()
+                .as_ref(),
         );
     }
 
@@ -434,7 +429,7 @@ mod tests {
             [Some("a"), Some("b"), None, Some("d"), None],
             DType::Utf8(Nullable),
         );
-        
+
         test_take_conformance(
             StructArray::try_new(
                 ["xs", "ys"].into(),
@@ -460,9 +455,9 @@ mod tests {
         )
         .unwrap()
         .into_array();
-        
+
         let outer_zs = BoolArray::from_iter([true, false, true, false, true]).into_array();
-        
+
         test_take_conformance(
             StructArray::try_new(
                 ["inner", "z"].into(),
@@ -479,16 +474,11 @@ mod tests {
     fn test_take_single_element_struct_conformance() {
         let xs = buffer![42i64].into_array();
         let ys = VarBinArray::from_iter(["hello"].map(Some), DType::Utf8(NonNullable)).into_array();
-        
+
         test_take_conformance(
-            StructArray::try_new(
-                ["xs", "ys"].into(),
-                vec![xs, ys],
-                1,
-                Validity::NonNullable,
-            )
-            .unwrap()
-            .as_ref(),
+            StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 1, Validity::NonNullable)
+                .unwrap()
+                .as_ref(),
         );
     }
 
@@ -497,12 +487,12 @@ mod tests {
         // Test with larger array for additional edge cases
         let xs = PrimitiveArray::from_iter(0i64..100).into_array();
         let ys = VarBinArray::from_iter(
-            (0..100).map(|i| format!("str_{}", i)).map(Some),
+            (0..100).map(|i| format!("str_{i}")).map(Some),
             DType::Utf8(NonNullable),
         )
         .into_array();
         let zs = BoolArray::from_iter((0..100).map(|i| i % 2 == 0)).into_array();
-        
+
         test_take_conformance(
             StructArray::try_new(
                 ["xs", "ys", "zs"].into(),

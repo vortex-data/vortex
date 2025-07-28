@@ -359,7 +359,7 @@ mod test {
         // Test list with empty lists
         let list = ListArray::try_new(
             PrimitiveArray::from_iter([1i32, 2, 3]).to_array(),
-            PrimitiveArray::from_iter([0, 0, 2, 2, 3]).to_array(),  // First and third are empty
+            PrimitiveArray::from_iter([0, 0, 2, 2, 3]).to_array(), // First and third are empty
             Validity::NonNullable,
         )
         .unwrap();
@@ -376,9 +376,9 @@ mod test {
 
         // Test larger list array for edge cases
         let elements = PrimitiveArray::from_iter(0i32..200).to_array();
-        let mut offsets = vec![0];
+        let mut offsets = vec![0u64];
         for i in 1..=50 {
-            offsets.push(offsets[i - 1] + (i % 5) as i32);  // Variable length lists
+            offsets.push(offsets[i - 1] + (i as u64 % 5)); // Variable length lists
         }
         let list = ListArray::try_new(
             elements,

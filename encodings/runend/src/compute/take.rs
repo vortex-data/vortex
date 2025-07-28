@@ -190,10 +190,9 @@ mod test {
         test_take_conformance(nullable_array.as_ref());
 
         // Test single run
-        let single_run = RunEndArray::encode(
-            PrimitiveArray::from_iter([42i32, 42, 42, 42, 42]).into_array(),
-        )
-        .unwrap();
+        let single_run =
+            RunEndArray::encode(PrimitiveArray::from_iter([42i32, 42, 42, 42, 42]).into_array())
+                .unwrap();
         test_take_conformance(single_run.as_ref());
 
         // Test many short runs
@@ -207,11 +206,11 @@ mod test {
         let mut values = Vec::new();
         for i in 0..20 {
             for _ in 0..=i {
-                values.push(i as i32);
+                values.push(i);
             }
         }
-        let large_array = RunEndArray::encode(PrimitiveArray::from_iter(values).into_array())
-            .unwrap();
+        let large_array =
+            RunEndArray::encode(PrimitiveArray::from_iter(values).into_array()).unwrap();
         test_take_conformance(large_array.as_ref());
     }
 

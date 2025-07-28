@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn test_take_constant_conformance() {
         test_take_conformance(ConstantArray::new(42i32, 5).as_ref());
-        test_take_conformance(ConstantArray::new(3.14f64, 10).as_ref());
+        test_take_conformance(ConstantArray::new(std::f64::consts::PI, 10).as_ref());
         test_take_conformance(ConstantArray::new(Scalar::from("hello"), 3).as_ref());
         test_take_conformance(ConstantArray::new(Scalar::null_typed::<i64>(), 5).as_ref());
         test_take_conformance(ConstantArray::new(true, 1).as_ref());

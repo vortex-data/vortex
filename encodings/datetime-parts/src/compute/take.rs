@@ -3,7 +3,7 @@
 
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
-use vortex_error::VortexResult;
+use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_scalar::Scalar;
 
 use crate::{DateTimePartsArray, DateTimePartsVTable};
@@ -13,9 +13,9 @@ impl TakeKernel for DateTimePartsVTable {
         // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
         let indices = indices.to_primitive()?;
 
-        let taken_days = take(array.days(), indices)?;
-        let taken_seconds = take(array.seconds(), indices)?;
-        let taken_subseconds = take(array.subseconds(), indices)?;
+        let taken_days = take(array.days(), indices.as_ref())?;
+        let taken_seconds = take(array.seconds(), indices.as_ref())?;
+        let taken_subseconds = take(array.subseconds(), indices.as_ref())?;
 
         // Update the dtype if the nullability changed due to nullable indices
         let dtype = if taken_days.dtype().is_nullable() != array.dtype().is_nullable() {
@@ -40,20 +40,28 @@ impl TakeKernel for DateTimePartsVTable {
             }
 
             // get the first non-null index, and use that to fill both seconds and subseconds
-            let fill_index: Option<usize> = find_first_non_null_value(indices).map(|i| i.as_());
+            let fill_index: Option<usize> = (0..indices.len()).find(|&i| {
+                indices
+                    .is_valid(i)
+                    .vortex_expect("unable to determine if index is valid")
+            });
 
             let seconds_fill = fill_index
                 .map(|i| taken_seconds.scalar_at(i))
                 .transpose()?
                 .unwrap_or_else(|| {
-                    Scalar::primitive(0i64, Nullability::NonNull).cast(taken_seconds.dtype())
+                    Scalar::from(0i64)
+                        .cast(taken_seconds.dtype())
+                        .vortex_expect("unable to cast 0i64 to seconds dtype")
                 });
 
             let subseconds_fill = fill_index
                 .map(|i| taken_subseconds.scalar_at(i))
                 .transpose()?
                 .unwrap_or_else(|| {
-                    Scalar::primitive(0i64, Nullability::NonNull).cast(taken_subseconds.dtype())
+                    Scalar::from(0i64)
+                        .cast(taken_subseconds.dtype())
+                        .vortex_expect("unable to cast 0i64 to subseconds dtype")
                 });
 
             let taken_seconds = fill_null(taken_seconds.as_ref(), &seconds_fill)?;
@@ -69,8 +77,6 @@ impl TakeKernel for DateTimePartsVTable {
         )
     }
 }
-
-fn find_first_non_null_value(array: &dyn Array) -> Option<Scalar> {}
 
 register_kernel!(TakeKernelAdapter(DateTimePartsVTable).lift());
 
