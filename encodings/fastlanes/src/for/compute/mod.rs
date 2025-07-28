@@ -36,3 +36,49 @@ impl FilterKernel for FoRVTable {
 }
 
 register_kernel!(FilterKernelAdapter(FoRVTable).lift());
+
+#[cfg(test)]
+mod test {
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::filter::test_filter;
+    use vortex_array::compute::conformance::binary_numeric::test_numeric;
+    use vortex_scalar::Scalar;
+
+    use crate::FoRArray;
+
+    #[test]
+    fn test_filter_for_array() {
+        // Test with i32 values
+        let values = PrimitiveArray::from_iter([100i32, 101, 102, 103, 104]);
+        let reference = Scalar::from(100i32);
+        let for_array = FoRArray::try_new(values.as_ref(), reference).unwrap();
+        test_filter(for_array.as_ref());
+
+        // Test with u64 values
+        let values = PrimitiveArray::from_iter([1000u64, 1001, 1002, 1003, 1004]);
+        let reference = Scalar::from(1000u64);
+        let for_array = FoRArray::try_new(values.as_ref(), reference).unwrap();
+        test_filter(for_array.as_ref());
+
+        // Test with nullable values
+        let values = PrimitiveArray::from_option_iter([Some(50i16), None, Some(52), Some(53), None]);
+        let reference = Scalar::from(50i16);
+        let for_array = FoRArray::try_new(values.as_ref(), reference).unwrap();
+        test_filter(for_array.as_ref());
+    }
+
+    #[test]
+    fn test_numeric_for_array() {
+        // Test binary numeric operations
+        let values = PrimitiveArray::from_iter([100i32, 101, 102, 103, 104]);
+        let reference = Scalar::from(100i32);
+        let for_array = FoRArray::try_new(values.as_ref(), reference).unwrap();
+        test_numeric(for_array.as_ref(), for_array.as_ref());
+
+        // Test with different array
+        let values2 = PrimitiveArray::from_iter([200i32, 201, 202, 203, 204]);
+        let reference2 = Scalar::from(200i32);
+        let for_array2 = FoRArray::try_new(values2.as_ref(), reference2).unwrap();
+        test_numeric(for_array.as_ref(), for_array2.as_ref());
+    }
+}
