@@ -189,4 +189,59 @@ mod test {
             Scalar::null(DType::Primitive(I32, Nullability::Nullable))
         );
     }
+
+    #[test]
+    fn test_take_sparse_conformance() {
+        use vortex_array::compute::conformance::take::test_take_conformance;
+
+        // Test with f64 null fill value
+        let sparse = SparseArray::try_new(
+            buffer![0u64, 37, 47, 99].into_array(),
+            PrimitiveArray::new(buffer![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid).into_array(),
+            100,
+            Scalar::null_typed::<f64>(),
+        )
+        .unwrap();
+        test_take_conformance(sparse.as_ref());
+
+        // Test with non-null fill value
+        let sparse = SparseArray::try_new(
+            buffer![1u32, 3, 7, 8, 9].into_array(),
+            buffer![10, 8, 3, 2, 1].into_array(),
+            10,
+            Scalar::from(0i32),
+        )
+        .unwrap();
+        test_take_conformance(sparse.as_ref());
+
+        // Test with nullable values
+        let sparse = SparseArray::try_new(
+            buffer![2u64, 4, 6].into_array(),
+            PrimitiveArray::from_option_iter([Some(100i64), None, Some(300)]).into_array(),
+            10,
+            Scalar::from(42i64),
+        )
+        .unwrap();
+        test_take_conformance(sparse.as_ref());
+
+        // Test with single patch
+        let sparse = SparseArray::try_new(
+            buffer![5u64].into_array(),
+            buffer![999i32].into_array(),
+            20,
+            Scalar::from(-1i32),
+        )
+        .unwrap();
+        test_take_conformance(sparse.as_ref());
+
+        // Test with no patches (all fill values)
+        let sparse = SparseArray::try_new(
+            PrimitiveArray::empty::<u64>(Nullability::NonNullable).into_array(),
+            PrimitiveArray::empty::<f32>(Nullability::NonNullable).into_array(),
+            50,
+            Scalar::from(0.0f32),
+        )
+        .unwrap();
+        test_take_conformance(sparse.as_ref());
+    }
 }

@@ -249,4 +249,40 @@ mod test {
         assert_eq!(taken_primitive.as_slice::<i32>(), &[1i32, 2, 1, 4]);
         assert_eq!(taken_primitive.invalid_count().unwrap(), 1);
     }
+
+    #[test]
+    fn test_take_bitpacked_conformance() {
+        use vortex_array::compute::conformance::take::test_take_conformance;
+
+        // Test with u8 values
+        let values = PrimitiveArray::from_iter((0..100).map(|i| (i % 63) as u8));
+        let bitpacked = BitPackedArray::encode(values.as_ref(), 6).unwrap();
+        test_take_conformance(bitpacked.as_ref());
+
+        // Test with u32 values
+        let values = PrimitiveArray::from_iter((0..256).map(|i| i as u32));
+        let bitpacked = BitPackedArray::encode(values.as_ref(), 8).unwrap();
+        test_take_conformance(bitpacked.as_ref());
+
+        // Test with i32 signed values
+        let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8]);
+        let bitpacked = BitPackedArray::encode(values.as_ref(), 3).unwrap();
+        test_take_conformance(bitpacked.as_ref());
+
+        // Test with nullable values
+        let values =
+            PrimitiveArray::from_option_iter([Some(10u16), None, Some(20), Some(30), None]);
+        let bitpacked = BitPackedArray::encode(values.as_ref(), 5).unwrap();
+        test_take_conformance(bitpacked.as_ref());
+
+        // Test single element
+        let values = PrimitiveArray::from_iter([42u32]);
+        let bitpacked = BitPackedArray::encode(values.as_ref(), 6).unwrap();
+        test_take_conformance(bitpacked.as_ref());
+
+        // Test with patches (values that require more bits)
+        let values = PrimitiveArray::from_iter((0..1024).map(|i| i as u32));
+        let bitpacked = BitPackedArray::encode(values.as_ref(), 8).unwrap();
+        test_take_conformance(bitpacked.as_ref());
+    }
 }

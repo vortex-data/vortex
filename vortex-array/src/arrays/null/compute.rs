@@ -66,6 +66,7 @@ mod test {
     use crate::arrays::null::NullArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::{IntoArray, ToCanonical};
 
@@ -109,5 +110,12 @@ mod test {
     #[test]
     fn test_mask_null_array() {
         test_mask_conformance(NullArray::new(5).as_ref());
+    }
+
+    #[test]
+    fn test_take_null_array_conformance() {
+        test_take_conformance(NullArray::new(5).as_ref());
+        test_take_conformance(NullArray::new(1).as_ref());
+        test_take_conformance(NullArray::new(10).as_ref());
     }
 }

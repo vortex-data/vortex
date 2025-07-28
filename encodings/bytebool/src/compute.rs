@@ -69,6 +69,7 @@ register_kernel!(TakeKernelAdapter(ByteBoolVTable).lift());
 mod tests {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
+    use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::{Operator, compare};
 
     use super::*;
@@ -156,5 +157,15 @@ mod tests {
         test_filter_conformance(
             ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).as_ref(),
         );
+    }
+
+    #[test]
+    fn test_take_byte_bool() {
+        test_take_conformance(ByteBoolArray::from(vec![true, false, true, true, false]).as_ref());
+        test_take_conformance(
+            ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).as_ref(),
+        );
+        test_take_conformance(ByteBoolArray::from(vec![true, false]).as_ref());
+        test_take_conformance(ByteBoolArray::from(vec![true]).as_ref());
     }
 }

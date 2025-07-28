@@ -73,6 +73,7 @@ mod test {
 
     use crate::arrays::BoolArray;
     use crate::arrays::primitive::PrimitiveArray;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
     use crate::{Array, ToCanonical};
@@ -167,5 +168,21 @@ mod test {
         assert_eq!(actual.scalar_at(0).unwrap(), Scalar::null_typed::<bool>());
         assert_eq!(actual.scalar_at(1).unwrap(), Scalar::null_typed::<bool>());
         assert_eq!(actual.scalar_at(2).unwrap(), Scalar::null_typed::<bool>());
+    }
+
+    #[test]
+    fn test_take_bool_conformance() {
+        test_take_conformance(BoolArray::from_iter([true, false, true, true, false]).as_ref());
+
+        // Test nullable bool array
+        test_take_conformance(
+            BoolArray::from_iter([Some(true), None, Some(false), Some(true), None]).as_ref(),
+        );
+
+        // Test small bool array
+        test_take_conformance(BoolArray::from_iter([true, false]).as_ref());
+
+        // Test single element
+        test_take_conformance(BoolArray::from_iter([true]).as_ref());
     }
 }

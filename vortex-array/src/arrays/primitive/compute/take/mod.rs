@@ -110,6 +110,7 @@ mod test {
 
     use crate::arrays::primitive::compute::take::take_primitive_scalar;
     use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
     use crate::{Array, IntoArray};
@@ -137,5 +138,37 @@ mod test {
         assert_eq!(actual.scalar_at(1).unwrap(), Scalar::null_typed::<i32>());
         // the third index is null
         assert_eq!(actual.scalar_at(2).unwrap(), Scalar::null_typed::<i32>());
+    }
+
+    #[test]
+    fn test_take_primitive_conformance() {
+        // Test various sizes
+        test_take_conformance(PrimitiveArray::new(buffer![42i32], Validity::NonNullable).as_ref());
+        test_take_conformance(PrimitiveArray::new(buffer![0, 1], Validity::NonNullable).as_ref());
+        test_take_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref(),
+        );
+        test_take_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable).as_ref(),
+        );
+
+        // Test with validity
+        test_take_conformance(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref(),
+        );
+        test_take_conformance(
+            PrimitiveArray::new(
+                buffer![0, 1, 2, 3, 4, 5],
+                Validity::Array(
+                    BoolArray::from_iter([true, false, true, false, true, true]).into_array(),
+                ),
+            )
+            .as_ref(),
+        );
+
+        // Test nullable array
+        test_take_conformance(
+            PrimitiveArray::from_option_iter([Some(1), None, Some(3), Some(4), None]).as_ref(),
+        );
     }
 }

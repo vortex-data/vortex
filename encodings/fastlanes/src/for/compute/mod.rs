@@ -67,4 +67,46 @@ mod test {
         let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
         test_filter_conformance(for_array.as_ref());
     }
+
+    #[test]
+    fn test_take_for_conformance() {
+        use vortex_array::compute::conformance::take::test_take_conformance;
+
+        // Test with i32 values
+        let values = PrimitiveArray::from_iter([100i32, 101, 102, 103, 104]);
+        let reference = Scalar::from(100i32);
+        let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
+        test_take_conformance(for_array.as_ref());
+
+        // Test with u64 values
+        let values = PrimitiveArray::from_iter([1000u64, 1001, 1002, 1003, 1004]);
+        let reference = Scalar::from(1000u64);
+        let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
+        test_take_conformance(for_array.as_ref());
+
+        // Test with nullable values
+        let values =
+            PrimitiveArray::from_option_iter([Some(50i16), None, Some(52), Some(53), None]);
+        let reference = Scalar::from(50i16);
+        let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
+        test_take_conformance(for_array.as_ref());
+
+        // Test with negative values
+        let values = PrimitiveArray::from_iter([-100i32, -99, -98, -97, -96]);
+        let reference = Scalar::from(-100i32);
+        let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
+        test_take_conformance(for_array.as_ref());
+
+        // Test single element
+        let values = PrimitiveArray::from_iter([42i64]);
+        let reference = Scalar::from(40i64);
+        let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
+        test_take_conformance(for_array.as_ref());
+
+        // Test with floating point values
+        let values = PrimitiveArray::from_iter([10.5f64, 10.6, 10.7, 10.8, 10.9]);
+        let reference = Scalar::from(10.5f64);
+        let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
+        test_take_conformance(for_array.as_ref());
+    }
 }

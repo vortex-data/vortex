@@ -62,6 +62,7 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::{PrimitiveArray, VarBinViewArray};
     use crate::canonical::ToCanonical;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
 
     #[test]
@@ -110,6 +111,44 @@ mod tests {
                     .collect::<Vec<_>>())
                 .unwrap(),
             [Some("two".to_string()), None]
+        );
+    }
+
+    #[test]
+    fn test_take_varbinview_conformance() {
+        // Test with string data
+        test_take_conformance(
+            VarBinViewArray::from_iter(
+                ["hello", "world", "test", "data", "array"].map(Some),
+                DType::Utf8(NonNullable),
+            )
+            .as_ref(),
+        );
+
+        // Test with nullable strings
+        test_take_conformance(
+            VarBinViewArray::from_iter_nullable_str([
+                Some("hello"),
+                None,
+                Some("test"),
+                Some("data"),
+                None,
+            ])
+            .as_ref(),
+        );
+
+        // Test with binary data
+        test_take_conformance(
+            VarBinViewArray::from_iter(
+                [b"hello".as_slice(), b"world", b"test", b"data", b"array"].map(Some),
+                DType::Binary(NonNullable),
+            )
+            .as_ref(),
+        );
+
+        // Test single element
+        test_take_conformance(
+            VarBinViewArray::from_iter(["single"].map(Some), DType::Utf8(NonNullable)).as_ref(),
         );
     }
 }

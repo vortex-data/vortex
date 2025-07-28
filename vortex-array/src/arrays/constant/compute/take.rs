@@ -56,8 +56,10 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_mask::AllOr;
+    use vortex_scalar::Scalar;
 
     use crate::arrays::{ConstantArray, PrimitiveArray};
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
     use crate::{Array, IntoArray, ToCanonical};
@@ -106,5 +108,14 @@ mod tests {
             &[42, 42, 42]
         );
         assert_eq!(taken.validity_mask().unwrap().indices(), AllOr::All);
+    }
+
+    #[test]
+    fn test_take_constant_conformance() {
+        test_take_conformance(ConstantArray::new(42i32, 5).as_ref());
+        test_take_conformance(ConstantArray::new(3.14f64, 10).as_ref());
+        test_take_conformance(ConstantArray::new(Scalar::from("hello"), 3).as_ref());
+        test_take_conformance(ConstantArray::new(Scalar::null_typed::<i64>(), 5).as_ref());
+        test_take_conformance(ConstantArray::new(true, 1).as_ref());
     }
 }
