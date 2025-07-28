@@ -16,7 +16,7 @@ use vortex_pco::PcoArray;
 use vortex_zstd::ZstdArray;
 
 use crate::executor::{TaskExecutor, TaskExecutorExt as _};
-use crate::segments::SequenceWriter;
+use crate::segments::SegmentSink;
 use crate::{
     LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt as _,
@@ -189,7 +189,7 @@ impl LayoutStrategy for CompactCompressedStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: &SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         let executor = self.executor.clone();
@@ -215,7 +215,7 @@ impl LayoutStrategy for CompactCompressedStrategy {
         self.child
             .write_stream(
                 ctx,
-                sequence_writer,
+                segment_sink,
                 SequentialStreamAdapter::new(dtype, stream).sendable(),
             )
             .await

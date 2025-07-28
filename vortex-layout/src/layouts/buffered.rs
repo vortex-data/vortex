@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 
-use crate::segments::SequenceWriter;
+use crate::segments::SegmentSink;
 use crate::{
     LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt as _,
@@ -31,7 +31,7 @@ impl LayoutStrategy for BufferedStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: &SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
@@ -75,7 +75,7 @@ impl LayoutStrategy for BufferedStrategy {
         self.child
             .write_stream(
                 ctx,
-                sequence_writer,
+                segment_sink,
                 SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
             )
             .await

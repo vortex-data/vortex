@@ -344,7 +344,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
@@ -353,13 +353,12 @@ mod test {
     fn chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
-        let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
         let strategy = ChunkedLayoutStrategy::default();
         let mut sequence_id = SequenceId::root();
         let layout = block_on(
             strategy.write_stream(
                 &ctx,
-                sequence_writer,
+                &segments,
                 SequentialStreamAdapter::new(
                     DType::Primitive(PType::I32, NonNullable),
                     stream::iter([

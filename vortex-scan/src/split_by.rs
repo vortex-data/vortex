@@ -85,7 +85,7 @@ mod test {
         let layout = block_on(
             FlatLayoutStrategy::default().write_stream(
                 &ArrayContext::empty(),
-                SequenceWriter::new(Box::new(segments.clone())),
+                &segments,
                 SequentialStreamAdapter::new(
                     DType::Primitive(PType::I32, NonNullable),
                     stream::once(async {
@@ -115,7 +115,7 @@ mod test {
         let layout = block_on(
             FlatLayoutStrategy::default().write_stream(
                 &ArrayContext::empty(),
-                SequenceWriter::new(Box::new(segments.clone())),
+                &segments,
                 SequentialStreamAdapter::new(
                     DType::Primitive(PType::I32, NonNullable),
                     stream::once(async {

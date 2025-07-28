@@ -17,12 +17,12 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::LayoutRef;
-use crate::segments::SequenceWriter;
+use crate::segments::SegmentSink;
 use crate::sequence::{SequenceId, SequencePointer};
 
 pub trait ArrayStreamSequentialExt: ArrayStream {
     /// Convert an [`ArrayStream`] into a [`SequentialStream`].
-    fn sequential(self, mut sequence_ptr: SequencePointer) -> SendableSequentialStream
+    fn sequenced(self, mut sequence_ptr: SequencePointer) -> SendableSequentialStream
     where
         Self: Sized + Send + 'static,
     {
@@ -54,7 +54,7 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: &SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef>;
 }

@@ -287,7 +287,7 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutReader, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
 
@@ -296,13 +296,13 @@ mod tests {
         block_on(async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
-            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+
             let array = PrimitiveArray::from_iter(1..=5).to_array();
             let array_clone = array.clone();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     &ctx,
-                    sequence_writer.clone(),
+                    &segments,
                     SequentialStreamAdapter::new(
                         array.dtype().clone(),
                         stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) }),
@@ -336,13 +336,13 @@ mod tests {
         block_on(async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
-            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+
             let array = PrimitiveArray::from_iter(1..=5).to_array();
             let array_clone = array.clone();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     &ctx,
-                    sequence_writer.clone(),
+                    &segments,
                     SequentialStreamAdapter::new(
                         array.dtype().clone(),
                         stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) }),
@@ -376,13 +376,13 @@ mod tests {
         block_on(async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
-            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+
             let array = PrimitiveArray::from_iter(1..=5).to_array();
             let array_clone = array.clone();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     &ctx,
-                    sequence_writer.clone(),
+                    &segments,
                     SequentialStreamAdapter::new(
                         array.dtype().clone(),
                         stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) }),

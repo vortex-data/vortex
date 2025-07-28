@@ -11,7 +11,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
 
-use crate::segments::SequenceWriter;
+use crate::segments::SegmentSink;
 use crate::{
     LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt,
@@ -45,7 +45,7 @@ impl LayoutStrategy for RepartitionStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: &SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         // TODO(os): spawn stream below like:
@@ -108,7 +108,7 @@ impl LayoutStrategy for RepartitionStrategy {
         self.child
             .write_stream(
                 ctx,
-                sequence_writer,
+                segment_sink,
                 SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
             )
             .await

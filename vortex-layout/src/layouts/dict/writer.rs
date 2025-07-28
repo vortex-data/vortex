@@ -20,7 +20,7 @@ use vortex_error::{VortexExpect, VortexResult, VortexUnwrap, vortex_bail, vortex
 
 use super::DictLayout;
 use crate::layouts::chunked::ChunkedLayout;
-use crate::segments::SequenceWriter;
+use crate::segments::SegmentSink;
 use crate::sequence::{SequenceId, SequencePointer};
 use crate::{
     IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren, SendableSequentialStream,
@@ -82,14 +82,11 @@ impl LayoutStrategy for DictStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: &SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         if !dict_layout_supported(stream.dtype()) {
-            return self
-                .fallback
-                .write_stream(ctx, sequence_writer, stream)
-                .await;
+            return self.fallback.write_stream(ctx, segment_sink, stream).await;
         }
         let codes = self.codes.clone();
         let values = self.values.clone();
@@ -112,7 +109,7 @@ impl LayoutStrategy for DictStrategy {
         };
         if should_fallback {
             // first chunk did not compress to dict, or did not exist. Skip dict layout
-            return fallback.write_stream(&ctx, sequence_writer, stream).await;
+            return fallback.write_stream(&ctx, segment_sink, stream).await;
         }
 
         // 1. from a chunk stream, create a stream that yields codes
@@ -151,14 +148,14 @@ impl LayoutStrategy for DictStrategy {
                 let codes_layout = codes
                     .write_stream(
                         &ctx,
-                        sequence_writer,
+                        segment_sink,
                         SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
                     )
                     .await?;
                 let values_layout = values
                     .write_stream(
                         &ctx,
-                        sequence_writer,
+                        segment_sink,
                         SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
                             .sendable(),
                     )

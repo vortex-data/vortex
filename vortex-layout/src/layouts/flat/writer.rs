@@ -12,7 +12,7 @@ use vortex_scalar::{BinaryScalar, Utf8Scalar};
 
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
-use crate::segments::SequenceWriter;
+use crate::segments::SegmentSink;
 use crate::{IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream};
 
 #[derive(Clone)]
@@ -37,7 +37,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: &SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         mut stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
@@ -120,7 +120,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
                 include_padding: options.include_padding,
             },
         )?;
-        let segment_id = sequence_writer.put(sequence_id, buffers).await?;
+        let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
         let None = stream.next().await else {
             vortex_bail!("flat layout received stream with more than a single chunk");
@@ -151,7 +151,7 @@ mod tests {
     use vortex_mask::{AllOr, Mask};
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
         LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt as _,
@@ -173,10 +173,10 @@ mod tests {
         block_on(async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
-            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutStrategy::default()
-                .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
+                .write_stream(&ctx, &segments, stream_only(array.to_array()))
                 .await
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
@@ -202,7 +202,7 @@ mod tests {
         block_on(async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
-            let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+
             let mut builder =
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 2);
             builder.append_value("Long value to test that the statistics are actually truncated, it needs a bit of extra padding though");
@@ -217,7 +217,7 @@ mod tests {
             );
 
             let layout = FlatLayoutStrategy::default()
-                .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
+                .write_stream(&ctx, &segments, stream_only(array.to_array()))
                 .await
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
@@ -272,9 +272,9 @@ mod tests {
             // Write the array into a byte buffer.
             let (layout, segments) = {
                 let segments = TestSegments::default();
-                let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+
                 let layout = FlatLayoutStrategy::default()
-                    .write_stream(&ctx, sequence_writer, stream_only(array.to_array()))
+                    .write_stream(&ctx, &segments, stream_only(array.to_array()))
                     .await
                     .unwrap();
 

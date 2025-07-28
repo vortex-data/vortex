@@ -255,7 +255,7 @@ mod tests {
 
     use crate::layouts::dict::writer::{DictLayoutOptions, DictStrategy};
     use crate::layouts::flat::writer::FlatLayoutStrategy;
-    use crate::segments::{SequenceWriter, TestSegments};
+    use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::{
         LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, SequentialStreamAdapter,
@@ -293,7 +293,7 @@ mod tests {
         let layout: LayoutRef = block_on(
             strategy.write_stream(
                 &ctx,
-                SequenceWriter::new(Box::new(segments.clone())),
+                &segments,
                 SequentialStreamAdapter::new(
                     DType::Utf8(Nullability::Nullable),
                     stream::once(
@@ -376,7 +376,7 @@ mod tests {
         let layout: LayoutRef = block_on(
             strategy.write_stream(
                 &ctx,
-                SequenceWriter::new(Box::new(segments.clone())),
+                &segments,
                 SequentialStreamAdapter::new(
                     DType::Utf8(Nullability::Nullable),
                     stream::once(async move { Ok((SequenceId::root().downgrade(), array)) }),
@@ -439,7 +439,7 @@ mod tests {
         let layout: LayoutRef = block_on(
             strategy.write_stream(
                 &ctx,
-                SequenceWriter::new(Box::new(segments.clone())),
+                &segments,
                 SequentialStreamAdapter::new(
                     DType::Utf8(Nullability::Nullable),
                     stream::once(

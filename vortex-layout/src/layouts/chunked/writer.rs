@@ -13,7 +13,7 @@ use vortex_error::{VortexExpect, VortexResult};
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
-use crate::segments::SequenceWriter;
+use crate::segments::SegmentSink;
 use crate::{
     IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt as _,
@@ -37,7 +37,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
     async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: &SequenceWriter,
+        segment_sink: &dyn SegmentSink,
         mut stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         let chunk_strategy = self.chunk_strategy.clone();
@@ -52,7 +52,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
             let layout = chunk_strategy
                 .write_stream(
                     &ctx,
-                    sequence_writer,
+                    segment_sink,
                     SequentialStreamAdapter::new(
                         dtype.clone(),
                         once(async { Ok((sequence_id, chunk)) }),

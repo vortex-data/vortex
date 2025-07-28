@@ -417,30 +417,29 @@ impl PruningResult {
 mod test {
     use std::sync::Arc;
 
-    use arcref::ArcRef;
-    use futures::executor::block_on;
-    use futures::stream;
-    use rstest::{fixture, rstest};
-    use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
-    use vortex_array::{ArrayContext, IntoArray, ToCanonical};
-    use vortex_buffer::buffer;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, PType};
-    use vortex_expr::{gt, lit, root};
-    use vortex_mask::Mask;
-
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
-    use crate::{LayoutRef, LayoutStrategy, LocalExecutor};
+    use crate::segments::{SegmentSource, TestSegments};
+    use crate::sequence::SequenceId;
+    use crate::{ArrayStreamSequentialExt, LayoutRef, LayoutStrategy, LocalExecutor};
+    use arcref::ArcRef;
+    use futures::executor::block_on;
+    use rstest::{fixture, rstest};
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::{ArrayContext, ToCanonical};
+    use vortex_buffer::buffer;
+    use vortex_expr::{gt, lit, root};
+    use vortex_mask::Mask;
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
     fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
-        let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+
+        let mut eof = SequenceId::root();
         let strategy = ZonedStrategy::new(
             ArcRef::new_arc(Arc::new(ChunkedLayoutStrategy::default())),
             ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
@@ -449,17 +448,16 @@ mod test {
                 ..Default::default()
             },
             Arc::new(LocalExecutor),
+            eof.advance().descend(),
         );
-        let array_stream =
-            sequence_writer.new_sequential(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
-                DType::Primitive(PType::I32, NonNullable),
-                stream::iter([
-                    Ok(buffer![1, 2, 3].into_array()),
-                    Ok(buffer![4, 5, 6].into_array()),
-                    Ok(buffer![7, 8, 9].into_array()),
-                ]),
-            )));
-        let layout = block_on(strategy.write_stream(&ctx, sequence_writer, array_stream)).unwrap();
+        let array_stream = ChunkedArray::from_iter([
+            buffer![1, 2, 3].into_array(),
+            buffer![4, 5, 6].into_array(),
+            buffer![7, 8, 9].into_array(),
+        ])
+        .to_array_stream()
+        .sequenced(eof.advance().descend());
+        let layout = block_on(strategy.write_stream(&ctx, &segments, array_stream)).unwrap();
         (Arc::new(segments), layout)
     }
 

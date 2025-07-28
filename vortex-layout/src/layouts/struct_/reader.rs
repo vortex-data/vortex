@@ -263,7 +263,7 @@ mod tests {
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
-    use crate::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
 
@@ -272,13 +272,13 @@ mod tests {
     fn struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
-        let sequence_writer = SequenceWriter::new(Box::new(segments.clone()));
+
         let strategy =
             StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
         let layout = block_on(
             strategy.write_stream(
                 &ctx,
-                sequence_writer,
+                &segments,
                 SequentialStreamAdapter::new(
                     DType::Struct(
                         StructFields::new(
