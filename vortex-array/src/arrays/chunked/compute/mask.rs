@@ -128,7 +128,6 @@ mod test {
 
     use crate::IntoArray;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
-    use crate::compute::conformance::filter::test_filter;
     use crate::compute::conformance::mask::test_mask;
 
     #[test]
@@ -146,22 +145,5 @@ mod test {
         .unwrap();
 
         test_mask(chunked.as_ref());
-    }
-
-    #[test]
-    fn test_filter_chunked_array() {
-        let dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
-        let chunked = ChunkedArray::try_new(
-            vec![
-                buffer![0u64, 1].into_array(),
-                buffer![2_u64].into_array(),
-                PrimitiveArray::empty::<u64>(dtype.nullability()).to_array(),
-                buffer![3_u64, 4].into_array(),
-            ],
-            dtype,
-        )
-        .unwrap();
-
-        test_filter(chunked.as_ref());
     }
 }

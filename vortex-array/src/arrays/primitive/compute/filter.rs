@@ -75,6 +75,7 @@ mod test {
 
     use crate::arrays::primitive::PrimitiveArray;
     use crate::canonical::ToCanonical;
+    use crate::compute::conformance::filter::test_filter;
     use crate::compute::filter;
 
     #[test]
@@ -100,5 +101,11 @@ mod test {
                 .map(|m| rust_arr[m.0])
                 .collect_vec()
         )
+    }
+
+    #[test]
+    fn test_filter_non_nullable_array() {
+        let non_nullable_array = PrimitiveArray::from_iter([1, 2, 3, 4, 5]);
+        test_filter(non_nullable_array.as_ref());
     }
 }

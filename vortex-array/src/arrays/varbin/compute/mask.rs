@@ -29,7 +29,6 @@ mod test {
     use vortex_dtype::{DType, Nullability};
 
     use crate::arrays::VarBinArray;
-    use crate::compute::conformance::filter::test_filter;
     use crate::compute::conformance::mask::test_mask;
 
     #[test]
@@ -45,20 +44,5 @@ mod test {
             DType::Utf8(Nullability::Nullable),
         );
         test_mask(array.as_ref());
-    }
-
-    #[test]
-    fn test_filter_var_bin_array() {
-        let array = VarBinArray::from_vec(
-            vec!["hello", "world", "filter", "good", "bye"],
-            DType::Utf8(Nullability::NonNullable),
-        );
-        test_filter(array.as_ref());
-
-        let array = VarBinArray::from_iter(
-            vec![Some("hello"), None, Some("filter"), Some("good"), None],
-            DType::Utf8(Nullability::Nullable),
-        );
-        test_filter(array.as_ref());
     }
 }
