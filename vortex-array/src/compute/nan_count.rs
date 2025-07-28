@@ -13,6 +13,14 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output,
 use crate::stats::{Precision, Stat};
 use crate::vtable::VTable;
 
+static NAN_COUNT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("nan_count".into(), ArcRef::new_ref(&NaNCount));
+    for kernel in inventory::iter::<NaNCountKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// Computes the number of NaN values in the array.
 pub fn nan_count(array: &dyn Array) -> VortexResult<usize> {
     Ok(NAN_COUNT_FN
@@ -67,14 +75,6 @@ impl ComputeFnVTable for NaNCount {
 pub trait NaNCountKernel: VTable {
     fn nan_count(&self, array: &Self::Array) -> VortexResult<usize>;
 }
-
-pub static NAN_COUNT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("nan_count".into(), ArcRef::new_ref(&NaNCount));
-    for kernel in inventory::iter::<NaNCountKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 pub struct NaNCountKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(NaNCountKernelRef);
