@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Core traits and implementations for asynchronous IO.
+//! Core traits and implementations for Vortex I/O.
+//!
+//! In order to support running in different environments, with different async runtimes or even
+//! with no async runtime at all, Vortex I/O is designed to be runtime-agnostic.
 //!
 //! Vortex implements an IPC streaming format as well as a file format, both of which
 //! run on top of a variety of storage systems that can be accessed from multiple async
