@@ -389,13 +389,19 @@ mod tests {
 
     #[test]
     fn test_filter_primitive_array() {
+        // Test various sizes
+        test_filter(PrimitiveArray::new(buffer![42i32], Validity::NonNullable).as_ref());
+        test_filter(PrimitiveArray::new(buffer![0, 1], Validity::NonNullable).as_ref());
         test_filter(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref());
+        test_filter(PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable).as_ref());
+        
+        // Test with validity
         test_filter(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
         test_filter(
             PrimitiveArray::new(
-                buffer![0, 1, 2, 3, 4],
+                buffer![0, 1, 2, 3, 4, 5],
                 Validity::Array(
-                    BoolArray::from_iter([true, false, true, false, true]).into_array(),
+                    BoolArray::from_iter([true, false, true, false, true, true]).into_array(),
                 ),
             )
             .as_ref(),
