@@ -11,7 +11,7 @@ use vortex_mask::Mask;
 ///
 /// TODO(ngates): is it self-contained? i.e. does it store a DType, and stats, etc.? Surely not...
 ///   Is it generically typed? Would be nice if it were, over the element type for example. But
-///   it's much better to have a consistent shape that can be downcast into impls.
+///   it's much better to have a consistent shape that can be downcast into impls?
 ///
 /// One problem here is we can't really wrap up a mutable elements array from some external source.
 /// We could solve this using unsafe and a lifetime object (e.g. Arc<dyn Any>), as well as storing
@@ -24,14 +24,38 @@ use vortex_mask::Mask;
 /// generic type. To remove the generic, we'd need to introduce a trait, at which point we're
 /// forced into both dynamic dispatch, and boxed return types. It's not a terrible idea?
 /// The other thing we want to support is implementing common operations over only vectors, for
-/// example filter and take can be implemented by shuffling the elements list only.
+/// example filter and take can be implemented by shuffling the elements list only. But we can also
+/// do this with traits.
+///
+/// Maybe one benefit is that e.g. exporting a constant vector just writes data into the actual
+/// vector, rather than constructing heap-allocated scalars. Particularly useful for nested data.
+/// In other words, the pre-allocated buffers can be re-used even when switching between vector
+/// types. But this can also be done with into_parts style operations.
 ///
 /// ## How do we handle custom encodings, e.g. FSST, RoaringBitMap, ZStd, etc.?
 ///
-/// TODO: The next problem is custom vectors, e.g. what if we have VarBinView with FSST encoding? I
-///  guess the thing here is that some view vectors want to defer access to their children or
-///  data buffers somehow. But eventually, they do want to access the underlying data. We also need
-///  to decide whether such view vectors use pointers or offsets to access their data.
+/// I could imagine a VarBinView vector (i.e. it has 16-byte views in its elements buffer), but
+/// is able to delay decompression of the data buffers. These could be stored as child arrays and
+/// decompressed on-demand, since this is now an opaque operation (and then call export on the
+/// child data arrays using a slices mask? We'd be masking binary data... that sounds slow))
+///
+/// What about dictionary arrays? Are they even important at this level? Well, they are for export
+/// to DuckDB, since we can return a DictionaryVector. But maybe that logic is held within the
+/// export_to_duckdb compute function, and therefore it runs an export of the values array first,
+/// before exporting the codes arrays and directly returning the result to DuckDB. This would only
+/// work for top-level dictionaries, but nested dictionaries are probably gross anyway!
+///
+/// ## Can we re-use parts of the pipeline to avoid common-subexpression elimination?
+///
+/// This gets tricky... Suppose we start with a Vortex expression. We can then pass that naively
+/// through pipeline construction. This now represents a physical execution plan. At this point,
+/// we could in theory optimize the pipeline by removing common sub-expressions, such as
+/// canonicalizing the same field multiple times to pass into two comparison operators.
+///
+/// We'd then need some way to buffer the intermediate results as both expressions are driven.
+/// Maybe this works?
+///
+///
 pub struct Vector {
     // The buffer containing the fixed-width elements of the vector.
     elements: Option<ByteBuffer>,
@@ -39,12 +63,13 @@ pub struct Vector {
     validity: Mask,
     // A selection over the elements and validity of the vector.
     // FIXME(ngates): using a selection mask means rank-based operations are expensive, vs
-    //  selection vectors which are always constant time.
+    //  selection indices which are always constant time.
     selection: Selection,
 
     // Additional buffers of data used by the vector, such as string data.
     data: Vec<ByteBuffer>,
-    // Additional vectors used by the vector, such as dictionary values.
+    // Additional vectors used by the vector, such as dictionary values. Maybe these should be
+    // arrays actually?
     children: Vec<Vector>,
 }
 

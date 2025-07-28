@@ -7,6 +7,8 @@ use vortex_mask::Mask;
 
 /// An evaluation provides a push-based way to emit a stream of vectors.
 ///
+/// Should we rename this to `Pipeline`?
+///
 /// By passing multiple vector computations through the same evaluation pipeline, we can amortize
 /// the setup costs (such as DType validation, stats short-circuiting, etc.). It is also possible
 /// to construct and reuse cached nodes in the evaluation graph, for example, creating a `tee`

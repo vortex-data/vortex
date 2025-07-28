@@ -41,7 +41,7 @@ pub struct PrimitiveExporter<'a, T> {
 }
 
 impl<'a, T> PrimitiveExporter<'a, T> {
-    pub fn validity_mut(&mut self) -> &mut BitVec {
+    pub fn validity_mut(&mut self) {
         todo!()
     }
 }

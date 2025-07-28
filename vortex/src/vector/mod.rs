@@ -23,15 +23,23 @@
 //! - Outputs need to be passed in to the scan / compute functions in order to support externally
 //!   provided buffers, such as Arrow, Numpy, etc.
 //!
+//! Evaluation:
+//! - Our primary focus is on DuckDB performance, largely because the execution model aligns so
+//!   well. If we can return DuckDB's 2k vectors efficiently, then we can hopefully keep the entire
+//!   pipeline from disk through to the DuckDB result within the L1 or L2 caches.
+//! - We care more about the performance of scan-heavy queries, less about join-heavy queries.
+//!   We do care about the performance of highly selective queries to explore how masking interacts
+//!   with pipelined compute.
 //!
-//! ## Shortcut?
-//! It may be possible to get a large way there with a few smaller changes:
-//! * Have compute functions return evaluations, that can be incrementally executed by accepting
-//!   an exporter object.
-//! * The exporter object wraps a pre-allocated mutable canonical array that evaluations can
-//!   downcast into the expected canonical type. Alternatively, the exporter can set a custom
-//!   result array if they prefer. The cost of pre-allocating the array is amortized over the
-//!   incremental evaluation since it's likely re-used by the caller.
+//! ## Pipelined Compute
+//!
+//! The core component if this change is to introduce a new compute model that allows for better
+//! pipelining of operations over smaller chunks of data.
+//!
+//! In this world, an Array becomes actually _more_ like a Layout, in that it can be converted into
+//! a compute pipeline (evaluation) to be executed piecemeal. An array holds onto zero-copy data
+//! from disk, where the data is only accessed at the time of evaluation. A pipeline is then driven
+//! with small chunks of data at a time.
 
 #![allow(dead_code)]
 #![allow(unused_variables)]
