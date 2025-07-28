@@ -31,7 +31,7 @@ mod test {
 
         // Test nullable bool array
         test_mask_conformance(
-            BoolArray::from_option_iter([Some(true), None, Some(false), Some(true), None]).as_ref(),
+            BoolArray::from_iter([Some(true), None, Some(false), Some(true), None]).as_ref(),
         );
     }
 }
