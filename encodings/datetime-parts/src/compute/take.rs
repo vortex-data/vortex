@@ -1,22 +1,64 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take};
+use vortex_array::compute::{TakeKernel, TakeKernelAdapter, take, fill_null};
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::{DateTimePartsArray, DateTimePartsVTable};
 
 impl TakeKernel for DateTimePartsVTable {
     fn take(&self, array: &DateTimePartsArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+        let taken_days = take(array.days(), indices)?;
+        let taken_seconds = take(array.seconds(), indices)?;
+        let taken_subseconds = take(array.subseconds(), indices)?;
+        
+        // Update the dtype if the nullability changed due to nullable indices
+        let dtype = if taken_days.dtype().is_nullable() != array.dtype().is_nullable() {
+            array.dtype().with_nullability(taken_days.dtype().nullability())
+        } else {
+            array.dtype().clone()
+        };
+        
+        // DateTimePartsArray requires seconds and subseconds to be non-nullable
+        // If they became nullable due to nullable indices, we need to fill nulls
+        let final_seconds = if taken_seconds.dtype().is_nullable() {
+            // Find the first non-null value in the original seconds array to use as fill value
+            let fill_value = find_first_non_null_value(array.seconds())
+                .unwrap_or_else(|| Scalar::from(0i64));
+            fill_null(taken_seconds.as_ref(), &fill_value)?
+        } else {
+            taken_seconds
+        };
+        
+        let final_subseconds = if taken_subseconds.dtype().is_nullable() {
+            // Find the first non-null value in the original subseconds array to use as fill value
+            let fill_value = find_first_non_null_value(array.subseconds())
+                .unwrap_or_else(|| Scalar::from(0i64));
+            fill_null(taken_subseconds.as_ref(), &fill_value)?
+        } else {
+            taken_subseconds
+        };
+        
         Ok(DateTimePartsArray::try_new(
-            array.dtype().clone(),
-            take(array.days(), indices)?,
-            take(array.seconds(), indices)?,
-            take(array.subseconds(), indices)?,
+            dtype,
+            taken_days,
+            final_seconds,
+            final_subseconds,
         )?
         .into_array())
     }
+}
+
+fn find_first_non_null_value(array: &dyn Array) -> Option<Scalar> {
+    for i in 0..array.len() {
+        let scalar = array.scalar_at(i).ok()?;
+        if !scalar.is_null() {
+            return Some(scalar);
+        }
+    }
+    None
 }
 
 register_kernel!(TakeKernelAdapter(DateTimePartsVTable).lift());

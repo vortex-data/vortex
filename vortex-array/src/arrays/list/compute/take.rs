@@ -172,6 +172,7 @@ mod test {
 
     use crate::arrays::list::ListArray;
     use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
     use crate::{Array, ToCanonical};
@@ -333,5 +334,70 @@ mod test {
             )
         );
         assert_eq!(result.len(), 0,);
+    }
+
+    #[test]
+    fn test_take_list_conformance() {
+        // Test simple list array
+        let list = ListArray::try_new(
+            PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5]).to_array(),
+            PrimitiveArray::from_iter([0, 2, 3, 5, 5, 6]).to_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+        test_take_conformance(list.as_ref());
+
+        // Test nullable list array
+        let list = ListArray::try_new(
+            PrimitiveArray::from_iter([10i32, 20, 30, 40, 50]).to_array(),
+            PrimitiveArray::from_iter([0, 2, 3, 4, 5]).to_array(),
+            Validity::Array(BoolArray::from_iter(vec![true, false, true, true]).to_array()),
+        )
+        .unwrap();
+        test_take_conformance(list.as_ref());
+
+        // Test list with empty lists
+        let list = ListArray::try_new(
+            PrimitiveArray::from_iter([1i32, 2, 3]).to_array(),
+            PrimitiveArray::from_iter([0, 0, 2, 2, 3]).to_array(),  // First and third are empty
+            Validity::NonNullable,
+        )
+        .unwrap();
+        test_take_conformance(list.as_ref());
+
+        // Test single element list
+        let list = ListArray::try_new(
+            PrimitiveArray::from_iter([42i32, 43]).to_array(),
+            PrimitiveArray::from_iter([0, 2]).to_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+        test_take_conformance(list.as_ref());
+
+        // Test larger list array for edge cases
+        let elements = PrimitiveArray::from_iter(0i32..200).to_array();
+        let mut offsets = vec![0];
+        for i in 1..=50 {
+            offsets.push(offsets[i - 1] + (i % 5) as i32);  // Variable length lists
+        }
+        let list = ListArray::try_new(
+            elements,
+            PrimitiveArray::from_iter(offsets).to_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+        test_take_conformance(list.as_ref());
+    }
+
+    #[test]
+    fn test_take_list_with_null_elements() {
+        // Test list with nullable elements
+        let list = ListArray::try_new(
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]).to_array(),
+            PrimitiveArray::from_iter([0, 2, 3, 5]).to_array(),
+            Validity::NonNullable,
+        )
+        .unwrap();
+        test_take_conformance(list.as_ref());
     }
 }

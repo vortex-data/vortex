@@ -29,6 +29,23 @@ pub fn test_take_conformance(array: &dyn Array) {
     }
 
     test_empty_indices(array);
+
+    // Additional edge cases for non-empty arrays
+    if len > 0 {
+        test_take_reverse(array);
+        test_take_single_middle(array);
+    }
+
+    if len > 3 {
+        test_take_random_unsorted(array);
+        test_take_contiguous_range(array);
+        test_take_mixed_repeated(array);
+    }
+
+    // Test for larger arrays
+    if len >= 1024 {
+        test_take_large_indices(array);
+    }
 }
 
 fn test_take_all(array: &dyn Array) {
@@ -156,6 +173,136 @@ fn test_empty_indices(array: &dyn Array) {
 
     assert_eq!(result.len(), 0);
     assert_eq!(result.dtype(), array.dtype());
+}
+
+fn test_take_reverse(array: &dyn Array) {
+    let len = array.len();
+    // Take elements in reverse order
+    let indices = PrimitiveArray::from_iter((0..len as u64).rev());
+    let result = take(array, indices.as_ref()).unwrap();
+
+    assert_eq!(result.len(), len);
+    
+    // Verify elements are in reverse order
+    for i in 0..len {
+        assert_eq!(
+            array.scalar_at(len - 1 - i).unwrap(),
+            result.scalar_at(i).unwrap()
+        );
+    }
+}
+
+fn test_take_single_middle(array: &dyn Array) {
+    let len = array.len();
+    let middle_idx = len / 2;
+    
+    let indices = PrimitiveArray::from_iter([middle_idx as u64]);
+    let result = take(array, indices.as_ref()).unwrap();
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(
+        array.scalar_at(middle_idx).unwrap(),
+        result.scalar_at(0).unwrap()
+    );
+}
+
+fn test_take_random_unsorted(array: &dyn Array) {
+    let len = array.len();
+    
+    // Create a pseudo-random but deterministic pattern
+    let mut indices = Vec::new();
+    let mut idx = 1u64;
+    for _ in 0..len.min(10) {
+        indices.push((idx * 7 + 3) % len as u64);
+        idx = (idx * 3 + 1) % len as u64;
+    }
+    
+    let indices_array = PrimitiveArray::from_iter(indices.clone());
+    let result = take(array, indices_array.as_ref()).unwrap();
+
+    assert_eq!(result.len(), indices.len());
+    
+    // Verify elements match
+    for (i, &idx) in indices.iter().enumerate() {
+        assert_eq!(
+            array.scalar_at(idx as usize).unwrap(),
+            result.scalar_at(i).unwrap()
+        );
+    }
+}
+
+fn test_take_contiguous_range(array: &dyn Array) {
+    let len = array.len();
+    let start = len / 4;
+    let end = len / 2;
+    
+    // Take a contiguous range from the middle
+    let indices = PrimitiveArray::from_iter(start as u64..end as u64);
+    let result = take(array, indices.as_ref()).unwrap();
+
+    assert_eq!(result.len(), end - start);
+    
+    // Verify elements
+    for i in 0..(end - start) {
+        assert_eq!(
+            array.scalar_at(start + i).unwrap(),
+            result.scalar_at(i).unwrap()
+        );
+    }
+}
+
+fn test_take_mixed_repeated(array: &dyn Array) {
+    let len = array.len();
+    
+    // Create pattern with some repeated indices
+    let indices = vec![
+        0u64,
+        0,
+        1,
+        1,
+        len as u64 / 2,
+        len as u64 / 2,
+        len as u64 / 2,
+        (len - 1) as u64,
+    ];
+    
+    let indices_array = PrimitiveArray::from_iter(indices.clone());
+    let result = take(array, indices_array.as_ref()).unwrap();
+
+    assert_eq!(result.len(), indices.len());
+    
+    // Verify elements
+    for (i, &idx) in indices.iter().enumerate() {
+        assert_eq!(
+            array.scalar_at(idx as usize).unwrap(),
+            result.scalar_at(i).unwrap()
+        );
+    }
+}
+
+fn test_take_large_indices(array: &dyn Array) {
+    // Test with a large number of indices to stress test performance
+    let len = array.len();
+    let num_indices = 10000.min(len * 3);
+    
+    // Create many indices with a pattern
+    let indices: Vec<u64> = (0..num_indices)
+        .map(|i| ((i * 17 + 5) % len) as u64)
+        .collect();
+    
+    let indices_array = PrimitiveArray::from_iter(indices.clone());
+    let result = take(array, indices_array.as_ref()).unwrap();
+
+    assert_eq!(result.len(), num_indices);
+    
+    // Spot check a few elements
+    for i in (0..num_indices).step_by(1000) {
+        let expected_idx = indices[i] as usize;
+        assert_eq!(
+            array.scalar_at(expected_idx).unwrap(),
+            result.scalar_at(i).unwrap()
+        );
+    }
 }
 
 #[cfg(test)]
