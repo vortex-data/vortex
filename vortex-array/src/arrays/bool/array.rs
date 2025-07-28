@@ -13,6 +13,35 @@ use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{ArrayVTable, CanonicalVTable, ValidityHelper};
 
+/// A boolean array that stores true/false values in a compact bit-packed format.
+///
+/// This mirrors the Apache Arrow Boolean array encoding, where each boolean value
+/// is stored as a single bit rather than a full byte.
+///
+/// The data layout uses:
+/// - A bit-packed buffer where each bit represents one boolean value (0 = false, 1 = true)
+/// - An optional validity child array, which must be of type `Bool(NonNullable)`, where true values
+///   indicate valid and false indicates null. if the i-th value is null in the validity child,
+///   the i-th packed bit in the buffer may be 0 or 1, i.e. it is undefined.
+/// - Bit-level slicing is supported with minimal overhead
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::BoolArray;
+/// use vortex_array::IntoArray;
+///
+/// // Create from iterator using FromIterator impl
+/// let array: BoolArray = [true, false, true, false].into_iter().collect();
+///
+/// // Slice the array
+/// let sliced = array.slice(1, 3).unwrap();
+/// assert_eq!(sliced.len(), 2);
+///
+/// // Access individual values
+/// let value = array.scalar_at(0).unwrap();
+/// assert_eq!(value, true.into());
+/// ```
 #[derive(Clone, Debug)]
 pub struct BoolArray {
     dtype: DType,
