@@ -33,5 +33,6 @@ mod private {
 
     impl Sealed for crate::buffer::ByteBufferReadAt {}
 
+    #[cfg(feature = "tokio")]
     impl<R: crate::tokio::TokioReadAt> Sealed for crate::tokio::TokioDispatchedIo<R> {}
 }
