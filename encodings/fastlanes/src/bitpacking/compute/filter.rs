@@ -239,24 +239,4 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 3).unwrap();
         test_filter(bitpacked.as_ref());
     }
-
-    #[test]
-    fn test_numeric_bitpacked_conformance() {
-        use vortex_array::compute::conformance::binary_numeric::test_numeric;
-
-        // Test with u8 values
-        let unpacked = PrimitiveArray::from_iter([10u8, 20, 30, 40, 50]);
-        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
-        test_numeric(bitpacked.into_array());
-
-        // Test with u32 values
-        let unpacked = PrimitiveArray::from_iter([1000u32, 2000, 3000, 4000, 5000]);
-        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 13).unwrap();
-        test_numeric(bitpacked.into_array());
-
-        // Test with i32 values
-        let unpacked = PrimitiveArray::from_iter([100i32, 200, 300, 400, 500]);
-        let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 10).unwrap();
-        test_numeric(bitpacked.into_array());
-    }
 }

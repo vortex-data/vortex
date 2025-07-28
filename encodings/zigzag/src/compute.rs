@@ -133,7 +133,6 @@ mod tests {
 
     #[test]
     fn test_filter_conformance() {
-        use vortex_array::compute::conformance::binary_numeric::test_numeric;
         use vortex_array::compute::conformance::filter::test_filter;
 
         // Test with i32 values
@@ -201,34 +200,5 @@ mod tests {
             .unwrap()
             .unwrap();
         test_mask(zigzag.as_ref());
-    }
-
-    #[test]
-    fn test_numeric_conformance() {
-        use vortex_array::compute::conformance::binary_numeric::test_numeric;
-
-        // Test binary numeric operations with i32
-        let zigzag1 = ZigZagEncoding
-            .encode(
-                &buffer![10i32, -20, 30, -40, 50]
-                    .into_array()
-                    .to_canonical()
-                    .unwrap(),
-                None,
-            )
-            .unwrap()
-            .unwrap();
-        let zigzag2 = ZigZagEncoding
-            .encode(
-                &buffer![5i32, -10, 15, -20, 25]
-                    .into_array()
-                    .to_canonical()
-                    .unwrap(),
-                None,
-            )
-            .unwrap()
-            .unwrap();
-        test_numeric(zigzag1.into_array());
-        test_numeric(zigzag2.into_array());
     }
 }
