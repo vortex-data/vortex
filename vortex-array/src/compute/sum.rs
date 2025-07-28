@@ -173,7 +173,7 @@ mod test {
         let result = sum(array.as_ref()).unwrap();
         assert_eq!(
             result,
-            Scalar::null(DType::Primitive(PType::U64, Nullability::Nullable))
+            Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable))
         );
     }
 
@@ -183,7 +183,7 @@ mod test {
         let result = sum(array.as_ref()).unwrap();
         assert_eq!(
             result,
-            Scalar::null(DType::Primitive(PType::U64, Nullability::Nullable))
+            Scalar::null(DType::Primitive(PType::F64, Nullability::Nullable))
         );
     }
 
