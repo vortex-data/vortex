@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::path::Path;
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -80,13 +79,13 @@ impl VortexOpenOptions {
 
     /// Create a new [`VortexOpenOptions`] with the expected options for the file source.
     #[cfg(feature = "tokio")]
-    pub fn new_file(path: impl AsRef<Path>) -> Self {
+    pub fn new_file(path: impl AsRef<std::path::Path>) -> Self {
         Self::new(path.as_ref())
     }
 
     /// Open the file with the default options.
     #[cfg(feature = "tokio")]
-    pub fn open_file(path: impl AsRef<Path>) -> VortexResult<VortexFile> {
+    pub fn open_file(path: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
         Self::new(path.as_ref()).open()
     }
 
