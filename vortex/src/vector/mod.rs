@@ -40,6 +40,17 @@
 //! a compute pipeline (evaluation) to be executed piecemeal. An array holds onto zero-copy data
 //! from disk, where the data is only accessed at the time of evaluation. A pipeline is then driven
 //! with small chunks of data at a time.
+//!
+//! Arrays still support compute functions that take and return arrays, but internally, these are
+//! implemented using pipelined evaluation. The array on which the compute function was invoked is
+//! known as the "entry point" array, and it is responsible for constructing an evaluation, driving
+//! it, and collecting the result. For example, a DictArray can drive separate evaluations for its
+//! values and codes, and then re-assemble the results into a dictionary. Note that this dict
+//! push-down will therefore only occur if the top-level entry point is a DictArray.
+//!
+//! So each array has one function to get a compute kernel, and one function to get a compute
+//! evaluation. If either fails to return, a default canonical implementation is used, as now.
+//!
 
 #![allow(dead_code)]
 #![allow(unused_variables)]
