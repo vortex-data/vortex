@@ -26,6 +26,7 @@ register_kernel!(MaskKernelAdapter(VarBinViewVTable).lift());
 #[cfg(test)]
 mod tests {
     use crate::arrays::VarBinViewArray;
+    use crate::compute::conformance::filter::test_filter;
     use crate::compute::conformance::mask::test_mask;
 
     #[test]
@@ -33,6 +34,24 @@ mod tests {
         test_mask(VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).as_ref());
 
         test_mask(
+            VarBinViewArray::from_iter_nullable_str([
+                Some("one"),
+                None,
+                Some("three"),
+                Some("four"),
+                Some("five"),
+            ])
+            .as_ref(),
+        );
+    }
+
+    #[test]
+    fn test_filter_var_bin_view_array() {
+        test_filter(
+            VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).as_ref(),
+        );
+
+        test_filter(
             VarBinViewArray::from_iter_nullable_str([
                 Some("one"),
                 None,

@@ -99,6 +99,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
+    use crate::compute::conformance::filter::test_filter;
     use crate::compute::conformance::mask::test_mask;
     use crate::compute::{cast, filter, is_constant, take};
     use crate::validity::Validity;
@@ -190,6 +191,49 @@ mod tests {
             BoolArray::from_iter([Some(true), Some(true), None, None, Some(false)]).into_array();
 
         test_mask(
+            StructArray::try_new(
+                ["xs", "ys", "zs"].into(),
+                vec![
+                    StructArray::try_new(
+                        ["left", "right"].into(),
+                        vec![xs.clone(), xs],
+                        5,
+                        Validity::NonNullable,
+                    )
+                    .unwrap()
+                    .into_array(),
+                    ys,
+                    zs,
+                ],
+                5,
+                Validity::NonNullable,
+            )
+            .unwrap()
+            .as_ref(),
+        );
+    }
+
+    #[test]
+    fn test_filter_empty_struct() {
+        test_filter(
+            StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
+                .unwrap()
+                .as_ref(),
+        );
+    }
+
+    #[test]
+    fn test_filter_complex_struct() {
+        let xs = buffer![0i64, 1, 2, 3, 4].into_array();
+        let ys = VarBinArray::from_iter(
+            [Some("a"), Some("b"), None, Some("d"), None],
+            DType::Utf8(Nullable),
+        )
+        .into_array();
+        let zs =
+            BoolArray::from_iter([Some(true), Some(true), None, None, Some(false)]).into_array();
+
+        test_filter(
             StructArray::try_new(
                 ["xs", "ys", "zs"].into(),
                 vec![

@@ -67,6 +67,7 @@ register_kernel!(TakeKernelAdapter(ByteBoolVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::compute::conformance::filter::test_filter;
     use vortex_array::compute::conformance::mask::test_mask;
     use vortex_array::compute::{Operator, compare};
 
@@ -145,6 +146,14 @@ mod tests {
     fn test_mask_byte_bool() {
         test_mask(ByteBoolArray::from(vec![true, false, true, true, false]).as_ref());
         test_mask(
+            ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).as_ref(),
+        );
+    }
+
+    #[test]
+    fn test_filter_byte_bool() {
+        test_filter(ByteBoolArray::from(vec![true, false, true, true, false]).as_ref());
+        test_filter(
             ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).as_ref(),
         );
     }

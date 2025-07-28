@@ -35,6 +35,7 @@ mod test {
     use rstest::{fixture, rstest};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_numeric;
+    use vortex_array::compute::conformance::filter::test_filter as test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask;
     use vortex_array::compute::{cast, filter};
     use vortex_array::validity::Validity;
@@ -118,6 +119,37 @@ mod test {
 
         let ten_fill_value = Scalar::from(10i32);
         test_mask(
+            SparseArray::try_new(
+                buffer![1u64, 2, 4].into_array(),
+                buffer![100i32, 200, 300].into_array(),
+                5,
+                ten_fill_value,
+            )
+            .unwrap()
+            .as_ref(),
+        )
+    }
+
+    #[test]
+    fn test_filter_sparse_array() {
+        let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+        test_filter_conformance(
+            SparseArray::try_new(
+                buffer![1u64, 2, 4].into_array(),
+                cast(
+                    &buffer![100i32, 200, 300].into_array(),
+                    null_fill_value.dtype(),
+                )
+                .unwrap(),
+                5,
+                null_fill_value,
+            )
+            .unwrap()
+            .as_ref(),
+        );
+
+        let ten_fill_value = Scalar::from(10i32);
+        test_filter_conformance(
             SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
                 buffer![100i32, 200, 300].into_array(),

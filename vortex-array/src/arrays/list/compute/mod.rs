@@ -41,6 +41,7 @@ register_kernel!(IsSortedKernelAdapter(ListVTable).lift());
 mod test {
     use crate::IntoArray;
     use crate::arrays::{ListArray, PrimitiveArray};
+    use crate::compute::conformance::filter::test_filter;
     use crate::compute::conformance::mask::test_mask;
     use crate::validity::Validity;
 
@@ -53,5 +54,16 @@ mod test {
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
         test_mask(array.as_ref());
+    }
+
+    #[test]
+    fn test_filter_list() {
+        let elements = PrimitiveArray::from_iter(0..35);
+        let offsets = PrimitiveArray::from_iter([0, 5, 11, 18, 26, 35]);
+        let validity = Validity::AllValid;
+        let array =
+            ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
+
+        test_filter(array.as_ref());
     }
 }

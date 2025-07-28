@@ -393,8 +393,10 @@ mod tests {
         test_filter(PrimitiveArray::new(buffer![42i32], Validity::NonNullable).as_ref());
         test_filter(PrimitiveArray::new(buffer![0, 1], Validity::NonNullable).as_ref());
         test_filter(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref());
-        test_filter(PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable).as_ref());
-        
+        test_filter(
+            PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable).as_ref(),
+        );
+
         // Test with validity
         test_filter(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
         test_filter(
