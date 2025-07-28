@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::vector::exporter::Exporter;
+use vortex_array::Canonical;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -17,6 +18,15 @@ use vortex_mask::Mask;
 /// Passing in an `Exporter` (instead of say `&mut dyn Array`) allows us to have more explicit
 /// control over what happens if the evaluation wants to return a non-canonical encoding.
 /// into it.
+///
+/// FIXME(ngates): this has a similar problem to Layouts. It would be useful if the array had full
+///  visibility into the mask it is about to be asked for, so it can optimize its export? Actually,
+///  when is this true? I guess if there is a series of low selectivity masks, then it would be
+///  useful to export these scalars into the same repartitioned vector. Also, does each invocation
+///  assume the mask has been consumed? Or can the implementation return the number of rows it has
+///  consumed from the mask? This could be useful for FastLanes where if it's given a 4k mask, it
+///  could just look at the first 1k, export that, then return the fact that it only consumed 1k.
+///  This may fuck with alignment though...?
 pub trait Evaluation {
     /// The `next` function is called to export the next batch of data into the provided `Exporter`.
     ///
@@ -39,4 +49,12 @@ pub trait Evaluation {
     ///
     /// FIXME(ngates): what if the evaluation pipeline depends on the exported vector's encoding???
     fn next(&mut self, mask: &Mask, out: Exporter) -> VortexResult<()>;
+}
+
+impl dyn Evaluation + '_ {
+    /// It should be possible to collect an evaluation into a canonical Array by exporting to
+    /// consecutive positions in a pre-allocated output array.
+    pub fn collect(self) -> Canonical {
+        todo!()
+    }
 }
