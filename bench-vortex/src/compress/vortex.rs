@@ -5,17 +5,15 @@ use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use itertools::Itertools;
-use tokio::runtime::Handle;
 use vortex::Array;
 use vortex::buffer::{ByteBuffer, ByteBufferMut};
 use vortex::file::{VortexLayoutStrategy, VortexOpenOptions, VortexWriteOptions};
+use vortex::layout::LocalExecutor;
 
 #[inline(never)]
 pub async fn vortex_compress_write(array: &dyn Array) -> anyhow::Result<ByteBuffer> {
     Ok(VortexWriteOptions::default()
-        .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
-            Handle::current(),
-        )))
+        .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(LocalExecutor)))
         .write(ByteBufferMut::empty(), array.to_array_stream())
         .await?
         .freeze())
