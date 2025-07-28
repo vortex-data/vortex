@@ -15,9 +15,7 @@ use vortex_array::builders::{
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::{
-    Array, ArrayRef, Canonical, IntoArray as _, ToCanonical as _, match_smallest_offset_type,
-};
+use vortex_array::{Array, ArrayRef, Canonical, IntoArray as _, ToCanonical as _};
 use vortex_buffer::{Buffer, BufferMut, BufferString, ByteBuffer, buffer, buffer_mut};
 use vortex_dtype::{
     DType, DecimalDType, NativePType, Nullability, StructFields, match_each_integer_ptype,
@@ -132,6 +130,26 @@ fn canonicalize_sparse_lists(
     values_dtype: Arc<DType>,
     nullability: Nullability,
 ) -> VortexResult<Canonical> {
+    macro_rules! match_smallest_offset_type {
+        ($n_elements:expr, | $offset_type:ident | $body:block) => {{
+            let n_elements = $n_elements;
+            if n_elements <= u8::MAX as usize {
+                type $offset_type = u8;
+                $body
+            } else if n_elements <= u16::MAX as usize {
+                type $offset_type = u16;
+                $body
+            } else if n_elements <= u32::MAX as usize {
+                type $offset_type = u32;
+                $body
+            } else {
+                assert!(u64::try_from(n_elements).is_ok());
+                type $offset_type = u64;
+                $body
+            }
+        }};
+    }
+
     let indices = resolved_patches.indices().to_primitive()?;
     let values = resolved_patches.values().to_list()?;
     let fill_value = array.fill_scalar().as_list();
