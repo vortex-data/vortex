@@ -68,7 +68,7 @@ impl ComputeFnVTable for IsConstant {
     ) -> VortexResult<Output> {
         let IsConstantArgs { array, options } = IsConstantArgs::try_from(args)?;
 
-        // We try and rely on some easy to get stats
+        // We try and rely on some easy-to-get stats
         if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsConstant) {
             return Ok(Scalar::from(Some(value)).into());
         }
