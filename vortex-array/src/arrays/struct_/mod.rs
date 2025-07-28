@@ -436,30 +436,17 @@ impl OperationsVTable<StructVTable> for StructVTable {
     }
 
     fn scalar_at(array: &StructArray, index: usize) -> VortexResult<Scalar> {
-        match array.validity {
-            Validity::AllValid | Validity::NonNullable => Ok(Scalar::struct_(
+        if array.is_valid(index)? {
+            Ok(Scalar::struct_(
                 array.dtype().clone(),
                 array
                     .fields()
                     .iter()
                     .map(|field| field.scalar_at(index))
                     .try_collect()?,
-            )),
-            Validity::AllInvalid => Ok(Scalar::null(array.dtype().clone())),
-            Validity::Array(_) => {
-                if array.is_valid(index)? {
-                    Ok(Scalar::struct_(
-                        array.dtype().clone(),
-                        array
-                            .fields()
-                            .iter()
-                            .map(|field| field.scalar_at(index))
-                            .try_collect()?,
-                    ))
-                } else {
-                    Ok(Scalar::null(array.dtype().clone()))
-                }
-            }
+            ))
+        } else {
+            Ok(Scalar::null(array.dtype().clone()))
         }
     }
 }
