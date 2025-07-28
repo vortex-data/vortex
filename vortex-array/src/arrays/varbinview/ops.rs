@@ -14,7 +14,7 @@ impl OperationsVTable<VarBinViewVTable> for VarBinViewVTable {
 
         Ok(VarBinViewArray::try_new(
             views,
-            array.buffers_arc(),
+            array.buffers().clone(),
             array.dtype().clone(),
             array.validity().slice(start, stop)?,
         )?

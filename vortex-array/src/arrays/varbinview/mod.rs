@@ -379,14 +379,8 @@ impl VarBinViewArray {
 
     /// Iterate over the underlying raw data buffers, not including the views buffer.
     #[inline]
-    pub fn buffers(&self) -> &[ByteBuffer] {
+    pub fn buffers(&self) -> &Arc<[ByteBuffer]> {
         &self.buffers
-    }
-
-    /// Share ownership of the underlying raw data buffers, not including the views buffer.
-    #[inline]
-    pub(crate) fn buffers_arc(&self) -> Arc<[ByteBuffer]> {
-        self.buffers.clone()
     }
 
     /// Accumulate an iterable set of values into our type here.

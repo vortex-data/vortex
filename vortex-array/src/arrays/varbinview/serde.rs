@@ -56,7 +56,7 @@ impl SerdeVTable<VarBinViewVTable> for VarBinViewVTable {
 
 impl VisitorVTable<VarBinViewVTable> for VarBinViewVTable {
     fn visit_buffers(array: &VarBinViewArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for buffer in array.buffers() {
+        for buffer in array.buffers().as_ref() {
             visitor.visit_buffer(buffer);
         }
         visitor.visit_buffer(&array.views().clone().into_byte_buffer());
