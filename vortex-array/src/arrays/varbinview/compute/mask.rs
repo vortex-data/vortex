@@ -30,7 +30,9 @@ mod tests {
 
     #[test]
     fn take_mask_var_bin_view_array() {
-        test_mask_conformance(VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).as_ref());
+        test_mask_conformance(
+            VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).as_ref(),
+        );
 
         test_mask_conformance(
             VarBinViewArray::from_iter_nullable_str([
