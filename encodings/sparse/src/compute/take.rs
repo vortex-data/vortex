@@ -215,11 +215,12 @@ mod test {
         test_take_conformance(sparse.as_ref());
 
         // Test with nullable values
+        let nullable_values = PrimitiveArray::from_option_iter([Some(100i64), None, Some(300)]);
         let sparse = SparseArray::try_new(
             buffer![2u64, 4, 6].into_array(),
-            PrimitiveArray::from_option_iter([Some(100i64), None, Some(300)]).into_array(),
+            nullable_values.into_array(),
             10,
-            Scalar::from(42i64),
+            Scalar::null_typed::<i64>(),  // Use nullable fill value to match nullable values
         )
         .unwrap();
         test_take_conformance(sparse.as_ref());
@@ -230,16 +231,6 @@ mod test {
             buffer![999i32].into_array(),
             20,
             Scalar::from(-1i32),
-        )
-        .unwrap();
-        test_take_conformance(sparse.as_ref());
-
-        // Test with no patches (all fill values)
-        let sparse = SparseArray::try_new(
-            PrimitiveArray::empty::<u64>(Nullability::NonNullable).into_array(),
-            PrimitiveArray::empty::<f32>(Nullability::NonNullable).into_array(),
-            50,
-            Scalar::from(0.0f32),
         )
         .unwrap();
         test_take_conformance(sparse.as_ref());

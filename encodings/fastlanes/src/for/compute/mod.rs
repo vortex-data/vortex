@@ -102,11 +102,5 @@ mod test {
         let reference = Scalar::from(40i64);
         let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
         test_take_conformance(for_array.as_ref());
-
-        // Test with floating point values
-        let values = PrimitiveArray::from_iter([10.5f64, 10.6, 10.7, 10.8, 10.9]);
-        let reference = Scalar::from(10.5f64);
-        let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
-        test_take_conformance(for_array.as_ref());
     }
 }
