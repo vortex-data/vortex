@@ -8,7 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
 
-use super::{ComputeFnVTable, InvocationArgs, Output};
+use super::{ComputeFnVTable, InvocationArgs, Output, cast};
 use crate::builders::builder_with_capacity;
 use crate::compute::{ComputeFn, Kernel};
 use crate::vtable::VTable;
@@ -46,11 +46,11 @@ impl ComputeFnVTable for Zip {
         } = ZipArgs::try_from(args)?;
 
         if mask.all_true() {
-            return Ok(if_true.to_array().into());
+            return Ok(cast(if_true, &zip_return_dtype(if_true, if_false))?.into());
         }
 
         if mask.all_false() {
-            return Ok(if_false.to_array().into());
+            return Ok(cast(if_false, &zip_return_dtype(if_true, if_false))?.into());
         }
 
         if if_true.is_canonical() && if_false.is_canonical() {
