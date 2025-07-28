@@ -27,8 +27,9 @@ impl SumKernel for ConstantVTable {
             DType::Primitive(ptype, _) => {
                 match_each_native_ptype!(
                     ptype,
-                    integral: |T| { sum_integral::<u64>(scalar.as_primitive(), array.len())?.into() },
-                    floating_point: |T| { sum_float(scalar.as_primitive(), array.len())?.into() }
+                    unsigned: |T| { sum_integral::<i64>(scalar.as_primitive(), array.len())?.into() },
+                    signed: |T| { sum_integral::<u64>(scalar.as_primitive(), array.len())?.into() },
+                    floating: |T| { sum_float(scalar.as_primitive(), array.len())?.into() }
                 )
             }
             _ => vortex_bail!("Unsupported dtype for sum: {}", scalar.dtype()),

@@ -397,14 +397,15 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         // Propagate some stats from the original array to the sliced array.
         if !sliced.is::<ConstantVTable>() {
             self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|stat| {
-                    matches!(stat, (
-                               Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted,
-                               Precision::Exact(value),
-                           ) if value
-                            .as_bool()
+                sliced.statistics().inherit(iter.filter(|(stat, value)| {
+                    matches!(
+                        stat,
+                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
+                    ) && value.as_ref().as_exact().is_some_and(|v| {
+                        v.as_bool()
                             .vortex_expect("must be a bool")
-                            .unwrap_or_default())
+                            .unwrap_or_default()
+                    })
                 }));
             });
         }
