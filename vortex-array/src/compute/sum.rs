@@ -5,13 +5,13 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::{vortex_err, vortex_panic, VortexResult};
+use vortex_error::{VortexResult, vortex_err, vortex_panic};
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output, UnaryArgs};
 use crate::stats::{Precision, Stat, StatsProvider};
 use crate::vtable::VTable;
-use crate::Array;
 
 /// Sum an array.
 ///

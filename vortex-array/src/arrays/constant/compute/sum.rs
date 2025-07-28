@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::{CheckedMul, ToPrimitive};
-use vortex_dtype::{match_each_native_ptype, DType, NativePType};
-use vortex_error::{vortex_bail, vortex_err, VortexResult};
+use vortex_dtype::{DType, NativePType, match_each_native_ptype};
+use vortex_error::{VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::{FromPrimitiveOrF16, PrimitiveScalar, Scalar, ScalarValue};
 
 use crate::arrays::{ConstantArray, ConstantVTable};
@@ -73,9 +73,9 @@ mod tests {
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
+    use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::compute::sum;
-    use crate::IntoArray;
 
     #[test]
     fn test_sum_unsigned() {
