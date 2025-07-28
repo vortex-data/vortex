@@ -79,11 +79,13 @@ impl VortexOpenOptions {
     }
 
     /// Create a new [`VortexOpenOptions`] with the expected options for the file source.
+    #[cfg(feature = "tokio")]
     pub fn new_file(path: impl AsRef<Path>) -> Self {
         Self::new(path.as_ref())
     }
 
     /// Open the file with the default options.
+    #[cfg(feature = "tokio")]
     pub fn open_file(path: impl AsRef<Path>) -> VortexResult<VortexFile> {
         Self::new(path.as_ref()).open()
     }

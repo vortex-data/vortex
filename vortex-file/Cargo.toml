@@ -68,6 +68,6 @@ object_store = [
     "vortex-error/object_store",
     "vortex-io/object_store",
 ]
-tokio = ["vortex-layout/tokio"]
+tokio = ["vortex-layout/tokio", "vortex-io/tokio"]
 tracing = ["dep:tracing", "vortex-io/tracing", "vortex-layout/tracing"]
 zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]
