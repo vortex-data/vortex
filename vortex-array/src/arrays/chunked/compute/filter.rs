@@ -251,5 +251,20 @@ mod test {
         .unwrap();
 
         test_filter_conformance(chunked.as_ref());
+
+        // Test nullable chunked array
+        let nullable_dtype = DType::Primitive(PType::U64, Nullability::Nullable);
+        let chunked_nullable = ChunkedArray::try_new(
+            vec![
+                PrimitiveArray::from_option_iter([Some(0u64), None]).to_array(),
+                PrimitiveArray::from_option_iter([Some(2u64)]).to_array(),
+                PrimitiveArray::empty::<u64>(nullable_dtype.nullability()).to_array(),
+                PrimitiveArray::from_option_iter([None, Some(4u64)]).to_array(),
+            ],
+            nullable_dtype,
+        )
+        .unwrap();
+
+        test_filter_conformance(chunked_nullable.as_ref());
     }
 }

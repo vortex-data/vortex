@@ -122,5 +122,10 @@ mod test {
     #[test]
     fn test_filter_bool_array() {
         test_filter_conformance(BoolArray::from_iter([true, false, true, true, false]).as_ref());
+
+        // Test nullable bool array
+        test_filter_conformance(
+            BoolArray::from_option_iter([Some(true), None, Some(false), Some(true), None]).as_ref(),
+        );
     }
 }

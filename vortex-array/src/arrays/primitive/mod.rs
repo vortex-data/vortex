@@ -359,7 +359,7 @@ mod tests {
     use crate::{ArrayRef, IntoArray};
 
     #[apply(search_sorted_conformance)]
-    fn search_sorted_primitive(
+    fn test_search_sorted_primitive(
         #[case] array: ArrayRef,
         #[case] value: i32,
         #[case] side: SearchSortedSide,
