@@ -70,16 +70,15 @@ mod tests {
         let alprd1 = encoder.encode(&PrimitiveArray::from_iter([10.0f32, 20.0, 30.0, 40.0, 50.0]));
         let alprd2 = encoder.encode(&PrimitiveArray::from_iter([5.0f32, 10.0, 15.0, 20.0, 25.0]));
         
-        test_numeric(alprd1.as_ref(), alprd2.as_ref());
-        
-        // Test with same arrays
-        test_numeric(alprd1.as_ref(), alprd1.as_ref());
+        test_numeric(alprd1.into_array());
+        test_numeric(alprd2.into_array());
         
         // Test with f64
         let encoder64 = RDEncoder::new(&[100.0f64, 200.0]);
         let alprd3 = encoder64.encode(&PrimitiveArray::from_iter([100.0f64, 200.0, 300.0, 400.0, 500.0]));
         let alprd4 = encoder64.encode(&PrimitiveArray::from_iter([50.0f64, 100.0, 150.0, 200.0, 250.0]));
         
-        test_numeric(alprd3.as_ref(), alprd4.as_ref());
+        test_numeric(alprd3.into_array());
+        test_numeric(alprd4.into_array());
     }
 }

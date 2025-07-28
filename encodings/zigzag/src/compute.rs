@@ -30,8 +30,8 @@ impl TakeKernel for ZigZagVTable {
 register_kernel!(TakeKernelAdapter(ZigZagVTable).lift());
 
 impl MaskKernel for ZigZagVTable {
-    fn mask(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let encoded = mask(array.encoded(), mask)?;
+    fn mask(&self, array: &ZigZagArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
+        let encoded = mask(array.encoded(), filter_mask)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
 }
@@ -209,9 +209,7 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        test_numeric(zigzag1.as_ref(), zigzag2.as_ref());
-        
-        // Test with same arrays
-        test_numeric(zigzag1.as_ref(), zigzag1.as_ref());
+        test_numeric(zigzag1.into_array());
+        test_numeric(zigzag2.into_array());
     }
 }

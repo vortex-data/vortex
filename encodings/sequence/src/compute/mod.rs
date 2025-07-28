@@ -2,6 +2,5 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod compare;
-mod filter;
 mod list_contains;
 mod min_max;
