@@ -13,6 +13,14 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output,
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
 
+static MIN_MAX_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("min_max".into(), ArcRef::new_ref(&MinMax));
+    for kernel in inventory::iter::<MinMaxKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// The minimum and maximum non-null values of an array, or None if there are no non-null values.
 ///
 /// The return value dtype is the non-nullable version of the array dtype.
@@ -190,14 +198,6 @@ impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
         }))
     }
 }
-
-pub static MIN_MAX_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("min_max".into(), ArcRef::new_ref(&MinMax));
-    for kernel in inventory::iter::<MinMaxKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 #[cfg(test)]
 mod tests {

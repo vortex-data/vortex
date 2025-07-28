@@ -13,6 +13,14 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output,
 use crate::stats::{Precision, Stat, StatsProvider};
 use crate::vtable::VTable;
 
+static SUM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("sum".into(), ArcRef::new_ref(&Sum));
+    for kernel in inventory::iter::<SumKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// Sum an array.
 ///
 /// If the sum overflows, a null scalar will be returned.
@@ -71,14 +79,6 @@ impl ComputeFnVTable for Sum {
         false
     }
 }
-
-pub static SUM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("sum".into(), ArcRef::new_ref(&Sum));
-    for kernel in inventory::iter::<SumKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 pub struct SumKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(SumKernelRef);

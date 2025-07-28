@@ -17,6 +17,15 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output,
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray, ToCanonical};
 
+/// The filter [`ComputeFn`].
+static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("filter".into(), ArcRef::new_ref(&Filter));
+    for kernel in inventory::iter::<FilterKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// Keep only the elements for which the corresponding mask value is true.
 ///
 /// # Examples
@@ -53,15 +62,6 @@ pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
         })?
         .unwrap_array()
 }
-
-/// The filter [`ComputeFn`].
-pub static FILTER_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("filter".into(), ArcRef::new_ref(&Filter));
-    for kernel in inventory::iter::<FilterKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct Filter;
 

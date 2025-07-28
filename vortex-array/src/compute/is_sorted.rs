@@ -15,6 +15,14 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options
 use crate::stats::{Precision, Stat};
 use crate::vtable::VTable;
 
+static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("is_sorted".into(), ArcRef::new_ref(&IsSorted));
+    for kernel in inventory::iter::<IsSortedKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 pub fn is_sorted(array: &dyn Array) -> VortexResult<bool> {
     is_sorted_opts(array, false)
 }
@@ -143,14 +151,6 @@ impl Options for IsSortedOptions {
         self
     }
 }
-
-pub static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("is_sorted".into(), ArcRef::new_ref(&IsSorted));
-    for kernel in inventory::iter::<IsSortedKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 pub struct IsSortedKernelRef(ArcRef<dyn Kernel>);
 inventory::collect!(IsSortedKernelRef);

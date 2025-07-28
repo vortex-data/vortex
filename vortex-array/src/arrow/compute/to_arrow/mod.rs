@@ -20,6 +20,19 @@ use crate::arrow::array::{ArrowArray, ArrowVTable};
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output};
 use crate::vtable::VTable;
 
+static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("to_arrow".into(), ArcRef::new_ref(&ToArrow));
+
+    // Register the kernels we ship ourselves
+    compute.register_kernel(ArcRef::new_ref(&canonical::ToArrowCanonical));
+    compute.register_kernel(ArcRef::new_ref(&temporal::ToArrowTemporal));
+
+    for kernel in inventory::iter::<ToArrowKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// Convert a Vortex array to an Arrow array with the encoding's preferred `DataType`.
 ///
 /// For example, a `VarBinArray` will be converted to an Arrow `VarBin` array, instead of the
@@ -133,19 +146,6 @@ impl ComputeFnVTable for ToArrow {
         false
     }
 }
-
-pub static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("to_arrow".into(), ArcRef::new_ref(&ToArrow));
-
-    // Register the kernels we ship ourselves
-    compute.register_kernel(ArcRef::new_ref(&canonical::ToArrowCanonical));
-    compute.register_kernel(ArcRef::new_ref(&temporal::ToArrowTemporal));
-
-    for kernel in inventory::iter::<ToArrowKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 pub struct ToArrowArgs<'a> {
     array: &'a dyn Array,
