@@ -33,8 +33,6 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - name: Validate YAML file
         run: |
           # Lint the workflows and yamllint's configuration file.
@@ -50,8 +48,6 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
         with:
@@ -69,8 +65,6 @@ jobs:
       RUST_LOG: "info,uv=debug"
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.14.0
@@ -136,8 +130,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Docs
         run: |
@@ -188,8 +180,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
@@ -218,8 +208,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - uses: taiki-e/install-action@cargo-hack
       - uses: taiki-e/install-action@cargo-minimal-versions
@@ -240,8 +228,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
@@ -269,8 +255,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
@@ -306,8 +290,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - name: Install grcov
         uses: taiki-e/install-action@grcov
@@ -368,8 +350,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
@@ -412,8 +392,6 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
 
       - name: Install Codspeed
@@ -455,8 +433,6 @@ jobs:
     continue-on-error: ${{ matrix.checks == 'advisories' }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.checks }}
@@ -528,8 +504,6 @@ jobs:
       RUST_BACKTRACE: full
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
@@ -546,8 +520,6 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
       - uses: ./.github/actions/setup-flatc
       - name: Install Protoc

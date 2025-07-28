@@ -117,9 +117,14 @@ pub struct MaskValues {
 impl MaskValues {
     /// Returns the length of the mask.
     #[inline]
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.buffer.len()
+    }
+
+    /// Returns true if the mask is empty i.e., it's length is 0.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.buffer.is_empty()
     }
 
     /// Returns the true count of the mask.
@@ -354,13 +359,21 @@ impl Mask {
 
     /// Returns the length of the mask (not the number of true values).
     #[inline]
-    // It's confusing to provide is_empty, does it mean len == 0 or true_count == 0?
-    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
-        match &self {
+        match self {
             Self::AllTrue(len) => *len,
             Self::AllFalse(len) => *len,
             Self::Values(values) => values.len(),
+        }
+    }
+
+    /// Returns true if the mask is empty i.e., it's length is 0.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::AllTrue(len) => *len == 0,
+            Self::AllFalse(len) => *len == 0,
+            Self::Values(values) => values.is_empty(),
         }
     }
 
@@ -389,6 +402,7 @@ impl Mask {
     pub fn all_true(&self) -> bool {
         match &self {
             Self::AllTrue(_) => true,
+            Self::AllFalse(0) => true,
             Self::AllFalse(_) => false,
             Self::Values(values) => values.buffer.len() == values.true_count,
         }
@@ -595,7 +609,10 @@ impl FromIterator<bool> for Mask {
 
 impl FromIterator<Mask> for Mask {
     fn from_iter<T: IntoIterator<Item = Mask>>(iter: T) -> Self {
-        let masks = iter.into_iter().collect::<Vec<_>>();
+        let masks = iter
+            .into_iter()
+            .filter(|m| !m.is_empty())
+            .collect::<Vec<_>>();
         let total_length = masks.iter().map(|v| v.len()).sum();
 
         // If they're all valid, then return a single validity.
@@ -711,5 +728,22 @@ mod test {
         let limited_mask = original_mask.clone().limit(100);
 
         assert_eq!(original_mask, limited_mask);
+    }
+
+    #[test]
+    fn length_zero_masks() {
+        let all_false = Mask::new_false(0);
+        let all_true = Mask::new_true(0);
+        let buffer_set = Mask::from_buffer(BooleanBuffer::new_set(0));
+        let buffer_unset = Mask::from_buffer(BooleanBuffer::new_unset(0));
+
+        assert!(all_false.all_false());
+        assert!(all_false.all_true());
+        assert!(all_true.all_false());
+        assert!(all_true.all_true());
+        assert!(buffer_set.all_false());
+        assert!(buffer_set.all_true());
+        assert!(buffer_unset.all_false());
+        assert!(buffer_unset.all_true());
     }
 }

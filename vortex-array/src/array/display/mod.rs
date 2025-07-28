@@ -150,7 +150,7 @@ impl dyn Array + '_ {
     /// See also:
     /// [Array::display_as](..//trait.Array.html#method.display_as),
     /// [DisplayArrayAs], and [DisplayOptions].
-    pub fn display_values(&self) -> DisplayArrayAs<'_> {
+    pub fn display_values(&self) -> impl Display {
         DisplayArrayAs(
             self,
             DisplayOptions::CommaSeparatedScalars {
@@ -162,7 +162,7 @@ impl dyn Array + '_ {
     /// Display the array as specified by the options.
     ///
     /// See [DisplayOptions] for examples.
-    pub fn display_as(&self, options: DisplayOptions) -> DisplayArrayAs<'_> {
+    pub fn display_as(&self, options: DisplayOptions) -> impl Display {
         DisplayArrayAs(self, options)
     }
 

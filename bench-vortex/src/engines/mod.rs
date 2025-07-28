@@ -28,8 +28,16 @@ impl EngineCtx {
         })
     }
 
-    pub fn new_with_duckdb(dataset: BenchmarkDataset, format: Format) -> anyhow::Result<Self> {
-        Ok(EngineCtx::DuckDB(ddb::DuckDBCtx::new(dataset, format)?))
+    pub fn new_with_duckdb(
+        dataset: BenchmarkDataset,
+        format: Format,
+        delete_duckdb_database: bool,
+    ) -> anyhow::Result<Self> {
+        Ok(EngineCtx::DuckDB(ddb::DuckDBCtx::new(
+            dataset,
+            format,
+            delete_duckdb_database,
+        )?))
     }
 
     pub fn to_engine(&self) -> Engine {
