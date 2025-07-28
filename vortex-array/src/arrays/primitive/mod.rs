@@ -55,6 +55,37 @@ impl VTable for PrimitiveVTable {
     }
 }
 
+/// A primitive array that stores [native types][vortex_dtype::NativePType] in a contiguous buffer
+/// of memory, along with an optional validity child.
+///
+/// This mirrors the Apache Arrow Primitive layout and can be converted into and out of one
+/// without allocations or copies.
+///
+/// The underlying buffer must be natively aligned to the primitive type they are representing.
+///
+/// Values are stored in their native representation with proper alignment.
+/// Null values still occupy space in the buffer but are marked invalid in the validity mask.
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::PrimitiveArray;
+/// use vortex_array::compute::sum;
+/// ///
+/// // Create from iterator using FromIterator impl
+/// let array: PrimitiveArray = [1i32, 2, 3, 4, 5].into_iter().collect();
+///
+/// // Slice the array
+/// let sliced = array.slice(1, 3).unwrap();
+///
+/// // Access individual values
+/// let value = sliced.scalar_at(0).unwrap();
+/// assert_eq!(value, 2i32.into());
+///
+/// // Convert into a type-erased array that can be passed to compute functions.
+/// let summed = sum(sliced.as_ref()).unwrap().as_primitive().typed_value::<i64>().unwrap();
+/// assert_eq!(summed, 5i64);
+/// ```
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
     dtype: DType,
