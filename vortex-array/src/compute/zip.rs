@@ -14,6 +14,10 @@ use crate::compute::{ComputeFn, Kernel};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
 
+/// Performs element-wise conditional selection between two arrays based on a mask.
+///
+/// Returns a new array where `result[i] = if_true[i]` when `mask[i]` is true,
+/// otherwise `result[i] = if_false[i]`.
 pub fn zip(mask: &Mask, if_true: &dyn Array, if_false: &dyn Array) -> VortexResult<ArrayRef> {
     ZIP_FN
         .invoke(&InvocationArgs {
@@ -31,7 +35,7 @@ pub static ZIP_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     compute
 });
 
-pub struct Zip;
+struct Zip;
 
 impl ComputeFnVTable for Zip {
     fn invoke(
@@ -222,7 +226,8 @@ mod tests {
     fn test_zip_all_true() {
         let mask = Mask::new_true(4);
         let if_true = PrimitiveArray::from_iter([10, 20, 30, 40]).into_array();
-        let if_false = PrimitiveArray::from_iter([1, 2, 3, 4]).into_array();
+        let if_false =
+            PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), None]).into_array();
 
         let result = zip(&mask, &if_true, &if_false).unwrap();
 
@@ -230,6 +235,9 @@ mod tests {
             result.to_primitive().unwrap().as_slice::<i32>(),
             if_true.to_primitive().unwrap().as_slice::<i32>()
         );
+
+        // result must be nullable even if_true was not
+        assert_eq!(result.dtype(), if_false.dtype())
     }
 
     #[test]
