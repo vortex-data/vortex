@@ -84,3 +84,38 @@ impl IsSortedKernel for ExtensionVTable {
 }
 
 register_kernel!(IsSortedKernelAdapter(ExtensionVTable).lift());
+
+#[cfg(test)]
+mod test {
+    use std::sync::Arc;
+    use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType};
+    
+    use crate::IntoArray;
+    use crate::arrays::{ExtensionArray, PrimitiveArray};
+    use crate::compute::conformance::filter::test_filter;
+    
+    #[test]
+    fn test_filter_extension_array() {
+        // Create a simple extension type (e.g., UUID represented as u64)
+        let ext_dtype = ExtDType::new(
+            ExtID::new("uuid".into()), 
+            Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
+            None
+        );
+        
+        // Create storage array
+        let storage = PrimitiveArray::from_iter([1u64, 2, 3, 4, 5]).into_array();
+        let array = ExtensionArray::new(Arc::new(ext_dtype.clone()), storage);
+        test_filter(array.as_ref());
+        
+        // Test with nullable extension type
+        let ext_dtype_nullable = ExtDType::new(
+            ExtID::new("uuid".into()), 
+            Arc::new(DType::Primitive(PType::U64, Nullability::Nullable)),
+            None
+        );
+        let storage = PrimitiveArray::from_option_iter([Some(1u64), None, Some(3), Some(4), None]).into_array();
+        let array = ExtensionArray::new(Arc::new(ext_dtype_nullable), storage);
+        test_filter(array.as_ref());
+    }
+}

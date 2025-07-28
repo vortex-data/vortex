@@ -76,3 +76,26 @@ fn filter_primitive_slices<T: Clone>(
     }
     output.freeze()
 }
+
+#[cfg(test)]
+mod test {
+    use vortex_dtype::DecimalDType;
+    
+    use crate::arrays::DecimalArray;
+    use crate::compute::conformance::filter::test_filter;
+    
+    #[test]
+    fn test_filter_decimal_array() {
+        // Test Decimal128 with scale 2
+        let decimal_dtype = DecimalDType::new(38, 2);
+        let values = vec![Some(12345i128), Some(67890), Some(-12345), Some(0), Some(99999)];
+        let array = DecimalArray::from_option_iter(values, decimal_dtype);
+        test_filter(array.as_ref());
+        
+        // Test Decimal128 with nullable values
+        let decimal_dtype = DecimalDType::new(38, 4);
+        let values = vec![Some(12345i128), None, Some(-12345), Some(0), None];
+        let array = DecimalArray::from_option_iter(values, decimal_dtype);
+        test_filter(array.as_ref());
+    }
+}

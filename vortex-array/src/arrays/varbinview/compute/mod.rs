@@ -18,7 +18,6 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::VarBinViewArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::conformance::mask::test_mask;
     use crate::compute::take;
 
     #[test]
@@ -44,22 +43,6 @@ mod tests {
                     .collect::<Vec<_>>())
                 .unwrap(),
             [Some("one".to_string()), Some("four".to_string())]
-        );
-    }
-
-    #[test]
-    fn take_mask_var_bin_view_array() {
-        test_mask(VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).as_ref());
-
-        test_mask(
-            VarBinViewArray::from_iter_nullable_str([
-                Some("one"),
-                None,
-                Some("three"),
-                Some("four"),
-                Some("five"),
-            ])
-            .as_ref(),
         );
     }
 }

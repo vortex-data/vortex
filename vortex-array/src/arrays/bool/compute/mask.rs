@@ -19,3 +19,14 @@ impl MaskKernel for BoolVTable {
 }
 
 register_kernel!(MaskKernelAdapter(BoolVTable).lift());
+
+#[cfg(test)]
+mod test {
+    use crate::arrays::BoolArray;
+    use crate::compute::conformance::mask::test_mask;
+
+    #[test]
+    fn test_mask_bool_array() {
+        test_mask(BoolArray::from_iter([true, false, true, true, false]).as_ref());
+    }
+}

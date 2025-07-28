@@ -177,7 +177,6 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::arrays::{BoolArray, PrimitiveArray};
-    use crate::compute::conformance::mask::test_mask;
     use crate::patches::Patches;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
@@ -289,14 +288,4 @@ mod tests {
         assert_eq!(values.as_slice(), &[254, 127]);
     }
 
-    #[test]
-    fn test_mask_primitive_array() {
-        test_mask(BoolArray::from_iter([true, false, true, true, false]).as_ref());
-    }
-
-    #[test]
-    fn test_filter_bool_array() {
-        use crate::compute::conformance::filter::test_filter;
-        test_filter(BoolArray::from_iter([true, false, true, true, false]).as_ref());
-    }
 }
