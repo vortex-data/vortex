@@ -193,12 +193,15 @@ pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::buffer;
     use vortex_dtype::half::f16;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::filter;
 
     #[test]
@@ -231,5 +234,37 @@ mod test {
         ]);
         let filtered = filter(chunked.as_ref(), &mask).unwrap();
         assert_eq!(filtered.len(), 9);
+    }
+
+    #[test]
+    fn test_filter_chunked_array() {
+        let dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
+        let chunked = ChunkedArray::try_new(
+            vec![
+                buffer![0u64, 1].into_array(),
+                buffer![2_u64].into_array(),
+                PrimitiveArray::empty::<u64>(dtype.nullability()).to_array(),
+                buffer![3_u64, 4].into_array(),
+            ],
+            dtype,
+        )
+        .unwrap();
+
+        test_filter_conformance(chunked.as_ref());
+
+        // Test nullable chunked array
+        let nullable_dtype = DType::Primitive(PType::U64, Nullability::Nullable);
+        let chunked_nullable = ChunkedArray::try_new(
+            vec![
+                PrimitiveArray::from_option_iter([Some(0u64), None]).to_array(),
+                PrimitiveArray::from_option_iter([Some(2u64)]).to_array(),
+                PrimitiveArray::empty::<u64>(nullable_dtype.nullability()).to_array(),
+                PrimitiveArray::from_option_iter([None, Some(4u64)]).to_array(),
+            ],
+            nullable_dtype,
+        )
+        .unwrap();
+
+        test_filter_conformance(chunked_nullable.as_ref());
     }
 }

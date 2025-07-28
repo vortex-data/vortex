@@ -8,7 +8,7 @@ use crate::Array;
 use crate::arrays::BoolArray;
 use crate::compute::mask;
 
-pub fn test_mask(array: &dyn Array) {
+pub fn test_mask_conformance(array: &dyn Array) {
     assert_eq!(array.len(), 5);
     test_heterogenous_mask(array);
     test_empty_mask(array);

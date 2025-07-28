@@ -25,11 +25,18 @@ register_kernel!(MaskKernelAdapter(PrimitiveVTable).lift());
 #[cfg(test)]
 mod test {
     use crate::arrays::PrimitiveArray;
-    use crate::compute::conformance::mask::test_mask;
+    use crate::compute::conformance::mask::test_mask_conformance;
 
     #[test]
     fn test_mask_non_nullable_array() {
         let non_nullable_array = PrimitiveArray::from_iter([1, 2, 3, 4, 5]);
-        test_mask(non_nullable_array.as_ref());
+        test_mask_conformance(non_nullable_array.as_ref());
+    }
+
+    #[test]
+    fn test_mask_nullable_array() {
+        let nullable_array =
+            PrimitiveArray::from_option_iter([Some(1), None, Some(3), Some(4), None]);
+        test_mask_conformance(nullable_array.as_ref());
     }
 }

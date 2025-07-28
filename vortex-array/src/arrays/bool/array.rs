@@ -206,7 +206,6 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::arrays::{BoolArray, PrimitiveArray};
-    use crate::compute::conformance::mask::test_mask;
     use crate::patches::Patches;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
@@ -316,10 +315,5 @@ mod tests {
 
         let (values, _byte_bit_offset) = arr.to_bool().unwrap().into_boolean_builder();
         assert_eq!(values.as_slice(), &[254, 127]);
-    }
-
-    #[test]
-    fn test_mask_primitive_array() {
-        test_mask(BoolArray::from_iter([true, false, true, true, false]).as_ref());
     }
 }
