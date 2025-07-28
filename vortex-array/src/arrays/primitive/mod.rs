@@ -350,6 +350,7 @@ mod tests {
     use vortex_scalar::PValue;
 
     use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::compute::conformance::filter::test_filter;
     use crate::compute::conformance::mask::test_mask;
     use crate::compute::conformance::search_sorted::rstest_reuse::apply;
     use crate::compute::conformance::search_sorted::{search_sorted_conformance, *};
@@ -376,6 +377,21 @@ mod tests {
         test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
         test_mask(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).as_ref());
         test_mask(
+            PrimitiveArray::new(
+                buffer![0, 1, 2, 3, 4],
+                Validity::Array(
+                    BoolArray::from_iter([true, false, true, false, true]).into_array(),
+                ),
+            )
+            .as_ref(),
+        );
+    }
+
+    #[test]
+    fn test_filter_primitive_array() {
+        test_filter(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref());
+        test_filter(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
+        test_filter(
             PrimitiveArray::new(
                 buffer![0, 1, 2, 3, 4],
                 Validity::Array(
