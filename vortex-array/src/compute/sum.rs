@@ -161,6 +161,9 @@ pub fn sum_impl(
 
 #[cfg(test)]
 mod test {
+    use vortex_dtype::{DType, Nullability, PType};
+    use vortex_scalar::Scalar;
+
     use crate::arrays::{BoolArray, PrimitiveArray};
     use crate::compute::sum;
 
@@ -168,14 +171,20 @@ mod test {
     fn sum_all_invalid() {
         let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]);
         let result = sum(array.as_ref()).unwrap();
-        assert_eq!(result.as_primitive().as_::<i32>().unwrap(), Some(0));
+        assert_eq!(
+            result,
+            Scalar::null(DType::Primitive(PType::U64, Nullability::Nullable))
+        );
     }
 
     #[test]
     fn sum_all_invalid_float() {
         let array = PrimitiveArray::from_option_iter::<f32, _>([None, None, None]);
         let result = sum(array.as_ref()).unwrap();
-        assert_eq!(result.as_primitive().as_::<f32>().unwrap(), Some(0.0));
+        assert_eq!(
+            result,
+            Scalar::null(DType::Primitive(PType::U64, Nullability::Nullable))
+        );
     }
 
     #[test]
