@@ -220,7 +220,7 @@ mod test {
             buffer![2u64, 4, 6].into_array(),
             nullable_values.into_array(),
             10,
-            Scalar::null_typed::<i64>(),  // Use nullable fill value to match nullable values
+            Scalar::null_typed::<i64>(), // Use nullable fill value to match nullable values
         )
         .unwrap();
         test_take_conformance(sparse.as_ref());

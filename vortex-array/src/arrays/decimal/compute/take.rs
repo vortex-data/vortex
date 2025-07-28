@@ -43,7 +43,7 @@ fn take_to_buffer<I: NativePType + AsPrimitive<usize>, T: NativeDecimalType>(
 
 #[cfg(test)]
 mod tests {
-    use vortex_buffer::{buffer, Buffer};
+    use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::{DecimalDType, Nullability};
     use vortex_scalar::{DecimalValue, Scalar};
 
