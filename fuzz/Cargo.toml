@@ -33,6 +33,7 @@ vortex-expr = { workspace = true, features = ["arbitrary"] }
 vortex-file = { workspace = true, features = ["tokio"] }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
+vortex-scan = { workspace = true, features = ["tokio"] }
 vortex-utils = { workspace = true }
 
 [lints]

@@ -6689,6 +6689,7 @@ dependencies = [
  "vortex-file",
  "vortex-mask",
  "vortex-scalar",
+ "vortex-scan",
  "vortex-utils",
 ]
 
