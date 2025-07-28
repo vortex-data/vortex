@@ -20,7 +20,7 @@ trait TokioSpawn {
 /// A [dispatcher][Dispatch] of IO operations that runs tasks on one of several
 /// Tokio `current_thread` runtimes.
 #[derive(Debug)]
-pub(super) struct TokioDispatcher {
+pub(crate) struct TokioDispatcher {
     submitter: flume::Sender<Box<dyn TokioSpawn + Send>>,
     threads: Vec<JoinHandle<()>>,
 }

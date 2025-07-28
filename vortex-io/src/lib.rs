@@ -18,6 +18,7 @@ pub use limit::*;
 pub use object_store::*;
 pub use read_at::*;
 use vortex_error::VortexResult;
+#[cfg(feature = "tokio")]
 pub mod tokio;
 pub use write::*;
 mod buffer;
@@ -34,10 +35,13 @@ mod write;
 /// Required alignment for all custom buffer allocations.
 pub const ALIGNMENT: usize = 64;
 
-/// A trait for converting supported I/O objects into Vortex I/O objects.
+/// A trait for converting supported I/O objects into sealed Vortex I/O objects.
+///
+/// Vortex I/O is sealed such that we can ensure implementations respect the threading model and
+/// provide runtime-agnostic futures.
 pub trait VortexIO {
     fn performance_hint(&self) -> PerformanceHint;
 
-    /// Load the current object into a Vortex `ReadAt` I/O object.
+    /// Convert the current object into a Vortex `ReadAt` I/O object.
     fn into_read_at(self) -> VortexResult<Arc<dyn ReadAt>>;
 }

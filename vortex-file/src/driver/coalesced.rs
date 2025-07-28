@@ -7,14 +7,13 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
 use std::pin::Pin;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt, pin_mut};
 use itertools::Itertools;
 use linked_hash_set::LinkedHashSet;
-use tokio::runtime::{Builder, Runtime};
 use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 use vortex_io::dispatcher::{Dispatch, IoDispatcher};
@@ -99,7 +98,7 @@ impl FileDriver for CoalescedDriver {
             inflight_prefetch_lease: Arc::new(()),
         };
 
-        // Spawn an I/O driver onto the dispatcher.
+        // Spawn the driver task onto the global I/O dispatcher.
         let io_concurrency = self.io_concurrency;
         IoDispatcher::shared()
             .dispatch(move || async move {

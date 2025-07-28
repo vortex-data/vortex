@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The dispatcher module provides an abstract way of launching background I/O-bound tasks. These
+//! The dispatcher module provides an abstract way of running background I/O-bound tasks. These
 //! tasks can be `!Send` and are executed on a dedicated thread pool.
 //!
 //! It is important to note that the tasks must still be runtime agnostic (i.e., they should not
@@ -27,9 +27,9 @@ use vortex_error::{VortexResult, vortex_err};
 static DISPATCHER: LazyLock<IoDispatcher> = LazyLock::new(IoDispatcher::new);
 
 #[cfg(not(target_arch = "wasm32"))]
-use self::tokio::*;
+pub(crate) use self::tokio::*;
 #[cfg(target_arch = "wasm32")]
-use self::wasm::*;
+pub(crate) use self::wasm::*;
 
 mod sealed {
     pub trait Sealed {}

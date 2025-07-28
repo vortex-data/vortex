@@ -46,7 +46,6 @@ vortex-error = { workspace = true }
 vortex-expr = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-mask = { workspace = true }
-vortex-metrics = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }

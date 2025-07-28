@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// Currently, our support for std I/O depends on Tokio.
+// We should provide alternative implementations for other runtimes in the future.
+#![cfg(feature = "tokio")]
+
 use std::os::unix::prelude::FileExt;
 use std::sync::Arc;
 

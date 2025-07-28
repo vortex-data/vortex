@@ -13,7 +13,7 @@ use vortex_buffer::{Alignment, ByteBuffer};
 use vortex_error::{ResultExt, VortexResult};
 
 use crate::dispatcher::Dispatch;
-use crate::dispatcher::tokio::TokioDispatcher;
+use crate::dispatcher::TokioDispatcher;
 use crate::{IoBuf, ReadAt, VortexWrite};
 
 static DISPATCHER: LazyLock<TokioDispatcher> = LazyLock::new(|| TokioDispatcher::new(1));
