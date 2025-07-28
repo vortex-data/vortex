@@ -23,23 +23,23 @@ mod test {
     use vortex_array::arrays::FixedSizeBinaryArray;
     use vortex_array::compute::conformance::filter::test_filter;
     use vortex_dtype::DecimalDType;
-    
+
     use crate::DecimalBytePartsArray;
-    
+
     #[test]
     fn test_filter_decimal_byte_parts() {
         // Create test data with 5 16-byte values for Decimal128
-        let bytes: Vec<u8> = (0..5).flat_map(|i| {
-            let mut bytes = vec![0u8; 16];
-            bytes[0] = i;
-            bytes
-        }).collect();
-        
-        let msp = FixedSizeBinaryArray::from_iter(
-            bytes.chunks(16).map(|chunk| chunk.to_vec()),
-            16
-        ).into_array();
-        
+        let bytes: Vec<u8> = (0..5)
+            .flat_map(|i| {
+                let mut bytes = vec![0u8; 16];
+                bytes[0] = i;
+                bytes
+            })
+            .collect();
+
+        let msp = FixedSizeBinaryArray::from_iter(bytes.chunks(16).map(|chunk| chunk.to_vec()), 16)
+            .into_array();
+
         let decimal_dtype = DecimalDType::new(38, 5);
         let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();
         test_filter(array.as_ref());

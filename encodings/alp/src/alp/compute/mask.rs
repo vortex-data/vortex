@@ -32,13 +32,13 @@ register_kernel!(MaskKernelAdapter(ALPVTable).lift());
 
 #[cfg(test)]
 mod test {
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::mask::test_mask;
-    use vortex_array::{IntoArray};
     use vortex_buffer::buffer;
-    
+
     use crate::ALPEncoding;
-    
+
     #[test]
     fn test_mask_alp_array() {
         // Test with f32 values
@@ -46,8 +46,8 @@ mod test {
         let array = values.into_array();
         let alp = ALPEncoding.encode(&array, None).unwrap().unwrap();
         test_mask(alp.as_ref());
-        
-        // Test with f64 values 
+
+        // Test with f64 values
         let values = buffer![1000.123f64, 2000.456, 3000.789, 4000.012, 5000.345];
         let array = values.into_array();
         let alp = ALPEncoding.encode(&array, None).unwrap().unwrap();

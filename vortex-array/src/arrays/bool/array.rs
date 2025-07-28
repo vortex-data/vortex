@@ -287,5 +287,4 @@ mod tests {
         let (values, _byte_bit_offset) = arr.to_bool().unwrap().into_boolean_builder();
         assert_eq!(values.as_slice(), &[254, 127]);
     }
-
 }

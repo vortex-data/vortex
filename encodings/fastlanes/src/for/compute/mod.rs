@@ -40,8 +40,8 @@ register_kernel!(FilterKernelAdapter(FoRVTable).lift());
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::filter::test_filter;
     use vortex_array::compute::conformance::binary_numeric::test_numeric;
+    use vortex_array::compute::conformance::filter::test_filter;
     use vortex_scalar::Scalar;
 
     use crate::FoRArray;
@@ -61,7 +61,8 @@ mod test {
         test_filter(for_array.as_ref());
 
         // Test with nullable values
-        let values = PrimitiveArray::from_option_iter([Some(50i16), None, Some(52), Some(53), None]);
+        let values =
+            PrimitiveArray::from_option_iter([Some(50i16), None, Some(52), Some(53), None]);
         let reference = Scalar::from(50i16);
         let for_array = FoRArray::try_new(values.as_ref(), reference).unwrap();
         test_filter(for_array.as_ref());

@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, MaskKernel, MaskKernelAdapter, 
-    filter, take, mask,
+    FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, TakeKernel,
+    TakeKernelAdapter, filter, mask, take,
 };
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
@@ -130,81 +130,100 @@ mod tests {
             .unwrap();
         assert_eq!(actual.as_slice::<i32>(), expected.as_slice::<i32>());
     }
-    
+
     #[test]
     fn test_filter_conformance() {
-        use vortex_array::compute::conformance::filter::test_filter;
         use vortex_array::compute::conformance::binary_numeric::test_numeric;
-        
+        use vortex_array::compute::conformance::filter::test_filter;
+
         // Test with i32 values
         let zigzag = ZigZagEncoding
             .encode(
-                &buffer![-189i32, -160, 1, 42, -73].into_array().to_canonical().unwrap(),
+                &buffer![-189i32, -160, 1, 42, -73]
+                    .into_array()
+                    .to_canonical()
+                    .unwrap(),
                 None,
             )
             .unwrap()
             .unwrap();
         test_filter(zigzag.as_ref());
-        
+
         // Test with i64 values
         let zigzag = ZigZagEncoding
             .encode(
-                &buffer![1000i64, -2000, 3000, -4000, 5000].into_array().to_canonical().unwrap(),
+                &buffer![1000i64, -2000, 3000, -4000, 5000]
+                    .into_array()
+                    .to_canonical()
+                    .unwrap(),
                 None,
             )
             .unwrap()
             .unwrap();
         test_filter(zigzag.as_ref());
-        
+
         // Test with nullable values
-        let array = PrimitiveArray::from_option_iter([Some(-10i16), None, Some(20), Some(-30), None]);
+        let array =
+            PrimitiveArray::from_option_iter([Some(-10i16), None, Some(20), Some(-30), None]);
         let zigzag = ZigZagEncoding
             .encode(&array.to_canonical().unwrap(), None)
             .unwrap()
             .unwrap();
         test_filter(zigzag.as_ref());
     }
-    
+
     #[test]
     fn test_mask_conformance() {
         use vortex_array::compute::conformance::mask::test_mask;
-        
+
         // Test with i32 values
         let zigzag = ZigZagEncoding
             .encode(
-                &buffer![-100i32, 200, -300, 400, -500].into_array().to_canonical().unwrap(),
+                &buffer![-100i32, 200, -300, 400, -500]
+                    .into_array()
+                    .to_canonical()
+                    .unwrap(),
                 None,
             )
             .unwrap()
             .unwrap();
         test_mask(zigzag.as_ref());
-        
+
         // Test with i8 values
         let zigzag = ZigZagEncoding
             .encode(
-                &buffer![-127i8, 0, 127, -1, 1].into_array().to_canonical().unwrap(),
+                &buffer![-127i8, 0, 127, -1, 1]
+                    .into_array()
+                    .to_canonical()
+                    .unwrap(),
                 None,
             )
             .unwrap()
             .unwrap();
         test_mask(zigzag.as_ref());
     }
-    
+
     #[test]
     fn test_numeric_conformance() {
         use vortex_array::compute::conformance::binary_numeric::test_numeric;
-        
+
         // Test binary numeric operations with i32
         let zigzag1 = ZigZagEncoding
             .encode(
-                &buffer![10i32, -20, 30, -40, 50].into_array().to_canonical().unwrap(),
+                &buffer![10i32, -20, 30, -40, 50]
+                    .into_array()
+                    .to_canonical()
+                    .unwrap(),
                 None,
             )
             .unwrap()
             .unwrap();
         let zigzag2 = ZigZagEncoding
             .encode(
-                &buffer![5i32, -10, 15, -20, 25].into_array().to_canonical().unwrap(),
+                &buffer![5i32, -10, 15, -20, 25]
+                    .into_array()
+                    .to_canonical()
+                    .unwrap(),
                 None,
             )
             .unwrap()

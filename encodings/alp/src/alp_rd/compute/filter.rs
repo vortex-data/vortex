@@ -33,11 +33,11 @@ register_kernel!(FilterKernelAdapter(ALPRDVTable).lift());
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::{IntoArray, ToCanonical};
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::filter;
     use vortex_array::compute::conformance::filter::test_filter as test_filter_conformance;
+    use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
+    use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
