@@ -3,6 +3,7 @@
 
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
+use std::sync::Arc;
 
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
@@ -286,7 +287,7 @@ impl VTable for VarBinViewVTable {
 #[derive(Clone, Debug)]
 pub struct VarBinViewArray {
     dtype: DType,
-    buffers: Vec<ByteBuffer>,
+    buffers: Arc<[ByteBuffer]>,
     views: Buffer<BinaryView>,
     validity: Validity,
     stats_set: ArrayStats,
@@ -316,7 +317,7 @@ impl VarBinViewArray {
 
         Ok(Self {
             dtype,
-            buffers,
+            buffers: Arc::from(buffers),
             views,
             validity,
             stats_set: Default::default(),
