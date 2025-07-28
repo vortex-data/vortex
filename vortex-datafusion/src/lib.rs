@@ -9,9 +9,7 @@ use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion::common::stats::Precision as DFPrecision;
 use datafusion::logical_expr::Operator;
 use datafusion::physical_expr::PhysicalExprRef;
-use datafusion::physical_plan::expressions::{
-    BinaryExpr, Column, DynamicFilterPhysicalExpr, LikeExpr, Literal,
-};
+use datafusion::physical_plan::expressions::{BinaryExpr, Column, LikeExpr, Literal};
 use vortex::stats::Precision;
 
 mod convert;
