@@ -194,7 +194,7 @@ mod test {
     use crate::arrays::varbin::compute::filter::{
         filter_select_var_bin_by_index, filter_select_var_bin_by_slice,
     };
-    use crate::compute::conformance::filter::test_filter;
+    use crate::compute::conformance::filter::test_filter_conformance;
     use crate::validity::Validity;
 
     fn nullable_scalar_str(s: &str) -> Scalar {
@@ -318,12 +318,12 @@ mod test {
             vec!["hello", "world", "filter", "good", "bye"],
             DType::Utf8(NonNullable),
         );
-        test_filter(array.as_ref());
+        test_filter_conformance(array.as_ref());
 
         let array = VarBinArray::from_iter(
             vec![Some("hello"), None, Some("filter"), Some("good"), None],
             DType::Utf8(Nullable),
         );
-        test_filter(array.as_ref());
+        test_filter_conformance(array.as_ref());
     }
 }

@@ -21,7 +21,7 @@ register_kernel!(FilterKernelAdapter(DecimalBytePartsVTable).lift());
 mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::FixedSizeBinaryArray;
-    use vortex_array::compute::conformance::filter::test_filter;
+    use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_dtype::DecimalDType;
 
     use crate::DecimalBytePartsArray;
@@ -42,6 +42,6 @@ mod test {
 
         let decimal_dtype = DecimalDType::new(38, 5);
         let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();
-        test_filter(array.as_ref());
+        test_filter_conformance(array.as_ref());
     }
 }

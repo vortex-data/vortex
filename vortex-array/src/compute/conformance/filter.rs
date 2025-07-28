@@ -11,7 +11,7 @@ use crate::{Array, IntoArray};
 
 /// Test filter compute function with various array sizes and patterns.
 /// The input array can be of any length.
-pub fn test_filter(array: &dyn Array) {
+pub fn test_filter_conformance(array: &dyn Array) {
     let len = array.len();
 
     // Test with arrays of any size

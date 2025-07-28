@@ -82,7 +82,7 @@ mod test {
     use vortex_dtype::DecimalDType;
 
     use crate::arrays::DecimalArray;
-    use crate::compute::conformance::filter::test_filter;
+    use crate::compute::conformance::filter::test_filter_conformance;
 
     #[test]
     fn test_filter_decimal_array() {
@@ -96,12 +96,12 @@ mod test {
             Some(99999),
         ];
         let array = DecimalArray::from_option_iter(values, decimal_dtype);
-        test_filter(array.as_ref());
+        test_filter_conformance(array.as_ref());
 
         // Test Decimal128 with nullable values
         let decimal_dtype = DecimalDType::new(38, 4);
         let values = vec![Some(12345i128), None, Some(-12345), Some(0), None];
         let array = DecimalArray::from_option_iter(values, decimal_dtype);
-        test_filter(array.as_ref());
+        test_filter_conformance(array.as_ref());
     }
 }

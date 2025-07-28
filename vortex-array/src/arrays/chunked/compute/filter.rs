@@ -201,7 +201,7 @@ mod test {
     use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
-    use crate::compute::conformance::filter::test_filter;
+    use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::filter;
 
     #[test]
@@ -250,6 +250,6 @@ mod test {
         )
         .unwrap();
 
-        test_filter(chunked.as_ref());
+        test_filter_conformance(chunked.as_ref());
     }
 }

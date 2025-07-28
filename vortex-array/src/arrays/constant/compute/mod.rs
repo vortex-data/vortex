@@ -17,7 +17,7 @@ mod test {
 
     use crate::IntoArray;
     use crate::arrays::constant::ConstantArray;
-    use crate::compute::conformance::filter::test_filter;
+    use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask;
 
     #[test]
@@ -30,9 +30,9 @@ mod test {
 
     #[test]
     fn test_filter_constant() {
-        test_filter(&ConstantArray::new(Scalar::null_typed::<i32>(), 5).into_array());
-        test_filter(&ConstantArray::new(Scalar::from(3u16), 5).into_array());
-        test_filter(&ConstantArray::new(Scalar::from(1.0f32 / 0.0f32), 5).into_array());
-        test_filter(&ConstantArray::new(Scalar::from(f16::from_f32(3.0f32)), 5).into_array());
+        test_filter_conformance(&ConstantArray::new(Scalar::null_typed::<i32>(), 5).into_array());
+        test_filter_conformance(&ConstantArray::new(Scalar::from(3u16), 5).into_array());
+        test_filter_conformance(&ConstantArray::new(Scalar::from(1.0f32 / 0.0f32), 5).into_array());
+        test_filter_conformance(&ConstantArray::new(Scalar::from(f16::from_f32(3.0f32)), 5).into_array());
     }
 }

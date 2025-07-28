@@ -152,7 +152,7 @@ fn filter_indices<T: NativePType + BitPacking + ArrowNativeType>(
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::filter::test_filter;
+    use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
     use vortex_array::{Array, ToCanonical};
@@ -227,16 +227,16 @@ mod test {
         // Test with u8 values
         let unpacked = PrimitiveArray::from_iter([1u8, 2, 3, 4, 5]);
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 3).unwrap();
-        test_filter(bitpacked.as_ref());
+        test_filter_conformance(bitpacked.as_ref());
 
         // Test with u32 values
         let unpacked = PrimitiveArray::from_iter([100u32, 200, 300, 400, 500]);
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
-        test_filter(bitpacked.as_ref());
+        test_filter_conformance(bitpacked.as_ref());
 
         // Test with nullable values
         let unpacked = PrimitiveArray::from_option_iter([Some(1u16), None, Some(3), Some(4), None]);
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 3).unwrap();
-        test_filter(bitpacked.as_ref());
+        test_filter_conformance(bitpacked.as_ref());
     }
 }

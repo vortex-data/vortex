@@ -29,7 +29,7 @@ register_kernel!(FilterKernelAdapter(FSSTVTable).lift());
 
 #[cfg(test)]
 mod test {
-    use vortex_array::compute::conformance::filter::test_filter;
+    use vortex_array::compute::conformance::filter::test_filter_conformance;
 
     use crate::FSSTArray;
 
@@ -38,7 +38,7 @@ mod test {
         // Test with small strings
         let strings = vec!["hello", "world", "hello", "rust", "world"];
         let array = FSSTArray::from_iter(strings.iter().map(|s| Some(*s))).unwrap();
-        test_filter(array.as_ref());
+        test_filter_conformance(array.as_ref());
 
         // Test with longer strings that benefit from compression
         let strings = vec![
@@ -49,7 +49,7 @@ mod test {
             "the lazy dog sleeps",
         ];
         let array = FSSTArray::from_iter(strings.iter().map(|s| Some(*s))).unwrap();
-        test_filter(array.as_ref());
+        test_filter_conformance(array.as_ref());
 
         // Test with nullable strings
         let strings = vec![
@@ -60,6 +60,6 @@ mod test {
             None,
         ];
         let array = FSSTArray::from_iter(strings).unwrap();
-        test_filter(array.as_ref());
+        test_filter_conformance(array.as_ref());
     }
 }

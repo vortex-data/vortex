@@ -28,7 +28,7 @@ register_kernel!(FilterKernelAdapter(ALPVTable).lift());
 #[cfg(test)]
 mod test {
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::filter::test_filter;
+    use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 
@@ -43,7 +43,7 @@ mod test {
             .encode(&array.to_canonical().unwrap(), None)
             .unwrap()
             .unwrap();
-        test_filter(alp.as_ref());
+        test_filter_conformance(alp.as_ref());
 
         // Test with f64 values
         let values = buffer![100.1f64, 200.2, 300.3, 400.4, 500.5];
@@ -52,7 +52,7 @@ mod test {
             .encode(&array.to_canonical().unwrap(), None)
             .unwrap()
             .unwrap();
-        test_filter(alp.as_ref());
+        test_filter_conformance(alp.as_ref());
 
         // Test with nullable values
         let array =
@@ -61,6 +61,6 @@ mod test {
             .encode(&array.to_canonical().unwrap(), None)
             .unwrap()
             .unwrap();
-        test_filter(alp.as_ref());
+        test_filter_conformance(alp.as_ref());
     }
 }

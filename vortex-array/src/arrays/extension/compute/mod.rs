@@ -93,7 +93,7 @@ mod test {
 
     use crate::IntoArray;
     use crate::arrays::{ExtensionArray, PrimitiveArray};
-    use crate::compute::conformance::filter::test_filter;
+    use crate::compute::conformance::filter::test_filter_conformance;
 
     #[test]
     fn test_filter_extension_array() {
@@ -107,7 +107,7 @@ mod test {
         // Create storage array
         let storage = PrimitiveArray::from_iter([1u64, 2, 3, 4, 5]).into_array();
         let array = ExtensionArray::new(Arc::new(ext_dtype.clone()), storage);
-        test_filter(array.as_ref());
+        test_filter_conformance(array.as_ref());
 
         // Test with nullable extension type
         let ext_dtype_nullable = ExtDType::new(
@@ -118,6 +118,6 @@ mod test {
         let storage = PrimitiveArray::from_option_iter([Some(1u64), None, Some(3), Some(4), None])
             .into_array();
         let array = ExtensionArray::new(Arc::new(ext_dtype_nullable), storage);
-        test_filter(array.as_ref());
+        test_filter_conformance(array.as_ref());
     }
 }

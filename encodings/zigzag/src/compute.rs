@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn test_filter_conformance() {
-        use vortex_array::compute::conformance::filter::test_filter;
+        use vortex_array::compute::conformance::filter::test_filter_conformance;
 
         // Test with i32 values
         let zigzag = ZigZagEncoding
@@ -146,7 +146,7 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        test_filter(zigzag.as_ref());
+        test_filter_conformance(zigzag.as_ref());
 
         // Test with i64 values
         let zigzag = ZigZagEncoding
@@ -159,7 +159,7 @@ mod tests {
             )
             .unwrap()
             .unwrap();
-        test_filter(zigzag.as_ref());
+        test_filter_conformance(zigzag.as_ref());
 
         // Test with nullable values
         let array =
@@ -168,7 +168,7 @@ mod tests {
             .encode(&array.to_canonical().unwrap(), None)
             .unwrap()
             .unwrap();
-        test_filter(zigzag.as_ref());
+        test_filter_conformance(zigzag.as_ref());
     }
 
     #[test]

@@ -35,7 +35,7 @@ mod test {
     use rstest::{fixture, rstest};
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_numeric;
-    use vortex_array::compute::conformance::filter::test_filter as test_filter_conformance;
+    use vortex_array::compute::conformance::filter::test_filter_conformance as test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask;
     use vortex_array::compute::{cast, filter};
     use vortex_array::validity::Validity;

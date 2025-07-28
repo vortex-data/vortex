@@ -75,7 +75,7 @@ mod test {
 
     use crate::arrays::primitive::PrimitiveArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::conformance::filter::test_filter;
+    use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::filter;
 
     #[test]
@@ -106,6 +106,6 @@ mod test {
     #[test]
     fn test_filter_non_nullable_array() {
         let non_nullable_array = PrimitiveArray::from_iter([1, 2, 3, 4, 5]);
-        test_filter(non_nullable_array.as_ref());
+        test_filter_conformance(non_nullable_array.as_ref());
     }
 }

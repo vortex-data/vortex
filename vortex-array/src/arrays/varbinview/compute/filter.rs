@@ -19,15 +19,15 @@ register_kernel!(FilterKernelAdapter(VarBinViewVTable).lift());
 #[cfg(test)]
 mod tests {
     use crate::arrays::VarBinViewArray;
-    use crate::compute::conformance::filter::test_filter;
+    use crate::compute::conformance::filter::test_filter_conformance;
 
     #[test]
     fn test_filter_var_bin_view_array() {
-        test_filter(
+        test_filter_conformance(
             VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).as_ref(),
         );
 
-        test_filter(
+        test_filter_conformance(
             VarBinViewArray::from_iter_nullable_str([
                 Some("one"),
                 None,

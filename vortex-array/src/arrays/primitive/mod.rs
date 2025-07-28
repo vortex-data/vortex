@@ -350,7 +350,7 @@ mod tests {
     use vortex_scalar::PValue;
 
     use crate::arrays::{BoolArray, PrimitiveArray};
-    use crate::compute::conformance::filter::test_filter;
+    use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask;
     use crate::compute::conformance::search_sorted::rstest_reuse::apply;
     use crate::compute::conformance::search_sorted::{search_sorted_conformance, *};
@@ -390,16 +390,16 @@ mod tests {
     #[test]
     fn test_filter_primitive_array() {
         // Test various sizes
-        test_filter(PrimitiveArray::new(buffer![42i32], Validity::NonNullable).as_ref());
-        test_filter(PrimitiveArray::new(buffer![0, 1], Validity::NonNullable).as_ref());
-        test_filter(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref());
-        test_filter(
+        test_filter_conformance(PrimitiveArray::new(buffer![42i32], Validity::NonNullable).as_ref());
+        test_filter_conformance(PrimitiveArray::new(buffer![0, 1], Validity::NonNullable).as_ref());
+        test_filter_conformance(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref());
+        test_filter_conformance(
             PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable).as_ref(),
         );
 
         // Test with validity
-        test_filter(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
-        test_filter(
+        test_filter_conformance(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
+        test_filter_conformance(
             PrimitiveArray::new(
                 buffer![0, 1, 2, 3, 4, 5],
                 Validity::Array(

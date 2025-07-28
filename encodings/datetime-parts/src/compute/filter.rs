@@ -25,7 +25,7 @@ register_kernel!(FilterKernelAdapter(DateTimePartsVTable).lift());
 mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::filter::test_filter;
+    use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_dtype::{DType, Nullability, PType};
 
     use crate::DateTimePartsArray;
@@ -41,7 +41,7 @@ mod test {
 
         let dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
         let array = DateTimePartsArray::try_new(dtype, days, seconds, subseconds).unwrap();
-        test_filter(array.as_ref());
+        test_filter_conformance(array.as_ref());
 
         // Test with nullable values
         let days = PrimitiveArray::from_option_iter([Some(0i64), None, Some(2), Some(3), None])
@@ -60,6 +60,6 @@ mod test {
 
         let dtype = DType::Primitive(PType::I64, Nullability::Nullable);
         let array = DateTimePartsArray::try_new(dtype, days, seconds, subseconds).unwrap();
-        test_filter(array.as_ref());
+        test_filter_conformance(array.as_ref());
     }
 }

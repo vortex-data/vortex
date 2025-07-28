@@ -82,7 +82,7 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::arrays::bool::compute::filter::{filter_indices, filter_slices};
     use crate::canonical::ToCanonical;
-    use crate::compute::conformance::filter::test_filter;
+    use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::filter;
 
     #[test]
@@ -121,6 +121,6 @@ mod test {
 
     #[test]
     fn test_filter_bool_array() {
-        test_filter(BoolArray::from_iter([true, false, true, true, false]).as_ref());
+        test_filter_conformance(BoolArray::from_iter([true, false, true, true, false]).as_ref());
     }
 }
