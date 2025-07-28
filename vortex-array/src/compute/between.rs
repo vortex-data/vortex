@@ -17,32 +17,20 @@ use crate::compute::{
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
-/// Compute between (a <= x <= b), this can be implemented using compare and boolean and but this
-/// will likely have a lower runtime.
+static BETWEEN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("between".into(), ArcRef::new_ref(&Between));
+    for kernel in inventory::iter::<BetweenKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
+/// Compute between (a <= x <= b).
 ///
-/// This semantics is equivalent to:
-/// ```
-/// use vortex_array::{Array, ArrayRef};
-/// use vortex_array::compute::{boolean, compare, BetweenOptions, BooleanOperator, Operator};///
-/// use vortex_error::VortexResult;
+/// This is an optimized implementation that is equivalent to `(a <= x) AND (x <= b)`.
 ///
-/// fn between(
-///    arr: &dyn Array,
-///    lower: &dyn Array,
-///    upper: &dyn Array,
-///    options: &BetweenOptions
-/// ) -> VortexResult<ArrayRef> {
-///     boolean(
-///         &compare(lower, arr, options.lower_strict.to_operator())?,
-///         &compare(arr, upper,  options.upper_strict.to_operator())?,
-///         BooleanOperator::And
-///     )
-/// }
-///  ```
-///
-/// The BetweenOptions { lower: StrictComparison, upper: StrictComparison } defines if the
-/// value is < (strict) or <= (non-strict).
-///
+/// The `BetweenOptions` defines if the lower or upper bounds are strict (exclusive) or non-strict
+/// (inclusive).
 pub fn between(
     arr: &dyn Array,
     lower: &dyn Array,
@@ -91,14 +79,6 @@ impl<V: VTable + BetweenKernel> Kernel for BetweenKernelAdapter<V> {
         )
     }
 }
-
-pub static BETWEEN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("between".into(), ArcRef::new_ref(&Between));
-    for kernel in inventory::iter::<BetweenKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct Between;
 
@@ -263,9 +243,12 @@ impl Options for BetweenOptions {
     }
 }
 
+/// Strictness of the comparison.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum StrictComparison {
+    /// Strict bound (`<`)
     Strict,
+    /// Non-strict bound (`<=`)
     NonStrict,
 }
 
