@@ -128,7 +128,7 @@ pub fn sum_impl(
         };
     }
 
-    // If the array is constant, we can compute the sum directly.
+    // Sum of all null is null.
     if array.all_invalid()? {
         return Ok(Scalar::null(sum_dtype));
     }
