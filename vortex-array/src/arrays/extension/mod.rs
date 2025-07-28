@@ -74,7 +74,7 @@ pub struct ExtensionEncoding;
 /// ## Use Cases
 ///
 /// Extension arrays are ideal for:
-/// - **Custom numeric types**: Decimal types, units of measurement, currencies
+/// - **Custom numeric types**: Units of measurement, currencies
 /// - **Temporal types**: Custom date/time formats, time zones, calendars
 /// - **Domain-specific types**: UUIDs, IP addresses, geographic coordinates
 /// - **Encoded types**: Base64 strings, compressed data, encrypted values
