@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::iter;
+use std::marker::PhantomData;
 
 mod accessor;
 
@@ -14,7 +15,7 @@ use vortex_error::{VortexResult, vortex_panic};
 use crate::builders::ArrayBuilder;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
-use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable};
+use crate::{Array, ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, vtable, vtable_raw};
 
 mod compute;
 mod native_value;
@@ -31,11 +32,11 @@ use crate::vtable::{
     ValidityVTableFromValidityHelper,
 };
 
-vtable!(Primitive);
+vtable_raw!(PrimitiveVTable, PrimitiveArray, PrimitiveEncoding, <T: NativePType>);
 
-impl VTable for PrimitiveVTable {
-    type Array = PrimitiveArray;
-    type Encoding = PrimitiveEncoding;
+impl<T: NativePType> VTable for PrimitiveVTable<T> {
+    type Array = PrimitiveArray<T>;
+    type Encoding = PrimitiveEncoding<T>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -51,23 +52,29 @@ impl VTable for PrimitiveVTable {
     }
 
     fn encoding(_array: &Self::Array) -> EncodingRef {
-        EncodingRef::new_ref(PrimitiveEncoding.as_ref())
+        EncodingRef::new_ref(PrimitiveEncoding::<T>.as_ref())
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct PrimitiveArray {
+pub struct PrimitiveArray<T> {
     dtype: DType,
-    buffer: ByteBuffer,
+    buffer: Buffer<T>,
     validity: Validity,
     stats_set: ArrayStats,
 }
 
 #[derive(Clone, Debug)]
-pub struct PrimitiveEncoding;
+pub struct PrimitiveEncoding<T: Clone>(PhantomData<T>);
 
-impl PrimitiveArray {
-    pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
+impl<T: Clone> PrimitiveEncoding<T> {
+    pub const fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T: NativePType> PrimitiveArray<T> {
+    pub fn new(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
         if let Some(len) = validity.maybe_len() {
             if buffer.len() != len {
@@ -80,25 +87,25 @@ impl PrimitiveArray {
         }
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
-            buffer: buffer.into_byte_buffer(),
+            buffer,
             validity,
             stats_set: Default::default(),
         }
     }
 
-    pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
+    pub fn empty(nullability: Nullability) -> Self {
         Self::new(Buffer::<T>::empty(), nullability.into())
     }
 
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
         match_each_native_ptype!(ptype, |T| {
-            Self::new::<T>(Buffer::from_byte_buffer(buffer), validity)
+            Self::new(Buffer::from_byte_buffer(buffer), validity)
         })
     }
 
     /// Create a PrimitiveArray from an iterator of `T`.
     /// NOTE: we cannot impl FromIterator trait since it conflicts with `FromIterator<T>`.
-    pub fn from_option_iter<T: NativePType, I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
+    pub fn from_option_iter<I: IntoIterator<Item = Option<T>>>(iter: I) -> Self {
         let iter = iter.into_iter();
         let mut values = BufferMut::with_capacity(iter.size_hint().0);
         let mut validity = BooleanBufferBuilder::new(values.capacity());
@@ -149,54 +156,33 @@ impl PrimitiveArray {
         self.dtype().as_ptype()
     }
 
-    pub fn byte_buffer(&self) -> &ByteBuffer {
-        &self.buffer
+    pub fn byte_buffer(&self) -> ByteBuffer {
+        self.buffer.clone().into_byte_buffer()
     }
 
     pub fn into_byte_buffer(self) -> ByteBuffer {
+        self.buffer.clone().into_byte_buffer()
+    }
+
+    pub fn buffer(&self) -> Buffer<T> {
+        self.buffer.clone()
+    }
+
+    pub fn into_buffer(self) -> Buffer<T> {
         self.buffer
-    }
-
-    pub fn buffer<T: NativePType>(&self) -> Buffer<T> {
-        if T::PTYPE != self.ptype() {
-            vortex_panic!(
-                "Attempted to get buffer of type {} from array of type {}",
-                T::PTYPE,
-                self.ptype()
-            )
-        }
-        Buffer::from_byte_buffer(self.byte_buffer().clone())
-    }
-
-    pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
-        if T::PTYPE != self.ptype() {
-            vortex_panic!(
-                "Attempted to get buffer of type {} from array of type {}",
-                T::PTYPE,
-                self.ptype()
-            )
-        }
-        Buffer::from_byte_buffer(self.buffer)
     }
 
     /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy
     /// if the buffer is uniquely owned, otherwise will make a copy.
-    pub fn into_buffer_mut<T: NativePType>(self) -> BufferMut<T> {
-        if T::PTYPE != self.ptype() {
-            vortex_panic!(
-                "Attempted to get buffer_mut of type {} from array of type {}",
-                T::PTYPE,
-                self.ptype()
-            )
-        }
-        self.into_buffer()
+    pub fn into_buffer_mut(self) -> BufferMut<T> {
+        self.buffer
             .try_into_mut()
             .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
     }
 
     /// Try to extract a mutable buffer from the PrimitiveArray with zero copy.
     #[allow(clippy::panic_in_result_fn)]
-    pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, PrimitiveArray> {
+    pub fn try_into_buffer_mut(self) -> Result<BufferMut<T>, PrimitiveArray<T>> {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
                 "Attempted to get buffer_mut of type {} from array of type {}",
@@ -216,16 +202,15 @@ impl PrimitiveArray {
     ///
     /// TODO(ngates): we could be smarter here if validity is sparse and only run the function
     ///   over the valid elements.
-    pub fn map_each<T, R, F>(self, f: F) -> PrimitiveArray
+    pub fn map_each<R, F>(self, f: F) -> PrimitiveArray<T>
     where
-        T: NativePType,
         R: NativePType,
         F: FnMut(T) -> R,
     {
         let validity = self.validity().clone();
         let buffer = match self.try_into_buffer_mut() {
             Ok(buffer_mut) => buffer_mut.map_each(f),
-            Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().copied().map(f)),
+            Err(parray) => BufferMut::<R>::from_iter(parray.buffer().iter().copied().map(f)),
         };
         PrimitiveArray::new(buffer.freeze(), validity)
     }
@@ -234,15 +219,14 @@ impl PrimitiveArray {
     ///
     /// This doesn't ignore validity and maps over all maybe-null elements, with a bool true if
     /// valid and false otherwise.
-    pub fn map_each_with_validity<T, R, F>(self, f: F) -> VortexResult<PrimitiveArray>
+    pub fn map_each_with_validity<R, F>(self, f: F) -> VortexResult<PrimitiveArray<T>>
     where
-        T: NativePType,
         R: NativePType,
         F: FnMut((T, bool)) -> R,
     {
         let validity = self.validity();
 
-        let buf_iter = self.buffer::<T>().into_iter();
+        let buf_iter = self.buffer().into_iter();
 
         let buffer = match &validity {
             Validity::NonNullable | Validity::AllValid => {
@@ -262,7 +246,7 @@ impl PrimitiveArray {
     /// Return a slice of the array's buffer.
     ///
     /// NOTE: these values may be nonsense if the validity buffer indicates that the value is null.
-    pub fn as_slice<T: NativePType>(&self) -> &[T] {
+    pub fn as_slice(&self) -> &[T] {
         if T::PTYPE != self.ptype() {
             vortex_panic!(
                 "Attempted to get slice of type {} from array of type {}",

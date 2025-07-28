@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::vector::vector::Vector;
 use bitvec::prelude::BitVec;
 use std::marker::PhantomData;
 
@@ -13,6 +14,11 @@ pub struct Exporter<'a> {
 }
 
 impl<'a> Exporter<'a> {
+    /// Export a custom vector into the exporter.
+    pub fn export(self, custom: Vector) {
+        todo!()
+    }
+
     pub fn boolean(self) -> BooleanExporter<'a> {
         BooleanExporter {
             _marker: PhantomData,
