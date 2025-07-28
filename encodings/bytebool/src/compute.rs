@@ -21,45 +21,24 @@ register_kernel!(MaskKernelAdapter(ByteBoolVTable).lift());
 
 impl TakeKernel for ByteBoolVTable {
     fn take(&self, array: &ByteBoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let validity = array.validity_mask()?;
         let indices = indices.to_primitive()?;
         let bools = array.as_slice();
+        
+        // This handles combining validity from both source array and nullable indices
+        let validity = array.validity().take(indices.as_ref())?;
 
-        // FIXME(ngates): we should be operating over canonical validity, which doesn't
-        //  have fallible is_valid function.
-        let arr = match validity {
-            Mask::AllTrue(_) => {
-                let bools = match_each_integer_ptype!(indices.ptype(), |I| {
-                    indices
-                        .as_slice::<I>()
-                        .iter()
-                        .map(|&idx| {
-                            let idx: usize = idx.as_();
-                            bools[idx]
-                        })
-                        .collect::<Vec<_>>()
-                });
+        let taken_bools = match_each_integer_ptype!(indices.ptype(), |I| {
+            indices
+                .as_slice::<I>()
+                .iter()
+                .map(|&idx| {
+                    let idx: usize = idx.as_();
+                    bools[idx]
+                })
+                .collect::<Vec<bool>>()
+        });
 
-                ByteBoolArray::from(bools).into_array()
-            }
-            Mask::AllFalse(_) => ByteBoolArray::from(vec![None; indices.len()]).into_array(),
-            Mask::Values(values) => {
-                let bools = match_each_integer_ptype!(indices.ptype(), |I| {
-                    indices
-                        .as_slice::<I>()
-                        .iter()
-                        .map(|&idx| {
-                            let idx = idx.as_();
-                            values.value(idx).then(|| bools[idx])
-                        })
-                        .collect::<Vec<Option<_>>>()
-                });
-
-                ByteBoolArray::from(bools).into_array()
-            }
-        };
-
-        Ok(arr)
+        Ok(ByteBoolArray::from_vec(taken_bools, validity).into_array())
     }
 }
 
