@@ -35,7 +35,7 @@ pin-project-lite = { workspace = true }
 prost = { workspace = true }
 roaring = { workspace = true, optional = true }
 sketches-ddsketch = { workspace = true }
-tokio = { workspace = true, features = ["rt"], optional = true }
+tokio = { workspace = true, features = ["rt", "sync"] }
 tracing = { workspace = true, optional = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
@@ -61,7 +61,7 @@ vortex-layout = { path = ".", features = ["tokio"] }
 
 [features]
 roaring = ["dep:roaring"]
-tokio = ["dep:tokio", "vortex-error/tokio", "tracing"]
+tokio = ["vortex-error/tokio", "tracing"]
 zstd = ["dep:vortex-zstd"]
 
 [lints]

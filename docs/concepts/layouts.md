@@ -91,13 +91,6 @@ A `LayoutWriter` defines a way to serialize a stream of array chunks into a layo
 buffer writer that takes a `ByteBuffer` and returns a `BufferId`. These identifiers are used to construct the layout
 tree.
 
-The Rust trait looks like this:
-
-:::{literalinclude} ../../vortex-layout/src/writer.rs
-:start-after: [layout writer]
-:end-before: [layout writer]
-:::
-
 ### File-level Compression
 
 While chunk-level compression can be handed off to a compression strategy, i.e. `fn(Array) -> Array`, there

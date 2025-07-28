@@ -5,22 +5,21 @@ use std::future;
 use std::sync::Arc;
 
 use arcref::ArcRef;
+use async_trait::async_trait;
 use futures::stream::once;
 use futures::{FutureExt, StreamExt as _};
 use parking_lot::Mutex;
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStreamAdapter, ArrayStreamExt};
 use vortex_array::{ArrayContext, ArrayRef};
+use vortex_array::iter::ArrayIteratorExt;
 use vortex_error::VortexResult;
 
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SequenceWriter;
-use crate::sequence::SequenceId;
-use crate::{
-    IntoLayout, LayoutStrategy, SendableLayoutFuture, SendableSequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt, TaskExecutor, TaskExecutorExt,
-};
+use crate::sequence::{SequenceId, SequencePointer};
+use crate::{ArrayStreamSequentialExt, IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt, TaskExecutor, TaskExecutorExt};
 
 pub struct ZonedLayoutOptions {
     /// The size of a statistics block
@@ -49,6 +48,7 @@ pub struct ZonedStrategy {
     stats: ArcRef<dyn LayoutStrategy>,
     options: ZonedLayoutOptions,
     executor: Arc<dyn TaskExecutor>,
+    eof: Mutex<SequencePointer>,
 }
 
 impl ZonedStrategy {
@@ -57,23 +57,30 @@ impl ZonedStrategy {
         stats: ArcRef<dyn LayoutStrategy>,
         options: ZonedLayoutOptions,
         executor: Arc<dyn TaskExecutor>,
+        // Pointer to the end of the sequence, used to put stats tables at the back of the file.
+        eof: SequencePointer,
     ) -> Self {
         Self {
             child,
             stats,
             options,
             executor,
+            eof: Mutex::new(eof),
         }
     }
 }
 
+#[async_trait]
 impl LayoutStrategy for ZonedStrategy {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        sequence_writer: &SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
+        // Create a new EOF pointer up-front to use for the stats table.
+        let eof = self.eof.lock().advance().descend();
+
         let executor = self.executor.clone();
         let stats = self.options.stats.clone();
         let precomputed_stream = SequentialStreamAdapter::new(
@@ -86,12 +93,12 @@ impl LayoutStrategy for ZonedStrategy {
                         chunk.statistics().compute_all(&stats)?;
                         VortexResult::Ok((sequence_id, chunk))
                     }
-                    .boxed()
+                        .boxed()
                 })
                 .map(move |stats_future| executor.spawn(stats_future))
                 .buffered(self.options.parallelism),
         )
-        .sendable();
+            .sendable();
 
         let stats_accumulator = Arc::new(Mutex::new(StatsAccumulator::new(
             precomputed_stream.dtype(),
@@ -104,44 +111,44 @@ impl LayoutStrategy for ZonedStrategy {
                 future::ready(Some(accumulate_stats(acc, item)))
             }),
         )
-        .sendable();
+            .sendable();
 
         let ctx = ctx.clone();
         let child = self.child.clone();
         let stats_strategy = self.stats.clone();
         let block_size = self.options.block_size;
-        Box::pin(async move {
-            let data_layout = child
-                .write_stream(&ctx, sequence_writer.clone(), stream)
-                .await?;
 
-            let Some(stats_table) = stats_accumulator.lock().as_stats_table() else {
-                // If we have no stats (e.g. the DType doesn't support them), then we just return the
-                // child layout.
-                return Ok(data_layout);
-            };
-            // We must defer creating the stats table LayoutWriter until now, because the DType of
-            // the table depends on which stats were successfully computed.
-            let stats_array = stats_table.array().to_array().clone();
+        let data_layout = child.write_stream(&ctx, sequence_writer, stream).await?;
 
-            let stats_stream =
-                sequence_writer.new_sequential(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
-                    stats_array.dtype().clone(),
-                    once(async { Ok(stats_array) }),
-                )));
+        let Some(stats_table) = stats_accumulator.lock().as_stats_table() else {
+            // If we have no stats (e.g. the DType doesn't support them), then we just return the
+            // child layout.
+            return Ok(data_layout);
+        };
 
-            let zones_layout = stats_strategy
-                .write_stream(&ctx, sequence_writer, stats_stream)
-                .await?;
+        // We must defer creating the stats table LayoutWriter until now, because the DType of
+        // the table depends on which stats were successfully computed.
+        let stats_array = stats_table.array().to_array().clone();
 
-            Ok(ZonedLayout::new(
-                data_layout,
-                zones_layout,
-                block_size,
-                stats_table.present_stats().clone(),
-            )
+        let stats_stream = stats_array.into_array_stream()
+            .sequential(self.eof.lock().advance())
+        stats_array.dtype().clone(),
+        once(async { Ok(stats_array) }),
+        ))
+        .new_sequential(ArrayStreamExt::boxed()
+                            .await;
+
+        let zones_layout = stats_strategy
+            .write_stream(&ctx, sequence_writer, stats_stream)
+            .await?;
+
+        Ok(ZonedLayout::new(
+            data_layout,
+            zones_layout,
+            block_size,
+            stats_table.present_stats().clone(),
+        )
             .into_layout())
-        })
     }
 }
 

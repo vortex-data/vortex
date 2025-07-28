@@ -3,17 +3,18 @@
 
 use std::sync::Arc;
 
+use crate::segments::SequenceWriter;
+use crate::{
+    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt as _, TaskExecutor, TaskExecutorExt as _,
+};
 use arcref::ArcRef;
+use async_trait::async_trait;
 use futures::{FutureExt as _, StreamExt as _};
 use vortex_array::ArrayContext;
 use vortex_array::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
-
-use crate::segments::SequenceWriter;
-use crate::{
-    LayoutStrategy, SendableLayoutFuture, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt as _, TaskExecutor, TaskExecutorExt as _,
-};
+use vortex_error::VortexResult;
 
 /// A layout writer that compresses chunks using a sampling compressor.
 pub struct BtrBlocksCompressedStrategy {
@@ -36,13 +37,14 @@ impl BtrBlocksCompressedStrategy {
     }
 }
 
+#[async_trait]
 impl LayoutStrategy for BtrBlocksCompressedStrategy {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        sequence_writer: &SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
         let executor = self.executor.clone();
 
         let dtype = stream.dtype().clone();
@@ -61,10 +63,12 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
             .map(move |compress_future| executor.spawn(compress_future))
             .buffered(self.parallelism);
 
-        self.child.write_stream(
-            ctx,
-            sequence_writer,
-            SequentialStreamAdapter::new(dtype, stream).sendable(),
-        )
+        self.child
+            .write_stream(
+                ctx,
+                sequence_writer,
+                SequentialStreamAdapter::new(dtype, stream).sendable(),
+            )
+            .await
     }
 }

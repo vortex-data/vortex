@@ -6,18 +6,35 @@
 //! otherwise manipulate the chunks of data enabling experimentation with different strategies
 //! all while remaining independent of the read code.
 
+use async_trait::async_trait;
+use futures::{Stream, TryStreamExt};
+use pin_project_lite::pin_project;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-
-use futures::Stream;
-use pin_project_lite::pin_project;
+use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::SendableLayoutFuture;
+use crate::LayoutRef;
 use crate::segments::SequenceWriter;
-use crate::sequence::SequenceId;
+use crate::sequence::{SequenceId, SequencePointer};
+
+pub trait ArrayStreamSequentialExt: ArrayStream {
+    /// Convert an [`ArrayStream`] into a [`SequentialStream`].
+    fn sequential(self, mut sequence_ptr: SequencePointer) -> SendableSequentialStream
+    where
+        Self: Sized + Send + 'static,
+    {
+        SequentialStreamAdapter::new(
+            self.dtype().clone(),
+            self.map_ok(move |chunk| (sequence_ptr.advance(), chunk)),
+        )
+        .sendable()
+    }
+}
+
+impl<S: ArrayStream> ArrayStreamSequentialExt for S {}
 
 pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
     fn dtype(&self) -> &DType;
@@ -31,13 +48,15 @@ impl SequentialStream for SendableSequentialStream {
     }
 }
 
+#[async_trait]
 pub trait LayoutStrategy: 'static + Send + Sync {
-    fn write_stream(
+    /// Write a stream of arrays to the layout.
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        sequence_writer: &SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture;
+    ) -> VortexResult<LayoutRef>;
 }
 
 pub trait SequentialStreamExt: SequentialStream {

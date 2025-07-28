@@ -3,16 +3,17 @@
 
 use std::collections::VecDeque;
 
-use arcref::ArcRef;
-use async_stream::try_stream;
-use futures::{StreamExt as _, pin_mut};
-use vortex_array::ArrayContext;
-
 use crate::segments::SequenceWriter;
 use crate::{
-    LayoutStrategy, SendableLayoutFuture, SendableSequentialStream, SequentialStreamAdapter,
+    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt as _,
 };
+use arcref::ArcRef;
+use async_stream::try_stream;
+use async_trait::async_trait;
+use futures::{StreamExt as _, pin_mut};
+use vortex_array::ArrayContext;
+use vortex_error::VortexResult;
 
 pub struct BufferedStrategy {
     child: ArcRef<dyn LayoutStrategy>,
@@ -25,13 +26,14 @@ impl BufferedStrategy {
     }
 }
 
+#[async_trait]
 impl LayoutStrategy for BufferedStrategy {
-    fn write_stream(
+    async fn write_stream(
         &self,
         ctx: &ArrayContext,
-        sequence_writer: SequenceWriter,
+        sequence_writer: &SequenceWriter,
         stream: SendableSequentialStream,
-    ) -> SendableLayoutFuture {
+    ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
         let buffered_stream = try_stream! {
@@ -70,10 +72,12 @@ impl LayoutStrategy for BufferedStrategy {
                 }
             }
         };
-        self.child.write_stream(
-            ctx,
-            sequence_writer,
-            SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
-        )
+        self.child
+            .write_stream(
+                ctx,
+                sequence_writer,
+                SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
+            )
+            .await
     }
 }

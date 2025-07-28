@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
+use async_trait::async_trait;
 use futures::FutureExt;
 use parking_lot::Mutex;
+use std::sync::Arc;
 use vortex_buffer::{ByteBuffer, ByteBufferMut};
 use vortex_error::{VortexResult, vortex_err};
 
@@ -24,8 +24,9 @@ impl SegmentSource for TestSegments {
     }
 }
 
+#[async_trait]
 impl SegmentWriter for TestSegments {
-    fn put(&mut self, _segment_id: SegmentId, data: Vec<ByteBuffer>) -> VortexResult<()> {
+    async fn put(&mut self, _segment_id: SegmentId, data: Vec<ByteBuffer>) -> VortexResult<()> {
         // Combine all the buffers since we're only a test implementation
         let mut buffer = ByteBufferMut::empty();
         for segment in data {
