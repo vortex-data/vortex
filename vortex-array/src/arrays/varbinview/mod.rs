@@ -237,6 +237,26 @@ impl BinaryView {
             }
         }
     }
+
+    /// Shifts the buffer reference by the view by a given offset, useful when merging many
+    /// varbinview arrays into one.
+    #[inline(always)]
+    pub fn offset_view(self, offset: u32) -> Self {
+        if self.is_inlined() {
+            self
+        } else {
+            // Referencing views must have their buffer_index adjusted with new offsets
+            let view_ref = self.as_view();
+            Self {
+                _ref: Ref::new(
+                    self.len(),
+                    *view_ref.prefix(),
+                    offset + view_ref.buffer_index(),
+                    view_ref.offset(),
+                ),
+            }
+        }
+    }
 }
 
 impl From<u128> for BinaryView {

@@ -30,6 +30,18 @@ impl VarBinViewBuilder {
     const BLOCK_SIZE: u32 = 8 * 8 * 1024;
 
     pub fn with_capacity(dtype: DType, capacity: usize) -> Self {
+        Self::new(dtype, capacity, Default::default())
+    }
+
+    pub fn with_buffer_deduplication(dtype: DType, capacity: usize) -> Self {
+        Self::new(
+            dtype,
+            capacity,
+            CompletedBuffers::Deduplicated(Default::default()),
+        )
+    }
+
+    fn new(dtype: DType, capacity: usize, completed: CompletedBuffers) -> Self {
         assert!(
             matches!(dtype, DType::Utf8(_) | DType::Binary(_)),
             "VarBinViewBuilder DType must be Utf8 or Binary."
@@ -37,7 +49,7 @@ impl VarBinViewBuilder {
         Self {
             views_builder: BufferMut::<BinaryView>::with_capacity(capacity),
             null_buffer_builder: LazyNullBufferBuilder::new(capacity),
-            completed: Default::default(),
+            completed,
             in_progress: ByteBufferMut::empty(),
             nullability: dtype.nullability(),
             dtype,
@@ -201,17 +213,10 @@ impl ArrayBuilder for VarBinViewBuilder {
         let array = array.to_varbinview()?;
         self.flush_in_progress();
 
-        let index_lookup = self.completed.extend_from_slice(array.buffers());
+        let new_indices = self.completed.extend_from_slice(array.buffers());
 
         self.views_builder
-            .extend_trusted(array.views().iter().map(|view| {
-                if view.is_inlined() {
-                    *view
-                } else {
-                    let new_buffer_idx = index_lookup[view.as_view().buffer_index() as usize];
-                    view.with_buffer_idx(new_buffer_idx)
-                }
-            }));
+            .extend_trusted(array.views().iter().map(|view| new_indices.map_view(view)));
 
         self.push_only_validity_mask(array.validity_mask()?);
 
@@ -236,13 +241,89 @@ impl ArrayBuilder for VarBinViewBuilder {
     }
 }
 
+enum CompletedBuffers {
+    Default(Vec<ByteBuffer>),
+    Deduplicated(DeduplicatedBuffers),
+}
+
+impl Default for CompletedBuffers {
+    fn default() -> Self {
+        Self::Default(Vec::new())
+    }
+}
+
+// Self::push enforces len < u32::max
+#[allow(clippy::cast_possible_truncation)]
+impl CompletedBuffers {
+    fn len(&self) -> u32 {
+        match self {
+            Self::Default(buffers) => buffers.len() as u32,
+            Self::Deduplicated(buffers) => buffers.len(),
+        }
+    }
+
+    fn push(&mut self, block: ByteBuffer) -> u32 {
+        match self {
+            Self::Default(buffers) => {
+                assert!(buffers.len() < u32::MAX as usize, "Too many blocks");
+                buffers.push(block);
+                self.len()
+            }
+            Self::Deduplicated(buffers) => buffers.push(block),
+        }
+    }
+
+    fn extend_from_slice(&mut self, new_buffers: &[ByteBuffer]) -> NewIndices {
+        match self {
+            Self::Default(buffers) => {
+                let offset = buffers.len() as u32;
+                buffers.extend_from_slice(new_buffers);
+                NewIndices::ConstantOffset(offset)
+            }
+            Self::Deduplicated(buffers) => {
+                NewIndices::LookupArray(buffers.extend_from_slice(new_buffers))
+            }
+        }
+    }
+
+    fn finish(self) -> Arc<[ByteBuffer]> {
+        match self {
+            Self::Default(buffers) => Arc::from(buffers),
+            Self::Deduplicated(buffers) => buffers.finish(),
+        }
+    }
+}
+
+enum NewIndices {
+    // add a constant offset to get the new idx
+    ConstantOffset(u32),
+    // lookup from the given array to get the new idx
+    LookupArray(Vec<u32>),
+}
+
+impl NewIndices {
+    fn map_view(&self, view: &BinaryView) -> BinaryView {
+        match self {
+            Self::ConstantOffset(offset) => view.offset_view(*offset),
+            Self::LookupArray(lookup) => {
+                if view.is_inlined() {
+                    *view
+                } else {
+                    let new_buffer_idx = lookup[view.as_view().buffer_index() as usize];
+                    view.with_buffer_idx(new_buffer_idx)
+                }
+            }
+        }
+    }
+}
+
 #[derive(Default)]
-struct CompletedBuffers {
+struct DeduplicatedBuffers {
     buffers: Vec<ByteBuffer>,
     buffer_to_idx: HashMap<BufferId, u32>,
 }
 
-impl CompletedBuffers {
+impl DeduplicatedBuffers {
     // Self::push enforces len < u32::max
     #[allow(clippy::cast_possible_truncation)]
     fn len(&self) -> u32 {
@@ -394,7 +475,8 @@ mod tests {
         };
 
         assert_eq!(array.buffers().len(), 1);
-        let mut builder = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
+        let mut builder =
+            VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
 
         array.append_to_builder(&mut builder).unwrap();
         assert_eq!(builder.completed_block_count(), 1);
