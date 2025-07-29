@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::DType;
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use crate::arrays::{DecimalArray, DecimalVTable};
 use crate::compute::{CastKernel, CastKernelAdapter};
@@ -14,10 +14,13 @@ impl CastKernel for DecimalVTable {
     fn cast(&self, array: &DecimalArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Early return if not casting to decimal
         let DType::Decimal(to_precision_scale, to_nullability) = dtype else {
-            vortex_bail!("Cannot cast to non-decimal type, got {:?}", dtype);
+            return Ok(None);
         };
         let DType::Decimal(from_precision_scale, _) = array.dtype() else {
-            vortex_bail!("DecimalArray must have decimal dtype");
+            vortex_panic!(
+                "DecimalArray must have decimal dtype, got {:?}",
+                array.dtype()
+            );
         };
 
         // We only support casting to the same decimal type with different nullability
