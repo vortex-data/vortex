@@ -73,12 +73,13 @@ impl ScanBuilder<ArrayRef> {
             //  head-room to run ahead and figure out the I/O demands of subsequent tasks.
             .buffered(num_workers * concurrency);
 
-        Ok(
-            iter::from_fn(move || CPU_RUNTIME.block_on(stream.next())).filter_map(|result| {
-                result
-                    .map_err(|e| vortex_err!("Failed to join on a spawned scan task {e}"))
-                    .vortex_expect("Failed to join on a spawned scan task")
-            }),
-        )
+        Ok(iter::from_fn(move || {
+            tokio::task::block_in_place(|| CPU_RUNTIME.handle().block_on(stream.next()))
+        })
+        .filter_map(|result| {
+            result
+                .map_err(|e| vortex_err!("Failed to join on a spawned scan task {e}"))
+                .vortex_expect("Failed to join on a spawned scan task")
+        }))
     }
 }
