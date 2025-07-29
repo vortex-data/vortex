@@ -3,7 +3,7 @@
 
 use crate::segments::SegmentSink;
 use crate::{
-    LayoutRef, LayoutStrategy, SequentialArrayStream, SequentialStreamAdapter,
+    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt as _,
 };
 use async_stream::try_stream;
@@ -31,9 +31,10 @@ impl LayoutStrategy for BufferedStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SequentialArrayStream,
+        mut stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
+        let eos = stream.end_of_stream();
         let buffer_size = self.buffer_size;
         let buffered_stream = try_stream! {
             let stream = stream.peekable();
@@ -71,11 +72,12 @@ impl LayoutStrategy for BufferedStrategy {
                 }
             }
         };
+
         self.child
             .write_stream(
                 ctx,
                 segment_sink,
-                SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
+                SequentialStreamAdapter::new(dtype, buffered_stream, eos).sendable(),
             )
             .await
     }

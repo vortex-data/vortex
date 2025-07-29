@@ -12,7 +12,8 @@ use vortex_error::{VortexExpect, VortexResult};
 
 use crate::segments::SegmentSink;
 use crate::{
-    LayoutRef, LayoutStrategy, SequentialArrayStream, SequentialStreamAdapter, SequentialStreamExt,
+    LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
+    SequentialStreamExt,
 };
 
 #[derive(Clone)]
@@ -44,7 +45,7 @@ impl LayoutStrategy for RepartitionStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SequentialArrayStream,
+        stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)

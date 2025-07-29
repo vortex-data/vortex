@@ -19,7 +19,10 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSink;
-use crate::{IntoLayout as _, LayoutRef, LayoutStrategy, SequentialArrayStream};
+use crate::{
+    IntoLayout as _, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStream,
+    SequentialStreamAdapter,
+};
 
 pub struct StructStrategy {
     child: Arc<dyn LayoutStrategy>,
@@ -38,7 +41,7 @@ impl LayoutStrategy for StructStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SequentialArrayStream,
+        stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let Some(struct_dtype) = stream.dtype().as_struct().cloned() else {
@@ -51,25 +54,30 @@ impl LayoutStrategy for StructStrategy {
             vortex_bail!("StructLayout must have unique field names");
         }
 
+        let end_of_stream = stream.end_of_stream();
         let stream = stream.map(|chunk| {
-            if !chunk?.all_valid()? {
+            let (seq_id, chunk) = chunk?;
+            if !chunk.all_valid()? {
                 vortex_bail!("Cannot push struct chunks with top level invalid values");
             };
-            Ok(chunk)
+            Ok((seq_id, chunk))
         });
 
         // There are now fields so this is the layout leaf
         if struct_dtype.nfields() == 0 {
             let row_count = stream
-                .try_fold(0u64, |acc, arr| async move { Ok(acc + arr.len() as u64) })
+                .try_fold(
+                    0u64,
+                    |acc, (_, arr)| async move { Ok(acc + arr.len() as u64) },
+                )
                 .await?;
             return Ok(StructLayout::new(row_count, dtype, vec![]).into_layout());
         }
 
         // stream<struct_chunk> -> stream<vec<column_chunk>>
         let columns_vec_stream = stream.map(|chunk| {
-            let chunk = chunk?;
-            let mut sequence_pointer = sequence_id.descend();
+            let (seq_id, chunk) = chunk?;
+            let mut sequence_pointer = seq_id.descend();
             let struct_chunk = chunk.to_struct()?;
             let columns: Vec<_> = (0..struct_chunk.struct_fields().nfields())
                 .map(|idx| {
@@ -92,7 +100,8 @@ impl LayoutStrategy for StructStrategy {
         });
 
         let layout_futures = column_dtypes.zip_eq(column_streams).map(|(dtype, stream)| {
-            let column_stream = SequentialStreamAdapter::new(dtype, stream).sendable();
+            let column_stream =
+                SequentialStreamAdapter::new(dtype, stream, end_of_stream.descend()).sendable();
             let child = self.child.clone();
             async move { child.write_stream(&ctx, segment_sink, column_stream).await }
         });

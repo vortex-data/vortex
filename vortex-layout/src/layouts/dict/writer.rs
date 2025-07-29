@@ -22,8 +22,9 @@ use crate::layouts::chunked::ChunkedLayout;
 use crate::segments::SegmentSink;
 use crate::sequence::{SequenceId, SequencePointer};
 use crate::{
-    IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren, SequentialArrayStream,
-    SequentialStreamAdapter, SequentialStreamExt, TaskExecutor, TaskExecutorExt as _,
+    IntoLayout, LayoutRef, LayoutStrategy, OwnedLayoutChildren, SendableSequentialStream,
+    SequentialStream, SequentialStreamAdapter, SequentialStreamExt, TaskExecutor,
+    TaskExecutorExt as _,
 };
 
 #[derive(Clone)]
@@ -82,7 +83,7 @@ impl LayoutStrategy for DictStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        stream: SequentialArrayStream,
+        mut stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         if !dict_layout_supported(stream.dtype()) {
             return self.fallback.write_stream(ctx, segment_sink, stream).await;
@@ -96,8 +97,10 @@ impl LayoutStrategy for DictStrategy {
         let executor = self.executor.clone();
 
         // 0. decide if chunks are eligible for dict encoding
+        let eos = stream.end_of_stream();
         let (stream, first_chunk) = peek_first_chunk(stream).await?;
-        let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
+        let mut stream = SequentialStreamAdapter::new(dtype.clone(), stream, eos).sendable();
+        let mut eos = stream.end_of_stream();
 
         let should_fallback = match first_chunk {
             None => true, // empty stream
@@ -148,15 +151,24 @@ impl LayoutStrategy for DictStrategy {
                     .write_stream(
                         &ctx,
                         segment_sink,
-                        SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
+                        SequentialStreamAdapter::new(
+                            codes_dtype,
+                            codes_stream,
+                            eos.advance().descend(),
+                        )
+                        .sendable(),
                     )
                     .await?;
                 let values_layout = values
                     .write_stream(
                         &ctx,
                         segment_sink,
-                        SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
-                            .sendable(),
+                        SequentialStreamAdapter::new(
+                            dtype_clone.clone(),
+                            once(values_future),
+                            eos.advance().descend(),
+                        )
+                        .sendable(),
                     )
                     .await?;
                 children.push(DictLayout::new(values_layout, codes_layout).into_layout());
@@ -189,7 +201,7 @@ enum DictionaryChunk {
 type DictionaryStream = BoxStream<'static, VortexResult<DictionaryChunk>>;
 
 fn dict_encode_stream(
-    input: SequentialArrayStream,
+    input: SendableSequentialStream,
     constraints: DictConstraints,
 ) -> DictionaryStream {
     Box::pin(try_stream! {

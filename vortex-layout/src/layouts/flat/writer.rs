@@ -14,7 +14,7 @@ use vortex_scalar::{BinaryScalar, Utf8Scalar};
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
 use crate::segments::SegmentSink;
-use crate::{IntoLayout, LayoutRef, LayoutStrategy, SequentialArrayStream};
+use crate::{IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -39,7 +39,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        mut stream: SequentialArrayStream,
+        mut stream: SendableSequentialStream,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let options = self.clone();
@@ -47,7 +47,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         let Some(chunk) = stream.next().await else {
             vortex_bail!("flat layout needs a single chunk");
         };
-        let chunk = chunk?;
+        let (seq_id, chunk) = chunk?;
 
         let row_count = chunk.len() as u64;
 
@@ -155,10 +155,10 @@ mod tests {
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{
-        LayoutStrategy, SequentialArrayStream, SequentialStreamAdapter, SequentialStreamExt as _,
+        LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt as _,
     };
 
-    fn stream_only(array: ArrayRef) -> SequentialArrayStream {
+    fn stream_only(array: ArrayRef) -> SendableSequentialStream {
         SequentialStreamAdapter::new(
             array.dtype().clone(),
             stream::once(async move { Ok((SequenceId::root().downgrade(), array)) }),
