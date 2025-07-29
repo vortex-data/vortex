@@ -27,6 +27,7 @@ arrow-schema = { workspace = true }
 bitvec = { workspace = true }
 crossbeam-queue = { workspace = true }
 dashmap = { workspace = true }
+futures = { workspace = true, features = ["executor"] }
 glob = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }

@@ -14,7 +14,7 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::{VortexError, VortexExpect};
 use vortex::file::{VortexOpenOptions, VortexWriteOptions as WriteOptions};
-use vortex::iter::{ArrayIteratorAdapter, ArrayIteratorExt};
+use vortex::iter::{ArrayIterator, ArrayIteratorAdapter, ArrayIteratorExt};
 use vortex::scan::ScanBuilder;
 use vortex::stream::ArrayStream;
 
@@ -202,20 +202,16 @@ fn write_options_new() -> Box<VortexWriteOptions> {
     })
 }
 
-/// Convert an ArrowArrayStreamReader to a Vortex ArrayStream
-fn arrow_stream_to_vortex_stream(
-    reader: ArrowArrayStreamReader,
-) -> Result<impl ArrayStream, Box<dyn std::error::Error + Send + Sync>> {
-    let array_iter = ArrayIteratorAdapter::new(
+/// Convert an ArrowArrayStreamReader to a Vortex [`ArrayIterator`].
+fn arrow_stream_to_vortex_iterator(reader: ArrowArrayStreamReader) -> impl ArrayIterator {
+    ArrayIteratorAdapter::new(
         DType::from_arrow(reader.schema()),
         reader.map(|result| {
             result
                 .map(|record_batch| ArrayRef::from_arrow(record_batch, false))
                 .map_err(VortexError::from)
         }),
-    );
-
-    Ok(array_iter.into_array_stream())
+    )
 }
 
 /// # Safety
@@ -232,7 +228,12 @@ unsafe fn write_array_stream(
     let stream_reader =
         unsafe { ArrowArrayStreamReader::from_raw(input_stream as *mut FFI_ArrowArrayStream) }?;
 
-    let vortex_stream = arrow_stream_to_vortex_stream(stream_reader)?;
+    let vortex_iter = arrow_stream_to_vortex_iterator(stream_reader);
+
+    let file = std::fs::File::create(path)?;
+    options.inner
+        .write()
+        .write(file, vortex_iter)
 
     RUNTIME.block_on(async {
         let file = tokio::fs::File::create(path).await?;
@@ -257,7 +258,7 @@ fn configure_thread_pool(
         create_thread_pool_with_config(&ThreadPoolConfig {
             worker_threads: Some(worker_threads),
         })
-        .vortex_expect("Cannot start thread pool")
+            .vortex_expect("Cannot start thread pool")
     });
 
     Ok(())

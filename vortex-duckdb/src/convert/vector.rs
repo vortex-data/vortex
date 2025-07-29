@@ -315,7 +315,7 @@ pub fn flat_vector_to_arrow_array(
     }
 }
 
-pub fn data_chunk_to_arrow(field_names: &FieldNames, chunk: &DataChunk) -> VortexResult<ArrayRef> {
+pub fn data_chunk_to_array(field_names: &FieldNames, chunk: &DataChunk) -> VortexResult<ArrayRef> {
     let len = chunk.len();
 
     let columns = (0..chunk.column_count())

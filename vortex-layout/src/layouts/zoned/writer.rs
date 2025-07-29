@@ -126,7 +126,7 @@ impl LayoutStrategy for ZonedStrategy {
         let (stats_ptr, state_eof) = stats_eof.split();
         let stats_stream = stats_table.array().to_array_stream().sequenced(stats_ptr);
         let zones_layout = stats_strategy
-            .write_stream(&ctx, segment_sink, executor, stats_stream, state_eof)
+            .write_stream(ctx, segment_sink, executor, stats_stream, state_eof)
             .await?;
 
         Ok(ZonedLayout::new(

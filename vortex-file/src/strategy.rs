@@ -55,7 +55,7 @@ impl VortexLayoutStrategy {
         // 2. calculate stats for each row group
         let stats = Arc::new(ZonedStrategy::new(
             dict,
-            compress_then_flat.clone(),
+            compress_then_flat,
             ZonedLayoutOptions {
                 block_size: ROW_BLOCK_SIZE,
                 stats: PRUNING_STATS.into(),
@@ -119,7 +119,7 @@ impl VortexLayoutStrategy {
         // 2. calculate stats for each row group
         let stats = Arc::new(ZonedStrategy::new(
             coalescing,
-            compress_then_flat.clone(),
+            compress_then_flat,
             ZonedLayoutOptions {
                 block_size: ROW_BLOCK_SIZE,
                 stats: PRUNING_STATS.into(),

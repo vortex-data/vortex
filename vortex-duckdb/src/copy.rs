@@ -1,23 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use futures::executor::block_on;
+use futures::future::BoxFuture;
+use futures::task::noop_waker;
+use futures::{FutureExt, pin_mut, stream};
+use parking_lot::Mutex;
 use std::fmt::Debug;
 use std::iter;
-
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use futures::channel::mpsc;
+use futures::channel::mpsc::Sender;
 use tokio::fs::File;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::Sender;
-use tokio::task::JoinHandle;
-use tokio_stream::wrappers::ReceiverStream;
 use vortex::ArrayRef;
 use vortex::dtype::Nullability::{NonNullable, Nullable};
 use vortex::dtype::{DType, StructFields};
 use vortex::error::{VortexExpect, VortexResult, vortex_err};
+use vortex::iter::ArrayIteratorAdapter;
 use vortex::stream::ArrayStreamAdapter;
 use vortex_file::VortexWriteOptions;
 
 use crate::RUNTIME;
-use crate::convert::{data_chunk_to_arrow, from_duckdb_table};
+use crate::convert::{data_chunk_to_array, from_duckdb_table};
 use crate::duckdb::{CopyFunction, DataChunk, LogicalType};
 
 #[derive(Debug)]
@@ -29,13 +34,11 @@ pub struct BindData {
 }
 
 /// Write to a file has two phases, writing data chunks and then closing the file.
-/// We use a spawned tokio task to actually compress arrays are write it to disk.
-/// Each chunk is pushed into the sink and read from the task.
-/// Once finished we can close all sinks and then the task can be awaited and the file
-/// flushed to disk.
+/// We don't currently support parallel compression in this model, so we set up the writer in
+/// the global state and drive it each time a local thread receives a chunk of data.
 pub struct GlobalState {
-    write_task: Option<JoinHandle<VortexResult<File>>>,
     sink: Option<Sender<VortexResult<ArrayRef>>>,
+    writer: Mutex<Option<BoxFuture<'static, VortexResult<()>>>>,
 }
 
 impl CopyFunction for VortexCopyFunction {
@@ -61,18 +64,46 @@ impl CopyFunction for VortexCopyFunction {
         })
     }
 
+    /// Invoked on a local worker thread to copy data to the sink.
     fn copy_to_sink(
         bind_data: &Self::BindData,
         init_global: &mut Self::GlobalState,
         _init_local: &mut Self::LocalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
+        // We push the chunk into the sink, then drive the writer as much as possible.
         init_global
             .sink
             .as_ref()
-            .vortex_expect("sink closed early")
-            .blocking_send(data_chunk_to_arrow(bind_data.fields.names(), chunk))
+            .vortex_expect("sink closed")
+            .send(data_chunk_to_array(bind_data.fields.names(), chunk))
             .map_err(|e| vortex_err!("send error {}", e.to_string()))?;
+
+        // We don't care about waking up the writer task, since it isn't running itself. Therefore,
+        // we can use a no-op waker to drive until pending.
+        let waker = noop_waker();
+        let mut context = Context::from_waker(&waker);
+        let mut guard = init_global.writer.lock();
+        if let Some(mut writer) = guard.take() {
+            loop {
+                match writer.poll_unpin(&mut context) {
+                    Poll::Ready(Ok(())) => {
+                        unreachable!(
+                            "Ther writer task should not complete until the sink is closed"
+                        );
+                    }
+                    Poll::Ready(Err(e)) => {
+                        // Bail out if the writer task failed.
+                        return Err(e);
+                    }
+                    Poll::Pending => {
+                        // If the writer is pending, put the writer back in the guard and exit.
+                        *guard = Some(writer);
+                        break;
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
@@ -81,6 +112,17 @@ impl CopyFunction for VortexCopyFunction {
         _bind_data: &Self::BindData,
         init_global: &mut Self::GlobalState,
     ) -> VortexResult<()> {
+        // In the finalize phase, we close the sink and wait for the writer task to complete.
+        drop(init_global.sink.take());
+
+        // Now we drive the future to completion.
+        let writer = init_global
+            .writer
+            .lock()
+            .take()
+            .ok_or_else(|| vortex_err!("writer task already failed"))?;
+        block_on(writer)?;
+
         RUNTIME.block_on(async {
             if let Some(sink) = init_global.sink.take() {
                 drop(sink)
@@ -100,9 +142,16 @@ impl CopyFunction for VortexCopyFunction {
         file_path: String,
     ) -> VortexResult<Self::GlobalState> {
         // The channel size 32 was chosen arbitrarily.
-        let (sink, rx) = mpsc::channel(32);
+        let (send, recv) = mpsc::channel(32);
+
         let array_stream =
-            ArrayStreamAdapter::new(bind_data.dtype.clone(), ReceiverStream::new(rx));
+            ArrayStreamAdapter::new(bind_data.dtype.clone(), recv);
+
+        let writer = async move {
+            let file = File::create(&file_path).await?;
+            let buffers = VortexWriteOptions::default()
+                .write_stream(array_stream);
+        }
 
         let writer = RUNTIME.spawn(async move {
             let file = File::create(file_path).await?;
@@ -112,8 +161,8 @@ impl CopyFunction for VortexCopyFunction {
         });
 
         Ok(GlobalState {
-            write_task: Some(writer),
-            sink: Some(sink),
+            sink: Some(send),
+            writer: Default::default(),
         })
     }
 

@@ -5,16 +5,16 @@ use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, Postscri
 use crate::segments::writer::FileSegmentWriter;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexLayoutStrategy};
 use async_stream::try_stream;
-use futures::executor::block_on;
+use futures::executor::{block_on, block_on_stream};
 use futures::{Stream, StreamExt, TryStreamExt, pin_mut, poll};
 use std::future;
 use std::sync::Arc;
 use std::task::Poll;
 use tokio::runtime::Handle;
-use vortex_array::ArrayContext;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
 use vortex_array::stats::{PRUNING_STATS, Stat};
 use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt, SendableArrayStream};
+use vortex_array::{ArrayContext, ArrayRef};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
@@ -102,7 +102,7 @@ impl VortexWriteOptions {
     ) -> VortexResult<()> {
         // Configure a Tokio executor to spawn concurrent CPU-bound tasks.
         let executor: Arc<dyn TaskExecutor> = Arc::new(handle);
-        let buffers = self.write_stream(ArrayStreamExt::boxed(stream), &executor);
+        let buffers = self.write_stream(ArrayStreamExt::boxed(stream), executor);
         pin_mut!(buffers);
 
         while let Some(bufs) = buffers.next().await {
@@ -120,11 +120,8 @@ impl VortexWriteOptions {
         mut write: W,
         iter: I,
     ) -> VortexResult<W> {
-        let executor = LocalExecutor::new();
-        let buffers = self.write_stream(ArrayStreamExt::boxed(iter.into_array_stream()), &executor);
-        pin_mut!(buffers);
-
-        while let Some(bufs) = block_on(buffers.next()) {
+        let mut buffers = self.write_iter(iter);
+        while let Some(bufs) = buffers.next() {
             for buf in bufs? {
                 block_on(write.write_all(buf))?;
             }
@@ -132,6 +129,18 @@ impl VortexWriteOptions {
         block_on(write.flush())?;
 
         Ok(write)
+    }
+
+    /// Writes the given [`ArrayIterator`] using the configured layout strategy, returning an
+    /// iterator of buffers that should be written contiguously to a file or other byte sink.
+    pub fn write_iter<I: ArrayIterator + Send + 'static>(
+        self,
+        iter: I,
+    ) -> impl Iterator<Item = VortexResult<Vec<ByteBuffer>>> {
+        block_on_stream(StreamExt::boxed_local(self.write_stream(
+            ArrayStreamExt::boxed(iter.into_array_stream()),
+            LocalExecutor::new(),
+        )))
     }
 
     /// Writes the given [`ArrayStream`] using the configured layout strategy.
@@ -147,7 +156,7 @@ impl VortexWriteOptions {
     pub fn write_stream(
         self,
         stream: SendableArrayStream,
-        executor: &Arc<dyn TaskExecutor>,
+        executor: Arc<dyn TaskExecutor>,
     ) -> impl Stream<Item = VortexResult<Vec<ByteBuffer>>> {
         // Create an initial sequence pointer along with an end-of-file pointer.
         let (ptr, eof) = SequenceId::root().split();
@@ -164,6 +173,7 @@ impl VortexWriteOptions {
         );
         let array_stream = array_stream.sequenced(ptr);
         let dtype = array_stream.dtype().clone();
+        let executor = executor.clone();
 
         // Now we emit the buffers in a stream, which will be driven by the caller
         try_stream! {
@@ -176,7 +186,7 @@ impl VortexWriteOptions {
             let segment_writer2 = segment_writer.clone();
             let layout_fut = self
                 .strategy
-                .write_stream(&ctx, segment_writer2.as_ref(), executor, array_stream, eof);
+                .write_stream(&ctx, segment_writer2.as_ref(), &executor, array_stream, eof);
             pin_mut!(layout_fut);
 
             // First, we emit the magic bytes.
@@ -296,4 +306,12 @@ fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
     *offset += u64::from(length);
 
     Ok(segment)
+}
+
+/// A writer that accepts chunks one at a time, immediately returning any buffers that should be
+/// written to disk.
+pub struct PushBasedWriter {}
+
+impl PushBasedWriter {
+    pub fn push(&self, chunk: ArrayRef) -> VortexResult<Vec<ByteBuffer>> {}
 }

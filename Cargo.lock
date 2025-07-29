@@ -6496,6 +6496,7 @@ dependencies = [
  "cc",
  "crossbeam-queue",
  "dashmap",
+ "futures",
  "glob",
  "itertools 0.14.0",
  "log",
