@@ -15,6 +15,14 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options
 use crate::stats::{Precision, Stat, StatsProviderExt};
 use crate::vtable::VTable;
 
+static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("is_constant".into(), ArcRef::new_ref(&IsConstant));
+    for kernel in inventory::iter::<IsConstantKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// Computes whether an array has constant values. If the array's encoding doesn't implement the
 /// relevant VTable, it'll try and canonicalize in order to make a determination.
 ///
@@ -50,14 +58,6 @@ pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexRe
     Ok(result)
 }
 
-pub static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("is_constant".into(), ArcRef::new_ref(&IsConstant));
-    for kernel in inventory::iter::<IsConstantKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
 struct IsConstant;
 
 impl ComputeFnVTable for IsConstant {
@@ -68,7 +68,7 @@ impl ComputeFnVTable for IsConstant {
     ) -> VortexResult<Output> {
         let IsConstantArgs { array, options } = IsConstantArgs::try_from(args)?;
 
-        // We try and rely on some easy to get stats
+        // We try and rely on some easy-to-get stats
         if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsConstant) {
             return Ok(Scalar::from(Some(value)).into());
         }
@@ -122,7 +122,7 @@ fn is_constant_impl(
     }
 
     // Constant and null arrays are always constant
-    if array.as_opt::<ConstantVTable>().is_some() || array.as_opt::<NullVTable>().is_some() {
+    if array.is::<ConstantVTable>() || array.is::<NullVTable>() {
         return Ok(Some(true));
     }
 

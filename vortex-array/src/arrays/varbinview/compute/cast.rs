@@ -21,7 +21,7 @@ impl CastKernel for VarBinViewVTable {
         Ok(Some(
             VarBinViewArray::try_new(
                 array.views().clone(),
-                array.buffers().to_vec(),
+                array.buffers().clone(),
                 new_dtype,
                 new_validity,
             )?

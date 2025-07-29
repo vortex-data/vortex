@@ -146,6 +146,10 @@ impl FileFormat for VortexFormat {
         self
     }
 
+    fn compression_type(&self) -> Option<FileCompressionType> {
+        None
+    }
+
     fn get_ext(&self) -> String {
         VORTEX_FILE_EXTENSION.to_string()
     }

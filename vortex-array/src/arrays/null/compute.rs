@@ -64,6 +64,9 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::arrays::null::NullArray;
+    use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::compute::conformance::mask::test_mask_conformance;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::{IntoArray, ToCanonical};
 
@@ -95,5 +98,24 @@ mod test {
         let scalar = nulls.scalar_at(0).unwrap();
         assert!(scalar.is_null());
         assert_eq!(scalar.dtype().clone(), DType::Null);
+    }
+
+    #[test]
+    fn test_filter_null_array() {
+        test_filter_conformance(NullArray::new(5).as_ref());
+        test_filter_conformance(NullArray::new(1).as_ref());
+        test_filter_conformance(NullArray::new(10).as_ref());
+    }
+
+    #[test]
+    fn test_mask_null_array() {
+        test_mask_conformance(NullArray::new(5).as_ref());
+    }
+
+    #[test]
+    fn test_take_null_array_conformance() {
+        test_take_conformance(NullArray::new(5).as_ref());
+        test_take_conformance(NullArray::new(1).as_ref());
+        test_take_conformance(NullArray::new(10).as_ref());
     }
 }

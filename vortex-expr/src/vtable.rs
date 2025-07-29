@@ -92,6 +92,13 @@ macro_rules! vtable {
                 }
             }
 
+            impl From<[<$V Expr>]> for $crate::ExprRef {
+                fn from(value: [<$V Expr>]) -> $crate::ExprRef {
+                    use $crate::IntoExpr;
+                    value.into_expr()
+                }
+            }
+
             impl AsRef<dyn $crate::ExprEncoding> for [<$V ExprEncoding>] {
                 fn as_ref(&self) -> &dyn $crate::ExprEncoding {
                     // We can unsafe cast ourselves to an ExprEncodingAdapter.

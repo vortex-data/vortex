@@ -63,12 +63,9 @@ jobs:
         if: inputs.mode == 'pr'
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          submodules: "recursive"
 
       - uses: actions/checkout@v4
         if: inputs.mode != 'pr'
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
 
       - name: Install DuckDB
@@ -89,7 +86,11 @@ jobs:
           RUST_BACKTRACE: full
         run: |
           # Generate data, running each query once to make sure they don't panic.
-          target/release_debug/query_bench ${{ matrix.subcommand }} --targets ${{ matrix.targets }} -i1 -d gh-json ${{ matrix.scale_factor }}
+          target/release_debug/query_bench \
+            ${{ matrix.subcommand }} \
+            --targets ${{ matrix.targets }} \
+            -i1 \
+            -d gh-json ${{ matrix.scale_factor }}
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
@@ -128,6 +129,7 @@ jobs:
             --targets ${{ matrix.targets }} \
             --export-spans \
             ${{ matrix.scale_factor }} \
+            --delete-duckdb-database \
             -o results.json
 
       - name: Run ${{ matrix.name }} benchmark (remote)
@@ -147,6 +149,7 @@ jobs:
               --export-spans \
               ${{ matrix.scale_factor }} \
               -d gh-json \
+              --delete-duckdb-database \
               -o results.json
 
       - name: Install uv

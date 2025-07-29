@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Buffer, BufferMut, buffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
@@ -146,7 +148,12 @@ fn canonical_byte_view(
         None => {
             let views = buffer![BinaryView::from(0_u128); len];
 
-            VarBinViewArray::try_new(views, Vec::new(), dtype.clone(), Validity::AllInvalid)
+            VarBinViewArray::try_new(
+                views,
+                Default::default(),
+                dtype.clone(),
+                Validity::AllInvalid,
+            )
         }
         Some(scalar_bytes) => {
             // Create a view to hold the scalar bytes.
@@ -167,7 +174,7 @@ fn canonical_byte_view(
 
             VarBinViewArray::try_new(
                 views.freeze(),
-                buffers,
+                Arc::from(buffers),
                 dtype.clone(),
                 Validity::from(dtype.nullability()),
             )
@@ -223,13 +230,14 @@ mod tests {
     use std::sync::Arc;
 
     use enum_iterator::all;
+    use itertools::Itertools;
     use vortex_dtype::half::f16;
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::Scalar;
 
     use crate::arrays::ConstantArray;
     use crate::canonical::ToCanonical;
-    use crate::stats::{Stat, StatsProviderExt, StatsSet};
+    use crate::stats::{Stat, StatsProviderExt};
     use crate::{Array, IntoArray};
 
     #[test]
@@ -257,26 +265,23 @@ mod tests {
     #[test]
     fn test_canonicalize_propagates_stats() {
         let scalar = Scalar::bool(true, Nullability::NonNullable);
-        let const_array = ConstantArray::new(scalar.clone(), 4).into_array();
-        let stats = const_array.statistics().to_owned();
-
+        let const_array = ConstantArray::new(scalar, 4).into_array();
+        let stats = const_array
+            .statistics()
+            .compute_all(&all::<Stat>().collect_vec())
+            .unwrap();
         let canonical = const_array.to_canonical().unwrap();
         let canonical_stats = canonical.as_ref().statistics().to_owned();
 
-        let reference = StatsSet::constant(scalar, 4);
         for stat in all::<Stat>() {
             if stat.dtype(canonical.as_ref().dtype()).is_none() {
                 continue;
             }
-
             let canonical_stat =
                 canonical_stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
-            let reference_stat =
-                reference.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
             let original_stat =
                 stats.get_scalar(stat, &stat.dtype(canonical.as_ref().dtype()).unwrap());
-            assert_eq!(canonical_stat, reference_stat);
-            assert_eq!(canonical_stat, original_stat);
+            assert_eq!(canonical_stat, original_stat, "stat mismatch {stat}");
         }
     }
 

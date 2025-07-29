@@ -180,7 +180,7 @@ macro_rules! match_each_native_ptype {
     (
         $self:expr,integral: |
         $integral_enc:ident |
-        $intbody:block,floating_point: |
+        $intbody:block,floating: |
         $floating_point_enc:ident |
         $floatbody:block
     ) => {{

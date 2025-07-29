@@ -53,11 +53,14 @@ register_kernel!(TakeKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_mask::AllOr;
+    use vortex_scalar::Scalar;
 
     use crate::arrays::{ConstantArray, PrimitiveArray};
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
     use crate::{Array, IntoArray, ToCanonical};
@@ -106,5 +109,15 @@ mod tests {
             &[42, 42, 42]
         );
         assert_eq!(taken.validity_mask().unwrap().indices(), AllOr::All);
+    }
+
+    #[rstest]
+    #[case(ConstantArray::new(42i32, 5))]
+    #[case(ConstantArray::new(std::f64::consts::PI, 10))]
+    #[case(ConstantArray::new(Scalar::from("hello"), 3))]
+    #[case(ConstantArray::new(Scalar::null_typed::<i64>(), 5))]
+    #[case(ConstantArray::new(true, 1))]
+    fn test_take_constant_conformance(#[case] array: ConstantArray) {
+        test_take_conformance(array.as_ref());
     }
 }

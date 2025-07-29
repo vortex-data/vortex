@@ -97,6 +97,13 @@ macro_rules! vtable {
                 }
             }
 
+            impl From<[<$V Layout>]> for $crate::LayoutRef {
+                fn from(value: [<$V Layout>]) -> $crate::LayoutRef {
+                    use $crate::IntoLayout;
+                    value.into_layout()
+                }
+            }
+
             impl AsRef<dyn $crate::LayoutEncoding> for [<$V LayoutEncoding>] {
                 fn as_ref(&self) -> &dyn $crate::LayoutEncoding {
                     // We can unsafe cast ourselves to an LayoutEncodingAdapter.

@@ -21,11 +21,13 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
+      - name: Install llvm
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: llvm
       - name: Install cargo fuzz
         run: cargo install --locked cargo-fuzz
       - name: Restore corpus
@@ -76,11 +78,13 @@ jobs:
         with:
           sccache: s3
       - uses: actions/checkout@v4
-        with:
-          submodules: "recursive"
       - uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
+      - name: Install llvm
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: llvm
       - name: Install cargo fuzz
         run: cargo install --locked cargo-fuzz
       - name: Restore corpus

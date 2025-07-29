@@ -41,7 +41,9 @@ register_kernel!(TakeKernelAdapter(FSSTVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::arrays::{PrimitiveArray, VarBinArray};
+    use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::take;
     use vortex_dtype::{DType, Nullability};
 
@@ -66,5 +68,24 @@ mod tests {
             take(fsst.as_ref(), idx2.as_ref()).unwrap().dtype(),
             &DType::Utf8(Nullability::Nullable)
         );
+    }
+
+    #[rstest]
+    #[case(VarBinArray::from_iter(
+        ["hello world", "testing fsst", "compression test", "data array", "vortex encoding"].map(Some),
+        DType::Utf8(Nullability::NonNullable),
+    ))]
+    #[case(VarBinArray::from_iter(
+        [Some("hello"), None, Some("world"), Some("test"), None],
+        DType::Utf8(Nullability::Nullable),
+    ))]
+    #[case(VarBinArray::from_iter(
+        ["single element"].map(Some),
+        DType::Utf8(Nullability::NonNullable),
+    ))]
+    fn test_take_fsst_conformance(#[case] varbin: VarBinArray) {
+        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
+        let array = fsst_compress(varbin.as_ref(), &compressor).unwrap();
+        test_take_conformance(array.as_ref());
     }
 }

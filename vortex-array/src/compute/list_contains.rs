@@ -23,6 +23,14 @@ use crate::validity::Validity;
 use crate::vtable::{VTable, ValidityHelper};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
+static LIST_CONTAINS_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("list_contains".into(), ArcRef::new_ref(&ListContains));
+    for kernel in inventory::iter::<ListContainsKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// Compute a `Bool`-typed array the same length as `array` where elements is `true` if the list
 /// item contains the `value`, `false` otherwise.
 ///
@@ -172,14 +180,6 @@ impl<V: VTable + ListContainsKernel> Kernel for ListContainsKernelAdapter<V> {
             .map(|c| c.map(Output::Array))
     }
 }
-
-pub static LIST_CONTAINS_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("list_contains".into(), ArcRef::new_ref(&ListContains));
-    for kernel in inventory::iter::<ListContainsKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 // Then there is a constant list scalar (haystack) being compared to an array of needles.
 fn constant_list_scalar_contains(

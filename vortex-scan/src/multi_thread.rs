@@ -51,17 +51,17 @@ impl ScanBuilder<ArrayRef> {
         let num_workers = CPU_RUNTIME.metrics().num_workers();
 
         let tasks = self.build()?;
-
         // We need to clone and send the map_fn into each task.
         let map_fn = Arc::new(map_fn);
-
         let handle = CPU_RUNTIME.handle().clone();
+
         let mut stream = stream::iter(tasks)
             .map(move |task| {
                 let map_fn = map_fn.clone();
                 // We don't _need_ to spawn the work here. But it allows Tokio to make progress on
                 // the tasks in the background, even if the consumer thread is not calling
                 // poll_next.
+
                 handle.spawn(async move { task.await.transpose().map(|t| map_fn(t)) })
             })
             // TODO(ngates): this is very crude indeed. This buffered call essentially controls how
@@ -74,12 +74,18 @@ impl ScanBuilder<ArrayRef> {
             //  head-room to run ahead and figure out the I/O demands of subsequent tasks.
             .buffered(num_workers * concurrency);
 
-        Ok(
-            iter::from_fn(move || block_on(stream.next())).filter_map(|result| {
-                result
-                    .map_err(|e| vortex_err!("Failed to join on a spawned scan task {e}"))
-                    .vortex_expect("Failed to join on a spawned scan task")
-            }),
-        )
+        Ok(iter::from_fn(move || {
+            // Use runtime-aware blocking strategy
+            if tokio::runtime::Handle::try_current().is_ok() {
+                tokio::task::block_in_place(|| CPU_RUNTIME.handle().block_on(stream.next()))
+            } else {
+                block_on(stream.next())
+            }
+        })
+        .filter_map(|result| {
+            result
+                .map_err(|e| vortex_err!("Failed to join on a spawned scan task {e}"))
+                .vortex_expect("Failed to join on a spawned scan task")
+        }))
     }
 }

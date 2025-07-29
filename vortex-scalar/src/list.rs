@@ -163,10 +163,11 @@ impl Scalar {
     ///
     /// Panics if any child scalar has a different type than the element type.
     pub fn list(
-        element_dtype: Arc<DType>,
+        element_dtype: impl Into<Arc<DType>>,
         children: Vec<Scalar>,
         nullability: Nullability,
     ) -> Self {
+        let element_dtype = element_dtype.into();
         for child in &children {
             if child.dtype() != &*element_dtype {
                 vortex_panic!(
@@ -179,7 +180,7 @@ impl Scalar {
         Self {
             dtype: DType::List(element_dtype, nullability),
             value: ScalarValue(InnerScalarValue::List(
-                children.into_iter().map(|x| x.value).collect::<Arc<[_]>>(),
+                children.into_iter().map(|x| x.value).collect(),
             )),
         }
     }
