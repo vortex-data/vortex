@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use fsst::Decompressor;
 use vortex_array::arrays::{BinaryView, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
@@ -94,7 +96,7 @@ fn fsst_into_varbin_view(
 
     VarBinViewArray::try_new(
         views,
-        vec![uncompressed_bytes_array],
+        Arc::from([uncompressed_bytes_array]),
         fsst_array.dtype().clone(),
         Validity::copy_from_array(fsst_array.as_ref())?,
     )

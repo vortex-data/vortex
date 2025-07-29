@@ -12,6 +12,14 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Output,
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, IntoArray};
 
+static FILL_NULL_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("fill_null".into(), ArcRef::new_ref(&FillNull));
+    for kernel in inventory::iter::<FillNullKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     FILL_NULL_FN
         .invoke(&InvocationArgs {
@@ -48,14 +56,6 @@ impl<V: VTable + FillNullKernel> Kernel for FillNullKernelAdapter<V> {
         ))
     }
 }
-
-pub static FILL_NULL_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("fill_null".into(), ArcRef::new_ref(&FillNull));
-    for kernel in inventory::iter::<FillNullKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct FillNull;
 

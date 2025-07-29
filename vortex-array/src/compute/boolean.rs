@@ -15,6 +15,14 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
 
+static BOOLEAN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("boolean".into(), ArcRef::new_ref(&Boolean));
+    for kernel in inventory::iter::<BooleanKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// Point-wise logical _and_ between two Boolean arrays.
 ///
 /// This method uses Arrow-style null propagation rather than the Kleene logic semantics. This
@@ -92,14 +100,6 @@ impl<V: VTable + BooleanKernel> Kernel for BooleanKernelAdapter<V> {
         Ok(V::boolean(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
     }
 }
-
-pub static BOOLEAN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("boolean".into(), ArcRef::new_ref(&Boolean));
-    for kernel in inventory::iter::<BooleanKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct Boolean;
 

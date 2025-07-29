@@ -40,7 +40,7 @@ register_kernel!(NumericKernelAdapter(RunEndVTable).lift());
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::binary_numeric::test_numeric;
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_conformance;
 
     use crate::RunEndArray;
 
@@ -54,6 +54,6 @@ mod tests {
     #[test]
     fn test_runend_binary_numeric() {
         let array = ree_array().into_array();
-        test_numeric::<i32>(array)
+        test_binary_numeric_conformance::<i32>(array)
     }
 }

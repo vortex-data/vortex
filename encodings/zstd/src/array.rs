@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BinaryView, PrimitiveArray, VarBinViewArray};
@@ -468,7 +469,7 @@ impl ZstdArray {
 
                 let vbv = VarBinViewArray::try_new(
                     views,
-                    vec![decompressed],
+                    Arc::from([decompressed]),
                     self.dtype.clone(),
                     slice_validity,
                 )?;

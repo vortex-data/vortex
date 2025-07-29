@@ -44,6 +44,30 @@ impl VTable for NullVTable {
     }
 }
 
+/// A array where all values are null.
+///
+/// This mirrors the Apache Arrow Null array encoding and provides an efficient representation
+/// for arrays containing only null values. No actual data is stored, only the length.
+///
+/// All operations on null arrays return null values or indicate invalid data.
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::NullArray;
+/// use vortex_array::IntoArray;
+///
+/// // Create a null array with 5 elements
+/// let array = NullArray::new(5);
+///
+/// // Slice the array - still contains nulls
+/// let sliced = array.slice(1, 3).unwrap();
+/// assert_eq!(sliced.len(), 2);
+///
+/// // All elements are null
+/// let scalar = array.scalar_at(0).unwrap();
+/// assert!(scalar.is_null());
+/// ```
 #[derive(Clone, Debug)]
 pub struct NullArray {
     len: usize,

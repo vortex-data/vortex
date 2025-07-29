@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::compute::{
-    FilterKernel, FilterKernelAdapter, TakeKernel, TakeKernelAdapter, filter, take,
+    FilterKernel, FilterKernelAdapter, MaskKernel, MaskKernelAdapter, TakeKernel,
+    TakeKernelAdapter, filter, mask, take,
 };
 use vortex_array::{Array, ArrayRef, IntoArray, register_kernel};
 use vortex_error::VortexResult;
@@ -27,6 +28,15 @@ impl TakeKernel for ZigZagVTable {
 }
 
 register_kernel!(TakeKernelAdapter(ZigZagVTable).lift());
+
+impl MaskKernel for ZigZagVTable {
+    fn mask(&self, array: &ZigZagArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
+        let encoded = mask(array.encoded(), filter_mask)?;
+        Ok(ZigZagArray::try_new(encoded)?.into_array())
+    }
+}
+
+register_kernel!(MaskKernelAdapter(ZigZagVTable).lift());
 
 pub(crate) trait ZigZagEncoded {
     type Int: zigzag::ZigZag;
@@ -119,5 +129,76 @@ mod tests {
             .to_primitive()
             .unwrap();
         assert_eq!(actual.as_slice::<i32>(), expected.as_slice::<i32>());
+    }
+
+    #[test]
+    fn test_filter_conformance() {
+        use vortex_array::compute::conformance::filter::test_filter_conformance;
+
+        // Test with i32 values
+        let zigzag = ZigZagEncoding
+            .encode(
+                &buffer![-189i32, -160, 1, 42, -73]
+                    .into_array()
+                    .to_canonical()
+                    .unwrap(),
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        test_filter_conformance(zigzag.as_ref());
+
+        // Test with i64 values
+        let zigzag = ZigZagEncoding
+            .encode(
+                &buffer![1000i64, -2000, 3000, -4000, 5000]
+                    .into_array()
+                    .to_canonical()
+                    .unwrap(),
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        test_filter_conformance(zigzag.as_ref());
+
+        // Test with nullable values
+        let array =
+            PrimitiveArray::from_option_iter([Some(-10i16), None, Some(20), Some(-30), None]);
+        let zigzag = ZigZagEncoding
+            .encode(&array.to_canonical().unwrap(), None)
+            .unwrap()
+            .unwrap();
+        test_filter_conformance(zigzag.as_ref());
+    }
+
+    #[test]
+    fn test_mask_conformance() {
+        use vortex_array::compute::conformance::mask::test_mask_conformance;
+
+        // Test with i32 values
+        let zigzag = ZigZagEncoding
+            .encode(
+                &buffer![-100i32, 200, -300, 400, -500]
+                    .into_array()
+                    .to_canonical()
+                    .unwrap(),
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        test_mask_conformance(zigzag.as_ref());
+
+        // Test with i8 values
+        let zigzag = ZigZagEncoding
+            .encode(
+                &buffer![-127i8, 0, 127, -1, 1]
+                    .into_array()
+                    .to_canonical()
+                    .unwrap(),
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        test_mask_conformance(zigzag.as_ref());
     }
 }

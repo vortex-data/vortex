@@ -12,7 +12,7 @@ use jni::sys::{
 use vortex::arrays::{VarBinArray, VarBinViewArray};
 use vortex::arrow::IntoArrowArray;
 use vortex::dtype::DType;
-use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_err};
+use vortex::error::{VortexError, VortexExpect, vortex_err};
 use vortex::scalar::{DecimalValue, i256};
 use vortex::{Array, ArrayRef, ToCanonical};
 
@@ -424,7 +424,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8_1ptr_1len<
         }
 
         if let Some(varbin) = array_ref.inner.as_any().downcast_ref::<VarBinArray>() {
-            let (ptr, len) = get_ptr_len_varbin(index, varbin)?;
+            let (ptr, len) = get_ptr_len_varbin(index, varbin);
             env.set_long_array_region(&out_ptr, 0, &[ptr as jlong])?;
             env.set_int_array_region(&out_len, 0, &[len as jint])?;
         } else if let Some(varbinview) = array_ref.inner.as_any().downcast_ref::<VarBinViewArray>()
@@ -457,12 +457,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
 }
 
 /// Get a raw pointer + len to pass back to Java to avoid copying across the boundary.
-fn get_ptr_len_varbin(index: jint, array: &VarBinArray) -> VortexResult<(*const u8, u32)> {
-    let bytes = array.bytes_at(usize::try_from(index).vortex_expect("index must fit in usize"))?;
-    Ok((
+///
+/// Panics if the index is out of bounds.
+fn get_ptr_len_varbin(index: jint, array: &VarBinArray) -> (*const u8, u32) {
+    let bytes = array.bytes_at(usize::try_from(index).vortex_expect("index must fit in usize"));
+    (
         bytes.as_ptr(),
         u32::try_from(bytes.len()).vortex_expect("string length must fit in u32"),
-    ))
+    )
 }
 
 /// Get a raw pointer + len to pass back to Java to avoid copying across the boundary.
