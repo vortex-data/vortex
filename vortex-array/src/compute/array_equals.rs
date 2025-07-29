@@ -10,6 +10,7 @@ use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_
 use vortex_scalar::Scalar;
 
 use crate::Array;
+use crate::arrays::ConstantArray;
 use crate::compute::{
     ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Operator, Options, Output, compare,
 };
@@ -85,22 +86,75 @@ impl ComputeFnVTable for ArrayEquals {
             return Ok(Scalar::from(false).into());
         }
 
-        if let Some(l_scalar) = left.as_constant()
-            && let Some(r_scalar) = right.as_constant()
-        {
-            return Ok(Scalar::from(l_scalar.eq(&r_scalar)).into());
-        }
-
-        if left.is_empty() && right.is_empty() {
+        // Early return for empty arrays - they're equal regardless of type
+        if left.is_empty() {
             return Ok(Scalar::from(true).into());
         }
 
-        // Handle constant null arrays - they are equal only if both are null constants
-        let left_constant_null = left.as_constant().map(|l| l.is_null()).unwrap_or(false);
-        let right_constant_null = right.as_constant().map(|r| r.is_null()).unwrap_or(false);
-        
-        if left_constant_null || right_constant_null {
-            return Ok(Scalar::from(left_constant_null && right_constant_null).into());
+        // Handle constant array comparisons
+        match (left.as_constant(), right.as_constant()) {
+            (Some(l_scalar), Some(r_scalar)) => {
+                // Both are constants - compare scalars directly
+                return Ok(Scalar::from(l_scalar.eq(&r_scalar)).into());
+            }
+            (Some(constant), None) | (None, Some(constant)) => {
+                // One is constant, one is not - they can only be equal if all elements
+                // of the non-constant array equal the constant
+                let non_constant_array = if left.as_constant().is_some() {
+                    right
+                } else {
+                    left
+                };
+
+                // Quick check using statistics
+                if constant.is_null() {
+                    // All elements must be null for equality
+                    if let Some(Precision::Exact(null_count_value)) =
+                        non_constant_array.statistics().get(Stat::NullCount)
+                    {
+                        let null_count_scalar = Scalar::new(
+                            DType::Primitive(vortex_dtype::PType::U64, Nullability::NonNullable),
+                            null_count_value,
+                        );
+                        if let Ok(Some(count)) = null_count_scalar.as_primitive().as_::<usize>() {
+                            return Ok(Scalar::from(count == non_constant_array.len()).into());
+                        }
+                    }
+                } else {
+                    // Non-null constant - check if min/max statistics can rule out equality
+                    let stats = non_constant_array.statistics();
+                    if let (Some(Precision::Exact(min)), Some(Precision::Exact(max))) =
+                        (stats.get(Stat::Min), stats.get(Stat::Max))
+                    {
+                        let min_scalar = Scalar::new(non_constant_array.dtype().clone(), min);
+                        let max_scalar = Scalar::new(non_constant_array.dtype().clone(), max);
+                        if !constant.eq(&min_scalar) || !constant.eq(&max_scalar) {
+                            return Ok(Scalar::from(false).into());
+                        }
+                    }
+                }
+
+                // Use compare function to check if all elements equal the constant
+                // Create a constant array of the same length for comparison
+                let constant_array = ConstantArray::new(constant, non_constant_array.len());
+                let compare_result =
+                    compare(non_constant_array, constant_array.as_ref(), Operator::Eq)?;
+
+                // Check if all comparison results are true (all elements equal the constant)
+                if let Some(all_equal) = check_constant_result(&compare_result)? {
+                    return Ok(Scalar::from(all_equal).into());
+                }
+
+                // Check via statistics if possible
+                if let Some(all_true) = check_comparison_stats(&compare_result) {
+                    return Ok(Scalar::from(all_true).into());
+                }
+
+                // Fall through to general case handling below
+            }
+            (None, None) => {
+                // Neither is constant - continue with general algorithm
+            }
         }
 
         // Check statistics for early exit
@@ -146,7 +200,7 @@ impl ComputeFnVTable for ArrayEquals {
                 left.encoding_id(),
                 right.encoding_id()
             );
-            
+
             let left_canonical = left.to_canonical()?;
             let right_canonical = right.to_canonical()?;
 
@@ -164,7 +218,7 @@ impl ComputeFnVTable for ArrayEquals {
             left.encoding_id(),
             right.encoding_id()
         );
-        
+
         let all_equal = compare_chunked(left, right, batch_size)?;
         Ok(Scalar::from(all_equal).into())
     }
@@ -595,15 +649,53 @@ mod tests {
     #[test]
     fn test_constant_null_arrays() {
         // Test constant null arrays - should be equal to each other but not to non-null constants
-        let null_const1 = ConstantArray::new(Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)), 5);
-        let null_const2 = ConstantArray::new(Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)), 5);
+        let null_const1 = ConstantArray::new(
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            5,
+        );
+        let null_const2 = ConstantArray::new(
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            5,
+        );
         let non_null_const = ConstantArray::new(Scalar::from(42i32), 5);
-        
+
         // Both null constants should be equal
         assert!(array_equals(null_const1.as_ref(), null_const2.as_ref()).unwrap());
-        
+
         // Null constant should not equal non-null constant
         assert!(!array_equals(null_const1.as_ref(), non_null_const.as_ref()).unwrap());
         assert!(!array_equals(non_null_const.as_ref(), null_const1.as_ref()).unwrap());
+    }
+
+    #[test]
+    fn test_mixed_constant_non_constant() {
+        // Test comparing constant arrays with non-constant arrays
+        let constant_42 = ConstantArray::new(Scalar::from(42i32), 4);
+        let all_42s = PrimitiveArray::from_iter(vec![42i32, 42, 42, 42]);
+        let mixed_values = PrimitiveArray::from_iter(vec![42i32, 42, 43, 42]);
+
+        // Constant should equal array with all same values
+        assert!(array_equals(constant_42.as_ref(), all_42s.as_ref()).unwrap());
+        assert!(array_equals(all_42s.as_ref(), constant_42.as_ref()).unwrap());
+
+        // Constant should not equal array with different values
+        assert!(!array_equals(constant_42.as_ref(), mixed_values.as_ref()).unwrap());
+        assert!(!array_equals(mixed_values.as_ref(), constant_42.as_ref()).unwrap());
+
+        // Test with null constant
+        let null_constant = ConstantArray::new(
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            3,
+        );
+        let all_nulls = PrimitiveArray::from_option_iter(vec![None::<i32>, None, None]);
+        let mixed_nulls = PrimitiveArray::from_option_iter(vec![None::<i32>, Some(42), None]);
+
+        // Null constant should equal array with all nulls
+        assert!(array_equals(null_constant.as_ref(), all_nulls.as_ref()).unwrap());
+        assert!(array_equals(all_nulls.as_ref(), null_constant.as_ref()).unwrap());
+
+        // Null constant should not equal array with mixed nulls and values
+        assert!(!array_equals(null_constant.as_ref(), mixed_nulls.as_ref()).unwrap());
+        assert!(!array_equals(mixed_nulls.as_ref(), null_constant.as_ref()).unwrap());
     }
 }
