@@ -53,6 +53,7 @@ register_kernel!(TakeKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_mask::AllOr;
@@ -110,12 +111,13 @@ mod tests {
         assert_eq!(taken.validity_mask().unwrap().indices(), AllOr::All);
     }
 
-    #[test]
-    fn test_take_constant_conformance() {
-        test_take_conformance(ConstantArray::new(42i32, 5).as_ref());
-        test_take_conformance(ConstantArray::new(std::f64::consts::PI, 10).as_ref());
-        test_take_conformance(ConstantArray::new(Scalar::from("hello"), 3).as_ref());
-        test_take_conformance(ConstantArray::new(Scalar::null_typed::<i64>(), 5).as_ref());
-        test_take_conformance(ConstantArray::new(true, 1).as_ref());
+    #[rstest]
+    #[case(ConstantArray::new(42i32, 5))]
+    #[case(ConstantArray::new(std::f64::consts::PI, 10))]
+    #[case(ConstantArray::new(Scalar::from("hello"), 3))]
+    #[case(ConstantArray::new(Scalar::null_typed::<i64>(), 5))]
+    #[case(ConstantArray::new(true, 1))]
+    fn test_take_constant_conformance(#[case] array: ConstantArray) {
+        test_take_conformance(array.as_ref());
     }
 }

@@ -60,10 +60,11 @@ impl ZigZagEncoded for u64 {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::arrays::{BooleanBuffer, PrimitiveArray};
     use vortex_array::compute::{filter, take};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
@@ -202,48 +203,16 @@ mod tests {
         test_mask_conformance(zigzag.as_ref());
     }
 
-    #[test]
-    fn test_take_conformance() {
+    #[rstest]
+    #[case(buffer![-189i32, -160, 1, 42, -73].into_array())]
+    #[case(buffer![1000i64, -2000, 3000, -4000, 5000].into_array())]
+    #[case(PrimitiveArray::from_option_iter([Some(-10i16), None, Some(20), Some(-30), None]).into_array())]
+    #[case(buffer![42i32].into_array())]
+    fn test_take_zigzag_conformance(#[case] array: ArrayRef) {
         use vortex_array::compute::conformance::take::test_take_conformance;
-
-        // Test with i32 values
-        let zigzag = ZigZagEncoding
-            .encode(
-                &buffer![-189i32, -160, 1, 42, -73]
-                    .into_array()
-                    .to_canonical()
-                    .unwrap(),
-                None,
-            )
-            .unwrap()
-            .unwrap();
-        test_take_conformance(zigzag.as_ref());
-
-        // Test with i64 values
-        let zigzag = ZigZagEncoding
-            .encode(
-                &buffer![1000i64, -2000, 3000, -4000, 5000]
-                    .into_array()
-                    .to_canonical()
-                    .unwrap(),
-                None,
-            )
-            .unwrap()
-            .unwrap();
-        test_take_conformance(zigzag.as_ref());
-
-        // Test with nullable values
-        let array =
-            PrimitiveArray::from_option_iter([Some(-10i16), None, Some(20), Some(-30), None]);
+        
         let zigzag = ZigZagEncoding
             .encode(&array.to_canonical().unwrap(), None)
-            .unwrap()
-            .unwrap();
-        test_take_conformance(zigzag.as_ref());
-
-        // Test with single element
-        let zigzag = ZigZagEncoding
-            .encode(&buffer![42i32].into_array().to_canonical().unwrap(), None)
             .unwrap()
             .unwrap();
         test_take_conformance(zigzag.as_ref());

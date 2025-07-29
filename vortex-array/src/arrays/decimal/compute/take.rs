@@ -43,6 +43,7 @@ fn take_to_buffer<I: NativePType + AsPrimitive<usize>, T: NativeDecimalType>(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::{Buffer, buffer};
     use vortex_dtype::{DecimalDType, Nullability};
     use vortex_scalar::{DecimalValue, Scalar};
@@ -102,55 +103,41 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_take_decimal_conformance() {
-        // Test with i128 decimals
-        let array = DecimalArray::new(
-            buffer![100i128, 200i128, 300i128, 400i128, 500i128],
-            DecimalDType::new(19, 2),
-            Validity::NonNullable,
-        );
-        test_take_conformance(array.as_ref());
-
-        // Test with i64 decimals
-        let array = DecimalArray::new(
-            buffer![10i64, 20i64, 30i64, 40i64, 50i64],
-            DecimalDType::new(10, 1),
-            Validity::NonNullable,
-        );
-        test_take_conformance(array.as_ref());
-
-        // Test with i32 decimals
-        let array = DecimalArray::new(
-            buffer![1i32, 2i32, 3i32, 4i32, 5i32],
-            DecimalDType::new(5, 0),
-            Validity::NonNullable,
-        );
-        test_take_conformance(array.as_ref());
-
-        // Test with nullable decimals
-        let array = DecimalArray::new(
-            buffer![1000i128, 2000i128, 3000i128, 4000i128, 5000i128],
-            DecimalDType::new(19, 3),
-            Validity::from_iter([true, false, true, true, false]),
-        );
-        test_take_conformance(array.as_ref());
-
-        // Test single element
-        let array = DecimalArray::new(
-            buffer![42i128],
-            DecimalDType::new(19, 0),
-            Validity::NonNullable,
-        );
-        test_take_conformance(array.as_ref());
-
-        // Test larger array for edge cases
+    #[rstest]
+    #[case(DecimalArray::new(
+        buffer![100i128, 200i128, 300i128, 400i128, 500i128],
+        DecimalDType::new(19, 2),
+        Validity::NonNullable,
+    ))]
+    #[case(DecimalArray::new(
+        buffer![10i64, 20i64, 30i64, 40i64, 50i64],
+        DecimalDType::new(10, 1),
+        Validity::NonNullable,
+    ))]
+    #[case(DecimalArray::new(
+        buffer![1i32, 2i32, 3i32, 4i32, 5i32],
+        DecimalDType::new(5, 0),
+        Validity::NonNullable,
+    ))]
+    #[case(DecimalArray::new(
+        buffer![1000i128, 2000i128, 3000i128, 4000i128, 5000i128],
+        DecimalDType::new(19, 3),
+        Validity::from_iter([true, false, true, true, false]),
+    ))]
+    #[case(DecimalArray::new(
+        buffer![42i128],
+        DecimalDType::new(19, 0),
+        Validity::NonNullable,
+    ))]
+    #[case({
         let values: Vec<i128> = (0..100).map(|i| i * 1000).collect();
-        let array = DecimalArray::new(
+        DecimalArray::new(
             Buffer::from_iter(values),
             DecimalDType::new(19, 4),
             Validity::NonNullable,
-        );
+        )
+    })]
+    fn test_take_decimal_conformance(#[case] array: DecimalArray) {
         test_take_conformance(array.as_ref());
     }
 }

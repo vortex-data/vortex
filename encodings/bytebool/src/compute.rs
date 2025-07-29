@@ -46,6 +46,7 @@ register_kernel!(TakeKernelAdapter(ByteBoolVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
@@ -138,13 +139,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_take_byte_bool() {
-        test_take_conformance(ByteBoolArray::from(vec![true, false, true, true, false]).as_ref());
-        test_take_conformance(
-            ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).as_ref(),
-        );
-        test_take_conformance(ByteBoolArray::from(vec![true, false]).as_ref());
-        test_take_conformance(ByteBoolArray::from(vec![true]).as_ref());
+    #[rstest]
+    #[case(ByteBoolArray::from(vec![true, false, true, true, false]))]
+    #[case(ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]))]
+    #[case(ByteBoolArray::from(vec![true, false]))]
+    #[case(ByteBoolArray::from(vec![true]))]
+    fn test_take_byte_bool_conformance(#[case] array: ByteBoolArray) {
+        test_take_conformance(array.as_ref());
     }
 }

@@ -76,10 +76,11 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::take;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_dtype::{DType, Nullability, PType};
     use vortex_scalar::{Scalar, ScalarValue};
 
@@ -161,71 +162,51 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_take_runend_conformance() {
-        // Test basic run end array
-        test_take_conformance(ree_array().as_ref());
-
-        // Test with different patterns
-        let pattern_array = RunEndArray::encode(
-            PrimitiveArray::from_iter([1u8, 1, 2, 2, 2, 3, 3, 3, 3, 4]).into_array(),
-        )
-        .unwrap();
-        test_take_conformance(pattern_array.as_ref());
-
-        // Test with nullable values
-        let nullable_array = RunEndArray::encode(
-            PrimitiveArray::from_option_iter([
-                Some(10),
-                Some(10),
-                None,
-                None,
-                Some(20),
-                Some(20),
-                Some(20),
-            ])
-            .into_array(),
-        )
-        .unwrap();
-        test_take_conformance(nullable_array.as_ref());
-
-        // Test single run
-        let single_run =
-            RunEndArray::encode(PrimitiveArray::from_iter([42i32, 42, 42, 42, 42]).into_array())
-                .unwrap();
-        test_take_conformance(single_run.as_ref());
-
-        // Test many short runs
-        let many_runs = RunEndArray::encode(
-            PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]).into_array(),
-        )
-        .unwrap();
-        test_take_conformance(many_runs.as_ref());
-
-        // Test larger array for edge cases
+    #[rstest]
+    #[case(ree_array())]
+    #[case(RunEndArray::encode(
+        PrimitiveArray::from_iter([1u8, 1, 2, 2, 2, 3, 3, 3, 3, 4]).into_array(),
+    ).unwrap())]
+    #[case(RunEndArray::encode(
+        PrimitiveArray::from_option_iter([
+            Some(10),
+            Some(10),
+            None,
+            None,
+            Some(20),
+            Some(20),
+            Some(20),
+        ])
+        .into_array(),
+    ).unwrap())]
+    #[case(RunEndArray::encode(PrimitiveArray::from_iter([42i32, 42, 42, 42, 42]).into_array())
+        .unwrap())]
+    #[case(RunEndArray::encode(
+        PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]).into_array(),
+    ).unwrap())]
+    #[case({
         let mut values = Vec::new();
         for i in 0..20 {
             for _ in 0..=i {
                 values.push(i);
             }
         }
-        let large_array =
-            RunEndArray::encode(PrimitiveArray::from_iter(values).into_array()).unwrap();
-        test_take_conformance(large_array.as_ref());
+        RunEndArray::encode(PrimitiveArray::from_iter(values).into_array()).unwrap()
+    })]
+    fn test_take_runend_conformance(#[case] array: RunEndArray) {
+        test_take_conformance(array.as_ref());
     }
 
-    #[test]
-    fn test_take_sliced_runend_conformance() {
-        // Test sliced run end array
-        let sliced = ree_array().slice(3, 6).unwrap();
-        test_take_conformance(sliced.as_ref());
-
-        // Test slice from middle of a run
+    #[rstest]
+    #[case(ree_array().slice(3, 6).unwrap())]
+    #[case({
         let array = RunEndArray::encode(
             PrimitiveArray::from_iter([1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]).into_array(),
         )
         .unwrap();
-        let sliced = array.slice(2, 8).unwrap();
+        array.slice(2, 8).unwrap()
+    })]
+    fn test_take_sliced_runend_conformance(#[case] sliced: ArrayRef) {
         test_take_conformance(sliced.as_ref());
     }
 }
