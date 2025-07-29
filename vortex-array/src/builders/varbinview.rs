@@ -216,8 +216,23 @@ impl ArrayBuilder for VarBinViewBuilder {
 
         let new_indices = self.completed.extend_from_slice(array.buffers());
 
-        self.views_builder
-            .extend_trusted(array.views().iter().map(|view| new_indices.map_view(view)));
+        match new_indices {
+            NewIndices::ConstantOffset(offset) => {
+                self.views_builder
+                    .extend_trusted(array.views().iter().map(|view| view.offset_view(offset)));
+            }
+            NewIndices::LookupArray(lookup) => {
+                self.views_builder
+                    .extend_trusted(array.views().iter().map(|view| {
+                        if view.is_inlined() {
+                            *view
+                        } else {
+                            let new_buffer_idx = lookup[view.as_view().buffer_index() as usize];
+                            view.with_buffer_idx(new_buffer_idx)
+                        }
+                    }));
+            }
+        }
 
         self.push_only_validity_mask(array.validity_mask()?);
 
@@ -300,22 +315,6 @@ enum NewIndices {
     ConstantOffset(u32),
     // lookup from the given array to get the new idx
     LookupArray(Vec<u32>),
-}
-
-impl NewIndices {
-    fn map_view(&self, view: &BinaryView) -> BinaryView {
-        match self {
-            Self::ConstantOffset(offset) => view.offset_view(*offset),
-            Self::LookupArray(lookup) => {
-                if view.is_inlined() {
-                    *view
-                } else {
-                    let new_buffer_idx = lookup[view.as_view().buffer_index() as usize];
-                    view.with_buffer_idx(new_buffer_idx)
-                }
-            }
-        }
-    }
 }
 
 #[derive(Default)]
