@@ -43,20 +43,17 @@ register_kernel!(SumKernelAdapter(ExtensionVTable).lift());
 impl TakeKernel for ExtensionVTable {
     fn take(&self, array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         let taken_storage = take(array.storage(), indices)?;
-
-        // If the storage dtype changed (e.g., became nullable due to nullable indices),
-        // we need to update the extension dtype to match
-        let ext_dtype = if taken_storage.dtype() != array.ext_dtype().storage_dtype() {
-            Arc::new(ExtDType::new(
+        if taken_storage.dtype().nullability() == array.ext_dtype().storage_dtype().nullability() {
+            Ok(ExtensionArray::new(array.ext_dtype().clone(), taken_storage).into_array())
+        } else {
+            // The storage dtype changed (i.e., became nullable due to nullable indices)
+            let ext_dtype = Arc::new(ExtDType::new(
                 array.ext_dtype().id().clone(),
                 Arc::new(taken_storage.dtype().clone()),
                 array.ext_dtype().metadata().cloned(),
-            ))
-        } else {
-            array.ext_dtype().clone()
-        };
-
-        Ok(ExtensionArray::new(ext_dtype, taken_storage).into_array())
+            ));
+            Ok(ExtensionArray::new(ext_dtype, taken_storage).into_array())
+        }
     }
 }
 
