@@ -8,7 +8,6 @@ use crate::{
     LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt as _, TaskExecutor, TaskExecutorExt as _,
 };
-use arcref::ArcRef;
 use async_trait::async_trait;
 use futures::{FutureExt as _, StreamExt as _};
 use vortex_array::ArrayContext;
@@ -18,14 +17,14 @@ use vortex_error::VortexResult;
 
 /// A layout writer that compresses chunks using a sampling compressor.
 pub struct BtrBlocksCompressedStrategy {
-    child: ArcRef<dyn LayoutStrategy>,
+    child: Arc<dyn LayoutStrategy>,
     executor: Arc<dyn TaskExecutor>,
     parallelism: usize,
 }
 
 impl BtrBlocksCompressedStrategy {
     pub fn new(
-        child: ArcRef<dyn LayoutStrategy>,
+        child: Arc<dyn LayoutStrategy>,
         executor: Arc<dyn TaskExecutor>,
         parallelism: usize,
     ) -> Self {
@@ -37,7 +36,7 @@ impl BtrBlocksCompressedStrategy {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl LayoutStrategy for BtrBlocksCompressedStrategy {
     async fn write_stream(
         &self,

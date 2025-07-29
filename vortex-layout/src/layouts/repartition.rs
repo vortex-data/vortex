@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::VecDeque;
-
-use arcref::ArcRef;
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::{StreamExt as _, pin_mut};
+use std::collections::VecDeque;
+use std::sync::Arc;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::{Array, ArrayContext, ArrayRef, IntoArray};
 use vortex_error::{VortexExpect, VortexResult};
@@ -31,16 +30,16 @@ pub struct RepartitionWriterOptions {
 /// multiple of `block_len_multiple` rows.
 pub struct RepartitionStrategy {
     options: RepartitionWriterOptions,
-    child: ArcRef<dyn LayoutStrategy>,
+    child: Arc<dyn LayoutStrategy>,
 }
 
 impl RepartitionStrategy {
-    pub fn new(child: ArcRef<dyn LayoutStrategy>, options: RepartitionWriterOptions) -> Self {
+    pub fn new(child: Arc<dyn LayoutStrategy>, options: RepartitionWriterOptions) -> Self {
         Self { options, child }
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl LayoutStrategy for RepartitionStrategy {
     async fn write_stream(
         &self,

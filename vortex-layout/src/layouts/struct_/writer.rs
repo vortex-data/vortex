@@ -6,7 +6,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 
-use arcref::ArcRef;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use futures::{Stream, StreamExt, TryStreamExt};
@@ -25,17 +24,17 @@ use crate::{
 };
 
 pub struct StructStrategy {
-    child: ArcRef<dyn LayoutStrategy>,
+    child: Arc<dyn LayoutStrategy>,
 }
 
 /// A [`LayoutStrategy`] that splits a StructArray batch into child layout writers
 impl StructStrategy {
-    pub fn new(child: ArcRef<dyn LayoutStrategy>) -> Self {
+    pub fn new(child: Arc<dyn LayoutStrategy>) -> Self {
         Self { child }
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl LayoutStrategy for StructStrategy {
     async fn write_stream(
         &self,
@@ -198,7 +197,6 @@ where
 mod tests {
     use std::sync::Arc;
 
-    use arcref::ArcRef;
     use futures::executor::block_on;
     use futures::stream;
     use vortex_array::arrays::{BoolArray, StructArray};
@@ -216,8 +214,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn fails_on_duplicate_field() {
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(Arc::new(FlatLayoutStrategy::default()));
         block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
@@ -242,8 +239,7 @@ mod tests {
 
     #[test]
     fn fails_on_top_level_nulls() {
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(Arc::new(FlatLayoutStrategy::default()));
         let res = block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),
@@ -282,8 +278,7 @@ mod tests {
 
     #[test]
     fn write_empty_field_struct_array() {
-        let strategy =
-            StructStrategy::new(ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())));
+        let strategy = StructStrategy::new(Arc::new(FlatLayoutStrategy::default()));
         let res = block_on(
             strategy.write_stream(
                 &ArrayContext::empty(),

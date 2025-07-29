@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use async_trait::async_trait;
 use futures::{FutureExt as _, StreamExt as _};
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray};
@@ -162,7 +161,7 @@ impl Default for CompactCompressor {
 /// - Pco for supported numeric types (16, 32, and 64-bit floats and ints)
 /// - Zstd for everything else (primitive arrays only)
 pub struct CompactCompressedStrategy {
-    child: ArcRef<dyn LayoutStrategy>,
+    child: Arc<dyn LayoutStrategy>,
     executor: Arc<dyn TaskExecutor>,
     parallelism: usize,
     compressor: CompactCompressor,
@@ -170,7 +169,7 @@ pub struct CompactCompressedStrategy {
 
 impl CompactCompressedStrategy {
     pub fn new(
-        child: ArcRef<dyn LayoutStrategy>,
+        child: Arc<dyn LayoutStrategy>,
         executor: Arc<dyn TaskExecutor>,
         parallelism: usize,
         compressor: CompactCompressor,
@@ -184,7 +183,7 @@ impl CompactCompressedStrategy {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl LayoutStrategy for CompactCompressedStrategy {
     async fn write_stream(
         &self,

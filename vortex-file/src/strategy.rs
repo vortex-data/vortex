@@ -22,7 +22,7 @@ const ROW_BLOCK_SIZE: usize = 8192;
 pub struct VortexLayoutStrategy;
 
 impl VortexLayoutStrategy {
-    pub fn with_executor(executor: Arc<dyn TaskExecutor>) -> ArcRef<dyn LayoutStrategy> {
+    pub fn with_executor(executor: Arc<dyn TaskExecutor>) -> Arc<dyn LayoutStrategy> {
         // 7. for each chunk create a flat layout
         let chunked = arcref(ChunkedLayoutStrategy::default());
         // 6. buffer chunks so they end up with closer segment ids physically
@@ -91,7 +91,7 @@ impl VortexLayoutStrategy {
     pub fn compact_with_executor(
         executor: Arc<dyn TaskExecutor>,
         compressor: vortex_layout::layouts::compact::CompactCompressor,
-    ) -> ArcRef<dyn LayoutStrategy> {
+    ) -> Arc<dyn LayoutStrategy> {
         use vortex_layout::layouts::compact::CompactCompressedStrategy;
 
         // 6. for each chunk create a flat layout
@@ -156,6 +156,6 @@ impl VortexLayoutStrategy {
     }
 }
 
-fn arcref(item: impl LayoutStrategy) -> ArcRef<dyn LayoutStrategy> {
+fn arcref(item: impl LayoutStrategy) -> Arc<dyn LayoutStrategy> {
     ArcRef::new_arc(Arc::new(item))
 }

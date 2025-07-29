@@ -1,32 +1,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::collections::VecDeque;
-
 use crate::segments::SegmentSink;
 use crate::{
     LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt as _,
 };
-use arcref::ArcRef;
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::{StreamExt as _, pin_mut};
+use std::collections::VecDeque;
+use std::sync::Arc;
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 
 pub struct BufferedStrategy {
-    child: ArcRef<dyn LayoutStrategy>,
+    child: Arc<dyn LayoutStrategy>,
     buffer_size: u64,
 }
 
 impl BufferedStrategy {
-    pub fn new(child: ArcRef<dyn LayoutStrategy>, buffer_size: u64) -> Self {
+    pub fn new(child: Arc<dyn LayoutStrategy>, buffer_size: u64) -> Self {
         Self { child, buffer_size }
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl LayoutStrategy for BufferedStrategy {
     async fn write_stream(
         &self,

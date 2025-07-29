@@ -48,7 +48,7 @@ impl SequentialStream for SendableSequentialStream {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait LayoutStrategy: 'static + Send + Sync {
     /// Write a stream of arrays to the layout.
     async fn write_stream(

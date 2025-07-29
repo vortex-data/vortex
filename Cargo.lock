@@ -6601,6 +6601,7 @@ name = "vortex-file"
 version = "0.1.0"
 dependencies = [
  "arcref",
+ "async-stream",
  "async-trait",
  "bytes",
  "dashmap",
@@ -6612,6 +6613,7 @@ dependencies = [
  "log",
  "moka",
  "object_store",
+ "parking_lot",
  "rustc-hash",
  "tokio",
  "tracing",

@@ -4,7 +4,6 @@
 use std::future;
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use async_trait::async_trait;
 use futures::{FutureExt, StreamExt as _};
 use parking_lot::Mutex;
@@ -44,8 +43,8 @@ impl Default for ZonedLayoutOptions {
 }
 
 pub struct ZonedStrategy {
-    child: ArcRef<dyn LayoutStrategy>,
-    stats: ArcRef<dyn LayoutStrategy>,
+    child: Arc<dyn LayoutStrategy>,
+    stats: Arc<dyn LayoutStrategy>,
     options: ZonedLayoutOptions,
     executor: Arc<dyn TaskExecutor>,
     eof: Mutex<SequencePointer>,
@@ -53,8 +52,8 @@ pub struct ZonedStrategy {
 
 impl ZonedStrategy {
     pub fn new(
-        child: ArcRef<dyn LayoutStrategy>,
-        stats: ArcRef<dyn LayoutStrategy>,
+        child: Arc<dyn LayoutStrategy>,
+        stats: Arc<dyn LayoutStrategy>,
         options: ZonedLayoutOptions,
         executor: Arc<dyn TaskExecutor>,
         // Pointer to the end of the sequence, used to put stats tables at the back of the file.
@@ -70,7 +69,7 @@ impl ZonedStrategy {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl LayoutStrategy for ZonedStrategy {
     async fn write_stream(
         &self,

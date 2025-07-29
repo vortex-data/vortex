@@ -1,35 +1,39 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future;
 use std::sync::Arc;
 
 use futures::StreamExt;
 use itertools::Itertools;
 use parking_lot::Mutex;
 use vortex_array::stats::{Stat, StatsSet};
-use vortex_array::{ArrayRef, ToCanonical as _};
+use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
+use vortex_array::{Array, ToCanonical as _};
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexExpect, VortexResult, vortex_panic};
 
 use crate::layouts::zoned::zone_map::StatsAccumulator;
-use crate::sequence::SequenceId;
-use crate::{SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt};
 
-pub fn accumulate_stats(
-    stream: SendableSequentialStream,
+pub fn accumulate_stats<S: ArrayStream>(
+    stream: S,
     stats: Arc<[Stat]>,
     max_variable_length_statistics_size: usize,
-) -> (FileStatsAccumulator, SendableSequentialStream) {
+) -> (FileStatsAccumulator, impl ArrayStream) {
     let accumulator =
         FileStatsAccumulator::new(stream.dtype(), stats, max_variable_length_statistics_size);
-    let stream = SequentialStreamAdapter::new(
+    let accumulator2 = accumulator.clone();
+
+    let stream = ArrayStreamAdapter::new(
         stream.dtype().clone(),
-        stream.scan(accumulator.clone(), |acc, item| {
-            future::ready(Some(acc.process(item)))
+        stream.map(move |chunk| {
+            let accumulator = accumulator2.clone();
+            chunk.and_then(move |c| {
+                accumulator.process(&c)?;
+                Ok(c)
+            })
         }),
-    )
-    .sendable();
+    );
+
     (accumulator, stream)
 }
 
@@ -79,20 +83,16 @@ impl FileStatsAccumulator {
         }
     }
 
-    fn process(
-        &self,
-        chunk: VortexResult<(SequenceId, ArrayRef)>,
-    ) -> VortexResult<(SequenceId, ArrayRef)> {
-        let (sequence_id, chunk) = chunk?;
+    fn process(&self, chunk: &dyn Array) -> VortexResult<()> {
         if chunk.dtype().is_struct() {
             let chunk = chunk.to_struct()?;
             for (acc, field) in self.accumulators.lock().iter_mut().zip_eq(chunk.fields()) {
                 acc.push_chunk(field)?;
             }
+            Ok(())
         } else {
-            self.accumulators.lock()[0].push_chunk(&chunk)?;
+            self.accumulators.lock()[0].push_chunk(chunk)
         }
-        Ok((sequence_id, chunk))
     }
 
     pub fn stats_sets(&self) -> Vec<StatsSet> {

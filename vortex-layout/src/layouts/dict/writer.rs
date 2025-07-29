@@ -5,7 +5,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, ready};
 
-use arcref::ArcRef;
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::channel::{mpsc, oneshot};
@@ -52,18 +51,18 @@ impl Default for DictLayoutOptions {
 /// encodes chunks into dictionaries. When the dict constraints are hit, a
 /// new dictionary is created.
 pub struct DictStrategy {
-    codes: ArcRef<dyn LayoutStrategy>,
-    values: ArcRef<dyn LayoutStrategy>,
-    fallback: ArcRef<dyn LayoutStrategy>,
+    codes: Arc<dyn LayoutStrategy>,
+    values: Arc<dyn LayoutStrategy>,
+    fallback: Arc<dyn LayoutStrategy>,
     options: DictLayoutOptions,
     executor: Arc<dyn TaskExecutor>,
 }
 
 impl DictStrategy {
     pub fn new(
-        codes: ArcRef<dyn LayoutStrategy>,
-        values: ArcRef<dyn LayoutStrategy>,
-        fallback: ArcRef<dyn LayoutStrategy>,
+        codes: Arc<dyn LayoutStrategy>,
+        values: Arc<dyn LayoutStrategy>,
+        fallback: Arc<dyn LayoutStrategy>,
         options: DictLayoutOptions,
         executor: Arc<dyn TaskExecutor>,
     ) -> Self {
@@ -77,7 +76,7 @@ impl DictStrategy {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl LayoutStrategy for DictStrategy {
     async fn write_stream(
         &self,

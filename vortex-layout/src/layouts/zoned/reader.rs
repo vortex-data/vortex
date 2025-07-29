@@ -423,7 +423,6 @@ mod test {
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
     use crate::{ArrayStreamSequentialExt, LayoutRef, LayoutStrategy, LocalExecutor};
-    use arcref::ArcRef;
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
     use vortex_array::IntoArray;
@@ -441,8 +440,8 @@ mod test {
 
         let mut eof = SequenceId::root();
         let strategy = ZonedStrategy::new(
-            ArcRef::new_arc(Arc::new(ChunkedLayoutStrategy::default())),
-            ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
+            Arc::new(ChunkedLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
             ZonedLayoutOptions {
                 block_size: 3,
                 ..Default::default()

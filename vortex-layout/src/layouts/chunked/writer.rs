@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::once;
@@ -21,18 +20,18 @@ use crate::{
 
 pub struct ChunkedLayoutStrategy {
     /// The layout strategy for each chunk.
-    pub chunk_strategy: ArcRef<dyn LayoutStrategy>,
+    pub chunk_strategy: Arc<dyn LayoutStrategy>,
 }
 
 impl Default for ChunkedLayoutStrategy {
     fn default() -> Self {
         Self {
-            chunk_strategy: ArcRef::new_arc(Arc::new(FlatLayoutStrategy::default())),
+            chunk_strategy: Arc::new(FlatLayoutStrategy::default()),
         }
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl LayoutStrategy for ChunkedLayoutStrategy {
     async fn write_stream(
         &self,

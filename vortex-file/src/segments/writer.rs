@@ -1,41 +1,65 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use async_trait::async_trait;
-use futures::channel::mpsc;
-use futures::{SinkExt, stream};
-use vortex_buffer::{Alignment, ByteBuffer};
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
-use vortex_layout::segments::{SegmentId, SegmentWriter};
-
 use crate::footer::SegmentSpec;
+use async_trait::async_trait;
+use parking_lot::Mutex;
+use std::collections::VecDeque;
+use vortex_buffer::{Alignment, ByteBuffer};
+use vortex_error::{VortexResult, vortex_err};
+use vortex_layout::segments::{SegmentId, SegmentSink};
+use vortex_layout::sequence::SequenceId;
 
 /// A segment writer that enforces segment id's it receives are monotonically increasing.
 /// It does buffer segments in a flush channel.
-pub struct SerialSegmentWriter {
-    buffer_sink: mpsc::Sender<ByteBuffer>,
-    next_expected: SegmentId,
+pub struct FileSegmentWriter {
+    state: Mutex<State>,
+}
+
+impl FileSegmentWriter {
+    pub fn new(byte_offset: u64) -> Self {
+        Self {
+            state: Mutex::new(State {
+                byte_offset,
+                buffer_sink: Default::default(),
+                segment_specs: Default::default(),
+            }),
+        }
+    }
+
+    /// Drain any buffered segments into the provided sink.
+    pub fn drain_to_vec(&self) -> Vec<ByteBuffer> {
+        let mut state = self.state.lock();
+        state.buffer_sink.drain(..).collect()
+    }
+}
+
+struct State {
     byte_offset: u64,
+    buffer_sink: VecDeque<ByteBuffer>,
     segment_specs: Vec<SegmentSpec>,
 }
 
-impl SerialSegmentWriter {
+impl FileSegmentWriter {
     pub fn into_parts(self) -> (u64, Vec<SegmentSpec>) {
-        (self.byte_offset, self.segment_specs)
+        let state = self.state.into_inner();
+        (state.byte_offset, state.segment_specs)
     }
 }
 
 #[async_trait]
-impl SegmentWriter for SerialSegmentWriter {
-    async fn put(&mut self, segment_id: SegmentId, buffers: Vec<ByteBuffer>) -> VortexResult<()> {
-        if segment_id != self.next_expected {
-            vortex_bail!(
-                "out of order segment id, expected {:?}, got {:?}",
-                self.next_expected,
-                segment_id
-            );
-        }
-        self.next_expected = SegmentId::from(*segment_id + 1);
+impl SegmentSink for FileSegmentWriter {
+    async fn write(
+        &self,
+        sequence_id: SequenceId,
+        buffers: Vec<ByteBuffer>,
+    ) -> VortexResult<SegmentId> {
+        // We wait for all segment IDs before this one to be dropped. Then while we hold this
+        // one, we essentially have an exclusive lock on the segment writer. This ensures we
+        // don't deadlock while locking the state mutex. We can use a non-async mutex here
+        // since we are not performing any async operations while holding the lock.
+        let segment_id = sequence_id.collapse().await;
+        let mut state = self.state.lock();
 
         // The API requires us to write these buffers contiguously. Therefore, we can only
         // respect the alignment of the first one.
@@ -49,38 +73,23 @@ impl SegmentWriter for SerialSegmentWriter {
             .map_err(|_| vortex_err!("segment buffer length exceeds maximum u32"))?;
 
         // Add any padding required to align the segment.
-        let padding = self.byte_offset.next_multiple_of(*alignment as u64) - self.byte_offset;
-        self.segment_specs.push(SegmentSpec {
-            offset: self.byte_offset + padding,
+        let padding = state.byte_offset.next_multiple_of(*alignment as u64) - state.byte_offset;
+        let offset = state.byte_offset + padding;
+        state.segment_specs.push(SegmentSpec {
+            offset,
             length,
             alignment,
         });
-        self.byte_offset += padding + u64::from(length);
+        state.byte_offset += padding + u64::from(length);
 
         // Send the buffers to the stream.
         if padding > 0 {
-            self.buffer_sink
-                .send(ByteBuffer::zeroed(padding as usize))
-                .await
-                .map_err(|_| vortex_err!("failed to send padding buffer to flusher"))?;
+            state
+                .buffer_sink
+                .push_back(ByteBuffer::zeroed(padding as usize));
         }
-        self.buffer_sink
-            .send_all(&mut stream::iter(buffers))
-            .await
-            .map_err(|_| vortex_err!("failed to send segment buffers to flusher"))?;
+        state.buffer_sink.extend(buffers);
 
-        Ok(())
-    }
-}
-
-impl SerialSegmentWriter {
-    /// Create a [SegmentWriter] and a [SegmentFlusher].
-    pub fn create(initial_offset: u64, buffer_sink: mpsc::Sender<ByteBuffer>) -> Self {
-        SerialSegmentWriter {
-            buffer_sink,
-            next_expected: SegmentId::from(0),
-            byte_offset: initial_offset,
-            segment_specs: Vec::new(),
-        }
+        Ok(segment_id)
     }
 }

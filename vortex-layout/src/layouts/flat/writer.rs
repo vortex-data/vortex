@@ -32,7 +32,7 @@ impl Default for FlatLayoutStrategy {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
         &self,
