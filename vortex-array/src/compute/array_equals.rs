@@ -1,28 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::Array;
-use crate::compute::{
-    ComputeFn, ComputeFnVTable, IS_SORTED_FN, InvocationArgs, IsSortedKernelRef, Kernel, Options,
-    Output, is_sorted_opts,
-};
-use crate::stats::{Precision, Stat, StatsProvider};
-use crate::vtable::VTable;
-use arcref::ArcRef;
 use std::any::Any;
 use std::sync::LazyLock;
+
+use arcref::ArcRef;
 use vortex_dtype::{DType, Nullability};
 use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_scalar::Scalar;
 
-pub fn array_equals(array: &dyn Array) -> VortexResult<bool> {
-    is_sorted_opts(array, false)
+use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output, compare, Operator};
+use crate::stats::{Precision, Stat, StatsProvider};
+use crate::vtable::VTable;
+use crate::{Array, ArrayRef, Canonical, IntoArray};
+
+pub fn array_equals(left: &dyn Array, right: &dyn Array) -> VortexResult<bool> {
+    array_equals_opts(left, right, false)
 }
 
-pub fn array_equals_opts(array: &dyn Array, ignore_nullability: bool) -> VortexResult<bool> {
-    Ok(IS_SORTED_FN
+pub fn array_equals_opts(left: &dyn Array, right: &dyn Array, ignore_nullability: bool) -> VortexResult<bool> {
+    Ok(ARRAY_EQUALS_FN
         .invoke(&InvocationArgs {
-            inputs: &[array.into()],
+            inputs: &[left.into(), right.into()],
             options: &ArrayEqualsOptions { ignore_nullability },
         })?
         .unwrap_scalar()?
@@ -44,7 +43,7 @@ impl Options for ArrayEqualsOptions {
 
 pub static ARRAY_EQUALS_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("array_equals".into(), ArcRef::new_ref(&ArrayEquals));
-    for kernel in inventory::iter::<IsSortedKernelRef> {
+    for kernel in inventory::iter::<ArrayEqualsKernelRef> {
         compute.register_kernel(kernel.0.clone());
     }
     compute
@@ -123,7 +122,10 @@ impl ComputeFnVTable for ArrayEquals {
         if let Some(output) = left.invoke(&ARRAY_EQUALS_FN, &args)? {
             todo!();
         }
+        
         // swap...
+
+        // try to check canonical arrays if there are not canonical now
 
         todo!();
 
@@ -164,9 +166,9 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for ArrayEqualsArgs<'a> {
     type Error = VortexError;
 
     fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
-        if value.inputs.len() != 3 {
+        if value.inputs.len() != 2 {
             vortex_bail!(
-                "ArrayEquals function requires three one arguments, got {}",
+                "ArrayEquals function requires two arguments, got {}",
                 value.inputs.len()
             );
         }
