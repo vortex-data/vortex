@@ -10,6 +10,7 @@ use futures::{Stream, StreamExt, TryStreamExt, pin_mut, poll};
 use std::future;
 use std::sync::Arc;
 use std::task::Poll;
+use tokio::runtime::Handle;
 use vortex_array::ArrayContext;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
 use vortex_array::stats::{PRUNING_STATS, Stat};
@@ -88,6 +89,29 @@ impl VortexWriteOptions {
         // .shutdown()
         // .await?;
         // Ok(())
+    }
+
+    /// Write to a file using the provided `VortexWrite` implementation, spawning CPU tasks on the
+    /// given Tokio runtime handle.
+    #[cfg(feature = "tokio")]
+    pub async fn write_tokio<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
+        self,
+        mut write: W,
+        stream: S,
+        handle: Handle,
+    ) -> VortexResult<()> {
+        // Configure a Tokio executor to spawn concurrent CPU-bound tasks.
+        let executor: Arc<dyn TaskExecutor> = Arc::new(handle);
+        let buffers = self.write_stream(ArrayStreamExt::boxed(stream), &executor);
+        pin_mut!(buffers);
+
+        while let Some(bufs) = buffers.next().await {
+            for buf in bufs? {
+                write.write_all(buf).await?;
+            }
+        }
+        write.flush().await?;
+        Ok(())
     }
 
     /// Perform a blocking single-threaded write of the provided [`ArrayIterator`].
