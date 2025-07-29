@@ -4,8 +4,7 @@
 use std::iter;
 use std::sync::{Arc, LazyLock};
 
-use futures::executor::block_on;
-use futures::{StreamExt, stream};
+use futures::future::BoxFuture;
 use tokio::runtime::{Builder, Runtime};
 use vortex_array::ArrayRef;
 use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
@@ -42,44 +41,78 @@ impl ScanBuilder<ArrayRef> {
     pub fn into_iter_multithread<T, F>(
         self,
         map_fn: F,
-    ) -> VortexResult<impl Iterator<Item = T> + Send + 'static>
+    ) -> VortexResult<Box<dyn Iterator<Item = T> + Send>>
     where
         T: 'static + Send,
         F: Fn(VortexResult<ArrayRef>) -> T + Send + Sync + 'static,
     {
         let concurrency = self.concurrency;
         let num_workers = CPU_RUNTIME.metrics().num_workers();
+        let max_concurrent = num_workers * concurrency;
 
         let tasks = self.build()?;
-
-        // We need to clone and send the map_fn into each task.
         let map_fn = Arc::new(map_fn);
-
         let handle = CPU_RUNTIME.handle().clone();
-        let mut stream = stream::iter(tasks)
-            .map(move |task| {
-                let map_fn = map_fn.clone();
-                // We don't _need_ to spawn the work here. But it allows Tokio to make progress on
-                // the tasks in the background, even if the consumer thread is not calling
-                // poll_next.
-                handle.spawn(async move { task.await.transpose().map(|t| map_fn(t)) })
-            })
-            // TODO(ngates): this is very crude indeed. This buffered call essentially controls how
-            //  many splits we have in-flight at any given time. We multiple workers by concurrency
-            //  to configure per-thread concurrency, which essentially means each thread can make
-            //  progress on one split while waiting for the I/O of another split to complete.
-            //  In an ideal world, the number of in-flight tasks would be dynamically adjusted
-            //  based on how much I/O the tasks _actually_ require. For example, all pruning tasks
-            //  could be spawned immediately since they all use a single segment, this would allow
-            //  head-room to run ahead and figure out the I/O demands of subsequent tasks.
-            .buffered(num_workers * concurrency);
 
-        Ok(
-            iter::from_fn(move || block_on(stream.next())).filter_map(|result| {
+        // State for the iterator
+        struct IterState<T, F> {
+            remaining_tasks: std::vec::IntoIter<BoxFuture<'static, VortexResult<Option<ArrayRef>>>>,
+            active_handles: Vec<tokio::task::JoinHandle<Option<T>>>,
+            max_concurrent: usize,
+            handle: tokio::runtime::Handle,
+            map_fn: Arc<F>,
+        }
+
+        let mut state = IterState {
+            remaining_tasks: tasks.into_iter(),
+            active_handles: Vec::new(),
+            max_concurrent,
+            handle,
+            map_fn,
+        };
+
+        // Fill initial pool
+        while state.active_handles.len() < state.max_concurrent {
+            if let Some(task) = state.remaining_tasks.next() {
+                let map_fn = state.map_fn.clone();
+                let join_handle = state
+                    .handle
+                    .spawn(async move { task.await.transpose().map(|t| map_fn(t)) });
+                state.active_handles.push(join_handle);
+            } else {
+                break;
+            }
+        }
+
+        Ok(Box::new(
+            iter::from_fn(move || {
+                if state.active_handles.is_empty() {
+                    return None;
+                }
+
+                let join_handle = state.active_handles.remove(0);
+
+                if let Some(task) = state.remaining_tasks.next() {
+                    let map_fn = state.map_fn.clone();
+                    let new_handle = state
+                        .handle
+                        .spawn(async move { task.await.transpose().map(|t| map_fn(t)) });
+                    state.active_handles.push(new_handle);
+                }
+
+                let result = if tokio::runtime::Handle::try_current().is_ok() {
+                    tokio::task::block_in_place(|| CPU_RUNTIME.handle().block_on(join_handle))
+                } else {
+                    futures::executor::block_on(join_handle)
+                };
+
+                Some(result)
+            })
+            .filter_map(|result| {
                 result
                     .map_err(|e| vortex_err!("Failed to join on a spawned scan task {e}"))
                     .vortex_expect("Failed to join on a spawned scan task")
             }),
-        )
+        ))
     }
 }
