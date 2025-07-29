@@ -15,9 +15,9 @@ use crate::arrays::ExtensionVTable;
 use crate::arrays::extension::ExtensionArray;
 use crate::compute::{
     FilterKernel, FilterKernelAdapter, IsConstantKernel, IsConstantKernelAdapter, IsConstantOpts,
-    IsSortedKernel, IsSortedKernelAdapter, MinMaxKernel, MinMaxKernelAdapter, MinMaxResult,
-    SumKernel, SumKernelAdapter, TakeKernel, TakeKernelAdapter, filter, is_constant_opts,
-    is_sorted, is_strict_sorted, min_max, sum, take,
+    IsSortedKernel, IsSortedKernelAdapter, MaskKernel, MaskKernelAdapter, MinMaxKernel,
+    MinMaxKernelAdapter, MinMaxResult, SumKernel, SumKernelAdapter, TakeKernel, TakeKernelAdapter,
+    filter, is_constant_opts, is_sorted, is_strict_sorted, mask, min_max, sum, take,
 };
 use crate::{Array, ArrayRef, IntoArray, register_kernel};
 
@@ -31,6 +31,25 @@ impl FilterKernel for ExtensionVTable {
 }
 
 register_kernel!(FilterKernelAdapter(ExtensionVTable).lift());
+
+impl MaskKernel for ExtensionVTable {
+    fn mask(&self, array: &ExtensionArray, mask_array: &Mask) -> VortexResult<ArrayRef> {
+        let masked_storage = mask(array.storage(), mask_array)?;
+        if masked_storage.dtype().nullability() == array.ext_dtype().storage_dtype().nullability() {
+            Ok(ExtensionArray::new(array.ext_dtype().clone(), masked_storage).into_array())
+        } else {
+            // The storage dtype changed (i.e., became nullable due to masking)
+            let ext_dtype = Arc::new(ExtDType::new(
+                array.ext_dtype().id().clone(),
+                Arc::new(masked_storage.dtype().clone()),
+                array.ext_dtype().metadata().cloned(),
+            ));
+            Ok(ExtensionArray::new(ext_dtype, masked_storage).into_array())
+        }
+    }
+}
+
+register_kernel!(MaskKernelAdapter(ExtensionVTable).lift());
 
 impl SumKernel for ExtensionVTable {
     fn sum(&self, array: &ExtensionArray) -> VortexResult<Scalar> {

@@ -5,6 +5,7 @@ mod cast;
 mod compare;
 mod filter;
 mod is_constant;
+mod mask;
 mod take;
 
 #[cfg(test)]
