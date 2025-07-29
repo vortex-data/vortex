@@ -12,7 +12,7 @@ use vortex_scalar::Scalar;
 use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options, Output, compare, Operator};
 use crate::stats::{Precision, Stat, StatsProvider};
 use crate::vtable::VTable;
-use crate::{Array, ArrayRef, Canonical, IntoArray};
+use crate::Array;
 
 pub fn array_equals(left: &dyn Array, right: &dyn Array) -> VortexResult<bool> {
     array_equals_opts(left, right, false)
@@ -120,17 +120,56 @@ impl ComputeFnVTable for ArrayEquals {
         }
 
         if let Some(output) = left.invoke(&ARRAY_EQUALS_FN, &args)? {
-            todo!();
+            return Ok(output);
         }
         
-        // swap...
+        // Try swapping arguments
+        let swapped_args = InvocationArgs {
+            inputs: &[right.into(), left.into()],
+            options: &ArrayEqualsOptions { ignore_nullability },
+        };
+        if let Some(output) = right.invoke(&ARRAY_EQUALS_FN, &swapped_args)? {
+            return Ok(output);
+        }
 
-        // try to check canonical arrays if there are not canonical now
-
-        todo!();
-
-        // if no kernels matched, default running per element comparison
-        todo!();
+        // Try canonical arrays if not already canonical
+        let canonical_equals = if !left.is_canonical() || !right.is_canonical() {
+            let left_canonical = left.to_canonical()?;
+            let right_canonical = right.to_canonical()?;
+            
+            array_equals_opts(left_canonical.as_ref(), right_canonical.as_ref(), ignore_nullability)?
+        } else {
+            // Fallback to chunked comparison
+            const BATCH_SIZE: usize = 65536; // 64K elements per batch
+            
+            let mut offset = 0;
+            while offset < left.len() {
+                let end = (offset + BATCH_SIZE).min(left.len());
+                
+                let left_slice = left.slice(offset, end)?;
+                let right_slice = right.slice(offset, end)?;
+                
+                let compare_result = compare(&left_slice, &right_slice, Operator::Eq)?;
+                
+                // Check if the result is a constant
+                if let Some(constant_scalar) = compare_result.as_constant() {
+                    // If constant is false, arrays are different
+                    if !constant_scalar.is_valid() || constant_scalar.as_bool().value() == Some(false) {
+                        return Ok(Scalar::from(false).into());
+                    }
+                    // If constant is true, continue to next batch
+                } else {
+                    // If not constant, arrays must be different
+                    return Ok(Scalar::from(false).into());
+                }
+                
+                offset = end;
+            }
+            
+            true
+        };
+        
+        Ok(Scalar::from(canonical_equals).into())
     }
 
     fn return_dtype(&self, _args: &InvocationArgs) -> VortexResult<DType> {
