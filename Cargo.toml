@@ -247,7 +247,7 @@ unexpected_cfgs = { level = "deny", check-cfg = [
     "cfg(codspeed)",
     "cfg(vortex_nightly)",
 ] }
-warnings = "deny"
+warnings = "warn"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }

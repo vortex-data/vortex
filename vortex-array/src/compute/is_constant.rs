@@ -122,7 +122,7 @@ fn is_constant_impl(
     }
 
     // Constant and null arrays are always constant
-    if array.as_opt::<ConstantVTable>().is_some() || array.as_opt::<NullVTable>().is_some() {
+    if array.is::<ConstantVTable>() || array.is::<NullVTable>() {
         return Ok(Some(true));
     }
 

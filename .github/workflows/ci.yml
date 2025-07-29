@@ -236,9 +236,9 @@ jobs:
       - name: Rustc check
         run: cargo check --locked --all-features --all-targets
       - name: Rust Lint - Clippy All Features
-        run: cargo clippy --locked --all-features --all-targets
+        run: cargo clippy --locked --all-features --all-targets -- -D warnings
       - name: Rust Lint - Clippy Default Features
-        run: cargo clippy --locked --all-targets
+        run: cargo clippy --locked --all-targets -- -D warnings
 
   rust-lint-no-default:
     name: "Rust (lint, no default)"

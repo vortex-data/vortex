@@ -486,6 +486,7 @@ impl ZstdArray {
         ZstdArray {
             slice_start: self.slice_start + start,
             slice_stop: self.slice_start + stop,
+            stats_set: Default::default(),
             ..self.clone()
         }
     }
