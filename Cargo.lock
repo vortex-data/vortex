@@ -6964,6 +6964,7 @@ dependencies = [
  "clap",
  "crossterm",
  "env_logger",
+ "futures-executor",
  "futures-util",
  "humansize",
  "indicatif",
