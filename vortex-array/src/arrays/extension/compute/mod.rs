@@ -100,6 +100,7 @@ register_kernel!(IsSortedKernelAdapter(ExtensionVTable).lift());
 mod test {
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType};
 
     use crate::IntoArray;
@@ -133,19 +134,19 @@ mod test {
         test_filter_conformance(array.as_ref());
     }
 
-    #[test]
-    fn test_take_extension_array() {
-        // Create a simple extension type (e.g., UUID represented as u64)
+    #[rstest]
+    #[case({
+        // Simple extension type (non-nullable u64)
         let storage = PrimitiveArray::from_iter([1u64, 2, 3, 4, 5]).into_array();
         let ext_dtype = ExtDType::new(
             ExtID::new("uuid".into()),
             Arc::new(storage.dtype().clone()),
             None,
         );
-        let array = ExtensionArray::new(Arc::new(ext_dtype), storage);
-        test_take_conformance(array.as_ref());
-
-        // Test with nullable extension type
+        ExtensionArray::new(Arc::new(ext_dtype), storage)
+    })]
+    #[case({
+        // Nullable extension type
         let storage = PrimitiveArray::from_option_iter([Some(1u64), None, Some(3), Some(4), None])
             .into_array();
         let ext_dtype_nullable = ExtDType::new(
@@ -153,27 +154,29 @@ mod test {
             Arc::new(storage.dtype().clone()),
             None,
         );
-        let array = ExtensionArray::new(Arc::new(ext_dtype_nullable), storage);
-        test_take_conformance(array.as_ref());
-
-        // Test with single element
+        ExtensionArray::new(Arc::new(ext_dtype_nullable), storage)
+    })]
+    #[case({
+        // Single element
         let storage = PrimitiveArray::from_iter([42u64]).into_array();
         let ext_dtype_single = ExtDType::new(
             ExtID::new("uuid".into()),
             Arc::new(storage.dtype().clone()),
             None,
         );
-        let array = ExtensionArray::new(Arc::new(ext_dtype_single), storage);
-        test_take_conformance(array.as_ref());
-
-        // Test with larger array for additional edge cases
+        ExtensionArray::new(Arc::new(ext_dtype_single), storage)
+    })]
+    #[case({
+        // Larger array for edge cases
         let storage = PrimitiveArray::from_iter(0u64..100).into_array();
         let ext_dtype_large = ExtDType::new(
             ExtID::new("uuid".into()),
             Arc::new(storage.dtype().clone()),
             None,
         );
-        let array = ExtensionArray::new(Arc::new(ext_dtype_large), storage);
+        ExtensionArray::new(Arc::new(ext_dtype_large), storage)
+    })]
+    fn test_take_extension_array_conformance(#[case] array: ExtensionArray) {
         test_take_conformance(array.as_ref());
     }
 }
