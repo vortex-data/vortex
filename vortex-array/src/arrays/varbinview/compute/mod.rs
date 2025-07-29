@@ -46,14 +46,9 @@ mod tests {
             [Some("one".to_string()), Some("four".to_string())]
         );
     }
-}
-
-#[cfg(test)]
-mod consistency_tests {
+    // Consistency tests
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
-
-    use crate::arrays::VarBinViewArray;
     use crate::compute::conformance::consistency::test_array_consistency;
 
     #[rstest]

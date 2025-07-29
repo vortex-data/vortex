@@ -99,12 +99,14 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
+    use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::{cast, filter, is_constant, take};
     use crate::validity::Validity;
     use crate::{Array, IntoArray as _};
+    use rstest::rstest;
 
     #[test]
     fn filter_empty_struct() {
@@ -504,26 +506,15 @@ mod tests {
             .as_ref(),
         );
     }
-}
 
-#[cfg(test)]
-mod consistency_tests {
-    use rstest::rstest;
-    use vortex_buffer::buffer;
-    use vortex_dtype::{DType, Nullability};
-
-    use crate::IntoArray;
-    use crate::arrays::{PrimitiveArray, StructArray, VarBinArray};
-    use crate::compute::conformance::consistency::test_array_consistency;
-    use crate::validity::Validity;
-
+    // Consistency tests
     #[rstest]
     // From test_all_consistency
     #[case::struct_simple({
         let xs = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
         let ys = VarBinArray::from_iter(
             ["a", "b", "c", "d", "e"].map(Some),
-            DType::Utf8(Nullability::NonNullable),
+            DType::Utf8(NonNullable),
         );
         StructArray::try_new(
             ["xs", "ys"].into(),
@@ -537,7 +528,7 @@ mod consistency_tests {
         let xs = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]);
         let ys = VarBinArray::from_iter(
             [Some("a"), Some("b"), None, Some("d"), None],
-            DType::Utf8(Nullability::Nullable),
+            DType::Utf8(Nullable),
         );
         StructArray::try_new(
             ["xs", "ys"].into(),
@@ -557,7 +548,7 @@ mod consistency_tests {
         let xs = PrimitiveArray::from_iter(0..100i64).into_array();
         let ys = VarBinArray::from_iter(
             (0..100).map(|i| format!("value_{i}")).map(Some),
-            DType::Utf8(Nullability::NonNullable),
+            DType::Utf8(NonNullable),
         ).into_array();
         StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 100, Validity::NonNullable).unwrap()
     })]

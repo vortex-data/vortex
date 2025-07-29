@@ -121,7 +121,7 @@ mod test {
 }
 
 #[cfg(test)]
-mod consistency_tests {
+mod tests {
     use rstest::rstest;
 
     use crate::arrays::NullArray;

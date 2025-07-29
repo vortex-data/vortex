@@ -53,7 +53,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod consistency_tests {
+mod tests {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;

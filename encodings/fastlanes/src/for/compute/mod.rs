@@ -97,7 +97,7 @@ mod test {
 }
 
 #[cfg(test)]
-mod consistency_tests {
+mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
