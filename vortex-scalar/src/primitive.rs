@@ -463,7 +463,7 @@ impl<'a> PrimitiveScalar<'a> {
             integral: |P| {
                 self.checked_integeral_numeric_operator::<P>(other, result_dtype, ptype, op)
             },
-            floating_point: |P| {
+            floating: |P| {
                 let lhs = self.typed_value::<P>();
                 let rhs = other.typed_value::<P>();
                 let value_or_null = match (lhs, rhs) {

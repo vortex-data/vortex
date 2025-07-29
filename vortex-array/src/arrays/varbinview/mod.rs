@@ -3,6 +3,7 @@
 
 use std::fmt::{Debug, Formatter};
 use std::ops::Range;
+use std::sync::Arc;
 
 use static_assertions::{assert_eq_align, assert_eq_size};
 use vortex_buffer::{Alignment, Buffer, ByteBuffer};
@@ -23,8 +24,6 @@ mod compact;
 mod compute;
 mod ops;
 mod serde;
-
-pub use compact::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C, align(8))]
@@ -218,6 +217,25 @@ impl BinaryView {
         unsafe { u128::from_le_bytes(self.le_bytes) }
     }
 
+    /// Override the buffer reference with the given buffer_idx, only if this view is not inlined.
+    #[inline(always)]
+    pub fn with_buffer_idx(self, buffer_idx: u32) -> Self {
+        if self.is_inlined() {
+            self
+        } else {
+            // Referencing views must have their buffer_index adjusted with new offsets
+            let view_ref = self.as_view();
+            Self {
+                _ref: Ref::new(
+                    self.len(),
+                    *view_ref.prefix(),
+                    buffer_idx,
+                    view_ref.offset(),
+                ),
+            }
+        }
+    }
+
     /// Shifts the buffer reference by the view by a given offset, useful when merging many
     /// varbinview arrays into one.
     #[inline(always)]
@@ -283,10 +301,69 @@ impl VTable for VarBinViewVTable {
     }
 }
 
+/// A variable-length binary view array that stores strings and binary data efficiently.
+///
+/// This mirrors the Apache Arrow StringView/BinaryView array encoding and provides
+/// an optimized representation for variable-length data with excellent performance
+/// characteristics for both short and long strings.
+///
+/// ## Data Layout
+///
+/// The array uses a hybrid storage approach with two main components:
+/// - **Views buffer**: Array of 16-byte `BinaryView` entries (one per logical element)
+/// - **Data buffers**: Shared backing storage for strings longer than 12 bytes
+///
+/// ## View Structure
+///
+/// Commonly referred to as "German Strings", each 16-byte view entry contains either:
+/// - **Inlined data**: For strings ≤ 12 bytes, the entire string is stored directly in the view
+/// - **Reference data**: For strings > 12 bytes, contains:
+///   - String length (4 bytes)
+///   - First 4 bytes of string as prefix (4 bytes)
+///   - Buffer index and offset (8 bytes total)
+///
+/// The following ASCII graphic is reproduced verbatim from the Arrow documentation:
+///
+/// ```text
+///                         ┌──────┬────────────────────────┐
+///                         │length│      string value      │
+///    Strings (len <= 12)  │      │    (padded with 0)     │
+///                         └──────┴────────────────────────┘
+///                          0    31                      127
+///
+///                         ┌───────┬───────┬───────┬───────┐
+///                         │length │prefix │  buf  │offset │
+///    Strings (len > 12)   │       │       │ index │       │
+///                         └───────┴───────┴───────┴───────┘
+///                          0    31       63      95    127
+/// ```
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::VarBinViewArray;
+/// use vortex_dtype::{DType, Nullability};
+/// use vortex_array::IntoArray;
+///
+/// // Create from an Iterator<Item = &str>
+/// let array = VarBinViewArray::from_iter_str([
+///         "inlined",
+///         "this string is outlined"
+/// ]);
+///
+/// assert_eq!(array.len(), 2);
+///
+/// // Access individual strings
+/// let first = array.bytes_at(0);
+/// assert_eq!(first.as_slice(), b"inlined"); // "short"
+///
+/// let second = array.bytes_at(1);
+/// assert_eq!(second.as_slice(), b"this string is outlined"); // Long string
+/// ```
 #[derive(Clone, Debug)]
 pub struct VarBinViewArray {
     dtype: DType,
-    buffers: Vec<ByteBuffer>,
+    buffers: Arc<[ByteBuffer]>,
     views: Buffer<BinaryView>,
     validity: Validity,
     stats_set: ArrayStats,
@@ -298,7 +375,7 @@ pub struct VarBinViewEncoding;
 impl VarBinViewArray {
     pub fn try_new(
         views: Buffer<BinaryView>,
-        buffers: Vec<ByteBuffer>,
+        buffers: Arc<[ByteBuffer]>,
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
@@ -378,7 +455,7 @@ impl VarBinViewArray {
 
     /// Iterate over the underlying raw data buffers, not including the views buffer.
     #[inline]
-    pub fn buffers(&self) -> &[ByteBuffer] {
+    pub fn buffers(&self) -> &Arc<[ByteBuffer]> {
         &self.buffers
     }
 

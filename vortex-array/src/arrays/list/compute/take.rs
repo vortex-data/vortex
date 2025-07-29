@@ -12,7 +12,7 @@ use crate::builders::{ArrayBuilder, PrimitiveBuilder};
 use crate::compute::{TakeKernel, TakeKernelAdapter, take};
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
-use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use crate::{Array, ArrayRef, ToCanonical, register_kernel};
 
 impl TakeKernel for ListVTable {
     fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -21,14 +21,13 @@ impl TakeKernel for ListVTable {
 
         match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
-                Ok(_take::<I, O>(
+                _take::<I, O>(
                     array,
                     offsets.as_slice::<O>(),
                     &indices,
                     array.validity_mask()?,
                     indices.validity_mask()?,
-                )?
-                .into_array())
+                )
             })
         })
     }
@@ -166,12 +165,14 @@ fn _take_nullable<I: NativePType, O: OffsetPType + NativePType + PrimInt>(
 mod test {
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_dtype::PType::I32;
     use vortex_dtype::{DType, Nullability};
     use vortex_scalar::Scalar;
 
     use crate::arrays::list::ListArray;
     use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
     use crate::{Array, ToCanonical};
@@ -333,5 +334,47 @@ mod test {
             )
         );
         assert_eq!(result.len(), 0,);
+    }
+
+    #[rstest]
+    #[case(ListArray::try_new(
+        PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5]).to_array(),
+        PrimitiveArray::from_iter([0, 2, 3, 5, 5, 6]).to_array(),
+        Validity::NonNullable,
+    ).unwrap())]
+    #[case(ListArray::try_new(
+        PrimitiveArray::from_iter([10i32, 20, 30, 40, 50]).to_array(),
+        PrimitiveArray::from_iter([0, 2, 3, 4, 5]).to_array(),
+        Validity::Array(BoolArray::from_iter(vec![true, false, true, true]).to_array()),
+    ).unwrap())]
+    #[case(ListArray::try_new(
+        PrimitiveArray::from_iter([1i32, 2, 3]).to_array(),
+        PrimitiveArray::from_iter([0, 0, 2, 2, 3]).to_array(), // First and third are empty
+        Validity::NonNullable,
+    ).unwrap())]
+    #[case(ListArray::try_new(
+        PrimitiveArray::from_iter([42i32, 43]).to_array(),
+        PrimitiveArray::from_iter([0, 2]).to_array(),
+        Validity::NonNullable,
+    ).unwrap())]
+    #[case({
+        let elements = PrimitiveArray::from_iter(0i32..200).to_array();
+        let mut offsets = vec![0u64];
+        for i in 1..=50 {
+            offsets.push(offsets[i - 1] + (i as u64 % 5)); // Variable length lists
+        }
+        ListArray::try_new(
+            elements,
+            PrimitiveArray::from_iter(offsets).to_array(),
+            Validity::NonNullable,
+        ).unwrap()
+    })]
+    #[case(ListArray::try_new(
+        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]).to_array(),
+        PrimitiveArray::from_iter([0, 2, 3, 5]).to_array(),
+        Validity::NonNullable,
+    ).unwrap())]
+    fn test_take_list_conformance(#[case] list: ListArray) {
+        test_take_conformance(list.as_ref());
     }
 }
