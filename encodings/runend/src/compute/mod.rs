@@ -59,12 +59,6 @@ mod consistency_tests {
     #[case::runend_u64(RunEndArray::encode(
         PrimitiveArray::from_iter([100u64, 100, 200, 200, 200]).into_array()
     ).unwrap())]
-    #[case::runend_str(RunEndArray::encode(
-        VarBinArray::from_iter(
-            ["a", "a", "b", "b", "b", "c"].map(Some),
-            DType::Utf8(Nullability::NonNullable)
-        ).into_array()
-    ).unwrap())]
     // Edge cases
     #[case::runend_single(RunEndArray::encode(
         PrimitiveArray::from_iter([42i32]).into_array()

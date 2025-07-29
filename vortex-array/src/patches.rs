@@ -287,6 +287,46 @@ impl Patches {
         }
     }
 
+    /// Mask the patches, setting patch values to null where the mask is true.
+    /// Unlike filter, this preserves the patch indices.
+    pub fn mask(&self, filter_mask: &Mask) -> VortexResult<Self> {
+        use crate::arrays::BoolArray;
+        use crate::compute::mask;
+
+        // Get the patch indices as a primitive array
+        let patch_indices = self.indices().to_primitive()?;
+
+        // Create a mask for the patch values based on which indices are masked
+        let mut patch_mask = Vec::with_capacity(patch_indices.len());
+
+        // Check each patch index to see if it should be masked
+        for i in 0..patch_indices.len() {
+            let idx = patch_indices.scalar_at(i)?;
+            let idx_usize = usize::try_from(&idx)?;
+
+            // Check if this index is masked in the original mask
+            let is_masked = match filter_mask.boolean_buffer() {
+                AllOr::All => true,
+                AllOr::None => false,
+                AllOr::Some(buffer) => buffer.value(idx_usize),
+            };
+            patch_mask.push(is_masked);
+        }
+
+        // Create a mask for the patch values
+        let patch_values_mask = Mask::try_from(&BoolArray::from_iter(patch_mask))?;
+
+        // Apply the mask to patch values
+        let masked_values = mask(self.values(), &patch_values_mask)?;
+
+        Ok(Self::new_unchecked(
+            self.array_len,
+            self.offset,
+            self.indices.clone(),
+            masked_values,
+        ))
+    }
+
     /// Slice the patches by a range of the patched array.
     pub fn slice(&self, start: usize, stop: usize) -> VortexResult<Option<Self>> {
         let patch_start = self.search_index(start)?.to_index();
