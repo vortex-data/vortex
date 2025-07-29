@@ -120,9 +120,14 @@ unsafe fn scan_builder_into_stream(
     builder: Box<VortexScanBuilder>,
     out_stream: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let schema = builder
-        .output_schema
-        .unwrap_or_else(|| Arc::new(builder.inner.dtype().unwrap().to_arrow_schema().unwrap()));
+    let schema = match builder.output_schema {
+        Some(schema) => schema,
+        None => {
+            let dtype = builder.inner.dtype()?;
+            let arrow_schema = dtype.to_arrow_schema()?;
+            Arc::new(arrow_schema)
+        }
+    };
     let reader = builder.inner.into_record_batch_reader(schema)?;
     let stream = FFI_ArrowArrayStream::new(Box::new(reader));
     let out_stream = out_stream as *mut FFI_ArrowArrayStream;
@@ -152,9 +157,14 @@ struct ThreadsafeCloneableReader {
 fn scan_builder_into_threadsafe_cloneable_reader(
     builder: Box<VortexScanBuilder>,
 ) -> Result<Box<ThreadsafeCloneableReader>, Box<dyn std::error::Error + Send + Sync>> {
-    let schema = builder
-        .output_schema
-        .unwrap_or_else(|| Arc::new(builder.inner.dtype().unwrap().to_arrow_schema().unwrap()));
+    let schema = match builder.output_schema {
+        Some(schema) => schema,
+        None => {
+            let dtype = builder.inner.dtype()?;
+            let arrow_schema = dtype.to_arrow_schema()?;
+            Arc::new(arrow_schema)
+        }
+    };
     let reader = builder.inner.into_record_batch_reader(schema)?;
     Ok(Box::new(ThreadsafeCloneableReader {
         inner: Box::new(reader),
@@ -172,4 +182,3 @@ fn threadsafe_cloneable_reader_clone_a_stream(
     // Arrow C stream interface
     unsafe { std::ptr::write(out_stream, stream) };
 }
-
