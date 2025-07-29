@@ -201,7 +201,10 @@ impl Scheme for DictScheme {
             &dict.codes().to_primitive()?,
             is_sample,
             allowed_cascading - 1,
-            &[crate::integer::DictScheme.code()],
+            &[
+                crate::integer::DictScheme.code(),
+                crate::integer::SequenceScheme.code(),
+            ],
         )?;
 
         // Attempt to compress the values with non-Dict compression.
