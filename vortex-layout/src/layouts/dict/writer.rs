@@ -56,7 +56,6 @@ pub struct DictStrategy {
     values: Arc<dyn LayoutStrategy>,
     fallback: Arc<dyn LayoutStrategy>,
     options: DictLayoutOptions,
-    executor: Arc<dyn TaskExecutor>,
 }
 
 impl DictStrategy {
@@ -65,14 +64,12 @@ impl DictStrategy {
         values: Arc<dyn LayoutStrategy>,
         fallback: Arc<dyn LayoutStrategy>,
         options: DictLayoutOptions,
-        executor: Arc<dyn TaskExecutor>,
     ) -> Self {
         Self {
             codes,
             values,
             fallback,
             options,
-            executor,
         }
     }
 }
@@ -83,13 +80,14 @@ impl LayoutStrategy for DictStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
+        executor: &Arc<dyn TaskExecutor>,
         stream: SendableSequentialStream,
         mut end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         if !dict_layout_supported(stream.dtype()) {
             return self
                 .fallback
-                .write_stream(ctx, segment_sink, stream, end_of_file)
+                .write_stream(ctx, segment_sink, executor, stream, end_of_file)
                 .await;
         }
 
@@ -99,7 +97,6 @@ impl LayoutStrategy for DictStrategy {
         let ctx = ctx.clone();
         let options = self.options.clone();
         let dtype = stream.dtype().clone();
-        let executor = self.executor.clone();
 
         // 0. decide if chunks are eligible for dict encoding
         let (stream, first_chunk) = peek_first_chunk(stream).await?;
@@ -115,7 +112,7 @@ impl LayoutStrategy for DictStrategy {
         if should_fallback {
             // first chunk did not compress to dict, or did not exist. Skip dict layout
             return fallback
-                .write_stream(&ctx, segment_sink, stream, end_of_file)
+                .write_stream(&ctx, segment_sink, executor, stream, end_of_file)
                 .await;
         }
 
@@ -156,6 +153,7 @@ impl LayoutStrategy for DictStrategy {
                     .write_stream(
                         &ctx,
                         segment_sink,
+                        executor,
                         SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
                         end_of_file.advance().descend(),
                     )
@@ -164,6 +162,7 @@ impl LayoutStrategy for DictStrategy {
                     .write_stream(
                         &ctx,
                         segment_sink,
+                        executor,
                         SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
                             .sendable(),
                         end_of_file.advance().descend(),

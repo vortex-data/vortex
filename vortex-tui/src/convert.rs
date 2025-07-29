@@ -79,13 +79,11 @@ pub async fn exec_convert(flags: Flags) -> VortexResult<()> {
     let executor = Arc::new(LocalExecutor);
     let strategy = match flags.strategy {
         Strategy::Btrblocks => VortexLayoutStrategy::with_executor(executor),
-        Strategy::Compact => {
-            VortexLayoutStrategy::compact_with_executor(executor, CompactCompressor::default())
-        }
+        Strategy::Compact => VortexLayoutStrategy::compact(executor, CompactCompressor::default()),
     };
     VortexWriteOptions::default()
         .with_strategy(strategy)
-        .write(
+        .write_stream(
             File::create(output_path).await?,
             ArrayStreamAdapter::new(dtype, vortex_stream),
         )

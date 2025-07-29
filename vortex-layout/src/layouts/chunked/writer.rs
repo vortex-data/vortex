@@ -15,6 +15,7 @@ use crate::segments::SegmentSink;
 use crate::sequence::SequencePointer;
 use crate::{
     IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialArrayStreamExt,
+    TaskExecutor,
 };
 
 pub struct ChunkedLayoutStrategy {
@@ -36,6 +37,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
+        executor: &Arc<dyn TaskExecutor>,
         mut stream: SendableSequentialStream,
         mut end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
@@ -53,6 +55,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
                 .write_stream(
                     &ctx,
                     segment_sink,
+                    executor,
                     chunk.to_array_stream().sequenced(seq_id.descend()),
                     end_of_file.advance().descend(),
                 )

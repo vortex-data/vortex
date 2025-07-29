@@ -107,7 +107,7 @@ impl CopyFunction for VortexCopyFunction {
         let writer = RUNTIME.spawn(async move {
             let file = File::create(file_path).await?;
             VortexWriteOptions::default()
-                .write(file, array_stream)
+                .write_stream(file, array_stream)
                 .await
         });
 

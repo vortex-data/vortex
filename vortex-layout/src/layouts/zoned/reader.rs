@@ -446,12 +446,12 @@ mod test {
                 block_size: 3,
                 ..Default::default()
             },
-            Arc::new(LocalExecutor),
         );
         let layout = block_on(
             strategy.write_stream(
                 &ctx,
                 &segments,
+                &LocalExecutor::new(),
                 ChunkedArray::from_iter([
                     buffer![1, 2, 3].into_array(),
                     buffer![4, 5, 6].into_array(),

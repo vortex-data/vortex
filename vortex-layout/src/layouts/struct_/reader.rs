@@ -245,6 +245,7 @@ impl LayoutReader for StructReader {
 
 #[cfg(test)]
 mod tests {
+    use crate::LocalExecutor;
     use std::sync::Arc;
 
     use futures::executor::block_on;
@@ -278,6 +279,7 @@ mod tests {
             strategy.write_stream(
                 &ctx,
                 &segments,
+                &LocalExecutor::new(),
                 SequentialStreamAdapter::new(
                     DType::Struct(
                         StructFields::new(

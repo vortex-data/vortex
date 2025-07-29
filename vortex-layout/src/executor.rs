@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use futures::FutureExt;
 use futures::channel::oneshot;
@@ -72,6 +72,14 @@ impl TaskExecutor for tokio::runtime::Handle {
 }
 
 pub struct LocalExecutor;
+
+static LOCAL_EXECUTOR: LazyLock<Arc<dyn TaskExecutor>> = LazyLock::new(|| Arc::new(LocalExecutor));
+
+impl LocalExecutor {
+    pub fn new() -> Arc<dyn TaskExecutor> {
+        LOCAL_EXECUTOR.clone()
+    }
+}
 
 impl TaskExecutor for LocalExecutor {
     fn do_spawn(

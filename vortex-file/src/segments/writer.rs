@@ -32,19 +32,20 @@ impl FileSegmentWriter {
         let mut state = self.state.lock();
         state.buffer_sink.drain(..).collect()
     }
+
+    pub fn segment_specs(&self) -> Vec<SegmentSpec> {
+        self.state.lock().segment_specs.clone()
+    }
+
+    pub fn byte_offset(&self) -> u64 {
+        self.state.lock().byte_offset
+    }
 }
 
 struct State {
     byte_offset: u64,
     buffer_sink: VecDeque<ByteBuffer>,
     segment_specs: Vec<SegmentSpec>,
-}
-
-impl FileSegmentWriter {
-    pub fn into_parts(self) -> (u64, Vec<SegmentSpec>) {
-        let state = self.state.into_inner();
-        (state.byte_offset, state.segment_specs)
-    }
 }
 
 #[async_trait]

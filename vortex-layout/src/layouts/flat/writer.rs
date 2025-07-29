@@ -3,6 +3,7 @@
 
 use async_trait::async_trait;
 use futures::StreamExt;
+use std::sync::Arc;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
 use vortex_array::{Array, ArrayContext};
@@ -14,7 +15,7 @@ use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
 use crate::segments::SegmentSink;
 use crate::sequence::SequencePointer;
-use crate::{IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream};
+use crate::{IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, TaskExecutor};
 
 #[derive(Clone)]
 pub struct FlatLayoutStrategy {
@@ -39,6 +40,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
+        _executor: &Arc<dyn TaskExecutor>,
         mut stream: SendableSequentialStream,
         _end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
@@ -136,6 +138,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
 
 #[cfg(test)]
 mod tests {
+    use crate::LocalExecutor;
     use std::sync::Arc;
 
     use arrow_buffer::BooleanBufferBuilder;
@@ -168,7 +171,13 @@ mod tests {
 
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutStrategy::default()
-                .write_stream(&ctx, &segments, array.to_array_stream().sequenced(ptr), eof)
+                .write_stream(
+                    &ctx,
+                    &segments,
+                    &LocalExecutor::new(),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                )
                 .await
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
@@ -210,7 +219,13 @@ mod tests {
             );
 
             let layout = FlatLayoutStrategy::default()
-                .write_stream(&ctx, &segments, array.to_array_stream().sequenced(ptr), eof)
+                .write_stream(
+                    &ctx,
+                    &segments,
+                    &LocalExecutor::new(),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                )
                 .await
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
@@ -268,7 +283,13 @@ mod tests {
                 let segments = TestSegments::default();
 
                 let layout = FlatLayoutStrategy::default()
-                    .write_stream(&ctx, &segments, array.to_array_stream().sequenced(ptr), eof)
+                    .write_stream(
+                        &ctx,
+                        &segments,
+                        &LocalExecutor::new(),
+                        array.to_array_stream().sequenced(ptr),
+                        eof,
+                    )
                     .await
                     .unwrap();
 

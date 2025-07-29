@@ -21,7 +21,7 @@ use crate::segments::SegmentSink;
 use crate::sequence::SequencePointer;
 use crate::{
     IntoLayout as _, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStream,
-    SequentialStreamAdapter, SequentialStreamExt,
+    SequentialStreamAdapter, SequentialStreamExt, TaskExecutor,
 };
 
 pub struct StructStrategy {
@@ -41,6 +41,7 @@ impl LayoutStrategy for StructStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
+        executor: &Arc<dyn TaskExecutor>,
         stream: SendableSequentialStream,
         mut end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
@@ -49,7 +50,7 @@ impl LayoutStrategy for StructStrategy {
             // nothing we can do if dtype is not struct
             return self
                 .child
-                .write_stream(ctx, segment_sink, stream, end_of_file)
+                .write_stream(ctx, segment_sink, executor, stream, end_of_file)
                 .await;
         };
         if HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
@@ -108,7 +109,7 @@ impl LayoutStrategy for StructStrategy {
             let eof = end_of_file.advance().descend();
             async move {
                 child
-                    .write_stream(&ctx, segment_sink, column_stream, eof)
+                    .write_stream(ctx, segment_sink, executor, column_stream, eof)
                     .await
             }
         });
@@ -205,6 +206,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::LocalExecutor;
     use std::sync::Arc;
 
     use futures::executor::block_on;
@@ -231,6 +233,7 @@ mod tests {
             strategy.write_stream(
                 &ArrayContext::empty(),
                 &TestSegments::default(),
+                &LocalExecutor::new(),
                 SequentialStreamAdapter::new(
                     DType::Struct(
                         [
@@ -258,6 +261,7 @@ mod tests {
             strategy.write_stream(
                 &ArrayContext::empty(),
                 &TestSegments::default(),
+                &LocalExecutor::new(),
                 StructArray::try_new(
                     ["a"].into(),
                     vec![buffer![1, 2, 3].into_array()],
@@ -285,6 +289,7 @@ mod tests {
             strategy.write_stream(
                 &ArrayContext::empty(),
                 &TestSegments::default(),
+                &LocalExecutor::new(),
                 SequentialStreamAdapter::new(
                     DType::Struct(
                         StructFields::new(FieldNames::default(), vec![]),

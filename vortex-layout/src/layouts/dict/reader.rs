@@ -264,7 +264,6 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
             DictLayoutOptions::default(),
-            Arc::new(LocalExecutor),
         );
 
         let array = VarBinArray::from_iter(
@@ -289,6 +288,7 @@ mod tests {
         let layout: LayoutRef = block_on(strategy.write_stream(
             &ctx,
             &segments,
+            &LocalExecutor::new(),
             array_to_write.to_array_stream().sequenced(ptr),
             eof,
         ))
@@ -355,7 +355,6 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
             DictLayoutOptions::default(),
-            Arc::new(LocalExecutor),
         );
 
         let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).to_array();
@@ -366,6 +365,7 @@ mod tests {
         let layout: LayoutRef = block_on(strategy.write_stream(
             &ctx,
             &segments,
+            &LocalExecutor::new(),
             array.to_array_stream().sequenced(ptr),
             eof,
         ))
@@ -400,7 +400,6 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
             DictLayoutOptions::default(),
-            Arc::new(LocalExecutor),
         );
 
         let array = VarBinArray::from_iter(
@@ -425,6 +424,7 @@ mod tests {
         let layout: LayoutRef = block_on(strategy.write_stream(
             &ctx,
             &segments,
+            &LocalExecutor::new(),
             array_to_write.to_array_stream().sequenced(ptr),
             eof,
         ))

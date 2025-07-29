@@ -5,7 +5,7 @@ use crate::segments::SegmentSink;
 use crate::sequence::SequencePointer;
 use crate::{
     LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt as _,
+    SequentialStreamExt as _, TaskExecutor,
 };
 use async_stream::try_stream;
 use async_trait::async_trait;
@@ -32,6 +32,7 @@ impl LayoutStrategy for BufferedStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
+        executor: &Arc<dyn TaskExecutor>,
         stream: SendableSequentialStream,
         end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
@@ -78,6 +79,7 @@ impl LayoutStrategy for BufferedStrategy {
             .write_stream(
                 ctx,
                 segment_sink,
+                executor,
                 SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
                 end_of_file,
             )

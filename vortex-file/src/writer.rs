@@ -5,21 +5,23 @@ use crate::footer::{FileStatistics, FooterFlatBufferWriter, Postscript, Postscri
 use crate::segments::writer::FileSegmentWriter;
 use crate::{EOF_SIZE, MAGIC_BYTES, MAX_FOOTER_SIZE, VERSION, VortexLayoutStrategy};
 use async_stream::try_stream;
-use futures::{Stream, TryStreamExt, pin_mut, poll};
+use futures::executor::block_on;
+use futures::{Stream, StreamExt, TryStreamExt, pin_mut, poll};
 use std::future;
 use std::sync::Arc;
 use std::task::Poll;
 use vortex_array::ArrayContext;
+use vortex_array::iter::{ArrayIterator, ArrayIteratorExt};
 use vortex_array::stats::{PRUNING_STATS, Stat};
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, SendableArrayStream};
+use vortex_array::stream::{ArrayStream, ArrayStreamAdapter, ArrayStreamExt, SendableArrayStream};
 use vortex_buffer::ByteBuffer;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_flatbuffers::{FlatBuffer, FlatBufferRoot, WriteFlatBuffer, WriteFlatBufferExt};
 use vortex_io::VortexWrite;
 use vortex_layout::layouts::file_stats::accumulate_stats;
-use vortex_layout::sequence::SequencePointer;
+use vortex_layout::sequence::SequenceId;
 use vortex_layout::{
-    ArrayStreamSequentialExt, LayoutContext, LayoutRef, LayoutStrategy, LocalExecutor, TaskExecutor,
+    LayoutContext, LayoutRef, LayoutStrategy, LocalExecutor, SequentialArrayStreamExt, TaskExecutor,
 };
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink that implements [`VortexWrite`].
@@ -36,7 +38,7 @@ pub struct VortexWriteOptions {
 impl Default for VortexWriteOptions {
     fn default() -> Self {
         Self {
-            strategy: VortexLayoutStrategy::with_executor(Arc::new(LocalExecutor)),
+            strategy: VortexLayoutStrategy::new(),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
@@ -71,9 +73,9 @@ impl VortexWriteOptions {
     #[cfg(feature = "object_store")]
     pub async fn write_object_store<S: ArrayStream + Unpin + Send + 'static>(
         self,
-        object_store: &Arc<dyn object_store::ObjectStore>,
-        path: &object_store::path::Path,
-        stream: S,
+        _object_store: &Arc<dyn object_store::ObjectStore>,
+        _path: &object_store::path::Path,
+        _stream: S,
     ) -> VortexResult<()> {
         todo!()
         // use vortex_io::ObjectStoreWriter;
@@ -88,34 +90,44 @@ impl VortexWriteOptions {
         // Ok(())
     }
 
-    /// Perform a blocking single-threaded write of the provided stream of `Array`.
-    pub fn write_blocking<W: VortexWrite, S: ArrayStream + Unpin + Send + 'static>(
+    /// Perform a blocking single-threaded write of the provided [`ArrayIterator`].
+    pub fn write<W: VortexWrite, I: ArrayIterator + Send + 'static>(
         self,
-        write: W,
-        stream: S,
+        mut write: W,
+        iter: I,
     ) -> VortexResult<W> {
-        todo!()
-        // block_on(self.write(write, stream))
+        let executor = LocalExecutor::new();
+        let buffers = self.write_stream(ArrayStreamExt::boxed(iter.into_array_stream()), &executor);
+        pin_mut!(buffers);
+
+        while let Some(bufs) = block_on(buffers.next()) {
+            for buf in bufs? {
+                block_on(write.write_all(buf))?;
+            }
+        }
+        block_on(write.flush())?;
+
+        Ok(write)
     }
 
-    /// Perform an async write of the provided stream of `Array`.
+    /// Writes the given [`ArrayStream`] using the configured layout strategy.
     ///
-    /// Returns a tuple containing:
-    /// - A stream of `VortexResult<ByteBuffer>` that should be written contiguously to disk.
-    /// - A future that, when awaited, will drive the computation of the writer.
+    /// The returned stream of buffers should be written contiguously to a file or other byte
+    /// sink.
     ///
-    /// A blocking implementation should alternate between flushing buffers and driving the
-    /// computation future.
-    ///
-    /// An async implementation should spawn background tasks to perform I/O and drive computation
-    /// future.
-    pub fn write(
+    /// While this function is async, it drives CPU-bound operations either in a single-threaded
+    /// mode, or with spawned tasks using the provided executor. For async I/O runtimes, this means
+    /// the returned stream should be polled using `spawn_blocking` or similar. For async CPU
+    /// runtimes, the stream can be polled directly. For blocking callers, the stream can be
+    /// iterated using `futures::executor::block_on` or similar.
+    pub fn write_stream(
         self,
-        // TODO(ngates): pass into write_stream as eof pointer.
-        sequence_pointer: SequencePointer,
         stream: SendableArrayStream,
-        executor: Arc<dyn TaskExecutor>,
+        executor: &Arc<dyn TaskExecutor>,
     ) -> impl Stream<Item = VortexResult<Vec<ByteBuffer>>> {
+        // Create an initial sequence pointer along with an end-of-file pointer.
+        let (ptr, eof) = SequenceId::root().split();
+
         // Wrap the input stream to remove empty chunks and collect file-level stats.
         let array_stream = ArrayStreamAdapter::new(
             stream.dtype().clone(),
@@ -126,27 +138,28 @@ impl VortexWriteOptions {
             self.file_statistics.clone().into(),
             self.max_variable_length_statistics_size,
         );
-        let array_stream = array_stream.sequenced(sequence_pointer);
+        let array_stream = array_stream.sequenced(ptr);
         let dtype = array_stream.dtype().clone();
 
-        // Create a segment writer for collecting segment specs and buffers.
-        // We offset the position by the len of the magic bytes, since they are emitted first.
-        let segment_writer = FileSegmentWriter::new(MAGIC_BYTES.len() as u64);
-
-        // Set up a Context to capture the encodings used in the file.
-        let ctx = ArrayContext::empty();
-        let layout_fut = self
-            .strategy
-            .write_stream(&ctx, &segment_writer, array_stream);
-        pin_mut!(layout_fut);
-
         // Now we emit the buffers in a stream, which will be driven by the caller
-        let layout: LayoutRef;
         try_stream! {
+            // Create a segment writer for collecting segment specs and buffers.
+            // We offset the position by the len of the magic bytes, since they are emitted first.
+            let segment_writer = Arc::new(FileSegmentWriter::new(MAGIC_BYTES.len() as u64));
+
+            // Set up a Context to capture the encodings used in the file.
+            let ctx = ArrayContext::empty();
+            let segment_writer2 = segment_writer.clone();
+            let layout_fut = self
+                .strategy
+                .write_stream(&ctx, segment_writer2.as_ref(), executor, array_stream, eof);
+            pin_mut!(layout_fut);
+
             // First, we emit the magic bytes.
             yield vec![ByteBuffer::copy_from(MAGIC_BYTES)];
 
             // Now, we sit in a loop polling the layout future and draining the segment writer.
+            let layout: LayoutRef;
             loop {
                 // On each iteration, attempt to drain the segment writer to send buffers.
                 let buffers = segment_writer.drain_to_vec();
@@ -157,12 +170,19 @@ impl VortexWriteOptions {
                 // Then we poll the layout future once.
                 if let Poll::Ready(result) = poll!(&mut layout_fut) {
                     layout = result?;
+
+                    let buffers = segment_writer.drain_to_vec();
+                    if !buffers.is_empty() {
+                        yield buffers;
+                    }
+
                     break;
                 }
             }
 
              // Once we finish writing our layout, we need to extract the segment specs.
-            let (mut position, segment_specs) = segment_writer.into_parts();
+            let mut position = segment_writer.byte_offset();
+            let segment_specs = segment_writer.segment_specs();
 
             // Collect together buffers to write.
             let mut buffers = Vec::with_capacity(4);
@@ -195,7 +215,7 @@ impl VortexWriteOptions {
                 &mut position,
                 &mut buffers,
                 &FooterFlatBufferWriter {
-                    ctx,
+                    ctx: ctx.clone(),
                     layout_ctx,
                     segment_specs: segment_specs.into(),
                 },

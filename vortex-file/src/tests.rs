@@ -50,7 +50,7 @@ fn test_read_simple() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
+        .write(ByteBufferMut::empty(), st.to_array_iterator())
         .unwrap();
 
     let iter = VortexOpenOptions::in_memory()
@@ -124,7 +124,7 @@ fn test_round_trip_many_types() {
     ])
     .unwrap();
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
+        .write(ByteBufferMut::empty(), st.to_array_iterator())
         .unwrap();
 
     let chunks: Vec<_> = VortexOpenOptions::in_memory()
@@ -176,7 +176,7 @@ fn test_read_simple_with_spawn() {
             .unwrap();
 
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
+        .write(ByteBufferMut::empty(), st.to_array_iterator())
         .unwrap();
 
     assert!(!buf.is_empty());
@@ -204,7 +204,7 @@ fn test_read_projection() {
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
 
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
+        .write(ByteBufferMut::empty(), st.to_array_iterator())
         .unwrap();
 
     let file = VortexOpenOptions::in_memory().open(buf).unwrap();
@@ -276,7 +276,7 @@ fn unequal_batches() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
+        .write(ByteBufferMut::empty(), st.to_array_iterator())
         .unwrap();
 
     let iter = VortexOpenOptions::in_memory()
@@ -333,7 +333,7 @@ fn write_chunked() {
         .unwrap()
         .into_array();
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), chunked_st.to_array_stream())
+        .write(ByteBufferMut::empty(), chunked_st.to_array_iterator())
         .unwrap();
 
     let iter = VortexOpenOptions::in_memory()
@@ -358,7 +358,7 @@ fn test_empty_varbin_array_roundtrip() {
     let st = StructArray::from_fields(&[("a", empty)]).unwrap();
 
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
+        .write(ByteBufferMut::empty(), st.to_array_iterator())
         .unwrap();
 
     let file = VortexOpenOptions::in_memory().open(buf).unwrap();
@@ -394,7 +394,7 @@ fn filter_string() {
     .unwrap()
     .into_array();
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
+        .write(ByteBufferMut::empty(), st.to_array_iterator())
         .unwrap();
 
     let result: Vec<_> = VortexOpenOptions::in_memory()
@@ -443,7 +443,7 @@ fn filter_or() {
     .into_array();
 
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
+        .write(ByteBufferMut::empty(), st.to_array_iterator())
         .unwrap();
 
     let result: Vec<_> = VortexOpenOptions::in_memory()
@@ -504,7 +504,7 @@ fn filter_and() {
     .into_array();
 
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
+        .write(ByteBufferMut::empty(), st.to_array_iterator())
         .unwrap();
 
     let result: Vec<_> = VortexOpenOptions::in_memory()
@@ -555,7 +555,7 @@ fn test_with_indices_simple() {
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
 
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), expected_array.to_array_stream())
+        .write(ByteBufferMut::empty(), expected_array.to_array_iterator())
         .unwrap();
 
     let file = VortexOpenOptions::in_memory().open(buf).unwrap();
@@ -633,7 +633,7 @@ fn test_with_indices_on_two_columns() {
 
     let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), st.to_array_stream())
+        .write(ByteBufferMut::empty(), st.to_array_iterator())
         .unwrap();
 
     let file = VortexOpenOptions::in_memory().open(buf).unwrap();
@@ -697,7 +697,7 @@ fn test_with_indices_and_with_row_filter_simple() {
     let expected_numbers: Vec<i16> = expected_numbers_split.into_iter().flatten().collect();
 
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), expected_array.to_array_stream())
+        .write(ByteBufferMut::empty(), expected_array.to_array_iterator())
         .unwrap();
 
     let file = VortexOpenOptions::in_memory().open(buf).unwrap();
@@ -798,7 +798,7 @@ fn filter_string_chunked() {
         .into_array();
 
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), array.to_array_stream())
+        .write(ByteBufferMut::empty(), array.to_array_iterator())
         .unwrap();
 
     let file = VortexOpenOptions::in_memory().open(buf).unwrap();
@@ -888,7 +888,7 @@ fn test_pruning_with_or() {
         .into_array();
 
     let buf = VortexWriteOptions::default()
-        .write_blocking(ByteBufferMut::empty(), array.to_array_stream())
+        .write(ByteBufferMut::empty(), array.to_array_iterator())
         .unwrap();
 
     let file = VortexOpenOptions::in_memory().open(buf).unwrap();
@@ -973,9 +973,9 @@ fn test_repeated_projection() {
         .into_array();
 
     let buf = VortexWriteOptions::default()
-        .write_blocking(
+        .write(
             ByteBufferMut::empty(),
-            single_column_array.to_array_stream(),
+            single_column_array.to_array_iterator(),
         )
         .unwrap();
 
@@ -1011,7 +1011,7 @@ fn chunked_file() -> VortexResult<VortexFile> {
     .into_array();
 
     let buffer: Bytes = VortexWriteOptions::default()
-        .write_blocking(vec![], array.to_array_stream())?
+        .write(vec![], array.to_array_iterator())?
         .into();
     VortexOpenOptions::in_memory().open(buffer)
 }
@@ -1038,7 +1038,7 @@ fn file_excluding_dtype() -> VortexResult<()> {
 
     let buffer: Bytes = VortexWriteOptions::default()
         .exclude_dtype()
-        .write_blocking(vec![], array.to_array_stream())?
+        .write(vec![], array.to_array_iterator())?
         .into();
 
     // Fail to open without DType.
@@ -1086,7 +1086,7 @@ fn write_nullable_top_level_struct() {
     .into_array();
 
     VortexWriteOptions::default()
-        .write_blocking(vec![], array.to_array_stream())
+        .write(vec![], array.to_array_iterator())
         .unwrap();
 }
 
@@ -1095,7 +1095,7 @@ fn round_trip(
     f: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
 ) -> VortexResult<ArrayRef> {
     let buffer: Bytes = VortexWriteOptions::default()
-        .write_blocking(vec![], array.to_array_stream())?
+        .write(vec![], array.to_array_iterator())?
         .into();
 
     let vxf = VortexOpenOptions::in_memory()

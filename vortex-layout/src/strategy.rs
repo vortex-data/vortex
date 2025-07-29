@@ -10,15 +10,16 @@ use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use pin_project_lite::pin_project;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use vortex_array::stream::ArrayStream;
 use vortex_array::{ArrayContext, ArrayRef};
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
-use crate::LayoutRef;
 use crate::segments::SegmentSink;
 use crate::sequence::{SequenceId, SequencePointer};
+use crate::{LayoutRef, TaskExecutor};
 
 #[async_trait(?Send)]
 pub trait LayoutStrategy: 'static + Send + Sync {
@@ -27,9 +28,20 @@ pub trait LayoutStrategy: 'static + Send + Sync {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
+        executor: &Arc<dyn TaskExecutor>,
         stream: SendableSequentialStream,
         end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef>;
+}
+
+pub trait LayoutStrategyExt: LayoutStrategy {
+    /// Converts the layout strategy to a boxed trait object.
+    fn to_arc(self) -> Arc<dyn LayoutStrategy>
+    where
+        Self: Sized + Send + 'static,
+    {
+        Arc::new(self)
+    }
 }
 
 pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {

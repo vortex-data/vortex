@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     VortexWriteOptions::default()
-        .write(f, st.to_array_stream())
+        .write_stream(f, st.to_array_stream())
         .await?;
 
     let ctx = SessionContext::new();

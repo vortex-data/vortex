@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use vortex_array::stats::PRUNING_STATS;
+use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::compressed::BtrBlocksCompressedStrategy;
@@ -15,27 +15,22 @@ use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::{RepartitionStrategy, RepartitionWriterOptions};
 use vortex_layout::layouts::struct_::writer::StructStrategy;
 use vortex_layout::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
-use vortex_layout::{LayoutStrategy, TaskExecutor};
 
 const ROW_BLOCK_SIZE: usize = 8192;
 
 pub struct VortexLayoutStrategy;
 
 impl VortexLayoutStrategy {
-    pub fn with_executor(executor: Arc<dyn TaskExecutor>) -> Arc<dyn LayoutStrategy> {
+    pub fn new() -> Arc<dyn LayoutStrategy> {
         // 7. for each chunk create a flat layout
-        let chunked = arcref(ChunkedLayoutStrategy::default());
+        let chunked = Arc::new(ChunkedLayoutStrategy::default());
         // 6. buffer chunks so they end up with closer segment ids physically
-        let buffered = arcref(BufferedStrategy::new(chunked, 2 << 20)); // 2MB
+        let buffered = Arc::new(BufferedStrategy::new(chunked, 2 << 20)); // 2MB
         // 5. compress each chunk
-        let compressing = arcref(BtrBlocksCompressedStrategy::new(
-            buffered,
-            executor.clone(),
-            16,
-        ));
+        let compressing = Arc::new(BtrBlocksCompressedStrategy::new(buffered, 16));
 
         // 4. prior to compression, coalesce up to a minimum size
-        let coalescing = arcref(RepartitionStrategy::new(
+        let coalescing = Arc::new(RepartitionStrategy::new(
             compressing,
             RepartitionWriterOptions {
                 block_size_minimum: 1 << 20,
@@ -44,23 +39,21 @@ impl VortexLayoutStrategy {
         ));
 
         // 2.1. | 3.1. compress stats tables and dict values.
-        let compress_then_flat = arcref(BtrBlocksCompressedStrategy::new(
-            arcref(FlatLayoutStrategy::default()),
-            executor.clone(),
+        let compress_then_flat = Arc::new(BtrBlocksCompressedStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
             1,
         ));
 
         // 3. apply dict encoding or fallback
-        let dict = arcref(DictStrategy::new(
+        let dict = Arc::new(DictStrategy::new(
             coalescing.clone(),
             compress_then_flat.clone(),
             coalescing,
             Default::default(),
-            executor.clone(),
         ));
 
         // 2. calculate stats for each row group
-        let stats = arcref(ZonedStrategy::new(
+        let stats = Arc::new(ZonedStrategy::new(
             dict,
             compress_then_flat.clone(),
             ZonedLayoutOptions {
@@ -69,11 +62,10 @@ impl VortexLayoutStrategy {
                 max_variable_length_statistics_size: 64,
                 parallelism: 16,
             },
-            executor.clone(),
         ));
 
         // 1. repartition each column to fixed row counts
-        let repartition = arcref(RepartitionStrategy::new(
+        let repartition = Arc::new(RepartitionStrategy::new(
             stats,
             RepartitionWriterOptions {
                 // No minimum block size in bytes
@@ -84,30 +76,28 @@ impl VortexLayoutStrategy {
         ));
 
         // 0. start with splitting columns
-        arcref(StructStrategy::new(repartition))
+        Arc::new(StructStrategy::new(repartition))
     }
 
     #[cfg(feature = "zstd")]
-    pub fn compact_with_executor(
-        executor: Arc<dyn TaskExecutor>,
+    pub fn compact(
         compressor: vortex_layout::layouts::compact::CompactCompressor,
     ) -> Arc<dyn LayoutStrategy> {
         use vortex_layout::layouts::compact::CompactCompressedStrategy;
 
         // 6. for each chunk create a flat layout
-        let chunked = arcref(ChunkedLayoutStrategy::default());
+        let chunked = Arc::new(ChunkedLayoutStrategy::default());
         // 5. buffer chunks so they end up with closer segment ids physically
-        let buffered = arcref(BufferedStrategy::new(chunked, 2 << 20)); // 2MB
+        let buffered = Arc::new(BufferedStrategy::new(chunked, 2 << 20)); // 2MB
         // 4. compress each chunk
-        let compressing = arcref(CompactCompressedStrategy::new(
+        let compressing = Arc::new(CompactCompressedStrategy::new(
             buffered,
-            executor.clone(),
             16,
             compressor.clone(),
         ));
 
         // 3. prior to compression, coalesce up to a minimum size
-        let coalescing = arcref(RepartitionStrategy::new(
+        let coalescing = Arc::new(RepartitionStrategy::new(
             compressing,
             RepartitionWriterOptions {
                 block_size_minimum: 1 << 20,
@@ -116,9 +106,8 @@ impl VortexLayoutStrategy {
         ));
 
         // 2.1. compress stats tables
-        let compress_then_flat = arcref(CompactCompressedStrategy::new(
-            arcref(FlatLayoutStrategy::default()),
-            executor.clone(),
+        let compress_then_flat = Arc::new(CompactCompressedStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
             1,
             compressor,
         ));
@@ -128,7 +117,7 @@ impl VortexLayoutStrategy {
         // fixed-length fields like numbers.
 
         // 2. calculate stats for each row group
-        let stats = arcref(ZonedStrategy::new(
+        let stats = Arc::new(ZonedStrategy::new(
             coalescing,
             compress_then_flat.clone(),
             ZonedLayoutOptions {
@@ -137,11 +126,10 @@ impl VortexLayoutStrategy {
                 max_variable_length_statistics_size: 64,
                 parallelism: 16,
             },
-            executor.clone(),
         ));
 
         // 1. repartition each column to fixed row counts
-        let repartition = arcref(RepartitionStrategy::new(
+        let repartition = Arc::new(RepartitionStrategy::new(
             stats,
             RepartitionWriterOptions {
                 // No minimum block size in bytes
@@ -152,10 +140,6 @@ impl VortexLayoutStrategy {
         ));
 
         // 0. start with splitting columns
-        arcref(StructStrategy::new(repartition))
+        Arc::new(StructStrategy::new(repartition))
     }
-}
-
-fn arcref(item: impl LayoutStrategy) -> Arc<dyn LayoutStrategy> {
-    ArcRef::new_arc(Arc::new(item))
 }

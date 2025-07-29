@@ -194,8 +194,7 @@ impl CompactionStrategy {
             CompactionStrategy::Compact => {
                 let executor = Arc::new(LocalExecutor);
                 let compressor = CompactCompressor::default();
-                let compact_strategy =
-                    VortexLayoutStrategy::compact_with_executor(executor, compressor);
+                let compact_strategy = VortexLayoutStrategy::compact(executor, compressor);
                 options.with_strategy(compact_strategy)
             }
             CompactionStrategy::Default => options,

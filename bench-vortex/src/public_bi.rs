@@ -342,7 +342,7 @@ impl PBIData {
                         .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
                             Handle::current(),
                         )))
-                        .write(
+                        .write_stream(
                             File::create(output_path).await.unwrap(),
                             parquet_to_vortex(parquet).unwrap(),
                         )

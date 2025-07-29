@@ -17,7 +17,7 @@ pub async fn vortex_compress_write(array: &dyn Array, buf: &mut Vec<u8>) -> anyh
         .with_strategy(VortexLayoutStrategy::with_executor(Arc::new(
             Handle::current(),
         )))
-        .write(Cursor::new(buf), array.to_array_stream())
+        .write_stream(Cursor::new(buf), array.to_array_stream())
         .await?
         .position())
 }

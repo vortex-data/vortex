@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{FutureExt as _, StreamExt as _};
+use futures::{FutureExt, StreamExt};
 use vortex_array::arrays::{ExtensionArray, ListArray, StructArray};
 use vortex_array::stats::Stat;
 use vortex_array::vtable::ValidityHelper;
@@ -14,12 +14,12 @@ use vortex_error::VortexResult;
 use vortex_pco::PcoArray;
 use vortex_zstd::ZstdArray;
 
-use crate::executor::{TaskExecutor, TaskExecutorExt as _};
+use crate::executor::TaskExecutor;
 use crate::segments::SegmentSink;
 use crate::sequence::SequencePointer;
 use crate::{
     LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt as _,
+    SequentialStreamExt, TaskExecutorExt,
 };
 
 fn is_pco_number_type(ptype: PType) -> bool {
@@ -163,7 +163,6 @@ impl Default for CompactCompressor {
 /// - Zstd for everything else (primitive arrays only)
 pub struct CompactCompressedStrategy {
     child: Arc<dyn LayoutStrategy>,
-    executor: Arc<dyn TaskExecutor>,
     parallelism: usize,
     compressor: CompactCompressor,
 }
@@ -171,13 +170,11 @@ pub struct CompactCompressedStrategy {
 impl CompactCompressedStrategy {
     pub fn new(
         child: Arc<dyn LayoutStrategy>,
-        executor: Arc<dyn TaskExecutor>,
         parallelism: usize,
         compressor: CompactCompressor,
     ) -> Self {
         Self {
             child,
-            executor,
             parallelism,
             compressor,
         }
@@ -190,11 +187,11 @@ impl LayoutStrategy for CompactCompressedStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
+        executor: &Arc<dyn TaskExecutor>,
         stream: SendableSequentialStream,
         end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
-        let executor = self.executor.clone();
-
+        let executor2 = executor.clone();
         let dtype = stream.dtype().clone();
         let compressor = self.compressor.clone();
         let stream = stream
@@ -210,13 +207,14 @@ impl LayoutStrategy for CompactCompressedStrategy {
                 }
                 .boxed()
             })
-            .map(move |compress_future| executor.spawn(compress_future))
+            .map(move |compress_future| executor2.spawn(compress_future))
             .buffered(self.parallelism);
 
         self.child
             .write_stream(
                 ctx,
                 segment_sink,
+                executor,
                 SequentialStreamAdapter::new(dtype, stream).sendable(),
                 end_of_file,
             )

@@ -48,7 +48,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_open_file(
         let writer = RUNTIME.spawn(async move {
             let file = File::create(path).await?;
             VortexWriteOptions::default()
-                .write(file, array_stream)
+                .write_stream(file, array_stream)
                 .await
         });
 

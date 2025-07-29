@@ -67,39 +67,33 @@ mod test {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use futures::stream;
     use vortex_array::{ArrayContext, IntoArray};
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::{DType, FieldPath, PType};
+    use vortex_dtype::FieldPath;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
-    use vortex_layout::segments::{SegmentSource, SequenceWriter, TestSegments};
+    use vortex_layout::segments::{SegmentSource, TestSegments};
     use vortex_layout::sequence::SequenceId;
-    use vortex_layout::{LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
+    use vortex_layout::{LayoutStrategy, LocalExecutor, SequentialArrayStreamExt};
 
     use super::*;
 
     #[test]
     fn test_layout_splits_flat() {
         let segments = TestSegments::default();
+        let (ptr, eof) = SequenceId::root().split();
         let layout = block_on(
             FlatLayoutStrategy::default().write_stream(
                 &ArrayContext::empty(),
                 &segments,
-                SequentialStreamAdapter::new(
-                    DType::Primitive(PType::I32, NonNullable),
-                    stream::once(async {
-                        Ok((
-                            SequenceId::root().downgrade(),
-                            buffer![1_i32; 10].into_array(),
-                        ))
-                    }),
-                )
-                    .sendable(),
-                ,
+                &LocalExecutor::new(),
+                buffer![1_i32; 10]
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(ptr),
+                eof,
             ),
         )
-            .unwrap();
+        .unwrap();
 
         let segments: Arc<dyn SegmentSource> = Arc::new(segments);
         let reader = layout.new_reader("".into(), segments).unwrap();
@@ -113,24 +107,20 @@ mod test {
     #[test]
     fn test_row_count_splits() {
         let segments = TestSegments::default();
+        let (ptr, eof) = SequenceId::root().split();
         let layout = block_on(
             FlatLayoutStrategy::default().write_stream(
                 &ArrayContext::empty(),
                 &segments,
-                SequentialStreamAdapter::new(
-                    DType::Primitive(PType::I32, NonNullable),
-                    stream::once(async {
-                        Ok((
-                            SequenceId::root().downgrade(),
-                            buffer![1_i32; 10].into_array(),
-                        ))
-                    }),
-                )
-                    .sendable(),
-                ,
+                &LocalExecutor::new(),
+                buffer![1_i32; 10]
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(ptr),
+                eof,
             ),
         )
-            .unwrap();
+        .unwrap();
 
         let segments: Arc<dyn SegmentSource> = Arc::new(segments);
         let reader = layout.new_reader("".into(), segments).unwrap();

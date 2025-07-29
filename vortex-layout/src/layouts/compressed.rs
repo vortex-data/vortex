@@ -19,21 +19,12 @@ use vortex_error::VortexResult;
 /// A layout writer that compresses chunks using a sampling compressor.
 pub struct BtrBlocksCompressedStrategy {
     child: Arc<dyn LayoutStrategy>,
-    executor: Arc<dyn TaskExecutor>,
     parallelism: usize,
 }
 
 impl BtrBlocksCompressedStrategy {
-    pub fn new(
-        child: Arc<dyn LayoutStrategy>,
-        executor: Arc<dyn TaskExecutor>,
-        parallelism: usize,
-    ) -> Self {
-        Self {
-            child,
-            executor,
-            parallelism,
-        }
+    pub fn new(child: Arc<dyn LayoutStrategy>, parallelism: usize) -> Self {
+        Self { child, parallelism }
     }
 }
 
@@ -43,11 +34,11 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
+        executor: &Arc<dyn TaskExecutor>,
         stream: SendableSequentialStream,
         end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
-        let executor = self.executor.clone();
-
+        let executor2 = executor.clone();
         let dtype = stream.dtype().clone();
         let stream = stream
             .map(|chunk| {
@@ -61,13 +52,14 @@ impl LayoutStrategy for BtrBlocksCompressedStrategy {
                 }
                 .boxed()
             })
-            .map(move |compress_future| executor.spawn(compress_future))
+            .map(move |compress_future| executor2.spawn(compress_future))
             .buffered(self.parallelism);
 
         self.child
             .write_stream(
                 ctx,
                 segment_sink,
+                executor,
                 SequentialStreamAdapter::new(dtype, stream).sendable(),
                 end_of_file,
             )

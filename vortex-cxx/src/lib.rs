@@ -237,7 +237,7 @@ unsafe fn write_array_stream(
     RUNTIME.block_on(async {
         let file = tokio::fs::File::create(path).await?;
 
-        options.inner.write(file, vortex_stream).await?;
+        options.inner.write_stream(file, vortex_stream).await?;
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     })
 }

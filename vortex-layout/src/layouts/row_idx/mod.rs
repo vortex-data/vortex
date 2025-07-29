@@ -274,6 +274,7 @@ impl ArrayEvaluation for RowIdxEvaluation {
 
 #[cfg(test)]
 mod tests {
+    use crate::LocalExecutor;
     use std::sync::Arc;
 
     use arrow_buffer::BooleanBuffer;
@@ -303,6 +304,7 @@ mod tests {
                 .write_stream(
                     &ctx,
                     &segments,
+                    &LocalExecutor::new(),
                     array_clone.to_array_stream().sequenced(ptr),
                     eof,
                 )
@@ -341,6 +343,7 @@ mod tests {
                 .write_stream(
                     &ctx,
                     &segments,
+                    &LocalExecutor::new(),
                     array_clone.to_array_stream().sequenced(ptr),
                     eof,
                 )
@@ -379,6 +382,7 @@ mod tests {
                 .write_stream(
                     &ctx,
                     &segments,
+                    &LocalExecutor::new(),
                     array_clone.to_array_stream().sequenced(ptr),
                     eof,
                 )

@@ -252,7 +252,7 @@ mod test {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutStrategy as _, SequentialArrayStreamExt};
+    use crate::{LayoutStrategy as _, LocalExecutor, SequentialArrayStreamExt};
 
     #[test]
     fn flat_identity() {
@@ -267,6 +267,7 @@ mod test {
                 .write_stream(
                     &ctx,
                     &segments,
+                    &LocalExecutor::new(),
                     array_clone.to_array_stream().sequenced(ptr),
                     eof,
                 )
@@ -305,6 +306,7 @@ mod test {
                 .write_stream(
                     &ctx,
                     &segments,
+                    &LocalExecutor::new(),
                     array_clone.to_array_stream().sequenced(ptr),
                     eof,
                 )
@@ -344,6 +346,7 @@ mod test {
                 .write_stream(
                     &ctx,
                     &segments,
+                    &LocalExecutor::new(),
                     array_clone.to_array_stream().sequenced(ptr),
                     eof,
                 )

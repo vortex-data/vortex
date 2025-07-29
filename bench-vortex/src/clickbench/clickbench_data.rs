@@ -204,7 +204,7 @@ pub async fn convert_parquet_to_vortex(
 
                         let write_options = compaction.apply_options(VortexWriteOptions::default());
 
-                        write_options.write(f, array_stream).await?;
+                        write_options.write_stream(f, array_stream).await?;
 
                         anyhow::Ok(())
                     })

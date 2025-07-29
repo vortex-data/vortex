@@ -14,7 +14,7 @@ use crate::segments::SegmentSink;
 use crate::sequence::SequencePointer;
 use crate::{
     LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt,
+    SequentialStreamExt, TaskExecutor,
 };
 
 #[derive(Clone)]
@@ -46,6 +46,7 @@ impl LayoutStrategy for RepartitionStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
+        executor: &Arc<dyn TaskExecutor>,
         stream: SendableSequentialStream,
         end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
@@ -110,6 +111,7 @@ impl LayoutStrategy for RepartitionStrategy {
             .write_stream(
                 ctx,
                 segment_sink,
+                executor,
                 SequentialStreamAdapter::new(dtype, repartitioned_stream).sendable(),
                 end_of_file,
             )

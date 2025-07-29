@@ -46,7 +46,6 @@ pub struct ZonedStrategy {
     child: Arc<dyn LayoutStrategy>,
     stats: Arc<dyn LayoutStrategy>,
     options: ZonedLayoutOptions,
-    executor: Arc<dyn TaskExecutor>,
 }
 
 impl ZonedStrategy {
@@ -54,13 +53,11 @@ impl ZonedStrategy {
         child: Arc<dyn LayoutStrategy>,
         stats: Arc<dyn LayoutStrategy>,
         options: ZonedLayoutOptions,
-        executor: Arc<dyn TaskExecutor>,
     ) -> Self {
         Self {
             child,
             stats,
             options,
-            executor,
         }
     }
 }
@@ -71,10 +68,11 @@ impl LayoutStrategy for ZonedStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
+        executor: &Arc<dyn TaskExecutor>,
         stream: SendableSequentialStream,
         end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
-        let executor = self.executor.clone();
+        let executor2 = executor.clone();
         let stats = self.options.stats.clone();
         let precomputed_stream = SequentialStreamAdapter::new(
             stream.dtype().clone(),
@@ -88,7 +86,7 @@ impl LayoutStrategy for ZonedStrategy {
                     }
                     .boxed()
                 })
-                .map(move |stats_future| executor.spawn(stats_future))
+                .map(move |stats_future| executor2.spawn(stats_future))
                 .buffered(self.options.parallelism),
         )
         .sendable();
@@ -106,7 +104,6 @@ impl LayoutStrategy for ZonedStrategy {
         )
         .sendable();
 
-        let ctx = ctx.clone();
         let child = self.child.clone();
         let stats_strategy = self.stats.clone();
         let block_size = self.options.block_size;
@@ -115,7 +112,7 @@ impl LayoutStrategy for ZonedStrategy {
         let (stats_eof, end_of_file) = end_of_file.split();
 
         let data_layout = child
-            .write_stream(&ctx, segment_sink, stream, end_of_file)
+            .write_stream(ctx, segment_sink, executor, stream, end_of_file)
             .await?;
 
         let Some(stats_table) = stats_accumulator.lock().as_stats_table() else {
@@ -129,7 +126,7 @@ impl LayoutStrategy for ZonedStrategy {
         let (stats_ptr, state_eof) = stats_eof.split();
         let stats_stream = stats_table.array().to_array_stream().sequenced(stats_ptr);
         let zones_layout = stats_strategy
-            .write_stream(&ctx, segment_sink, stats_stream, state_eof)
+            .write_stream(&ctx, segment_sink, executor, stats_stream, state_eof)
             .await?;
 
         Ok(ZonedLayout::new(

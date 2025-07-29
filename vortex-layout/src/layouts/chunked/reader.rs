@@ -346,7 +346,9 @@ mod test {
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutRef, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt as _};
+    use crate::{
+        LayoutRef, LayoutStrategy, LocalExecutor, SequentialStreamAdapter, SequentialStreamExt as _,
+    };
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
@@ -359,6 +361,7 @@ mod test {
             strategy.write_stream(
                 &ctx,
                 &segments,
+                &LocalExecutor::new(),
                 SequentialStreamAdapter::new(
                     DType::Primitive(PType::I32, NonNullable),
                     stream::iter([
