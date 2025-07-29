@@ -9,7 +9,7 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::{AllOr, Mask};
 
 use super::{ComputeFnVTable, InvocationArgs, Output, cast};
-use crate::builders::builder_with_capacity;
+use crate::builders::{ArrayBuilder, builder_with_capacity};
 use crate::compute::{ComputeFn, Kernel};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
@@ -144,7 +144,7 @@ pub trait ZipKernel: VTable {
         mask: &Mask,
         if_true: &Self::Array,
         if_false: &dyn Array,
-    ) -> VortexResult<ArrayRef>;
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
 pub struct ZipKernelRef(pub ArcRef<dyn Kernel>);
@@ -169,11 +169,11 @@ impl<V: VTable + ZipKernel> Kernel for ZipKernelAdapter<V> {
         let Some(if_true) = if_true.as_opt::<V>() else {
             return Ok(None);
         };
-        Ok(Some(V::zip(&self.0, mask, if_true, if_false)?.into()))
+        Ok(V::zip(&self.0, mask, if_true, if_false)?.map(Into::into))
     }
 }
 
-fn zip_return_dtype(if_true: &dyn Array, if_false: &dyn Array) -> DType {
+pub(crate) fn zip_return_dtype(if_true: &dyn Array, if_false: &dyn Array) -> DType {
     if_true
         .dtype()
         .union_nullability(if_false.dtype().nullability())
@@ -181,8 +181,16 @@ fn zip_return_dtype(if_true: &dyn Array, if_false: &dyn Array) -> DType {
 
 fn zip_impl(mask: &Mask, if_true: &dyn Array, if_false: &dyn Array) -> VortexResult<ArrayRef> {
     // if_true.len() == if_false.len() from ComputeFn::invoke
-    let mut builder = builder_with_capacity(&zip_return_dtype(if_true, if_false), if_true.len());
+    let builder = builder_with_capacity(&zip_return_dtype(if_true, if_false), if_true.len());
+    zip_impl_with_builder(mask, if_true, if_false, builder)
+}
 
+pub(crate) fn zip_impl_with_builder(
+    mask: &Mask,
+    if_true: &dyn Array,
+    if_false: &dyn Array,
+    mut builder: Box<dyn ArrayBuilder>,
+) -> VortexResult<ArrayRef> {
     match mask.slices() {
         AllOr::All => Ok(if_true.to_array()),
         AllOr::None => Ok(if_false.to_array()),

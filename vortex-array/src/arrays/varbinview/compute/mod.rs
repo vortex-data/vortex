@@ -8,6 +8,7 @@ mod is_sorted;
 mod mask;
 mod min_max;
 mod take;
+mod zip;
 
 #[cfg(test)]
 mod tests {
