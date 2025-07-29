@@ -16,8 +16,8 @@ use crate::layouts::zoned::zone_map::StatsAccumulator;
 use crate::segments::SegmentSink;
 use crate::sequence::{SequenceId, SequencePointer};
 use crate::{
-    IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
-    SequentialStreamExt, TaskExecutor, TaskExecutorExt,
+    IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialArrayStreamExt,
+    SequentialStreamAdapter, SequentialStreamExt, TaskExecutor, TaskExecutorExt,
 };
 
 pub struct ZonedLayoutOptions {
@@ -47,7 +47,6 @@ pub struct ZonedStrategy {
     stats: Arc<dyn LayoutStrategy>,
     options: ZonedLayoutOptions,
     executor: Arc<dyn TaskExecutor>,
-    eof: Mutex<SequencePointer>,
 }
 
 impl ZonedStrategy {
@@ -56,15 +55,12 @@ impl ZonedStrategy {
         stats: Arc<dyn LayoutStrategy>,
         options: ZonedLayoutOptions,
         executor: Arc<dyn TaskExecutor>,
-        // Pointer to the end of the sequence, used to put stats tables at the back of the file.
-        eof: SequencePointer,
     ) -> Self {
         Self {
             child,
             stats,
             options,
             executor,
-            eof: Mutex::new(eof),
         }
     }
 }
@@ -76,6 +72,7 @@ impl LayoutStrategy for ZonedStrategy {
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
+        end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         let executor = self.executor.clone();
         let stats = self.options.stats.clone();
@@ -114,7 +111,12 @@ impl LayoutStrategy for ZonedStrategy {
         let stats_strategy = self.stats.clone();
         let block_size = self.options.block_size;
 
-        let data_layout = child.write_stream(&ctx, segment_sink, stream).await?;
+        // We create a new SequencePointer for the stats table, which is just before the end of the file.
+        let (stats_eof, end_of_file) = end_of_file.split();
+
+        let data_layout = child
+            .write_stream(&ctx, segment_sink, stream, end_of_file)
+            .await?;
 
         let Some(stats_table) = stats_accumulator.lock().as_stats_table() else {
             // If we have no stats (e.g. the DType doesn't support them), then we just return the
@@ -124,15 +126,10 @@ impl LayoutStrategy for ZonedStrategy {
 
         // We must defer creating the stats table LayoutWriter until now, because the DType of
         // the table depends on which stats were successfully computed.
-        let stats_stream = stats_table
-            .array()
-            .to_array_stream()
-            // TODO(ngates): we need to fix the API for SequencePointers to make it less error
-            //  prone. The order in which this is called is also not deterministic.
-            .sequenced(self.eof.lock().advance().descend());
-
+        let (stats_ptr, state_eof) = stats_eof.split();
+        let stats_stream = stats_table.array().to_array_stream().sequenced(stats_ptr);
         let zones_layout = stats_strategy
-            .write_stream(&ctx, segment_sink, stats_stream)
+            .write_stream(&ctx, segment_sink, stats_stream, state_eof)
             .await?;
 
         Ok(ZonedLayout::new(

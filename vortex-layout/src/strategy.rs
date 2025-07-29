@@ -28,14 +28,13 @@ pub trait LayoutStrategy: 'static + Send + Sync {
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
         stream: SendableSequentialStream,
+        end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef>;
 }
 
 pub trait SequentialStream: Stream<Item = VortexResult<(SequenceId, ArrayRef)>> {
     /// Returns the data type of the arrays in the stream.
     fn dtype(&self) -> &DType;
-    /// Returns a sequence pointer that is guaranteed to be at the end of the stream.
-    fn end_of_stream(&mut self) -> SequencePointer;
 }
 
 pub type SendableSequentialStream = Pin<Box<dyn SequentialStream + Send>>;
@@ -43,10 +42,6 @@ pub type SendableSequentialStream = Pin<Box<dyn SequentialStream + Send>>;
 impl SequentialStream for SendableSequentialStream {
     fn dtype(&self) -> &DType {
         (**self).dtype()
-    }
-
-    fn end_of_stream(&mut self) -> SequencePointer {
-        self.as_mut().end_of_stream()
     }
 }
 
@@ -68,14 +63,11 @@ pub trait SequentialArrayStreamExt: ArrayStream {
     where
         Self: Sized + Send + 'static,
     {
-        let mut start_of_stream = pointer.advance().descend();
-        let end_of_stream = pointer.advance().descend();
         Box::pin(SequentialStreamAdapter::new(
             self.dtype().clone(),
             StreamExt::map(self, move |item| {
-                item.map(|array| (start_of_stream.advance(), array))
+                item.map(|array| (pointer.advance(), array))
             }),
-            end_of_stream,
         ))
     }
 }
@@ -87,17 +79,12 @@ pin_project! {
         dtype: DType,
         #[pin]
         inner: S,
-        end_of_stream: SequencePointer,
     }
 }
 
 impl<S> SequentialStreamAdapter<S> {
-    pub fn new(dtype: DType, inner: S, end_of_stream: SequencePointer) -> Self {
-        Self {
-            dtype,
-            inner,
-            end_of_stream,
-        }
+    pub fn new(dtype: DType, inner: S) -> Self {
+        Self { dtype, inner }
     }
 }
 
@@ -108,10 +95,6 @@ where
     fn dtype(&self) -> &DType {
         &self.dtype
     }
-
-    fn end_of_stream(&mut self) -> SequencePointer {
-        self.end_of_stream.advance().descend()
-    }
 }
 
 impl<S> Stream for SequentialStreamAdapter<S>
@@ -121,19 +104,7 @@ where
     type Item = VortexResult<(SequenceId, ArrayRef)>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.project();
-        let array = futures::ready!(this.inner.poll_next(cx));
-        if let Some(Ok((_, array))) = array.as_ref() {
-            assert_eq!(
-                array.dtype(),
-                this.dtype,
-                "Sequential stream of {} got chunk of {}.",
-                array.dtype(),
-                this.dtype
-            );
-        }
-
-        Poll::Ready(array)
+        self.project().inner.poll_next(cx)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

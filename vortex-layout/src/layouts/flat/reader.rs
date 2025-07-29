@@ -242,7 +242,6 @@ mod test {
 
     use arrow_buffer::BooleanBuffer;
     use futures::executor::block_on;
-    use futures::stream;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_array::{ArrayContext, ToCanonical};
@@ -253,7 +252,7 @@ mod test {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutStrategy as _, SequentialStreamAdapter, SequentialStreamExt};
+    use crate::{LayoutStrategy as _, SequentialArrayStreamExt};
 
     #[test]
     fn flat_identity() {
@@ -263,15 +262,13 @@ mod test {
 
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
             let array_clone = array.clone();
+            let (ptr, eof) = SequenceId::root().split();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     &ctx,
                     &segments,
-                    SequentialStreamAdapter::new(
-                        array.dtype().clone(),
-                        stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) }),
-                    )
-                    .sendable(),
+                    array_clone.to_array_stream().sequenced(ptr),
+                    eof,
                 )
                 .await
                 .unwrap();
@@ -303,15 +300,13 @@ mod test {
 
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
             let array_clone = array.clone();
+            let (ptr, eof) = SequenceId::root().split();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     &ctx,
                     &segments,
-                    SequentialStreamAdapter::new(
-                        array.dtype().clone(),
-                        stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) }),
-                    )
-                    .sendable(),
+                    array_clone.to_array_stream().sequenced(ptr),
+                    eof,
                 )
                 .await
                 .unwrap();
@@ -344,15 +339,13 @@ mod test {
 
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
             let array_clone = array.clone();
+            let (ptr, eof) = SequenceId::root().split();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     &ctx,
                     &segments,
-                    SequentialStreamAdapter::new(
-                        array.dtype().clone(),
-                        stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) }),
-                    )
-                    .sendable(),
+                    array_clone.to_array_stream().sequenced(ptr),
+                    eof,
                 )
                 .await
                 .unwrap();

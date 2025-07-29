@@ -95,10 +95,11 @@ mod test {
                         ))
                     }),
                 )
-                .sendable(),
+                    .sendable(),
+                ,
             ),
         )
-        .unwrap();
+            .unwrap();
 
         let segments: Arc<dyn SegmentSource> = Arc::new(segments);
         let reader = layout.new_reader("".into(), segments).unwrap();
@@ -125,10 +126,11 @@ mod test {
                         ))
                     }),
                 )
-                .sendable(),
+                    .sendable(),
+                ,
             ),
         )
-        .unwrap();
+            .unwrap();
 
         let segments: Arc<dyn SegmentSource> = Arc::new(segments);
         let reader = layout.new_reader("".into(), segments).unwrap();

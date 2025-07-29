@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::segments::SegmentSink;
+use crate::sequence::SequencePointer;
 use crate::{
     LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter,
     SequentialStreamExt as _,
@@ -31,10 +32,10 @@ impl LayoutStrategy for BufferedStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        mut stream: SendableSequentialStream,
+        stream: SendableSequentialStream,
+        end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
-        let eos = stream.end_of_stream();
         let buffer_size = self.buffer_size;
         let buffered_stream = try_stream! {
             let stream = stream.peekable();
@@ -77,7 +78,8 @@ impl LayoutStrategy for BufferedStrategy {
             .write_stream(
                 ctx,
                 segment_sink,
-                SequentialStreamAdapter::new(dtype, buffered_stream, eos).sendable(),
+                SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
+                end_of_file,
             )
             .await
     }

@@ -153,6 +153,11 @@ impl Drop for SequenceId {
 pub struct SequencePointer(SequenceId);
 
 impl SequencePointer {
+    /// Splits this pointer into two, where the second is strictly greater than the first.
+    pub fn split(mut self) -> (SequencePointer, SequencePointer) {
+        (self.advance().descend(), self.advance().descend())
+    }
+
     /// Advances to the next sibling sequence and returns the current one.
     ///
     /// # Ownership

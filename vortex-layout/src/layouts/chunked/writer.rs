@@ -12,6 +12,7 @@ use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::segments::SegmentSink;
+use crate::sequence::SequencePointer;
 use crate::{
     IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream, SequentialArrayStreamExt,
 };
@@ -36,6 +37,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
         mut stream: SendableSequentialStream,
+        mut end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         let chunk_strategy = self.chunk_strategy.clone();
         let ctx = ctx.clone();
@@ -52,6 +54,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
                     &ctx,
                     segment_sink,
                     chunk.to_array_stream().sequenced(seq_id.descend()),
+                    end_of_file.advance().descend(),
                 )
                 .await?;
             child_layouts.push(layout);

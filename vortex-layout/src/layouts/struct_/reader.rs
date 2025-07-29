@@ -273,6 +273,7 @@ mod tests {
         let segments = TestSegments::default();
 
         let strategy = StructStrategy::new(Arc::new(FlatLayoutStrategy::default()));
+        let (ptr, eof) = SequenceId::root().split();
         let layout = block_on(
             strategy.write_stream(
                 &ctx,
@@ -287,7 +288,7 @@ mod tests {
                     ),
                     stream::once(async {
                         Ok((
-                            SequenceId::root().downgrade(),
+                            ptr.downgrade(),
                             StructArray::from_fields(
                                 [
                                     ("a", buffer![7, 2, 3].into_array()),
@@ -302,6 +303,7 @@ mod tests {
                     }),
                 )
                 .sendable(),
+                eof,
             ),
         )
         .unwrap();

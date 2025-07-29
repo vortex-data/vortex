@@ -278,7 +278,6 @@ mod tests {
 
     use arrow_buffer::BooleanBuffer;
     use futures::executor::block_on;
-    use futures::stream;
     use itertools::Itertools;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::{ArrayContext, ToCanonical};
@@ -289,7 +288,7 @@ mod tests {
     use crate::layouts::row_idx::{RowIdxLayoutReader, row_idx};
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{LayoutReader, LayoutStrategy, SequentialStreamAdapter, SequentialStreamExt};
+    use crate::{LayoutReader, LayoutStrategy, SequentialArrayStreamExt};
 
     #[test]
     fn flat_expr_no_row_id() {
@@ -299,15 +298,13 @@ mod tests {
 
             let array = PrimitiveArray::from_iter(1..=5).to_array();
             let array_clone = array.clone();
+            let (ptr, eof) = SequenceId::root().split();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     &ctx,
                     &segments,
-                    SequentialStreamAdapter::new(
-                        array.dtype().clone(),
-                        stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) }),
-                    )
-                    .sendable(),
+                    array_clone.to_array_stream().sequenced(ptr),
+                    eof,
                 )
                 .await
                 .unwrap();
@@ -339,15 +336,13 @@ mod tests {
 
             let array = PrimitiveArray::from_iter(1..=5).to_array();
             let array_clone = array.clone();
+            let (ptr, eof) = SequenceId::root().split();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     &ctx,
                     &segments,
-                    SequentialStreamAdapter::new(
-                        array.dtype().clone(),
-                        stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) }),
-                    )
-                    .sendable(),
+                    array_clone.to_array_stream().sequenced(ptr),
+                    eof,
                 )
                 .await
                 .unwrap();
@@ -379,15 +374,13 @@ mod tests {
 
             let array = PrimitiveArray::from_iter(1..=5).to_array();
             let array_clone = array.clone();
+            let (ptr, eof) = SequenceId::root().split();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     &ctx,
                     &segments,
-                    SequentialStreamAdapter::new(
-                        array.dtype().clone(),
-                        stream::once(async { Ok((SequenceId::root().downgrade(), array_clone)) }),
-                    )
-                    .sendable(),
+                    array_clone.to_array_stream().sequenced(ptr),
+                    eof,
                 )
                 .await
                 .unwrap();

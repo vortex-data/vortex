@@ -422,7 +422,7 @@ mod test {
     use crate::layouts::zoned::writer::{ZonedLayoutOptions, ZonedStrategy};
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{ArrayStreamSequentialExt, LayoutRef, LayoutStrategy, LocalExecutor};
+    use crate::{LayoutRef, LayoutStrategy, LocalExecutor, SequentialArrayStreamExt};
     use futures::executor::block_on;
     use rstest::{fixture, rstest};
     use vortex_array::IntoArray;
@@ -437,8 +437,8 @@ mod test {
     fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
+        let (ptr, eof) = SequenceId::root().split();
 
-        let mut eof = SequenceId::root();
         let strategy = ZonedStrategy::new(
             Arc::new(ChunkedLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
@@ -447,16 +447,22 @@ mod test {
                 ..Default::default()
             },
             Arc::new(LocalExecutor),
-            eof.advance().descend(),
         );
-        let array_stream = ChunkedArray::from_iter([
-            buffer![1, 2, 3].into_array(),
-            buffer![4, 5, 6].into_array(),
-            buffer![7, 8, 9].into_array(),
-        ])
-        .to_array_stream()
-        .sequenced(eof.advance().descend());
-        let layout = block_on(strategy.write_stream(&ctx, &segments, array_stream)).unwrap();
+        let layout = block_on(
+            strategy.write_stream(
+                &ctx,
+                &segments,
+                ChunkedArray::from_iter([
+                    buffer![1, 2, 3].into_array(),
+                    buffer![4, 5, 6].into_array(),
+                    buffer![7, 8, 9].into_array(),
+                ])
+                .to_array_stream()
+                .sequenced(ptr),
+                eof,
+            ),
+        )
+        .unwrap();
         (Arc::new(segments), layout)
     }
 

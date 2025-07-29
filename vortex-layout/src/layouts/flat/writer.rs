@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::stats::{Precision, Stat, StatsProvider};
-use vortex_array::stream::ArrayStream;
 use vortex_array::{Array, ArrayContext};
 use vortex_dtype::DType;
 use vortex_error::{VortexResult, vortex_bail};
@@ -14,6 +13,7 @@ use vortex_scalar::{BinaryScalar, Utf8Scalar};
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::zoned::{lower_bound, upper_bound};
 use crate::segments::SegmentSink;
+use crate::sequence::SequencePointer;
 use crate::{IntoLayout, LayoutRef, LayoutStrategy, SendableSequentialStream};
 
 #[derive(Clone)]
@@ -40,6 +40,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
         mut stream: SendableSequentialStream,
+        _end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let options = self.clone();
@@ -121,7 +122,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
                 include_padding: options.include_padding,
             },
         )?;
-        let segment_id = segment_sink.write(stream.sequence_id(), buffers).await?;
+        let segment_id = segment_sink.write(seq_id, buffers).await?;
 
         let None = stream.next().await else {
             vortex_bail!("flat layout received stream with more than a single chunk");
@@ -139,7 +140,6 @@ mod tests {
 
     use arrow_buffer::BooleanBufferBuilder;
     use futures::executor::block_on;
-    use futures::stream;
     use vortex_array::arrays::{BoolArray, PrimitiveArray, StructArray};
     use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
     use vortex_array::stats::{Precision, Stat};
@@ -154,17 +154,7 @@ mod tests {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::{SegmentSource, TestSegments};
     use crate::sequence::SequenceId;
-    use crate::{
-        LayoutStrategy, SendableSequentialStream, SequentialStreamAdapter, SequentialStreamExt as _,
-    };
-
-    fn stream_only(array: ArrayRef) -> SendableSequentialStream {
-        SequentialStreamAdapter::new(
-            array.dtype().clone(),
-            stream::once(async move { Ok((SequenceId::root().downgrade(), array)) }),
-        )
-        .sendable()
-    }
+    use crate::{LayoutStrategy, SequentialArrayStreamExt};
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.
@@ -174,10 +164,11 @@ mod tests {
         block_on(async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
+            let (ptr, eof) = SequenceId::root().split();
 
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
             let layout = FlatLayoutStrategy::default()
-                .write_stream(&ctx, &segments, stream_only(array.to_array()))
+                .write_stream(&ctx, &segments, array.to_array_stream().sequenced(ptr), eof)
                 .await
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
@@ -203,6 +194,7 @@ mod tests {
         block_on(async {
             let ctx = ArrayContext::empty();
             let segments = TestSegments::default();
+            let (ptr, eof) = SequenceId::root().split();
 
             let mut builder =
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), 2);
@@ -218,7 +210,7 @@ mod tests {
             );
 
             let layout = FlatLayoutStrategy::default()
-                .write_stream(&ctx, &segments, stream_only(array.to_array()))
+                .write_stream(&ctx, &segments, array.to_array_stream().sequenced(ptr), eof)
                 .await
                 .unwrap();
             let segments: Arc<dyn SegmentSource> = Arc::new(segments);
@@ -269,13 +261,14 @@ mod tests {
             .unwrap();
 
             let ctx = ArrayContext::empty();
+            let (ptr, eof) = SequenceId::root().split();
 
             // Write the array into a byte buffer.
             let (layout, segments) = {
                 let segments = TestSegments::default();
 
                 let layout = FlatLayoutStrategy::default()
-                    .write_stream(&ctx, &segments, stream_only(array.to_array()))
+                    .write_stream(&ctx, &segments, array.to_array_stream().sequenced(ptr), eof)
                     .await
                     .unwrap();
 

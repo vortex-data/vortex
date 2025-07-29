@@ -354,7 +354,7 @@ mod test {
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
         let strategy = ChunkedLayoutStrategy::default();
-        let mut sequence_id = SequenceId::root();
+        let (mut sequence_id, end_of_file) = SequenceId::root().split();
         let layout = block_on(
             strategy.write_stream(
                 &ctx,
@@ -368,6 +368,7 @@ mod test {
                     ]),
                 )
                 .sendable(),
+                end_of_file,
             ),
         )
         .unwrap();

@@ -83,11 +83,16 @@ impl LayoutStrategy for DictStrategy {
         &self,
         ctx: &ArrayContext,
         segment_sink: &dyn SegmentSink,
-        mut stream: SendableSequentialStream,
+        stream: SendableSequentialStream,
+        mut end_of_file: SequencePointer,
     ) -> VortexResult<LayoutRef> {
         if !dict_layout_supported(stream.dtype()) {
-            return self.fallback.write_stream(ctx, segment_sink, stream).await;
+            return self
+                .fallback
+                .write_stream(ctx, segment_sink, stream, end_of_file)
+                .await;
         }
+
         let codes = self.codes.clone();
         let values = self.values.clone();
         let fallback = self.fallback.clone();
@@ -97,10 +102,8 @@ impl LayoutStrategy for DictStrategy {
         let executor = self.executor.clone();
 
         // 0. decide if chunks are eligible for dict encoding
-        let eos = stream.end_of_stream();
         let (stream, first_chunk) = peek_first_chunk(stream).await?;
-        let mut stream = SequentialStreamAdapter::new(dtype.clone(), stream, eos).sendable();
-        let mut eos = stream.end_of_stream();
+        let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
 
         let should_fallback = match first_chunk {
             None => true, // empty stream
@@ -111,7 +114,9 @@ impl LayoutStrategy for DictStrategy {
         };
         if should_fallback {
             // first chunk did not compress to dict, or did not exist. Skip dict layout
-            return fallback.write_stream(&ctx, segment_sink, stream).await;
+            return fallback
+                .write_stream(&ctx, segment_sink, stream, end_of_file)
+                .await;
         }
 
         // 1. from a chunk stream, create a stream that yields codes
@@ -151,24 +156,17 @@ impl LayoutStrategy for DictStrategy {
                     .write_stream(
                         &ctx,
                         segment_sink,
-                        SequentialStreamAdapter::new(
-                            codes_dtype,
-                            codes_stream,
-                            eos.advance().descend(),
-                        )
-                        .sendable(),
+                        SequentialStreamAdapter::new(codes_dtype, codes_stream).sendable(),
+                        end_of_file.advance().descend(),
                     )
                     .await?;
                 let values_layout = values
                     .write_stream(
                         &ctx,
                         segment_sink,
-                        SequentialStreamAdapter::new(
-                            dtype_clone.clone(),
-                            once(values_future),
-                            eos.advance().descend(),
-                        )
-                        .sendable(),
+                        SequentialStreamAdapter::new(dtype_clone.clone(), once(values_future))
+                            .sendable(),
+                        end_of_file.advance().descend(),
                     )
                     .await?;
                 children.push(DictLayout::new(values_layout, codes_layout).into_layout());

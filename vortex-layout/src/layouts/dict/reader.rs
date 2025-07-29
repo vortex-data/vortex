@@ -242,7 +242,6 @@ mod tests {
     use std::sync::Arc;
 
     use futures::executor::block_on;
-    use futures::stream;
     use rstest::rstest;
     use vortex_array::arrays::{StructArray, VarBinArray};
     use vortex_array::arrow::IntoArrowArray;
@@ -256,10 +255,7 @@ mod tests {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
-    use crate::{
-        LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, SequentialStreamAdapter,
-        SequentialStreamExt,
-    };
+    use crate::{LayoutId, LayoutRef, LayoutStrategy, LocalExecutor, SequentialArrayStreamExt};
 
     #[tokio::test]
     async fn reading_nested_packs_works() {
@@ -289,19 +285,13 @@ mod tests {
         let array_to_write = array.clone();
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
-        let layout: LayoutRef = block_on(
-            strategy.write_stream(
-                &ctx,
-                &segments,
-                SequentialStreamAdapter::new(
-                    DType::Utf8(Nullability::Nullable),
-                    stream::once(
-                        async move { Ok((SequenceId::root().downgrade(), array_to_write)) },
-                    ),
-                )
-                .sendable(),
-            ),
-        )
+        let (ptr, eof) = SequenceId::root().split();
+        let layout: LayoutRef = block_on(strategy.write_stream(
+            &ctx,
+            &segments,
+            array_to_write.to_array_stream().sequenced(ptr),
+            eof,
+        ))
         .unwrap();
 
         let expression = pack(
@@ -372,17 +362,13 @@ mod tests {
 
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
-        let layout: LayoutRef = block_on(
-            strategy.write_stream(
-                &ctx,
-                &segments,
-                SequentialStreamAdapter::new(
-                    DType::Utf8(Nullability::Nullable),
-                    stream::once(async move { Ok((SequenceId::root().downgrade(), array)) }),
-                )
-                .sendable(),
-            ),
-        )
+        let (ptr, eof) = SequenceId::root().split();
+        let layout: LayoutRef = block_on(strategy.write_stream(
+            &ctx,
+            &segments,
+            array.to_array_stream().sequenced(ptr),
+            eof,
+        ))
         .unwrap();
 
         let filter = vortex_expr::eq(
@@ -435,19 +421,13 @@ mod tests {
         let array_to_write = array.clone();
         let ctx = ArrayContext::empty();
         let segments = TestSegments::default();
-        let layout: LayoutRef = block_on(
-            strategy.write_stream(
-                &ctx,
-                &segments,
-                SequentialStreamAdapter::new(
-                    DType::Utf8(Nullability::Nullable),
-                    stream::once(
-                        async move { Ok((SequenceId::root().downgrade(), array_to_write)) },
-                    ),
-                )
-                .sendable(),
-            ),
-        )
+        let (ptr, eof) = SequenceId::root().split();
+        let layout: LayoutRef = block_on(strategy.write_stream(
+            &ctx,
+            &segments,
+            array_to_write.to_array_stream().sequenced(ptr),
+            eof,
+        ))
         .unwrap();
 
         let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
