@@ -89,3 +89,82 @@ mod tests {
         test_take_conformance(array.as_ref());
     }
 }
+
+#[cfg(test)]
+mod consistency_tests {
+    use crate::{FSSTArray, fsst_compress, fsst_train_compressor};
+    use rstest::rstest;
+    use vortex_array::arrays::VarBinArray;
+    use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_dtype::{DType, Nullability};
+
+    #[rstest]
+    // Basic string arrays
+    #[case::fsst_simple({
+        let varbin = VarBinArray::from_iter(
+            ["hello world", "testing fsst", "compression test", "data array", "vortex encoding"].map(Some),
+            DType::Utf8(Nullability::NonNullable),
+        );
+        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
+        fsst_compress(varbin.as_ref(), &compressor).unwrap()
+    })]
+    // Nullable strings
+    #[case::fsst_nullable({
+        let varbin = VarBinArray::from_iter(
+            [Some("hello"), None, Some("world"), Some("test"), None],
+            DType::Utf8(Nullability::Nullable),
+        );
+        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
+        fsst_compress(varbin.as_ref(), &compressor).unwrap()
+    })]
+    // Repetitive patterns (good for FSST compression)
+    #[case::fsst_repetitive({
+        let varbin = VarBinArray::from_iter(
+            ["http://example.com", "http://test.com", "http://vortex.dev", "http://data.org"].map(Some),
+            DType::Utf8(Nullability::NonNullable),
+        );
+        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
+        fsst_compress(varbin.as_ref(), &compressor).unwrap()
+    })]
+    // Edge cases
+    #[case::fsst_single({
+        let varbin = VarBinArray::from_iter(
+            ["single element"].map(Some),
+            DType::Utf8(Nullability::NonNullable),
+        );
+        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
+        fsst_compress(varbin.as_ref(), &compressor).unwrap()
+    })]
+    #[case::fsst_empty_strings({
+        let varbin = VarBinArray::from_iter(
+            ["", "test", "", "hello", ""].map(Some),
+            DType::Utf8(Nullability::NonNullable),
+        );
+        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
+        fsst_compress(varbin.as_ref(), &compressor).unwrap()
+    })]
+    // Large arrays
+    #[case::fsst_large({
+        let data: Vec<Option<&str>> = (0..1500)
+            .map(|i| Some(match i % 10 {
+                0 => "https://www.example.com/page",
+                1 => "https://www.test.org/data",
+                2 => "https://www.vortex.dev/docs",
+                3 => "https://www.github.com/apache/arrow",
+                4 => "https://www.rust-lang.org/learn",
+                5 => "SELECT * FROM table WHERE id = ",
+                6 => "INSERT INTO users (name, email) VALUES",
+                7 => "UPDATE records SET status = 'active'",
+                8 => "DELETE FROM logs WHERE timestamp < ",
+                _ => "CREATE TABLE data (id INT, value TEXT)",
+            }))
+            .collect();
+        let varbin = VarBinArray::from_iter(data, DType::Utf8(Nullability::NonNullable));
+        let compressor = fsst_train_compressor(varbin.as_ref()).unwrap();
+        fsst_compress(varbin.as_ref(), &compressor).unwrap()
+    })]
+
+    fn test_fsst_consistency(#[case] array: FSSTArray) {
+        test_array_consistency(array.as_ref());
+    }
+}

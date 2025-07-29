@@ -95,3 +95,74 @@ mod test {
         test_take_conformance(for_array.as_ref());
     }
 }
+
+#[cfg(test)]
+mod consistency_tests {
+    use rstest::rstest;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_scalar::Scalar;
+    use vortex_array::IntoArray;
+    use crate::FoRArray;
+
+    #[rstest]
+    // Basic FoR arrays
+    #[case::for_i32(FoRArray::try_new(
+        PrimitiveArray::from_iter([100i32, 101, 102, 103, 104]).into_array(),
+        Scalar::from(100i32)
+    ).unwrap())]
+    #[case::for_u64(FoRArray::try_new(
+        PrimitiveArray::from_iter([1000u64, 1001, 1002, 1003, 1004]).into_array(),
+        Scalar::from(1000u64)
+    ).unwrap())]
+    
+    // Nullable arrays
+    #[case::for_nullable_i16(FoRArray::try_new(
+        PrimitiveArray::from_option_iter([Some(50i16), None, Some(52), Some(53), None]).into_array(),
+        Scalar::from(50i16)
+    ).unwrap())]
+    #[case::for_nullable_i32(FoRArray::try_new(
+        PrimitiveArray::from_option_iter([Some(200i32), None, Some(202), Some(203), None]).into_array(),
+        Scalar::from(200i32)
+    ).unwrap())]
+    
+    // Negative values
+    #[case::for_negative(FoRArray::try_new(
+        PrimitiveArray::from_iter([-100i32, -99, -98, -97, -96]).into_array(),
+        Scalar::from(-100i32)
+    ).unwrap())]
+    
+    // Edge cases
+    #[case::for_single(FoRArray::try_new(
+        PrimitiveArray::from_iter([42i64]).into_array(),
+        Scalar::from(40i64)
+    ).unwrap())]
+    #[case::for_zero_ref(FoRArray::try_new(
+        PrimitiveArray::from_iter([0u32, 1, 2, 3, 4]).into_array(),
+        Scalar::from(0u32)
+    ).unwrap())]
+    
+    // Large arrays (> 1024 elements for fastlanes chunking)
+    #[case::for_large(FoRArray::try_new(
+        PrimitiveArray::from_iter((0..1500).map(|i| 5000 + i as i32)).into_array(),
+        Scalar::from(5000i32)
+    ).unwrap())]
+    #[case::for_very_large(FoRArray::try_new(
+        PrimitiveArray::from_iter((0..3072).map(|i| 10000 + i as i64)).into_array(),
+        Scalar::from(10000i64)
+    ).unwrap())]
+    #[case::for_large_nullable(FoRArray::try_new(
+        PrimitiveArray::from_option_iter((0..2048).map(|i| if i % 15 == 0 { None } else { Some(1000 + i as i32) })).into_array(),
+        Scalar::from(1000i32)
+    ).unwrap())]
+    
+    // Arrays with large deltas from reference
+    #[case::for_large_deltas(FoRArray::try_new(
+        PrimitiveArray::from_iter([100i64, 200, 300, 400, 500]).into_array(),
+        Scalar::from(100i64)
+    ).unwrap())]
+    
+    fn test_for_consistency(#[case] array: FoRArray) {
+        test_array_consistency(array.as_ref());
+    }
+}

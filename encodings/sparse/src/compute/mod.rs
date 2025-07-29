@@ -161,3 +161,84 @@ mod test {
         )
     }
 }
+
+#[cfg(test)]
+mod consistency_tests {
+    use rstest::rstest;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_buffer::buffer;
+    use vortex_scalar::Scalar;
+    use vortex_array::{IntoArray, compute::cast};
+    use vortex_dtype::{DType, Nullability, PType};
+    use crate::SparseArray;
+
+    #[rstest]
+    // Basic sparse arrays
+    #[case::sparse_i32_null_fill(SparseArray::try_new(
+        buffer![2u64, 5, 8].into_array(),
+        buffer![100i32, 200, 300].into_array(),
+        10,
+        Scalar::null_typed::<i32>()
+    ).unwrap())]
+    #[case::sparse_i32_value_fill(SparseArray::try_new(
+        buffer![1u64, 3, 7].into_array(),
+        buffer![42i32, 84, 126].into_array(),
+        10,
+        Scalar::from(0i32)
+    ).unwrap())]
+    
+    // Different types
+    #[case::sparse_u64(SparseArray::try_new(
+        buffer![0u64, 4, 9].into_array(),
+        buffer![1000u64, 2000, 3000].into_array(),
+        10,
+        Scalar::from(999u64)
+    ).unwrap())]
+    #[case::sparse_f32(SparseArray::try_new(
+        buffer![2u64, 6].into_array(),
+        buffer![3.14159f32, 2.71828].into_array(),
+        8,
+        Scalar::from(0.0f32)
+    ).unwrap())]
+    
+    // Edge cases
+    #[case::sparse_single_patch(SparseArray::try_new(
+        buffer![5u64].into_array(),
+        buffer![42i32].into_array(),
+        10,
+        Scalar::from(-1i32)
+    ).unwrap())]
+    #[case::sparse_dense_patches(SparseArray::try_new(
+        buffer![0u64, 1, 2, 3, 4].into_array(),
+        buffer![10i32, 20, 30, 40, 50].into_array(),
+        5,
+        Scalar::null_typed::<i32>()
+    ).unwrap())]
+    
+    // Large sparse arrays
+    #[case::sparse_large(SparseArray::try_new(
+        buffer![100u64, 500, 900, 1500, 1999].into_array(),
+        buffer![111i32, 222, 333, 444, 555].into_array(),
+        2000,
+        Scalar::from(0i32)
+    ).unwrap())]
+    
+    // Nullable patches
+    #[case::sparse_nullable_patches({
+        let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+        SparseArray::try_new(
+            buffer![1u64, 4, 7].into_array(),
+            cast(
+                &PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
+                null_fill_value.dtype()
+            ).unwrap(),
+            10,
+            null_fill_value
+        ).unwrap()
+    })]
+    
+    fn test_sparse_consistency(#[case] array: SparseArray) {
+        test_array_consistency(array.as_ref());
+    }
+}
