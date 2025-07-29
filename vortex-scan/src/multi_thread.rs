@@ -4,7 +4,6 @@
 use std::iter;
 use std::sync::{Arc, LazyLock};
 
-use futures::executor::block_on;
 use futures::{StreamExt, stream};
 use tokio::runtime::{Builder, Runtime};
 use vortex_array::ArrayRef;
@@ -74,18 +73,12 @@ impl ScanBuilder<ArrayRef> {
             //  head-room to run ahead and figure out the I/O demands of subsequent tasks.
             .buffered(num_workers * concurrency);
 
-        Ok(iter::from_fn(move || {
-            // Use runtime-aware blocking strategy
-            if tokio::runtime::Handle::try_current().is_ok() {
-                tokio::task::block_in_place(|| CPU_RUNTIME.handle().block_on(stream.next()))
-            } else {
-                block_on(stream.next())
-            }
-        })
-        .filter_map(|result| {
-            result
-                .map_err(|e| vortex_err!("Failed to join on a spawned scan task {e}"))
-                .vortex_expect("Failed to join on a spawned scan task")
-        }))
+        Ok(
+            iter::from_fn(move || CPU_RUNTIME.block_on(stream.next())).filter_map(|result| {
+                result
+                    .map_err(|e| vortex_err!("Failed to join on a spawned scan task {e}"))
+                    .vortex_expect("Failed to join on a spawned scan task")
+            }),
+        )
     }
 }
