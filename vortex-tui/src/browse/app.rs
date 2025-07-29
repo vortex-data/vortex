@@ -4,6 +4,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use futures_executor::block_on;
 use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
 use vortex::dtype::DType;
@@ -15,7 +16,6 @@ use vortex::layout::layouts::zoned::ZonedVTable;
 use vortex::layout::segments::{SegmentId, SegmentSource};
 use vortex::serde::ArrayParts;
 
-use crate::TOKIO_RUNTIME;
 use crate::browse::ui::SegmentGridState;
 
 #[derive(Default, Copy, Clone, Eq, PartialEq)]
@@ -91,14 +91,13 @@ impl LayoutCursor {
         Self::new_with_path(self.footer.clone(), self.segment_source.clone(), path)
     }
 
-    /// Get the size of the backing flatbuffer for this layout.
+    /// Get the size of the array flatbuffer for this layout.
     ///
     /// NOTE: this is only safe to run against a FLAT layout.
     pub fn flatbuffer_size(&self) -> usize {
         let segment_id = self.layout.as_::<FlatVTable>().segment_id();
-        let segment = TOKIO_RUNTIME
-            .block_on(async { self.segment_source.request(segment_id, &("".into())).await })
-            .vortex_unwrap();
+        let segment =
+            block_on(self.segment_source.request(segment_id, &("".into()))).vortex_unwrap();
         ArrayParts::try_from(segment)
             .vortex_unwrap()
             .metadata()
