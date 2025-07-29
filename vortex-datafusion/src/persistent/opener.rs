@@ -8,6 +8,7 @@ use dashmap::{DashMap, Entry};
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::error::ArrowError;
 use datafusion::common::{DataFusionError, Result as DFResult};
+use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{FileMeta, FileOpenFuture, FileOpener};
 use futures::{FutureExt as _, StreamExt, TryStreamExt, stream};
 use object_store::ObjectStore;
@@ -63,7 +64,7 @@ impl VortexFileOpener {
 }
 
 impl FileOpener for VortexFileOpener {
-    fn open(&self, file_meta: FileMeta) -> DFResult<FileOpenFuture> {
+    fn open(&self, file_meta: FileMeta, _file: PartitionedFile) -> DFResult<FileOpenFuture> {
         let filter = self.filter.clone();
         let projection = self.projection.clone();
         let file_cache = self.file_cache.clone();

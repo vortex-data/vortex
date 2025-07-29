@@ -2,5 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod binary_numeric;
+pub mod filter;
 pub mod mask;
 pub mod search_sorted;

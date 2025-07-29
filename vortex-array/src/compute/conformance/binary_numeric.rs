@@ -19,7 +19,7 @@ fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {
         .vortex_unwrap()
 }
 
-pub fn test_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
+pub fn test_binary_numeric_conformance<T: NativePType + Num + Copy>(array: ArrayRef)
 where
     Scalar: From<T>,
 {

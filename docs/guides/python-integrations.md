@@ -120,7 +120,7 @@ name: [["Joseph","Narendra","Angela","Mikhail"]]
 
 {func}`~vortex.array` converts from a Pandas DataFrame into a Vortex array:
 
-```pycon
+```{doctest} pycon
 >>> vx.array(df).to_arrow_table()
 pyarrow.Table
 age: int64
@@ -136,19 +136,17 @@ name: [["Joseph","Narendra","Angela","Mikhail"]]
 enables many Python-based query engines to pushdown row filters and column projections on Vortex
 files. All the query engine examples use the same Vortex file:
 
-```pycon
+```{doctest} pycon
 >>> import vortex as vx
 >>> import pyarrow.parquet as pq
 >>> arr = vx.array(pq.read_table("_static/example.parquet"))
 >>> vx.io.write(arr, 'example.vortex')
->>> ds = vx.dataset.from_path(
->>> ...     'example.vortex'
->>> ... )
+>>> ds = vx.open('example.vortex').to_dataset()
 ```
 
 ### Polars
 
-```pycon
+```{doctest} pycon
 >>> import polars as pl
 >>> lf = pl.scan_pyarrow_dataset(ds)
 >>> lf = lf.select('tip_amount', 'fare_amount')
@@ -168,7 +166,7 @@ shape: (3, 2)
 
 ### DuckDB
 
-```pycon
+```{doctest} pycon
 >>> import duckdb
 >>> duckdb.sql('select ds.tip_amount, ds.fare_amount from ds limit 3').show()
 ┌────────────┬─────────────┐

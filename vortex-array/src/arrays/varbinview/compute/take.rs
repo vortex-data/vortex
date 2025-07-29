@@ -30,7 +30,7 @@ impl TakeKernel for VarBinViewVTable {
 
         Ok(VarBinViewArray::try_new(
             views_buffer,
-            array.buffers().to_vec(),
+            array.buffers().clone(),
             array
                 .dtype()
                 .union_nullability(indices.dtype().nullability()),

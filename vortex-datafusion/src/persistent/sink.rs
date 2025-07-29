@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use datafusion::arrow::datatypes::SchemaRef;
-use datafusion::common::DataFusionError;
 use datafusion::common::runtime::SpawnedTask;
+use datafusion::common::{DataFusionError, Result as DFResult};
 use datafusion::datasource::file_format::write::demux::DemuxedStreamReceiver;
 use datafusion::datasource::physical_plan::{FileSink, FileSinkConfig};
 use datafusion::datasource::sink::DataSink;
@@ -74,7 +74,7 @@ impl DataSink for VortexSink {
         &self,
         data: SendableRecordBatchStream,
         context: &Arc<TaskContext>,
-    ) -> datafusion::common::Result<u64> {
+    ) -> DFResult<u64> {
         FileSink::write_all(self, data, context).await
     }
 }
@@ -88,10 +88,10 @@ impl FileSink for VortexSink {
     async fn spawn_writer_tasks_and_join(
         &self,
         _context: &Arc<TaskContext>,
-        demux_task: SpawnedTask<datafusion::common::Result<()>>,
+        demux_task: SpawnedTask<DFResult<()>>,
         mut file_stream_rx: DemuxedStreamReceiver,
         object_store: Arc<dyn ObjectStore>,
-    ) -> datafusion::common::Result<u64> {
+    ) -> DFResult<u64> {
         // This is a hack
         let row_counter = Arc::new(AtomicU64::new(0));
 
@@ -118,7 +118,7 @@ impl FileSink for VortexSink {
         demux_task
             .join_unwind()
             .await
-            .map_err(DataFusionError::ExecutionJoin)??;
+            .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))??;
 
         Ok(row_counter.load(Ordering::SeqCst))
     }

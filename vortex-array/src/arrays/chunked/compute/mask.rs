@@ -128,7 +128,7 @@ mod test {
 
     use crate::IntoArray;
     use crate::arrays::{ChunkedArray, PrimitiveArray};
-    use crate::compute::conformance::mask::test_mask;
+    use crate::compute::conformance::mask::test_mask_conformance;
 
     #[test]
     fn test_mask_chunked_array() {
@@ -144,6 +144,6 @@ mod test {
         )
         .unwrap();
 
-        test_mask(chunked.as_ref());
+        test_mask_conformance(chunked.as_ref());
     }
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use arrow_buffer::BooleanBuffer;
 use vortex_buffer::{Buffer, BufferMut, buffer};
 use vortex_dtype::{DType, Nullability, PType, match_each_native_ptype};
@@ -146,7 +148,12 @@ fn canonical_byte_view(
         None => {
             let views = buffer![BinaryView::from(0_u128); len];
 
-            VarBinViewArray::try_new(views, Vec::new(), dtype.clone(), Validity::AllInvalid)
+            VarBinViewArray::try_new(
+                views,
+                Default::default(),
+                dtype.clone(),
+                Validity::AllInvalid,
+            )
         }
         Some(scalar_bytes) => {
             // Create a view to hold the scalar bytes.
@@ -167,7 +174,7 @@ fn canonical_byte_view(
 
             VarBinViewArray::try_new(
                 views.freeze(),
-                buffers,
+                Arc::from(buffers),
                 dtype.clone(),
                 Validity::from(dtype.nullability()),
             )

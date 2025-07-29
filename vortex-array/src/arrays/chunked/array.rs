@@ -239,7 +239,7 @@ mod test {
     use crate::array::Array;
     use crate::arrays::chunked::ChunkedArray;
     use crate::arrays::{ChunkedVTable, PrimitiveArray};
-    use crate::compute::conformance::binary_numeric::test_numeric;
+    use crate::compute::conformance::binary_numeric::test_binary_numeric_conformance;
     use crate::compute::{cast, sub_scalar};
     use crate::validity::Validity;
     use crate::{IntoArray, ToCanonical, assert_arrays_eq};
@@ -357,7 +357,7 @@ mod test {
         // The tests test both X - 1 and 1 - X, so we need signed values
         let signed_dtype = DType::from(PType::try_from(array.dtype()).unwrap().to_signed());
         let array = cast(array.as_ref(), &signed_dtype).unwrap();
-        test_numeric::<u64>(array)
+        test_binary_numeric_conformance::<u64>(array)
     }
 
     #[test]
