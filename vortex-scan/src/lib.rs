@@ -13,6 +13,7 @@ use tasks::{TaskContext, split_exec};
 use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::stats::StatsSet;
+use vortex_array::stream::ArrayStream;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
 use vortex_error::{VortexResult, vortex_bail};
@@ -250,6 +251,23 @@ impl ScanBuilder<ArrayRef> {
             Arc::new(dtype),
             concurrency,
         ))
+    }
+
+    /// Returns a stream of array chunks.
+    ///
+    /// Note, that this will schedule CPU and IO works on the same tokio runtime thread
+    #[cfg(feature = "tokio")]
+    pub fn into_cpu_stream(mut self) -> VortexResult<impl ArrayStream> {
+        use futures::StreamExt;
+
+        let dtype = self.dtype()?;
+        let concurrency = self.concurrency;
+        let stream = self
+            .build()?
+            .into_iter()
+            .map(|task| tokio::spawn(task))
+            .buffered(concurrency);
+        Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
     }
 }
 
