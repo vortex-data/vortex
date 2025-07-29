@@ -13,10 +13,9 @@ use tasks::{TaskContext, split_exec};
 use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::stats::StatsSet;
-use vortex_array::stream::ArrayStream;
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexResult, vortex_bail};
+use vortex_error::{ResultExt, VortexResult, vortex_bail, vortex_err};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, root};
@@ -257,17 +256,23 @@ impl ScanBuilder<ArrayRef> {
     ///
     /// Note, that this will schedule CPU and IO works on the same tokio runtime thread
     #[cfg(feature = "tokio")]
-    pub fn into_cpu_stream(mut self) -> VortexResult<impl ArrayStream> {
-        use futures::StreamExt;
+    pub fn into_cpu_stream(self) -> VortexResult<impl vortex_array::stream::ArrayStream> {
+        use futures::{StreamExt, stream};
 
         let dtype = self.dtype()?;
         let concurrency = self.concurrency;
-        let stream = self
-            .build()?
-            .into_iter()
-            .map(|task| tokio::spawn(task))
-            .buffered(concurrency);
-        Ok(vortex_array::stream::ArrayStreamAdapter::new(dtype, stream))
+        let split_tasks = stream::iter(self.build()?.into_iter().map(tokio::spawn));
+
+        Ok(vortex_array::stream::ArrayStreamAdapter::new(
+            dtype,
+            split_tasks
+                .buffered(concurrency)
+                .filter_map(|r| async move {
+                    r.map_err(|e| vortex_err!("Failed to join Tokio task {e}"))
+                        .unnest()
+                        .transpose()
+                }),
+        ))
     }
 }
 
