@@ -124,7 +124,8 @@ impl VarBinViewBuilder {
     // The views must all point to sections of the buffers and the validity length must match
     // the view length.
     /// ## Panics
-    /// Panics if any of the given buffers already exists on this builder
+    /// Panics if this builder deduplicates buffers and if any of the given buffers already
+    /// exists on this builder
     pub fn push_buffer_and_adjusted_views(
         &mut self,
         buffer: &[ByteBuffer],
