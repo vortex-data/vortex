@@ -505,3 +505,63 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod consistency_tests {
+    use rstest::rstest;
+    use vortex_buffer::buffer;
+    use crate::arrays::{PrimitiveArray, StructArray, VarBinArray};
+    use crate::compute::conformance::consistency::test_array_consistency;
+    use vortex_dtype::{DType, Nullability};
+    use crate::validity::Validity;
+    use crate::IntoArray;
+
+    #[rstest]
+    // From test_all_consistency
+    #[case::struct_simple({
+        let xs = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+        let ys = VarBinArray::from_iter(
+            ["a", "b", "c", "d", "e"].map(Some),
+            DType::Utf8(Nullability::NonNullable),
+        );
+        StructArray::try_new(
+            ["xs", "ys"].into(),
+            vec![xs.into_array(), ys.into_array()],
+            5,
+            Validity::NonNullable,
+        )
+        .unwrap()
+    })]
+    #[case::struct_nullable({
+        let xs = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]);
+        let ys = VarBinArray::from_iter(
+            [Some("a"), Some("b"), None, Some("d"), None],
+            DType::Utf8(Nullability::Nullable),
+        );
+        StructArray::try_new(
+            ["xs", "ys"].into(),
+            vec![xs.into_array(), ys.into_array()],
+            5,
+            Validity::NonNullable,
+        )
+        .unwrap()
+    })]
+    
+    // Additional test cases
+    #[case::empty_struct(StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable).unwrap())]
+    #[case::single_field({
+        let xs = buffer![42i64].into_array();
+        StructArray::try_new(["xs"].into(), vec![xs], 1, Validity::NonNullable).unwrap()
+    })]
+    #[case::large_struct({
+        let xs = PrimitiveArray::from_iter(0..100i64).into_array();
+        let ys = VarBinArray::from_iter(
+            (0..100).map(|i| format!("value_{i}")).map(Some),
+            DType::Utf8(Nullability::NonNullable),
+        ).into_array();
+        StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 100, Validity::NonNullable).unwrap()
+    })]
+    fn test_struct_consistency(#[case] array: StructArray) {
+        test_array_consistency(array.as_ref());
+    }
+}
