@@ -43,11 +43,12 @@ register_kernel!(TakeKernelAdapter(FSSTVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_array::arrays::{PrimitiveArray, VarBinArray};
+    use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::compute::take;
     use vortex_dtype::{DType, Nullability};
 
-    use crate::{fsst_compress, fsst_train_compressor};
+    use crate::{FSSTArray, fsst_compress, fsst_train_compressor};
 
     #[test]
     fn test_take_null() {
@@ -88,16 +89,6 @@ mod tests {
         let array = fsst_compress(varbin.as_ref(), &compressor).unwrap();
         test_take_conformance(array.as_ref());
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-    use vortex_array::arrays::VarBinArray;
-    use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_dtype::{DType, Nullability};
-
-    use crate::{FSSTArray, fsst_compress, fsst_train_compressor};
 
     #[rstest]
     // Basic string arrays

@@ -20,7 +20,9 @@ use vortex_mask::{AllOr, Mask};
 use vortex_scalar::{PValue, Scalar};
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
+use crate::compute::mask;
 use crate::compute::{cast, filter, take};
 use crate::search_sorted::{SearchResult, SearchSorted, SearchSortedSide};
 use crate::vtable::ValidityHelper;
@@ -290,9 +292,6 @@ impl Patches {
     /// Mask the patches, setting patch values to null where the mask is true.
     /// Unlike filter, this preserves the patch indices.
     pub fn mask(&self, filter_mask: &Mask) -> VortexResult<Self> {
-        use crate::arrays::BoolArray;
-        use crate::compute::mask;
-
         // Get the patch indices as a primitive array
         let patch_indices = self.indices().to_primitive()?;
 
@@ -792,7 +791,7 @@ mod test {
     }
 
     #[rstest]
-    fn take_wit_nulls(patches: Patches) {
+    fn take_with_nulls(patches: Patches) {
         let taken = patches
             .take(
                 &PrimitiveArray::new(buffer![9, 0], Validity::from_iter(vec![true, false]))
