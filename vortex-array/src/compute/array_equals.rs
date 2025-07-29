@@ -95,7 +95,16 @@ impl ComputeFnVTable for ArrayEquals {
             return Ok(Scalar::from(true).into());
         }
 
+        // Handle constant null arrays - they are equal only if both are null constants
+        let left_constant_null = left.as_constant().map(|l| l.is_null()).unwrap_or(false);
+        let right_constant_null = right.as_constant().map(|r| r.is_null()).unwrap_or(false);
+        
+        if left_constant_null || right_constant_null {
+            return Ok(Scalar::from(left_constant_null && right_constant_null).into());
+        }
+
         // Check statistics for early exit
+        // TODO(optimization): Add more sophisticated statistical comparisons for floating point arrays
         if !check_stats_equality(left, right) {
             return Ok(Scalar::from(false).into());
         }
@@ -132,6 +141,12 @@ impl ComputeFnVTable for ArrayEquals {
 
         // Try canonical arrays if not already canonical
         if !left.is_canonical() || !right.is_canonical() {
+            log::debug!(
+                "Falling back to canonical array_equals for encodings {} and {}",
+                left.encoding_id(),
+                right.encoding_id()
+            );
+            
             let left_canonical = left.to_canonical()?;
             let right_canonical = right.to_canonical()?;
 
@@ -143,7 +158,13 @@ impl ComputeFnVTable for ArrayEquals {
             .into());
         }
 
-        // Fallback to chunked comparison
+        // Final fallback to chunked comparison for canonical arrays
+        log::debug!(
+            "Using chunked comparison fallback for canonical arrays {} and {}",
+            left.encoding_id(),
+            right.encoding_id()
+        );
+        
         let all_equal = compare_chunked(left, right, batch_size)?;
         Ok(Scalar::from(all_equal).into())
     }
@@ -385,7 +406,7 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::{BoolArray, ChunkedArray, ConstantArray, PrimitiveArray, VarBinArray};
     use crate::validity::Validity;
-    use vortex_dtype::{DType, Nullability};
+    use vortex_dtype::{DType, Nullability, PType};
 
     #[test]
     fn test_simple_equals() {
@@ -569,5 +590,20 @@ mod tests {
         .unwrap();
 
         assert!(!array_equals(primitive_arr.as_ref(), different_chunked.as_ref()).unwrap());
+    }
+
+    #[test]
+    fn test_constant_null_arrays() {
+        // Test constant null arrays - should be equal to each other but not to non-null constants
+        let null_const1 = ConstantArray::new(Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)), 5);
+        let null_const2 = ConstantArray::new(Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)), 5);
+        let non_null_const = ConstantArray::new(Scalar::from(42i32), 5);
+        
+        // Both null constants should be equal
+        assert!(array_equals(null_const1.as_ref(), null_const2.as_ref()).unwrap());
+        
+        // Null constant should not equal non-null constant
+        assert!(!array_equals(null_const1.as_ref(), non_null_const.as_ref()).unwrap());
+        assert!(!array_equals(non_null_const.as_ref(), null_const1.as_ref()).unwrap());
     }
 }
