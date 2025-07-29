@@ -14,7 +14,7 @@ use crate::integer::IntCompressor;
 use crate::sample::sample;
 use crate::{
     Compressor, CompressorStats, GenerateStatsOptions, Scheme,
-    estimate_compression_ratio_with_sampling,
+    estimate_compression_ratio_with_sampling, integer,
 };
 
 #[derive(Clone, Debug)]
@@ -201,10 +201,7 @@ impl Scheme for DictScheme {
             &dict.codes().to_primitive()?,
             is_sample,
             allowed_cascading - 1,
-            &[
-                crate::integer::DictScheme.code(),
-                crate::integer::SequenceScheme.code(),
-            ],
+            &[integer::DictScheme.code(), integer::SequenceScheme.code()],
         )?;
 
         // Attempt to compress the values with non-Dict compression.
