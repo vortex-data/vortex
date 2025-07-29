@@ -86,6 +86,23 @@ impl Canonical {
     }
 }
 
+impl Canonical {
+    /// Performs a (potentially expensive) compaction operation on the array before it is complete.
+    ///
+    /// This is mostly relevant for the variable-length types such as Utf8, Binary or List where
+    /// they can accumulate wasted space after slicing and taking operations.
+    ///
+    /// This operation is very expensive and can result in things like allocations, full-scans
+    /// and copy operations.
+    pub fn compact(&self) -> VortexResult<Canonical> {
+        match self {
+            Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers()?)),
+            Canonical::List(array) => Ok(Canonical::List(array.reset_offsets()?)),
+            other => Ok(other.clone()),
+        }
+    }
+}
+
 // Unwrap canonical type back down to specialized type.
 impl Canonical {
     pub fn into_null(self) -> VortexResult<NullArray> {
@@ -126,7 +143,7 @@ impl Canonical {
     pub fn into_list(self) -> VortexResult<ListArray> {
         match self {
             Canonical::List(a) => Ok(a),
-            _ => vortex_bail!("Cannot unwrap StructArray from {:?}", &self),
+            _ => vortex_bail!("Cannot unwrap ListArray from {:?}", &self),
         }
     }
 

@@ -12,6 +12,7 @@ use bytes::{Buf, Bytes};
 use vortex_error::{VortexExpect, vortex_panic};
 
 use crate::debug::TruncatedDebug;
+use crate::trusted_len::TrustedLen;
 use crate::{Alignment, BufferMut, ByteBuffer};
 
 /// An immutable buffer of items of `T`.
@@ -150,6 +151,16 @@ impl<T> Buffer<T> {
         }
     }
 
+    /// Create a buffer with values from the TrustedLen iterator.
+    /// Should be preferred over `from_iter` when the iterator is known to be `TrustedLen`.
+    pub fn from_trusted_len_iter<I: TrustedLen<Item = T>>(iter: I) -> Self {
+        let (_, high) = iter.size_hint();
+        let mut buffer =
+            BufferMut::with_capacity(high.vortex_expect("TrustedLen iterator has no upper bound"));
+        buffer.extend_trusted(iter);
+        buffer.freeze()
+    }
+
     /// Returns the length of the buffer in elements of type T.
     #[inline(always)]
     pub fn len(&self) -> usize {
@@ -177,8 +188,10 @@ impl<T> Buffer<T> {
     }
 
     /// Returns an iterator over the buffer of elements of type T.
-    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.as_slice().iter()
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter {
+            inner: self.as_slice().iter(),
+        }
     }
 
     /// Returns a slice of self for the provided range.
@@ -398,6 +411,43 @@ impl<T> Buffer<T> {
     }
 }
 
+/// An iterator over Buffer elements.
+///
+/// This is an analog to the `std::slice::Iter` type.
+pub struct Iter<'a, T> {
+    inner: std::slice::Iter<'a, T>,
+}
+
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+
+    fn count(self) -> usize {
+        self.inner.count()
+    }
+
+    fn last(self) -> Option<Self::Item> {
+        self.inner.last()
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.inner.nth(n)
+    }
+}
+
+impl<T> ExactSizeIterator for Iter<'_, T> {
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
 impl<T: Debug> Debug for Buffer<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(&format!("Buffer<{}>", type_name::<T>()))
@@ -481,7 +531,7 @@ impl<T: Copy> Iterator for BufferIterator<T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         (self.index < self.buffer.len()).then(move || {
-            let value = self.buffer.as_slice()[self.index];
+            let value = self.buffer[self.index];
             self.index += 1;
             value
         })

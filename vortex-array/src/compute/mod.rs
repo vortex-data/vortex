@@ -36,6 +36,7 @@ use vortex_dtype::DType;
 use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+pub use zip::*;
 
 use crate::builders::ArrayBuilder;
 use crate::{Array, ArrayRef};
@@ -61,6 +62,7 @@ mod nan_count;
 mod numeric;
 mod sum;
 mod take;
+mod zip;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered
 /// compute kernels.

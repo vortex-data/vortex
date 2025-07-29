@@ -102,6 +102,13 @@ macro_rules! vtable {
                 }
             }
 
+            impl From<[<$V Array>]> for $crate::ArrayRef {
+                fn from(value: [<$V Array>]) -> $crate::ArrayRef {
+                    use $crate::IntoArray;
+                    value.into_array()
+                }
+            }
+
             impl AsRef<dyn $crate::Encoding> for [<$V Encoding>] {
                 fn as_ref(&self) -> &dyn $crate::Encoding {
                     // We can unsafe cast ourselves to an EncodingAdapter.

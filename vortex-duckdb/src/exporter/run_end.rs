@@ -28,7 +28,7 @@ struct RunEndExporter<E: NativePType> {
 
 pub(crate) fn new_exporter(
     array: &RunEndArray,
-    cache: &mut ConversionCache,
+    cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let ends = array.ends().to_primitive()?;
     let values = array.values().clone();

@@ -30,7 +30,7 @@ impl TakeKernel for VarBinViewVTable {
 
         Ok(VarBinViewArray::try_new(
             views_buffer,
-            array.buffers().to_vec(),
+            array.buffers().clone(),
             array
                 .dtype()
                 .union_nullability(indices.dtype().nullability()),
@@ -53,6 +53,7 @@ fn take_views<I: AsPrimitive<usize>>(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
@@ -62,6 +63,7 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::{PrimitiveArray, VarBinViewArray};
     use crate::canonical::ToCanonical;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
 
     #[test]
@@ -111,5 +113,26 @@ mod tests {
                 .unwrap(),
             [Some("two".to_string()), None]
         );
+    }
+
+    #[rstest]
+    #[case(VarBinViewArray::from_iter(
+        ["hello", "world", "test", "data", "array"].map(Some),
+        DType::Utf8(NonNullable),
+    ))]
+    #[case(VarBinViewArray::from_iter_nullable_str([
+        Some("hello"),
+        None,
+        Some("test"),
+        Some("data"),
+        None,
+    ]))]
+    #[case(VarBinViewArray::from_iter(
+        [b"hello".as_slice(), b"world", b"test", b"data", b"array"].map(Some),
+        DType::Binary(NonNullable),
+    ))]
+    #[case(VarBinViewArray::from_iter(["single"].map(Some), DType::Utf8(NonNullable)))]
+    fn test_take_varbinview_conformance(#[case] array: VarBinViewArray) {
+        test_take_conformance(array.as_ref());
     }
 }

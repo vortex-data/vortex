@@ -7,7 +7,6 @@ use itertools::Itertools;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString};
-use vortex::buffer::ByteBuffer;
 use vortex::dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
 use vortex::scalar::Scalar;
 
@@ -91,7 +90,7 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
     // bytes
     if let Ok(bytes) = value.downcast::<PyBytes>() {
         return Ok(Scalar::binary(
-            Arc::new(ByteBuffer::from(bytes.extract::<Vec<u8>>()?)),
+            bytes.extract::<Vec<u8>>()?,
             Nullability::NonNullable,
         ));
     }

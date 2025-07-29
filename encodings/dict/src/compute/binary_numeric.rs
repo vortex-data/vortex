@@ -42,7 +42,7 @@ register_kernel!(NumericKernelAdapter(DictVTable).lift());
 mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::conformance::binary_numeric::test_numeric;
+    use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_conformance;
 
     use crate::builders::dict_encode;
 
@@ -62,6 +62,6 @@ mod tests {
     #[test]
     fn test_dict_binary_numeric() {
         let array = sliced_dict_array();
-        test_numeric::<i32>(array)
+        test_binary_numeric_conformance::<i32>(array)
     }
 }

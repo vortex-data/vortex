@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use datafusion::arrow::datatypes::{Schema, SchemaRef};
 use datafusion::catalog::Session;
 use datafusion::common::parsers::CompressionTypeVariant;
+use datafusion::common::runtime::SpawnedTask;
 use datafusion::common::stats::Precision;
 use datafusion::common::{
     ColumnStatistics, DataFusionError, GetExt, Result as DFResult, Statistics,
@@ -145,6 +146,10 @@ impl FileFormat for VortexFormat {
         self
     }
 
+    fn compression_type(&self) -> Option<FileCompressionType> {
+        None
+    }
+
     fn get_ext(&self) -> String {
         VORTEX_FILE_EXTENSION.to_string()
     }
@@ -171,7 +176,7 @@ impl FileFormat for VortexFormat {
             .map(|o| {
                 let store = store.clone();
                 let cache = self.file_cache.clone();
-                tokio::task::spawn(async move {
+                SpawnedTask::spawn(async move {
                     let vxf = cache.try_get(&o, store).await?;
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))
@@ -202,7 +207,7 @@ impl FileFormat for VortexFormat {
         let object = object.clone();
         let store = store.clone();
         let cache = self.file_cache.clone();
-        tokio::task::spawn(async move {
+        SpawnedTask::spawn(async move {
             let vxf = cache.try_get(&object, store.clone()).await.map_err(|e| {
                 DataFusionError::Execution(format!(
                     "Failed to open Vortex file {}: {e}",

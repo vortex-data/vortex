@@ -14,7 +14,7 @@ use vortex_expr::ExprRef;
 use vortex_layout::LayoutReader;
 use vortex_mask::Mask;
 
-use crate::{Selection, TaskExecutor, TaskExecutorExt};
+use crate::Selection;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
@@ -30,7 +30,7 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 ///
 /// This mask is then provided to the reader to perform a filtered projection over the split data,
 /// finally mapping the Vortex columnar record batches into some result type `A`.
-pub(super) fn split_exec<A: 'static + Send + Sync>(
+pub(super) fn split_exec<A: 'static + Send>(
     ctx: Arc<TaskContext<A>>,
     split: Range<u64>,
     limit: Option<&mut usize>,
@@ -105,11 +105,7 @@ pub(super) fn split_exec<A: 'static + Send + Sync>(
         mapper(array_ref).map(Some)
     };
 
-    match &ctx.task_executor {
-        None => Ok(array_fut.boxed()),
-        // If caller provided an executor for the CPU work, spawn onto that and await the result
-        Some(executor) => Ok(executor.clone().spawn(array_fut.boxed())),
-    }
+    Ok(array_fut.boxed())
 }
 
 /// Information needed to execute a single split task.
@@ -132,6 +128,4 @@ pub(super) struct TaskContext<A> {
 
     /// Function that maps into an A.
     pub(super) mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-
-    pub(super) task_executor: Option<Arc<dyn TaskExecutor>>,
 }

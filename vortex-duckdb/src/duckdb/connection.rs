@@ -20,7 +20,7 @@ impl Connection {
     pub fn connect(db: &Database) -> VortexResult<Self> {
         let mut ptr: cpp::duckdb_connection = ptr::null_mut();
         duckdb_try!(
-            unsafe { cpp::duckdb_connect(db.as_ptr(), &mut ptr) },
+            unsafe { cpp::duckdb_connect(db.as_ptr(), &raw mut ptr) },
             "Failed to connect to DuckDB database"
         );
         Ok(unsafe { Self::own(ptr) })
@@ -32,11 +32,12 @@ impl Connection {
         let query_cstr =
             std::ffi::CString::new(query).map_err(|_| vortex_err!("Invalid query string"))?;
 
-        let status = unsafe { cpp::duckdb_query(self.as_ptr(), query_cstr.as_ptr(), &mut result) };
+        let status =
+            unsafe { cpp::duckdb_query(self.as_ptr(), query_cstr.as_ptr(), &raw mut result) };
 
         if status != cpp::duckdb_state::DuckDBSuccess {
             let error_msg = unsafe {
-                let error_ptr = cpp::duckdb_result_error(&mut result);
+                let error_ptr = cpp::duckdb_result_error(&raw mut result);
                 if error_ptr.is_null() {
                     "Unknown DuckDB error".to_string()
                 } else {
@@ -44,7 +45,7 @@ impl Connection {
                 }
             };
 
-            unsafe { cpp::duckdb_destroy_result(&mut result) };
+            unsafe { cpp::duckdb_destroy_result(&raw mut result) };
             return Err(vortex_err!("Failed to execute query: {}", error_msg));
         }
 

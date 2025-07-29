@@ -6,6 +6,8 @@
 use std::path::PathBuf;
 use std::{env, fs};
 
+use bindgen::Abi;
+
 const DUCKDB_VERSION: &str = "1.3.2";
 const DUCKDB_BASE_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
 
@@ -33,7 +35,7 @@ fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> 
 
     if !archive_path.exists() {
         println!("Downloading DuckDB libraries from {url}");
-        let response = reqwest::blocking::get(&url)?;
+        let response = http_client()?.get(&url).send()?;
         fs::write(&archive_path, &response.bytes()?)?;
         println!("Downloaded to {}", archive_path.display());
     } else {
@@ -81,7 +83,7 @@ fn download_duckdb_source_archive() -> Result<PathBuf, Box<dyn std::error::Error
 
     if !archive_path.exists() {
         println!("Downloading DuckDB source code from {url}");
-        let response = reqwest::blocking::get(&url)?;
+        let response = http_client()?.get(&url).send()?;
         fs::write(&archive_path, &response.bytes()?)?;
         println!("Downloaded to {}", archive_path.display());
     } else {
@@ -117,6 +119,19 @@ fn extract_duckdb_source(archive_path: PathBuf) -> Result<PathBuf, Box<dyn std::
     Ok(duckdb_source_dir)
 }
 
+fn http_client() -> Result<reqwest::blocking::Client, Box<dyn std::error::Error>> {
+    let timeout_secs = env::var("CARGO_HTTP_TIMEOUT")
+        .or_else(|_| env::var("HTTP_TIMEOUT"))
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(90);
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()?;
+    Ok(client)
+}
+
 fn main() {
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let duckdb_repo = crate_dir.join("duckdb");
@@ -134,6 +149,7 @@ fn main() {
     // Generate the _imported_ bindings from our C++ code.
     bindgen::Builder::default()
         .header("cpp/include/duckdb_vx.h")
+        .override_abi(Abi::CUnwind, ".*")
         // Add the #[must_use] attribute to FFI functions that return results.
         .must_use_type("duckdb_state")
         .rustified_enum("duckdb_state")
@@ -191,6 +207,8 @@ fn main() {
         .flag("-Wpedantic")
         // Allow C++20 designator syntax even with C++17 std
         .flag("-Wno-c++20-designator")
+        // Enable C++20 extensions
+        .flag("-Wno-c++20-extensions")
         // Unused parameter warnings are disabled as we include DuckDB
         // headers with implementations that have unused parameters.
         .flag("-Wno-unused-parameter")

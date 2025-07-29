@@ -8,10 +8,16 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::{DType, FieldName, FieldNames, StructFields};
-use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{
+    VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err, vortex_panic,
+};
 
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
+/// A scalar value representing a struct with named fields.
+///
+/// This type provides a view into a struct scalar value, which can contain
+/// named fields with different types, or be null.
 pub struct StructScalar<'a> {
     dtype: &'a DType,
     fields: Option<&'a Arc<[ScalarValue]>>,
@@ -79,11 +85,13 @@ impl<'a> StructScalar<'a> {
         })
     }
 
+    /// Returns the data type of this struct scalar.
     #[inline]
     pub fn dtype(&self) -> &'a DType {
         self.dtype
     }
 
+    /// Returns the struct field definitions.
     #[inline]
     pub fn struct_fields(&self) -> &StructFields {
         self.dtype
@@ -91,19 +99,31 @@ impl<'a> StructScalar<'a> {
             .vortex_expect("StructScalar always has struct dtype")
     }
 
+    /// Returns the field names of the struct.
     pub fn names(&self) -> &FieldNames {
         self.struct_fields().names()
     }
 
+    /// Returns true if the struct is null.
     pub fn is_null(&self) -> bool {
         self.fields.is_none()
     }
 
+    /// Returns the field with the given name as a scalar.
+    ///
+    /// Returns None if the field doesn't exist.
     pub fn field(&self, name: impl AsRef<str>) -> Option<Scalar> {
         let idx = self.struct_fields().find(name)?;
         self.field_by_idx(idx)
     }
 
+    /// Returns the field at the given index as a scalar.
+    ///
+    /// Returns None if the index is out of bounds.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the struct is null.
     pub fn field_by_idx(&self, idx: usize) -> Option<Scalar> {
         let fields = self
             .fields
@@ -131,6 +151,11 @@ impl<'a> StructScalar<'a> {
         self.fields.map(Arc::deref)
     }
 
+    /// Casts this struct scalar to another struct type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the target type is not a struct or if the number of fields don't match.
     pub fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         let DType::Struct(st, _) = dtype else {
             vortex_bail!("Can only cast struct to another struct")
@@ -172,6 +197,11 @@ impl<'a> StructScalar<'a> {
         }
     }
 
+    /// Projects this struct scalar to include only the specified fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the struct cannot be projected or if a field is not found.
     pub fn project(&self, projection: &[FieldName]) -> VortexResult<Scalar> {
         let struct_dtype = self
             .dtype
@@ -201,7 +231,32 @@ impl<'a> StructScalar<'a> {
 }
 
 impl Scalar {
+    /// Creates a new struct scalar with the given fields.
     pub fn struct_(dtype: DType, children: Vec<Scalar>) -> Self {
+        let DType::Struct(struct_fields, _) = &dtype else {
+            vortex_panic!("Expected struct dtype, found {}", dtype);
+        };
+
+        let field_dtypes = struct_fields.fields();
+        if children.len() != field_dtypes.len() {
+            vortex_panic!(
+                "Struct has {} fields but {} children were provided",
+                field_dtypes.len(),
+                children.len()
+            );
+        }
+
+        for (idx, (child, expected_dtype)) in children.iter().zip(field_dtypes).enumerate() {
+            if child.dtype() != &expected_dtype {
+                vortex_panic!(
+                    "Field {} expected dtype {} but got {}",
+                    idx,
+                    expected_dtype,
+                    child.dtype()
+                );
+            }
+        }
+
         Self {
             dtype,
             value: ScalarValue(InnerScalarValue::List(
@@ -278,5 +333,33 @@ mod tests {
         let scalar_f1 = scalar_f1.unwrap();
         assert_eq!(scalar_f1, f1_val_null);
         assert_eq!(scalar_f1.dtype(), &f1_dt);
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected struct dtype")]
+    fn test_struct_scalar_wrong_dtype() {
+        let dtype = DType::Primitive(I32, Nullability::NonNullable);
+        let scalar = Scalar::primitive::<i32>(1, Nullability::NonNullable);
+
+        Scalar::struct_(dtype, vec![scalar]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Struct has 2 fields but 1 children were provided")]
+    fn test_struct_scalar_wrong_child_count() {
+        let (_, _, dtype) = setup_types();
+        let f0_val = Scalar::primitive::<i32>(1, Nullability::NonNullable);
+
+        Scalar::struct_(dtype, vec![f0_val]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Field 0 expected dtype i32 but got utf8")]
+    fn test_struct_scalar_wrong_child_dtype() {
+        let (_, _, dtype) = setup_types();
+        let f0_val = Scalar::utf8("wrong", Nullability::NonNullable);
+        let f1_val = Scalar::utf8("hello", Nullability::NonNullable);
+
+        Scalar::struct_(dtype, vec![f0_val, f1_val]);
     }
 }

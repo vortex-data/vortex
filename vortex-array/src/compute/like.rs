@@ -13,6 +13,14 @@ use crate::compute::{ComputeFn, ComputeFnVTable, InvocationArgs, Kernel, Options
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef};
 
+static LIKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("like".into(), ArcRef::new_ref(&Like));
+    for kernel in inventory::iter::<LikeKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 /// Perform SQL left LIKE right
 ///
 /// There are two wildcards supported with the LIKE operator:
@@ -61,14 +69,6 @@ impl<V: VTable + LikeKernel> Kernel for LikeKernelAdapter<V> {
         Ok(V::like(&self.0, array, inputs.pattern, inputs.options)?.map(|array| array.into()))
     }
 }
-
-pub static LIKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("like".into(), ArcRef::new_ref(&Like));
-    for kernel in inventory::iter::<LikeKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 struct Like;
 

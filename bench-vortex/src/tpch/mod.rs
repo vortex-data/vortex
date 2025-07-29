@@ -91,6 +91,18 @@ pub async fn register_vortex_file(
     datasets::file::register_vortex_files(session, table_name, file, glob, schema, dataset).await
 }
 
+pub async fn register_vortex_compact_file(
+    session: &SessionContext,
+    table_name: &str,
+    file: &Url,
+    glob: Option<Pattern>,
+    schema: Option<Schema>,
+    dataset: &BenchmarkDataset,
+) -> anyhow::Result<()> {
+    datasets::file::register_vortex_compact_files(session, table_name, file, glob, schema, dataset)
+        .await
+}
+
 /// Load a table as an uncompressed Vortex array.
 pub async fn load_table(data_dir: impl AsRef<Path>, name: &str, schema: &Schema) -> ArrayRef {
     // Create a local session to load the CSV file from the path.

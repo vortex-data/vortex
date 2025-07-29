@@ -1,26 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future::Future;
-use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
-use arrow_array::RecordBatch;
-use arrow_schema::SchemaRef;
-use futures::executor::LocalPool;
-use futures::task::LocalSpawnExt;
-use futures::{Stream, StreamExt, stream};
+use futures::future::BoxFuture;
 use itertools::Itertools;
+pub use multi_scan::*;
 pub use selection::*;
 pub use split_by::*;
-use vortex_array::iter::{ArrayIterator, ArrayIteratorAdapter};
+use tasks::{TaskContext, split_exec};
+use vortex_array::ArrayRef;
+use vortex_array::iter::ArrayIterator;
 use vortex_array::stats::StatsSet;
-use vortex_array::stream::{ArrayStream, ArrayStreamAdapter};
-use vortex_array::{ArrayRef, ToCanonical};
 use vortex_buffer::Buffer;
 use vortex_dtype::{DType, Field, FieldMask, FieldName, FieldPath};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexResult, vortex_bail};
 use vortex_expr::transform::immediate_access::immediate_scope_access;
 use vortex_expr::transform::simplify_typed::simplify_typed;
 use vortex_expr::{ExprRef, root};
@@ -30,14 +25,19 @@ use vortex_layout::{LayoutReader, LayoutReaderRef};
 pub use vortex_layout::{TaskExecutor, TaskExecutorExt};
 use vortex_metrics::VortexMetrics;
 
+use crate::work_queue::{TaskFactory, WorkStealingQueue};
+use crate::work_stealing_iter::{ArrayTask, WorkStealingArrayIterator};
+
+mod arrow;
 mod multi_scan;
+#[cfg(feature = "tokio")]
+mod multi_thread;
 pub mod row_mask;
 mod selection;
 mod split_by;
 mod tasks;
-
-pub use multi_scan::{MultiScan, MultiScanIterator};
-use tasks::{TaskContext, split_exec};
+mod work_queue;
+mod work_stealing_iter;
 
 /// A struct for building a scan operation.
 pub struct ScanBuilder<A> {
@@ -49,14 +49,12 @@ pub struct ScanBuilder<A> {
     /// The selection mask to apply to the selected row range.
     // TODO(joe): replace this is usage of row_id selection, see
     selection: Selection,
-    /// How to split the file for concurrent processing.
+    /// How to split the file f§    or concurrent processing.
     split_by: SplitBy,
-    /// The number of splits to make progress on concurrently.
+    /// The number of splits to make progress on concurrently **per-thread**.
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-    /// The executor used to spawn each split task.
-    executor: Option<Arc<dyn TaskExecutor>>,
     metrics: VortexMetrics,
     /// Should we try to prune the file (using stats) on open.
     file_stats: Option<Arc<[StatsSet]>>,
@@ -67,7 +65,7 @@ pub struct ScanBuilder<A> {
     row_offset: u64,
 }
 
-impl<A: 'static + Send + Sync> ScanBuilder<A> {
+impl<A: 'static + Send> ScanBuilder<A> {
     pub fn with_filter(mut self, filter: ExprRef) -> Self {
         self.filter = Some(filter);
         self
@@ -108,25 +106,11 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
         self
     }
 
-    /// The number of row splits to make progress on concurrently, must be greater than 0.
+    /// The number of row splits to make progress on concurrently per-thread, must
+    /// be greater than 0.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         assert!(concurrency > 0);
         self.concurrency = concurrency;
-        self
-    }
-
-    /// Spawn each CPU task onto the given Tokio runtime.
-    ///
-    /// Note that this is an odd use of the Tokio runtime. Typically, it is used predominantly
-    /// for I/O bound tasks.
-    #[cfg(feature = "tokio")]
-    pub fn with_tokio_executor(mut self, handle: tokio::runtime::Handle) -> Self {
-        self.executor = Some(Arc::new(handle));
-        self
-    }
-
-    pub fn with_executor(mut self, executor: Arc<dyn TaskExecutor>) -> Self {
-        self.executor = Some(executor);
         self
     }
 
@@ -138,6 +122,11 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     pub fn with_limit(mut self, limit: usize) -> Self {
         self.limit = Some(limit);
         self
+    }
+
+    /// The [`DType`] returned by the scan, after applying the projection.
+    pub fn dtype(&self) -> VortexResult<DType> {
+        self.projection.return_dtype(self.layout_reader.dtype())
     }
 
     /// Map each split of the scan. The function will be run on the spawned task.
@@ -155,7 +144,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             split_by: self.split_by,
             concurrency: self.concurrency,
             map_fn: Arc::new(move |a| map_fn(old_map_fn(a)?)),
-            executor: self.executor,
             metrics: self.metrics,
             file_stats: self.file_stats,
             limit: self.limit,
@@ -164,18 +152,14 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
     }
 
     /// Constructs a task per row split of the scan, returned as a vector of futures.
-    #[allow(clippy::unused_enumerate_index)]
-    pub fn build(
-        mut self,
-    ) -> VortexResult<(DType, Vec<impl Future<Output = VortexResult<Option<A>>>>)> {
+    pub fn build(mut self) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
 
         // The ultimate short circuit
         if self.limit.is_some_and(|l| l == 0) {
-            let dtype = self.projection.return_dtype(self.layout_reader.dtype())?;
-            return Ok((dtype, Vec::new()));
+            return Ok(vec![]);
         }
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
@@ -216,7 +200,6 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
                     reader: layout_reader.clone(),
                     projection: projection.clone(),
                     mapper: self.map_fn.clone(),
-                    task_executor: self.executor.clone(),
                 });
 
                 if self.limit.is_some_and(|l| l == 0) {
@@ -227,16 +210,7 @@ impl<A: 'static + Send + Sync> ScanBuilder<A> {
             })
             .try_collect()?;
 
-        let dtype = self.projection.return_dtype(layout_reader.dtype())?;
-        Ok((dtype, split_tasks))
-    }
-
-    pub fn into_stream(self) -> VortexResult<impl Stream<Item = VortexResult<A>> + 'static> {
-        let concurrency = self.concurrency;
-        let (_, split_tasks) = self.build()?;
-        Ok(stream::iter(split_tasks)
-            .buffered(concurrency)
-            .filter_map(|r| async move { r.transpose() }))
+        Ok(split_tasks)
     }
 }
 
@@ -249,11 +223,10 @@ impl ScanBuilder<ArrayRef> {
             row_range: None,
             selection: Default::default(),
             split_by: SplitBy::Layout,
-            // How many row splits to make progress on concurrently (not necessarily in parallel,
-            // that is decided by the TaskExecutor).
-            concurrency: 16,
+            // We default to four tasks per worker thread, which allows for some I/O lookahead
+            // without too much impact on work-stealing.
+            concurrency: 4,
             map_fn: Arc::new(Ok),
-            executor: None,
             metrics: Default::default(),
             file_stats: None,
             limit: None,
@@ -261,55 +234,21 @@ impl ScanBuilder<ArrayRef> {
         }
     }
 
-    /// Map the scan into a stream of Arrow [`RecordBatch`].
-    pub fn map_to_record_batch(self, schema: SchemaRef) -> ScanBuilder<RecordBatch> {
-        self.map(move |array| {
-            let st = array.to_struct()?;
-            st.into_record_batch_with_schema(schema.as_ref())
-        })
-    }
-
-    /// Returns a stream over the scan with each CPU task polled on the current thread as per
-    /// the behaviour of [`futures::stream::Buffered`].
-    pub fn into_array_stream(self) -> VortexResult<impl ArrayStream + 'static> {
-        let concurrency = self.concurrency;
-        let (dtype, split_tasks) = self.build()?;
-        Ok(ArrayStreamAdapter::new(
-            dtype,
-            stream::iter(split_tasks)
-                .buffered(concurrency)
-                .filter_map(|r| async move { r.transpose() }),
-        ))
-    }
-
-    /// Returns a blocking iterator over the scan.
+    /// Returns a thread-safe [`ArrayIterator`] that can be cloned and passed
+    /// to other threads to make progress on the same scan concurrently.
     ///
-    /// All work will be performed on the current thread, with tasks interleaved per the
-    /// configured concurrency. Any configured executor will be ignored.
-    pub fn into_array_iter(mut self) -> VortexResult<impl ArrayIterator + 'static> {
-        // As we're using a `LocalPool` here, we want tasks to actually run fully on the current thread,
-        // so we have to make sure to zero out any currently configured executor.
-        self.executor = None;
+    /// Within each thread, the array chunks will be emitted in the original order they are within
+    /// the scan. Between threads, the order is not guaranteed.
+    pub fn into_array_iter(self) -> VortexResult<impl ArrayIterator + Send + Clone + 'static> {
+        let dtype = self.dtype()?;
         let concurrency = self.concurrency;
+        let tasks = self.build()?;
+        let queue = WorkStealingQueue::new([Box::new(move || Ok(tasks)) as TaskFactory<ArrayTask>]);
 
-        let mut local_pool = LocalPool::new();
-        let spawner = local_pool.spawner();
-
-        let (dtype, split_tasks) = self.build()?;
-        let mut stream = stream::iter(split_tasks)
-            .map(move |task| {
-                spawner
-                    .spawn_local_with_handle(task)
-                    .map_err(|e| vortex_err!("Failed to spawn task: {e}"))
-                    .vortex_expect("Failed to spawn task")
-            })
-            .buffered(concurrency)
-            .filter_map(|a| async move { a.transpose() })
-            .boxed_local();
-
-        Ok(ArrayIteratorAdapter::new(
-            dtype,
-            iter::from_fn(move || local_pool.run_until(stream.next())),
+        Ok(WorkStealingArrayIterator::new(
+            queue,
+            Arc::new(dtype),
+            concurrency,
         ))
     }
 }

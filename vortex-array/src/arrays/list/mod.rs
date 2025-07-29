@@ -9,12 +9,13 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::{AsPrimitive, PrimInt};
 use vortex_dtype::{DType, NativePType, match_each_native_ptype};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_panic};
+use vortex_error::{VortexResult, VortexUnwrap, vortex_bail};
 use vortex_scalar::Scalar;
 
 use crate::arrays::PrimitiveVTable;
 #[cfg(feature = "test-harness")]
 use crate::builders::{ArrayBuilder, ListBuilder};
+use crate::compute::sub_scalar;
 use crate::stats::{ArrayStats, StatsSetRef};
 use crate::validity::Validity;
 use crate::vtable::{
@@ -47,6 +48,57 @@ impl VTable for ListVTable {
     }
 }
 
+/// A list array that stores variable-length lists of elements, similar to `Vec<Vec<T>>`.
+///
+/// This mirrors the Apache Arrow List array encoding and provides efficient storage
+/// for nested data where each row contains a list of elements of the same type.
+///
+/// ## Data Layout
+///
+/// The list array uses an offset-based encoding:
+/// - **Elements array**: A flat array containing all list elements concatenated together
+/// - **Offsets array**: Integer array where `offsets[i]` is an (inclusive) start index into
+///   the **elements** and `offsets[i+1]` is the (exclusive) stop index for the `i`th list.
+/// - **Validity**: Optional mask indicating which lists are null
+///
+/// This allows for excellent cascading compression of the elements and offsets, as similar values
+/// are clustered together and the offsets have a predictable pattern and small deltas between
+/// consecutive elements.
+///
+/// ## Offset Semantics
+///
+/// - Offsets must be non-nullable integers (i32, i64, etc.)
+/// - Offsets array has length `n+1` where `n` is the number of lists
+/// - List `i` contains elements from `elements[offsets[i]..offsets[i+1]]`  
+/// - Offsets must be monotonically increasing
+///
+/// # Examples
+///
+/// ```
+/// use vortex_array::arrays::{ListArray, PrimitiveArray};
+/// use vortex_array::validity::Validity;
+/// use vortex_array::IntoArray;
+/// use std::sync::Arc;
+///
+/// // Create a list array representing [[1, 2], [3, 4, 5], []]
+/// let elements = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
+/// let offsets = PrimitiveArray::from_iter([0u32, 2, 5, 5]); // 3 lists
+///
+/// let list_array = ListArray::try_new(
+///     elements.into_array(),
+///     offsets.into_array(),
+///     Validity::NonNullable,
+/// ).unwrap();
+///
+/// assert_eq!(list_array.len(), 3);
+///
+/// // Access individual lists
+/// let first_list = list_array.elements_at(0).unwrap();
+/// assert_eq!(first_list.len(), 2); // [1, 2]
+///
+/// let third_list = list_array.elements_at(2).unwrap();
+/// assert!(third_list.is_empty()); // []
+/// ```
 #[derive(Clone, Debug)]
 pub struct ListArray {
     dtype: DType,
@@ -99,39 +151,63 @@ impl ListArray {
         })
     }
 
-    // TODO: merge logic with varbin
-    // TODO(ngates): should return a result if it requires canonicalizing offsets
+    /// Returns the offset at the given index from the list array.
+    ///
+    /// Panics if the index is out of bounds.
     pub fn offset_at(&self, index: usize) -> usize {
+        assert!(
+            index <= self.len(),
+            "Index {index} out of bounds 0..={}",
+            self.len()
+        );
+
         self.offsets()
             .as_opt::<PrimitiveVTable>()
-            .map(|p| match_each_native_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
+            .map(|p| {
+                Ok(match_each_native_ptype!(p.ptype(), |P| {
+                    p.as_slice::<P>()[index].as_()
+                }))
+            })
             .unwrap_or_else(|| {
                 self.offsets()
                     .scalar_at(index)
-                    .unwrap_or_else(|err| {
-                        vortex_panic!(err, "Failed to get offset at index: {}", index)
-                    })
-                    .as_ref()
-                    .try_into()
-                    .vortex_expect("Failed to convert offset to usize")
+                    .and_then(|s| usize::try_from(&s))
             })
+            .vortex_unwrap()
     }
 
-    // TODO: fetches the elements at index
+    /// Returns the elements at the given index from the list array.
     pub fn elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
         self.elements().slice(start, end)
     }
 
-    // TODO: fetches the offsets of the array ignoring validity
+    /// Returns elements of the list array referenced by the offsets array
+    pub fn sliced_elements(&self) -> VortexResult<ArrayRef> {
+        let start = self.offset_at(0);
+        let end = self.offset_at(self.len());
+        self.elements().slice(start, end)
+    }
+
+    /// Returns the offsets array.
     pub fn offsets(&self) -> &ArrayRef {
         &self.offsets
     }
 
-    // TODO: fetches the elements of the array ignoring validity
+    /// Returns the elements array.
     pub fn elements(&self) -> &ArrayRef {
         &self.elements
+    }
+
+    /// Create a copy of this array by adjusting offsets to start at 0 and removing elements not referenced by the offsets
+    pub fn reset_offsets(&self) -> VortexResult<Self> {
+        let elements = self.sliced_elements()?;
+        let offsets = self.offsets();
+        let first_offset = offsets.scalar_at(0)?;
+        let adjusted_offsets = sub_scalar(offsets, first_offset)?;
+
+        Self::try_new(elements, adjusted_offsets, self.validity.clone())
     }
 }
 
@@ -252,11 +328,13 @@ mod test {
     use arrow_buffer::BooleanBuffer;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
+    use vortex_error::VortexUnwrap;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArray;
+    use crate::arrays::{ListVTable, PrimitiveArray};
+    use crate::builders::{ArrayBuilder, ListBuilder};
     use crate::compute::filter;
     use crate::validity::Validity;
     use crate::{Array, IntoArray};
@@ -344,5 +422,67 @@ mod test {
         );
 
         assert!(filtered.is_ok())
+    }
+
+    #[test]
+    fn test_offset_to_0() {
+        let mut builder =
+            ListBuilder::<u32>::with_capacity(Arc::new(I32.into()), Nullability::NonNullable, 5);
+        builder
+            .append_value(
+                Scalar::list(
+                    Arc::new(I32.into()),
+                    vec![1.into(), 2.into(), 3.into()],
+                    Nullability::NonNullable,
+                )
+                .as_list(),
+            )
+            .vortex_unwrap();
+        builder
+            .append_value(
+                Scalar::list(
+                    Arc::new(I32.into()),
+                    vec![4.into(), 5.into(), 6.into()],
+                    Nullability::NonNullable,
+                )
+                .as_list(),
+            )
+            .vortex_unwrap();
+        builder
+            .append_value(
+                Scalar::list(
+                    Arc::new(I32.into()),
+                    vec![7.into(), 8.into(), 9.into()],
+                    Nullability::NonNullable,
+                )
+                .as_list(),
+            )
+            .vortex_unwrap();
+        builder
+            .append_value(
+                Scalar::list(
+                    Arc::new(I32.into()),
+                    vec![10.into(), 11.into(), 12.into()],
+                    Nullability::NonNullable,
+                )
+                .as_list(),
+            )
+            .vortex_unwrap();
+        builder
+            .append_value(
+                Scalar::list(
+                    Arc::new(I32.into()),
+                    vec![13.into(), 14.into(), 15.into()],
+                    Nullability::NonNullable,
+                )
+                .as_list(),
+            )
+            .vortex_unwrap();
+        let list = builder.finish().slice(2, 4).vortex_unwrap();
+        let list = list.as_::<ListVTable>().reset_offsets().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list.offsets().len(), 3);
+        assert_eq!(list.elements().len(), 6);
+        assert_eq!(list.offsets().scalar_at(0).unwrap(), 0u32.into());
     }
 }

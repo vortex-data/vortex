@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod convert;
 pub mod display;
-mod statistics;
 mod visitor;
 
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
-pub use convert::*;
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -19,13 +16,13 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::arrays::{
-    BoolEncoding, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
+    BoolEncoding, ConstantVTable, DecimalEncoding, ExtensionEncoding, ListEncoding, NullEncoding,
     PrimitiveEncoding, StructEncoding, VarBinEncoding, VarBinViewEncoding,
 };
 use crate::builders::ArrayBuilder;
-use crate::compute::{ComputeFn, Cost, InvocationArgs, Output};
+use crate::compute::{ComputeFn, Cost, InvocationArgs, IsConstantOpts, Output, is_constant_opts};
 use crate::serde::ArrayChildren;
-use crate::stats::{Precision, Stat, StatsProviderExt, StatsSetRef};
+use crate::stats::{Precision, Stat, StatsSetRef};
 use crate::vtable::{
     ArrayVTable, CanonicalVTable, ComputeVTable, OperationsVTable, SerdeVTable, VTable,
     ValidityVTable, VisitorVTable,
@@ -62,11 +59,6 @@ pub trait Array: 'static + private::Sealed + Send + Sync + Debug + ArrayVisitor 
 
     /// Fetch the scalar at the given index.
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar>;
-
-    /// Return an optimized version of the same array.
-    ///
-    /// See [`OperationsVTable::optimize`] for more details.
-    fn optimize(&self) -> VortexResult<ArrayRef>;
 
     /// Returns whether the array is of the given encoding.
     fn is_encoding(&self, encoding: EncodingId) -> bool {
@@ -189,10 +181,6 @@ impl Array for Arc<dyn Array> {
         self.as_ref().scalar_at(index)
     }
 
-    fn optimize(&self) -> VortexResult<ArrayRef> {
-        self.as_ref().optimize()
-    }
-
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
         self.as_ref().is_valid(index)
     }
@@ -274,19 +262,51 @@ impl dyn Array + '_ {
     pub fn is<V: VTable>(&self) -> bool {
         self.as_opt::<V>().is_some()
     }
-}
 
-impl dyn Array + '_ {
+    pub fn is_constant(&self) -> bool {
+        let opts = IsConstantOpts {
+            cost: Cost::Specialized,
+        };
+        is_constant_opts(self, &opts)
+            .inspect_err(|e| log::warn!("Failed to compute IsConstant: {e}"))
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    }
+
+    pub fn is_constant_opts(&self, cost: Cost) -> bool {
+        let opts = IsConstantOpts { cost };
+        is_constant_opts(self, &opts)
+            .inspect_err(|e| log::warn!("Failed to compute IsConstant: {e}"))
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    }
+
+    pub fn as_constant(&self) -> Option<Scalar> {
+        self.is_constant().then(|| self.scalar_at(0).ok()).flatten()
+    }
+
     /// Total size of the array in bytes, including all children and buffers.
-    // TODO(ngates): this should return u64
-    pub fn nbytes(&self) -> usize {
+    pub fn nbytes(&self) -> u64 {
         let mut nbytes = 0;
         for array in self.depth_first_traversal() {
             for buffer in array.buffers() {
-                nbytes += buffer.len();
+                nbytes += buffer.len() as u64;
             }
         }
         nbytes
+    }
+}
+
+/// Trait for converting a type into a Vortex [`ArrayRef`].
+pub trait IntoArray {
+    fn into_array(self) -> ArrayRef;
+}
+
+impl IntoArray for ArrayRef {
+    fn into_array(self) -> ArrayRef {
+        self
     }
 }
 
@@ -353,42 +373,9 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         if start > stop {
             vortex_bail!("start ({start}) must be <= stop ({stop})");
         }
-
         if start == stop {
             return Ok(Canonical::empty(self.dtype()).into_array());
         }
-
-        // We know that constant array don't need stats propagation, so we can avoid the overhead of
-        // computing derived stats and merging them in.
-        // TODO(ngates): skip the is_constant check here, it can force an expensive compute.
-        // TODO(ngates): provide a means to slice an array _without_ propagating stats.
-        let derived_stats = (!self.0.is_constant_opts(Cost::Negligible)).then(|| {
-            let stats = self.statistics().to_owned();
-
-            // an array that is not constant can become constant after slicing
-            let is_constant = stats.get_as::<bool>(Stat::IsConstant);
-            let is_sorted = stats.get_as::<bool>(Stat::IsSorted);
-            let is_strict_sorted = stats.get_as::<bool>(Stat::IsStrictSorted);
-
-            let mut stats = stats.keep_inexact_stats(&[
-                Stat::Max,
-                Stat::Min,
-                Stat::NullCount,
-                Stat::UncompressedSizeInBytes,
-            ]);
-
-            if is_constant == Some(Precision::Exact(true)) {
-                stats.set(Stat::IsConstant, Precision::exact(true));
-            }
-            if is_sorted == Some(Precision::Exact(true)) {
-                stats.set(Stat::IsSorted, Precision::exact(true));
-            }
-            if is_strict_sorted == Some(Precision::Exact(true)) {
-                stats.set(Stat::IsStrictSorted, Precision::exact(true));
-            }
-
-            stats
-        });
 
         let sliced = <V::OperationsVTable as OperationsVTable<V>>::slice(&self.0, start, stop)?;
 
@@ -398,19 +385,29 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             "Slice length mismatch {}",
             self.encoding_id()
         );
-        assert_eq!(
+
+        // Slightly more expensive, so only do this in debug builds.
+        debug_assert_eq!(
             sliced.dtype(),
             self.dtype(),
             "Slice dtype mismatch {}",
             self.encoding_id()
         );
 
-        if let Some(derived_stats) = derived_stats {
-            let mut stats = sliced.statistics().to_owned();
-            stats.combine_sets(&derived_stats, self.dtype())?;
-            for (stat, val) in stats.into_iter() {
-                sliced.statistics().set(stat, val)
-            }
+        // Propagate some stats from the original array to the sliced array.
+        if !sliced.is::<ConstantVTable>() {
+            self.statistics().with_iter(|iter| {
+                sliced.statistics().inherit(iter.filter(|(stat, value)| {
+                    matches!(
+                        stat,
+                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
+                    ) && value.as_ref().as_exact().is_some_and(|v| {
+                        v.as_bool()
+                            .vortex_expect("must be a bool")
+                            .unwrap_or_default()
+                    })
+                }));
+            });
         }
 
         Ok(sliced)
@@ -426,39 +423,6 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.0, index)?;
         assert_eq!(self.dtype(), scalar.dtype(), "Scalar dtype mismatch");
         Ok(scalar)
-    }
-
-    fn optimize(&self) -> VortexResult<ArrayRef> {
-        let result = <V::OperationsVTable as OperationsVTable<V>>::optimize(&self.0)?.into_array();
-
-        #[cfg(debug_assertions)]
-        {
-            let nbytes = self.0.nbytes();
-            let result_nbytes = result.nbytes();
-            assert!(
-                result_nbytes <= nbytes,
-                "optimize() made the array larger: {} bytes -> {} bytes",
-                nbytes,
-                result_nbytes
-            );
-        }
-
-        assert_eq!(
-            self.dtype(),
-            result.dtype(),
-            "optimize() changed DType from {} to {}",
-            self.dtype(),
-            result.dtype()
-        );
-        assert_eq!(
-            result.len(),
-            self.len(),
-            "optimize() changed len from {} to {}",
-            self.len(),
-            result.len()
-        );
-
-        Ok(result)
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {
@@ -536,7 +500,10 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             self.dtype(),
             canonical.as_ref().dtype()
         );
-        canonical.as_ref().statistics().inherit(self.statistics());
+        canonical
+            .as_ref()
+            .statistics()
+            .replace(self.statistics().to_owned());
         Ok(canonical)
     }
 

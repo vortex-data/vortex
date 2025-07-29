@@ -13,7 +13,7 @@ impl MaskKernel for VarBinViewVTable {
     fn mask(&self, array: &VarBinViewArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(VarBinViewArray::try_new(
             array.views().clone(),
-            array.buffers().to_vec(),
+            array.buffers().clone(),
             array.dtype().as_nullable(),
             array.validity().mask(mask)?,
         )?
@@ -26,13 +26,15 @@ register_kernel!(MaskKernelAdapter(VarBinViewVTable).lift());
 #[cfg(test)]
 mod tests {
     use crate::arrays::VarBinViewArray;
-    use crate::compute::conformance::mask::test_mask;
+    use crate::compute::conformance::mask::test_mask_conformance;
 
     #[test]
     fn take_mask_var_bin_view_array() {
-        test_mask(VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).as_ref());
+        test_mask_conformance(
+            VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).as_ref(),
+        );
 
-        test_mask(
+        test_mask_conformance(
             VarBinViewArray::from_iter_nullable_str([
                 Some("one"),
                 None,

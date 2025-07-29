@@ -6,14 +6,14 @@ use std::sync::Arc;
 
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::{DType, NativePType, Nullability};
-use vortex_error::{VortexExpect, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexExpect, VortexResult, vortex_bail};
 use vortex_mask::Mask;
-use vortex_scalar::{ListScalar, NumericOperator};
+use vortex_scalar::ListScalar;
 
-use crate::arrays::{ConstantArray, ListArray, OffsetPType};
+use crate::arrays::{ListArray, OffsetPType};
 use crate::builders::lazy_validity_builder::LazyNullBufferBuilder;
 use crate::builders::{ArrayBuilder, ArrayBuilderExt, PrimitiveBuilder, builder_with_capacity};
-use crate::compute::{cast, numeric};
+use crate::compute::{add_scalar, cast, sub_scalar};
 use crate::{Array, ArrayRef, IntoArray, ToCanonical};
 
 pub struct ListBuilder<O: NativePType> {
@@ -25,15 +25,40 @@ pub struct ListBuilder<O: NativePType> {
 }
 
 impl<O: OffsetPType> ListBuilder<O> {
-    // TODO(joe): add value + index capacity ctor.
+    /// Create a ListBuilder with the specified capacity for indices.
+    ///
+    /// # Notes
+    ///
+    /// The number of indices is one more than the number of lists in the array!
+    ///
+    /// See also: [ListBuilder::with_values_and_index_capacity].
     pub fn with_capacity(
         value_dtype: Arc<DType>,
         nullability: Nullability,
-        capacity: usize,
+        index_capacity: usize,
     ) -> Self {
         // I would expect the list to have more than one value per index
-        let value_builder = builder_with_capacity(value_dtype.as_ref(), 2 * capacity);
-        let mut index_builder = PrimitiveBuilder::with_capacity(NonNullable, capacity);
+        Self::with_values_and_index_capacity(
+            value_dtype,
+            nullability,
+            2 * index_capacity,
+            index_capacity,
+        )
+    }
+
+    /// Create a ListBuilder with the specified capacity for indices and values.
+    ///
+    /// # Notes
+    ///
+    /// The number of indices is one more than the number of lists in the array!
+    pub fn with_values_and_index_capacity(
+        value_dtype: Arc<DType>,
+        nullability: Nullability,
+        values_capacity: usize,
+        index_capacity: usize,
+    ) -> Self {
+        let value_builder = builder_with_capacity(value_dtype.as_ref(), values_capacity);
+        let mut index_builder = PrimitiveBuilder::with_capacity(NonNullable, index_capacity);
 
         // The first index of the list, which is always 0 and represents an empty list.
         index_builder.append_zero();
@@ -41,7 +66,7 @@ impl<O: OffsetPType> ListBuilder<O> {
         Self {
             value_builder,
             index_builder,
-            nulls: LazyNullBufferBuilder::new(capacity),
+            nulls: LazyNullBufferBuilder::new(index_capacity),
             nullability,
             dtype: DType::List(value_dtype, nullability),
         }
@@ -119,37 +144,43 @@ impl<O: OffsetPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn extend_from_array(&mut self, array: &dyn Array) -> VortexResult<()> {
-        self.nulls.append_validity_mask(array.validity_mask()?);
-
         let list = array.to_list()?;
+        if list.is_empty() {
+            return Ok(());
+        }
 
-        let cursor_usize = self.value_builder.len();
-        let cursor = O::from_usize(cursor_usize).ok_or_else(|| {
-            vortex_err!(
+        let n_already_added_values = self.value_builder.len();
+        let Some(n_already_added_values) = O::from_usize(n_already_added_values) else {
+            vortex_bail!(
                 "cannot convert length {} to type {:?}",
-                cursor_usize,
+                n_already_added_values,
                 O::PTYPE
             )
-        })?;
+        };
 
-        let offsets = numeric(
-            &cast(
-                &list.offsets().slice(1, list.offsets().len())?,
-                &DType::Primitive(O::PTYPE, NonNullable),
-            )?,
-            ConstantArray::new(cursor, list.len()).as_ref(),
-            NumericOperator::Add,
-        )?;
-        self.index_builder.extend_from_array(&offsets)?;
+        let offsets = list.offsets();
+        let elements = list.elements();
 
-        if !list.is_empty() {
-            let last_used_index = self.index_builder.values().last().vortex_expect("there must be at least one index because we just extended a non-zero list of offsets");
-            let sliced_values = list
-                .elements()
-                .slice(0, last_used_index.as_() - cursor_usize)?;
-            self.value_builder.ensure_capacity(sliced_values.len());
-            self.value_builder.extend_from_array(&sliced_values)?;
-        }
+        let index_dtype = self.index_builder.dtype();
+
+        let n_leading_junk_values_scalar = offsets.scalar_at(0)?.cast(index_dtype)?;
+        let n_leading_junk_values = usize::try_from(&n_leading_junk_values_scalar)?;
+
+        let casted_offsets = cast(&offsets.slice(1, offsets.len())?, index_dtype)?;
+        let offsets_without_leading_junk =
+            sub_scalar(&casted_offsets, n_leading_junk_values_scalar)?;
+        let offsets_into_builder =
+            add_scalar(&offsets_without_leading_junk, n_already_added_values.into())?;
+
+        let last_offset = offsets.scalar_at(offsets.len() - 1)?;
+        let last_offset = usize::try_from(&last_offset)?;
+        let non_junk_values = elements.slice(n_leading_junk_values, last_offset)?;
+
+        self.nulls.append_validity_mask(array.validity_mask()?);
+        self.index_builder
+            .extend_from_array(&offsets_into_builder)?;
+        self.value_builder.ensure_capacity(non_junk_values.len());
+        self.value_builder.extend_from_array(&non_junk_values)?;
 
         Ok(())
     }
@@ -308,13 +339,21 @@ mod tests {
 
         builder.extend_from_array(&list).unwrap();
         builder.extend_from_array(&list).unwrap();
+        builder
+            .extend_from_array(&list.slice(0, 0).unwrap())
+            .unwrap();
+        builder
+            .extend_from_array(&list.slice(1, 3).unwrap())
+            .unwrap();
 
-        let expect = ListArray::from_iter_opt_slow::<O, _, _>(
+        let expected = ListArray::from_iter_opt_slow::<O, _, _>(
             [
                 Some(vec![0, 1, 2]),
                 None,
                 Some(vec![4, 5]),
                 Some(vec![0, 1, 2]),
+                None,
+                Some(vec![4, 5]),
                 None,
                 Some(vec![4, 5]),
             ],
@@ -324,7 +363,7 @@ mod tests {
         .to_list()
         .unwrap();
 
-        let res = builder
+        let actual = builder
             .finish()
             .to_canonical()
             .unwrap()
@@ -332,16 +371,20 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            res.elements().to_primitive().unwrap().as_slice::<i32>(),
-            expect.elements().to_primitive().unwrap().as_slice::<i32>()
+            actual.elements().to_primitive().unwrap().as_slice::<i32>(),
+            expected
+                .elements()
+                .to_primitive()
+                .unwrap()
+                .as_slice::<i32>()
         );
 
         assert_eq!(
-            res.offsets().to_primitive().unwrap().as_slice::<O>(),
-            expect.offsets().to_primitive().unwrap().as_slice::<O>()
+            actual.offsets().to_primitive().unwrap().as_slice::<O>(),
+            expected.offsets().to_primitive().unwrap().as_slice::<O>()
         );
 
-        assert_eq!(res.validity(), expect.validity())
+        assert_eq!(actual.validity(), expected.validity())
     }
 
     #[test]

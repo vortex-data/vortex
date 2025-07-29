@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::{BinaryView, PrimitiveArray, VarBinViewArray};
@@ -15,7 +16,7 @@ use vortex_array::vtable::{
 use vortex_array::{ArrayRef, Canonical, EncodingId, EncodingRef, IntoArray, ToCanonical, vtable};
 use vortex_buffer::{Alignment, Buffer, BufferMut, ByteBuffer, ByteBufferMut};
 use vortex_dtype::DType;
-use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
+use vortex_error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 
@@ -107,16 +108,19 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usi
     let buffer_and_value_byte_indices = match mask.boolean_buffer() {
         AllOr::None => (Buffer::empty(), Vec::new()),
         _ => {
-            let mut buffer =
-                BufferMut::with_capacity(vbv.nbytes() + mask.true_count() * size_of::<ViewLen>());
+            let mut buffer = BufferMut::with_capacity(
+                usize::try_from(vbv.nbytes()).vortex_expect("must fit into buffer")
+                    + mask.true_count() * size_of::<ViewLen>(),
+            );
             let mut value_byte_indices = Vec::new();
             vbv.with_iterator(|iterator| {
                 // by flattening, we should omit nulls
                 for value in iterator.flatten() {
                     value_byte_indices.push(buffer.len());
                     // here's where we write the string lengths
-                    buffer.extend(ViewLen::try_from(value.len())?.to_le_bytes());
-                    buffer.extend(value);
+                    buffer
+                        .extend_trusted(ViewLen::try_from(value.len())?.to_le_bytes().into_iter());
+                    buffer.extend_from_slice(value);
                 }
                 Ok::<_, VortexError>(())
             })??;
@@ -465,7 +469,7 @@ impl ZstdArray {
 
                 let vbv = VarBinViewArray::try_new(
                     views,
-                    vec![decompressed],
+                    Arc::from([decompressed]),
                     self.dtype.clone(),
                     slice_validity,
                 )?;
@@ -482,6 +486,7 @@ impl ZstdArray {
         ZstdArray {
             slice_start: self.slice_start + start,
             slice_stop: self.slice_start + stop,
+            stats_set: Default::default(),
             ..self.clone()
         }
     }

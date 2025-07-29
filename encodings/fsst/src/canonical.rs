@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use fsst::Decompressor;
 use vortex_array::arrays::{BinaryView, VarBinViewArray};
 use vortex_array::builders::{ArrayBuilder, VarBinViewBuilder};
@@ -26,8 +28,8 @@ impl CanonicalVTable<FSSTVTable> for FSSTVTable {
             fsst_into_varbin_view(array.decompressor(), array, builder.completed_block_count())?;
 
         builder.push_buffer_and_adjusted_views(
-            view.buffers().iter().cloned(),
-            view.views().iter().cloned(),
+            view.buffers(),
+            view.views(),
             array.validity_mask()?,
         );
         Ok(())
@@ -94,7 +96,7 @@ fn fsst_into_varbin_view(
 
     VarBinViewArray::try_new(
         views,
-        vec![uncompressed_bytes_array],
+        Arc::from([uncompressed_bytes_array]),
         fsst_array.dtype().clone(),
         Validity::copy_from_array(fsst_array.as_ref())?,
     )

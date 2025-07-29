@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+#![allow(clippy::cast_possible_truncation)]
 
 use vortex_array::ToCanonical;
 use vortex_array::arrays::{BoolArray, PrimitiveArray, VarBinViewArray};
@@ -24,7 +25,7 @@ fn test_zstd_compress_decompress() {
 
     let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
     // this data should be compressible
-    assert!(compressed.frames.len() < array.nbytes());
+    assert!(compressed.frames.len() < array.nbytes() as usize);
     assert!(compressed.dictionary.is_none());
 
     // check full decompression works
@@ -117,10 +118,9 @@ fn test_zstd_with_dict() {
 
 #[test]
 fn test_validity_vtable() {
-    let data: Vec<i32> = (0..5).collect();
     let mask_bools = vec![false, true, true, false, true];
     let array = PrimitiveArray::new(
-        data.iter().cloned().collect::<Buffer<_>>(),
+        (0..5).collect::<Buffer<_>>(),
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
     );
     let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();

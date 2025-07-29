@@ -23,6 +23,7 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
             (physical_start, physical_stop + 1)
         };
 
+        // If the sliced range contains only a single run, opt to return a ConstantArray.
         if slice_begin + 1 == slice_end {
             let value = array.values().scalar_at(slice_begin)?;
             return Ok(ConstantArray::new(value, new_length).into_array());
@@ -48,7 +49,6 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
 
 #[cfg(test)]
 mod tests {
-
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::buffer;

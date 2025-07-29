@@ -72,7 +72,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     match cli.command {
-        Commands::Tree { file } => TOKIO_RUNTIME.block_on(exec_tree(file))?,
+        Commands::Tree { file } => exec_tree(file)?,
         Commands::Convert(flags) => TOKIO_RUNTIME.block_on(convert::exec_convert(flags))?,
         Commands::Browse { file } => exec_tui(file)?,
         Commands::Segments { file } => TOKIO_RUNTIME.block_on(segments::segments(file))?,

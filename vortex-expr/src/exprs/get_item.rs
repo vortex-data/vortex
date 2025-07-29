@@ -136,10 +136,6 @@ pub fn get_item(field: impl Into<FieldName>, child: ExprRef) -> ExprRef {
     GetItemExpr::new(field, child).into_expr()
 }
 
-pub fn get_item_scope(field: impl Into<FieldName>) -> ExprRef {
-    GetItemExpr::new(field, root()).into_expr()
-}
-
 impl Display for GetItemExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}", self.child, &self.field)
@@ -153,6 +149,10 @@ impl AnalysisExpr for GetItemExpr {
 
     fn min(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
         catalog.stats_ref(&self.field_path()?, Stat::Min)
+    }
+
+    fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        catalog.stats_ref(&self.field_path()?, Stat::NaNCount)
     }
 
     fn field_path(&self) -> Option<FieldPath> {

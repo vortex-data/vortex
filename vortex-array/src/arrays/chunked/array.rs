@@ -118,7 +118,7 @@ impl ChunkedArray {
         )
     }
 
-    pub fn rechunk(&self, target_bytesize: usize, target_rowsize: usize) -> VortexResult<Self> {
+    pub fn rechunk(&self, target_bytesize: u64, target_rowsize: usize) -> VortexResult<Self> {
         let mut new_chunks = Vec::new();
         let mut chunks_to_combine = Vec::new();
         let mut new_chunk_n_bytes = 0;
@@ -201,7 +201,7 @@ impl ValidityVTable<ChunkedVTable> for ChunkedVTable {
         if !array.dtype().is_nullable() {
             return Ok(true);
         }
-        for chunk in array.chunks() {
+        for chunk in array.non_empty_chunks() {
             if !chunk.all_valid()? {
                 return Ok(false);
             }
@@ -213,7 +213,7 @@ impl ValidityVTable<ChunkedVTable> for ChunkedVTable {
         if !array.dtype().is_nullable() {
             return Ok(false);
         }
-        for chunk in array.chunks() {
+        for chunk in array.non_empty_chunks() {
             if !chunk.all_invalid()? {
                 return Ok(false);
             }
@@ -237,10 +237,11 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::array::Array;
-    use crate::arrays::ChunkedVTable;
     use crate::arrays::chunked::ChunkedArray;
-    use crate::compute::conformance::binary_numeric::test_numeric;
+    use crate::arrays::{ChunkedVTable, PrimitiveArray};
+    use crate::compute::conformance::binary_numeric::test_binary_numeric_conformance;
     use crate::compute::{cast, sub_scalar};
+    use crate::validity::Validity;
     use crate::{IntoArray, ToCanonical, assert_arrays_eq};
 
     fn chunked_array() -> ChunkedArray {
@@ -356,6 +357,66 @@ mod test {
         // The tests test both X - 1 and 1 - X, so we need signed values
         let signed_dtype = DType::from(PType::try_from(array.dtype()).unwrap().to_signed());
         let array = cast(array.as_ref(), &signed_dtype).unwrap();
-        test_numeric::<u64>(array)
+        test_binary_numeric_conformance::<u64>(array)
+    }
+
+    #[test]
+    fn test_empty_chunks_all_valid() -> VortexResult<()> {
+        // Create chunks where some are empty but all non-empty chunks have all valid values
+        let chunks = vec![
+            PrimitiveArray::new(buffer![1u64, 2, 3], Validity::AllValid).into_array(),
+            PrimitiveArray::new(buffer![0u64; 0], Validity::AllValid).into_array(), // empty chunk
+            PrimitiveArray::new(buffer![4u64, 5], Validity::AllValid).into_array(),
+            PrimitiveArray::new(buffer![0u64; 0], Validity::AllValid).into_array(), // empty chunk
+        ];
+
+        let chunked =
+            ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
+
+        // Should be all_valid since all non-empty chunks are all_valid
+        assert!(chunked.all_valid()?);
+        assert!(!chunked.all_invalid()?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_empty_chunks_all_invalid() -> VortexResult<()> {
+        // Create chunks where some are empty but all non-empty chunks have all invalid values
+        let chunks = vec![
+            PrimitiveArray::new(buffer![1u64, 2], Validity::AllInvalid).into_array(),
+            PrimitiveArray::new(buffer![0u64; 0], Validity::AllInvalid).into_array(), // empty chunk
+            PrimitiveArray::new(buffer![3u64, 4, 5], Validity::AllInvalid).into_array(),
+            PrimitiveArray::new(buffer![0u64; 0], Validity::AllInvalid).into_array(), // empty chunk
+        ];
+
+        let chunked =
+            ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
+
+        // Should be all_invalid since all non-empty chunks are all_invalid
+        assert!(!chunked.all_valid()?);
+        assert!(chunked.all_invalid()?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_empty_chunks_mixed_validity() -> VortexResult<()> {
+        // Create chunks with mixed validity including empty chunks
+        let chunks = vec![
+            PrimitiveArray::new(buffer![1u64, 2], Validity::AllValid).into_array(),
+            PrimitiveArray::new(buffer![0u64; 0], Validity::AllValid).into_array(), // empty chunk
+            PrimitiveArray::new(buffer![3u64, 4], Validity::AllInvalid).into_array(),
+            PrimitiveArray::new(buffer![0u64; 0], Validity::AllInvalid).into_array(), // empty chunk
+        ];
+
+        let chunked =
+            ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
+
+        // Should be neither all_valid nor all_invalid
+        assert!(!chunked.all_valid()?);
+        assert!(!chunked.all_invalid()?);
+
+        Ok(())
     }
 }

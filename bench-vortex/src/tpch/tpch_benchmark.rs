@@ -19,7 +19,7 @@ use crate::engines::{EngineCtx, ddb};
 use crate::tpch::schema::{CUSTOMER, LINEITEM, NATION, ORDERS, PART, PARTSUPP, REGION, SUPPLIER};
 use crate::tpch::{
     EXPECTED_ROW_COUNTS_SF1, EXPECTED_ROW_COUNTS_SF10, register_arrow, register_parquet,
-    register_vortex_file, tpch_queries, tpchgen,
+    register_vortex_compact_file, register_vortex_file, tpch_queries, tpchgen,
 };
 use crate::{BenchmarkDataset, Format, IdempotentPath, Target};
 
@@ -204,6 +204,17 @@ impl TpcHBenchmark {
                     register_vortex_file(session, name, &path, glob, schema, &self.dataset())
                         .await?
                 }
+                Format::VortexCompact => {
+                    register_vortex_compact_file(
+                        session,
+                        name,
+                        &path,
+                        glob,
+                        schema,
+                        &self.dataset(),
+                    )
+                    .await?
+                }
                 Format::OnDiskDuckDB => unreachable!("duckdb never supported with datafusion"),
                 Format::Csv => todo!("csv unsupported for tpch benchmark"),
             }
@@ -286,7 +297,7 @@ impl TpcHBenchmark {
                         ChangeTag::Insert => "+",
                         ChangeTag::Equal => " ",
                     };
-                    print!("{}{}", sign, change);
+                    print!("{sign}{change}");
                 }
 
                 eprintln!("query output does not match the reference for {query_name}");

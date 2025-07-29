@@ -71,8 +71,8 @@ impl Benchmark for TpcDsBenchmark {
                 // Create output directory
                 fs::create_dir_all(&base_data_dir)?;
 
-                // Generate TPC-DS data using DuckDB
-                let duckdb_ctx = DuckDBCtx::new(self.dataset(), target.format())?;
+                // Generate TPC-DS data using DuckDesB
+                let duckdb_ctx = DuckDBCtx::new(self.dataset(), target.format(), false)?;
 
                 // Install and load the tpcds extension
                 let _result1 = duckdb_ctx.execute_query("INSTALL tpcds")?;

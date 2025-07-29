@@ -20,9 +20,8 @@ box_wrapper!(
 );
 
 #[inline]
-pub fn try_or<T>(
+pub fn try_or_default<T: Default>(
     error_out: *mut *mut vx_error,
-    on_err: T,
     function: impl FnOnce() -> VortexResult<T>,
 ) -> T {
     match function() {
@@ -35,7 +34,7 @@ pub fn try_or<T>(
                 message: err.to_string().into(),
             }));
             unsafe { error_out.write(err) };
-            on_err
+            T::default()
         }
     }
 }

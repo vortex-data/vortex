@@ -111,7 +111,7 @@ fn pack_lists(
         let adjustment_from_previous = *offsets
             .last()
             .ok_or_else(|| vortex_err!("List offsets must have at least one element"))?;
-        offsets.extend(
+        offsets.extend_trusted(
             offsets_arr
                 .as_slice::<i64>()
                 .iter()

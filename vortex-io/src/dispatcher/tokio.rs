@@ -7,6 +7,8 @@ use std::thread::JoinHandle;
 
 use futures::channel::oneshot;
 use tokio::task::{JoinHandle as TokioJoinHandle, LocalSet};
+#[cfg(feature = "tracing")]
+use tracing::Instrument;
 use vortex_error::{VortexResult, vortex_bail, vortex_panic};
 
 use super::{Dispatch, JoinHandle as VortexJoinHandle};
@@ -66,6 +68,8 @@ impl TokioDispatcher {
 struct TokioTask<F, R> {
     task: F,
     result: oneshot::Sender<R>,
+    #[cfg(feature = "tracing")]
+    span: tracing::Span,
 }
 
 impl<F, Fut, R> TokioSpawn for TokioTask<F, R>
@@ -75,9 +79,18 @@ where
     R: Send + 'static,
 {
     fn spawn(self: Box<Self>) -> TokioJoinHandle<()> {
-        let TokioTask { task, result } = *self;
+        let TokioTask {
+            task,
+            result,
+            #[cfg(feature = "tracing")]
+            span,
+        } = *self;
         tokio::task::spawn_local(async move {
+            #[cfg(feature = "tracing")]
+            let task_output = task().instrument(span).await;
+            #[cfg(not(feature = "tracing"))]
             let task_output = task().await;
+
             result.send(task_output).ok();
         })
     }
@@ -92,7 +105,12 @@ impl Dispatch for TokioDispatcher {
     {
         let (tx, rx) = oneshot::channel();
 
-        let task = TokioTask { result: tx, task };
+        let task = TokioTask {
+            result: tx,
+            task,
+            #[cfg(feature = "tracing")]
+            span: tracing::Span::current(),
+        };
 
         match self.submitter.send(Box::new(task)) {
             Ok(()) => Ok(VortexJoinHandle(rx)),
@@ -136,5 +154,30 @@ mod tests {
 
         rx.await.unwrap();
         assert_eq!(atomic_number.load(Ordering::SeqCst), 1u32);
+    }
+
+    #[cfg(feature = "tracing")]
+    #[tokio::test]
+    async fn test_span_propagation() {
+        use tracing::{Span, info_span};
+        use tracing_subscriber;
+
+        tracing_subscriber::fmt().with_test_writer().init();
+
+        let dispatcher = TokioDispatcher::new(1);
+
+        let test_span = info_span!("test_dispatch", task_id = 42);
+
+        let dispatched_span_id = test_span
+            .in_scope(|| dispatcher.dispatch(|| async move { Span::current().id() }))
+            .unwrap();
+
+        let actual = dispatched_span_id.await.unwrap();
+
+        assert_eq!(
+            test_span.id().unwrap(),
+            actual.unwrap(),
+            "Span context should be propagated to dispatched task"
+        );
     }
 }

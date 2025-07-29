@@ -14,7 +14,7 @@ use crate::integer::IntCompressor;
 use crate::sample::sample;
 use crate::{
     Compressor, CompressorStats, GenerateStatsOptions, Scheme,
-    estimate_compression_ratio_with_sampling,
+    estimate_compression_ratio_with_sampling, integer,
 };
 
 #[derive(Clone, Debug)]
@@ -62,7 +62,6 @@ impl CompressorStats for StringStats {
         Self {
             src: input.clone(),
             value_count: value_count.try_into().vortex_expect("value_count"),
-            // null_count: null_count.try_into().vortex_expect("null_count"),
             estimated_distinct_count: estimated_distinct,
         }
     }
@@ -202,7 +201,7 @@ impl Scheme for DictScheme {
             &dict.codes().to_primitive()?,
             is_sample,
             allowed_cascading - 1,
-            &[crate::integer::DictScheme.code()],
+            &[integer::DictScheme.code(), integer::SequenceScheme.code()],
         )?;
 
         // Attempt to compress the values with non-Dict compression.

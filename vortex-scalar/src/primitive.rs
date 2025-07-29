@@ -16,6 +16,10 @@ use vortex_error::{
 use crate::pvalue::PValue;
 use crate::{InnerScalarValue, Scalar, ScalarValue};
 
+/// A scalar value representing a primitive type.
+///
+/// This type provides a view into a primitive scalar value of any primitive type
+/// (integers, floats) with various bit widths.
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct PrimitiveScalar<'a> {
     dtype: &'a DType,
@@ -51,6 +55,12 @@ impl PartialOrd for PrimitiveScalar<'_> {
 }
 
 impl<'a> PrimitiveScalar<'a> {
+    /// Creates a new primitive scalar from a data type and scalar value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the data type is not a primitive type or if the value
+    /// cannot be converted to the expected primitive type.
     pub fn try_new(dtype: &'a DType, value: &ScalarValue) -> VortexResult<Self> {
         let ptype = PType::try_from(dtype)?;
 
@@ -71,21 +81,29 @@ impl<'a> PrimitiveScalar<'a> {
         })
     }
 
+    /// Returns the data type of this primitive scalar.
     #[inline]
     pub fn dtype(&self) -> &'a DType {
         self.dtype
     }
 
+    /// Returns the primitive type of this scalar.
     #[inline]
     pub fn ptype(&self) -> PType {
         self.ptype
     }
 
+    /// Returns the primitive value, or None if null.
     #[inline]
     pub fn pvalue(&self) -> Option<PValue> {
         self.pvalue
     }
 
+    /// Returns the value as a specific native primitive type.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the primitive type of this scalar does not match the requested type.
     pub fn typed_value<T: NativePType + TryFrom<PValue, Error = VortexError>>(&self) -> Option<T> {
         assert_eq!(
             self.ptype,
@@ -119,8 +137,11 @@ impl<'a> PrimitiveScalar<'a> {
         }))
     }
 
-    /// Attempt to extract the primitive value as the given type.
-    /// Fails on a bad cast.
+    /// Attempts to extract the primitive value as the given type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the cast fails due to overflow or type incompatibility.
     pub fn as_<T: FromPrimitiveOrF16>(&self) -> VortexResult<Option<T>> {
         match self.pvalue {
             None => Ok(None),
@@ -152,7 +173,11 @@ impl<'a> PrimitiveScalar<'a> {
     }
 }
 
+/// A trait for types that can be created from primitive values, including f16.
+///
+/// This extends the `FromPrimitive` trait to also support conversion from f16 values.
 pub trait FromPrimitiveOrF16: FromPrimitive {
+    /// Converts an f16 value to this type, returning None if the conversion fails.
     fn from_f16(v: f16) -> Option<Self>;
 }
 
@@ -233,6 +258,7 @@ impl CheckedAdd for PrimitiveScalar<'_> {
 }
 
 impl Scalar {
+    /// Creates a new primitive scalar from a native value.
     pub fn primitive<T: NativePType + Into<PValue>>(value: T, nullability: Nullability) -> Self {
         Self::primitive_value(value.into(), T::PTYPE, nullability)
     }
@@ -248,6 +274,11 @@ impl Scalar {
         }
     }
 
+    /// Reinterprets the bytes of this scalar as a different primitive type.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar is not a primitive type or if the types have different byte widths.
     pub fn reinterpret_cast(&self, ptype: PType) -> Self {
         let primitive = PrimitiveScalar::try_from(self).unwrap_or_else(|e| {
             vortex_panic!(e, "Failed to reinterpret cast {} to {}", self.dtype, ptype)
@@ -391,6 +422,7 @@ impl Display for NumericOperator {
 }
 
 impl NumericOperator {
+    /// Returns the operator with swapped operands (e.g., Sub becomes RSub).
     pub fn swap(self) -> Self {
         match self {
             NumericOperator::Add => NumericOperator::Add,
@@ -431,7 +463,7 @@ impl<'a> PrimitiveScalar<'a> {
             integral: |P| {
                 self.checked_integeral_numeric_operator::<P>(other, result_dtype, ptype, op)
             },
-            floating_point: |P| {
+            floating: |P| {
                 let lhs = self.typed_value::<P>();
                 let rhs = other.typed_value::<P>();
                 let value_or_null = match (lhs, rhs) {

@@ -39,7 +39,6 @@ impl OperationsVTable<SparseVTable> for SparseVTable {
 
 #[cfg(test)]
 mod tests {
-
     use vortex_array::{IntoArray, ToCanonical};
     use vortex_buffer::buffer;
 

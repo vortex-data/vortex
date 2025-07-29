@@ -4,7 +4,7 @@
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
 
-#[cfg(feature = "nightly")]
+#[cfg(vortex_nightly)]
 mod portable;
 
 use std::sync::LazyLock;
@@ -25,7 +25,7 @@ use crate::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
 // and runtime feature detection to infer the best kernel for the platform.
 static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(|| {
     cfg_if::cfg_if! {
-        if #[cfg(feature = "nightly")] {
+        if #[cfg(vortex_nightly)] {
             // nightly codepath: use portable_simd kernel
             &portable::TakeKernelPortableSimd
         } else if #[cfg(target_arch = "x86_64")] {
@@ -105,11 +105,13 @@ fn take_primitive_scalar<T: NativePType, I: NativePType + AsPrimitive<usize>>(
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
     use crate::arrays::primitive::compute::take::take_primitive_scalar;
     use crate::arrays::{BoolArray, PrimitiveArray};
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
     use crate::{Array, IntoArray};
@@ -137,5 +139,20 @@ mod test {
         assert_eq!(actual.scalar_at(1).unwrap(), Scalar::null_typed::<i32>());
         // the third index is null
         assert_eq!(actual.scalar_at(2).unwrap(), Scalar::null_typed::<i32>());
+    }
+
+    #[rstest]
+    #[case(PrimitiveArray::new(buffer![42i32], Validity::NonNullable))]
+    #[case(PrimitiveArray::new(buffer![0, 1], Validity::NonNullable))]
+    #[case(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable))]
+    #[case(PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable))]
+    #[case(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid))]
+    #[case(PrimitiveArray::new(
+        buffer![0, 1, 2, 3, 4, 5],
+        Validity::Array(BoolArray::from_iter([true, false, true, false, true, true]).into_array()),
+    ))]
+    #[case(PrimitiveArray::from_option_iter([Some(1), None, Some(3), Some(4), None]))]
+    fn test_take_primitive_conformance(#[case] array: PrimitiveArray) {
+        test_take_conformance(array.as_ref());
     }
 }

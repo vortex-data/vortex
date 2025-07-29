@@ -3,7 +3,6 @@
 
 //! FFI interface for working with Vortex Arrays.
 use std::ffi::{c_int, c_void};
-use std::ptr;
 
 use vortex::dtype::half::f16;
 use vortex::error::{VortexExpect, VortexUnwrap, vortex_err};
@@ -11,7 +10,7 @@ use vortex::{Array, ToCanonical};
 
 use crate::arc_dyn_wrapper;
 use crate::dtype::vx_dtype;
-use crate::error::{try_or, vx_error};
+use crate::error::{try_or_default, vx_error};
 
 arc_dyn_wrapper!(
     /// Base type for all Vortex arrays.
@@ -47,7 +46,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
     index: u32,
     error_out: *mut *mut vx_error,
 ) -> *const vx_array {
-    try_or(error_out, ptr::null(), || {
+    try_or_default(error_out, || {
         let array = vx_array::as_ref(array);
 
         let field_array = array
@@ -69,7 +68,7 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     error_out: *mut *mut vx_error,
 ) -> *const vx_array {
     let array = vx_array::as_ref(array);
-    try_or(error_out, ptr::null_mut(), || {
+    try_or_default(error_out, || {
         let sliced = array.slice(start as usize, stop as usize)?;
         Ok(vx_array::new(sliced))
     })
@@ -82,7 +81,7 @@ pub unsafe extern "C-unwind" fn vx_array_is_null(
     error_out: *mut *mut vx_error,
 ) -> bool {
     let array = vx_array::as_ref(array);
-    try_or(error_out, false, || array.is_invalid(index as usize))
+    try_or_default(error_out, || array.is_invalid(index as usize))
 }
 
 #[unsafe(no_mangle)]
@@ -91,7 +90,7 @@ pub unsafe extern "C-unwind" fn vx_array_null_count(
     error_out: *mut *mut vx_error,
 ) -> u32 {
     let array = vx_array::as_ref(array);
-    try_or(error_out, 0, || Ok(array.invalid_count()?.try_into()?))
+    try_or_default(error_out, || Ok(array.invalid_count()?.try_into()?))
 }
 
 macro_rules! ffiarray_get_ptype {

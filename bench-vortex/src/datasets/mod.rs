@@ -106,7 +106,7 @@ impl BenchmarkDataset {
     }
 
     pub fn format_path(&self, format: Format, base_url: &Url) -> Result<Url> {
-        Ok(base_url.join(&format!("{}/", format))?)
+        Ok(base_url.join(&format!("{format}/"))?)
     }
 
     pub async fn register_tables(
@@ -134,7 +134,10 @@ impl BenchmarkDataset {
                     Some(glob),
                 )?;
             }
-            (BenchmarkDataset::ClickBench { single_file, .. }, Format::OnDiskVortex) => {
+            (
+                BenchmarkDataset::ClickBench { single_file, .. },
+                Format::OnDiskVortex | Format::VortexCompact,
+            ) => {
                 // Use glob pattern for partitioned files, specific file pattern for single file
                 let glob = if *single_file {
                     Some(glob::Pattern::new("hits_0.vortex")?)

@@ -14,6 +14,14 @@ use crate::stats::{Precision, Stat, StatsProviderExt, StatsSet};
 use crate::vtable::VTable;
 use crate::{Array, ArrayRef, Canonical, IntoArray};
 
+static TAKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+    let compute = ComputeFn::new("take".into(), ArcRef::new_ref(&Take));
+    for kernel in inventory::iter::<TakeKernelRef> {
+        compute.register_kernel(kernel.0.clone());
+    }
+    compute
+});
+
 pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
     if indices.is_empty() {
         return Ok(Canonical::empty(
@@ -31,14 +39,6 @@ pub fn take(array: &dyn Array, indices: &dyn Array) -> VortexResult<ArrayRef> {
         })?
         .unwrap_array()
 }
-
-pub static TAKE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("take".into(), ArcRef::new_ref(&Take));
-    for kernel in inventory::iter::<TakeKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
 
 pub struct Take;
 
@@ -220,7 +220,7 @@ impl<V: VTable + TakeKernel> Kernel for TakeKernelAdapter<V> {
     }
 }
 
-pub static TAKE_FROM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+static TAKE_FROM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("take_from".into(), ArcRef::new_ref(&TakeFrom));
     for kernel in inventory::iter::<TakeFromKernelRef> {
         compute.register_kernel(kernel.0.clone());

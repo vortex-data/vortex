@@ -234,6 +234,10 @@ impl<V: VTable> AnalysisExpr for ExprAdapter<V> {
         <V::Expr as AnalysisExpr>::min(&self.0, catalog)
     }
 
+    fn nan_count(&self, catalog: &mut dyn StatsCatalog) -> Option<ExprRef> {
+        <V::Expr as AnalysisExpr>::nan_count(&self.0, catalog)
+    }
+
     fn field_path(&self) -> Option<FieldPath> {
         <V::Expr as AnalysisExpr>::field_path(&self.0)
     }
@@ -380,7 +384,7 @@ mod tests {
             "(($.col1 < $.col2) or ($.col1 != $.col2))"
         );
 
-        assert_eq!(not(col1.clone()).to_string(), "!$.col1");
+        assert_eq!(not(col1.clone()).to_string(), "(!$.col1)");
 
         assert_eq!(
             select(vec![FieldName::from("col1")], root()).to_string(),

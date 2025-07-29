@@ -272,7 +272,7 @@ impl PyArray {
 
     /// Returns the number of bytes used by this array.
     #[getter]
-    fn nbytes(slf: &Bound<Self>) -> PyResult<usize> {
+    fn nbytes(slf: &Bound<Self>) -> PyResult<u64> {
         Ok(PyArrayRef::extract_bound(slf.as_any())?.nbytes())
     }
 

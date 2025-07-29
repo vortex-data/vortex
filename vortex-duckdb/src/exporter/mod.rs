@@ -12,7 +12,10 @@ mod sequence;
 mod temporal;
 mod varbinview;
 
+use std::sync::Arc;
+
 pub use cache::ConversionCache;
+pub use decimal::precision_to_duckdb_storage_size;
 use itertools::Itertools;
 use vortex::arrays::{ConstantVTable, StructArray, TemporalArray};
 use vortex::dtype::datetime::is_temporal_ext_type;
@@ -29,8 +32,7 @@ use crate::duckdb::{DUCKDB_STANDARD_VECTOR_SIZE, DataChunk, Vector};
 /// DuckDB exporter for an [`ArrayIterator`], sharing state and caches.
 pub struct ArrayIteratorExporter {
     iter: Box<dyn ArrayIterator>,
-    cache: ConversionCache,
-
+    cache: Arc<ConversionCache>,
     array_exporter: Option<ArrayExporter>,
 }
 
@@ -38,7 +40,7 @@ impl ArrayIteratorExporter {
     pub fn new(iter: Box<dyn ArrayIterator>, id: u64) -> Self {
         Self {
             iter,
-            cache: ConversionCache::new(id),
+            cache: Arc::new(ConversionCache::new(id)),
             array_exporter: None,
         }
     }
@@ -50,7 +52,7 @@ impl ArrayIteratorExporter {
                 if let Some(array) = self.iter.next() {
                     // Create a new array exporter for the current array.
                     let array = array?.to_struct()?;
-                    self.array_exporter = Some(ArrayExporter::try_new(&array, &mut self.cache)?);
+                    self.array_exporter = Some(ArrayExporter::try_new(&array, &self.cache)?);
                 } else {
                     // No more arrays to export.
                     return Ok(false);
@@ -79,7 +81,7 @@ pub struct ArrayExporter {
 }
 
 impl ArrayExporter {
-    pub fn try_new(array: &StructArray, cache: &mut ConversionCache) -> VortexResult<Self> {
+    pub fn try_new(array: &StructArray, cache: &ConversionCache) -> VortexResult<Self> {
         let fields = array
             .fields()
             .iter()
@@ -136,7 +138,7 @@ pub trait ColumnExporter {
 /// Create a DuckDB exporter for the given Vortex array.
 fn new_array_exporter(
     array: &dyn Array,
-    cache: &mut ConversionCache,
+    cache: &ConversionCache,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     if let Some(array) = array.as_opt::<ConstantVTable>() {
         return constant::new_exporter(array);

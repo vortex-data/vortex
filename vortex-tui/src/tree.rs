@@ -5,19 +5,14 @@ use std::path::Path;
 
 use vortex::error::VortexResult;
 use vortex::file::VortexOpenOptions;
-use vortex::stream::ArrayStreamExt;
+use vortex::iter::ArrayIteratorExt;
 
-use crate::TOKIO_RUNTIME;
-
-pub async fn exec_tree(file: impl AsRef<Path>) -> VortexResult<()> {
+pub fn exec_tree(file: impl AsRef<Path>) -> VortexResult<()> {
     let full = VortexOpenOptions::file()
-        .open(file)
-        .await?
+        .open_blocking(file)?
         .scan()?
-        .with_tokio_executor(TOKIO_RUNTIME.handle().clone())
-        .into_array_stream()?
-        .read_all()
-        .await?;
+        .into_array_iter_multithread()?
+        .read_all()?;
 
     println!("{}", full.display_tree());
 

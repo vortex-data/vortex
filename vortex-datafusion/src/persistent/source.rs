@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
+use std::fmt::Formatter;
 use std::sync::{Arc, Weak};
 
 use dashmap::DashMap;
@@ -9,11 +10,11 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::{Result as DFResult, Statistics};
 use datafusion::config::ConfigOptions;
 use datafusion::datasource::physical_plan::{FileOpener, FileScanConfig, FileSource};
-use datafusion::physical_plan::PhysicalExpr;
 use datafusion::physical_plan::filter_pushdown::{
-    FilterPushdownPropagation, PredicateSupport, PredicateSupports,
+    FilterPushdownPropagation, PushedDown, PushedDownPredicate,
 };
 use datafusion::physical_plan::metrics::ExecutionPlanMetricsSet;
+use datafusion::physical_plan::{DisplayFormatType, PhysicalExpr};
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::error::VortexExpect as _;
@@ -169,35 +170,70 @@ impl FileSource for VortexSource {
         VORTEX_FILE_EXTENSION
     }
 
+    fn fmt_extra(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
+        match t {
+            DisplayFormatType::Default | DisplayFormatType::Verbose => {
+                if let Some(ref predicate) = self.predicate {
+                    write!(f, ", predicate: {predicate}")?;
+                }
+            }
+            // Use TreeRender style key=value formatting to display the predicate
+            DisplayFormatType::TreeRender => {
+                if let Some(ref predicate) = self.predicate {
+                    write!(f, "predicate={predicate}")?;
+                };
+            }
+        }
+        Ok(())
+    }
+
     fn try_pushdown_filters(
         &self,
         filters: Vec<Arc<dyn PhysicalExpr>>,
         _config: &ConfigOptions,
     ) -> DFResult<FilterPushdownPropagation<Arc<dyn FileSource>>> {
         let Some(schema) = self.arrow_schema.as_ref() else {
-            return Ok(FilterPushdownPropagation::unsupported(filters));
+            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                vec![PushedDown::No; filters.len()],
+            ));
         };
-        let (supported, unsupported): (Vec<_>, Vec<_>) = filters
+
+        let filters = filters
+            .into_iter()
+            .map(|expr| {
+                if can_be_pushed_down(&expr, schema) {
+                    PushedDownPredicate::supported(expr)
+                } else {
+                    PushedDownPredicate::unsupported(expr)
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if filters
             .iter()
-            .partition(|expr| can_be_pushed_down(expr, schema));
+            .all(|p| matches!(p.discriminant, PushedDown::No))
+        {
+            return Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                vec![PushedDown::No; filters.len()],
+            ));
+        }
+
+        let supported = filters
+            .iter()
+            .filter_map(|p| match p.discriminant {
+                PushedDown::Yes => Some(&p.predicate),
+                PushedDown::No => None,
+            })
+            .collect::<Vec<_>>();
 
         match make_vortex_predicate(&supported) {
-            Some(predicate) => {
-                let supports = PredicateSupports::new(
-                    supported
-                        .into_iter()
-                        .map(|expr| PredicateSupport::Supported(expr.clone()))
-                        .chain(
-                            unsupported
-                                .into_iter()
-                                .map(|expr| PredicateSupport::Unsupported(expr.clone())),
-                        )
-                        .collect(),
-                );
-                Ok(FilterPushdownPropagation::with_filters(supports)
-                    .with_updated_node(Arc::new(self.with_predicate(predicate))))
-            }
-            None => Ok(FilterPushdownPropagation::unsupported(filters)),
+            Some(predicate) => Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                filters.iter().map(|f| f.discriminant).collect(),
+            )
+            .with_updated_node(Arc::new(self.with_predicate(predicate)))),
+            _ => Ok(FilterPushdownPropagation::with_parent_pushdown_result(
+                vec![PushedDown::No; filters.len()],
+            )),
         }
     }
 }

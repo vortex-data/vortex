@@ -30,14 +30,14 @@ pub struct ArrayStats {
 pub struct StatsSetRef<'a> {
     // We need to reference back to the array
     dyn_array_ref: &'a dyn Array,
-    parent_stats: ArrayStats,
+    array_stats: &'a ArrayStats,
 }
 
 impl ArrayStats {
-    pub fn to_ref<'a>(&self, array: &'a dyn Array) -> StatsSetRef<'a> {
+    pub fn to_ref<'a>(&'a self, array: &'a dyn Array) -> StatsSetRef<'a> {
         StatsSetRef {
             dyn_array_ref: array,
-            parent_stats: self.clone(),
+            array_stats: self,
         }
     }
 
@@ -82,25 +82,41 @@ impl StatsProvider for ArrayStats {
 
 impl StatsSetRef<'_> {
     pub fn set_iter(&self, iter: StatsSetIntoIter) {
-        let mut guard = self.parent_stats.inner.write();
-
+        let mut guard = self.array_stats.inner.write();
         for (stat, value) in iter {
             guard.set(stat, value);
         }
     }
 
-    pub fn inherit(&self, parent_stats: StatsSetRef<'_>) {
+    pub fn inherit_from(&self, stats: StatsSetRef<'_>) {
+        stats.with_iter(|iter| self.inherit(iter));
+    }
+
+    pub fn inherit<'a>(&self, iter: impl Iterator<Item = &'a (Stat, Precision<ScalarValue>)>) {
         // TODO(ngates): depending on statistic, this should choose the more precise one
-        self.set_iter(parent_stats.into_iter());
+        let mut guard = self.array_stats.inner.write();
+        for (stat, value) in iter {
+            guard.set(*stat, value.clone());
+        }
     }
 
-    // TODO(adamg): potentially problematic name
+    pub fn replace(&self, stats: StatsSet) {
+        *self.array_stats.inner.write() = stats;
+    }
+
     pub fn to_owned(&self) -> StatsSet {
-        self.parent_stats.inner.read().clone()
+        self.array_stats.inner.read().clone()
     }
 
-    pub fn into_iter(&self) -> StatsSetIntoIter {
-        self.to_owned().into_iter()
+    pub fn with_iter<
+        F: for<'a> FnOnce(&mut dyn Iterator<Item = &'a (Stat, Precision<ScalarValue>)>) -> R,
+        R,
+    >(
+        &self,
+        f: F,
+    ) -> R {
+        let lock = self.array_stats.inner.read();
+        f(&mut lock.iter())
     }
 
     pub fn compute_stat(&self, stat: Stat) -> VortexResult<Option<ScalarValue>> {
@@ -139,7 +155,7 @@ impl StatsSetRef<'_> {
             Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref)?.into()),
             Stat::UncompressedSizeInBytes => {
                 let nbytes: ScalarValue =
-                    (self.dyn_array_ref.to_canonical()?.as_ref().nbytes() as u64).into();
+                    self.dyn_array_ref.to_canonical()?.as_ref().nbytes().into();
                 self.set(stat, Precision::exact(nbytes.clone()));
                 Some(nbytes)
             }
@@ -205,15 +221,15 @@ impl StatsSetRef<'_> {
     }
 
     pub fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
-        self.parent_stats.set(stat, value);
+        self.array_stats.set(stat, value);
     }
 
     pub fn clear(&self, stat: Stat) {
-        self.parent_stats.clear(stat);
+        self.array_stats.clear(stat);
     }
 
     pub fn retain(&self, stats: &[Stat]) {
-        self.parent_stats.retain(stats);
+        self.array_stats.retain(stats);
     }
 
     pub fn compute_min<U: for<'a> TryFrom<&'a ScalarValue, Error = VortexError>>(
@@ -251,10 +267,10 @@ impl StatsSetRef<'_> {
 
 impl StatsProvider for StatsSetRef<'_> {
     fn get(&self, stat: Stat) -> Option<Precision<ScalarValue>> {
-        self.parent_stats.get(stat)
+        self.array_stats.get(stat)
     }
 
     fn len(&self) -> usize {
-        self.parent_stats.len()
+        self.array_stats.len()
     }
 }

@@ -15,15 +15,20 @@ use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::arrow::async_reader::AsyncFileReader;
 use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
-use tokio::runtime::Handle;
 use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
-use vortex::stream::ArrayStreamExt;
+use vortex::iter::ArrayIteratorExt; //::rayon::ParallelArrayIteratorExt;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex::{Array, ArrayRef, IntoArray};
 
-pub async fn take_vortex_tokio(path: &Path, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
-    take_vortex(path, indices).await
+pub async fn take_vortex_tokio(
+    path: &Path,
+    indices: Buffer<u64>,
+    validate: impl Fn(ArrayRef),
+) -> anyhow::Result<ArrayRef> {
+    let result = take_vortex(path, indices).await?;
+    validate(result.clone());
+    Ok(result)
 }
 
 pub async fn take_parquet(path: &Path, indices: Buffer<u64>) -> anyhow::Result<RecordBatch> {
@@ -36,11 +41,9 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::
         .open(reader)
         .await?
         .scan()?
-        .with_tokio_executor(Handle::current())
         .with_row_indices(indices)
-        .into_array_stream()?
-        .read_all()
-        .await?
+        .into_array_iter_multithread()?
+        .read_all()?
         // For equivalence.... we decompress to make sure we're not cheating too much.
         .to_canonical()
         .map(|a| a.into_array())?)

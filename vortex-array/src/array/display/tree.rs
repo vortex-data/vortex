@@ -25,7 +25,7 @@ impl fmt::Display for TreeDisplayWrapper {
 pub struct TreeFormatter<'a, 'b: 'a> {
     fmt: &'a mut fmt::Formatter<'b>,
     indent: String,
-    total_size: Option<usize>,
+    total_size: Option<u64>,
 }
 
 impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {

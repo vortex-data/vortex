@@ -23,12 +23,12 @@ use crate::decimal::DecimalValue;
 use crate::pvalue::PValue;
 use crate::{ScalarType, i256};
 
-/// Represents the internal data of a scalar value. Must be interpreted by wrapping
-/// up with a DType to make a Scalar.
+/// Represents the internal data of a scalar value. Must be interpreted by wrapping up with a
+/// [`DType`] to make a [`super::Scalar`].
 ///
-/// Note that these values can be deserialized from JSON or other formats. So a PValue may not
-/// have the correct width for what the DType expects. Primitive values should therefore be
-/// read using [crate::PrimitiveScalar] which will handle the conversion.
+/// Note that these values can be deserialized from JSON or other formats. So a [`PValue`] may not
+/// have the correct width for what the [`DType`] expects. Primitive values should therefore be
+/// read using [`super::PrimitiveScalar`] which will handle the conversion.
 #[derive(Debug, Clone)]
 pub struct ScalarValue(pub(crate) InnerScalarValue);
 
@@ -44,6 +44,7 @@ pub(crate) enum InnerScalarValue {
 }
 
 impl ScalarValue {
+    /// Serializes the scalar value to Protocol Buffers format.
     pub fn to_protobytes<B: BufMut + Default>(&self) -> B {
         let pb_scalar = pb::ScalarValue::from(self);
 
@@ -55,6 +56,7 @@ impl ScalarValue {
         buf
     }
 
+    /// Deserializes a scalar value from Protocol Buffers format.
     pub fn from_protobytes(buf: &[u8]) -> VortexResult<Self> {
         ScalarValue::try_from(
             &pb::ScalarValue::decode(buf)
@@ -116,46 +118,53 @@ impl Display for InnerScalarValue {
 }
 
 impl ScalarValue {
+    /// Creates a null scalar value.
     pub const fn null() -> Self {
         ScalarValue(InnerScalarValue::Null)
     }
 
+    /// Returns true if this is a null value.
     pub fn is_null(&self) -> bool {
         self.0.is_null()
     }
 
+    /// Returns true if this value is compatible with the given data type.
     pub fn is_instance_of(&self, dtype: &DType) -> bool {
         self.0.is_instance_of(dtype)
     }
 
-    pub(crate) fn as_null(&self) -> VortexResult<()> {
+    /// Returns scalar as a null value
+    pub fn as_null(&self) -> VortexResult<()> {
         self.0.as_null()
     }
 
-    pub(crate) fn as_bool(&self) -> VortexResult<Option<bool>> {
+    /// Returns scalar as a boolean value
+    pub fn as_bool(&self) -> VortexResult<Option<bool>> {
         self.0.as_bool()
     }
 
-    /// FIXME(ngates): PValues are such a footgun... we should probably remove this.
-    ///  But the other accessors can sometimes be useful? e.g. as_buffer. But maybe we just force
-    ///  the user to switch over Utf8 and Binary and use the correct Scalar wrapper?
-    pub(crate) fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
+    /// Return scalar as a primitive value. PValues don't match dtypes but will be castable to the scalars dtype
+    pub fn as_pvalue(&self) -> VortexResult<Option<PValue>> {
         self.0.as_pvalue()
     }
 
-    pub(crate) fn as_decimal(&self) -> VortexResult<Option<DecimalValue>> {
+    /// Returns scalar as a decimal value
+    pub fn as_decimal(&self) -> VortexResult<Option<DecimalValue>> {
         self.0.as_decimal()
     }
 
-    pub(crate) fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
+    /// Returns scalar as a binary buffer
+    pub fn as_buffer(&self) -> VortexResult<Option<Arc<ByteBuffer>>> {
         self.0.as_buffer()
     }
 
-    pub(crate) fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
+    /// Returns scalar as a string buffer
+    pub fn as_buffer_string(&self) -> VortexResult<Option<Arc<BufferString>>> {
         self.0.as_buffer_string()
     }
 
-    pub(crate) fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
+    /// Returns scalar as a list value
+    pub fn as_list(&self) -> VortexResult<Option<&Arc<[ScalarValue]>>> {
         self.0.as_list()
     }
 }
@@ -277,7 +286,6 @@ where
 
 #[cfg(test)]
 mod test {
-
     use vortex_dtype::{DType, FieldNames, Nullability, PType, StructFields};
 
     use crate::{InnerScalarValue, PValue, ScalarValue};

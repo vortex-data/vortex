@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::BuildHasher;
+use std::sync::Arc;
 
 use arrow_buffer::NullBufferBuilder;
 use num_traits::AsPrimitive;
@@ -180,7 +181,7 @@ impl<Code: Unsigned + AsPrimitive<usize> + NativePType> DictEncoder for BytesDic
     fn values(&mut self) -> VortexResult<ArrayRef> {
         VarBinViewArray::try_new(
             self.views.clone().freeze(),
-            vec![self.values.clone().freeze()],
+            Arc::from([self.values.clone().freeze()]),
             self.dtype.clone(),
             self.dtype.nullability().into(),
         )

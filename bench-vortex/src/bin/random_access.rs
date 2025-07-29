@@ -18,6 +18,10 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use tokio::runtime::Runtime;
 use vortex::buffer::{Buffer, buffer};
+use vortex::dtype::Nullability::NonNullable;
+use vortex::error::VortexExpect;
+use vortex::scalar::Scalar;
+use vortex::{Array, ArrayRef, ToCanonical};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -77,6 +81,32 @@ fn random_access(
 
     let taxi_vortex = runtime.block_on(taxi_data_vortex());
     let taxi_parquet = runtime.block_on(taxi_data_parquet());
+
+    let validate = |array: ArrayRef| {
+        let struct_ = array
+            .to_struct()
+            .vortex_expect("could not convert to struct");
+        assert_eq!(struct_.len(), 6, "expected 6 rows");
+        let pu_location_id = struct_
+            .field_by_name("PULocationID")
+            .vortex_expect("could not get PULocationID");
+        let do_location_id = struct_
+            .field_by_name("DOLocationID")
+            .vortex_expect("could not get DOLocationID");
+        for (idx, loc) in [90i32, 249, 230, 79, 239, 236].iter().enumerate() {
+            assert_eq!(
+                pu_location_id.scalar_at(idx).vortex_expect("scalar_at"),
+                Scalar::primitive(*loc, NonNullable)
+            );
+        }
+        for (idx, loc) in [164i32, 231, 25, 224, 243, 239].iter().enumerate() {
+            assert_eq!(
+                do_location_id.scalar_at(idx).vortex_expect("scalar_at"),
+                Scalar::primitive(*loc, NonNullable)
+            );
+        }
+    };
+
     measurements.push(TimingMeasurement {
         name: "random-access/vortex-tokio-local-disk".to_string(),
         storage: STORAGE_NVME.to_owned(),
@@ -85,7 +115,7 @@ fn random_access(
             &runtime,
             iterations,
             || indices.clone(),
-            |indices| async { take_vortex_tokio(&taxi_vortex, indices).await },
+            |indices| async { take_vortex_tokio(&taxi_vortex, indices, validate).await },
         ),
     });
     progress.inc(1);

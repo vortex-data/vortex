@@ -43,7 +43,7 @@ impl LayoutStrategy for BufferedStrategy {
 
             while let Some(chunk) = stream.as_mut().next().await {
                 let (sequence_id, chunk) = chunk?;
-                nbytes += chunk.nbytes() as u64;
+                nbytes += chunk.nbytes();
                 chunks.push_back(chunk);
 
                 // if this is the last element, flush everything
@@ -65,7 +65,7 @@ impl LayoutStrategy for BufferedStrategy {
                     let Some(chunk) = chunks.pop_front() else {
                         break;
                     };
-                    nbytes -= chunk.nbytes() as u64;
+                    nbytes -= chunk.nbytes();
                     yield (sequence_pointer.advance(), chunk)
                 }
             }

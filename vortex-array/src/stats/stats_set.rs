@@ -47,38 +47,6 @@ impl StatsSet {
         StatsSet::new_unchecked(vec![(Stat::NullCount, Precision::exact(0))])
     }
 
-    pub fn constant(scalar: Scalar, length: usize) -> Self {
-        let (dtype, sv) = scalar.into_parts();
-        let mut stats = Self::default();
-        if length > 0 {
-            stats.extend([
-                (Stat::IsConstant, Precision::exact(true)),
-                (Stat::IsSorted, Precision::exact(true)),
-                (Stat::IsStrictSorted, Precision::exact(length <= 1)),
-            ]);
-        }
-
-        let null_count = if sv.is_null() { length as u64 } else { 0 };
-        stats.set(Stat::NullCount, Precision::exact(null_count));
-
-        if !sv.is_null() {
-            stats.extend([
-                (Stat::Min, Precision::exact(sv.clone())),
-                (Stat::Max, Precision::exact(sv.clone())),
-            ]);
-        }
-
-        if matches!(dtype, DType::Bool(_)) {
-            let bool_val = <Option<bool>>::try_from(&sv).vortex_expect("Checked dtype");
-            let true_count = bool_val
-                .map(|b| if b { length as u64 } else { 0 })
-                .unwrap_or(0);
-            stats.set(Stat::Sum, Precision::exact(true_count));
-        }
-
-        stats
-    }
-
     pub fn bools_with_sum_and_null_count(true_count: usize, null_count: usize, len: usize) -> Self {
         StatsSet::new_unchecked(vec![
             (Stat::Sum, Precision::exact(true_count)),

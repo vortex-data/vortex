@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+#![allow(clippy::cast_possible_truncation)]
 
 use vortex_array::ToCanonical;
 use vortex_array::arrays::{BoolArray, PrimitiveArray};
@@ -22,7 +23,7 @@ fn test_compress_decompress() {
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
     // this data should be compressible
-    assert!(compressed.pages.len() < array.nbytes());
+    assert!(compressed.pages.len() < array.nbytes() as usize);
 
     // check full decompression works
     let decompressed = compressed.decompress().unwrap().to_primitive().unwrap();

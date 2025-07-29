@@ -15,7 +15,7 @@ use crate::vtable::ValidityHelper;
 impl ArrayAccessor<[u8]> for VarBinArray {
     fn with_iterator<F, R>(&self, f: F) -> VortexResult<R>
     where
-        F: for<'a> FnOnce(&mut (dyn Iterator<Item = Option<&'a [u8]>>)) -> R,
+        F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R,
     {
         let offsets = self.offsets().to_primitive()?;
         let validity = self.validity();

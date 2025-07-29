@@ -14,7 +14,6 @@
 using namespace duckdb;
 
 namespace vortex {
-
 struct CTableFunctionInfo final : TableFunctionInfo {
     explicit CTableFunctionInfo(const duckdb_vx_tfunc_vtab_t &vtab) : vtab(vtab) {
     }
@@ -177,6 +176,26 @@ void c_pushdown_complex_filter(ClientContext &context, LogicalGet &get, Function
     }
 }
 
+unique_ptr<NodeStatistics> c_cardinality(ClientContext &context, const FunctionData *bind_data) {
+    auto &bind = bind_data->Cast<CTableBindData>();
+
+    duckdb_vx_node_statistics node_stats_out = {
+        .estimated_cardinality = 0,
+        .has_estimated_cardinality = false,
+        .max_cardinality = 0,
+        .has_max_cardinality = false,
+    };
+    bind.info->vtab.cardinality(bind_data->Cast<CTableBindData>().ffi_data->DataPtr(), &node_stats_out);
+
+    auto stats = make_uniq<NodeStatistics>();
+    stats->has_estimated_cardinality = node_stats_out.has_estimated_cardinality;
+    stats->estimated_cardinality = node_stats_out.estimated_cardinality;
+    stats->has_max_cardinality = node_stats_out.has_max_cardinality;
+    stats->max_cardinality = node_stats_out.max_cardinality;
+
+    return stats;
+}
+
 extern "C" size_t duckdb_vx_tfunc_bind_input_get_parameter_count(duckdb_vx_tfunc_bind_input ffi_input) {
     if (!ffi_input) {
         return 0;
@@ -221,6 +240,23 @@ extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_resu
     result->return_types.push_back(*logical_type);
 }
 
+OperatorPartitionData c_get_partition_data(ClientContext &context, TableFunctionGetPartitionInput &input) {
+    if (input.partition_info.RequiresPartitionColumns()) {
+        throw InternalException("TableScan::GetPartitionData: partition columns not supported");
+    }
+    auto &bind = input.bind_data->Cast<CTableBindData>();
+    auto &global = input.global_state->Cast<CTableGlobalData>();
+    auto &local = input.local_state->Cast<CTableLocalData>();
+
+    duckdb_vx_error error_out = nullptr;
+    auto index = bind.info->vtab.get_partition_data(bind.ffi_data->DataPtr(), global.ffi_data->DataPtr(),
+                                                    local.ffi_data->DataPtr(), &error_out);
+    if (error_out) {
+        throw InvalidInputException(IntoErrString(error_out));
+    }
+    return OperatorPartitionData(index);
+}
+
 extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
                                                  const duckdb_vx_tfunc_vtab_t *vtab) {
     if (!ffi_conn || !vtab) {
@@ -237,6 +273,8 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
     tf.filter_prune = vtab->filter_prune;
     tf.sampling_pushdown = vtab->sampling_pushdown;
     tf.late_materialization = vtab->late_materialization;
+    tf.cardinality = c_cardinality;
+    tf.get_partition_data = c_get_partition_data;
 
     // Set up the parameters
     for (size_t i = 0; i < vtab->parameter_count; i++) {
@@ -263,5 +301,4 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
     }
     return DuckDBSuccess;
 }
-
 } // namespace vortex

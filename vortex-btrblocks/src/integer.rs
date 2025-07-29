@@ -589,7 +589,8 @@ impl Scheme for DictScheme {
         let dict = dictionary_encode(stats)?;
 
         // Cascade the codes child
-        let mut new_excludes = vec![DICT_SCHEME];
+        // Don't allow SequenceArray as the codes child as it merely adds extra indirection without actually compressing data.
+        let mut new_excludes = vec![DICT_SCHEME, SEQUENCE_SCHEME];
         new_excludes.extend_from_slice(excludes);
 
         let compressed_codes = IntCompressor::compress_no_dict(
@@ -728,6 +729,7 @@ mod tests {
     use vortex_array::vtable::ValidityHelper;
     use vortex_array::{Array, IntoArray, ToCanonical};
     use vortex_buffer::{Buffer, BufferMut, buffer, buffer_mut};
+    use vortex_dict::DictEncoding;
     use vortex_sequence::SequenceEncoding;
     use vortex_sparse::SparseEncoding;
     use vortex_utils::aliases::hash_set::HashSet;
@@ -771,7 +773,7 @@ mod tests {
 
         let primitive = codes.freeze().into_array().to_primitive().unwrap();
         let compressed = IntCompressor::compress(&primitive, false, 3, &[]).unwrap();
-        log::info!("compressed values: {}", compressed.display_tree());
+        assert_eq!(compressed.encoding_id(), DictEncoding.id());
     }
 
     #[test]

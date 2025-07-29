@@ -195,8 +195,8 @@ impl Stat {
                             DType::Primitive(PType::I64, Nullable)
                         }
                         PType::F16 | PType::F32 | PType::F64 => {
-                            // Float sums cannot overflow, so it's non-nullable
-                            DType::Primitive(PType::F64, NonNullable)
+                            // Float sums cannot overflow, but all null floats still end up as null
+                            DType::Primitive(PType::F64, Nullable)
                         }
                     },
                     DType::Extension(ext_dtype) => self.dtype(ext_dtype.storage_dtype())?,

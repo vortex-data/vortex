@@ -56,7 +56,7 @@ mod tests {
     {
         let conn = database_connection();
         let file_path = tmp_file.path().to_string_lossy();
-        let formatted_query = query.replace('?', &format!("'{}'", file_path));
+        let formatted_query = query.replace('?', &format!("'{file_path}'"));
 
         let result = conn.query(&formatted_query).unwrap();
         result.get::<T>(col_idx, 0).unwrap()
@@ -68,7 +68,7 @@ mod tests {
     {
         let conn = database_connection();
         let file_path = tmp_file.path().to_string_lossy();
-        let formatted_query = query.replace('?', &format!("'{}'", file_path));
+        let formatted_query = query.replace('?', &format!("'{file_path}'"));
 
         let result = conn.query(&formatted_query)?;
 
@@ -283,8 +283,7 @@ mod tests {
         let conn = database_connection();
         let result = conn
             .query(&format!(
-                "SELECT SUM(numbers) FROM vortex_scan('{}')",
-                glob_pattern
+                "SELECT SUM(numbers) FROM vortex_scan('{glob_pattern}')",
             ))
             .unwrap();
 

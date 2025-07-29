@@ -5,9 +5,9 @@
 
 use std::ffi::{CStr, c_char, c_int, c_uint, c_ulong};
 use std::ops::Range;
+use std::slice;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
-use std::{ptr, slice};
 
 use itertools::Itertools;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
@@ -20,15 +20,14 @@ use url::Url;
 use vortex::error::{VortexError, VortexExpect, VortexResult, vortex_bail, vortex_err};
 use vortex::expr::proto::deserialize_expr_proto;
 use vortex::expr::{ExprRef, ExprRegistryExt};
-use vortex::file::scan::SplitBy;
 use vortex::file::{VortexFile, VortexOpenOptions, VortexWriteOptions};
 use vortex::proto::expr::Expr;
-use vortex::scan::ScanBuilder;
+use vortex::scan::{ScanBuilder, SplitBy};
 
 use crate::array::vx_array;
 use crate::array_iterator::vx_array_iterator;
 use crate::dtype::vx_dtype;
-use crate::error::{try_or, vx_error};
+use crate::error::{try_or_default, vx_error};
 use crate::session::{FileKey, vx_session};
 use crate::{RUNTIME, arc_wrapper, to_string_vec};
 
@@ -139,7 +138,7 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
 ) -> *const vx_file {
     let session = vx_session::as_ref(session);
 
-    try_or(error_out, ptr::null_mut(), || {
+    try_or_default(error_out, || {
         let options = unsafe {
             options
                 .as_ref()
@@ -189,7 +188,7 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
     error_out: *mut *mut vx_error,
 ) {
     let array = vx_array::as_ref(array);
-    try_or(error_out, (), || {
+    try_or_default(error_out, || {
         let path = unsafe { CStr::from_ptr(path).to_str()? };
 
         RUNTIME.block_on(async {
@@ -232,7 +231,7 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
     filter_expression_len: c_uint,
     error_out: *mut *mut vx_error,
 ) -> bool {
-    try_or(error_out, false, || {
+    try_or_default(error_out, || {
         let file = vx_file::as_ref(file);
         let filter_expr = extract_expression(filter_expression, filter_expression_len)?;
         Ok(filter_expr
@@ -249,7 +248,7 @@ pub unsafe extern "C-unwind" fn vx_file_scan(
     opts: *const vx_file_scan_options,
     error_out: *mut *mut vx_error,
 ) -> *mut vx_array_iterator {
-    try_or(error_out, ptr::null_mut(), || {
+    try_or_default(error_out, || {
         let file = vx_file::as_ref(file);
 
         let scan_options = unsafe { opts.as_ref() }.map_or_else(
