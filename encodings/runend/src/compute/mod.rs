@@ -38,9 +38,8 @@ mod test {
 mod consistency_tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::{PrimitiveArray, VarBinArray};
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_dtype::{DType, Nullability};
 
     use crate::RunEndArray;
 
