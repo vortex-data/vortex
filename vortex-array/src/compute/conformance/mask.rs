@@ -127,14 +127,14 @@ fn test_sparse_mask(array: &dyn Array) {
     let valid_count = (0..len)
         .filter(|&i| masked.is_valid(i).vortex_unwrap())
         .count();
-    
+
     // Count how many elements should be invalid:
     // - Elements that were masked (pattern[i] == true)
     // - Elements that were already invalid in the original array
     let expected_invalid_count = (0..len)
         .filter(|&i| pattern[i] || !array.is_valid(i).vortex_unwrap())
         .count();
-    
+
     assert_eq!(valid_count, len - expected_invalid_count);
 }
 
