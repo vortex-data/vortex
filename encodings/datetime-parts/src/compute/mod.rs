@@ -10,11 +10,12 @@ mod take;
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::IntoArray;
-    use vortex_dtype::datetime::TimeUnit;
     use vortex_buffer::buffer;
+    use vortex_dtype::datetime::TimeUnit;
+
     use crate::DateTimePartsArray;
 
     #[rstest]
@@ -39,35 +40,31 @@ mod tests {
         TimeUnit::Ns,
         Some("UTC".to_string()),
     )).unwrap())]
-    
     // Nullable arrays
     #[case::datetime_nullable_seconds(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([Some(0i64), None, Some(86400), Some(172800), None]).into_array(),
         TimeUnit::S,
         Some("UTC".to_string()),
     )).unwrap())]
-    
     // Edge cases
     #[case::datetime_single(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         buffer![1234567890i64].into_array(),
         TimeUnit::S,
         Some("UTC".to_string()),
     )).unwrap())]
-    
     // Large arrays (> 1024 elements)
     #[case::datetime_large(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_iter((0..1500).map(|i| i as i64 * 86400)).into_array(),
         TimeUnit::S,
         Some("UTC".to_string()),
     )).unwrap())]
-    
     // Different time patterns
     #[case::datetime_with_subseconds(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_iter([123456789i64, 234567890, 345678901, 456789012, 567890123]).into_array(),
         TimeUnit::Ms,
         Some("UTC".to_string()),
     )).unwrap())]
-    
+
     fn test_datetime_parts_consistency(#[case] array: DateTimePartsArray) {
         test_array_consistency(array.as_ref());
     }

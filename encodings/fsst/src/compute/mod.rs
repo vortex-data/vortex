@@ -92,11 +92,12 @@ mod tests {
 
 #[cfg(test)]
 mod consistency_tests {
-    use crate::{FSSTArray, fsst_compress, fsst_train_compressor};
     use rstest::rstest;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_dtype::{DType, Nullability};
+
+    use crate::{FSSTArray, fsst_compress, fsst_train_compressor};
 
     #[rstest]
     // Basic string arrays

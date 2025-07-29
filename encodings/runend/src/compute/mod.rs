@@ -41,6 +41,7 @@ mod consistency_tests {
     use vortex_array::arrays::{PrimitiveArray, VarBinArray};
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_dtype::{DType, Nullability};
+
     use crate::RunEndArray;
 
     #[rstest]
@@ -54,7 +55,6 @@ mod consistency_tests {
     #[case::runend_alternating(RunEndArray::encode(
         PrimitiveArray::from_iter([1i32, 2, 1, 2, 1, 2]).into_array()
     ).unwrap())]
-    
     // Different types
     #[case::runend_u64(RunEndArray::encode(
         PrimitiveArray::from_iter([100u64, 100, 200, 200, 200]).into_array()
@@ -65,7 +65,6 @@ mod consistency_tests {
             DType::Utf8(Nullability::NonNullable)
         ).into_array()
     ).unwrap())]
-    
     // Edge cases
     #[case::runend_single(RunEndArray::encode(
         PrimitiveArray::from_iter([42i32]).into_array()
@@ -73,7 +72,7 @@ mod consistency_tests {
     #[case::runend_large(RunEndArray::encode(
         PrimitiveArray::from_iter((0..1000).map(|i| i / 10)).into_array()
     ).unwrap())]
-    
+
     fn test_runend_consistency(#[case] array: RunEndArray) {
         test_array_consistency(array.as_ref());
     }

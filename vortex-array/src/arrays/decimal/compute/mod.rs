@@ -14,6 +14,7 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
+
     use crate::arrays::DecimalArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::validity::Validity;
@@ -30,7 +31,6 @@ mod tests {
         DecimalDType::new(19, 3),
         Validity::from_iter([true, false, true, true, false]),
     ))]
-    
     // Additional test cases
     #[case::decimal_small_precision(DecimalArray::new(
         buffer![10i128, 20i128, 30i128],

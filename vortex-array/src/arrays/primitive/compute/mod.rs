@@ -18,6 +18,7 @@ pub use is_constant::*;
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::consistency::test_array_consistency;
 
@@ -28,15 +29,12 @@ mod tests {
     #[case::i64_range(PrimitiveArray::from_iter(0..100i64))]
     #[case::f32(PrimitiveArray::from_iter([1.1f32, 2.2, 3.3, 4.4, 5.5]))]
     #[case::nullable_f64(PrimitiveArray::from_option_iter([Some(1.1f64), None, Some(3.3), Some(4.4), None]))]
-    
     // Edge cases
     #[case::single_element(PrimitiveArray::from_iter([42i32]))]
     #[case::two_elements(PrimitiveArray::from_iter([1u64, 2]))]
-    
     // Large arrays
     #[case::large_u32(PrimitiveArray::from_iter(0..2000u32))]
     #[case::large_nullable(PrimitiveArray::from_option_iter((0..2000).map(|i| if i % 7 == 0 { None } else { Some(i as i64) })))]
-    
     // Different numeric types
     #[case::u8(PrimitiveArray::from_iter([0u8, 1, 2, 255]))]
     #[case::i16_negative(PrimitiveArray::from_iter([-100i16, -50, 0, 50, 100]))]

@@ -510,11 +510,12 @@ mod tests {
 mod consistency_tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_dtype::{DType, Nullability};
+
+    use crate::IntoArray;
     use crate::arrays::{PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::conformance::consistency::test_array_consistency;
-    use vortex_dtype::{DType, Nullability};
     use crate::validity::Validity;
-    use crate::IntoArray;
 
     #[rstest]
     // From test_all_consistency
@@ -546,7 +547,6 @@ mod consistency_tests {
         )
         .unwrap()
     })]
-    
     // Additional test cases
     #[case::empty_struct(StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable).unwrap())]
     #[case::single_field({

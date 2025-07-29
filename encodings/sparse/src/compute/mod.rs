@@ -165,12 +165,14 @@ mod test {
 #[cfg(test)]
 mod consistency_tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::compute::cast;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_buffer::buffer;
-    use vortex_scalar::Scalar;
-    use vortex_array::{IntoArray, compute::cast};
     use vortex_dtype::{DType, Nullability, PType};
+    use vortex_scalar::Scalar;
+
     use crate::SparseArray;
 
     #[rstest]
@@ -187,7 +189,6 @@ mod consistency_tests {
         10,
         Scalar::from(0i32)
     ).unwrap())]
-    
     // Different types
     #[case::sparse_u64(SparseArray::try_new(
         buffer![0u64, 4, 9].into_array(),
@@ -197,11 +198,10 @@ mod consistency_tests {
     ).unwrap())]
     #[case::sparse_f32(SparseArray::try_new(
         buffer![2u64, 6].into_array(),
-        buffer![3.14159f32, 2.71828].into_array(),
+        buffer![std::f32::consts::PI, std::f32::consts::E].into_array(),
         8,
         Scalar::from(0.0f32)
     ).unwrap())]
-    
     // Edge cases
     #[case::sparse_single_patch(SparseArray::try_new(
         buffer![5u64].into_array(),
@@ -215,7 +215,6 @@ mod consistency_tests {
         5,
         Scalar::null_typed::<i32>()
     ).unwrap())]
-    
     // Large sparse arrays
     #[case::sparse_large(SparseArray::try_new(
         buffer![100u64, 500, 900, 1500, 1999].into_array(),
@@ -223,7 +222,6 @@ mod consistency_tests {
         2000,
         Scalar::from(0i32)
     ).unwrap())]
-    
     // Nullable patches
     #[case::sparse_nullable_patches({
         let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
@@ -237,7 +235,7 @@ mod consistency_tests {
             null_fill_value
         ).unwrap()
     })]
-    
+
     fn test_sparse_consistency(#[case] array: SparseArray) {
         test_array_consistency(array.as_ref());
     }

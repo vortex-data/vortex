@@ -52,6 +52,7 @@ mod tests {
 mod consistency_tests {
     use rstest::rstest;
     use vortex_dtype::{DType, Nullability};
+
     use crate::arrays::VarBinViewArray;
     use crate::compute::conformance::consistency::test_array_consistency;
 
@@ -72,7 +73,6 @@ mod consistency_tests {
         [b"hello".as_slice(), b"world", b"test", b"data", b"array"].map(Some),
         DType::Binary(Nullability::NonNullable),
     ))]
-    
     // Additional test cases
     #[case::varbinview_empty_strings(VarBinViewArray::from_iter(
         ["", "non-empty", "", "another", ""].map(Some),

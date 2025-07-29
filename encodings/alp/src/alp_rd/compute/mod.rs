@@ -10,6 +10,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+
     use crate::{ALPRDArray, RDEncoder};
 
     #[rstest]
@@ -26,7 +27,6 @@ mod tests {
         let encoder = RDEncoder::new(&values);
         encoder.encode(&arr)
     })]
-    
     // Nullable arrays
     #[case::nullable_f32({
         let values = vec![1.0f32, 1.2, 1.3];
@@ -40,7 +40,6 @@ mod tests {
         let encoder = RDEncoder::new(&values);
         encoder.encode(&arr)
     })]
-    
     // Edge cases
     #[case::single_element({
         let values = vec![42.42f64];
@@ -48,7 +47,6 @@ mod tests {
         let encoder = RDEncoder::new(&values);
         encoder.encode(&arr)
     })]
-    
     // Arrays with small deltas (good for RD encoding)
     #[case::small_deltas({
         let values = vec![1000.0f32, 1000.001, 1000.002, 1000.003, 1000.004];
@@ -56,7 +54,6 @@ mod tests {
         let encoder = RDEncoder::new(&values);
         encoder.encode(&arr)
     })]
-    
     // Large arrays
     #[case::large_f32({
         let values: Vec<f32> = (0..1000).map(|i| 100.0 + i as f32 * 0.01).collect();
@@ -64,7 +61,7 @@ mod tests {
         let encoder = RDEncoder::new(&values);
         encoder.encode(&arr)
     })]
-    
+
     fn test_alp_rd_consistency(#[case] array: ALPRDArray) {
         test_array_consistency(array.as_ref());
     }

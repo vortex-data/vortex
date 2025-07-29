@@ -271,11 +271,13 @@ mod test {
 #[cfg(test)]
 mod consistency_tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::{PrimitiveArray, VarBinArray};
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::IntoArray;
     use vortex_dtype::{DType, Nullability};
-    use crate::{builders::dict_encode, DictArray};
+
+    use crate::DictArray;
+    use crate::builders::dict_encode;
 
     #[rstest]
     // Primitive arrays
@@ -284,7 +286,6 @@ mod consistency_tests {
         PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).as_ref()
     ).unwrap())]
     #[case::dict_u64(dict_encode(&PrimitiveArray::from_iter([100u64, 200, 100, 300, 200]).into_array()).unwrap())]
-    
     // String arrays
     #[case::dict_str(dict_encode(
         &VarBinArray::from_iter(
@@ -298,12 +299,11 @@ mod consistency_tests {
             DType::Utf8(Nullability::Nullable),
         ).into_array()
     ).unwrap())]
-    
     // Edge cases
     #[case::dict_single(dict_encode(&PrimitiveArray::from_iter([42i32]).into_array()).unwrap())]
     #[case::dict_all_same(dict_encode(&PrimitiveArray::from_iter([5i32, 5, 5, 5, 5]).into_array()).unwrap())]
     #[case::dict_large(dict_encode(&PrimitiveArray::from_iter((0..1000).map(|i| i % 10)).into_array()).unwrap())]
-    
+
     fn test_dict_consistency(#[case] array: DictArray) {
         test_array_consistency(array.as_ref());
     }

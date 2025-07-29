@@ -183,12 +183,14 @@ mod test {
 
 #[cfg(test)]
 mod consistency_tests {
-    use rstest::rstest;
     use std::sync::Arc;
+
+    use rstest::rstest;
     use vortex_dtype::{DType, ExtDType, ExtID, Nullability, PType};
+
+    use crate::IntoArray;
     use crate::arrays::{ExtensionArray, PrimitiveArray};
     use crate::compute::conformance::consistency::test_array_consistency;
-    use crate::IntoArray;
 
     #[rstest]
     // Note: The original test_all_consistency cases for extension arrays caused errors
@@ -212,7 +214,6 @@ mod consistency_tests {
         );
         ExtensionArray::new(Arc::new(ext_dtype), storage)
     })]
-    
     // Additional test cases
     #[case::extension_single({
         let storage = PrimitiveArray::from_iter([42i32]).into_array();

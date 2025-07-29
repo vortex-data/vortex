@@ -71,10 +71,11 @@ mod test {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+
+    use crate::IntoArray;
     use crate::arrays::{BoolArray, ListArray, PrimitiveArray};
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::validity::Validity;
-    use crate::IntoArray;
 
     #[rstest]
     // From test_all_consistency
@@ -88,7 +89,6 @@ mod tests {
         PrimitiveArray::from_iter([0, 2, 3, 4, 5]).into_array(),
         Validity::Array(BoolArray::from_iter(vec![true, false, true, true]).into_array()),
     ).unwrap())]
-    
     // Additional test cases
     #[case::list_empty_lists(ListArray::try_new(
         PrimitiveArray::from_iter([100i32, 200, 300]).into_array(),

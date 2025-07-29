@@ -123,6 +123,7 @@ mod test {
 #[cfg(test)]
 mod consistency_tests {
     use rstest::rstest;
+
     use crate::arrays::NullArray;
     use crate::compute::conformance::consistency::test_array_consistency;
 
@@ -130,7 +131,6 @@ mod consistency_tests {
     // From test_all_consistency
     #[case::null_array_small(NullArray::new(5))]
     #[case::null_array_medium(NullArray::new(100))]
-    
     // Additional test cases
     #[case::null_array_single(NullArray::new(1))]
     #[case::null_array_large(NullArray::new(1000))]

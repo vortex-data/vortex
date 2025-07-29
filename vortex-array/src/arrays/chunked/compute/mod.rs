@@ -17,11 +17,12 @@ mod take;
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use crate::arrays::{ChunkedArray, PrimitiveArray};
-    use crate::compute::conformance::consistency::test_array_consistency;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
+
     use crate::IntoArray;
+    use crate::arrays::{ChunkedArray, PrimitiveArray};
+    use crate::compute::conformance::consistency::test_array_consistency;
 
     #[rstest]
     // Basic chunked arrays
@@ -32,7 +33,6 @@ mod tests {
         ],
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
-    
     #[case::chunked_nullable(ChunkedArray::try_new(
         vec![
             PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).into_array(),
@@ -40,19 +40,16 @@ mod tests {
         ],
         DType::Primitive(PType::I32, Nullability::Nullable),
     ).unwrap())]
-    
     // Many chunks
     #[case::many_small_chunks(ChunkedArray::try_new(
         (0..10).map(|i| buffer![i as i64, i as i64 + 10, i as i64 + 20].into_array()).collect(),
         DType::Primitive(PType::I64, Nullability::NonNullable),
     ).unwrap())]
-    
     // Edge cases
     #[case::single_chunk(ChunkedArray::try_new(
         vec![buffer![1i32, 2, 3, 4, 5].into_array()],
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
-    
     #[case::empty_chunks_mixed(ChunkedArray::try_new(
         vec![
             buffer![1u64, 2].into_array(),
@@ -61,7 +58,6 @@ mod tests {
         ],
         DType::Primitive(PType::U64, Nullability::NonNullable),
     ).unwrap())]
-    
     // Large chunks
     #[case::large_chunks(ChunkedArray::try_new(
         vec![
@@ -70,7 +66,6 @@ mod tests {
         ],
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
-    
     // Mixed validity across chunks
     #[case::mixed_validity(ChunkedArray::try_new(
         vec![
@@ -80,7 +75,7 @@ mod tests {
         ],
         DType::Primitive(PType::F32, Nullability::Nullable),
     ).unwrap())]
-    
+
     fn test_chunked_consistency(#[case] array: ChunkedArray) {
         test_array_consistency(array.as_ref());
     }
