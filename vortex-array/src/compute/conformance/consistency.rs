@@ -71,8 +71,7 @@ pub fn test_double_mask_consistency(array: &dyn Array) {
         .zip(mask2_pattern.iter())
         .map(|(&a, &b)| a || b)
         .collect();
-    let combined_mask =
-        Mask::try_from(&BoolArray::from_iter(combined_pattern.clone())).vortex_unwrap();
+    let combined_mask = Mask::try_from(&BoolArray::from_iter(combined_pattern)).vortex_unwrap();
 
     // Apply combined mask directly
     let directly_masked = mask(array, &combined_mask).vortex_unwrap();
