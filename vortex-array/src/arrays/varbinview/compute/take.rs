@@ -53,6 +53,7 @@ fn take_views<I: AsPrimitive<usize>>(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
@@ -114,41 +115,24 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_take_varbinview_conformance() {
-        // Test with string data
-        test_take_conformance(
-            VarBinViewArray::from_iter(
-                ["hello", "world", "test", "data", "array"].map(Some),
-                DType::Utf8(NonNullable),
-            )
-            .as_ref(),
-        );
-
-        // Test with nullable strings
-        test_take_conformance(
-            VarBinViewArray::from_iter_nullable_str([
-                Some("hello"),
-                None,
-                Some("test"),
-                Some("data"),
-                None,
-            ])
-            .as_ref(),
-        );
-
-        // Test with binary data
-        test_take_conformance(
-            VarBinViewArray::from_iter(
-                [b"hello".as_slice(), b"world", b"test", b"data", b"array"].map(Some),
-                DType::Binary(NonNullable),
-            )
-            .as_ref(),
-        );
-
-        // Test single element
-        test_take_conformance(
-            VarBinViewArray::from_iter(["single"].map(Some), DType::Utf8(NonNullable)).as_ref(),
-        );
+    #[rstest]
+    #[case(VarBinViewArray::from_iter(
+        ["hello", "world", "test", "data", "array"].map(Some),
+        DType::Utf8(NonNullable),
+    ))]
+    #[case(VarBinViewArray::from_iter_nullable_str([
+        Some("hello"),
+        None,
+        Some("test"),
+        Some("data"),
+        None,
+    ]))]
+    #[case(VarBinViewArray::from_iter(
+        [b"hello".as_slice(), b"world", b"test", b"data", b"array"].map(Some),
+        DType::Binary(NonNullable),
+    ))]
+    #[case(VarBinViewArray::from_iter(["single"].map(Some), DType::Utf8(NonNullable)))]
+    fn test_take_varbinview_conformance(#[case] array: VarBinViewArray) {
+        test_take_conformance(array.as_ref());
     }
 }

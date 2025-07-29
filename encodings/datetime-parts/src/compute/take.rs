@@ -4,6 +4,7 @@
 use vortex_array::compute::{TakeKernel, TakeKernelAdapter, fill_null, take};
 use vortex_array::stats::{Stat, StatsProvider};
 use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical, register_kernel};
+use vortex_dtype::Nullability;
 use vortex_error::{VortexResult, vortex_panic};
 use vortex_scalar::Scalar;
 
@@ -61,18 +62,21 @@ impl TakeKernel for DateTimePartsVTable {
             .seconds()
             .statistics()
             .get(Stat::Min)
-            .map(|s| s.into_scalar(taken_seconds.dtype().clone()).into_inner())
-            .unwrap_or_else(|| Scalar::primitive(0i64, taken_seconds.dtype().nullability()))
-            .cast(taken_seconds.dtype())?;
+            .map(|s| s.into_scalar(array.seconds().dtype().clone()).into_inner())
+            .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
+            .cast(array.seconds().dtype())?;
         let taken_seconds = fill_null(taken_seconds.as_ref(), &seconds_fill)?;
 
         let subseconds_fill = array
             .subseconds()
             .statistics()
             .get(Stat::Min)
-            .map(|s| s.into_scalar(taken_subseconds.dtype().clone()).into_inner())
-            .unwrap_or_else(|| Scalar::primitive(0i64, taken_subseconds.dtype().nullability()))
-            .cast(taken_subseconds.dtype())?;
+            .map(|s| {
+                s.into_scalar(array.subseconds().dtype().clone())
+                    .into_inner()
+            })
+            .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
+            .cast(array.subseconds().dtype())?;
         let taken_subseconds = fill_null(taken_subseconds.as_ref(), &subseconds_fill)?;
 
         Ok(
@@ -86,6 +90,7 @@ register_kernel!(TakeKernelAdapter(DateTimePartsVTable).lift());
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::arrays::{PrimitiveArray, TemporalArray};
     use vortex_array::compute::conformance::take::test_take_conformance;
@@ -93,45 +98,35 @@ mod tests {
 
     use crate::DateTimePartsArray;
 
-    #[test]
-    fn test_take_datetime_parts_conformance() {
-        // Test with non-nullable datetime parts
-        let timestamps = PrimitiveArray::from_iter([
+    #[rstest]
+    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        PrimitiveArray::from_iter([
             0i64,
             86_400_000,  // 1 day in ms
             172_800_000, // 2 days in ms
             259_200_000, // 3 days in ms
             345_600_000, // 4 days in ms
-        ])
-        .into_array();
-
-        let temporal =
-            TemporalArray::new_timestamp(timestamps, TimeUnit::Ms, Some("UTC".to_string()));
-
-        let array = DateTimePartsArray::try_from(temporal).unwrap();
-        test_take_conformance(array.as_ref());
-
-        // Test with nullable datetime parts
-        let timestamps = PrimitiveArray::from_option_iter([
+        ]).into_array(),
+        TimeUnit::Ms,
+        Some("UTC".to_string())
+    )).unwrap())]
+    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        PrimitiveArray::from_option_iter([
             Some(0i64),
             None,
             Some(172_800_000), // 2 days in ms
             Some(259_200_000), // 3 days in ms
             None,
-        ])
-        .into_array();
-
-        let temporal =
-            TemporalArray::new_timestamp(timestamps, TimeUnit::Ms, Some("UTC".to_string()));
-
-        let array = DateTimePartsArray::try_from(temporal).unwrap();
-        test_take_conformance(array.as_ref());
-
-        // Test with single element
-        let timestamps = PrimitiveArray::from_iter([86_400_000i64]).into_array();
-        let temporal =
-            TemporalArray::new_timestamp(timestamps, TimeUnit::Ms, Some("UTC".to_string()));
-        let array = DateTimePartsArray::try_from(temporal).unwrap();
+        ]).into_array(),
+        TimeUnit::Ms,
+        Some("UTC".to_string())
+    )).unwrap())]
+    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        PrimitiveArray::from_iter([86_400_000i64]).into_array(),
+        TimeUnit::Ms,
+        Some("UTC".to_string())
+    )).unwrap())]
+    fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
         test_take_conformance(array.as_ref());
     }
 }

@@ -46,6 +46,7 @@ register_kernel!(TakeKernelAdapter(SparseVTable).lift());
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::take;
     use vortex_array::validity::Validity;
@@ -190,49 +191,36 @@ mod test {
         );
     }
 
-    #[test]
-    fn test_take_sparse_conformance() {
-        use vortex_array::compute::conformance::take::test_take_conformance;
-
-        // Test with f64 null fill value
-        let sparse = SparseArray::try_new(
-            buffer![0u64, 37, 47, 99].into_array(),
-            PrimitiveArray::new(buffer![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid).into_array(),
-            100,
-            Scalar::null_typed::<f64>(),
-        )
-        .unwrap();
-        test_take_conformance(sparse.as_ref());
-
-        // Test with non-null fill value
-        let sparse = SparseArray::try_new(
-            buffer![1u32, 3, 7, 8, 9].into_array(),
-            buffer![10, 8, 3, 2, 1].into_array(),
-            10,
-            Scalar::from(0i32),
-        )
-        .unwrap();
-        test_take_conformance(sparse.as_ref());
-
-        // Test with nullable values
+    #[rstest]
+    #[case(SparseArray::try_new(
+        buffer![0u64, 37, 47, 99].into_array(),
+        PrimitiveArray::new(buffer![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid).into_array(),
+        100,
+        Scalar::null_typed::<f64>(),
+    ).unwrap())]
+    #[case(SparseArray::try_new(
+        buffer![1u32, 3, 7, 8, 9].into_array(),
+        buffer![10, 8, 3, 2, 1].into_array(),
+        10,
+        Scalar::from(0i32),
+    ).unwrap())]
+    #[case({
         let nullable_values = PrimitiveArray::from_option_iter([Some(100i64), None, Some(300)]);
-        let sparse = SparseArray::try_new(
+        SparseArray::try_new(
             buffer![2u64, 4, 6].into_array(),
             nullable_values.into_array(),
             10,
-            Scalar::null_typed::<i64>(), // Use nullable fill value to match nullable values
-        )
-        .unwrap();
-        test_take_conformance(sparse.as_ref());
-
-        // Test with single patch
-        let sparse = SparseArray::try_new(
-            buffer![5u64].into_array(),
-            buffer![999i32].into_array(),
-            20,
-            Scalar::from(-1i32),
-        )
-        .unwrap();
+            Scalar::null_typed::<i64>(),
+        ).unwrap()
+    })]
+    #[case(SparseArray::try_new(
+        buffer![5u64].into_array(),
+        buffer![999i32].into_array(),
+        20,
+        Scalar::from(-1i32),
+    ).unwrap())]
+    fn test_take_sparse_conformance(#[case] sparse: SparseArray) {
+        use vortex_array::compute::conformance::take::test_take_conformance;
         test_take_conformance(sparse.as_ref());
     }
 }
