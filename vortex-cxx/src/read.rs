@@ -3,11 +3,9 @@
 
 use std::sync::Arc;
 
-use arrow_array::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
+use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
-use arrow_array::{Array, RecordBatchReader};
 use arrow_schema::{Schema, SchemaRef};
-use arrow_select::concat::concat_batches;
 use vortex::ArrayRef;
 use vortex::buffer::Buffer;
 use vortex::file::VortexOpenOptions;
@@ -35,11 +33,6 @@ mod ffi {
         unsafe fn scan_builder_with_output_schema(
             builder: &mut VortexScanBuilder,
             output_schema: *mut u8,
-        ) -> Result<()>;
-        unsafe fn scan_builder_into_arrow(
-            builder: Box<VortexScanBuilder>,
-            out_array: *mut u8,
-            out_schema: *mut u8,
         ) -> Result<()>;
         unsafe fn scan_builder_into_stream(
             builder: Box<VortexScanBuilder>,
@@ -111,55 +104,6 @@ unsafe fn scan_builder_with_output_schema(
     Ok(())
 }
 
-/// Convert a VortexScanBuilder into a VortexRecordBatchReader
-fn scan_builder_to_reader(
-    builder: Box<VortexScanBuilder>,
-) -> Result<impl RecordBatchReader + 'static, Box<dyn std::error::Error + Send + Sync>> {
-    let schema = builder
-        .output_schema
-        .unwrap_or_else(|| Arc::new(builder.inner.dtype().unwrap().to_arrow_schema().unwrap()));
-    let reader = builder.inner.into_record_batch_reader_multithread(schema)?;
-    Ok(reader)
-}
-
-/// Arrow Rust FFI interplay with C++ best practices refer to:
-/// https://github.com/dora-rs/dora/blob/42775e3612b34d3998b1f7feb7e5df7ec3f8a7bd/examples/c%2B%2B-arrow-dataflow/node-rust-api/main.cc#L12-L19
-/// https://github.com/dora-rs/dora/blob/42775e3612b34d3998b1f7feb7e5df7ec3f8a7bd/apis/c%2B%2B/node/src/lib.rs#L211-L212
-///
-/// # Safety
-///
-/// out_array should be properly aligned according to C ABI and valid for write.
-/// out_schema should be properly aligned according to C ABI and valid for write.
-unsafe fn scan_builder_into_arrow(
-    builder: Box<VortexScanBuilder>,
-    out_array: *mut u8,
-    out_schema: *mut u8,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let reader = scan_builder_to_reader(builder)?;
-
-    let schema = reader.schema();
-    let batches: Result<Vec<_>, _> = reader.into_iter().collect();
-    let batches = batches?;
-    let combined = concat_batches(&schema, &batches)?;
-
-    let struct_array: arrow_array::StructArray = combined.into();
-
-    let ffi_array = FFI_ArrowArray::new(&struct_array.to_data());
-    let ffi_schema = FFI_ArrowSchema::try_from(struct_array.data_type())?;
-    // Two discarded attempts recorded here for future reference:
-    // 1. Require unsafe transmute and an intermediate CArrowArrayStream defined in cxx shared types
-    // Ok(unsafe { std::mem::transmute::<FFI_ArrowArrayStream, ffi::CArrowArrayStream>(stream) })
-    // 2. Require Box::new to heap allocate. Also requires an extern "Rust" type `ArrowArrayStream`.
-    // Ok(Box::new(ArrowArrayStream { inner: stream }))
-    let out_array = out_array as *mut FFI_ArrowArray;
-    let out_schema = out_schema as *mut FFI_ArrowSchema;
-    // # Safety
-    // Arrow C ABI
-    unsafe { std::ptr::write(out_array, ffi_array) };
-    unsafe { std::ptr::write(out_schema, ffi_schema) };
-    Ok(())
-}
-
 /// # Safety
 ///
 /// out_stream should be properly aligned according to C ABI and valid for write.
@@ -167,7 +111,10 @@ unsafe fn scan_builder_into_stream(
     builder: Box<VortexScanBuilder>,
     out_stream: *mut u8,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let reader = scan_builder_to_reader(builder)?;
+    let schema = builder
+        .output_schema
+        .unwrap_or_else(|| Arc::new(builder.inner.dtype().unwrap().to_arrow_schema().unwrap()));
+    let reader = builder.inner.into_record_batch_reader(schema)?;
     let stream = FFI_ArrowArrayStream::new(Box::new(reader));
     let out_stream = out_stream as *mut FFI_ArrowArrayStream;
     // # Safety

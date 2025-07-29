@@ -7,7 +7,6 @@
 #include "vortex/file.hpp"
 #include "vortex/scan.hpp"
 #include "vortex/write_options.hpp"
-#include "vortex/thread_pool.hpp"
 #include "vortex_cxx_bridge/lib.h"
 #include "vortex_cxx_bridge/gen_test_data.h"
 
@@ -17,7 +16,6 @@
 class VortexTest : public ::testing::Test {
 public:
     static void SetUpTestSuite() {
-        vortex::ConfigureThreadPool(1);
         std::string test_data_path = GetTestDataPath("test_data.vortex");
         vortex::ffi::testing::generate_test_vortex_file(test_data_path.c_str());
     }
@@ -148,18 +146,6 @@ protected:
     }
 };
 
-TEST_F(VortexTest, ScanToArray) {
-    auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
-
-    // Test scanning to Arrow C ABI
-    auto [arrow, schema] = file.CreateScanBuilder().IntoArray();
-
-    // Create nanoarrow objects from C ABI structs
-    auto [struct_array, schema_obj] = CreateNanoarrowFromCAPI(arrow, schema);
-
-    ValidateStructArray(struct_array, schema_obj);
-}
-
 TEST_F(VortexTest, ScanToStream) {
     auto file = vortex::VortexFile::Open(GetTestDataPath("test_data.vortex"));
 
@@ -227,10 +213,11 @@ TEST_F(VortexTest, WriteArrayStream) {
     ASSERT_EQ(written_file.RowCount(), 5);
 
     // Verify data integrity by scanning the written file
-    auto [arrow, schema] = written_file.CreateScanBuilder().IntoArray();
+    auto out_stream = written_file.CreateScanBuilder().IntoStream();
+    auto [array_stream, schema] = CreateArrayStreamWithSchema(out_stream);
+    nanoarrow::UniqueArray array;
+    int get_next_result = array_stream->get_next(array_stream.get(), array.get());
+    ASSERT_EQ(get_next_result, 0);
 
-    // Create nanoarrow objects from C ABI structs
-    auto [struct_array, schema_obj] = CreateNanoarrowFromCAPI(arrow, schema);
-
-    ValidateStructArray(struct_array, schema_obj);
+    ValidateStructArray(array, schema);
 }

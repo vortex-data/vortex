@@ -35,9 +35,6 @@ public:
     /// Take ownership and consume the scan builder to a stream of record batches.
     ArrowArrayStream IntoStream();
 
-    /// Take ownership and consume the scan builder to an Arrow array and schema.
-    std::pair<ArrowArray, ArrowSchema> IntoArray();
-
 private:
     friend class VortexFile;
 

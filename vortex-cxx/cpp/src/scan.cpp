@@ -66,16 +66,4 @@ ArrowArrayStream ScanBuilder::IntoStream() {
         throw VortexException(e.what());
     }
 }
-
-std::pair<ArrowArray, ArrowSchema> ScanBuilder::IntoArray() {
-    try {
-        ArrowArray array;
-        ArrowSchema schema;
-        ffi::scan_builder_into_arrow(std::move(impl_->rust_impl), reinterpret_cast<uint8_t *>(&array),
-                                     reinterpret_cast<uint8_t *>(&schema));
-        return {array, schema};
-    } catch (const rust::cxxbridge1::Error &e) {
-        throw VortexException(e.what());
-    }
-}
 } // namespace vortex
