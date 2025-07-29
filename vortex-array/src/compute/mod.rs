@@ -13,6 +13,7 @@ use std::any::{Any, type_name};
 use std::fmt::{Debug, Formatter};
 
 use arcref::ArcRef;
+pub use array_equals::*;
 pub use between::*;
 pub use boolean::*;
 pub use cast::*;
@@ -37,13 +38,13 @@ use vortex_error::{VortexError, VortexResult, vortex_bail, vortex_err};
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 pub use zip::*;
-pub use array_equals::*;
 
 use crate::builders::ArrayBuilder;
 use crate::{Array, ArrayRef};
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
+mod array_equals;
 mod between;
 mod boolean;
 mod cast;
@@ -64,7 +65,6 @@ mod numeric;
 mod sum;
 mod take;
 mod zip;
-mod array_equals;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered
 /// compute kernels.
