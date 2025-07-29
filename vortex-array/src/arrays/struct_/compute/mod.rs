@@ -101,6 +101,7 @@ mod tests {
     use crate::arrays::{BoolArray, BooleanBuffer, PrimitiveArray, StructArray, VarBinArray};
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::{cast, filter, is_constant, take};
     use crate::validity::Validity;
     use crate::{Array, IntoArray as _};
@@ -393,5 +394,114 @@ mod tests {
         let array = StructArray::new_with_len(2);
         let is_constant = is_constant(array.as_ref()).vortex_unwrap();
         assert_eq!(is_constant, Some(true));
+    }
+
+    #[test]
+    fn test_take_empty_struct_conformance() {
+        test_take_conformance(
+            StructArray::try_new(vec![].into(), vec![], 5, Validity::NonNullable)
+                .unwrap()
+                .as_ref(),
+        );
+    }
+
+    #[test]
+    fn test_take_simple_struct_conformance() {
+        let xs = buffer![1i64, 2, 3, 4, 5].into_array();
+        let ys = VarBinArray::from_iter(
+            ["a", "b", "c", "d", "e"].map(Some),
+            DType::Utf8(NonNullable),
+        )
+        .into_array();
+
+        test_take_conformance(
+            StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 5, Validity::NonNullable)
+                .unwrap()
+                .as_ref(),
+        );
+    }
+
+    #[test]
+    fn test_take_nullable_struct_conformance() {
+        // Test struct with nullable fields
+        let xs = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]);
+        let ys = VarBinArray::from_iter(
+            [Some("a"), Some("b"), None, Some("d"), None],
+            DType::Utf8(Nullable),
+        );
+
+        test_take_conformance(
+            StructArray::try_new(
+                ["xs", "ys"].into(),
+                vec![xs.into_array(), ys.into_array()],
+                5,
+                Validity::NonNullable,
+            )
+            .unwrap()
+            .as_ref(),
+        );
+    }
+
+    #[test]
+    fn test_take_nested_struct_conformance() {
+        // Test nested struct
+        let inner_xs = buffer![10i32, 20, 30, 40, 50].into_array();
+        let inner_ys = buffer![100i32, 200, 300, 400, 500].into_array();
+        let inner_struct = StructArray::try_new(
+            ["x", "y"].into(),
+            vec![inner_xs, inner_ys],
+            5,
+            Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+
+        let outer_zs = BoolArray::from_iter([true, false, true, false, true]).into_array();
+
+        test_take_conformance(
+            StructArray::try_new(
+                ["inner", "z"].into(),
+                vec![inner_struct, outer_zs],
+                5,
+                Validity::NonNullable,
+            )
+            .unwrap()
+            .as_ref(),
+        );
+    }
+
+    #[test]
+    fn test_take_single_element_struct_conformance() {
+        let xs = buffer![42i64].into_array();
+        let ys = VarBinArray::from_iter(["hello"].map(Some), DType::Utf8(NonNullable)).into_array();
+
+        test_take_conformance(
+            StructArray::try_new(["xs", "ys"].into(), vec![xs, ys], 1, Validity::NonNullable)
+                .unwrap()
+                .as_ref(),
+        );
+    }
+
+    #[test]
+    fn test_take_large_struct_conformance() {
+        // Test with larger array for additional edge cases
+        let xs = PrimitiveArray::from_iter(0i64..100).into_array();
+        let ys = VarBinArray::from_iter(
+            (0..100).map(|i| format!("str_{i}")).map(Some),
+            DType::Utf8(NonNullable),
+        )
+        .into_array();
+        let zs = BoolArray::from_iter((0..100).map(|i| i % 2 == 0)).into_array();
+
+        test_take_conformance(
+            StructArray::try_new(
+                ["xs", "ys", "zs"].into(),
+                vec![xs, ys, zs],
+                100,
+                Validity::NonNullable,
+            )
+            .unwrap()
+            .as_ref(),
+        );
     }
 }

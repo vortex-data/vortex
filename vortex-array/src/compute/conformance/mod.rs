@@ -6,3 +6,4 @@ pub mod consistency;
 pub mod filter;
 pub mod mask;
 pub mod search_sorted;
+pub mod take;

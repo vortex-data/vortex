@@ -60,10 +60,11 @@ impl ZigZagEncoded for u64 {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vortex_array::arrays::{BooleanBuffer, PrimitiveArray};
     use vortex_array::compute::{filter, take};
     use vortex_array::validity::Validity;
-    use vortex_array::{Array, IntoArray, ToCanonical};
+    use vortex_array::{Array, ArrayRef, IntoArray, ToCanonical};
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_scalar::Scalar;
@@ -200,5 +201,20 @@ mod tests {
             .unwrap()
             .unwrap();
         test_mask_conformance(zigzag.as_ref());
+    }
+
+    #[rstest]
+    #[case(buffer![-189i32, -160, 1, 42, -73].into_array())]
+    #[case(buffer![1000i64, -2000, 3000, -4000, 5000].into_array())]
+    #[case(PrimitiveArray::from_option_iter([Some(-10i16), None, Some(20), Some(-30), None]).into_array())]
+    #[case(buffer![42i32].into_array())]
+    fn test_take_zigzag_conformance(#[case] array: ArrayRef) {
+        use vortex_array::compute::conformance::take::test_take_conformance;
+
+        let zigzag = ZigZagEncoding
+            .encode(&array.to_canonical().unwrap(), None)
+            .unwrap()
+            .unwrap();
+        test_take_conformance(zigzag.as_ref());
     }
 }

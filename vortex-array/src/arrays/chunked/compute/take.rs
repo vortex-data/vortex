@@ -84,6 +84,7 @@ mod test {
     use crate::arrays::chunked::ChunkedArray;
     use crate::arrays::{BoolArray, PrimitiveArray, StructArray};
     use crate::canonical::ToCanonical;
+    use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
 
@@ -147,5 +148,35 @@ mod test {
         assert!(result.is_empty());
         assert_eq!(result.dtype(), arr.dtype());
         assert!(result.as_slice::<i32>().is_empty());
+    }
+
+    #[test]
+    fn test_take_chunked_conformance() {
+        let a = buffer![1i32, 2, 3].into_array();
+        let b = buffer![4i32, 5].into_array();
+        let arr = ChunkedArray::try_new(
+            vec![a, b],
+            PrimitiveArray::empty::<i32>(Nullability::NonNullable)
+                .dtype()
+                .clone(),
+        )
+        .unwrap();
+        test_take_conformance(arr.as_ref());
+
+        // Test with nullable chunked array
+        let a = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]);
+        let b = PrimitiveArray::from_option_iter([Some(4i32), Some(5)]);
+        let dtype = a.dtype().clone();
+        let arr = ChunkedArray::try_new(vec![a.into_array(), b.into_array()], dtype).unwrap();
+        test_take_conformance(arr.as_ref());
+
+        // Test with multiple identical chunks
+        let chunk = buffer![10i32, 20, 30, 40, 50].into_array();
+        let arr = ChunkedArray::try_new(
+            vec![chunk.clone(), chunk.clone(), chunk.clone()],
+            chunk.dtype().clone(),
+        )
+        .unwrap();
+        test_take_conformance(arr.as_ref());
     }
 }
