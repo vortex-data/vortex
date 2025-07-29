@@ -236,35 +236,38 @@ mod test {
         assert_eq!(filtered.len(), 9);
     }
 
-    #[test]
-    fn test_filter_chunked_array() {
-        let dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
-        let chunked = ChunkedArray::try_new(
-            vec![
-                buffer![0u64, 1].into_array(),
-                buffer![2_u64].into_array(),
-                PrimitiveArray::empty::<u64>(dtype.nullability()).to_array(),
-                buffer![3_u64, 4].into_array(),
-            ],
-            dtype,
-        )
-        .unwrap();
+    use rstest::rstest;
 
+    #[rstest]
+    #[case(ChunkedArray::try_new(
+        vec![
+            buffer![0u64, 1].into_array(),
+            buffer![2_u64].into_array(),
+            PrimitiveArray::empty::<u64>(Nullability::NonNullable).to_array(),
+            buffer![3_u64, 4].into_array(),
+        ],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    ).unwrap())]
+    #[case(ChunkedArray::try_new(
+        vec![
+            PrimitiveArray::from_option_iter([Some(0u64), None]).to_array(),
+            PrimitiveArray::from_option_iter([Some(2u64)]).to_array(),
+            PrimitiveArray::empty::<u64>(Nullability::Nullable).to_array(),
+            PrimitiveArray::from_option_iter([None, Some(4u64)]).to_array(),
+        ],
+        DType::Primitive(PType::U64, Nullability::Nullable),
+    ).unwrap())]
+    #[case(ChunkedArray::try_new(
+        vec![
+            buffer![1i32].into_array(),
+        ],
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+    ).unwrap())]
+    #[case(ChunkedArray::try_new(
+        (0..10).map(|i| buffer![i as i64, i as i64 + 10, i as i64 + 20].into_array()).collect(),
+        DType::Primitive(PType::I64, Nullability::NonNullable),
+    ).unwrap())]
+    fn test_filter_chunked_conformance(#[case] chunked: ChunkedArray) {
         test_filter_conformance(chunked.as_ref());
-
-        // Test nullable chunked array
-        let nullable_dtype = DType::Primitive(PType::U64, Nullability::Nullable);
-        let chunked_nullable = ChunkedArray::try_new(
-            vec![
-                PrimitiveArray::from_option_iter([Some(0u64), None]).to_array(),
-                PrimitiveArray::from_option_iter([Some(2u64)]).to_array(),
-                PrimitiveArray::empty::<u64>(nullable_dtype.nullability()).to_array(),
-                PrimitiveArray::from_option_iter([None, Some(4u64)]).to_array(),
-            ],
-            nullable_dtype,
-        )
-        .unwrap();
-
-        test_filter_conformance(chunked_nullable.as_ref());
     }
 }

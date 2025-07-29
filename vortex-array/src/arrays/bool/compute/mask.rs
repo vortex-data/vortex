@@ -22,16 +22,18 @@ register_kernel!(MaskKernelAdapter(BoolVTable).lift());
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
+
     use crate::arrays::BoolArray;
     use crate::compute::conformance::mask::test_mask_conformance;
 
-    #[test]
-    fn test_mask_bool_array() {
-        test_mask_conformance(BoolArray::from_iter([true, false, true, true, false]).as_ref());
-
-        // Test nullable bool array
-        test_mask_conformance(
-            BoolArray::from_iter([Some(true), None, Some(false), Some(true), None]).as_ref(),
-        );
+    #[rstest]
+    #[case(BoolArray::from_iter([true, false, true, true, false]))]
+    #[case(BoolArray::from_iter([Some(true), None, Some(false), Some(true), None]))]
+    #[case(BoolArray::from_iter([true]))]
+    #[case(BoolArray::from_iter([false, false]))]
+    #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
+    fn test_mask_bool_conformance(#[case] array: BoolArray) {
+        test_mask_conformance(array.as_ref());
     }
 }

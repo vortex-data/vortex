@@ -123,6 +123,7 @@ fn mask_slices(
 
 #[cfg(test)]
 mod test {
+    use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::{DType, Nullability, PType};
 
@@ -130,20 +131,34 @@ mod test {
     use crate::arrays::{ChunkedArray, PrimitiveArray};
     use crate::compute::conformance::mask::test_mask_conformance;
 
-    #[test]
-    fn test_mask_chunked_array() {
-        let dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
-        let chunked = ChunkedArray::try_new(
-            vec![
-                buffer![0u64, 1].into_array(),
-                buffer![2_u64].into_array(),
-                PrimitiveArray::empty::<u64>(dtype.nullability()).to_array(),
-                buffer![3_u64, 4].into_array(),
-            ],
-            dtype,
-        )
-        .unwrap();
-
+    #[rstest]
+    #[case(ChunkedArray::try_new(
+        vec![
+            buffer![0u64, 1].into_array(),
+            buffer![2_u64].into_array(),
+            PrimitiveArray::empty::<u64>(Nullability::NonNullable).to_array(),
+            buffer![3_u64, 4].into_array(),
+        ],
+        DType::Primitive(PType::U64, Nullability::NonNullable),
+    ).unwrap())]
+    #[case(ChunkedArray::try_new(
+        vec![
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]).to_array(),
+            PrimitiveArray::from_option_iter([Some(4i32), Some(5)]).to_array(),
+        ],
+        DType::Primitive(PType::I32, Nullability::Nullable),
+    ).unwrap())]
+    #[case(ChunkedArray::try_new(
+        vec![
+            buffer![42u8].into_array(),
+        ],
+        DType::Primitive(PType::U8, Nullability::NonNullable),
+    ).unwrap())]
+    #[case(ChunkedArray::try_new(
+        (0..20).map(|i| buffer![i as f32, i as f32 + 0.5].into_array()).collect(),
+        DType::Primitive(PType::F32, Nullability::NonNullable),
+    ).unwrap())]
+    fn test_mask_chunked_conformance(#[case] chunked: ChunkedArray) {
         test_mask_conformance(chunked.as_ref());
     }
 }
