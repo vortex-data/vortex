@@ -120,12 +120,15 @@ impl ComputeFnVTable for ArrayEquals {
             }
         }
 
-        if let Some(output) = left.invoke(&IS_SORTED_FN, &args)? {
+        if let Some(output) = left.invoke(&ARRAY_EQUALS_FN, &args)? {
             todo!();
         }
         // swap...
 
-        todo!()
+        todo!();
+
+        // if no kernels matched, default running per element comparison
+        todo!();
     }
 
     fn return_dtype(&self, _args: &InvocationArgs) -> VortexResult<DType> {
